@@ -1,0 +1,270 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
+import toast from 'react-hot-toast';
+import { ArrowLeft, Sparkles, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import Link from 'next/link';
+
+const CATEGORIES = ['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
+const TYPES = ['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST'];
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+
+const PRIORITY_COLORS: Record<string, string> = {
+  LOW: 'text-slate-500',
+  MEDIUM: 'text-blue-600',
+  HIGH: 'text-orange-600',
+  URGENT: 'text-red-600',
+};
+
+export default function NewTicketPage() {
+  const router = useRouter();
+  const { user } = useAuthStore();
+  const qc = useQueryClient();
+
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    category: 'IT',
+    type: 'TASK',
+    priority: 'MEDIUM',
+    estimatedTime: '',
+    departmentId: user?.department?.id || '',
+    projectId: '',
+    assignedToId: '',
+    dueDate: '',
+  });
+
+  const [aiReason, setAiReason] = useState<string>('');
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+
+  const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
+  const { data: projects } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
+  const { data: users } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any[]> });
+
+  const mutation = useMutation({
+    mutationFn: (data: any) => ticketsApi.create(data),
+    onSuccess: (ticket: any) => {
+      toast.success(`Ticket ${ticket.ticketId} created!`);
+      qc.invalidateQueries({ queryKey: ['tickets'] });
+      router.push(`/tickets/${ticket.id}`);
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to create ticket'),
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title.trim()) return toast.error('Title is required');
+    mutation.mutate({
+      ...form,
+      estimatedTime: form.estimatedTime ? parseFloat(form.estimatedTime) : undefined,
+      projectId: form.projectId || undefined,
+      assignedToId: form.assignedToId || undefined,
+      departmentId: form.departmentId || undefined,
+      dueDate: form.dueDate || undefined,
+    });
+  };
+
+  const handleSuggestPriority = async () => {
+    if (!form.title.trim()) {
+      toast.error('Enter a title first');
+      return;
+    }
+    setAiSuggesting(true);
+    setAiReason('');
+    try {
+      const result = await aiApi.suggestPriority(form.title, form.description) as any;
+      if (result?.priority) {
+        setForm((f) => ({ ...f, priority: result.priority }));
+        setAiReason(result.reason ?? '');
+        toast.success(`AI suggests: ${result.priority}`, { icon: '✨' });
+      }
+    } catch {
+      toast.error('AI suggestion failed');
+    } finally {
+      setAiSuggesting(false);
+    }
+  };
+
+  const set = (key: string, value: string) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    if (key === 'priority') setAiReason(''); // clear AI hint if user overrides
+  };
+
+  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white';
+  const labelCls = 'block text-sm font-medium text-slate-700 mb-1.5';
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="flex items-center gap-3 mb-6">
+        <Link href="/tickets" className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+          <ArrowLeft size={18} className="text-slate-500" />
+        </Link>
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">Create New Ticket</h2>
+          <p className="text-sm text-slate-500">Report an issue, request, or task</p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+        {/* Title */}
+        <div>
+          <label className={labelCls}>Title *</label>
+          <input
+            type="text"
+            value={form.title}
+            onChange={(e) => set('title', e.target.value)}
+            className={inputCls}
+            placeholder="e.g., Replace light bulb in IT Room 3B"
+            required
+          />
+        </div>
+
+        {/* Description */}
+        <div>
+          <label className={labelCls}>Description</label>
+          <textarea
+            value={form.description}
+            onChange={(e) => set('description', e.target.value)}
+            className={`${inputCls} resize-none`}
+            placeholder="Detailed description of the issue or request..."
+            rows={4}
+          />
+        </div>
+
+        {/* Row: Category + Type */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Category *</label>
+            <select value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls}>
+              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Type</label>
+            <select value={form.type} onChange={(e) => set('type', e.target.value)} className={inputCls}>
+              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Row: Priority + Est Time */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-slate-700">Priority</label>
+              <button
+                type="button"
+                onClick={handleSuggestPriority}
+                disabled={aiSuggesting || !form.title.trim()}
+                className={cn(
+                  'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors',
+                  'border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed',
+                )}
+                title="Let AI suggest a priority based on your title and description"
+              >
+                {aiSuggesting
+                  ? <><Loader2 size={11} className="animate-spin" /> Thinking…</>
+                  : <><Sparkles size={11} /> Suggest</>}
+              </button>
+            </div>
+            <select
+              value={form.priority}
+              onChange={(e) => set('priority', e.target.value)}
+              className={cn(inputCls, 'font-medium', PRIORITY_COLORS[form.priority])}
+            >
+              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            {aiReason && (
+              <p className="mt-1.5 text-xs text-slate-400 flex items-start gap-1">
+                <Sparkles size={10} className="text-indigo-400 mt-0.5 flex-shrink-0" />
+                <span>{aiReason}</span>
+              </p>
+            )}
+          </div>
+          <div>
+            <label className={labelCls}>Estimated Time (hours)</label>
+            <input
+              type="number"
+              min="0.5"
+              step="0.5"
+              value={form.estimatedTime}
+              onChange={(e) => set('estimatedTime', e.target.value)}
+              className={inputCls}
+              placeholder="e.g., 2"
+            />
+          </div>
+        </div>
+
+        {/* Row: Department + Project */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Department</label>
+            <select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)} className={inputCls}>
+              <option value="">Select department</option>
+              {Array.isArray(departments) && departments.map((d: any) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Link to Project</label>
+            <select value={form.projectId} onChange={(e) => set('projectId', e.target.value)} className={inputCls}>
+              <option value="">No project</option>
+              {Array.isArray(projects?.projects) && projects.projects.map((p: any) => (
+                <option key={p.id} value={p.id}>{p.projectId} — {p.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Row: Assignee + Due Date */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Assign To</label>
+            <select value={form.assignedToId} onChange={(e) => set('assignedToId', e.target.value)} className={inputCls}>
+              <option value="">Unassigned</option>
+              {Array.isArray(users) && users.map((u: any) => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role?.name})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Due Date</label>
+            <input
+              type="date"
+              value={form.dueDate}
+              onChange={(e) => set('dueDate', e.target.value)}
+              className={inputCls}
+              min={new Date().toISOString().split('T')[0]}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={mutation.isPending}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {mutation.isPending ? (
+              <><Loader2 size={16} className="animate-spin" /> Creating…</>
+            ) : (
+              'Create Ticket'
+            )}
+          </button>
+          <Link
+            href="/tickets"
+            className="flex-1 text-center border border-slate-200 text-slate-600 font-medium py-2.5 rounded-lg hover:bg-slate-50 transition-colors text-sm"
+          >
+            Cancel
+          </Link>
+        </div>
+      </form>
+    </div>
+  );
+}

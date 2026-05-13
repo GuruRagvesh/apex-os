@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  password     String
+  avatar       String?
+  isActive     Boolean  @default(true)
+  roleId       String
+  departmentId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role            Role              @relation(fields: [roleId], references: [id])
+  department      Department?       @relation(fields: [departmentId], references: [id])
+  assignedTickets Ticket[]          @relation("TicketAssignee")
+  createdTickets  Ticket[]          @relation("TicketCreator")
+  comments        Comment[]
+  projectMembers  ProjectMember[]
+  leaveRequests   LeaveRequest[]
+  activityLogs    ActivityLog[]
+  notifications   Notification[]
+  ticketHistory   TicketHistory[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  level       Int
+  description String?
+  createdAt   DateTime @default(now())
+
+  users User[]
+
+  @@map("roles")
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  color       String   @default("#6366f1")
+  createdAt   DateTime @default(now())
+
+  users    User[]
+  projects Project[]
+  tickets  Ticket[]
+
+  @@map("departments")
+}
+
+model Project {
+  id           String        @id @default(cuid())
+  projectId    String        @unique
+  name         String
+  description  String?
+  status       ProjectStatus @default(ACTIVE)
+  priority     Priority      @default(MEDIUM)
+  startDate    DateTime?
+  endDate      DateTime?
+  departmentId String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  department Department?     @relation(fields: [departmentId], references: [id])
+  members    ProjectMember[]
+  tickets    Ticket[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String   @default("MEMBER")
+  joinedAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model Ticket {
+  id            String         @id @default(cuid())
+  ticketId      String         @unique
+  title         String
+  description   String?
+  category      TicketCategory
+  type          TicketType     @default(TASK)
+  status        TicketStatus   @default(OPEN)
+  priority      Priority       @default(MEDIUM)
+  estimatedTime Float?
+  actualTime    Float?
+  projectId     String?
+  departmentId  String?
+  assignedToId  String?
+  createdById   String
+  dueDate       DateTime?
+  resolvedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  project     Project?     @relation(fields: [projectId], references: [id])
+  department  Department?  @relation(fields: [departmentId], references: [id])
+  assignedTo  User?        @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  createdBy   User         @relation("TicketCreator", fields: [createdById], references: [id])
+  comments    Comment[]
+  attachments Attachment[]
+  history     TicketHistory[]
+
+  @@map("tickets")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  ticketId  String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User   @relation(fields: [authorId], references: [id])
+
+  @@map("comments")
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  filename  String
+  url       String
+  size      Int?
+  mimeType  String?
+  ticketId  String
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+model LeaveRequest {
+  id          String      @id @default(cuid())
+  userId      String
+  type        LeaveType
+  startDate   DateTime
+  endDate     DateTime
+  reason      String
+  status      LeaveStatus @default(PENDING)
+  approvedBy  String?
+  approvedAt  DateTime?
+  rejectedBy  String?
+  rejectedAt  DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("leave_requests")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      NotificationType @default(INFO)
+  isRead    Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String
+  entityType String
+  entityId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("activity_logs")
+}
+
+model TicketHistory {
+  id          String   @id @default(cuid())
+  ticketId    String
+  field       String
+  oldValue    String?
+  newValue    String?
+  changedById String
+  changedAt   DateTime @default(now())
+
+  ticket    Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  changedBy User   @relation(fields: [changedById], references: [id])
+
+  @@map("ticket_history")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  REVIEW
+  DONE
+  CLOSED
+}
+
+enum TicketCategory {
+  IT
+  FACILITIES
+  HR
+  OPERATIONS
+  PROJECT
+  ADMIN
+}
+
+enum TicketType {
+  BUG
+  FEATURE
+  TASK
+  MAINTENANCE
+  SUPPORT
+  INCIDENT
+  REQUEST
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  EMERGENCY
+  UNPAID
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
