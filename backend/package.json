@@ -20,6 +20,9 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "db:setup": "prisma migrate dev --name init && ts-node prisma/seed.ts"
   },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.2.0",
