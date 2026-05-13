@@ -26,23 +26,15 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app));
 
   // ── CORS ──────────────────────────────────────────────────────────────────
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'http://localhost:3003',
-    'https://nexus.technoedge.in',            // production frontend (Vercel)
-    'https://www.nexus.technoedge.in',
-    process.env.FRONTEND_URL,                 // override via env (Railway / custom)
-  ].filter(Boolean) as string[];
-
   app.enableCors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (server-to-server, curl, Postman)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin ${origin} not allowed`));
-    },
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://apex-os.vercel.app',
+      'https://apex-os-frontend.vercel.app',
+      'https://apex-os-frontend-git-main-guru-ragvesh-thanumoorthys-projects.vercel.app',
+      process.env.FRONTEND_URL,
+    ].filter(Boolean),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
