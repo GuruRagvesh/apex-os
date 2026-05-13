@@ -1,12 +1,12 @@
 {
   "name": "nexus-backend",
   "version": "1.0.0",
-  "description": "Nexus Internal Business Management - Backend API",
+  "description": "Apex Internal Business Management - Backend API",
   "author": "TechnoEdge",
   "private": true,
   "license": "MIT",
   "scripts": {
-    "build": "npx nest build",
+    "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -53,7 +53,7 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "@nestjs/cli": "^10.0.0",
+    "@nestjs/cli": "^10.4.9",
     "@nestjs/schematics": "^10.0.0",
     "@nestjs/testing": "^10.0.0",
     "@types/bcryptjs": "^2.4.6",
