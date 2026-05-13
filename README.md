@@ -1,4 +1,4 @@
-# NEXUS — TechnoEdge Internal Business Management Platform
+# APEX — TechnoEdge Internal Business Management Platform
 
 > A full-stack internal platform for managing tickets, projects, leave requests,
 > team workloads, and AI-assisted operations — built for TechnoEdge.
