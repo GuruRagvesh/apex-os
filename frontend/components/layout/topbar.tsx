@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Bell, Plus, CheckCheck } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Bell, Plus, CheckCheck, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi } from '@/lib/api';
@@ -24,9 +24,11 @@ const pageNames: Record<string, string> = {
 
 export function TopBar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const [showNotifs, setShowNotifs] = useState(false);
+  const isSuperAdmin = user?.role?.name === 'SUPER_ADMIN';
 
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications-count'],
@@ -89,6 +91,18 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Switch Mode — only for SUPER_ADMIN */}
+        {isSuperAdmin && (
+          <button
+            onClick={() => router.push('/select-mode')}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+            title="Switch between Super Admin and Team Lead mode"
+          >
+            <RefreshCw size={13} />
+            Switch Mode
+          </button>
+        )}
+
         <Link
           href="/tickets/new"
           className="flex items-center gap-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition-colors"

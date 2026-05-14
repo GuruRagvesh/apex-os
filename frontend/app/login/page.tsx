@@ -20,7 +20,12 @@ export default function LoginPage() {
       const res: any = await authApi.login(email, password);
       setAuth(res.user, res.accessToken);
       toast.success(`Welcome back, ${res.user.name}!`);
-      router.push('/dashboard');
+      // SUPER_ADMIN picks their working mode before entering the dashboard
+      if (res.user?.role?.name === 'SUPER_ADMIN') {
+        router.push('/select-mode');
+      } else {
+        router.push('/dashboard');
+      }
     } catch (err: any) {
       toast.error(err?.message || 'Invalid credentials');
     } finally {

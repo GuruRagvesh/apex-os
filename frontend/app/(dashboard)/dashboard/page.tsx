@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { dashboardApi, ticketsApi, leaveApi, aiApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
@@ -16,7 +16,7 @@ import Link from 'next/link';
 import {
   Ticket, AlertTriangle, CheckCircle, Clock, FolderKanban,
   Users, CalendarOff, Zap, Plus, ArrowRight, ListChecks,
-  Sparkles, Loader2, X, Copy, Check,
+  Sparkles, Loader2, X, Copy, Check, Kanban,
 } from 'lucide-react';
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -518,12 +518,163 @@ function EmployeeDashboard({ user }: { user: any }) {
   );
 }
 
+// ─── SUPER ADMIN → TEAM LEAD VIEW (AI & R&D scoped) ─────────────────────────
+const GURU_TEAM = ['Sonali', 'Snehal', 'Pratik', 'Shama'];
+
+function GurTeamLeadDashboard({ user }: { user: any }) {
+  const deptId = user?.department?.id;
+
+  const { data: deptTickets, isLoading } = useQuery({
+    queryKey: ['dept-tickets-guru', deptId],
+    queryFn: () => ticketsApi.getAll({ departmentId: deptId, limit: 200 }) as Promise<any>,
+    enabled: !!deptId,
+    refetchInterval: 60000,
+  });
+
+  const tickets: any[] = deptTickets?.tickets ?? [];
+  const openCount      = tickets.filter((t) => t.status === 'OPEN').length;
+  const inProgressCount= tickets.filter((t) => t.status === 'IN_PROGRESS').length;
+  const overdueCount   = tickets.filter((t) => t.isOverdue).length;
+
+  // Build per-member stats from assigned tickets
+  const memberStats: Record<string, { open: number; inProgress: number; done: number }> = {};
+  tickets.forEach((t) => {
+    const firstName = t.assignedTo?.name?.split(' ')[0] ?? '';
+    if (!GURU_TEAM.includes(firstName)) return;
+    if (!memberStats[firstName]) memberStats[firstName] = { open: 0, inProgress: 0, done: 0 };
+    if (t.status === 'OPEN') memberStats[firstName].open++;
+    else if (t.status === 'IN_PROGRESS') memberStats[firstName].inProgress++;
+    else if (['DONE', 'CLOSED'].includes(t.status)) memberStats[firstName].done++;
+  });
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">
+            Good {greeting()}, Guru — AI & R&D Lead 👋
+          </h2>
+          <p className="text-slate-500 text-sm mt-1">Your team's activity and tasks</p>
+        </div>
+        <Link
+          href="/kanban"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 shadow-sm flex-shrink-0"
+          style={{ background: 'linear-gradient(135deg,#1e40af 0%,#4f46e5 100%)' }}
+        >
+          <Kanban size={15} />
+          Team Kanban
+        </Link>
+      </div>
+
+      {/* 4 Stat Cards */}
+      {isLoading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4"><SkeletonStatCards count={4} /></div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard label="Team's Open" value={openCount}
+            icon={<Ticket size={20} className="text-yellow-600" />} bg="bg-yellow-50" />
+          <StatCard label="In Progress" value={inProgressCount}
+            icon={<Clock size={20} className="text-blue-600" />} bg="bg-blue-50" />
+          <StatCard label="Overdue" value={overdueCount}
+            icon={<AlertTriangle size={20} className="text-red-600" />} bg="bg-red-50"
+            alert={overdueCount > 0} />
+          <StatCard label="Team Size" value={4}
+            icon={<Users size={20} className="text-purple-600" />} bg="bg-purple-50" />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* My Team */}
+        <div className="bg-white rounded-xl border border-slate-200">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-semibold text-slate-800">My Team</h3>
+            <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">AI & R&D Interns</span>
+          </div>
+          <div className="px-5 py-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase pb-2">Member</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase pb-2">Open</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase pb-2">In&nbsp;Prog</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase pb-2">Done</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {GURU_TEAM.map((name) => {
+                  const s = memberStats[name] ?? { open: 0, inProgress: 0, done: 0 };
+                  return (
+                    <tr key={name} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-semibold text-indigo-600">{name[0]}</span>
+                          </div>
+                          <span className="font-medium text-slate-700">{name}</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right text-yellow-600 font-medium">{s.open}</td>
+                      <td className="py-2.5 text-right text-blue-600 font-medium">{s.inProgress}</td>
+                      <td className="py-2.5 text-right text-green-600 font-medium">{s.done}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* AI & R&D Active Tickets */}
+        <div className="bg-white rounded-xl border border-slate-200">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-semibold text-slate-800">AI & R&D Tickets</h3>
+            <Link
+              href={`/tickets${deptId ? `?departmentId=${deptId}` : ''}`}
+              className="text-xs text-indigo-600 hover:underline flex items-center gap-1"
+            >
+              View all <ArrowRight size={11} />
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {isLoading ? (
+              <div className="p-4 space-y-2">
+                {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}
+              </div>
+            ) : tickets.filter((t) => !['DONE', 'CLOSED'].includes(t.status)).length > 0 ? (
+              tickets
+                .filter((t) => !['DONE', 'CLOSED'].includes(t.status))
+                .slice(0, 6)
+                .map((t) => <TicketRow key={t.id} ticket={t} compact />)
+            ) : (
+              <div className="p-6 text-center text-slate-400 text-sm">No active tickets</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const role = user?.role?.name;
+  const [apexMode, setApexMode] = useState<string | null>(null);
 
-  if (role === 'Admin' || role === 'Manager') return <AdminDashboard user={user} />;
-  if (role === 'Team Lead') return <TeamLeadDashboard user={user} />;
+  useEffect(() => {
+    setApexMode(localStorage.getItem('apexMode') ?? 'super_admin');
+  }, []);
+
+  // SUPER_ADMIN: wait for localStorage to hydrate, then branch on mode
+  if (role === 'SUPER_ADMIN') {
+    if (apexMode === null) return null; // brief flash prevention
+    if (apexMode === 'team_lead') return <GurTeamLeadDashboard user={user} />;
+    return <AdminDashboard user={user} />;
+  }
+
+  // Legacy role names (old seed) + new role names (new seed)
+  if (['Admin', 'ADMIN', 'Manager', 'MANAGER'].includes(role ?? '')) return <AdminDashboard user={user} />;
+  if (['Team Lead', 'TEAM_LEAD'].includes(role ?? '')) return <TeamLeadDashboard user={user} />;
   return <EmployeeDashboard user={user} />;
 }
