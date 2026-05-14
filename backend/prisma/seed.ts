@@ -1,337 +1,186 @@
 /**
- * NEXUS — Production Seed
+ * APEX — TechnoEdge Production Seed
  * ─────────────────────────────────────────────────────────────────────────────
- * Creates the minimum required data for a first deployment:
- *   • 4 roles  (Admin, Manager, Team Lead, Employee)
- *   • 5 departments
- *   • 1 admin superuser  +  representative users per role
- *   • 2 sample projects  +  sample tickets for demo purposes
+ * Creates:
+ *   • 6 roles       (SUPER_ADMIN → INTERN)
+ *   • 11 departments
+ *   • 40 real TechnoEdge employees  (password: Apex@2026)
  *
  * Safe to run multiple times — all upserts, nothing is deleted.
  *
- * Run:  npx ts-node --compiler-options '{"module":"CommonJS"}' prisma/seed.ts
- *  or:  npx prisma db seed
+ * Run:  npx prisma db seed
+ *  or:  npx ts-node prisma/seed.ts
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import {
-  PrismaClient,
-  TicketCategory,
-  TicketType,
-  Priority,
-  TicketStatus,
-  ProjectStatus,
-} from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding NEXUS database...');
+  console.log('🌱 Seeding APEX database...\n');
 
-  // ── Roles ────────────────────────────────────────────────────────────────
-  const [adminRole, managerRole, teamLeadRole, employeeRole] = await Promise.all([
-    prisma.role.upsert({
-      where: { name: 'Admin' },
-      update: {},
-      create: { name: 'Admin', level: 1, description: 'Full system access' },
-    }),
-    prisma.role.upsert({
-      where: { name: 'Manager' },
-      update: {},
-      create: { name: 'Manager', level: 2, description: 'Department management access' },
-    }),
-    prisma.role.upsert({
-      where: { name: 'Team Lead' },
-      update: {},
-      create: { name: 'Team Lead', level: 3, description: 'Team oversight and task management' },
-    }),
-    prisma.role.upsert({
-      where: { name: 'Employee' },
-      update: {},
-      create: { name: 'Employee', level: 4, description: 'Standard employee access' },
-    }),
-  ]);
+  // ── Password ───────────────────────────────────────────────────────────────
+  // Hash once and reuse for all 40 users — bcrypt is slow by design
+  const defaultPassword = await bcrypt.hash('Apex@2026', 10);
 
-  // ── Departments ───────────────────────────────────────────────────────────
-  const [itDept, facilitiesDept, hrDept, operationsDept] = await Promise.all([
-    prisma.department.upsert({
-      where: { name: 'IT' },
-      update: {},
-      create: { name: 'IT', description: 'Information Technology', color: '#6366f1' },
-    }),
-    prisma.department.upsert({
-      where: { name: 'Facilities' },
-      update: {},
-      create: { name: 'Facilities', description: 'Building & Maintenance', color: '#f59e0b' },
-    }),
-    prisma.department.upsert({
-      where: { name: 'HR' },
-      update: {},
-      create: { name: 'HR', description: 'Human Resources', color: '#ec4899' },
-    }),
-    prisma.department.upsert({
-      where: { name: 'Operations' },
-      update: {},
-      create: { name: 'Operations', description: 'Business Operations', color: '#10b981' },
-    }),
-    prisma.department.upsert({
-      where: { name: 'Finance' },
-      update: {},
-      create: { name: 'Finance', description: 'Finance & Accounting', color: '#3b82f6' },
-    }),
-  ]);
-
-  // ── Users ─────────────────────────────────────────────────────────────────
-  // NOTE: Change these passwords immediately after first login in production.
-  const [adminUser, managerUser, teamLeadUser, employee1, employee2, facilitiesUser] =
-    await Promise.all([
-      prisma.user.upsert({
-        where: { email: 'admin@technoedge.com' },
-        update: {},
-        create: {
-          email: 'admin@technoedge.com',
-          name: 'System Admin',
-          password: await bcrypt.hash('Admin@123', 10),
-          roleId: adminRole.id,
-          departmentId: itDept.id,
-        },
-      }),
-      prisma.user.upsert({
-        where: { email: 'manager@technoedge.com' },
-        update: {},
-        create: {
-          email: 'manager@technoedge.com',
-          name: 'Rajesh Kumar',
-          password: await bcrypt.hash('Manager@123', 10),
-          roleId: managerRole.id,
-          departmentId: itDept.id,
-        },
-      }),
-      prisma.user.upsert({
-        where: { email: 'teamlead@technoedge.com' },
-        update: {},
-        create: {
-          email: 'teamlead@technoedge.com',
-          name: 'Priya Sharma',
-          password: await bcrypt.hash('Lead@123', 10),
-          roleId: teamLeadRole.id,
-          departmentId: itDept.id,
-        },
-      }),
-      prisma.user.upsert({
-        where: { email: 'arjun@technoedge.com' },
-        update: {},
-        create: {
-          email: 'arjun@technoedge.com',
-          name: 'Arjun Patel',
-          password: await bcrypt.hash('Employee@123', 10),
-          roleId: employeeRole.id,
-          departmentId: itDept.id,
-        },
-      }),
-      prisma.user.upsert({
-        where: { email: 'sneha@technoedge.com' },
-        update: {},
-        create: {
-          email: 'sneha@technoedge.com',
-          name: 'Sneha Verma',
-          password: await bcrypt.hash('Employee@123', 10),
-          roleId: employeeRole.id,
-          departmentId: hrDept.id,
-        },
-      }),
-      prisma.user.upsert({
-        where: { email: 'ravi@technoedge.com' },
-        update: {},
-        create: {
-          email: 'ravi@technoedge.com',
-          name: 'Ravi Singh',
-          password: await bcrypt.hash('Employee@123', 10),
-          roleId: employeeRole.id,
-          departmentId: facilitiesDept.id,
-        },
-      }),
-    ]);
-
-  // ── Projects ──────────────────────────────────────────────────────────────
-  const [project1, project2] = await Promise.all([
-    prisma.project.upsert({
-      where: { projectId: 'PRJ-001' },
-      update: {},
-      create: {
-        projectId: 'PRJ-001',
-        name: 'Office Network Upgrade',
-        description: 'Upgrade all office network infrastructure to gigabit ethernet',
-        status: ProjectStatus.ACTIVE,
-        priority: Priority.HIGH,
-        departmentId: itDept.id,
-        startDate: new Date('2024-01-15'),
-        endDate: new Date('2024-03-30'),
-      },
-    }),
-    prisma.project.upsert({
-      where: { projectId: 'PRJ-002' },
-      update: {},
-      create: {
-        projectId: 'PRJ-002',
-        name: 'Employee Onboarding Revamp',
-        description: 'Redesign the employee onboarding process and documentation',
-        status: ProjectStatus.ACTIVE,
-        priority: Priority.MEDIUM,
-        departmentId: hrDept.id,
-        startDate: new Date('2024-02-01'),
-      },
-    }),
-  ]);
-
-  // ── Project Members ───────────────────────────────────────────────────────
-  await Promise.all([
-    prisma.projectMember.upsert({
-      where: { projectId_userId: { projectId: project1.id, userId: adminUser.id } },
-      update: {},
-      create: { projectId: project1.id, userId: adminUser.id, role: 'OWNER' },
-    }),
-    prisma.projectMember.upsert({
-      where: { projectId_userId: { projectId: project1.id, userId: managerUser.id } },
-      update: {},
-      create: { projectId: project1.id, userId: managerUser.id, role: 'MEMBER' },
-    }),
-    prisma.projectMember.upsert({
-      where: { projectId_userId: { projectId: project1.id, userId: employee1.id } },
-      update: {},
-      create: { projectId: project1.id, userId: employee1.id, role: 'MEMBER' },
-    }),
-  ]);
-
-  // ── Sample Tickets ────────────────────────────────────────────────────────
-  const ticketData = [
-    {
-      ticketId: 'TKT-001',
-      title: 'Replace conference room projector bulb',
-      description: 'The projector in Conference Room A has a blown bulb. Needs replacement before Monday meeting.',
-      category: TicketCategory.FACILITIES,
-      type: TicketType.MAINTENANCE,
-      priority: Priority.HIGH,
-      status: TicketStatus.OPEN,
-      estimatedTime: 1,
-      departmentId: facilitiesDept.id,
-      assignedToId: facilitiesUser.id,
-      createdById: managerUser.id,
-    },
-    {
-      ticketId: 'TKT-002',
-      title: 'Clean washroom - Floor 2',
-      description: 'Deep cleaning required for Floor 2 washrooms. Schedule for end of day.',
-      category: TicketCategory.FACILITIES,
-      type: TicketType.TASK,
-      priority: Priority.MEDIUM,
-      status: TicketStatus.IN_PROGRESS,
-      estimatedTime: 2,
-      departmentId: facilitiesDept.id,
-      assignedToId: facilitiesUser.id,
-      createdById: adminUser.id,
-    },
-    {
-      ticketId: 'TKT-003',
-      title: 'Replace light bulb - IT Room 3B',
-      description: 'Two ceiling lights in IT Room 3B are not working.',
-      category: TicketCategory.FACILITIES,
-      type: TicketType.MAINTENANCE,
-      priority: Priority.LOW,
-      status: TicketStatus.OPEN,
-      estimatedTime: 0.5,
-      departmentId: facilitiesDept.id,
-      createdById: employee1.id,
-    },
-    {
-      ticketId: 'TKT-004',
-      title: 'VPN access not working for remote employees',
-      description: 'Multiple employees reporting VPN connection failures since morning. Urgent fix needed.',
-      category: TicketCategory.IT,
-      type: TicketType.INCIDENT,
-      priority: Priority.URGENT,
-      status: TicketStatus.IN_PROGRESS,
-      estimatedTime: 4,
-      projectId: project1.id,
-      departmentId: itDept.id,
-      assignedToId: employee1.id,
-      createdById: managerUser.id,
-    },
-    {
-      ticketId: 'TKT-005',
-      title: 'Setup new employee laptop',
-      description: 'New joinee starting Monday. Need laptop configured with all standard software.',
-      category: TicketCategory.IT,
-      type: TicketType.REQUEST,
-      priority: Priority.HIGH,
-      status: TicketStatus.OPEN,
-      estimatedTime: 3,
-      departmentId: itDept.id,
-      assignedToId: teamLeadUser.id,
-      createdById: employee2.id,
-    },
-    {
-      ticketId: 'TKT-006',
-      title: 'Update employee handbook 2024',
-      description: 'Annual update to employee handbook including new WFH policies and leave rules.',
-      category: TicketCategory.HR,
-      type: TicketType.TASK,
-      priority: Priority.MEDIUM,
-      status: TicketStatus.REVIEW,
-      estimatedTime: 8,
-      projectId: project2.id,
-      departmentId: hrDept.id,
-      assignedToId: employee2.id,
-      createdById: managerUser.id,
-    },
-    {
-      ticketId: 'TKT-007',
-      title: 'Fix AC unit - Operations floor',
-      description: 'AC in operations area making noise and not cooling properly. Technician visit needed.',
-      category: TicketCategory.FACILITIES,
-      type: TicketType.MAINTENANCE,
-      priority: Priority.HIGH,
-      status: TicketStatus.OPEN,
-      estimatedTime: 3,
-      departmentId: facilitiesDept.id,
-      createdById: employee1.id,
-    },
-    {
-      ticketId: 'TKT-008',
-      title: 'Printer on Floor 1 not working',
-      description: 'Canon printer shows paper jam error but no paper visible inside.',
-      category: TicketCategory.IT,
-      type: TicketType.SUPPORT,
-      priority: Priority.MEDIUM,
-      status: TicketStatus.DONE,
-      estimatedTime: 1,
-      actualTime: 1.5,
-      departmentId: itDept.id,
-      assignedToId: teamLeadUser.id,
-      createdById: employee2.id,
-      resolvedAt: new Date(),
-    },
+  // ── Roles ──────────────────────────────────────────────────────────────────
+  console.log('📌 Upserting roles...');
+  const roleData = [
+    { name: 'SUPER_ADMIN', level: 0, description: 'Super administrator — unrestricted access' },
+    { name: 'ADMIN',       level: 1, description: 'Full system access' },
+    { name: 'MANAGER',     level: 2, description: 'Department management access' },
+    { name: 'TEAM_LEAD',   level: 3, description: 'Team oversight and task management' },
+    { name: 'EMPLOYEE',    level: 4, description: 'Standard employee access' },
+    { name: 'INTERN',      level: 5, description: 'Intern access' },
   ];
 
-  for (const ticket of ticketData) {
-    await prisma.ticket.upsert({
-      where: { ticketId: ticket.ticketId },
-      update: {},
-      create: ticket,
+  const roles: Record<string, string> = {};
+  for (const r of roleData) {
+    const role = await prisma.role.upsert({
+      where: { name: r.name },
+      update: { level: r.level, description: r.description },
+      create: r,
     });
+    roles[r.name] = role.id;
+  }
+  console.log(`   ✓ ${roleData.length} roles ready\n`);
+
+  // ── Departments ────────────────────────────────────────────────────────────
+  console.log('🏢 Upserting departments...');
+  const deptData = [
+    { name: 'AI & R&D',               description: 'Artificial Intelligence & Research',    color: '#6366f1' },
+    { name: 'ID Team',                 description: 'Instructional Design Team',             color: '#8b5cf6' },
+    { name: 'Editors Team',            description: 'Video & Content Editors',               color: '#ec4899' },
+    { name: 'Corporate Training',      description: 'Corporate Training Division',           color: '#f59e0b' },
+    { name: 'Content Sales',           description: 'Content Sales Team',                    color: '#10b981' },
+    { name: 'QC Team',                 description: 'Quality Control Team',                  color: '#ef4444' },
+    { name: 'Marketing',               description: 'Marketing & Growth',                    color: '#3b82f6' },
+    { name: 'Retail Business',         description: 'Retail Business Division',              color: '#f97316' },
+    { name: 'AI & Media Production',   description: 'AI-assisted Media Production',         color: '#14b8a6' },
+    { name: 'Accounts',                description: 'Finance & Accounts',                    color: '#a855f7' },
+    { name: 'Company / Operations',    description: 'Company Operations & Administration',   color: '#64748b' },
+  ];
+
+  const depts: Record<string, string> = {};
+  for (const d of deptData) {
+    const dept = await prisma.department.upsert({
+      where: { name: d.name },
+      update: { description: d.description, color: d.color },
+      create: d,
+    });
+    depts[d.name] = dept.id;
+  }
+  console.log(`   ✓ ${deptData.length} departments ready\n`);
+
+  // ── Users ──────────────────────────────────────────────────────────────────
+  console.log('👥 Upserting 40 TechnoEdge employees...');
+
+  const userData = [
+    // ── Super Admin ──
+    { name: 'Guru Thanumoorthy',   email: 'Guru.Thanumoorthy@technoedgels.com',  role: 'SUPER_ADMIN', dept: 'AI & R&D'             },
+
+    // ── Admins ──
+    { name: 'Pavan Lalwani',       email: 'pavan.lalwani@technoedgels.com',       role: 'ADMIN',       dept: 'Company / Operations' },
+
+    // ── Managers ──
+    { name: 'Payal',               email: 'accounts@technoedgels.com',            role: 'MANAGER',     dept: 'Accounts'             },
+    { name: 'Tejas Kadam',         email: 'tejas.kadam@technoedgels.com',         role: 'MANAGER',     dept: 'Company / Operations' },
+    { name: 'Anshika Patel',       email: 'anshika.patel@technoedgels.com',       role: 'MANAGER',     dept: 'ID Team'              },
+    { name: 'Krunal Mehta',        email: 'Krunal.Mehta@technoedgels.com',        role: 'MANAGER',     dept: 'Corporate Training'   },
+
+    // ── Team Leads ──
+    { name: 'Vishal',              email: 'Vishal@technoedgels.com',              role: 'TEAM_LEAD',   dept: 'ID Team'              },
+    { name: 'Shubendu',            email: 'Shubhendu@technoedgels.com',           role: 'TEAM_LEAD',   dept: 'Editors Team'         },
+    { name: 'Rajashree Solanki',   email: 'Rajashree.Solanki@technoedgels.com',   role: 'TEAM_LEAD',   dept: 'Retail Business'      },
+    { name: 'Aniket Phapale',      email: 'aniket.phapale@technoedgels.com',      role: 'TEAM_LEAD',   dept: 'QC Team'              },
+    { name: 'Sumedh Sadaphal',     email: 'Sumedh.Sadaphal@technoedgels.com',     role: 'TEAM_LEAD',   dept: 'Content Sales'        },
+    { name: 'Arpit Bharuka',       email: 'Arpit.Bharuka@technoedgels.com',       role: 'TEAM_LEAD',   dept: 'AI & Media Production'},
+    { name: 'Komal',               email: 'finance@technoedgels.com',             role: 'TEAM_LEAD',   dept: 'Accounts'             },
+    { name: 'Honey Dembani',       email: 'Honey.Dembani@technoedgels.com',       role: 'TEAM_LEAD',   dept: 'ID Team'              },
+
+    // ── Employees — ID Team ──
+    { name: 'Pooja Kamble',        email: 'pooja.kamble@technoedgels.com',        role: 'EMPLOYEE',    dept: 'ID Team'              },
+    { name: 'Mahendra',            email: 'Mahendra@technoedgels.com',            role: 'EMPLOYEE',    dept: 'ID Team'              },
+    { name: 'Trishank Pal',        email: 'trishank.pal@technoedgels.com',        role: 'EMPLOYEE',    dept: 'ID Team'              },
+    { name: 'Revati Patil',        email: 'revati.patil@technoedgels.com',        role: 'EMPLOYEE',    dept: 'ID Team'              },
+    { name: 'Sanika Dongare',      email: 'sanika.dongare@technoedgels.com',      role: 'EMPLOYEE',    dept: 'ID Team'              },
+    { name: 'Sahil Waykar',        email: 'sahil.waykar@technoedgels.com',        role: 'EMPLOYEE',    dept: 'ID Team'              },
+
+    // ── Employees — Editors Team ──
+    { name: 'Irfan',               email: 'irfan@technoedgels.com',               role: 'EMPLOYEE',    dept: 'Editors Team'         },
+    { name: 'Gaurav',              email: 'gaurav@technoedgels.com',              role: 'EMPLOYEE',    dept: 'Editors Team'         },
+
+    // ── Employees — Marketing ──
+    { name: 'Narendra Suthar',     email: 'narendra.suthar@technoedgels.com',     role: 'EMPLOYEE',    dept: 'Marketing'            },
+    { name: 'Pavan Tiwari',        email: 'pawan.tiwari@technoedgels.com',        role: 'EMPLOYEE',    dept: 'Marketing'            },
+
+    // ── Employees — Retail Business ──
+    { name: 'Charu Kadam',         email: 'Charu.Kadam@technoedgels.com',         role: 'EMPLOYEE',    dept: 'Retail Business'      },
+    { name: 'Harshada Patil',      email: 'Harshada.Patil@technoedgels.com',      role: 'EMPLOYEE',    dept: 'Retail Business'      },
+    { name: 'Pankaj',              email: 'pankaj@technoedgels.com',              role: 'EMPLOYEE',    dept: 'Retail Business'      },
+
+    // ── Employees — QC Team ──
+    { name: 'Sushant Gire',        email: 'sushant.gire@technoedgels.com',        role: 'EMPLOYEE',    dept: 'QC Team'              },
+    { name: 'Salman',              email: 'salman_technointern@outlook.com',       role: 'EMPLOYEE',    dept: 'QC Team'              },
+
+    // ── Employees — Content Sales ──
+    { name: 'Gunjan Ranglani',     email: 'gunjan.ranglani@technoedgels.com',     role: 'EMPLOYEE',    dept: 'Content Sales'        },
+    { name: 'Harshal Tilekar',     email: 'harshal.tilekar@technoedgels.com',     role: 'EMPLOYEE',    dept: 'Content Sales'        },
+
+    // ── Employees — Corporate Training ──
+    { name: 'Vaishnavi',           email: 'Vaishnavi@technoedgels.com',           role: 'EMPLOYEE',    dept: 'Corporate Training'   },
+    { name: 'Ajay Singh',          email: 'ajay.singh@technoedgels.com',          role: 'EMPLOYEE',    dept: 'Corporate Training'   },
+    { name: 'Snehal P',            email: 'Snehal.P@technoedgels.com',            role: 'EMPLOYEE',    dept: 'Corporate Training'   },
+
+    // ── Interns — AI & R&D ──
+    { name: 'Sonali',              email: 'technointern605@outlook.com',           role: 'INTERN',      dept: 'AI & R&D'             },
+    { name: 'Snehal Intern',       email: 'technointern604@outlook.com',           role: 'INTERN',      dept: 'AI & R&D'             },
+    { name: 'Pratik',              email: 'technointern606@outlook.com',           role: 'INTERN',      dept: 'AI & R&D'             },
+    { name: 'Shama',               email: 'technointern607@outlook.com',           role: 'INTERN',      dept: 'AI & R&D'             },
+
+    // ── Interns — AI & Media Production ──
+    { name: 'Suyash',              email: 'technointern608@outlook.com',           role: 'INTERN',      dept: 'AI & Media Production'},
+    { name: 'Swayam',              email: 'technointern602@outlook.com',           role: 'INTERN',      dept: 'AI & Media Production'},
+  ];
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const u of userData) {
+    const roleId = roles[u.role];
+    const departmentId = depts[u.dept];
+
+    if (!roleId)   { console.warn(`   ⚠ Unknown role "${u.role}" for ${u.email} — skipping`);       skipped++; continue; }
+    if (!departmentId) { console.warn(`   ⚠ Unknown dept "${u.dept}" for ${u.email} — skipping`);   skipped++; continue; }
+
+    await prisma.user.upsert({
+      where:  { email: u.email },
+      update: { name: u.name, roleId, departmentId },
+      create: {
+        name:         u.name,
+        email:        u.email,
+        password:     defaultPassword,
+        roleId,
+        departmentId,
+        isActive:     true,
+      },
+    });
+
+    console.log(`   ✓ ${u.name.padEnd(22)} [${u.role.padEnd(11)}]  ${u.dept}`);
+    created++;
   }
 
-  // ── Done ──────────────────────────────────────────────────────────────────
-  console.log('\n✅ Seed complete!');
-  console.log('\n📋 Default Login Credentials:');
-  console.log('  Admin:     admin@technoedge.com      / Admin@123');
-  console.log('  Manager:   manager@technoedge.com    / Manager@123');
-  console.log('  Team Lead: teamlead@technoedge.com   / Lead@123');
-  console.log('  Employee:  arjun@technoedge.com      / Employee@123');
-  console.log('\n⚠️  Change all passwords immediately after first login in production!\n');
+  // ── Summary ────────────────────────────────────────────────────────────────
+  console.log('\n' + '─'.repeat(60));
+  console.log(`\n✅ Seed complete!`);
+  console.log(`   Users processed : ${created}`);
+  if (skipped) console.log(`   Skipped         : ${skipped} (check warnings above)`);
+  console.log('\n🔑 All users share the default password: Apex@2026');
+  console.log('⚠️  Users must change their password on first login.\n');
 }
 
 main()
-  .catch(console.error)
+  .catch((e) => { console.error(e); process.exit(1); })
   .finally(() => prisma.$disconnect());
