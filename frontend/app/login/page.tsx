@@ -20,8 +20,10 @@ export default function LoginPage() {
       const res: any = await authApi.login(email, password);
       setAuth(res.user, res.accessToken);
       toast.success(`Welcome back, ${res.user.name}!`);
+      // Defensive: role may be an object { name } or a plain string
+      const roleName: string = res.user?.role?.name ?? res.user?.role ?? '';
       // SUPER_ADMIN picks their working mode before entering the dashboard
-      if (res.user?.role?.name === 'SUPER_ADMIN') {
+      if (roleName === 'SUPER_ADMIN') {
         router.push('/select-mode');
       } else {
         router.push('/dashboard');

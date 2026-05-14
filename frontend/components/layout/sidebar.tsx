@@ -40,7 +40,8 @@ const ACCENT_CHEVRON= 'text-indigo-400';
 export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
-  const role = user?.role?.name ?? '';
+  // Defensive: role may be stored as an object { name } or a plain string (old localStorage data)
+  const role: string = (user?.role as any)?.name ?? (typeof user?.role === 'string' ? user?.role : '') ?? '';
 
   const [apexMode, setApexMode] = useState<string>('super_admin');
 

@@ -12,8 +12,10 @@ export default function SelectModePage() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    // Defensive: role may be an object { name } or a plain string
+    const roleName: string = (user?.role as any)?.name ?? (typeof user?.role === 'string' ? user?.role : '') ?? '';
     // Non-SUPER_ADMIN users go straight to dashboard
-    if (user && user.role?.name !== 'SUPER_ADMIN') {
+    if (user && roleName !== 'SUPER_ADMIN') {
       router.replace('/dashboard');
       return;
     }

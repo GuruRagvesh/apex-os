@@ -658,23 +658,49 @@ function GurTeamLeadDashboard({ user }: { user: any }) {
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const { user } = useAuthStore();
-  const role = user?.role?.name;
+  const { user, isAuthenticated } = useAuthStore();
   const [apexMode, setApexMode] = useState<string | null>(null);
+  const [storeHydrated, setStoreHydrated] = useState(false);
 
   useEffect(() => {
+    // Mark Zustand store as hydrated from localStorage
+    setStoreHydrated(true);
     setApexMode(localStorage.getItem('apexMode') ?? 'super_admin');
   }, []);
 
-  // SUPER_ADMIN: wait for localStorage to hydrate, then branch on mode
-  if (role === 'SUPER_ADMIN') {
-    if (apexMode === null) return null; // brief flash prevention
-    if (apexMode === 'team_lead') return <GurTeamLeadDashboard user={user} />;
-    return <AdminDashboard user={user} />;
+  // Defensive role extraction: handles { name: 'SUPER_ADMIN' } object OR plain string
+  const roleName: string =
+    (user?.role as any)?.name ?? (typeof user?.role === 'string' ? user?.role : '') ?? '';
+
+  console.log('USER ROLE DEBUG:', JSON.stringify(user?.role), '| roleName:', roleName, '| hydrated:', storeHydrated, '| apexMode:', apexMode);
+
+  // Wait for Zustand to hydrate from localStorage before branching
+  if (!storeHydrated) return null;
+
+  // Not logged in yet — avoid rendering a dashboard with null user
+  if (!user) return null;
+
+  const isAdminRole    = roleName === 'SUPER_ADMIN' || roleName === 'ADMIN'    || roleName === 'Admin';
+  const isManagerRole  = roleName === 'MANAGER'     || roleName === 'Manager';
+  const isTeamLeadRole = roleName === 'TEAM_LEAD'   || roleName === 'Team Lead';
+
+  // SUPER_ADMIN: branch on selected apexMode
+  if (roleName === 'SUPER_ADMIN') {
+    if (apexMode === null) return null; // brief flash prevention while localStorage reads
+    return (
+      <>
+        {/* ── TEMPORARY DEBUG BAR — remove once confirmed working ── */}
+        <p style={{ color: 'red', fontSize: '10px', position: 'fixed', bottom: 4, left: 4, zIndex: 9999, background: 'white', padding: '2px 6px', borderRadius: 4, border: '1px solid red' }}>
+          Role: {JSON.stringify(user?.role)} | Mode: {apexMode}
+        </p>
+        {apexMode === 'team_lead'
+          ? <GurTeamLeadDashboard user={user} />
+          : <AdminDashboard user={user} />}
+      </>
+    );
   }
 
-  // Legacy role names (old seed) + new role names (new seed)
-  if (['Admin', 'ADMIN', 'Manager', 'MANAGER'].includes(role ?? '')) return <AdminDashboard user={user} />;
-  if (['Team Lead', 'TEAM_LEAD'].includes(role ?? '')) return <TeamLeadDashboard user={user} />;
+  if (isAdminRole || isManagerRole) return <AdminDashboard user={user} />;
+  if (isTeamLeadRole) return <TeamLeadDashboard user={user} />;
   return <EmployeeDashboard user={user} />;
 }
