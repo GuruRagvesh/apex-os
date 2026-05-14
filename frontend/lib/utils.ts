@@ -111,3 +111,22 @@ export function formatRelativeTime(date: string | Date): string {
   if (diffDays < 7) return `${diffDays}d ago`;
   return formatDate(date);
 }
+
+// Department accent colours — used for left-border on ticket rows & top-border on kanban cards
+export const DEPT_COLORS: Record<string, string> = {
+  'IT':                     '#3b82f6',
+  'Facilities':             '#f59e0b',
+  'HR':                     '#ec4899',
+  'Operations':             '#10b981',
+  'Finance':                '#8b5cf6',
+  'AI & R&D':               '#6366f1',
+  'ID Team':                '#14b8a6',
+  'Editors Team':           '#f97316',
+  'Content Sales':          '#84cc16',
+  'QC Team':                '#ef4444',
+  'Marketing':              '#a855f7',
+  'Retail Business':        '#06b6d4',
+  'Corporate Training':     '#f59e0b',
+  'AI & Media Production':  '#8b5cf6',
+  'Accounts':               '#10b981',
+};

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -41,5 +41,11 @@ export class ProjectsController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) { return this.projectsService.remove(id); }
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    const roleName: string = user?.role?.name || user?.role || '';
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
+      throw new ForbiddenException('Only admins can delete projects');
+    }
+    return this.projectsService.remove(id);
+  }
 }

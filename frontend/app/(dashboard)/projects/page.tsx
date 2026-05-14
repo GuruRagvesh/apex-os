@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi, departmentsApi } from '@/lib/api';
 import { cn, PROJECT_STATUS_COLORS, PRIORITY_COLORS, formatDate, getInitials } from '@/lib/utils';
 import { Plus, FolderKanban, Users, Ticket, Calendar } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -169,10 +170,14 @@ export default function ProjectsPage() {
           {projectList.map((p: any) => <ProjectCard key={p.id} project={p} />)}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-          <FolderKanban size={40} className="text-slate-300 mx-auto mb-3" />
-          <p className="text-slate-500">No projects yet</p>
-          <button onClick={() => setShowNew(true)} className="mt-3 text-blue-600 text-sm hover:underline">Create first project</button>
+        <div className="bg-white rounded-xl border border-slate-200">
+          <EmptyState
+            icon="📁"
+            title="No projects yet"
+            description="Create a project to group related tickets and track progress"
+            actionLabel="New Project"
+            onAction={() => setShowNew(true)}
+          />
         </div>
       )}
     </div>

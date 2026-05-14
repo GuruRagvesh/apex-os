@@ -6,6 +6,7 @@ import { leaveApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, LEAVE_STATUS_COLORS, formatDate, getInitials } from '@/lib/utils';
 import { Plus, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
 import toast from 'react-hot-toast';
 
 const LEAVE_TYPES = ['ANNUAL', 'SICK', 'EMERGENCY', 'UNPAID', 'OTHER'];
@@ -17,7 +18,10 @@ export default function LeavePage() {
   const [tab, setTab] = useState<'all' | 'mine' | 'pending'>('all');
   const [form, setForm] = useState({ type: 'ANNUAL', startDate: '', endDate: '', reason: '' });
 
-  const isManager = ['Admin', 'Manager'].includes(user?.role?.name || '');
+  // Defensive role check — handles object { name } or plain string, all name variants
+  const _roleName = (user?.role as any)?.name || (user?.role as any) || '';
+  const _isAdmin  = _roleName === 'ADMIN' || _roleName === 'SUPER_ADMIN';
+  const isManager = _roleName === 'MANAGER' || _isAdmin;
 
   const queryParams = tab === 'mine' ? { userId: user?.id } : tab === 'pending' ? { status: 'PENDING' } : {};
 
@@ -148,7 +152,13 @@ export default function LeavePage() {
             ))}
           </div>
         ) : (
-          <div className="flex items-center justify-center h-32 text-slate-400 text-sm">No leave requests</div>
+          <EmptyState
+            icon="📅"
+            title="No leave requests yet"
+            description="Apply for leave and track approvals here"
+            actionLabel="Apply Leave"
+            onAction={() => setShowNew(true)}
+          />
         )}
       </div>
 

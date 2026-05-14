@@ -15,7 +15,7 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { ticketsApi, departmentsApi } from '@/lib/api';
-import { cn, PRIORITY_COLORS, CATEGORY_COLORS, PRIORITY_LABELS, CATEGORY_LABELS, getInitials, formatDate } from '@/lib/utils';
+import { cn, PRIORITY_COLORS, CATEGORY_COLORS, PRIORITY_LABELS, CATEGORY_LABELS, getInitials, formatDate, DEPT_COLORS } from '@/lib/utils';
 import { SkeletonKanbanColumn } from '@/components/ui/skeleton';
 import { Plus, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -30,11 +30,12 @@ const COLUMNS = [
 
 // ─── Static card UI (also used for DragOverlay) ───────────────────────────────
 function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }) {
+  const deptColor = ticket.department?.color || DEPT_COLORS[ticket.department?.name] || '#e2e8f0';
   return (
-    <div className={cn(
-      'bg-white rounded-lg border border-slate-200 p-3 shadow-sm',
-      isPending && 'opacity-70',
-    )}>
+    <div
+      className={cn('bg-white rounded-lg border border-slate-200 p-3 shadow-sm', isPending && 'opacity-70')}
+      style={{ borderTop: `3px solid ${deptColor}` }}
+    >
       <div className="flex items-start justify-between gap-2 mb-2">
         <span className="text-xs text-slate-400 font-mono">{ticket.ticketId}</span>
         <div className="flex items-center gap-1.5">
@@ -194,10 +195,14 @@ function DroppableColumn({
 
         {tickets.length === 0 && (
           <div className={cn(
-            'flex items-center justify-center h-24 rounded-lg border-2 border-dashed transition-colors',
+            'flex flex-col items-center justify-center h-32 rounded-lg border-2 border-dashed transition-colors p-4 text-center',
             isOver ? 'border-indigo-300 bg-indigo-50/50' : 'border-slate-200',
           )}>
-            <p className="text-xs text-slate-400">Drop here</p>
+            <span className="text-2xl mb-1">+</span>
+            <p className="text-xs font-medium text-slate-500">No tickets here</p>
+            <Link href="/tickets/new" className="text-xs text-blue-500 hover:underline mt-0.5" onClick={(e) => e.stopPropagation()}>
+              Create a new ticket
+            </Link>
           </div>
         )}
       </div>

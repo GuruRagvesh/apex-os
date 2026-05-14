@@ -668,9 +668,8 @@ export default function DashboardPage() {
     setApexMode(localStorage.getItem('apexMode') ?? 'super_admin');
   }, []);
 
-  // Defensive role extraction: handles { name: 'SUPER_ADMIN' } object OR plain string
-  const roleName: string =
-    (user?.role as any)?.name ?? (typeof user?.role === 'string' ? user?.role : '') ?? '';
+  // Defensive: role may be stored as { name: 'SUPER_ADMIN' } object OR plain string
+  const roleName: string = (user?.role as any)?.name || (user?.role as any) || '';
 
   console.log('USER ROLE DEBUG:', JSON.stringify(user?.role), '| roleName:', roleName, '| hydrated:', storeHydrated, '| apexMode:', apexMode);
 
@@ -680,18 +679,17 @@ export default function DashboardPage() {
   // Not logged in yet — avoid rendering a dashboard with null user
   if (!user) return null;
 
-  const isAdminRole    = roleName === 'SUPER_ADMIN' || roleName === 'ADMIN'    || roleName === 'Admin';
-  const isManagerRole  = roleName === 'MANAGER'     || roleName === 'Manager';
-  const isTeamLeadRole = roleName === 'TEAM_LEAD'   || roleName === 'Team Lead';
+  const isAdmin   = roleName === 'SUPER_ADMIN' || roleName === 'ADMIN';
+  const isManager = roleName === 'MANAGER' || isAdmin;
 
   // SUPER_ADMIN: branch on selected apexMode
   if (roleName === 'SUPER_ADMIN') {
-    if (apexMode === null) return null; // brief flash prevention while localStorage reads
+    if (apexMode === null) return null;
     return (
       <>
-        {/* ── TEMPORARY DEBUG BAR — remove once confirmed working ── */}
+        {/* ── TEMP DEBUG BAR — remove after confirming correct view ── */}
         <p style={{ color: 'red', fontSize: '10px', position: 'fixed', bottom: 4, left: 4, zIndex: 9999, background: 'white', padding: '2px 6px', borderRadius: 4, border: '1px solid red' }}>
-          Role: {JSON.stringify(user?.role)} | Mode: {apexMode}
+          Role: {JSON.stringify(user?.role)} | Mode: {typeof window !== 'undefined' ? localStorage.getItem('apexMode') : 'SSR'}
         </p>
         {apexMode === 'team_lead'
           ? <GurTeamLeadDashboard user={user} />
@@ -700,7 +698,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (isAdminRole || isManagerRole) return <AdminDashboard user={user} />;
-  if (isTeamLeadRole) return <TeamLeadDashboard user={user} />;
+  if (isAdmin || isManager) return <AdminDashboard user={user} />;
+  if (roleName === 'TEAM_LEAD') return <TeamLeadDashboard user={user} />;
   return <EmployeeDashboard user={user} />;
 }

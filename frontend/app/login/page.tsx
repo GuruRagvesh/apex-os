@@ -21,7 +21,7 @@ export default function LoginPage() {
       setAuth(res.user, res.accessToken);
       toast.success(`Welcome back, ${res.user.name}!`);
       // Defensive: role may be an object { name } or a plain string
-      const roleName: string = res.user?.role?.name ?? res.user?.role ?? '';
+      const roleName = res.user?.role?.name || res.user?.role || '';
       // SUPER_ADMIN picks their working mode before entering the dashboard
       if (roleName === 'SUPER_ADMIN') {
         router.push('/select-mode');
@@ -40,11 +40,14 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-lg">
-            <span className="text-white text-2xl font-bold">N</span>
+          <div
+            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg"
+            style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
+          >
+            <span className="text-white text-2xl font-bold">A</span>
           </div>
-          <h1 className="text-3xl font-bold text-white">Nexus</h1>
-          <p className="text-slate-400 mt-1 text-sm">TechnoEdge Internal Platform</p>
+          <h1 className="text-3xl font-bold text-white">Apex OS</h1>
+          <p className="text-slate-400 mt-1 text-sm">AI-Powered Business OS · TechnoEdge</p>
         </div>
 
         {/* Card */}
@@ -95,7 +98,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-slate-500 text-xs mt-6">
-          © 2024 TechnoEdge Learning Services. All rights reserved.
+          © 2026 TechnoEdge Learning Services. All rights reserved.
         </p>
       </div>
     </div>

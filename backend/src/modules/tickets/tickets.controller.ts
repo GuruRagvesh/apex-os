@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Patch, Delete, Body, Param, Query,
-  UseGuards, UseInterceptors, UploadedFile, Res,
+  UseGuards, UseInterceptors, UploadedFile, Res, ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -94,5 +94,11 @@ export class TicketsController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) { return this.ticketsService.remove(id); }
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    const roleName: string = user?.role?.name || user?.role || '';
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
+      throw new ForbiddenException('Only admins can delete tickets');
+    }
+    return this.ticketsService.remove(id);
+  }
 }

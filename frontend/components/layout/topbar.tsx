@@ -28,7 +28,9 @@ export function TopBar() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const [showNotifs, setShowNotifs] = useState(false);
-  const isSuperAdmin = user?.role?.name === 'SUPER_ADMIN';
+  // Defensive: role may be an object { name } or a plain string
+  const roleName = (user?.role as any)?.name || (user?.role as any) || '';
+  const isSuperAdmin = roleName === 'SUPER_ADMIN';
 
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications-count'],
@@ -76,7 +78,7 @@ export function TopBar() {
     },
   });
 
-  const pageName = Object.entries(pageNames).find(([key]) => pathname.startsWith(key))?.[1] || 'Nexus';
+  const pageName = Object.entries(pageNames).find(([key]) => pathname.startsWith(key))?.[1] || 'Apex OS';
   const count = (unreadCount as any)?.count ?? 0;
 
   return (
@@ -167,7 +169,11 @@ export function TopBar() {
                     </div>
                   ))
                 ) : (
-                  <div className="p-6 text-center text-slate-500 text-sm">No notifications</div>
+                  <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                    <span className="text-3xl mb-2" role="img" aria-label="All caught up">✓</span>
+                    <p className="text-sm font-semibold text-slate-700">You&apos;re all caught up</p>
+                    <p className="text-xs text-slate-400 mt-0.5">No new notifications</p>
+                  </div>
                 )}
               </div>
             </div>

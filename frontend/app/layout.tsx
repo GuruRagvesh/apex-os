@@ -6,8 +6,8 @@ import { Providers } from './providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Nexus — TechnoEdge Business Management',
-  description: 'Internal business management platform for TechnoEdge Learning Services',
+  title: 'Apex OS — TechnoEdge',
+  description: 'AI-Powered Business OS for TechnoEdge Learning Services',
   icons: { icon: '/favicon.svg' },
 };
 

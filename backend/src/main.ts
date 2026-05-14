@@ -52,8 +52,8 @@ async function bootstrap() {
   // ── Swagger (disable in production) ───────────────────────────────────────
   if (!isProd) {
     const config = new DocumentBuilder()
-      .setTitle('Nexus API')
-      .setDescription('TechnoEdge Internal Business Management API')
+      .setTitle('Apex OS API')
+      .setDescription('TechnoEdge AI-Powered Business OS — API')
       .setVersion('1.0')
       .addBearerAuth()
       .build();
@@ -62,15 +62,26 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
+  // ── Env validation ────────────────────────────────────────────────────────
+  const required = ['DATABASE_URL', 'JWT_SECRET'];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length) {
+    console.error(`\n❌ FATAL: Missing required env vars: ${missing.join(', ')}\n`);
+    process.exit(1);
+  }
+  ['OPENAI_API_KEY', 'SMTP_USER', 'CLOUDINARY_CLOUD_NAME']
+    .filter((k) => !process.env[k])
+    .forEach((k) => console.warn(`⚠️  WARN: ${k} not set — related features disabled`));
+
   // ── Start ─────────────────────────────────────────────────────────────────
   const port = process.env.PORT || 3001;
   await app.listen(port);
 
   const baseUrl = isProd
-    ? `https://nexus-api.up.railway.app`
+    ? `https://apex-os-api.onrender.com`
     : `http://localhost:${port}`;
 
-  console.log(`\n🚀 Nexus API  →  ${baseUrl}/api`);
+  console.log(`\n🚀 Apex OS API  →  ${baseUrl}/api`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   if (!isProd) {
     console.log(`📚 Swagger docs → http://localhost:${port}/api/docs`);

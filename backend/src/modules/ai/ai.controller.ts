@@ -1,5 +1,6 @@
 import { Controller, Post, Body, Param, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AiService } from './ai.service';
 import { AiCronService } from './ai.cron.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -9,6 +10,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 @ApiTags('AI Assistant')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
+@Throttle({ default: { limit: 10, ttl: 60000 } })
 @Controller('ai')
 export class AiController {
   constructor(

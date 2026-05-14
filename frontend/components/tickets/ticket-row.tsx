@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { cn, PRIORITY_COLORS, STATUS_COLORS, CATEGORY_COLORS, STATUS_LABELS, PRIORITY_LABELS, CATEGORY_LABELS, formatDate, getInitials } from '@/lib/utils';
+import { cn, PRIORITY_COLORS, STATUS_COLORS, CATEGORY_COLORS, STATUS_LABELS, PRIORITY_LABELS, CATEGORY_LABELS, formatDate, getInitials, DEPT_COLORS } from '@/lib/utils';
 import { Clock, Copy, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -49,6 +49,7 @@ function SlaBar({ slaPercent, isOverdue }: { slaPercent: number; isOverdue: bool
 
 export function TicketRow({ ticket, compact, onStatusChange }: TicketRowProps) {
   const isDone = ticket.status === 'DONE' || ticket.status === 'CLOSED';
+  const deptColor = ticket.department?.color || DEPT_COLORS[ticket.department?.name] || '#e2e8f0';
 
   if (compact) {
     return (
@@ -84,6 +85,7 @@ export function TicketRow({ ticket, compact, onStatusChange }: TicketRowProps) {
     <Link
       href={`/tickets/${ticket.id}`}
       className="grid grid-cols-12 items-center gap-4 px-4 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
+      style={{ borderLeft: `3px solid ${deptColor}` }}
     >
       {/* Ticket col-span-6 */}
       <div className="col-span-6 min-w-0">

@@ -41,7 +41,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   // Defensive: role may be stored as an object { name } or a plain string (old localStorage data)
-  const role: string = (user?.role as any)?.name ?? (typeof user?.role === 'string' ? user?.role : '') ?? '';
+  const role: string = (user?.role as any)?.name || (user?.role as any) || '';
 
   const [apexMode, setApexMode] = useState<string>('super_admin');
 
@@ -50,7 +50,8 @@ export function Sidebar() {
   }, [pathname]); // re-sync whenever the user navigates (catches mode changes)
 
   const isSuperAdmin = role === 'SUPER_ADMIN';
-  const isAdmin      = ['Admin', 'ADMIN', 'Manager', 'MANAGER'].includes(role);
+  const isAdmin      = role === 'ADMIN' || role === 'SUPER_ADMIN';
+  const isManager    = role === 'MANAGER' || isAdmin;
 
   // Choose nav items
   const navItems    = isSuperAdmin && apexMode === 'team_lead' ? teamLeadNav : fullNav;

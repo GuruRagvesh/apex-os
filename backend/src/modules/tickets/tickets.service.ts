@@ -215,16 +215,32 @@ export class TicketsService {
     if (data.status) {
       this.gateway.emitTicketStatusChanged(ticket.id, data.status, userId);
 
-      if (
-        (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) &&
-        ticket.assignedTo
-      ) {
-        await this.emailService.sendTicketResolved(
-          ticket.assignedTo.email,
-          ticket.ticketId,
-          ticket.title,
-          this.frontendUrl,
-        );
+      if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) {
+        // Email resolved assignee
+        if (ticket.assignedTo) {
+          await this.emailService.sendTicketResolved(
+            ticket.assignedTo.email,
+            ticket.ticketId,
+            ticket.title,
+            this.frontendUrl,
+          );
+        }
+        // Notify reporter (createdBy) that their ticket is done
+        if (existing.createdById && existing.createdById !== userId) {
+          try {
+            await this.notificationsService.create(
+              existing.createdById,
+              `Ticket resolved: ${ticket.ticketId}`,
+              `${ticket.title} has been marked ${data.status}`,
+              NotificationType.SUCCESS,
+              `/tickets/${ticket.id}`,
+            );
+            this.gateway.emitNotificationToUser(existing.createdById, {
+              title: `Ticket resolved: ${ticket.ticketId}`,
+              message: `${ticket.title} has been marked ${data.status}`,
+            });
+          } catch (_e) { /* never crash main operation */ }
+        }
       }
     }
 
