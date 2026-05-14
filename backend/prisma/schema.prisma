@@ -13,7 +13,8 @@ model User {
   name         String
   password     String
   avatar       String?
-  isActive     Boolean  @default(true)
+  isActive             Boolean  @default(true)
+  mustChangePassword   Boolean  @default(true)
   roleId       String
   departmentId String?
   createdAt    DateTime @default(now())
