@@ -155,6 +155,13 @@ export const aiApi = {
     r(api.post('/ai/trigger-digest', {})),
 };
 
+// Team
+export const teamApi = {
+  getDirectory: () => r(api.get('/users/directory')),
+  sendRequest: (targetUserId: string, reason?: string) =>
+    r(api.post('/team/request', { targetUserId, reason })),
+};
+
 // Notifications
 export const notificationsApi = {
   getAll: (unread?: boolean) => r(api.get('/notifications', { params: { unread } })),

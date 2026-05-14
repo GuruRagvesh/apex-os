@@ -69,6 +69,32 @@ export class UsersService {
     return { message: 'User deactivated' };
   }
 
+  async getDirectory() {
+    // Fetch all active users with role + dept
+    const users = await this.prisma.user.findMany({
+      where: { isActive: true },
+      include: { role: true, department: true },
+      orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
+    });
+
+    // Open ticket counts per user (single query)
+    const openCounts = await this.prisma.ticket.groupBy({
+      by: ['assignedToId'],
+      where: {
+        assignedToId: { not: null },
+        status: { notIn: ['DONE', 'CLOSED'] },
+      },
+      _count: { id: true },
+    });
+    const countMap: Record<string, number> = {};
+    openCounts.forEach((r) => { if (r.assignedToId) countMap[r.assignedToId] = r._count.id; });
+
+    return users.map(({ password, ...u }) => ({
+      ...u,
+      ticketCount: countMap[u.id] ?? 0,
+    }));
+  }
+
   async getStats() {
     const [total, active, byRole, byDept] = await Promise.all([
       this.prisma.user.count(),

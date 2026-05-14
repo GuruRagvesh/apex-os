@@ -18,8 +18,99 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+// All 40 canonical TechnoEdge email addresses
+const VALID_EMAILS = [
+  'Guru.Thanumoorthy@technoedgels.com',
+  'pavan.lalwani@technoedgels.com',
+  'accounts@technoedgels.com',
+  'tejas.kadam@technoedgels.com',
+  'anshika.patel@technoedgels.com',
+  'Krunal.Mehta@technoedgels.com',
+  'Vishal@technoedgels.com',
+  'Shubhendu@technoedgels.com',
+  'Rajashree.Solanki@technoedgels.com',
+  'aniket.phapale@technoedgels.com',
+  'Sumedh.Sadaphal@technoedgels.com',
+  'Arpit.Bharuka@technoedgels.com',
+  'finance@technoedgels.com',
+  'Honey.Dembani@technoedgels.com',
+  'pooja.kamble@technoedgels.com',
+  'Mahendra@technoedgels.com',
+  'trishank.pal@technoedgels.com',
+  'revati.patil@technoedgels.com',
+  'sanika.dongare@technoedgels.com',
+  'sahil.waykar@technoedgels.com',
+  'irfan@technoedgels.com',
+  'gaurav@technoedgels.com',
+  'narendra.suthar@technoedgels.com',
+  'pawan.tiwari@technoedgels.com',
+  'Charu.Kadam@technoedgels.com',
+  'Harshada.Patil@technoedgels.com',
+  'pankaj@technoedgels.com',
+  'sushant.gire@technoedgels.com',
+  'salman_technointern@outlook.com',
+  'gunjan.ranglani@technoedgels.com',
+  'harshal.tilekar@technoedgels.com',
+  'Vaishnavi@technoedgels.com',
+  'ajay.singh@technoedgels.com',
+  'Snehal.P@technoedgels.com',
+  'technointern605@outlook.com',
+  'technointern604@outlook.com',
+  'technointern606@outlook.com',
+  'technointern607@outlook.com',
+  'technointern608@outlook.com',
+  'technointern602@outlook.com',
+];
+
 async function main() {
   console.log('🌱 Seeding APEX database...\n');
+
+  // ── Cleanup: remove old demo / test users ─────────────────────────────────
+  console.log('🗑️  Cleaning up old demo users...');
+  const oldUsers = await prisma.user.findMany({
+    where: { email: { notIn: VALID_EMAILS } },
+    select: { id: true, email: true },
+  });
+
+  if (oldUsers.length > 0) {
+    const oldIds = oldUsers.map((u) => u.id);
+
+    // Reassign any tickets assigned to old users so no dangling FK
+    await prisma.ticket.updateMany({
+      where: { assignedToId: { in: oldIds } },
+      data: { assignedToId: null },
+    });
+
+    // Delete tickets created by old users (cascades: comments, attachments, history)
+    const oldTickets = await prisma.ticket.findMany({
+      where: { createdById: { in: oldIds } },
+      select: { id: true },
+    });
+    if (oldTickets.length > 0) {
+      const oldTicketIds = oldTickets.map((t) => t.id);
+      await prisma.ticketHistory.deleteMany({ where: { ticketId: { in: oldTicketIds } } });
+      await prisma.attachment.deleteMany({ where: { ticketId: { in: oldTicketIds } } });
+      await prisma.comment.deleteMany({ where: { ticketId: { in: oldTicketIds } } });
+      await prisma.ticket.deleteMany({ where: { id: { in: oldTicketIds } } });
+    }
+
+    // Delete other user-related data
+    await prisma.ticketHistory.deleteMany({ where: { changedById: { in: oldIds } } });
+    await prisma.comment.deleteMany({ where: { authorId: { in: oldIds } } });
+    await prisma.notification.deleteMany({ where: { userId: { in: oldIds } } });
+    await prisma.leaveRequest.deleteMany({ where: { userId: { in: oldIds } } });
+    await prisma.activityLog.deleteMany({ where: { userId: { in: oldIds } } });
+    await prisma.projectMember.deleteMany({ where: { userId: { in: oldIds } } });
+
+    // Delete the old users
+    await prisma.user.deleteMany({ where: { id: { in: oldIds } } });
+
+    console.log(`   ✓ Removed ${oldIds.length} old demo user(s):`);
+    oldUsers.forEach((u) => console.log(`     - ${u.email}`));
+  } else {
+    console.log('   ✓ No old demo users found');
+  }
+  console.log();
 
   // ── Password ───────────────────────────────────────────────────────────────
   // Hash once and reuse for all 40 users — bcrypt is slow by design

@@ -18,9 +18,15 @@ export class UsersController {
   }
 
   @Get('stats')
-  @Roles('Admin', 'Manager')
+  @Roles('Admin', 'Manager', 'ADMIN', 'MANAGER', 'SUPER_ADMIN')
   getStats() {
     return this.usersService.getStats();
+  }
+
+  @Get('directory')
+  @Roles('Admin', 'Manager', 'ADMIN', 'MANAGER', 'SUPER_ADMIN')
+  getDirectory() {
+    return this.usersService.getDirectory();
   }
 
   @Get(':id')

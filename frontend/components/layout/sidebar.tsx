@@ -140,6 +140,30 @@ export function Sidebar() {
 
         {showAdminSection && (
           <>
+            {/* Team Directory — visible to admins/managers */}
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2 mt-3">Team</p>
+            {(() => {
+              const active = pathname === '/team' || pathname.startsWith('/team/');
+              return (
+                <Link
+                  href="/team"
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group',
+                    active ? ACCENT : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                  )}
+                >
+                  <Users size={18} className={active ? ACCENT_ICON : 'text-slate-400 group-hover:text-slate-600'} />
+                  Team
+                  <span className={cn(
+                    'ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+                    active ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200',
+                  )}>
+                    4
+                  </span>
+                  {active && <ChevronRight size={14} className={cn(ACCENT_CHEVRON)} />}
+                </Link>
+              );
+            })()}
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2 mt-3">Admin</p>
             {adminNav.map((item) => {
               const active = pathname === item.href || pathname.startsWith(item.href + '/');
