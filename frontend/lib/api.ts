@@ -36,6 +36,8 @@ const r = <T = any>(p: any): Promise<T> => p as unknown as Promise<T>;
 export const authApi = {
   login: (email: string, password: string) => r(api.post('/auth/login', { email, password })),
   me: () => r(api.get('/auth/me')),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    r(api.patch('/auth/change-password', { currentPassword, newPassword })),
 };
 
 // Users

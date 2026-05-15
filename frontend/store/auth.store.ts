@@ -6,6 +6,7 @@ interface User {
   email: string;
   name: string;
   avatar?: string;
+  mustChangePassword?: boolean;
   role: { id: string; name: string; level: number };
   department?: { id: string; name: string; color: string };
 }

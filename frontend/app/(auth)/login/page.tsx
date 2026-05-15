@@ -19,6 +19,11 @@ export default function LoginPage() {
     try {
       const res: any = await authApi.login(email, password);
       setAuth(res.user, res.accessToken);
+      // If user must change password, redirect them before anything else
+      if (res.user?.mustChangePassword) {
+        router.push('/change-password');
+        return;
+      }
       toast.success(`Welcome back, ${res.user.name}!`);
       // Defensive: role may be an object { name } or a plain string
       const roleName = res.user?.role?.name || res.user?.role || '';

@@ -1,5 +1,6 @@
 ﻿import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
@@ -21,6 +22,7 @@ export class TicketsService {
     private emailService: EmailService,
     private notificationsService: NotificationsService,
     private configService: ConfigService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   private get frontendUrl() {
@@ -138,6 +140,7 @@ export class TicketsService {
     });
 
     this.gateway.emitTicketCreated(ticket);
+    this.eventEmitter.emit('ticket.created', { ticket, userId });
 
     if (ticket.assignedTo) {
       const creator = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
@@ -213,6 +216,12 @@ export class TicketsService {
     });
 
     if (data.status) {
+      this.eventEmitter.emit('ticket.status_changed', {
+        ticket,
+        oldStatus: existing.status,
+        newStatus: data.status,
+        userId,
+      });
       this.gateway.emitTicketStatusChanged(ticket.id, data.status, userId);
 
       if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) {
@@ -245,6 +254,11 @@ export class TicketsService {
     }
 
     if (data.assignedToId && data.assignedToId !== existing.assignedToId && ticket.assignedTo) {
+      this.eventEmitter.emit('ticket.assigned', {
+        ticket,
+        assigneeId: data.assignedToId,
+        assignedBy: userId,
+      });
       const updater = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
       await Promise.all([
         this.notificationsService.create(

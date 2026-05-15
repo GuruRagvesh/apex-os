@@ -1,14 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, Plus, CheckCheck, RefreshCw } from 'lucide-react';
+import { Bell, Plus, CheckCheck, RefreshCw, Search } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/utils';
 import { useSocket } from '@/hooks/useSocket';
+import { CommandPalette } from '@/components/ui/command-palette';
 import toast from 'react-hot-toast';
 
 const pageNames: Record<string, string> = {
@@ -27,10 +28,23 @@ export function TopBar() {
   const router = useRouter();
   const { user } = useAuthStore();
   const qc = useQueryClient();
-  const [showNotifs, setShowNotifs] = useState(false);
+  const [showNotifs,   setShowNotifs]   = useState(false);
+  const [paletteOpen,  setPaletteOpen]  = useState(false);
   // Defensive: role may be an object { name } or a plain string
-  const roleName = (user?.role as any)?.name || (user?.role as any) || '';
+  const roleName     = (user?.role as any)?.name || (user?.role as any) || '';
   const isSuperAdmin = roleName === 'SUPER_ADMIN';
+
+  // Global keyboard shortcut: Ctrl+K / Cmd+K
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications-count'],
@@ -82,6 +96,8 @@ export function TopBar() {
   const count = (unreadCount as any)?.count ?? 0;
 
   return (
+    <>
+    <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     <header className="bg-white border-b border-slate-200 h-14 flex items-center justify-between px-6 flex-shrink-0">
       <div className="flex items-center gap-3">
         <h1 className="font-semibold text-slate-800">{pageName}</h1>
@@ -93,6 +109,18 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Global search trigger */}
+        <button
+          onClick={() => setPaletteOpen(true)}
+          className="hidden sm:flex items-center gap-2 text-xs text-slate-400 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+        >
+          <Search size={13} />
+          <span>Search…</span>
+          <kbd className="hidden lg:inline font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-400">
+            ⌘K
+          </kbd>
+        </button>
+
         {/* Switch Mode — only for SUPER_ADMIN */}
         {isSuperAdmin && (
           <button
@@ -181,5 +209,6 @@ export function TopBar() {
         </div>
       </div>
     </header>
+    </>
   );
 }
