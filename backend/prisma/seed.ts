@@ -60,6 +60,8 @@ const VALID_EMAILS = [
   'technointern607@outlook.com',
   'technointern608@outlook.com',
   'technointern602@outlook.com',
+  // Shared SUPER_ADMIN account
+  'subrat@technoedgels.com',
 ];
 
 async function main() {
@@ -263,6 +265,31 @@ async function main() {
     console.log(`   ✓ ${u.name.padEnd(22)} [${u.role.padEnd(11)}]  ${u.dept}`);
     created++;
   }
+
+  // ── Subrat — dedicated SUPER_ADMIN with own password (mustChangePassword: false) ──
+  console.log('\n👤 Upserting shared SUPER_ADMIN: Subrat...');
+  const subratPassword = await bcrypt.hash('SubratApex@2026', 12);
+  await prisma.user.upsert({
+    where:  { email: 'subrat@technoedgels.com' },
+    update: {
+      name:               'Subrat',
+      roleId:             roles['SUPER_ADMIN'],
+      departmentId:       depts['Company / Operations'],
+      password:           subratPassword,
+      mustChangePassword: false,
+      isActive:           true,
+    },
+    create: {
+      name:               'Subrat',
+      email:              'subrat@technoedgels.com',
+      password:           subratPassword,
+      roleId:             roles['SUPER_ADMIN'],
+      departmentId:       depts['Company / Operations'],
+      isActive:           true,
+      mustChangePassword: false,
+    },
+  });
+  console.log('   ✓ Subrat              [SUPER_ADMIN]  Company / Operations');
 
   // ── Summary ────────────────────────────────────────────────────────────────
   console.log('\n' + '─'.repeat(60));

@@ -1,7 +1,9 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 
+// Strip any trailing /api from the env var so we never get a double /api
+// Works whether NEXT_PUBLIC_API_URL ends with /api or not
 const API_URL = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL}/api`
+  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '')}/api`
   : 'http://localhost:3001/api';
 
 export const api = axios.create({
