@@ -1,8 +1,8 @@
-import { Module } from '@nestjs/common';
+﻿import { Module } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { AiCronService } from './ai.cron.service';
 import { AiController } from './ai.controller';
-import { EmailModule } from '../email/email.module';
+import { EmailModule } from '../platform/email/email.module';
 
 @Module({
   imports: [EmailModule],

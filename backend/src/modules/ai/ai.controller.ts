@@ -1,11 +1,11 @@
-import { Controller, Post, Body, Param, Get, UseGuards } from '@nestjs/common';
+﻿import { Controller, Post, Body, Param, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AiService } from './ai.service';
 import { AiCronService } from './ai.cron.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
+import { RolesGuard } from '../../shared/guards/roles.guard';
+import { Roles } from '../../shared/decorators/roles.decorator';
 
 @ApiTags('AI Assistant')
 @ApiBearerAuth()

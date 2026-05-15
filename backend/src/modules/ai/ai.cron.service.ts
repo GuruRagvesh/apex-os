@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+﻿import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmailService } from '../email/email.service';
+import { EmailService } from '../platform/email/email.service';
 import { ConfigService } from '@nestjs/config';
 
 const SLA_HOURS: Record<string, number> = { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 };
@@ -25,11 +25,11 @@ export class AiCronService {
   // Run every day at 18:00 (6 PM) server time
   @Cron('0 18 * * *', { name: 'daily-digest' })
   async sendDailyDigest() {
-    this.logger.log('Running daily digest cron job…');
+    this.logger.log('Running daily digest cron jobâ€¦');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // ── Gather data ─────────────────────────────────────────────────────────
+    // â”€â”€ Gather data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const [resolvedToday, allOpen, newToday, pendingLeave, managers] = await Promise.all([
       this.prisma.ticket.findMany({
         where: {
@@ -71,21 +71,21 @@ export class AiCronService {
     ]);
 
     if (managers.length === 0) {
-      this.logger.warn('No Admin/Manager users found — skipping digest');
+      this.logger.warn('No Admin/Manager users found â€” skipping digest');
       return;
     }
 
     const overdueTickets = allOpen.filter((t) => isOverdue(t.createdAt, t.priority, t.status));
 
-    // ── Build email HTML ─────────────────────────────────────────────────────
+    // â”€â”€ Build email HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const dateStr = new Date().toLocaleDateString('en-GB', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
 
     const html = this.buildDigestHtml(dateStr, resolvedToday, overdueTickets, newToday, pendingLeave);
-    const subject = `NEXUS Daily Digest — ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    const subject = `NEXUS Daily Digest â€” ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
-    // ── Send to each manager / admin ─────────────────────────────────────────
+    // â”€â”€ Send to each manager / admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let sent = 0;
     for (const manager of managers) {
       await this.emailService.sendEmail(manager.email, subject, html);
@@ -98,13 +98,13 @@ export class AiCronService {
     );
   }
 
-  // ── Manually trigger (for testing) ──────────────────────────────────────────
+  // â”€â”€ Manually trigger (for testing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async triggerDigestNow() {
     await this.sendDailyDigest();
     return { message: 'Daily digest triggered' };
   }
 
-  // ── HTML builder ─────────────────────────────────────────────────────────────
+  // â”€â”€ HTML builder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   private buildDigestHtml(
     dateStr: string,
     resolved: any[],
@@ -124,7 +124,7 @@ export class AiCronService {
       `<tr style="border-bottom:1px solid #f1f5f9">
          <td style="padding:8px 0;font-size:13px;color:#475569;font-family:monospace">${t.ticketId}</td>
          <td style="padding:8px 12px;font-size:13px;color:#0f172a">${t.title}</td>
-         <td style="padding:8px 0;font-size:12px;color:#64748b">${t.department?.name ?? '—'}</td>
+         <td style="padding:8px 0;font-size:12px;color:#64748b">${t.department?.name ?? 'â€”'}</td>
        </tr>`;
 
     const section = (title: string, color: string, icon: string, rows: string, emptyMsg: string) =>
@@ -177,14 +177,14 @@ export class AiCronService {
 
     ${section(
       'Resolved Today',
-      '#16a34a', '✅',
+      '#16a34a', 'âœ…',
       resolved.map(ticketRow).join(''),
       'No tickets were resolved today.',
     )}
 
     ${overdue.length > 0 ? section(
       `Overdue Tickets (${overdue.length})`,
-      '#dc2626', '⚠️',
+      '#dc2626', 'âš ï¸',
       overdue.map((t) =>
         `<tr style="border-bottom:1px solid #fef2f2;background:#fff5f5">
            <td style="padding:8px 0;font-size:13px;color:#dc2626;font-family:monospace;font-weight:600">${t.ticketId}</td>
@@ -199,12 +199,12 @@ export class AiCronService {
 
     ${section(
       'New Tickets Today',
-      '#2563eb', '🆕',
+      '#2563eb', 'ðŸ†•',
       newTickets.map((t) =>
         `<tr style="border-bottom:1px solid #f1f5f9">
            <td style="padding:8px 0;font-size:13px;color:#475569;font-family:monospace">${t.ticketId}</td>
            <td style="padding:8px 12px;font-size:13px;color:#0f172a">${t.title}</td>
-           <td style="padding:8px 0;font-size:12px;color:#64748b">${t.createdBy?.name ?? '—'}</td>
+           <td style="padding:8px 0;font-size:12px;color:#64748b">${t.createdBy?.name ?? 'â€”'}</td>
          </tr>`
       ).join(''),
       'No new tickets were opened today.',
@@ -212,13 +212,13 @@ export class AiCronService {
 
     ${pendingLeave.length > 0 ? section(
       `Pending Leave Requests (${pendingLeave.length})`,
-      '#d97706', '📅',
+      '#d97706', 'ðŸ“…',
       pendingLeave.map((l) =>
         `<tr style="border-bottom:1px solid #f1f5f9">
            <td style="padding:8px 0;font-size:13px;color:#0f172a;font-weight:500">${l.user?.name}</td>
            <td style="padding:8px 12px;font-size:13px;color:#64748b">${l.type}</td>
            <td style="padding:8px 0;font-size:12px;color:#64748b">
-             ${new Date(l.startDate).toLocaleDateString('en-GB')} → ${new Date(l.endDate).toLocaleDateString('en-GB')}
+             ${new Date(l.startDate).toLocaleDateString('en-GB')} â†’ ${new Date(l.endDate).toLocaleDateString('en-GB')}
            </td>
          </tr>`
       ).join(''),
@@ -231,7 +231,7 @@ export class AiCronService {
          style="background:linear-gradient(135deg,#1e40af,#4f46e5);color:#fff;padding:12px 32px;
                 border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;
                 display:inline-block">
-        Open Dashboard →
+        Open Dashboard â†’
       </a>
     </div>
   </td></tr>
@@ -239,7 +239,7 @@ export class AiCronService {
   <!-- Footer -->
   <tr><td style="background:#f1f5f9;padding:16px 32px;text-align:center">
     <p style="margin:0;font-size:12px;color:#94a3b8">
-      © ${new Date().getFullYear()} TechnoEdge Learning Services · Nexus Platform<br>
+      Â© ${new Date().getFullYear()} TechnoEdge Learning Services Â· Nexus Platform<br>
       This is an automated daily digest sent to managers and admins.
     </p>
   </td></tr>

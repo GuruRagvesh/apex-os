@@ -2,44 +2,58 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { PrismaModule } from './prisma/prisma.module';
-import { AuthModule } from './modules/auth/auth.module';
-import { UsersModule } from './modules/users/users.module';
-import { RolesModule } from './modules/roles/roles.module';
-import { DepartmentsModule } from './modules/departments/departments.module';
-import { ProjectsModule } from './modules/projects/projects.module';
-import { TicketsModule } from './modules/tickets/tickets.module';
-import { CommentsModule } from './modules/comments/comments.module';
-import { DashboardModule } from './modules/dashboard/dashboard.module';
-import { LeaveModule } from './modules/leave/leave.module';
-import { NotificationsModule } from './modules/notifications/notifications.module';
-import { GatewayModule } from './modules/gateway/gateway.module';
-import { EmailModule } from './modules/email/email.module';
+
+// ── 🔐 Core ───────────────────────────────────────────────────────────────────
+import { AuthModule } from './modules/core/auth/auth.module';
+import { UsersModule } from './modules/core/users/users.module';
+import { RolesModule } from './modules/core/roles/roles.module';
+import { DepartmentsModule } from './modules/core/departments/departments.module';
+
+// ── 🎫 Operations ─────────────────────────────────────────────────────────────
+import { TicketsModule } from './modules/operations/tickets/tickets.module';
+import { ProjectsModule } from './modules/operations/projects/projects.module';
+import { CommentsModule } from './modules/operations/comments/comments.module';
+import { LeaveModule } from './modules/operations/leave/leave.module';
+import { NotificationsModule } from './modules/operations/notifications/notifications.module';
+import { TeamModule } from './modules/operations/team/team.module';
+
+// ── 🤖 AI ─────────────────────────────────────────────────────────────────────
 import { AiModule } from './modules/ai/ai.module';
-import { HealthModule } from './modules/health/health.module';
-import { TeamModule } from './modules/team/team.module';
+
+// ── 🚀 Platform ───────────────────────────────────────────────────────────────
+import { DashboardModule } from './modules/platform/dashboard/dashboard.module';
+import { GatewayModule } from './modules/platform/gateway/gateway.module';
+import { EmailModule } from './modules/platform/email/email.module';
+import { HealthModule } from './modules/platform/health/health.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    EventEmitterModule.forRoot(),
     PrismaModule,
+    // 🔐 Core
     AuthModule,
     UsersModule,
     RolesModule,
     DepartmentsModule,
-    ProjectsModule,
+    // 🎫 Operations
     TicketsModule,
+    ProjectsModule,
     CommentsModule,
-    DashboardModule,
     LeaveModule,
     NotificationsModule,
+    TeamModule,
+    // 🤖 AI
+    AiModule,
+    // 🚀 Platform
+    DashboardModule,
     GatewayModule,
     EmailModule,
-    AiModule,
     HealthModule,
-    TeamModule,
   ],
 })
 export class AppModule {}
