@@ -12,34 +12,50 @@ interface User {
 }
 
 interface AuthState {
-  user: User | null;
-  token: string | null;
-  isAuthenticated: boolean;
-  setAuth: (user: User, token: string) => void;
-  logout: () => void;
-  updateUser: (user: Partial<User>) => void;
+  user:             User | null;
+  token:            string | null;
+  isAuthenticated:  boolean;
+  hasHydrated:      boolean;
+  setAuth:          (user: User, token: string) => void;
+  logout:           () => void;
+  updateUser:       (user: Partial<User>) => void;
+  setHasHydrated:   (v: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
-      user: null,
-      token: null,
+      user:            null,
+      token:           null,
       isAuthenticated: false,
+      hasHydrated:     false,
+
       setAuth: (user, token) => {
         localStorage.setItem('nexus_token', token);
         set({ user, token, isAuthenticated: true });
       },
+
       logout: () => {
         localStorage.removeItem('nexus_token');
+        localStorage.removeItem('apexMode');
         set({ user: null, token: null, isAuthenticated: false });
       },
+
       updateUser: (updates) =>
         set((state) => ({ user: state.user ? { ...state.user, ...updates } : null })),
+
+      setHasHydrated: (v) => set({ hasHydrated: v }),
     }),
     {
       name: 'nexus-auth',
-      partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({
+        user:            state.user,
+        token:           state.token,
+        isAuthenticated: state.isAuthenticated,
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     },
   ),
 );
