@@ -134,7 +134,7 @@ export default function SelectModePage() {
               <Users size={28} className="text-blue-300" />
             </div>
 
-            <h2 className="text-2xl font-bold text-white mb-3">AI & R&D Team Lead</h2>
+            <h2 className="text-2xl font-bold text-white mb-3">AI & R&D Lead</h2>
             <p className="text-blue-200/75 text-sm leading-relaxed">
               Your team view — manage Sonali, Snehal, Pratik, Shama and AI & R&D tasks
             </p>
