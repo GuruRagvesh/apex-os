@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: apex-os-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node dist/main.js
