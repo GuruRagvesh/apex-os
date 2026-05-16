@@ -100,6 +100,10 @@ export class AiCronService {
 
   // â”€â”€ Manually trigger (for testing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async triggerDigestNow() {
+    const aiDisabled = !process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY;
+    if (aiDisabled) {
+      return { result: 'AI features coming soon.', disabled: true };
+    }
     await this.sendDailyDigest();
     return { message: 'Daily digest triggered' };
   }

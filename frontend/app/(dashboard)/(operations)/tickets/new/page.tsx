@@ -41,6 +41,7 @@ export default function NewTicketPage() {
 
   const [aiReason, setAiReason] = useState<string>('');
   const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiDisabled, setAiDisabled] = useState(false);
 
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
   const { data: projects } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
@@ -83,13 +84,18 @@ export default function NewTicketPage() {
     setAiReason('');
     try {
       const result = await aiApi.suggestPriority(form.title, form.description) as any;
-      if (result?.priority) {
+      if (result?.disabled) {
+        setAiDisabled(true);
+        setAiReason(result.reason ?? 'AI features coming soon.');
+        // Apply default priority but no success toast
+        if (result.priority) setForm((f) => ({ ...f, priority: result.priority }));
+      } else if (result?.priority) {
         setForm((f) => ({ ...f, priority: result.priority }));
         setAiReason(result.reason ?? '');
         toast.success(`AI suggests: ${result.priority}`, { icon: '✨' });
       }
     } catch {
-      toast.error('AI suggestion failed');
+      // Silent — backend now always returns a payload. Real errors are rare.
     } finally {
       setAiSuggesting(false);
     }
@@ -162,20 +168,29 @@ export default function NewTicketPage() {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-medium text-slate-700">Priority</label>
-              <button
-                type="button"
-                onClick={handleSuggestPriority}
-                disabled={aiSuggesting || !form.title.trim()}
-                className={cn(
-                  'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors',
-                  'border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed',
-                )}
-                title="Let AI suggest a priority based on your title and description"
-              >
-                {aiSuggesting
-                  ? <><Loader2 size={11} className="animate-spin" /> Thinking…</>
-                  : <><Sparkles size={11} /> Suggest</>}
-              </button>
+              {aiDisabled ? (
+                <span
+                  className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-400 bg-slate-50"
+                  title="AI features will be enabled once configured"
+                >
+                  <Sparkles size={11} /> AI coming soon
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSuggestPriority}
+                  disabled={aiSuggesting || !form.title.trim()}
+                  className={cn(
+                    'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors',
+                    'border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed',
+                  )}
+                  title="Let AI suggest a priority based on your title and description"
+                >
+                  {aiSuggesting
+                    ? <><Loader2 size={11} className="animate-spin" /> Thinking…</>
+                    : <><Sparkles size={11} /> Suggest</>}
+                </button>
+              )}
             </div>
             <select
               value={form.priority}

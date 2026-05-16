@@ -137,13 +137,16 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['ai-suggestions', ticketId],
     queryFn: () => aiApi.ticketSuggestions(ticketId) as Promise<{
-      nextAction: string;
-      suggestedAssignee: string;
-      estimatedTime: string;
+      nextAction?: string;
+      suggestedAssignee?: string;
+      estimatedTime?: string;
+      result?: string;
+      disabled?: boolean;
     }>,
     enabled: false, // only fetch on demand
     staleTime: 10 * 60 * 1000,
   });
+  const aiDisabled = data?.disabled === true;
 
   const handleToggle = () => {
     if (!open && !fetched) {
@@ -188,12 +191,19 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
               Analysing ticket with AI…
             </div>
           )}
-          {error && (
+          {error && !aiDisabled && (
             <p className="py-3 text-xs text-red-500">
-              Failed to load suggestions. Check your OPENAI_API_KEY.
+              Failed to load suggestions. Please try again later.
             </p>
           )}
-          {data && (
+          {aiDisabled && (
+            <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
+              <Sparkles size={20} className="text-slate-300" />
+              <p className="text-sm text-slate-600 font-medium">AI suggestions coming soon</p>
+              <p className="text-xs text-slate-400">Smart next-action, assignee and time-estimate suggestions will appear here.</p>
+            </div>
+          )}
+          {data && !aiDisabled && (
             <div className="pt-3 space-y-3">
               {rows.map((row) => (
                 <div key={row.label} className="flex items-start gap-2.5">

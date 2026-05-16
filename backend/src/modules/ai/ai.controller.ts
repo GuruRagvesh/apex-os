@@ -26,7 +26,7 @@ export class AiController {
 
   /** B) Summarise all open/in-progress tickets (Admin/Manager only) */
   @UseGuards(RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   @Post('summarize-tickets')
   summarizeTickets() {
     return this.aiService.summarizeTickets();
@@ -40,7 +40,7 @@ export class AiController {
 
   /** D) Manually trigger the daily digest (Admin only, for testing) */
   @UseGuards(RolesGuard)
-  @Roles('Admin')
+  @Roles('ADMIN', 'SUPER_ADMIN')
   @Post('trigger-digest')
   triggerDigest() {
     return this.aiCronService.triggerDigestNow();

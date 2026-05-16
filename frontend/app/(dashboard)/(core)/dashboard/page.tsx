@@ -60,9 +60,10 @@ function DailySummaryModal({ onClose }: { onClose: () => void }) {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['ai-summary'],
-    queryFn:  () => aiApi.summarizeTickets() as Promise<{ summary: string }>,
+    queryFn:  () => aiApi.summarizeTickets() as Promise<{ summary: string; disabled?: boolean }>,
     staleTime: 5 * 60 * 1000,
   });
+  const aiDisabled = (data as any)?.disabled === true;
 
   const handleCopy = () => {
     if (data?.summary) {
@@ -98,16 +99,25 @@ function DailySummaryModal({ onClose }: { onClose: () => void }) {
               <p className="text-sm text-slate-500">Generating summary with AI…</p>
             </div>
           )}
-          {error && (
+          {error && !aiDisabled && (
             <p className="text-sm text-red-500 text-center py-8">
-              Failed to generate summary. Check your OpenAI key.
+              Failed to generate summary. Please try again later.
             </p>
           )}
-          {data?.summary && (
+          {aiDisabled && (
+            <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
+              <Sparkles size={28} className="text-slate-300" />
+              <p className="text-sm text-slate-600 font-medium">AI Daily Summary is coming soon</p>
+              <p className="text-xs text-slate-400 max-w-xs">
+                It will generate an intelligent summary of your team&apos;s activity once AI is configured.
+              </p>
+            </div>
+          )}
+          {data?.summary && !aiDisabled && (
             <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{data.summary}</p>
           )}
         </div>
-        {data?.summary && (
+        {data?.summary && !aiDisabled && (
           <div className="px-6 pb-5 flex items-center justify-between">
             <p className="text-xs text-slate-400">Powered by GPT-4o mini</p>
             <button

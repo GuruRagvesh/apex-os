@@ -27,8 +27,14 @@ export class AiService {
       this.client = new OpenAI({ apiKey: apiKey.trim() });
       this.logger.log('OpenAI client initialised (model: gpt-4o-mini)');
     } else {
-      this.logger.warn('OPENAI_API_KEY not set — AI endpoints will return fallback responses');
+      this.logger.warn('OPENAI_API_KEY not set — AI endpoints will return "coming soon" responses');
     }
+  }
+
+  // True when no AI provider key is configured. Methods short-circuit and return a friendly
+  // "coming soon" payload so the UI can render a graceful disabled state instead of erroring.
+  private isAiDisabled(): boolean {
+    return !process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY;
   }
 
   // ── Core helper ─────────────────────────────────────────────────────────────
@@ -54,7 +60,14 @@ export class AiService {
   }
 
   // ── A) Suggest priority ──────────────────────────────────────────────────────
-  async suggestPriority(title: string, description: string): Promise<{ priority: string; reason: string }> {
+  async suggestPriority(title: string, description: string): Promise<{ priority: string; reason: string; disabled?: boolean }> {
+    if (this.isAiDisabled()) {
+      return {
+        priority: 'MEDIUM',
+        reason: 'AI features coming soon. Priority set to Medium by default.',
+        disabled: true,
+      };
+    }
     const fallback = { priority: 'MEDIUM', reason: 'No AI key configured — defaulting to Medium.' };
     if (!this.client) return fallback;
 
@@ -85,7 +98,13 @@ Priority guide:
   }
 
   // ── B) Summarise open tickets ────────────────────────────────────────────────
-  async summarizeTickets(): Promise<{ summary: string }> {
+  async summarizeTickets(): Promise<{ summary: string; disabled?: boolean }> {
+    if (this.isAiDisabled()) {
+      return {
+        summary: "AI Daily Summary will be available once AI is configured. Check back soon.",
+        disabled: true,
+      };
+    }
     const tickets = await this.prisma.ticket.findMany({
       where: { status: { in: ['OPEN', 'IN_PROGRESS', 'REVIEW'] } },
       include: {
@@ -136,7 +155,10 @@ Rules:
   // ── C) Ticket suggestions ────────────────────────────────────────────────────
   async ticketSuggestions(
     id: string,
-  ): Promise<{ nextAction: string; suggestedAssignee: string; estimatedTime: string }> {
+  ): Promise<{ nextAction?: string; suggestedAssignee?: string; estimatedTime?: string; result?: string; disabled?: boolean }> {
+    if (this.isAiDisabled()) {
+      return { result: 'AI features coming soon.', disabled: true };
+    }
     const ticket = await this.prisma.ticket.findFirst({
       where: { OR: [{ id }, { ticketId: id }] },
       include: {
