@@ -9,10 +9,12 @@ import { Plus, Search, Shield, UserCheck, UserX } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const roleBadge: Record<string, string> = {
-  Admin: 'bg-red-100 text-red-700',
-  Manager: 'bg-orange-100 text-orange-700',
-  'Team Lead': 'bg-blue-100 text-blue-700',
-  Employee: 'bg-green-100 text-green-700',
+  SUPER_ADMIN: 'bg-purple-100 text-purple-700',
+  ADMIN: 'bg-red-100 text-red-700',
+  MANAGER: 'bg-orange-100 text-orange-700',
+  TEAM_LEAD: 'bg-blue-100 text-blue-700',
+  EMPLOYEE: 'bg-green-100 text-green-700',
+  INTERN: 'bg-slate-100 text-slate-600',
 };
 
 export default function UsersPage() {
@@ -22,10 +24,11 @@ export default function UsersPage() {
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '' });
 
-  const { data: users, isLoading } = useQuery({
+  const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
-    queryFn: () => usersApi.getAll(search ? { search } : {}) as Promise<any[]>,
+    queryFn: () => usersApi.getAll(search ? { search } : {}) as Promise<any>,
   });
+  const users: any[] = usersResponse?.users ?? (Array.isArray(usersResponse) ? usersResponse : []);
 
   const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any[]> });
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
@@ -46,7 +49,7 @@ export default function UsersPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); },
   });
 
-  const isAdmin = me?.role?.name === 'Admin';
+  const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(me?.role?.name ?? '');
   const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
 
   return (

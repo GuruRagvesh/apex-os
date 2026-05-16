@@ -31,12 +31,12 @@ export const useAuthStore = create<AuthState>()(
       hasHydrated:     false,
 
       setAuth: (user, token) => {
-        localStorage.setItem('nexus_token', token);
+        localStorage.setItem('apex_token', token);
         set({ user, token, isAuthenticated: true });
       },
 
       logout: () => {
-        localStorage.removeItem('nexus_token');
+        localStorage.removeItem('apex_token');
         localStorage.removeItem('apexMode');
         set({ user: null, token: null, isAuthenticated: false });
       },
@@ -47,7 +47,7 @@ export const useAuthStore = create<AuthState>()(
       setHasHydrated: (v) => set({ hasHydrated: v }),
     }),
     {
-      name: 'nexus-auth',
+      name: 'apex-auth',
       partialize: (state) => ({
         user:            state.user,
         token:           state.token,

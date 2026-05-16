@@ -39,6 +39,10 @@ export class NotificationsService {
     return { count };
   }
 
+  async findById(id: string) {
+    return this.prisma.notification.findUnique({ where: { id } });
+  }
+
   async remove(id: string) {
     return this.prisma.notification.delete({ where: { id } });
   }

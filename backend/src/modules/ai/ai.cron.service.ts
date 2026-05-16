@@ -65,7 +65,7 @@ export class AiCronService {
       }),
 
       this.prisma.user.findMany({
-        where: { role: { name: { in: ['Admin', 'Manager'] } }, isActive: true },
+        where: { role: { name: { in: ['ADMIN', 'MANAGER', 'SUPER_ADMIN'] } }, isActive: true },
         select: { id: true, name: true, email: true },
       }),
     ]);
@@ -83,7 +83,7 @@ export class AiCronService {
     });
 
     const html = this.buildDigestHtml(dateStr, resolvedToday, overdueTickets, newToday, pendingLeave);
-    const subject = `NEXUS Daily Digest â€” ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    const subject = `APEX OS Daily Digest â€” ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
     // â”€â”€ Send to each manager / admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let sent = 0;
@@ -156,7 +156,7 @@ export class AiCronService {
       <td>
         <table cellpadding="0" cellspacing="0"><tr>
           <td style="width:36px;height:36px;background:rgba(255,255,255,.2);border-radius:8px;text-align:center;line-height:36px;font-weight:bold;color:#fff;font-size:18px">N</td>
-          <td style="padding-left:10px;color:#fff;font-size:17px;font-weight:700">Nexus</td>
+          <td style="padding-left:10px;color:#fff;font-size:17px;font-weight:700">Apex OS</td>
           <td style="padding-left:6px;color:#c7d2fe;font-size:11px;letter-spacing:.05em;text-transform:uppercase">TechnoEdge</td>
         </tr></table>
       </td>
@@ -243,7 +243,7 @@ export class AiCronService {
   <!-- Footer -->
   <tr><td style="background:#f1f5f9;padding:16px 32px;text-align:center">
     <p style="margin:0;font-size:12px;color:#94a3b8">
-      Â© ${new Date().getFullYear()} TechnoEdge Learning Services Â· Nexus Platform<br>
+      Â© ${new Date().getFullYear()} TechnoEdge Learning Services Â· Apex OS<br>
       This is an automated daily digest sent to managers and admins.
     </p>
   </td></tr>

@@ -2,6 +2,8 @@
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
+import { RolesGuard } from '../../../shared/guards/roles.guard';
+import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 
 @ApiTags('Projects')
@@ -21,31 +23,37 @@ export class ProjectsController {
   findOne(@Param('id') id: string) { return this.projectsService.findOne(id); }
 
   @Post()
+  @UseGuards(RolesGuard)
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   create(@Body() body: any, @CurrentUser() user: any) {
     return this.projectsService.create(body, user.id);
   }
 
   @Put(':id')
+  @UseGuards(RolesGuard)
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: any) {
     return this.projectsService.update(id, body);
   }
 
   @Post(':id/members')
+  @UseGuards(RolesGuard)
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   addMember(@Param('id') id: string, @Body() body: { userId: string; role?: string }) {
     return this.projectsService.addMember(id, body.userId, body.role);
   }
 
   @Delete(':id/members/:userId')
+  @UseGuards(RolesGuard)
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   removeMember(@Param('id') id: string, @Param('userId') userId: string) {
     return this.projectsService.removeMember(id, userId);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
-    const roleName: string = user?.role?.name || user?.role || '';
-    if (!['ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
-      throw new ForbiddenException('Only admins can delete projects');
-    }
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  remove(@Param('id') id: string) {
     return this.projectsService.remove(id);
   }
 }

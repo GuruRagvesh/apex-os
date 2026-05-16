@@ -6,7 +6,11 @@ import * as bcrypt from 'bcryptjs';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(query: { search?: string; departmentId?: string; roleId?: string }) {
+  async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
+    const skip = (page - 1) * limit;
+
     const where: any = {};
     if (query.search) {
       where.OR = [
@@ -17,12 +21,19 @@ export class UsersService {
     if (query.departmentId) where.departmentId = query.departmentId;
     if (query.roleId) where.roleId = query.roleId;
 
-    const users = await this.prisma.user.findMany({
-      where,
-      include: { role: true, department: true },
-      orderBy: { name: 'asc' },
-    });
-    return users.map(({ password, ...u }) => u);
+    const [total, rawUsers] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({
+        where,
+        include: { role: true, department: true },
+        orderBy: { name: 'asc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    const users = rawUsers.map(({ password, ...u }) => u);
+    return { users, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findOne(id: string) {

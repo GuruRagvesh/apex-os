@@ -18,7 +18,7 @@ export function useSocket(events: SocketEvents = {}) {
   eventsRef.current = events;
 
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('nexus_token') : null;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
     if (!token) return;
 
     const socket = io(SOCKET_URL, {

@@ -16,7 +16,7 @@ export class EmailService {
 
     if (host && user && pass) {
       this.transporter = nodemailer.createTransport({ host, port, secure: false, auth: { user, pass } });
-      this.from = `"Nexus — TechnoEdge" <${user}>`;
+      this.from = `"Apex OS — TechnoEdge" <${user}>`;
       this.logger.log('SMTP configured');
     } else {
       this.logger.warn('SMTP not configured — emails will be skipped');
@@ -51,7 +51,7 @@ export class EmailService {
   <tr><td style="background:#1e3a5f;padding:20px 32px">
     <table cellpadding="0" cellspacing="0"><tr>
       <td style="width:36px;height:36px;background:#2563eb;border-radius:8px;text-align:center;line-height:36px;font-weight:bold;color:#fff;font-size:18px">N</td>
-      <td style="padding-left:12px;color:#fff;font-size:17px;font-weight:700">Nexus</td>
+      <td style="padding-left:12px;color:#fff;font-size:17px;font-weight:700">Apex OS</td>
       <td style="padding-left:8px;color:#93c5fd;font-size:12px">TechnoEdge</td>
     </tr></table>
   </td></tr>
@@ -77,7 +77,7 @@ export class EmailService {
        <p style="background:#f8fafc;border-left:4px solid #2563eb;padding:12px 16px;border-radius:4px;margin:16px 0">
          <strong>${ticketId}</strong> — ${title}
        </p>
-       <p>Log in to Nexus to view the details and get started.</p>`,
+       <p>Log in to Apex OS to view the details and get started.</p>`,
       `View ${ticketId}`,
       `${frontendUrl}/tickets`,
     );

@@ -1,4 +1,4 @@
-﻿import { Controller, Get, Patch, Delete, Param, Query, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Patch, Delete, Param, Query, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -33,7 +33,10 @@ export class NotificationsController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  async remove(@Param('id') id: string, @CurrentUser() user: any) {
+    const notification = await this.notificationsService.findById(id);
+    if (!notification) throw new NotFoundException('Notification not found');
+    if (notification.userId !== user.id) throw new ForbiddenException('Cannot delete another user\'s notification');
     return this.notificationsService.remove(id);
   }
 }

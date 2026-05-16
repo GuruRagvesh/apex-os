@@ -20,20 +20,20 @@ export class RolesController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles('Admin')
+  @Roles('ADMIN', 'SUPER_ADMIN')
   create(@Body() body: { name: string; level: number; description?: string }) {
     return this.rolesService.create(body);
   }
 
   @Put(':id')
   @UseGuards(RolesGuard)
-  @Roles('Admin')
+  @Roles('ADMIN', 'SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: any) {
     return this.rolesService.update(id, body);
   }
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles('Admin')
+  @Roles('ADMIN', 'SUPER_ADMIN')
   remove(@Param('id') id: string) { return this.rolesService.remove(id); }
 }

@@ -13,7 +13,7 @@ export const api = axios.create({
 
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('nexus_token');
+    const token = localStorage.getItem('apex_token');
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -23,7 +23,7 @@ api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      localStorage.removeItem('nexus_token');
+      localStorage.removeItem('apex_token');
       localStorage.removeItem('nexus_user');
       window.location.href = '/login';
     }
@@ -104,7 +104,7 @@ export const ticketsApi = {
     return r(api.post(`/tickets/${id}/attachments`, form, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
   exportCsv: async (params?: any) => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('nexus_token') : '';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
     const res = await fetch(
       `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/tickets/export${query}`,

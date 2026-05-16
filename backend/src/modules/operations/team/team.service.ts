@@ -29,7 +29,7 @@ export class TeamService {
       where: {
         OR: [
           { email: 'tejas.kadam@technoedgels.com' },
-          { role: { name: { in: ['MANAGER', 'Manager'] } } },
+          { role: { name: { in: ['MANAGER'] } } },
         ],
       },
       select: { id: true, name: true },

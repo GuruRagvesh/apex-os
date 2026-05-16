@@ -41,7 +41,7 @@ export class CommentsService {
   async remove(id: string, userId: string, userRole: string) {
     const comment = await this.prisma.comment.findUnique({ where: { id } });
     if (!comment) throw new NotFoundException('Comment not found');
-    if (comment.authorId !== userId && userRole !== 'Admin') throw new ForbiddenException();
+    if (comment.authorId !== userId && !['ADMIN', 'SUPER_ADMIN'].includes(userRole)) throw new ForbiddenException();
     return this.prisma.comment.delete({ where: { id } });
   }
 }

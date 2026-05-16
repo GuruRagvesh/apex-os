@@ -7,7 +7,7 @@ export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
   async getOverview(userId: string, userRole: string) {
-    const isAdmin = ['Admin', 'Manager'].includes(userRole);
+    const isAdmin = ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(userRole);
 
     const [
       totalTickets,

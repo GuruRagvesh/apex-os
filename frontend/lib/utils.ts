@@ -118,7 +118,7 @@ export const DEPT_COLORS: Record<string, string> = {
   'Facilities':             '#f59e0b',
   'HR':                     '#ec4899',
   'Operations':             '#10b981',
-  'Finance':                '#8b5cf6',
+  'Accounts':               '#8b5cf6',
   'AI & R&D':               '#6366f1',
   'ID Team':                '#14b8a6',
   'Editors Team':           '#f97316',
@@ -128,5 +128,4 @@ export const DEPT_COLORS: Record<string, string> = {
   'Retail Business':        '#06b6d4',
   'Corporate Training':     '#f59e0b',
   'AI & Media Production':  '#8b5cf6',
-  'Accounts':               '#10b981',
 };

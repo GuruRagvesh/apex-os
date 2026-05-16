@@ -23,8 +23,8 @@ export class UsersController {
     const full = await this.usersService.findOne(user.id);
     const deptId = (full as any)?.departmentId;
     if (!deptId) return [];
-    const team = await this.usersService.findAll({ departmentId: deptId });
-    return team.filter((u: any) => u.id !== user.id);
+    const result = await this.usersService.findAll({ departmentId: deptId });
+    return result.users.filter((u: any) => u.id !== user.id);
   }
 
   @Patch('me')

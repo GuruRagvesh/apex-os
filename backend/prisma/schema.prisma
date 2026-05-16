@@ -122,6 +122,12 @@ model Ticket {
   attachments Attachment[]
   history     TicketHistory[]
 
+  @@index([departmentId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([createdById])
+  @@index([projectId])
+  @@index([createdAt])
   @@map("tickets")
 }
 
@@ -170,6 +176,8 @@ model LeaveRequest {
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([status])
   @@map("leave_requests")
 }
 
@@ -185,6 +193,8 @@ model Notification {
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([isRead])
   @@map("notifications")
 }
 

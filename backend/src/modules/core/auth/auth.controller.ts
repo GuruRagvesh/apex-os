@@ -1,10 +1,11 @@
-﻿import { Controller, Post, Get, Patch, Body, UseGuards, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, UseGuards, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { LoginDto, RegisterDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
+import { RolesGuard } from '../../../shared/guards/roles.guard';
+import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 
 @ApiTags('Auth')
@@ -19,6 +20,9 @@ export class AuthController {
   }
 
   @Post('register')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles('ADMIN', 'SUPER_ADMIN')
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
@@ -42,18 +46,11 @@ export class AuthController {
 
   @Post('forgot-password')
   async forgotPassword(@Body() body: { email: string }) {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    console.log(`[OTP] ${body.email}: ${otp}`);
-    // TODO: send via email when SMTP configured
-    return { message: `OTP sent to ${body.email}`, dev_otp: otp };
+    return this.authService.sendOtp(body.email);
   }
 
   @Post('reset-password')
   async resetPassword(@Body() body: { email: string; otp: string; newPassword: string }) {
-    const user = await this.authService.findByEmail(body.email);
-    if (!user) throw new NotFoundException('User not found');
-    const hashed = await bcrypt.hash(body.newPassword, 12);
-    await this.authService.updatePassword(user.id, hashed);
-    return { message: 'Password reset successfully' };
+    return this.authService.resetPasswordWithOtp(body.email, body.otp, body.newPassword);
   }
 }

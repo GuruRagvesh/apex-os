@@ -1,4 +1,4 @@
-﻿import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+﻿import { Injectable, UnauthorizedException, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -7,6 +7,9 @@ import { LoginDto, RegisterDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
+  /** In-memory OTP store: email → { otp, expires } */
+  private otpStore = new Map<string, { otp: string; expires: number }>();
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -91,6 +94,40 @@ export class AuthService {
       where: { id: userId },
       data: { password: hashedPassword, mustChangePassword: false },
     });
+  }
+
+  async sendOtp(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    this.otpStore.set(email, { otp, expires: Date.now() + 10 * 60 * 1000 }); // 10-min TTL
+    // TODO: send via SMTP when configured
+    console.log(`[OTP] ${email}: ${otp}`);
+    return { message: `OTP sent to ${email}`, dev_otp: otp };
+  }
+
+  async resetPasswordWithOtp(email: string, otp: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('New password must be at least 8 characters');
+    }
+
+    const entry = this.otpStore.get(email);
+    if (!entry) throw new BadRequestException('No OTP requested for this email');
+    if (Date.now() > entry.expires) {
+      this.otpStore.delete(email);
+      throw new BadRequestException('OTP has expired — please request a new one');
+    }
+    if (entry.otp !== otp) throw new BadRequestException('Invalid OTP');
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await this.updatePassword(user.id, hashed);
+    this.otpStore.delete(email);
+
+    return { message: 'Password reset successfully' };
   }
 
   private async generateTokens(userId: string, email: string) {
