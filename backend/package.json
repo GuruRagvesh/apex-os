@@ -6,20 +6,20 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "postinstall": "prisma generate",
-    "build": "prisma generate && tsc -p tsconfig.json",
+    "postinstall": "npx prisma generate",
+    "build": "npx prisma generate && npx tsc -p tsconfig.json",
     "format": "prettier --write \"src/**/*.ts\"",
-    "start": "nest start",
+    "start": "node dist/main.js",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/main.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test": "jest",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node prisma/seed.ts",
-    "db:setup": "prisma migrate dev --name init && ts-node prisma/seed.ts"
+    "prisma:generate": "npx prisma generate",
+    "prisma:migrate": "npx prisma migrate dev",
+    "prisma:studio": "npx prisma studio",
+    "prisma:seed": "npx ts-node prisma/seed.ts",
+    "db:setup": "npx prisma migrate dev --name init && npx ts-node prisma/seed.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -40,6 +40,10 @@
     "@prisma/client": "^5.13.0",
     "@types/nodemailer": "^8.0.0",
     "bcryptjs": "^2.4.3",
+    "prisma": "^5.13.0",
+    "typescript": "^5.4.5",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cloudinary": "^2.10.0",
@@ -68,10 +72,6 @@
     "@types/node": "^20.12.7",
     "@types/passport-jwt": "^4.0.1",
     "@types/passport-local": "^1.0.38",
-    "@types/uuid": "^9.0.8",
-    "prisma": "^5.13.0",
-    "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.4.5"
+    "@types/uuid": "^9.0.8"
   }
 }
