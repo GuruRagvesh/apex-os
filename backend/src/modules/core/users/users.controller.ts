@@ -1,4 +1,4 @@
-﻿import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+﻿import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -43,13 +43,13 @@ export class UsersController {
   }
 
   @Get('stats')
-  @Roles('Admin', 'Manager', 'ADMIN', 'MANAGER', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   getStats() {
     return this.usersService.getStats();
   }
 
   @Get('directory')
-  @Roles('Admin', 'Manager', 'ADMIN', 'MANAGER', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   getDirectory() {
     return this.usersService.getDirectory();
   }
