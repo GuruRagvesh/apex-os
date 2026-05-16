@@ -1,16 +1,32 @@
-﻿import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/decorators/roles.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 
 @ApiTags('Users')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('users')
 export class UsersController {
   constructor(private usersService: UsersService) {}
+
+  @Get('me')
+  getMe(@CurrentUser() user: any) {
+    return this.usersService.findOne(user.id);
+  }
+
+  @Patch('me')
+  updateMe(@CurrentUser() user: any, @Body() body: { name?: string; avatar?: string }) {
+    return this.usersService.update(user.id, body);
+  }
+
+  @Patch('me/preferences')
+  updatePreferences(@CurrentUser() user: any, @Body() body: any) {
+    return { message: 'Preferences saved', preferences: body };
+  }
 
   @Get()
   findAll(@Query() query: { search?: string; departmentId?: string; roleId?: string }) {
@@ -35,25 +51,25 @@ export class UsersController {
   }
 
   @Post()
-  @Roles('Admin')
+  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
   create(@Body() body: { name: string; email: string; password: string; roleId: string; departmentId?: string }) {
     return this.usersService.create(body);
   }
 
   @Put(':id')
-  @Roles('Admin')
+  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: any) {
     return this.usersService.update(id, body);
   }
 
   @Put(':id/reset-password')
-  @Roles('Admin')
+  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
   resetPassword(@Param('id') id: string, @Body() body: { newPassword: string }) {
     return this.usersService.resetPassword(id, body.newPassword);
   }
 
   @Delete(':id')
-  @Roles('Admin')
+  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }

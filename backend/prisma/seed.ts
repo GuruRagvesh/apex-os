@@ -165,6 +165,7 @@ async function main() {
     { name: 'AI & Media Production',   description: 'AI-assisted Media Production',         color: '#14b8a6' },
     { name: 'Accounts',                description: 'Finance & Accounts',                    color: '#a855f7' },
     { name: 'Company / Operations',    description: 'Company Operations & Administration',   color: '#64748b' },
+    { name: 'Miscellaneous',           description: 'General tasks without a specific department', color: '#94a3b8' },
   ];
 
   const depts: Record<string, string> = {};
@@ -275,6 +276,25 @@ async function main() {
 
     console.log(`   ✓ ${u.name.padEnd(22)} [${u.role.padEnd(11)}]  ${u.dept}`);
     created++;
+  }
+
+  // ── Miscellaneous project ──────────────────────────────────────────────────
+  console.log('\n📁 Upserting Miscellaneous project...');
+  const miscDept = await prisma.department.findFirst({ where: { name: 'Miscellaneous' } });
+  if (miscDept) {
+    await prisma.project.upsert({
+      where: { projectId: 'PRJ-MISC' },
+      create: {
+        projectId:   'PRJ-MISC',
+        name:        'Miscellaneous',
+        description: 'General tasks that do not belong to a specific project',
+        status:      'ACTIVE',
+        priority:    'LOW',
+        departmentId: miscDept.id,
+      },
+      update: { status: 'ACTIVE', name: 'Miscellaneous' },
+    });
+    console.log('   ✓ Miscellaneous project ready');
   }
 
   // ── Subrat — dedicated SUPER_ADMIN with own password (mustChangePassword: false) ──

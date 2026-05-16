@@ -166,6 +166,12 @@ export const teamApi = {
     r(api.post('/team/request', { targetUserId, reason })),
 };
 
+// Settings
+export const settingsApi = {
+  getCompany: () => r(api.get('/settings/company')),
+  updateCompany: (data: any) => r(api.patch('/settings/company', data)),
+};
+
 // Notifications
 export const notificationsApi = {
   getAll: (unread?: boolean) => r(api.get('/notifications', { params: { unread } })),

@@ -28,6 +28,7 @@ import { GatewayModule } from './modules/platform/gateway/gateway.module';
 import { EmailModule } from './modules/platform/email/email.module';
 import { HealthModule } from './modules/platform/health/health.module';
 import { AutomationModule } from './modules/platform/automation/automation.module';
+import { SettingsModule } from './modules/platform/settings/settings.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { AutomationModule } from './modules/platform/automation/automation.modul
     EmailModule,
     HealthModule,
     AutomationModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

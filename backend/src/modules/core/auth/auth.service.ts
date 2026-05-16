@@ -82,6 +82,17 @@ export class AuthService {
     return result;
   }
 
+  async findByEmail(email: string) {
+    return this.prisma.user.findUnique({ where: { email } });
+  }
+
+  async updatePassword(userId: string, hashedPassword: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword, mustChangePassword: false },
+    });
+  }
+
   private async generateTokens(userId: string, email: string) {
     const payload = { sub: userId, email };
     const secret = this.configService.get('JWT_SECRET', 'nexus-secret-key-change-in-prod');

@@ -19,8 +19,11 @@ const pageNames: Record<string, string> = {
   '/projects': 'Projects',
   '/users': 'Users',
   '/departments': 'Departments',
-  '/reports': 'Reports',
+  '/analytics': 'Analytics',
   '/leave': 'Leave Management',
+  '/settings': 'Settings',
+  '/profile': 'My Profile',
+  '/team': 'Team',
 };
 
 export function TopBar() {
@@ -49,7 +52,7 @@ export function TopBar() {
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications-count'],
     queryFn: () => notificationsApi.getUnreadCount() as Promise<{ count: number }>,
-    refetchInterval: 60000,
+    refetchInterval: 30000,
   });
 
   const { data: notifications } = useQuery({

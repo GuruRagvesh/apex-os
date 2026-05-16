@@ -7,8 +7,9 @@ import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
-  Users, Building2, BarChart3, LogOut, ChevronRight, Zap,
+  Users, Building2, BarChart3, LogOut, ChevronRight, Zap, Settings,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 // ── Skeleton shown before Zustand hydrates ────────────────────────────────────
 function SidebarSkeleton() {
@@ -58,11 +59,13 @@ const BASE_NAV = [
 ];
 
 const TEAMLEAD_NAV  = [{ href: '/team',    label: 'Team',          icon: Users    }];
-const MANAGER_NAV   = [{ href: '/reports', label: 'Reports',       icon: BarChart3 }];
+const MANAGER_NAV   = [{ href: '/analytics', label: 'Analytics',    icon: BarChart3 }];
 const ADMIN_NAV     = [
   { href: '/users',       label: 'Users & Roles',  icon: Users     },
   { href: '/departments', label: 'Departments',     icon: Building2 },
 ];
+
+const SETTINGS_NAV  = [{ href: '/settings', label: 'Settings',      icon: Settings  }];
 
 // Streamlined nav for SUPER_ADMIN in team_lead mode
 const TEAMLEAD_MODE_NAV = [
@@ -93,6 +96,7 @@ function getInitials(name: string) {
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 export function Sidebar() {
   const pathname            = usePathname();
+  const router              = useRouter();
   const { user, logout, hasHydrated } = useAuthStore();
   const [apexMode, setApexMode]       = useState<string>('super_admin');
 
@@ -179,6 +183,11 @@ export function Sidebar() {
             {ADMIN_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
+
+        {/* Settings — everyone */}
+        <div className="mt-3 border-t border-slate-100 pt-2">
+          {SETTINGS_NAV.map((item) => <NavItem key={item.href} {...item} />)}
+        </div>
       </nav>
 
       {/* Mode badge (SUPER_ADMIN only) */}
@@ -212,7 +221,10 @@ export function Sidebar() {
 
       {/* User profile card */}
       <div className="p-3 border-t border-slate-100">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50">
+        <div
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors"
+          onClick={() => router.push('/profile')}
+        >
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
             style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}

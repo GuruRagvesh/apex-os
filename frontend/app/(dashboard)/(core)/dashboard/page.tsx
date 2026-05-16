@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { dashboardApi, ticketsApi, leaveApi, usersApi, aiApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
@@ -21,18 +21,31 @@ import {
 } from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function greeting() {
-  const h = new Date().getHours();
-  return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+function useLiveClock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const h = now.getHours();
+  const greeting = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const timeStr = now.toLocaleString('en-IN', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: true, timeZone: 'Asia/Kolkata',
+  });
+  return { greeting, timeStr };
 }
 
 function WelcomeHeader({ name, sub }: { name: string; sub: string }) {
+  const { greeting, timeStr } = useLiveClock();
   return (
     <div>
       <h2 className="text-2xl font-bold text-slate-800">
-        Good {greeting()}, {name?.split(' ')[0]} 👋
+        {greeting}, {name?.split(' ')[0]} 👋
       </h2>
-      <p className="text-slate-500 text-sm mt-1">{sub}</p>
+      <p className="text-slate-500 text-sm mt-0.5 font-mono">{timeStr}</p>
+      <p className="text-slate-400 text-xs mt-0.5">{sub}</p>
     </div>
   );
 }
@@ -218,7 +231,7 @@ function AdminDashboard({ user }: { user: any }) {
         <div className="flex flex-wrap gap-3">
           <Link href="/tickets/new"  className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"><Plus size={15} /> New Ticket</Link>
           <Link href="/users"        className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors"><Users size={15} /> Users</Link>
-          <Link href="/reports"      className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors"><FolderKanban size={15} /> Reports</Link>
+          <Link href="/analytics"    className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors"><FolderKanban size={15} /> Analytics</Link>
           <button onClick={() => setShowSummary(true)} className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-indigo-200 hover:bg-indigo-50 text-indigo-700 rounded-lg transition-colors"><Sparkles size={15} /> AI Summary</button>
         </div>
 
@@ -634,10 +647,7 @@ function GurTeamLeadDashboard({ user }: { user: any }) {
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">
-            Good {greeting()}, Guru — AI & R&D Lead 👋
-          </h2>
-          <p className="text-slate-500 text-sm mt-1">Your team's activity and tasks</p>
+          <WelcomeHeader name={user?.name} sub="AI & R&D Lead — Your team's activity and tasks" />
         </div>
         <Link
           href="/kanban"

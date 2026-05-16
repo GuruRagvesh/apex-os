@@ -63,4 +63,6 @@ export const DEPT_COLORS: Record<string, string> = {
   'Corporate Training':    '#f59e0b',
   'AI & Media Production': '#8b5cf6',
   'Accounts':              '#10b981',
+  'Company / Operations':  '#64748b',
+  'Miscellaneous':         '#94a3b8',
 };

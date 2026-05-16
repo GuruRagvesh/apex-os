@@ -6,8 +6,11 @@ import { Providers } from './providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Apex OS — TechnoEdge',
-  description: 'AI-Powered Business OS for TechnoEdge Learning Services',
+  title: {
+    template: '%s — Apex OS',
+    default: 'Apex OS — AI-Powered Business OS by TechnoEdge',
+  },
+  description: 'Apex OS — AI-powered Business Operating System by TechnoEdge Learning Services',
   icons: { icon: '/favicon.svg' },
 };
 
