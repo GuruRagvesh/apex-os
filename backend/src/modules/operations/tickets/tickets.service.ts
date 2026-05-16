@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -6,6 +6,10 @@ import { TicketStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { EmailService } from '../../platform/email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
+
+function isUUID(str: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
 
 const SLA_HOURS: Record<string, number> = {
   URGENT: 4,
@@ -121,13 +125,35 @@ export class TicketsService {
   }
 
   async create(data: any, userId: string) {
+    // Resolve departmentId: accept display name or UUID
+    if (data.departmentId && !isUUID(data.departmentId)) {
+      const dept = await this.prisma.department.findFirst({
+        where: { name: { equals: data.departmentId, mode: 'insensitive' } },
+      });
+      data.departmentId = dept?.id ?? undefined;
+    }
+    // Resolve assignedToId: accept display name or UUID
+    if (data.assignedToId && !isUUID(data.assignedToId)) {
+      const assignee = await this.prisma.user.findFirst({
+        where: { name: { equals: data.assignedToId, mode: 'insensitive' } },
+      });
+      data.assignedToId = assignee?.id ?? undefined;
+    }
+    // Null out empty projectId so Prisma doesn't try to connect to ''
+    if (!data.projectId) data.projectId = undefined;
+
     const count = await this.prisma.ticket.count();
     const ticketId = `TKT-${String(count + 1).padStart(3, '0')}`;
 
-    const ticket = await this.prisma.ticket.create({
-      data: { ...data, ticketId, createdById: userId },
-      include: this.includeOptions,
-    });
+    let ticket: any;
+    try {
+      ticket = await this.prisma.ticket.create({
+        data: { ...data, ticketId, createdById: userId },
+        include: this.includeOptions,
+      });
+    } catch (err: any) {
+      throw new BadRequestException(err?.message ?? 'Failed to create ticket');
+    }
 
     await this.prisma.activityLog.create({
       data: {

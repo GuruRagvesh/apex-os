@@ -44,7 +44,12 @@ export default function NewTicketPage() {
 
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
   const { data: projects } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
-  const { data: users } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any[]> });
+  const { data: usersData } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any> });
+
+  const userList: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
+  const filteredUsers = form.departmentId
+    ? userList.filter((u: any) => u.departmentId === form.departmentId)
+    : userList;
 
   const mutation = useMutation({
     mutationFn: (data: any) => ticketsApi.create(data),
@@ -204,7 +209,13 @@ export default function NewTicketPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Department</label>
-            <select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)} className={inputCls}>
+            <select
+              value={form.departmentId}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, departmentId: e.target.value, assignedToId: '' }));
+              }}
+              className={inputCls}
+            >
               <option value="">Select department</option>
               {Array.isArray(departments) && departments.map((d: any) => (
                 <option key={d.id} value={d.id}>{d.name}</option>
@@ -228,8 +239,8 @@ export default function NewTicketPage() {
             <label className={labelCls}>Assign To</label>
             <select value={form.assignedToId} onChange={(e) => set('assignedToId', e.target.value)} className={inputCls}>
               <option value="">Unassigned</option>
-              {Array.isArray(users) && users.map((u: any) => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role?.name})</option>
+              {filteredUsers.map((u: any) => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role?.name ?? u.role})</option>
               ))}
             </select>
           </div>

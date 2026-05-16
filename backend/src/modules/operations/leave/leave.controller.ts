@@ -29,14 +29,14 @@ export class LeaveController {
 
   @Patch(':id/approve')
   @UseGuards(RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.approve(id, user.id);
   }
 
   @Patch(':id/reject')
   @UseGuards(RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   reject(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.reject(id, user.id);
   }

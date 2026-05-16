@@ -67,6 +67,17 @@ const VALID_EMAILS = [
 async function main() {
   console.log('🌱 Seeding APEX database...\n');
 
+  // ── Cleanup: remove demo projects (not seeded — any project in DB is demo data) ──
+  console.log('🗑️  Cleaning up demo projects...');
+  await prisma.projectMember.deleteMany({});
+  const deletedProjects = await prisma.project.deleteMany({});
+  if (deletedProjects.count > 0) {
+    console.log(`   ✓ Removed ${deletedProjects.count} demo project(s)`);
+  } else {
+    console.log('   ✓ No demo projects found');
+  }
+  console.log();
+
   // ── Cleanup: remove old demo / test users ─────────────────────────────────
   console.log('🗑️  Cleaning up old demo users...');
   const oldUsers = await prisma.user.findMany({
