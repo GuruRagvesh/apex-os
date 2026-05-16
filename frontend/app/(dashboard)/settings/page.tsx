@@ -25,10 +25,10 @@ function ProfileTab({ user }: { user: any }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await usersApi.update(user.id, { name, avatar: color });
+      await usersApi.updateMe({ name, avatar: color });
       toast.success('Profile updated');
-    } catch {
-      toast.error('Failed to save profile');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to save profile');
     } finally {
       setSaving(false);
     }
@@ -98,7 +98,9 @@ function SecurityTab({ user }: { user: any }) {
   const [cur, setCur] = useState('');
   const [newP, setNewP] = useState('');
   const [conf, setConf] = useState('');
-  const [show, setShow] = useState(false);
+  const [showCur, setShowCur] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConf, setShowConf] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const strength = newP.length === 0 ? 0 : newP.length < 8 ? 1 : newP.length < 12 || !/[^a-zA-Z0-9]/.test(newP) ? 2 : 3;
@@ -126,10 +128,10 @@ function SecurityTab({ user }: { user: any }) {
         <h3 className="font-semibold text-slate-800">Change Password</h3>
         <form onSubmit={handleChange} className="space-y-3">
           {[
-            { label: 'Current Password', val: cur, set: setCur },
-            { label: 'New Password', val: newP, set: setNewP },
-            { label: 'Confirm New Password', val: conf, set: setConf },
-          ].map(({ label, val, set }) => (
+            { label: 'Current Password', val: cur, set: setCur, show: showCur, toggle: () => setShowCur(!showCur) },
+            { label: 'New Password', val: newP, set: setNewP, show: showNew, toggle: () => setShowNew(!showNew) },
+            { label: 'Confirm New Password', val: conf, set: setConf, show: showConf, toggle: () => setShowConf(!showConf) },
+          ].map(({ label, val, set, show, toggle }) => (
             <div key={label}>
               <label className={labelCls}>{label}</label>
               <div className="relative">
@@ -140,7 +142,7 @@ function SecurityTab({ user }: { user: any }) {
                   className={`${inputCls} pr-10`}
                   required
                 />
-                <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <button type="button" onClick={toggle} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
                   {show ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
@@ -183,10 +185,10 @@ function NotificationsTab() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await usersApi.getAll(); // placeholder — real call: PATCH /users/me/preferences
+      await usersApi.updatePreferences(prefs);
       toast.success('Preferences saved');
-    } catch {
-      toast.error('Failed to save');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to save');
     } finally {
       setSaving(false);
     }

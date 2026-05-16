@@ -256,6 +256,10 @@ export default function KanbanPage() {
         return next;
       });
       qc.invalidateQueries({ queryKey: ['kanban'] });
+      qc.invalidateQueries({ queryKey: ['tickets'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-overview'] });
+      qc.invalidateQueries({ queryKey: ['ticket-stats'] });
+      qc.invalidateQueries({ queryKey: ['activity-feed'] });
     },
   });
 

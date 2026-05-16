@@ -18,6 +18,15 @@ export class UsersController {
     return this.usersService.findOne(user.id);
   }
 
+  @Get('my-team')
+  async getMyTeam(@CurrentUser() user: any) {
+    const full = await this.usersService.findOne(user.id);
+    const deptId = (full as any)?.departmentId;
+    if (!deptId) return [];
+    const team = await this.usersService.findAll({ departmentId: deptId });
+    return team.filter((u: any) => u.id !== user.id);
+  }
+
   @Patch('me')
   updateMe(@CurrentUser() user: any, @Body() body: { name?: string; avatar?: string }) {
     return this.usersService.update(user.id, body);

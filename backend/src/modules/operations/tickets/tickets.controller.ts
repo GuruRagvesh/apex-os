@@ -23,17 +23,17 @@ export class TicketsController {
   ) {}
 
   @Get()
-  findAll(@Query() query: any) { return this.ticketsService.findAll(query); }
+  findAll(@Query() query: any, @CurrentUser() user: any) { return this.ticketsService.findAll(query, user); }
 
   @Get('stats')
   getStats() { return this.ticketsService.getStats(); }
 
   @Get('kanban')
-  getKanban(@Query() query: any) { return this.ticketsService.getKanban(query); }
+  getKanban(@Query() query: any, @CurrentUser() user: any) { return this.ticketsService.getKanban(query, user); }
 
   @Get('export')
-  async exportCsv(@Query() query: any, @Res({ passthrough: true }) res: Response) {
-    const csv = await this.ticketsService.exportCsv(query);
+  async exportCsv(@Query() query: any, @CurrentUser() user: any, @Res({ passthrough: true }) res: Response) {
+    const csv = await this.ticketsService.exportCsv(query, user);
     const filename = `tickets-${new Date().toISOString().split('T')[0]}.csv`;
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -56,34 +56,48 @@ export class TicketsController {
   async uploadAttachment(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
   ) {
-    return this.uploadsService.uploadTicketAttachment(id, file);
+    // Ownership: only assignee, reporter, or Manager+ may attach
+    const ticket = await this.ticketsService.findOne(id);
+    const roleName: string = user?.role?.name ?? user?.role ?? '';
+    const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
+    const isParticipant = ticket.assignedToId === user.id || ticket.createdById === user.id;
+    if (!isManagerPlus && !isParticipant) {
+      throw new ForbiddenException('Only the assignee, reporter or a manager can attach files');
+    }
+    return this.uploadsService.uploadTicketAttachment(ticket.id, file);
   }
 
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
-    return this.ticketsService.update(id, body, user.id);
+    return this.ticketsService.update(id, body, user.id, user);
+  }
+
+  @Patch(':id')
+  patch(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
+    return this.ticketsService.update(id, body, user.id, user);
   }
 
   @Patch(':id/status')
   updateStatus(@Param('id') id: string, @Body() body: { status: any }, @CurrentUser() user: any) {
-    return this.ticketsService.updateStatus(id, body.status, user.id);
+    return this.ticketsService.updateStatus(id, body.status, user.id, user);
   }
 
   @Patch(':id/assign')
   assign(@Param('id') id: string, @Body() body: { assignedToId: string }, @CurrentUser() user: any) {
-    return this.ticketsService.assign(id, body.assignedToId, user.id);
+    return this.ticketsService.assign(id, body.assignedToId, user.id, user);
   }
 
   @UseGuards(RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   @Patch(':id/approve')
   approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ticketsService.approve(id, user.id);
   }
 
   @UseGuards(RolesGuard)
-  @Roles('Admin', 'Manager')
+  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
   @Patch(':id/reject')
   reject(
     @Param('id') id: string,
@@ -96,8 +110,8 @@ export class TicketsController {
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     const roleName: string = user?.role?.name || user?.role || '';
-    if (!['ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
-      throw new ForbiddenException('Only admins can delete tickets');
+    if (!['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
+      throw new ForbiddenException('Only managers and admins can delete tickets');
     }
     return this.ticketsService.remove(id);
   }

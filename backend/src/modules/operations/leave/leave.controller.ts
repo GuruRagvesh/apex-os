@@ -14,7 +14,7 @@ export class LeaveController {
   constructor(private leaveService: LeaveService) {}
 
   @Get()
-  findAll(@Query() query: any) { return this.leaveService.findAll(query); }
+  findAll(@Query() query: any, @CurrentUser() user: any) { return this.leaveService.findAll(query, user); }
 
   @Get('stats')
   getStats() { return this.leaveService.getStats(); }

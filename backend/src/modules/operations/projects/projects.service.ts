@@ -1,6 +1,10 @@
-﻿import { Injectable, NotFoundException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProjectStatus, Priority } from '@prisma/client';
+
+function isUUID(str: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str ?? '');
+}
 
 @Injectable()
 export class ProjectsService {
@@ -46,20 +50,41 @@ export class ProjectsService {
   }
 
   async create(data: any, userId: string) {
+    // Resolve departmentId if name was passed instead of UUID
+    if (data.departmentId && !isUUID(data.departmentId)) {
+      const dept = await this.prisma.department.findFirst({
+        where: { name: { equals: data.departmentId, mode: 'insensitive' } },
+      });
+      data.departmentId = dept?.id ?? undefined;
+    }
+    // Drop any stray client-supplied createdById — owner comes from JWT
+    delete data.createdById;
+    // Title -> name aliasing (form may use either field)
+    if (data.title && !data.name) {
+      data.name = data.title;
+      delete data.title;
+    }
+    if (!data.name) throw new BadRequestException('Project name is required');
+
     const count = await this.prisma.project.count();
     const projectId = `PRJ-${String(count + 1).padStart(3, '0')}`;
 
-    const project = await this.prisma.project.create({
-      data: {
-        ...data,
-        projectId,
-        members: { create: { userId, role: 'OWNER' } },
-      },
-      include: {
-        department: true,
-        members: { include: { user: { select: { id: true, name: true } } } },
-      },
-    });
+    let project: any;
+    try {
+      project = await this.prisma.project.create({
+        data: {
+          ...data,
+          projectId,
+          members: { create: { userId, role: 'OWNER' } },
+        },
+        include: {
+          department: true,
+          members: { include: { user: { select: { id: true, name: true } } } },
+        },
+      });
+    } catch (err: any) {
+      throw new BadRequestException(err?.message ?? 'Failed to create project');
+    }
 
     await this.prisma.activityLog.create({
       data: {

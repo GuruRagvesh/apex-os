@@ -20,11 +20,22 @@ export class LeaveService {
     return this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }
 
-  async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string }) {
+  async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string }, user?: any) {
     const where: any = {};
     if (query.userId) where.userId = query.userId;
     if (query.status) where.status = query.status;
     if (query.departmentId) where.user = { departmentId: query.departmentId };
+
+    // Role-based scoping
+    if (user) {
+      const roleName: string = user?.role?.name ?? user?.role ?? '';
+      if (['MANAGER', 'TEAM_LEAD'].includes(roleName) && user.departmentId) {
+        where.user = { ...(where.user ?? {}), departmentId: user.departmentId };
+      } else if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
+        where.userId = user.id;
+      }
+      // ADMIN / SUPER_ADMIN: no scope
+    }
 
     return this.prisma.leaveRequest.findMany({
       where,
@@ -43,6 +54,11 @@ export class LeaveService {
   }
 
   async create(data: any, userId: string) {
+    // SUPER_ADMIN does not apply for leave
+    const creator = await this.prisma.user.findUnique({ where: { id: userId }, include: { role: true } });
+    if (creator?.role?.name === 'SUPER_ADMIN') {
+      throw new ForbiddenException('Super Admins cannot apply for leave');
+    }
     const { startDate, endDate, ...rest } = data;
     return this.prisma.leaveRequest.create({
       data: {
@@ -58,10 +74,17 @@ export class LeaveService {
   async approve(id: string, approverId: string) {
     const leave = await this.prisma.leaveRequest.findUnique({
       where: { id },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: { user: { select: { id: true, name: true, email: true, role: true } } },
     });
     if (!leave) throw new NotFoundException();
     if (leave.status !== LeaveStatus.PENDING) throw new ForbiddenException('Already processed');
+    if (leave.userId === approverId) throw new ForbiddenException('You cannot approve your own leave request');
+
+    // Role-level: approver must outrank requester (lower level number = higher role)
+    const approver = await this.prisma.user.findUnique({ where: { id: approverId }, include: { role: true } });
+    if (approver && leave.user.role && approver.role.level >= leave.user.role.level) {
+      throw new ForbiddenException(`A ${approver.role.name} cannot approve a ${leave.user.role.name}'s leave`);
+    }
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },
@@ -103,10 +126,16 @@ export class LeaveService {
   async reject(id: string, rejectorId: string) {
     const leave = await this.prisma.leaveRequest.findUnique({
       where: { id },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: { user: { select: { id: true, name: true, email: true, role: true } } },
     });
     if (!leave) throw new NotFoundException();
     if (leave.status !== LeaveStatus.PENDING) throw new ForbiddenException('Already processed');
+    if (leave.userId === rejectorId) throw new ForbiddenException('You cannot reject your own leave request');
+
+    const rejector = await this.prisma.user.findUnique({ where: { id: rejectorId }, include: { role: true } });
+    if (rejector && leave.user.role && rejector.role.level >= leave.user.role.level) {
+      throw new ForbiddenException(`A ${rejector.role.name} cannot reject a ${leave.user.role.name}'s leave`);
+    }
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },

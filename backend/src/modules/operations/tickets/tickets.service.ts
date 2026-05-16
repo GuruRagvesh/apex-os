@@ -56,23 +56,61 @@ export class TicketsService {
     };
   }
 
+  // Resolve a department filter that may be passed as either an ID or a name
+  private async resolveDeptFilter(value?: string): Promise<string | undefined> {
+    if (!value) return undefined;
+    if (isUUID(value)) return value;
+    const dept = await this.prisma.department.findFirst({
+      where: { name: { equals: value, mode: 'insensitive' } },
+    });
+    return dept?.id;
+  }
+
+  // Apply role-based scoping to a Prisma `where` clause
+  private async applyRoleScope(where: any, user?: { id: string; role?: any; departmentId?: string | null }) {
+    if (!user) return where;
+    const roleName: string = user.role?.name ?? user.role ?? '';
+    // Admin / Super Admin → see everything
+    if (['ADMIN', 'SUPER_ADMIN'].includes(roleName)) return where;
+    // Manager / TeamLead → scope to their department
+    if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
+      if (user.departmentId) {
+        // TL also sees tickets they created themselves, even outside dept
+        if (roleName === 'TEAM_LEAD') {
+          where.OR = [
+            { departmentId: user.departmentId },
+            { createdById: user.id },
+            { assignedToId: user.id },
+          ];
+        } else {
+          where.departmentId = user.departmentId;
+        }
+      }
+      return where;
+    }
+    // Employee / Intern → only their own tickets
+    where.OR = [{ assignedToId: user.id }, { createdById: user.id }];
+    return where;
+  }
+
   async findAll(query: {
     search?: string;
     status?: string;
     category?: string;
     priority?: string;
     departmentId?: string;
+    department?: string;
     projectId?: string;
     assignedToId?: string;
     createdById?: string;
     page?: number;
     limit?: number;
-  }) {
+  }, user?: any) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    let where: any = {};
     if (query.search) {
       where.OR = [
         { title: { contains: query.search, mode: 'insensitive' } },
@@ -83,10 +121,13 @@ export class TicketsService {
     if (query.status) where.status = query.status;
     if (query.category) where.category = query.category;
     if (query.priority) where.priority = query.priority;
-    if (query.departmentId) where.departmentId = query.departmentId;
+    const deptId = await this.resolveDeptFilter(query.departmentId || query.department);
+    if (deptId) where.departmentId = deptId;
     if (query.projectId) where.projectId = query.projectId;
     if (query.assignedToId) where.assignedToId = query.assignedToId;
     if (query.createdById) where.createdById = query.createdById;
+
+    where = await this.applyRoleScope(where, user);
 
     const [tickets, total] = await Promise.all([
       this.prisma.ticket.findMany({
@@ -195,9 +236,30 @@ export class TicketsService {
     return this.addSla(ticket);
   }
 
-  async update(id: string, data: any, userId: string) {
+  async update(id: string, data: any, userId: string, user?: any) {
     const existing = await this.prisma.ticket.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Ticket not found');
+
+    // Permission: only assignee, reporter, or Manager+ can update
+    if (user) {
+      const roleName: string = user?.role?.name ?? user?.role ?? '';
+      const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
+      const isParticipant = existing.assignedToId === userId || existing.createdById === userId;
+      if (!isManagerPlus && !isParticipant) {
+        throw new ForbiddenException('Only the assignee, reporter or a manager can update this ticket');
+      }
+      // INTERN cannot move directly from OPEN to DONE/REVIEW
+      if (roleName === 'INTERN' && data.status) {
+        const allowed = data.status === 'IN_PROGRESS';
+        if (!allowed) {
+          throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS');
+        }
+      }
+      // REVIEW → DONE requires Manager+
+      if (data.status === 'DONE' && existing.status === 'REVIEW' && !isManagerPlus) {
+        throw new ForbiddenException('Only managers can close tickets in review');
+      }
+    }
 
     if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) {
       data.resolvedAt = new Date();
@@ -311,12 +373,12 @@ export class TicketsService {
     return this.addSla(ticket);
   }
 
-  async updateStatus(id: string, status: TicketStatus, userId: string) {
-    return this.update(id, { status }, userId);
+  async updateStatus(id: string, status: TicketStatus, userId: string, user?: any) {
+    return this.update(id, { status }, userId, user);
   }
 
-  async assign(id: string, assignedToId: string, userId: string) {
-    return this.update(id, { assignedToId }, userId);
+  async assign(id: string, assignedToId: string, userId: string, user?: any) {
+    return this.update(id, { assignedToId }, userId, user);
   }
 
   async approve(id: string, userId: string) {
@@ -397,8 +459,14 @@ export class TicketsService {
     });
   }
 
-  async exportCsv(query: any) {
-    const { tickets } = await this.findAll({ ...query, limit: 10000, page: 1 });
+  async exportCsv(query: any, user?: any) {
+    const { tickets } = await this.findAll({ ...query, limit: 10000, page: 1 }, user);
+
+    const safeStr = (v: any) => {
+      const s = v == null ? '' : String(v);
+      // Always quote and escape — works for cells containing commas, newlines, quotes
+      return `"${s.replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`;
+    };
 
     const headers = [
       'Ticket ID', 'Title', 'Category', 'Type', 'Priority', 'Status',
@@ -408,23 +476,23 @@ export class TicketsService {
     ];
 
     const rows = tickets.map((t: any) => [
-      t.ticketId,
-      `"${(t.title ?? '').replace(/"/g, '""')}"`,
-      t.category,
-      t.type,
-      t.priority,
-      t.status,
-      t.assignedTo?.name ?? '',
-      t.createdBy?.name ?? '',
-      t.department?.name ?? '',
-      t.project?.name ?? '',
-      t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : '',
-      t.estimatedTime ?? '',
-      t.elapsedHours,
-      t.slaPercent,
-      t.isOverdue ? 'Yes' : 'No',
-      new Date(t.createdAt).toISOString().split('T')[0],
-      new Date(t.updatedAt).toISOString().split('T')[0],
+      safeStr(t.ticketId),
+      safeStr(t.title),
+      safeStr(t.category),
+      safeStr(t.type),
+      safeStr(t.priority),
+      safeStr(t.status),
+      safeStr(t.assignedTo?.name ?? 'Unassigned'),
+      safeStr(t.createdBy?.name ?? ''),
+      safeStr(t.department?.name ?? ''),
+      safeStr(t.project?.name ?? 'No project'),
+      safeStr(t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : ''),
+      safeStr(t.estimatedTime ?? ''),
+      safeStr(t.elapsedHours ?? ''),
+      safeStr(t.slaPercent ?? ''),
+      safeStr(t.isOverdue ? 'Yes' : 'No'),
+      safeStr(new Date(t.createdAt).toISOString().split('T')[0]),
+      safeStr(new Date(t.updatedAt).toISOString().split('T')[0]),
     ]);
 
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -449,11 +517,13 @@ export class TicketsService {
     return { total, byStatus, byCategory, byPriority, overdue, unassigned };
   }
 
-  async getKanban(filters: { departmentId?: string; projectId?: string; assignedToId?: string }) {
-    const where: any = { status: { notIn: [TicketStatus.CLOSED] } };
-    if (filters.departmentId) where.departmentId = filters.departmentId;
+  async getKanban(filters: { departmentId?: string; department?: string; projectId?: string; assignedToId?: string }, user?: any) {
+    let where: any = { status: { notIn: [TicketStatus.CLOSED] } };
+    const deptId = await this.resolveDeptFilter(filters.departmentId || filters.department);
+    if (deptId) where.departmentId = deptId;
     if (filters.projectId) where.projectId = filters.projectId;
     if (filters.assignedToId) where.assignedToId = filters.assignedToId;
+    where = await this.applyRoleScope(where, user);
 
     const tickets = await this.prisma.ticket.findMany({
       where,

@@ -335,8 +335,12 @@ export default function TicketDetailPage() {
   if (isLoading) return <SkeletonTicketDetail />;
   if (!ticket) return <div className="text-center py-12 text-slate-500">Ticket not found</div>;
 
-  const canEdit = user?.role?.name === 'Admin' || user?.role?.name === 'Manager' || ticket.createdById === user?.id;
-  const canApprove = (user?.role?.name === 'Admin' || user?.role?.name === 'Manager') && ticket.status === 'REVIEW';
+  const roleName = (user?.role as any)?.name ?? (user?.role as any) ?? '';
+  const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
+  const isParticipant = ticket.createdById === user?.id || ticket.assignedToId === user?.id;
+  const canEdit = isManagerPlus || isParticipant;
+  const canDelete = isManagerPlus;
+  const canApprove = isManagerPlus && ticket.status === 'REVIEW';
   const isDone = ticket.status === 'DONE' || ticket.status === 'CLOSED';
 
   const submitComment = () => { if (comment.trim()) addComment.mutate(); };
@@ -377,10 +381,11 @@ export default function TicketDetailPage() {
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
         </div>
-        {canEdit && (
+        {canDelete && (
           <button
-            onClick={() => { if (confirm('Delete this ticket?')) deleteTicket.mutate(); }}
+            onClick={() => { if (confirm('Delete this ticket? This cannot be undone.')) deleteTicket.mutate(); }}
             className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            title="Delete ticket"
           >
             <Trash2 size={16} />
           </button>

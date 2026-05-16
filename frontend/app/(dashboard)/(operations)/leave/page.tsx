@@ -21,7 +21,8 @@ export default function LeavePage() {
   // Defensive role check — handles object { name } or plain string, all name variants
   const _roleName = (user?.role as any)?.name || (user?.role as any) || '';
   const _isAdmin  = _roleName === 'ADMIN' || _roleName === 'SUPER_ADMIN';
-  const isManager = _roleName === 'MANAGER' || _isAdmin;
+  const isManager = _roleName === 'MANAGER' || _roleName === 'TEAM_LEAD' || _isAdmin;
+  const isSuperAdmin = _roleName === 'SUPER_ADMIN';
 
   const queryParams = tab === 'mine' ? { userId: user?.id } : tab === 'pending' ? { status: 'PENDING' } : {};
 
@@ -65,12 +66,14 @@ export default function LeavePage() {
           <h2 className="text-xl font-bold text-slate-800">Leave Management</h2>
           <p className="text-sm text-slate-500 mt-0.5">Manage leave requests and approvals</p>
         </div>
-        <button
-          onClick={() => setShowNew(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-        >
-          <Plus size={16} />Apply Leave
-        </button>
+        {!isSuperAdmin && (
+          <button
+            onClick={() => setShowNew(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <Plus size={16} />Apply Leave
+          </button>
+        )}
       </div>
 
       {/* Stats */}
@@ -129,7 +132,17 @@ export default function LeavePage() {
                   <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium', LEAVE_STATUS_COLORS[leave.status])}>
                     {leave.status}
                   </span>
-                  {isManager && leave.status === 'PENDING' && (
+                  {(() => {
+                    if (!isManager || leave.status !== 'PENDING') return null;
+                    if (leave.userId === user?.id) return null;
+                    const ROLE_LEVEL: Record<string, number> = {
+                      SUPER_ADMIN: 0, ADMIN: 1, MANAGER: 2, TEAM_LEAD: 3, EMPLOYEE: 4, INTERN: 5,
+                    };
+                    const reqLevel = ROLE_LEVEL[leave.user?.role?.name ?? 'EMPLOYEE'] ?? 4;
+                    const myLevel = ROLE_LEVEL[_roleName] ?? 4;
+                    if (myLevel >= reqLevel) return null;
+                    return true;
+                  })() && (
                     <div className="flex gap-1">
                       <button
                         onClick={() => approveMutation.mutate(leave.id)}
