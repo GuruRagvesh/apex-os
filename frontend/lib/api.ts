@@ -71,6 +71,7 @@ export const departmentsApi = {
   getOne: (id: string) => r(api.get(`/departments/${id}`)),
   create: (data: any) => r(api.post('/departments', data)),
   update: (id: string, data: any) => r(api.put(`/departments/${id}`, data)),
+  patch: (id: string, data: any) => r(api.patch(`/departments/${id}`, data)),
   remove: (id: string) => r(api.delete(`/departments/${id}`)),
 };
 

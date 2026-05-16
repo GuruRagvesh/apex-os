@@ -182,6 +182,10 @@ export class TicketsService {
     }
     // Null out empty projectId so Prisma doesn't try to connect to ''
     if (!data.projectId) data.projectId = undefined;
+    // Convert dueDate string → proper ISO DateTime
+    if (data.dueDate) {
+      data.dueDate = new Date(data.dueDate).toISOString();
+    }
 
     const count = await this.prisma.ticket.count();
     const ticketId = `TKT-${String(count + 1).padStart(3, '0')}`;

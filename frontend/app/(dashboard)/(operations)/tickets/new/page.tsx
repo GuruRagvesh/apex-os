@@ -33,7 +33,7 @@ export default function NewTicketPage() {
     type: 'TASK',
     priority: 'MEDIUM',
     estimatedTime: '',
-    departmentId: user?.department?.id || '',
+    departmentId: '',
     projectId: '',
     assignedToId: '',
     dueDate: '',
@@ -71,7 +71,7 @@ export default function NewTicketPage() {
       projectId: form.projectId || undefined,
       assignedToId: form.assignedToId || undefined,
       departmentId: form.departmentId || undefined,
-      dueDate: form.dueDate || undefined,
+      dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : undefined,
     });
   };
 

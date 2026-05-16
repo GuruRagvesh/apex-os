@@ -1,4 +1,4 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 @Injectable()
@@ -7,20 +7,80 @@ export class DepartmentsService {
 
   async findAll() {
     const departments = await this.prisma.department.findMany({
-      include: { _count: { select: { users: true, tickets: true, projects: true } } },
+      include: {
+        _count: {
+          select: {
+            users: true,
+            tickets: { where: { status: { notIn: ['DONE', 'CLOSED'] } } },
+            projects: true,
+          },
+        },
+        users: {
+          where: { role: { name: { in: ['MANAGER', 'TEAM_LEAD'] } } },
+          include: { role: true },
+          orderBy: { role: { level: 'asc' } },
+          take: 1,
+        },
+      },
       orderBy: { name: 'asc' },
     });
-    return departments;
+
+    return departments.map((d) => ({
+      ...d,
+      teamLead: d.users[0] ?? null,
+      activeTickets: d._count.tickets,
+    }));
   }
 
-  findOne(id: string) {
-    return this.prisma.department.findUnique({
+  async findOne(id: string) {
+    const dept = await this.prisma.department.findUnique({
       where: { id },
       include: {
-        users: { include: { role: true }, take: 10 },
-        _count: { select: { users: true, tickets: true, projects: true } },
+        users: {
+          include: {
+            role: true,
+            _count: { select: { assignedTickets: true } },
+          },
+          orderBy: { name: 'asc' },
+        },
+        tickets: {
+          where: { status: { notIn: ['DONE', 'CLOSED'] } },
+          include: {
+            assignedTo: { select: { id: true, name: true, avatar: true } },
+            createdBy: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+        },
+        _count: {
+          select: {
+            users: true,
+            tickets: { where: { status: { notIn: ['DONE', 'CLOSED'] } } },
+            projects: true,
+          },
+        },
       },
     });
+
+    if (!dept) throw new NotFoundException('Department not found');
+
+    const pendingLeave = await this.prisma.leaveRequest.count({
+      where: { user: { departmentId: id }, status: 'PENDING' },
+    });
+
+    const teamLead =
+      dept.users.find((u) => ['MANAGER', 'TEAM_LEAD'].includes((u as any).role?.name)) ?? null;
+
+    return {
+      ...dept,
+      teamLead,
+      stats: {
+        totalMembers: dept._count.users,
+        activeTickets: dept._count.tickets,
+        pendingLeave,
+        projects: dept._count.projects,
+      },
+    };
   }
 
   create(data: { name: string; description?: string; color?: string }) {
@@ -31,7 +91,15 @@ export class DepartmentsService {
     return this.prisma.department.update({ where: { id }, data });
   }
 
-  remove(id: string) {
+  async remove(id: string) {
+    const activeTickets = await this.prisma.ticket.count({
+      where: { departmentId: id, status: { notIn: ['DONE', 'CLOSED'] } },
+    });
+    if (activeTickets > 0) {
+      throw new BadRequestException(
+        `Cannot delete department with ${activeTickets} active ticket${activeTickets > 1 ? 's' : ''}. Resolve them first.`,
+      );
+    }
     return this.prisma.department.delete({ where: { id } });
   }
 }
