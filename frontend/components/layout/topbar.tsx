@@ -184,21 +184,42 @@ export function TopBar() {
               </div>
               <div className="max-h-72 overflow-y-auto">
                 {Array.isArray(notifications) && notifications.length > 0 ? (
-                  notifications.map((n: any) => (
-                    <div
-                      key={n.id}
-                      className={`p-3 border-b border-slate-50 last:border-0 flex gap-2.5 ${!n.isRead ? 'bg-blue-50' : ''}`}
-                    >
-                      {!n.isRead && (
-                        <span className="mt-1.5 flex-shrink-0 w-2 h-2 rounded-full bg-blue-500" />
-                      )}
-                      <div className={!n.isRead ? '' : 'pl-4'}>
-                        <p className="text-sm font-medium text-slate-800">{n.title}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">{n.message}</p>
-                        <p className="text-xs text-slate-400 mt-1">{formatRelativeTime(n.createdAt)}</p>
+                  notifications.map((n: any) => {
+                    const href = n.entityType === 'TICKET' && n.entityId
+                      ? `/tickets/${n.entityId}`
+                      : n.entityType === 'PROJECT' && n.entityId
+                      ? `/projects/${n.entityId}`
+                      : n.entityType === 'LEAVE'
+                      ? '/leave'
+                      : n.link || null;
+
+                    const handleClick = () => {
+                      if (!n.isRead) {
+                        notificationsApi.markRead(n.id).then(() => {
+                          qc.invalidateQueries({ queryKey: ['notifications-count'] });
+                          qc.invalidateQueries({ queryKey: ['notifications'] });
+                        });
+                      }
+                      if (href) { router.push(href); setShowNotifs(false); }
+                    };
+
+                    return (
+                      <div
+                        key={n.id}
+                        onClick={handleClick}
+                        className={`p-3 border-b border-slate-50 last:border-0 flex gap-2.5 transition-colors ${!n.isRead ? 'bg-blue-50' : ''} ${href ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                      >
+                        {!n.isRead && (
+                          <span className="mt-1.5 flex-shrink-0 w-2 h-2 rounded-full bg-blue-500" />
+                        )}
+                        <div className={!n.isRead ? 'flex-1' : 'pl-4 flex-1'}>
+                          <p className="text-sm font-medium text-slate-800">{n.title}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{n.message}</p>
+                          <p className="text-xs text-slate-400 mt-1">{formatRelativeTime(n.createdAt)}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
                     <span className="text-3xl mb-2" role="img" aria-label="All caught up">✓</span>

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
 
 const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
 
@@ -135,6 +136,10 @@ export default function DepartmentDetailPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      <Breadcrumb items={[
+        { label: 'Departments', href: '/departments' },
+        { label: dept.name },
+      ]} />
       {/* Back + Header */}
       <div className="flex items-start gap-3">
         <button

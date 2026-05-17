@@ -14,15 +14,17 @@ const LEAVE_TYPES = ['ANNUAL', 'SICK', 'EMERGENCY', 'UNPAID', 'OTHER'];
 export default function LeavePage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
-  const [showNew, setShowNew] = useState(false);
-  const [tab, setTab] = useState<'all' | 'mine' | 'pending'>('all');
-  const [form, setForm] = useState({ type: 'ANNUAL', startDate: '', endDate: '', reason: '' });
 
   // Defensive role check — handles object { name } or plain string, all name variants
   const _roleName = (user?.role as any)?.name || (user?.role as any) || '';
   const _isAdmin  = _roleName === 'ADMIN' || _roleName === 'SUPER_ADMIN';
   const isManager = _roleName === 'MANAGER' || _roleName === 'TEAM_LEAD' || _isAdmin;
   const isSuperAdmin = _roleName === 'SUPER_ADMIN';
+
+  // Managers land on "Needs Action" tab first; employees see their own requests
+  const [showNew, setShowNew] = useState(false);
+  const [tab, setTab] = useState<'all' | 'mine' | 'pending'>(isManager ? 'pending' : 'mine');
+  const [form, setForm] = useState({ type: 'ANNUAL', startDate: '', endDate: '', reason: '' });
 
   const queryParams = tab === 'mine' ? { userId: user?.id } : tab === 'pending' ? { status: 'PENDING' } : {};
 
@@ -92,15 +94,36 @@ export default function LeavePage() {
         ))}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — managers see "Needs Action" first */}
       <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-        {(['all', 'mine', ...(isManager ? ['pending'] : [])] as string[]).map((t) => (
+        {(isManager
+          ? [
+              { key: 'pending', label: 'Needs Action', badge: stats?.pending ?? 0 },
+              { key: 'all',     label: 'All Requests' },
+              { key: 'mine',    label: 'My Requests'  },
+            ]
+          : [
+              { key: 'mine', label: 'My Requests'  },
+              { key: 'all',  label: 'All Requests' },
+            ]
+        ).map(({ key, label, badge }) => (
           <button
-            key={t}
-            onClick={() => setTab(t as any)}
-            className={cn('text-xs font-medium px-4 py-1.5 rounded-md transition-colors capitalize', tab === t ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
+            key={key}
+            onClick={() => setTab(key as any)}
+            className={cn(
+              'flex items-center gap-1.5 text-xs font-medium px-4 py-1.5 rounded-md transition-colors',
+              tab === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+            )}
           >
-            {t}
+            {label}
+            {badge != null && badge > 0 && (
+              <span className={cn(
+                'text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none',
+                tab === key ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600',
+              )}>
+                {badge}
+              </span>
+            )}
           </button>
         ))}
       </div>

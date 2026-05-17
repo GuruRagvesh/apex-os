@@ -26,6 +26,11 @@ export default function NewTicketPage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
 
+  const roleName = (user?.role as any)?.name ?? user?.role ?? '';
+  const isTL       = roleName === 'TEAM_LEAD';
+  const isEmployee = roleName === 'EMPLOYEE' || roleName === 'INTERN';
+  const myDeptId   = user?.department?.id ?? '';
+
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -33,9 +38,11 @@ export default function NewTicketPage() {
     type: 'TASK',
     priority: 'MEDIUM',
     estimatedTime: '',
-    departmentId: '',
+    // Pre-fill department for TL / Employee
+    departmentId: (isTL || isEmployee) ? myDeptId : '',
     projectId: '',
-    assignedToId: '',
+    // Pre-fill self for Employee/Intern
+    assignedToId: isEmployee ? (user?.id ?? '') : '',
     dueDate: '',
   });
 
@@ -48,9 +55,20 @@ export default function NewTicketPage() {
   const { data: usersData } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any> });
 
   const userList: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
-  const filteredUsers = form.departmentId
-    ? userList.filter((u: any) => u.departmentId === form.departmentId)
-    : userList;
+
+  // For TEAM_LEAD: show only own-dept users
+  // For EMPLOYEE/INTERN: show only themselves + the TL of their dept
+  const filteredUsers = (() => {
+    const deptFiltered = form.departmentId
+      ? userList.filter((u: any) => u.departmentId === form.departmentId)
+      : userList;
+    if (isEmployee) {
+      return deptFiltered.filter(
+        (u: any) => u.id === user?.id || u.role?.name === 'TEAM_LEAD',
+      );
+    }
+    return deptFiltered;
+  })();
 
   const mutation = useMutation({
     mutationFn: (data: any) => ticketsApi.create(data),
@@ -223,19 +241,34 @@ export default function NewTicketPage() {
         {/* Row: Department + Project */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelCls}>Department</label>
-            <select
-              value={form.departmentId}
-              onChange={(e) => {
-                setForm((f) => ({ ...f, departmentId: e.target.value, assignedToId: '' }));
-              }}
-              className={inputCls}
-            >
-              <option value="">Select department</option>
-              {Array.isArray(departments) && departments.map((d: any) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+            <label className={labelCls}>
+              Department
+              {(isTL || isEmployee) && (
+                <span className="ml-1.5 text-xs text-slate-400 font-normal">(your dept)</span>
+              )}
+            </label>
+            {(isTL || isEmployee) ? (
+              <input
+                readOnly
+                value={Array.isArray(departments)
+                  ? (departments.find((d: any) => d.id === myDeptId)?.name ?? 'Your department')
+                  : 'Your department'}
+                className={`${inputCls} bg-slate-50 text-slate-500 cursor-not-allowed`}
+              />
+            ) : (
+              <select
+                value={form.departmentId}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, departmentId: e.target.value, assignedToId: '' }));
+                }}
+                className={inputCls}
+              >
+                <option value="">Select department</option>
+                {Array.isArray(departments) && departments.map((d: any) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <label className={labelCls}>Link to Project</label>

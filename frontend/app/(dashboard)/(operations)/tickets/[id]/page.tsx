@@ -20,6 +20,7 @@ import {
   Lightbulb, UserCheck, Hourglass,
 } from 'lucide-react';
 import Link from 'next/link';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 
@@ -363,6 +364,11 @@ export default function TicketDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Tickets', href: '/tickets' },
+        { label: ticket.ticketId },
+      ]} />
       {/* Header */}
       <div className="flex items-start gap-3">
         <Link href="/tickets" className="p-2 hover:bg-slate-100 rounded-lg transition-colors mt-0.5">
@@ -615,27 +621,62 @@ export default function TicketDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-4">
-          {/* Status changer */}
+          {/* Status stepper */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <h3 className="font-semibold text-slate-700 text-sm mb-3">Status</h3>
-            <div className="space-y-1.5">
-              {STATUSES.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => canEdit && ticket.status !== s && updateStatus.mutate(s)}
-                  disabled={!canEdit || updateStatus.isPending}
-                  className={cn(
-                    'w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                    ticket.status === s
-                      ? cn('ring-2 ring-blue-500', STATUS_COLORS[s])
-                      : cn('hover:bg-slate-50', STATUS_COLORS[s], 'opacity-60'),
+            {(() => {
+              const steps = ['OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE'];
+              const currentIdx = steps.indexOf(ticket.status);
+              const isClosed = ticket.status === 'CLOSED';
+              return (
+                <div className="space-y-1.5">
+                  {steps.map((s, i) => {
+                    const isPast = i < currentIdx;
+                    const isCurrent = i === currentIdx;
+                    const isNext = i === currentIdx + 1;
+                    const canClick = canEdit && !updateStatus.isPending && (isNext || (isPast && !isClosed));
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => canClick && updateStatus.mutate(s)}
+                        disabled={!canClick}
+                        className={cn(
+                          'w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-2',
+                          isCurrent
+                            ? 'bg-blue-600 text-white ring-2 ring-blue-300'
+                            : isPast
+                            ? 'bg-green-50 text-green-700 cursor-pointer hover:bg-green-100'
+                            : isNext && canEdit
+                            ? 'bg-slate-50 text-slate-600 hover:bg-blue-50 hover:text-blue-700 cursor-pointer border border-dashed border-slate-200'
+                            : 'bg-slate-50 text-slate-300 cursor-not-allowed',
+                        )}
+                      >
+                        <span className="flex-shrink-0">
+                          {isPast ? '✓' : isCurrent ? '●' : '○'}
+                        </span>
+                        {STATUS_LABELS[s] ?? s}
+                        {isNext && canEdit && !isClosed && (
+                          <span className="ml-auto text-[10px] text-slate-400">→ advance</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                  {isClosed ? (
+                    <div className="px-3 py-2 rounded-lg bg-slate-100 text-slate-500 text-xs font-medium flex items-center gap-2">
+                      <span>✕</span> Closed
+                    </div>
+                  ) : canEdit && (
+                    <button
+                      onClick={() => updateStatus.mutate('CLOSED')}
+                      disabled={updateStatus.isPending}
+                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                      Close ticket
+                    </button>
                   )}
-                >
-                  {STATUS_LABELS[s] ?? s}
-                  {ticket.status === s && ' ✓'}
-                </button>
-              ))}
-            </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Details */}

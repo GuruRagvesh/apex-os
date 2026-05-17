@@ -25,7 +25,11 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('apex_token');
       localStorage.removeItem('nexus_user');
-      window.location.href = '/login';
+      localStorage.removeItem('apex-auth');
+      // Only redirect if not already on the login page
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login?expired=true';
+      }
     }
     return Promise.reject(error.response?.data || error);
   },
@@ -40,6 +44,9 @@ export const authApi = {
   me: () => r(api.get('/auth/me')),
   changePassword: (currentPassword: string, newPassword: string) =>
     r(api.patch('/auth/change-password', { currentPassword, newPassword })),
+  forgotPassword: (email: string) => r(api.post('/auth/forgot-password', { email })),
+  resetPassword: (email: string, otp: string, newPassword: string) =>
+    r(api.post('/auth/reset-password', { email, otp, newPassword })),
 };
 
 // Users

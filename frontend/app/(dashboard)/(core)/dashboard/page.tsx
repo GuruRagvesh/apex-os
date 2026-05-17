@@ -223,16 +223,16 @@ function AdminDashboard({ user }: { user: any }) {
         ) : (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard label="Open Tickets"   value={stats.openTickets ?? 0}    icon={<Ticket       size={20} className="text-yellow-600" />} bg="bg-yellow-50" />
-              <StatCard label="In Progress"    value={stats.inProgressTickets ?? 0} icon={<Clock     size={20} className="text-blue-600"   />} bg="bg-blue-50"   />
-              <StatCard label="Urgent"         value={stats.urgentTickets ?? 0}   icon={<AlertTriangle size={20} className="text-red-600"  />} bg="bg-red-50" alert={stats.urgentTickets > 0} />
-              <StatCard label="Resolved Today" value={stats.doneTickets ?? 0}     icon={<CheckCircle  size={20} className="text-green-600" />} bg="bg-green-50"  />
+              <StatCard label="Open Tickets"   value={stats.openTickets ?? 0}       icon={<Ticket        size={20} className="text-yellow-600" />} bg="bg-yellow-50" href="/tickets?status=OPEN" />
+              <StatCard label="In Progress"    value={stats.inProgressTickets ?? 0} icon={<Clock         size={20} className="text-blue-600"   />} bg="bg-blue-50"   href="/tickets?status=IN_PROGRESS" />
+              <StatCard label="Urgent"         value={stats.urgentTickets ?? 0}     icon={<AlertTriangle size={20} className="text-red-600"    />} bg="bg-red-50" alert={stats.urgentTickets > 0} href="/tickets?priority=URGENT" />
+              <StatCard label="Resolved Today" value={stats.doneTickets ?? 0}       icon={<CheckCircle   size={20} className="text-green-600"  />} bg="bg-green-50"  href="/tickets?status=DONE" />
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard label="Active Projects" value={stats.activeProjects ?? 0}  icon={<FolderKanban size={20} className="text-indigo-600" />} bg="bg-indigo-50" sub={`of ${stats.totalProjects ?? 0} total`} />
-              <StatCard label="Team Members"    value={stats.totalUsers ?? 0}      icon={<Users        size={20} className="text-purple-600" />} bg="bg-purple-50" />
-              <StatCard label="Pending Leave"   value={stats.pendingLeave ?? 0}    icon={<CalendarOff  size={20} className="text-pink-600"   />} bg="bg-pink-50" alert={stats.pendingLeave > 3} />
-              <StatCard label="Overdue"         value={stats.overdueTickets ?? 0}  icon={<Zap          size={20} className="text-orange-600" />} bg="bg-orange-50" alert={stats.overdueTickets > 0} />
+              <StatCard label="Active Projects" value={stats.activeProjects ?? 0} icon={<FolderKanban size={20} className="text-indigo-600" />} bg="bg-indigo-50" sub={`of ${stats.totalProjects ?? 0} total`} href="/projects?status=ACTIVE" />
+              <StatCard label="Team Members"    value={stats.totalUsers ?? 0}     icon={<Users        size={20} className="text-purple-600" />} bg="bg-purple-50" href="/users" />
+              <StatCard label="Pending Leave"   value={stats.pendingLeave ?? 0}   icon={<CalendarOff  size={20} className="text-pink-600"   />} bg="bg-pink-50" alert={stats.pendingLeave > 3} href="/leave" />
+              <StatCard label="Overdue"         value={stats.overdueTickets ?? 0} icon={<Zap          size={20} className="text-orange-600" />} bg="bg-orange-50" alert={stats.overdueTickets > 0} href="/tickets?isOverdue=true" />
             </div>
           </>
         )}

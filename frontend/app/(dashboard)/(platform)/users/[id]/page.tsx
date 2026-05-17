@@ -6,6 +6,7 @@ import { usersApi, ticketsApi } from '@/lib/api';
 import { ArrowLeft, Mail, Building2, BadgeCheck, Calendar, Ticket, ExternalLink, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { cn, STATUS_COLORS, PRIORITY_COLORS, formatDate } from '@/lib/utils';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
 
 const roleBadge: Record<string, string> = {
   SUPER_ADMIN: 'bg-purple-100 text-purple-700',
@@ -69,6 +70,10 @@ export default function UserDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <Breadcrumb items={[
+        { label: 'Users', href: '/users' },
+        { label: user.name },
+      ]} />
       {/* Back button */}
       <div className="flex items-center gap-3">
         <button

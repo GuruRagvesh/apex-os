@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/topbar';
+import { ColdStartBanner } from '@/components/ui/cold-start-banner';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -29,6 +30,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
+      <ColdStartBanner />
     </div>
   );
 }

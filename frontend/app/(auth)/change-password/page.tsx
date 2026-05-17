@@ -46,8 +46,9 @@ export default function ChangePasswordPage() {
         setAuth({ ...user, mustChangePassword: false } as any, token);
       }
 
-      toast.success('Password updated successfully');
-      router.push('/dashboard');
+      toast.success('Password updated successfully — welcome to Apex OS!');
+      // After first-time password change, always show welcome page
+      router.push('/welcome');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to change password');
     } finally {

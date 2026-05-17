@@ -1,18 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { setAuth } = useAuthStore();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('expired') === 'true') {
+      toast.error('Your session has expired. Please log in again.', { duration: 5000 });
+    }
+  }, [searchParams]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,16 +28,23 @@ export default function LoginPage() {
       const res: any = await authApi.login(email, password);
       setAuth(res.user, res.accessToken);
       toast.success(`Welcome back, ${res.user.name}!`);
-      // Defensive: role may be an object { name } or a plain string
+
       const roleName = res.user?.role?.name || res.user?.role || '';
-      // SUPER_ADMIN picks their working mode before anything else
-      if (roleName === 'SUPER_ADMIN') {
-        router.push('/select-mode');
-      } else if (res.user?.mustChangePassword) {
+      const mustChange = res.user?.mustChangePassword;
+
+      // Correct priority order:
+      // 1. Force password change first — security above all
+      // 2. Welcome page for first-timers
+      // 3. SUPER_ADMIN mode selection
+      // 4. Dashboard
+      if (mustChange) {
         router.push('/change-password');
+      } else if (localStorage.getItem('apexWelcomeSeen') !== 'true') {
+        router.push('/welcome');
+      } else if (roleName === 'SUPER_ADMIN') {
+        router.push('/select-mode');
       } else {
-        const seen = localStorage.getItem('apexWelcomeSeen');
-        router.push(seen ? '/dashboard' : '/welcome');
+        router.push('/dashboard');
       }
     } catch (err: any) {
       toast.error(err?.message || 'Invalid credentials');
@@ -103,12 +117,11 @@ export default function LoginPage() {
             </button>
 
             <div className="text-center mt-3">
-              <Link href="/change-password" className="text-xs text-slate-500 hover:text-blue-600 transition-colors">
-                Forgot Password? Reset it here
+              <Link href="/forgot-password" className="text-xs text-slate-500 hover:text-blue-600 transition-colors">
+                Forgot your password?
               </Link>
             </div>
           </form>
-
         </div>
 
         <p className="text-center text-slate-500 text-xs mt-6">
@@ -119,5 +132,17 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

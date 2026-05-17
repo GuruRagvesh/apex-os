@@ -10,6 +10,7 @@ import { ArrowLeft, Ticket, Users, Edit3, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { TicketRow } from '@/components/tickets/ticket-row';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -70,6 +71,10 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
+      <Breadcrumb items={[
+        { label: 'Projects', href: '/projects' },
+        { label: `${project.projectId} — ${project.name}` },
+      ]} />
       <div className="flex items-start gap-3">
         <Link href="/projects" className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
           <ArrowLeft size={18} className="text-slate-500" />

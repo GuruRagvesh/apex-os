@@ -104,6 +104,8 @@ export class LeaveService {
         `Your ${leave.type} leave (${startStr} â€“ ${endStr}) has been approved.`,
         NotificationType.SUCCESS,
         '/leave',
+        leave.id,
+        'LEAVE',
       ),
       this.emailService.sendLeaveDecision(
         leave.user.email,
@@ -154,6 +156,8 @@ export class LeaveService {
         `Your ${leave.type} leave (${startStr} â€“ ${endStr}) has been rejected.`,
         NotificationType.WARNING,
         '/leave',
+        leave.id,
+        'LEAVE',
       ),
       this.emailService.sendLeaveDecision(
         leave.user.email,

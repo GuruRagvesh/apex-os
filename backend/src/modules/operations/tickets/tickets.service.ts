@@ -222,6 +222,8 @@ export class TicketsService {
           `${ticket.title}`,
           NotificationType.INFO,
           `/tickets/${ticket.id}`,
+          ticket.id,
+          'TICKET',
         ),
         this.emailService.sendTicketAssigned(
           ticket.assignedTo.email,
@@ -335,6 +337,8 @@ export class TicketsService {
               `${ticket.title} has been marked ${data.status}`,
               NotificationType.SUCCESS,
               `/tickets/${ticket.id}`,
+              ticket.id,
+              'TICKET',
             );
             this.gateway.emitNotificationToUser(existing.createdById, {
               title: `Ticket resolved: ${ticket.ticketId}`,
@@ -359,6 +363,8 @@ export class TicketsService {
           ticket.title,
           NotificationType.INFO,
           `/tickets/${ticket.id}`,
+          ticket.id,
+          'TICKET',
         ),
         this.emailService.sendTicketAssigned(
           ticket.assignedTo.email,
@@ -404,6 +410,8 @@ export class TicketsService {
       ticket.title,
       NotificationType.SUCCESS,
       `/tickets/${ticket.id}`,
+      ticket.id,
+      'TICKET',
     );
     this.gateway.emitNotificationToUser(ticket.createdById, {
       title: `Ticket approved: ${ticket.ticketId}`,
@@ -440,6 +448,8 @@ export class TicketsService {
       ticket.title,
       NotificationType.WARNING,
       `/tickets/${ticket.id}`,
+      ticket.id,
+      'TICKET',
     );
     this.gateway.emitNotificationToUser(ticket.createdById, {
       title: `Ticket rejected: ${ticket.ticketId}`,
