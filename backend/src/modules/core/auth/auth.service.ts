@@ -104,7 +104,7 @@ export class AuthService {
     this.otpStore.set(email, { otp, expires: Date.now() + 10 * 60 * 1000 }); // 10-min TTL
     // TODO: send via SMTP when configured
     console.log(`[OTP] ${email}: ${otp}`);
-    return { message: `OTP sent to ${email}`, dev_otp: otp };
+    return { message: `OTP sent to ${email}` };
   }
 
   async resetPasswordWithOtp(email: string, otp: string, newPassword: string) {

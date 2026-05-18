@@ -187,17 +187,29 @@ export class TicketsService {
       data.dueDate = new Date(data.dueDate).toISOString();
     }
 
-    const count = await this.prisma.ticket.count();
-    const ticketId = `TKT-${String(count + 1).padStart(3, '0')}`;
-
+    // Generate a collision-safe ticket ID by retrying on unique-constraint violations (P2002)
     let ticket: any;
-    try {
-      ticket = await this.prisma.ticket.create({
-        data: { ...data, ticketId, createdById: userId },
-        include: this.includeOptions,
-      });
-    } catch (err: any) {
-      throw new BadRequestException(err?.message ?? 'Failed to create ticket');
+    let attempts = 0;
+    while (attempts < 10) {
+      const count = await this.prisma.ticket.count();
+      const ticketId = `TKT-${String(count + 1 + attempts).padStart(3, '0')}`;
+      try {
+        ticket = await this.prisma.ticket.create({
+          data: { ...data, ticketId, createdById: userId },
+          include: this.includeOptions,
+        });
+        break;
+      } catch (err: any) {
+        // P2002 = unique constraint violation — ID was taken by a concurrent insert, retry
+        if (err?.code === 'P2002' && err?.meta?.target?.includes('ticketId')) {
+          attempts++;
+          continue;
+        }
+        throw new BadRequestException(err?.message ?? 'Failed to create ticket');
+      }
+    }
+    if (!ticket) {
+      throw new BadRequestException('Failed to generate a unique ticket ID — please try again');
     }
 
     await this.prisma.activityLog.create({

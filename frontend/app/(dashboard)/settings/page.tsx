@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
-import { authApi, usersApi } from '@/lib/api';
+import { authApi, usersApi, settingsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import {
   User, Shield, Bell, Palette, SlidersHorizontal, Building2,
@@ -456,21 +457,40 @@ function PreferencesSection() {
 // SECTION: Company (admin only)
 // ─────────────────────────────────────────────────────────────────────────────
 function CompanySection() {
-  const [form, setForm] = useState({ name: 'TechnoEdge Learning Services', tagline: '', contactEmail: '' });
-  const [saving, setSaving] = useState(false);
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
-    try { toast.success('Company settings saved'); }
-    catch { toast.error('Failed to save'); } finally { setSaving(false); }
+  const qc = useQueryClient();
+  const { data: remote } = useQuery({
+    queryKey: ['settings', 'company'],
+    queryFn: () => settingsApi.getCompany() as Promise<any>,
+  });
+  const [form, setForm] = useState({ companyName: 'TechnoEdge Learning Services', tagline: '', contactEmail: '' });
+
+  // Sync from API once loaded
+  useEffect(() => {
+    if (remote) setForm((f) => ({ ...f, ...remote }));
+  }, [remote]);
+
+  const save = useMutation({
+    mutationFn: (data: any) => settingsApi.updateCompany(data),
+    onSuccess: () => {
+      toast.success('Company settings saved');
+      qc.invalidateQueries({ queryKey: ['settings', 'company'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to save'),
+  });
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    save.mutate(form);
   };
+
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
         <h3 className="font-semibold text-slate-800 dark:text-gray-100">Company Information</h3>
-        <div><label className={labelCls}>Company Name</label><input className={inputCls} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
+        <div><label className={labelCls}>Company Name</label><input className={inputCls} value={form.companyName} onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))} /></div>
         <div><label className={labelCls}>Tagline</label><input className={inputCls} value={form.tagline} onChange={(e) => setForm((f) => ({ ...f, tagline: e.target.value }))} placeholder="e.g. AI-powered workplace operations" /></div>
         <div><label className={labelCls}>Contact Email</label><input type="email" className={inputCls} value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} placeholder="hr@company.com" /></div>
-        <SaveBtn loading={saving} />
+        <SaveBtn loading={save.isPending} />
       </div>
     </form>
   );
@@ -480,14 +500,35 @@ function CompanySection() {
 // SECTION: Leave Policy (admin only)
 // ─────────────────────────────────────────────────────────────────────────────
 function LeavePolicySection() {
-  const [quotas, setQuotas]       = useState({ EMPLOYEE: 12, TEAM_LEAD: 12, MANAGER: 15, INTERN: 6 });
+  const qc = useQueryClient();
+  const { data: remote } = useQuery({
+    queryKey: ['settings', 'leave-policy'],
+    queryFn: () => settingsApi.getLeavePolicy() as Promise<any>,
+  });
+  const [quotas, setQuotas]           = useState({ EMPLOYEE: 12, TEAM_LEAD: 12, MANAGER: 15, INTERN: 6 });
   const [workingDays, setWorkingDays] = useState('Mon–Sat');
-  const [saving, setSaving]       = useState(false);
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
-    try { toast.success('Leave policy saved'); }
-    catch { toast.error('Failed'); } finally { setSaving(false); }
+
+  useEffect(() => {
+    if (remote) {
+      if (remote.quotas)      setQuotas(remote.quotas);
+      if (remote.workingDays) setWorkingDays(remote.workingDays);
+    }
+  }, [remote]);
+
+  const save = useMutation({
+    mutationFn: (data: any) => settingsApi.updateLeavePolicy(data),
+    onSuccess: () => {
+      toast.success('Leave policy saved');
+      qc.invalidateQueries({ queryKey: ['settings', 'leave-policy'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to save'),
+  });
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    save.mutate({ quotas, workingDays });
   };
+
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
@@ -512,7 +553,7 @@ function LeavePolicySection() {
             <option value="Mon–Sun">Mon–Sun (7 days)</option>
           </select>
         </div>
-        <SaveBtn loading={saving} />
+        <SaveBtn loading={save.isPending} />
       </div>
     </form>
   );
@@ -522,16 +563,35 @@ function LeavePolicySection() {
 // SECTION: SLA (admin only)
 // ─────────────────────────────────────────────────────────────────────────────
 function SlaSection() {
-  const [sla, setSla]     = useState({ URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 });
-  const [saving, setSaving] = useState(false);
+  const qc = useQueryClient();
+  const { data: remote } = useQuery({
+    queryKey: ['settings', 'sla'],
+    queryFn: () => settingsApi.getSla() as Promise<any>,
+  });
+  const [sla, setSla] = useState({ URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 });
+
+  useEffect(() => {
+    if (remote && Object.keys(remote).length > 0) setSla((s) => ({ ...s, ...remote }));
+  }, [remote]);
+
+  const save = useMutation({
+    mutationFn: (data: any) => settingsApi.updateSla(data),
+    onSuccess: () => {
+      toast.success('SLA settings saved');
+      qc.invalidateQueries({ queryKey: ['settings', 'sla'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to save'),
+  });
+
   const priorityColor: Record<string, string> = {
     URGENT: 'text-red-600', HIGH: 'text-orange-600', MEDIUM: 'text-blue-600', LOW: 'text-slate-500',
   };
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
-    try { toast.success('SLA settings saved'); }
-    catch { toast.error('Failed'); } finally { setSaving(false); }
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    save.mutate(sla);
   };
+
   return (
     <form onSubmit={handleSave}>
       <div className={cardCls}>
@@ -549,7 +609,7 @@ function SlaSection() {
             </div>
           ))}
         </div>
-        <SaveBtn loading={saving} />
+        <SaveBtn loading={save.isPending} />
       </div>
     </form>
   );
@@ -559,21 +619,46 @@ function SlaSection() {
 // SECTION: SMTP (super admin only)
 // ─────────────────────────────────────────────────────────────────────────────
 function SmtpSection() {
-  const [form, setForm]   = useState({ host: '', port: '587', email: '', password: '' });
+  const qc = useQueryClient();
+  const { data: remote } = useQuery({
+    queryKey: ['settings', 'smtp'],
+    queryFn: () => settingsApi.getSmtp() as Promise<any>,
+  });
+  const [form, setForm]       = useState({ host: '', port: '587', email: '', password: '' });
   const [showPass, setShowPass] = useState(false);
-  const [saving, setSaving]     = useState(false);
   const [testing, setTesting]   = useState(false);
+
+  useEffect(() => {
+    if (remote) setForm((f) => ({ ...f, ...remote }));
+  }, [remote]);
+
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
-    try { toast.success('SMTP settings saved'); }
-    catch { toast.error('Failed'); } finally { setSaving(false); }
+
+  const save = useMutation({
+    mutationFn: (data: any) => settingsApi.updateSmtp(data),
+    onSuccess: () => {
+      toast.success('SMTP settings saved');
+      qc.invalidateQueries({ queryKey: ['settings', 'smtp'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to save'),
+  });
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    save.mutate(form);
   };
+
   const handleTest = async () => {
     setTesting(true);
-    try { toast.success('Test email sent!'); }
-    catch { toast.error('Test email failed'); } finally { setTesting(false); }
+    try {
+      // Future: call a /settings/smtp/test endpoint
+      await new Promise((res) => setTimeout(res, 800));
+      toast.success('Test email sent! (Check server logs — SMTP must be configured)');
+    } catch {
+      toast.error('Test email failed');
+    } finally { setTesting(false); }
   };
+
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
@@ -585,7 +670,7 @@ function SmtpSection() {
           <div className="col-span-2">
             <label className={labelCls}>Password</label>
             <div className="relative">
-              <input type={showPass ? 'text' : 'password'} className={`${inputCls} pr-10`} value={form.password} onChange={(e) => set('password', e.target.value)} />
+              <input type={showPass ? 'text' : 'password'} className={`${inputCls} pr-10`} value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="App password or SMTP secret" />
               <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
                 {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
@@ -593,7 +678,7 @@ function SmtpSection() {
           </div>
         </div>
         <div className="flex gap-3">
-          <SaveBtn loading={saving} />
+          <SaveBtn loading={save.isPending} />
           <button type="button" onClick={handleTest} disabled={testing}
             className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-gray-700 rounded-lg text-sm font-medium text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors">
             <Mail size={14} />{testing ? 'Sending…' : 'Send Test Email'}

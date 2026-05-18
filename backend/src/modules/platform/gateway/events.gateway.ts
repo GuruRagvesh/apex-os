@@ -10,8 +10,14 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 
+const WS_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  process.env.FRONTEND_URL,
+].filter(Boolean) as string[];
+
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: { origin: WS_ORIGINS, credentials: true },
   transports: ['websocket', 'polling'],
 })
 export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {

@@ -180,8 +180,14 @@ export const teamApi = {
 
 // Settings
 export const settingsApi = {
-  getCompany: () => r(api.get('/settings/company')),
-  updateCompany: (data: any) => r(api.patch('/settings/company', data)),
+  getCompany:          ()         => r(api.get('/settings/company')),
+  updateCompany:       (data: any) => r(api.patch('/settings/company', data)),
+  getLeavePolicy:      ()         => r(api.get('/settings/leave-policy')),
+  updateLeavePolicy:   (data: any) => r(api.patch('/settings/leave-policy', data)),
+  getSla:              ()         => r(api.get('/settings/sla')),
+  updateSla:           (data: any) => r(api.patch('/settings/sla', data)),
+  getSmtp:             ()         => r(api.get('/settings/smtp')),
+  updateSmtp:          (data: any) => r(api.patch('/settings/smtp', data)),
 };
 
 // Notifications
