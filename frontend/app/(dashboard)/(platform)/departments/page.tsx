@@ -69,15 +69,15 @@ export default function DepartmentsPage() {
   });
 
   const inputCls =
-    'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
+    'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500';
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Departments</h2>
-          <p className="text-sm text-slate-500">
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Departments</h2>
+          <p className="text-sm text-slate-500 dark:text-gray-400">
             {Array.isArray(departments) ? departments.length : 0} departments
           </p>
         </div>
@@ -103,7 +103,7 @@ export default function DepartmentsPage() {
             departments.map((d: any) => (
               <div
                 key={d.id}
-                className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md transition-all cursor-pointer group relative"
+                className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-5 hover:shadow-md transition-all cursor-pointer group relative"
                 onClick={() => router.push(`/departments/${d.id}`)}
               >
                 {/* Card header */}
@@ -119,9 +119,9 @@ export default function DepartmentsPage() {
                       />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-slate-800">{d.name}</h3>
+                      <h3 className="font-semibold text-slate-800 dark:text-white">{d.name}</h3>
                       {d.description && (
-                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{d.description}</p>
+                        <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5 line-clamp-1">{d.description}</p>
                       )}
                     </div>
                   </div>
@@ -130,7 +130,7 @@ export default function DepartmentsPage() {
                   <div className="flex items-center gap-1" ref={menuOpen === d.id ? menuRef : undefined}>
                     <ChevronRight
                       size={16}
-                      className="text-slate-300 group-hover:text-slate-500 transition-colors"
+                      className="text-slate-300 dark:text-gray-600 group-hover:text-slate-500 dark:group-hover:text-gray-400 transition-colors"
                     />
                     {isAdmin && (
                       <button
@@ -138,13 +138,13 @@ export default function DepartmentsPage() {
                           e.stopPropagation();
                           setMenuOpen(menuOpen === d.id ? null : d.id);
                         }}
-                        className="p-1 hover:bg-slate-100 rounded-md transition-colors"
+                        className="p-1 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-md transition-colors"
                       >
-                        <MoreVertical size={15} className="text-slate-400" />
+                        <MoreVertical size={15} className="text-slate-400 dark:text-gray-500" />
                       </button>
                     )}
                     {menuOpen === d.id && (
-                      <div className="absolute top-12 right-4 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[140px]">
+                      <div className="absolute top-12 right-4 bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-lg shadow-lg z-10 min-w-[140px]">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -163,36 +163,36 @@ export default function DepartmentsPage() {
 
                 {/* Team lead */}
                 {d.teamLead && (
-                  <div className="flex items-center gap-2 mb-3 text-xs text-slate-500">
-                    <UserCircle2 size={13} className="text-slate-400" />
-                    <span>Lead: <span className="font-medium text-slate-700">{d.teamLead.name}</span></span>
+                  <div className="flex items-center gap-2 mb-3 text-xs text-slate-500 dark:text-gray-400">
+                    <UserCircle2 size={13} className="text-slate-400 dark:text-gray-500" />
+                    <span>Lead: <span className="font-medium text-slate-700 dark:text-gray-300">{d.teamLead.name}</span></span>
                   </div>
                 )}
 
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="bg-slate-50 dark:bg-gray-800 rounded-lg p-2">
                     <div className="flex items-center justify-center mb-1">
-                      <Users size={13} className="text-slate-400" />
+                      <Users size={13} className="text-slate-400 dark:text-gray-500" />
                     </div>
-                    <p className="text-sm font-bold text-slate-800">{d._count?.users || 0}</p>
-                    <p className="text-xs text-slate-400">Members</p>
+                    <p className="text-sm font-bold text-slate-800 dark:text-white">{d._count?.users || 0}</p>
+                    <p className="text-xs text-slate-400 dark:text-gray-500">Members</p>
                   </div>
-                  <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="bg-slate-50 dark:bg-gray-800 rounded-lg p-2">
                     <div className="flex items-center justify-center mb-1">
-                      <Ticket size={13} className="text-slate-400" />
+                      <Ticket size={13} className="text-slate-400 dark:text-gray-500" />
                     </div>
-                    <p className="text-sm font-bold text-slate-800">
+                    <p className="text-sm font-bold text-slate-800 dark:text-white">
                       {d.activeTickets ?? d._count?.tickets ?? 0}
                     </p>
-                    <p className="text-xs text-slate-400">Active</p>
+                    <p className="text-xs text-slate-400 dark:text-gray-500">Active</p>
                   </div>
-                  <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="bg-slate-50 dark:bg-gray-800 rounded-lg p-2">
                     <div className="flex items-center justify-center mb-1">
-                      <FolderKanban size={13} className="text-slate-400" />
+                      <FolderKanban size={13} className="text-slate-400 dark:text-gray-500" />
                     </div>
-                    <p className="text-sm font-bold text-slate-800">{d._count?.projects || 0}</p>
-                    <p className="text-xs text-slate-400">Projects</p>
+                    <p className="text-sm font-bold text-slate-800 dark:text-white">{d._count?.projects || 0}</p>
+                    <p className="text-xs text-slate-400 dark:text-gray-500">Projects</p>
                   </div>
                 </div>
               </div>
@@ -203,11 +203,11 @@ export default function DepartmentsPage() {
       {/* New Department Modal */}
       {showNew && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
-            <h3 className="font-bold text-slate-800 text-lg mb-5">New Department</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-5">New Department</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">
                   Name *
                 </label>
                 <input
@@ -220,7 +220,7 @@ export default function DepartmentsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">
                   Description
                 </label>
                 <input
@@ -232,15 +232,15 @@ export default function DepartmentsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Color</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Color</label>
                 <div className="flex items-center gap-3">
                   <input
                     type="color"
                     value={form.color}
                     onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
-                    className="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer"
+                    className="w-10 h-10 rounded-lg border border-slate-200 dark:border-gray-700 cursor-pointer"
                   />
-                  <span className="text-sm text-slate-500">{form.color}</span>
+                  <span className="text-sm text-slate-500 dark:text-gray-400">{form.color}</span>
                 </div>
               </div>
             </div>
@@ -254,7 +254,7 @@ export default function DepartmentsPage() {
               </button>
               <button
                 onClick={() => setShowNew(false)}
-                className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg hover:bg-slate-50 text-sm"
+                className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm"
               >
                 Cancel
               </button>
@@ -266,18 +266,18 @@ export default function DepartmentsPage() {
       {/* Delete Confirm Dialog */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
+          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
                 <Trash2 size={18} className="text-red-600" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800">Delete Department</h3>
-                <p className="text-sm text-slate-500">This action cannot be undone.</p>
+                <h3 className="font-bold text-slate-800 dark:text-white">Delete Department</h3>
+                <p className="text-sm text-slate-500 dark:text-gray-400">This action cannot be undone.</p>
               </div>
             </div>
-            <p className="text-sm text-slate-600 mb-5 bg-slate-50 rounded-lg p-3">
-              Delete <span className="font-semibold text-slate-800">{deleteTarget.name}</span>?
+            <p className="text-sm text-slate-600 dark:text-gray-400 mb-5 bg-slate-50 dark:bg-gray-800 rounded-lg p-3">
+              Delete <span className="font-semibold text-slate-800 dark:text-white">{deleteTarget.name}</span>?
               Members will be unassigned from this department.
             </p>
             <div className="flex gap-3">

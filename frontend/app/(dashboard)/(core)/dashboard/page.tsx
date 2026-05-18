@@ -41,11 +41,11 @@ function WelcomeHeader({ name, sub }: { name: string; sub: string }) {
   const { greeting, timeStr } = useLiveClock();
   return (
     <div>
-      <h2 className="text-2xl font-bold text-slate-800">
+      <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
         {greeting}, {name?.split(' ')[0]} 👋
       </h2>
-      <p className="text-slate-500 text-sm mt-0.5 font-mono">{timeStr}</p>
-      <p className="text-slate-400 text-xs mt-0.5">{sub}</p>
+      <p className="text-slate-500 dark:text-gray-400 text-sm mt-0.5 font-mono">{timeStr}</p>
+      <p className="text-slate-400 dark:text-gray-500 text-xs mt-0.5">{sub}</p>
     </div>
   );
 }
@@ -79,9 +79,9 @@ function DailySummaryModal({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
         <div
-          className="flex items-center justify-between px-6 py-4 border-b border-slate-100"
+          className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-gray-800"
           style={{ background: 'linear-gradient(135deg,#1e40af 0%,#4f46e5 100%)' }}
         >
           <div className="flex items-center gap-2">
@@ -96,7 +96,7 @@ function DailySummaryModal({ onClose }: { onClose: () => void }) {
           {isLoading && (
             <div className="flex flex-col items-center justify-center h-40 gap-3">
               <Loader2 size={28} className="animate-spin text-indigo-400" />
-              <p className="text-sm text-slate-500">Generating summary with AI…</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">Generating summary with AI…</p>
             </div>
           )}
           {error && !aiDisabled && (
@@ -107,22 +107,22 @@ function DailySummaryModal({ onClose }: { onClose: () => void }) {
           {aiDisabled && (
             <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
               <Sparkles size={28} className="text-slate-300" />
-              <p className="text-sm text-slate-600 font-medium">AI Daily Summary is coming soon</p>
-              <p className="text-xs text-slate-400 max-w-xs">
+              <p className="text-sm text-slate-600 dark:text-gray-400 font-medium">AI Daily Summary is coming soon</p>
+              <p className="text-xs text-slate-400 dark:text-gray-500 max-w-xs">
                 It will generate an intelligent summary of your team&apos;s activity once AI is configured.
               </p>
             </div>
           )}
           {data?.summary && !aiDisabled && (
-            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{data.summary}</p>
+            <p className="text-sm text-slate-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{data.summary}</p>
           )}
         </div>
         {data?.summary && !aiDisabled && (
           <div className="px-6 pb-5 flex items-center justify-between">
-            <p className="text-xs text-slate-400">Powered by GPT-4o mini</p>
+            <p className="text-xs text-slate-400 dark:text-gray-500">Powered by GPT-4o mini</p>
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors text-slate-600"
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors text-slate-600 dark:text-gray-400"
             >
               {copied
                 ? <><Check size={12} className="text-green-600" /> Copied!</>
@@ -144,24 +144,24 @@ function WorkloadTable({ data }: { data: any[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-100">
-            <th className="text-left text-xs font-semibold text-slate-500 uppercase pb-2">Member</th>
-            <th className="text-right text-xs font-semibold text-slate-500 uppercase pb-2">Open</th>
-            <th className="text-right text-xs font-semibold text-slate-500 uppercase pb-2">In&nbsp;Progress</th>
-            <th className="text-right text-xs font-semibold text-slate-500 uppercase pb-2">Done</th>
-            <th className="text-right text-xs font-semibold text-slate-500 uppercase pb-2">Total</th>
+          <tr className="border-b border-slate-100 dark:border-gray-800">
+            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase pb-2">Member</th>
+            <th className="text-right text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase pb-2">Open</th>
+            <th className="text-right text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase pb-2">In&nbsp;Progress</th>
+            <th className="text-right text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase pb-2">Done</th>
+            <th className="text-right text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase pb-2">Total</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-50">
+        <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
           {data.map((row: any) => (
-            <tr key={row.user?.id ?? row.id} className="hover:bg-slate-50 transition-colors">
-              <td className="py-2.5 font-medium text-slate-700">{row.user?.name ?? row.name}</td>
+            <tr key={row.user?.id ?? row.id} className="hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">
+              <td className="py-2.5 font-medium text-slate-700 dark:text-gray-300">{row.user?.name ?? row.name}</td>
               <td className="py-2.5 text-right text-yellow-600 font-medium">{row.open ?? 0}</td>
               <td className="py-2.5 text-right text-blue-600 font-medium">
                 {row.inProgress ?? row.in_progress ?? 0}
               </td>
               <td className="py-2.5 text-right text-green-600 font-medium">{row.done ?? 0}</td>
-              <td className="py-2.5 text-right text-slate-600 font-semibold">{row.total ?? 0}</td>
+              <td className="py-2.5 text-right text-slate-600 dark:text-gray-400 font-semibold">{row.total ?? 0}</td>
             </tr>
           ))}
         </tbody>
@@ -240,28 +240,28 @@ function AdminDashboard({ user }: { user: any }) {
         {/* Quick actions */}
         <div className="flex flex-wrap gap-3">
           <Link href="/tickets/new"  className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"><Plus size={15} /> New Ticket</Link>
-          <Link href="/users"        className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors"><Users size={15} /> Users</Link>
-          <Link href="/analytics"    className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg transition-colors"><FolderKanban size={15} /> Analytics</Link>
+          <Link href="/users"        className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-slate-200 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-800 text-slate-700 dark:text-gray-300 rounded-lg transition-colors"><Users size={15} /> Users</Link>
+          <Link href="/analytics"    className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-slate-200 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-800 text-slate-700 dark:text-gray-300 rounded-lg transition-colors"><FolderKanban size={15} /> Analytics</Link>
           <button onClick={() => setShowSummary(true)} className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 border border-indigo-200 hover:bg-indigo-50 text-indigo-700 rounded-lg transition-colors"><Sparkles size={15} /> AI Summary</button>
         </div>
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5">
-            <h3 className="font-semibold text-slate-800 mb-4">Ticket Trend (14 days)</h3>
+          <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-5">
+            <h3 className="font-semibold text-slate-800 dark:text-white mb-4">Ticket Trend (14 days)</h3>
             {isLoading ? <Skeleton className="h-48 w-full rounded-lg" /> : <TicketTrendChart data={trend ?? []} />}
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h3 className="font-semibold text-slate-800 mb-4">By Category</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-5">
+            <h3 className="font-semibold text-slate-800 dark:text-white mb-4">By Category</h3>
             {isLoading ? <Skeleton className="h-48 w-full rounded-lg" /> : <CategoryChart data={byCategory ?? []} />}
           </div>
         </div>
 
         {/* Workload + Activity */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl border border-slate-200">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-800">Team Workload</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800 dark:text-white">Team Workload</h3>
               <Link href="/users" className="text-xs text-indigo-600 hover:underline">View team</Link>
             </div>
             <div className="px-5 py-4">
@@ -271,15 +271,15 @@ function AdminDashboard({ user }: { user: any }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-800">Recent Activity</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800 dark:text-white">Recent Activity</h3>
               <span className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">
                 <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
                 Live
               </span>
             </div>
-            <div className="divide-y divide-slate-50 max-h-80 overflow-y-auto">
+            <div className="divide-y divide-slate-50 dark:divide-gray-800 max-h-80 overflow-y-auto">
               {isLoading ? (
                 <div className="p-4 space-y-3">
                   {[1, 2, 3, 4].map((i) => (
@@ -295,7 +295,7 @@ function AdminDashboard({ user }: { user: any }) {
               ) : Array.isArray(activity) && activity.length > 0 ? (
                 activity.map((item: any) => <ActivityItem key={item.id} item={item} />)
               ) : (
-                <div className="p-6 text-center text-slate-400 text-sm">No recent activity</div>
+                <div className="p-6 text-center text-slate-400 dark:text-gray-500 text-sm">No recent activity</div>
               )}
             </div>
           </div>
@@ -384,10 +384,10 @@ function ManagerDashboard({ user }: { user: any }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Pending Leave */}
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-slate-800">Pending Leave Requests</h3>
+              <h3 className="font-semibold text-slate-800 dark:text-white">Pending Leave Requests</h3>
               {pendingLeave.length > 0 && (
                 <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">
                   {pendingLeave.length}
@@ -396,13 +396,13 @@ function ManagerDashboard({ user }: { user: any }) {
             </div>
             <Link href="/leave" className="text-xs text-indigo-600 hover:underline">View all</Link>
           </div>
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 dark:divide-gray-800">
             {leaveLoading ? (
               <div className="p-4 space-y-2">
                 {[1, 2].map((i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
               </div>
             ) : pendingLeave.length === 0 ? (
-              <div className="p-6 text-center text-slate-400 text-sm">
+              <div className="p-6 text-center text-slate-400 dark:text-gray-500 text-sm">
                 <CalendarOff size={24} className="mx-auto mb-2 text-slate-300" />
                 No pending leave requests
               </div>
@@ -416,10 +416,10 @@ function ManagerDashboard({ user }: { user: any }) {
                       </span>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">
+                      <p className="text-sm font-medium text-slate-800 dark:text-white truncate">
                         {req.user?.name ?? req.employee?.name}
                       </p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-slate-400 dark:text-gray-500">
                         {req.type} · {formatDate(req.startDate)} → {formatDate(req.endDate)}
                       </p>
                     </div>
@@ -447,9 +447,9 @@ function ManagerDashboard({ user }: { user: any }) {
         </div>
 
         {/* Team workload */}
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-semibold text-slate-800">Team Workload</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
+            <h3 className="font-semibold text-slate-800 dark:text-white">Team Workload</h3>
             <Link href="/users" className="text-xs text-indigo-600 hover:underline">View team</Link>
           </div>
           <div className="px-5 py-4">
@@ -459,18 +459,18 @@ function ManagerDashboard({ user }: { user: any }) {
       </div>
 
       {/* Recent activity */}
-      <div className="bg-white rounded-xl border border-slate-200">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-800">Recent Activity</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+        <div className="px-5 py-4 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
+          <h3 className="font-semibold text-slate-800 dark:text-white">Recent Activity</h3>
           <span className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">
             <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
             Live
           </span>
         </div>
-        <div className="divide-y divide-slate-50 max-h-64 overflow-y-auto">
+        <div className="divide-y divide-slate-50 dark:divide-gray-800 max-h-64 overflow-y-auto">
           {Array.isArray(activity) && activity.length > 0
             ? activity.map((item: any) => <ActivityItem key={item.id} item={item} />)
-            : <div className="p-6 text-center text-slate-400 text-sm">No recent activity</div>}
+            : <div className="p-6 text-center text-slate-400 dark:text-gray-500 text-sm">No recent activity</div>}
         </div>
       </div>
     </div>
@@ -543,14 +543,14 @@ function TeamLeadDashboard({ user }: { user: any }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* My Team */}
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-semibold text-slate-800">My Team</h3>
-            <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
+            <h3 className="font-semibold text-slate-800 dark:text-white">My Team</h3>
+            <span className="text-xs text-slate-400 dark:text-gray-500 bg-slate-50 dark:bg-gray-800 px-2 py-0.5 rounded-full">
               {user?.department?.name ?? ''}
             </span>
           </div>
-          <div className="divide-y divide-slate-50">
+          <div className="divide-y divide-slate-50 dark:divide-gray-800">
             {isLoading ? (
               <div className="p-4 space-y-2">
                 {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
@@ -570,7 +570,7 @@ function TeamLeadDashboard({ user }: { user: any }) {
                         <span className="text-white text-xs font-semibold">{getInitials(m.name)}</span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-800 truncate">{m.name}</p>
+                        <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{m.name}</p>
                         <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded', ROLE_BADGE[roleName] ?? 'bg-slate-100 text-slate-600')}>
                           {roleName}
                         </span>

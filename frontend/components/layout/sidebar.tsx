@@ -14,34 +14,34 @@ import { useRouter } from 'next/navigation';
 // ── Skeleton shown before Zustand hydrates ────────────────────────────────────
 function SidebarSkeleton() {
   return (
-    <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shadow-sm">
+    <aside className="w-64 bg-white dark:bg-gray-900 border-r border-slate-200 dark:border-gray-800 flex flex-col shadow-sm">
       {/* Logo */}
-      <div className="p-5 border-b border-slate-100">
+      <div className="p-5 border-b border-slate-100 dark:border-gray-800">
         <div className="flex items-center gap-3">
           <div
             className="w-9 h-9 rounded-xl flex-shrink-0"
             style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
           />
           <div className="space-y-1.5">
-            <div className="h-3.5 w-16 bg-slate-200 rounded animate-pulse" />
-            <div className="h-2.5 w-20 bg-slate-100 rounded animate-pulse" />
+            <div className="h-3.5 w-16 bg-slate-200 dark:bg-gray-700 rounded animate-pulse" />
+            <div className="h-2.5 w-20 bg-slate-100 dark:bg-gray-800 rounded animate-pulse" />
           </div>
         </div>
       </div>
       {/* Nav bars */}
       <nav className="flex-1 p-3 space-y-2">
-        <div className="h-2.5 w-10 bg-slate-100 rounded mx-3 mb-3 animate-pulse" />
+        <div className="h-2.5 w-10 bg-slate-100 dark:bg-gray-800 rounded mx-3 mb-3 animate-pulse" />
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-9 rounded-lg bg-slate-100 animate-pulse" style={{ animationDelay: `${i * 60}ms` }} />
+          <div key={i} className="h-9 rounded-lg bg-slate-100 dark:bg-gray-800 animate-pulse" style={{ animationDelay: `${i * 60}ms` }} />
         ))}
       </nav>
       {/* Bottom user area */}
-      <div className="p-3 border-t border-slate-100">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50">
-          <div className="w-8 h-8 rounded-full bg-slate-200 animate-pulse flex-shrink-0" />
+      <div className="p-3 border-t border-slate-100 dark:border-gray-800">
+        <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-gray-800">
+          <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-gray-700 animate-pulse flex-shrink-0" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3 w-24 bg-slate-200 rounded animate-pulse" />
-            <div className="h-2.5 w-16 bg-slate-100 rounded animate-pulse" />
+            <div className="h-3 w-24 bg-slate-200 dark:bg-gray-700 rounded animate-pulse" />
+            <div className="h-2.5 w-16 bg-slate-100 dark:bg-gray-800 rounded animate-pulse" />
           </div>
         </div>
       </div>
@@ -85,9 +85,9 @@ const ROLE_BADGE_COLOR: Record<string, string> = {
   INTERN:      'bg-teal-100   text-teal-700',
 };
 
-const ACCENT         = 'bg-indigo-50 text-indigo-700';
-const ACCENT_ICON    = 'text-indigo-600';
-const ACCENT_CHEVRON = 'text-indigo-400';
+const ACCENT         = 'bg-indigo-50 dark:bg-gray-800 text-indigo-700 dark:text-indigo-400';
+const ACCENT_ICON    = 'text-indigo-600 dark:text-indigo-400';
+const ACCENT_CHEVRON = 'text-indigo-400 dark:text-indigo-500';
 
 function getInitials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
@@ -126,10 +126,10 @@ export function Sidebar() {
         href={href}
         className={cn(
           'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group',
-          active ? ACCENT : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+          active ? ACCENT : 'text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800 hover:text-slate-900 dark:hover:text-white',
         )}
       >
-        <Icon size={18} className={active ? ACCENT_ICON : 'text-slate-400 group-hover:text-slate-600'} />
+        <Icon size={18} className={active ? ACCENT_ICON : 'text-slate-400 dark:text-gray-500 group-hover:text-slate-600 dark:group-hover:text-gray-300'} />
         {label}
         {active && <ChevronRight size={14} className={cn('ml-auto', ACCENT_CHEVRON)} />}
       </Link>
@@ -137,9 +137,9 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shadow-sm">
+    <aside className="w-64 bg-white dark:bg-gray-900 border-r border-slate-200 dark:border-gray-800 flex flex-col shadow-sm">
       {/* Logo */}
-      <div className="p-5 border-b border-slate-100">
+      <div className="p-5 border-b border-slate-100 dark:border-gray-800">
         <div className="flex items-center gap-3">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -148,22 +148,22 @@ export function Sidebar() {
             <span className="text-white font-bold text-lg">A</span>
           </div>
           <div>
-            <p className="font-bold text-slate-800 text-base leading-none">Apex</p>
-            <p className="text-[10px] text-slate-400 mt-0.5 font-medium tracking-wide uppercase">TechnoEdge</p>
+            <p className="font-bold text-slate-800 dark:text-white text-base leading-none">Apex</p>
+            <p className="text-[10px] text-slate-400 dark:text-gray-500 mt-0.5 font-medium tracking-wide uppercase">TechnoEdge</p>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2">Main</p>
+        <p className="text-xs font-semibold text-slate-400 dark:text-gray-600 uppercase tracking-wider px-3 py-2">Main</p>
 
         {mainNav.map((item) => <NavItem key={item.href} {...item} />)}
 
         {/* Team — team leads and above */}
         {showTeam && (
           <>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2 mt-3">Team</p>
+            <p className="text-xs font-semibold text-slate-400 dark:text-gray-600 uppercase tracking-wider px-3 py-2 mt-3">Team</p>
             {TEAMLEAD_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
@@ -171,7 +171,7 @@ export function Sidebar() {
         {/* Reports — managers and above */}
         {showReports && (
           <>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2 mt-3">Analytics</p>
+            <p className="text-xs font-semibold text-slate-400 dark:text-gray-600 uppercase tracking-wider px-3 py-2 mt-3">Analytics</p>
             {MANAGER_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
@@ -179,13 +179,13 @@ export function Sidebar() {
         {/* Admin section */}
         {showAdminSect && (
           <>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2 mt-3">Admin</p>
+            <p className="text-xs font-semibold text-slate-400 dark:text-gray-600 uppercase tracking-wider px-3 py-2 mt-3">Admin</p>
             {ADMIN_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
 
         {/* Settings — everyone */}
-        <div className="mt-3 border-t border-slate-100 pt-2">
+        <div className="mt-3 border-t border-slate-100 dark:border-gray-800 pt-2">
           {SETTINGS_NAV.map((item) => <NavItem key={item.href} {...item} />)}
         </div>
       </nav>
@@ -220,9 +220,9 @@ export function Sidebar() {
       )}
 
       {/* User profile card */}
-      <div className="p-3 border-t border-slate-100">
+      <div className="p-3 border-t border-slate-100 dark:border-gray-800">
         <div
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-gray-800 cursor-pointer hover:bg-slate-100 dark:hover:bg-gray-700 transition-colors"
           onClick={() => router.push('/profile')}
         >
           <div
@@ -234,7 +234,7 @@ export function Sidebar() {
             </span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-800 truncate">{user?.name}</p>
+            <p className="text-sm font-medium text-slate-800 dark:text-gray-200 truncate">{user?.name}</p>
             <span className={cn(
               'text-xs px-1.5 py-0.5 rounded font-medium',
               ROLE_BADGE_COLOR[role] ?? 'bg-gray-100 text-gray-700',
@@ -244,7 +244,7 @@ export function Sidebar() {
           </div>
           <button
             onClick={logout}
-            className="text-slate-400 hover:text-red-500 transition-colors flex-shrink-0"
+            className="text-slate-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors flex-shrink-0"
             title="Logout"
           >
             <LogOut size={16} />

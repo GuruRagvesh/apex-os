@@ -14,11 +14,11 @@ function ProjectCard({ project }: { project: any }) {
   const members = project.members?.slice(0, 4) || [];
 
   return (
-    <Link href={`/projects/${project.id}`} className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-blue-200 transition-all block">
+    <Link href={`/projects/${project.id}`} className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-5 hover:shadow-md hover:border-blue-200 dark:hover:border-blue-700 transition-all block">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <span className="text-xs text-slate-400 font-mono font-medium">{project.projectId}</span>
-          <h3 className="font-semibold text-slate-800 mt-0.5">{project.name}</h3>
+          <span className="text-xs text-slate-400 dark:text-gray-500 font-mono font-medium">{project.projectId}</span>
+          <h3 className="font-semibold text-slate-800 dark:text-white mt-0.5">{project.name}</h3>
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', statusColor)}>{project.status}</span>
@@ -27,10 +27,10 @@ function ProjectCard({ project }: { project: any }) {
       </div>
 
       {project.description && (
-        <p className="text-sm text-slate-500 mb-4 line-clamp-2">{project.description}</p>
+        <p className="text-sm text-slate-500 dark:text-gray-400 mb-4 line-clamp-2">{project.description}</p>
       )}
 
-      <div className="flex items-center justify-between text-xs text-slate-400">
+      <div className="flex items-center justify-between text-xs text-slate-400 dark:text-gray-500">
         <div className="flex items-center gap-3">
           {project.department && (
             <span className="flex items-center gap-1">
@@ -58,7 +58,7 @@ function ProjectCard({ project }: { project: any }) {
       </div>
 
       {project.endDate && (
-        <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-1 text-xs text-slate-400">
+        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-gray-800 flex items-center gap-1 text-xs text-slate-400 dark:text-gray-500">
           <Calendar size={11} />
           Due {formatDate(project.endDate)}
         </div>
@@ -96,14 +96,14 @@ export default function ProjectsPage() {
   const projects = data?.projects || Array.isArray(data) ? (Array.isArray(data) ? data : []) : [];
   const projectList = Array.isArray(data) ? data : (data?.projects || []);
 
-  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
+  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500';
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Projects</h2>
-          <p className="text-sm text-slate-500 mt-0.5">{projectList.length} projects</p>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Projects</h2>
+          <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">{projectList.length} projects</p>
         </div>
         <button
           onClick={() => setShowNew(true)}
@@ -116,26 +116,26 @@ export default function ProjectsPage() {
       {/* New Project Modal */}
       {showNew && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-lg p-6 shadow-2xl">
-            <h3 className="font-bold text-slate-800 text-lg mb-5">New Project</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-lg p-6 shadow-2xl">
+            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-5">New Project</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Project Name *</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Project Name *</label>
                 <input type="text" value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} className={inputCls} placeholder="e.g., Office Network Upgrade" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Description</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Description</label>
                 <textarea value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} className={`${inputCls} resize-none`} rows={3} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Priority</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Priority</label>
                   <select value={form.priority} onChange={(e) => setForm(f => ({ ...f, priority: e.target.value }))} className={inputCls}>
                     {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Department</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Department</label>
                   <select value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value }))} className={inputCls}>
                     <option value="">Select...</option>
                     {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -143,7 +143,7 @@ export default function ProjectsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">End Date</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">End Date</label>
                 <input type="date" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} className={inputCls} />
               </div>
             </div>
@@ -155,7 +155,7 @@ export default function ProjectsPage() {
               >
                 {createMutation.isPending ? 'Creating...' : 'Create Project'}
               </button>
-              <button onClick={() => setShowNew(false)} className="flex-1 border border-slate-200 text-slate-600 font-medium py-2.5 rounded-lg hover:bg-slate-50 transition-colors text-sm">
+              <button onClick={() => setShowNew(false)} className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 font-medium py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors text-sm">
                 Cancel
               </button>
             </div>
@@ -170,7 +170,7 @@ export default function ProjectsPage() {
           {projectList.map((p: any) => <ProjectCard key={p.id} project={p} />)}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
           <EmptyState
             icon="📁"
             title="No projects yet"

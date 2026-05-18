@@ -59,14 +59,14 @@ export default function LeavePage() {
     onSuccess: () => { toast.success('Rejected'); qc.invalidateQueries({ queryKey: ['leave'] }); },
   });
 
-  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
+  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500';
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Leave Management</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Manage leave requests and approvals</p>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Leave Management</h2>
+          <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">Manage leave requests and approvals</p>
         </div>
         {!isSuperAdmin && (
           <button
@@ -86,16 +86,16 @@ export default function LeavePage() {
           { label: 'Approved', value: stats?.approved || 0, icon: <CheckCircle size={18} className="text-green-600" />, bg: 'bg-green-50' },
           { label: 'Rejected', value: stats?.rejected || 0, icon: <XCircle size={18} className="text-red-600" />, bg: 'bg-red-50' },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-4">
+          <div key={s.label} className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4">
             <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center mb-2', s.bg)}>{s.icon}</div>
-            <p className="text-2xl font-bold text-slate-800">{s.value}</p>
-            <p className="text-xs text-slate-500">{s.label}</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{s.value}</p>
+            <p className="text-xs text-slate-500 dark:text-gray-400">{s.label}</p>
           </div>
         ))}
       </div>
 
       {/* Tabs — managers see "Needs Action" first */}
-      <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+      <div className="flex items-center gap-1 bg-slate-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
         {(isManager
           ? [
               { key: 'pending', label: 'Needs Action', badge: stats?.pending ?? 0 },
@@ -112,14 +112,14 @@ export default function LeavePage() {
             onClick={() => setTab(key as any)}
             className={cn(
               'flex items-center gap-1.5 text-xs font-medium px-4 py-1.5 rounded-md transition-colors',
-              tab === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+              tab === key ? 'bg-white dark:bg-gray-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
             )}
           >
             {label}
             {badge != null && badge > 0 && (
               <span className={cn(
                 'text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none',
-                tab === key ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600',
+                tab === key ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 dark:bg-gray-700 text-slate-600 dark:text-gray-300',
               )}>
                 {badge}
               </span>
@@ -129,27 +129,27 @@ export default function LeavePage() {
       </div>
 
       {/* Leave List */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /></div>
         ) : Array.isArray(leaves) && leaves.length > 0 ? (
-          <div className="divide-y divide-slate-50">
+          <div className="divide-y divide-slate-50 dark:divide-gray-800">
             {leaves.map((leave: any) => (
               <div key={leave.id} className="flex items-center gap-4 px-5 py-4">
                 <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-white text-xs font-semibold">{getInitials(leave.user?.name || '')}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-slate-800">{leave.user?.name}</p>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-gray-200">{leave.user?.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-slate-500">{leave.type}</span>
-                    <span className="text-slate-300">·</span>
-                    <span className="text-xs text-slate-500">{formatDate(leave.startDate)} – {formatDate(leave.endDate)}</span>
+                    <span className="text-xs text-slate-500 dark:text-gray-400">{leave.type}</span>
+                    <span className="text-slate-300 dark:text-gray-600">·</span>
+                    <span className="text-xs text-slate-500 dark:text-gray-400">{formatDate(leave.startDate)} – {formatDate(leave.endDate)}</span>
                     {leave.user?.department && (
-                      <><span className="text-slate-300">·</span><span className="text-xs text-slate-400">{leave.user.department.name}</span></>
+                      <><span className="text-slate-300 dark:text-gray-600">·</span><span className="text-xs text-slate-400 dark:text-gray-500">{leave.user.department.name}</span></>
                     )}
                   </div>
-                  {leave.reason && <p className="text-xs text-slate-400 mt-1 truncate">{leave.reason}</p>}
+                  {leave.reason && <p className="text-xs text-slate-400 dark:text-gray-500 mt-1 truncate">{leave.reason}</p>}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium', LEAVE_STATUS_COLORS[leave.status])}>
@@ -201,27 +201,27 @@ export default function LeavePage() {
       {/* New Leave Modal */}
       {showNew && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl">
-            <h3 className="font-bold text-slate-800 text-lg mb-5">Apply for Leave</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-5">Apply for Leave</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Leave Type</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Leave Type</label>
                 <select value={form.type} onChange={(e) => setForm(f => ({ ...f, type: e.target.value }))} className={inputCls}>
                   {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Start Date</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Start Date</label>
                   <input type="date" value={form.startDate} onChange={(e) => setForm(f => ({ ...f, startDate: e.target.value }))} className={inputCls} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">End Date</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">End Date</label>
                   <input type="date" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} className={inputCls} />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Reason</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Reason</label>
                 <textarea value={form.reason} onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} className={`${inputCls} resize-none`} rows={3} placeholder="Brief reason for leave..." />
               </div>
             </div>
@@ -233,7 +233,7 @@ export default function LeavePage() {
               >
                 {createMutation.isPending ? 'Submitting...' : 'Submit Request'}
               </button>
-              <button onClick={() => setShowNew(false)} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg hover:bg-slate-50 text-sm">
+              <button onClick={() => setShowNew(false)} className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm">
                 Cancel
               </button>
             </div>

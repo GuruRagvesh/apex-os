@@ -101,11 +101,11 @@ export function TopBar() {
   return (
     <>
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-    <header className="bg-white border-b border-slate-200 h-14 flex items-center justify-between px-6 flex-shrink-0">
+    <header className="bg-white dark:bg-gray-900 border-b border-slate-200 dark:border-gray-800 h-14 flex items-center justify-between px-6 flex-shrink-0">
       <div className="flex items-center gap-3">
-        <h1 className="font-semibold text-slate-800">{pageName}</h1>
+        <h1 className="font-semibold text-slate-800 dark:text-white">{pageName}</h1>
         {user?.department && (
-          <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">
+          <span className="text-xs px-2 py-0.5 bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 rounded-full">
             {user.department.name}
           </span>
         )}
@@ -115,11 +115,11 @@ export function TopBar() {
         {/* Global search trigger */}
         <button
           onClick={() => setPaletteOpen(true)}
-          className="hidden sm:flex items-center gap-2 text-xs text-slate-400 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+          className="hidden sm:flex items-center gap-2 text-xs text-slate-400 dark:text-gray-500 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-gray-700 hover:border-slate-300 dark:hover:border-gray-600 hover:text-slate-600 dark:hover:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
         >
           <Search size={13} />
           <span>Search…</span>
-          <kbd className="hidden lg:inline font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-400">
+          <kbd className="hidden lg:inline font-mono text-[10px] bg-slate-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-slate-400 dark:text-gray-500">
             ⌘K
           </kbd>
         </button>
@@ -128,7 +128,7 @@ export function TopBar() {
         {isSuperAdmin && (
           <button
             onClick={() => router.push('/select-mode')}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800 hover:border-slate-300 dark:hover:border-gray-600 transition-colors"
             title="Switch between Super Admin and Team Lead mode"
           >
             <RefreshCw size={13} />
@@ -148,7 +148,7 @@ export function TopBar() {
         <div className="relative">
           <button
             onClick={() => setShowNotifs(!showNotifs)}
-            className="relative p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+            className="relative p-2 text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
           >
             <Bell size={18} />
             {count > 0 && (
@@ -159,9 +159,9 @@ export function TopBar() {
           </button>
 
           {showNotifs && (
-            <div className="absolute right-0 top-10 w-80 bg-white border border-slate-200 rounded-xl shadow-lg z-50">
-              <div className="p-3 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="font-semibold text-sm text-slate-800">Notifications</h3>
+            <div className="absolute right-0 top-10 w-80 bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-xl shadow-lg z-50">
+              <div className="p-3 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
+                <h3 className="font-semibold text-sm text-slate-800 dark:text-white">Notifications</h3>
                 <div className="flex items-center gap-2">
                   {count > 0 && (
                     <button
@@ -176,7 +176,7 @@ export function TopBar() {
                   )}
                   <button
                     onClick={() => setShowNotifs(false)}
-                    className="text-xs text-slate-400 hover:text-slate-600"
+                    className="text-xs text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300"
                   >
                     Close
                   </button>
@@ -207,15 +207,15 @@ export function TopBar() {
                       <div
                         key={n.id}
                         onClick={handleClick}
-                        className={`p-3 border-b border-slate-50 last:border-0 flex gap-2.5 transition-colors ${!n.isRead ? 'bg-blue-50' : ''} ${href ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                        className={`p-3 border-b border-slate-50 dark:border-gray-800 last:border-0 flex gap-2.5 transition-colors ${!n.isRead ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${href ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-gray-800' : ''}`}
                       >
                         {!n.isRead && (
                           <span className="mt-1.5 flex-shrink-0 w-2 h-2 rounded-full bg-blue-500" />
                         )}
                         <div className={!n.isRead ? 'flex-1' : 'pl-4 flex-1'}>
-                          <p className="text-sm font-medium text-slate-800">{n.title}</p>
-                          <p className="text-xs text-slate-500 mt-0.5">{n.message}</p>
-                          <p className="text-xs text-slate-400 mt-1">{formatRelativeTime(n.createdAt)}</p>
+                          <p className="text-sm font-medium text-slate-800 dark:text-gray-200">{n.title}</p>
+                          <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">{n.message}</p>
+                          <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">{formatRelativeTime(n.createdAt)}</p>
                         </div>
                       </div>
                     );
@@ -223,8 +223,8 @@ export function TopBar() {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
                     <span className="text-3xl mb-2" role="img" aria-label="All caught up">✓</span>
-                    <p className="text-sm font-semibold text-slate-700">You&apos;re all caught up</p>
-                    <p className="text-xs text-slate-400 mt-0.5">No new notifications</p>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-gray-300">You&apos;re all caught up</p>
+                    <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">No new notifications</p>
                   </div>
                 )}
               </div>
