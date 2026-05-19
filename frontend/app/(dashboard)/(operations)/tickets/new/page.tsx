@@ -58,6 +58,10 @@ export default function NewTicketPage() {
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiDisabled, setAiDisabled] = useState(false);
 
+  const [scheduleRecurring, setScheduleRecurring] = useState('none');
+  const [scheduleEndPreset, setScheduleEndPreset] = useState('1_month');
+  const [scheduleEndDate, setScheduleEndDate] = useState('');
+
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
   const { data: projectsRaw } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
   const { data: usersData } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any> });
@@ -95,6 +99,18 @@ export default function NewTicketPage() {
     onError: (err: any) => toast.error(err?.message || 'Failed to create ticket'),
   });
 
+  const computeEndDate = () => {
+    if (scheduleRecurring === 'none') return undefined;
+    if (scheduleEndPreset === 'custom') return scheduleEndDate ? new Date(scheduleEndDate).toISOString() : undefined;
+    const now = new Date();
+    const presetMap: Record<string, number> = {
+      '1_week': 7, '1_month': 30, '3_months': 90, '6_months': 180,
+    };
+    const days = presetMap[scheduleEndPreset] ?? 30;
+    now.setDate(now.getDate() + days);
+    return now.toISOString();
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) return toast.error('Title is required');
@@ -109,6 +125,8 @@ export default function NewTicketPage() {
       dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : undefined,
       scheduledFor: form.scheduledFor ? new Date(form.scheduledFor).toISOString() : undefined,
       scheduledNote: form.scheduledNote || undefined,
+      scheduleRecurring: scheduleRecurring !== 'none' ? scheduleRecurring : undefined,
+      scheduleEndDate: computeEndDate(),
     });
   };
 
@@ -143,8 +161,8 @@ export default function NewTicketPage() {
     if (key === 'priority') setAiReason(''); // clear AI hint if user overrides
   };
 
-  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white';
-  const labelCls = 'block text-sm font-medium text-slate-700 mb-1.5';
+  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500';
+  const labelCls = 'block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5';
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -158,7 +176,7 @@ export default function NewTicketPage() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-900 dark:border-gray-700 rounded-xl border border-slate-200 p-6 space-y-5">
         {/* Title */}
         <div>
           <label className={labelCls}>Title *</label>
@@ -272,7 +290,7 @@ export default function NewTicketPage() {
                 value={Array.isArray(departments)
                   ? (departments.find((d: any) => d.id === myDeptId)?.name ?? 'Your department')
                   : 'Your department'}
-                className={`${inputCls} bg-slate-50 text-slate-500 cursor-not-allowed`}
+                className={`${inputCls} bg-slate-50 dark:bg-gray-700 text-slate-500 dark:text-gray-400 cursor-not-allowed`}
               />
             ) : (
               <select
@@ -328,34 +346,85 @@ export default function NewTicketPage() {
           </div>
         </div>
 
-        {/* Schedule for */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>
-              <span className="flex items-center gap-1.5">
-                <Clock size={13} className="text-slate-400" />
-                Schedule for (optional)
-              </span>
-            </label>
-            <input
-              type="datetime-local"
-              value={form.scheduledFor}
-              onChange={(e) => set('scheduledFor', e.target.value)}
-              className={inputCls}
-              min={new Date().toISOString().slice(0, 16)}
-            />
-            <p className="mt-1 text-xs text-slate-400">Assignee will be notified at this time</p>
+        {/* Scheduling Section */}
+        <div className="border border-slate-200 dark:border-gray-700 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-gray-300 mb-3 flex items-center gap-1.5">
+            <Clock size={14} className="text-slate-400" />
+            Schedule (optional)
+          </h3>
+
+          {/* Recurrence */}
+          <div className="grid grid-cols-2 gap-4 mb-3">
+            <div>
+              <label className={labelCls}>Recurrence</label>
+              <select
+                value={scheduleRecurring}
+                onChange={(e) => setScheduleRecurring(e.target.value)}
+                className={inputCls}
+              >
+                <option value="none">One-time only</option>
+                <option value="daily_morning">Every day — Morning (9:00 AM)</option>
+                <option value="daily_evening">Every day — Evening (6:00 PM)</option>
+                <option value="weekly">Every week (same day)</option>
+                <option value="monthly">Every month (same date)</option>
+                <option value="1_month">For 1 month daily</option>
+                <option value="6_months">For 6 months daily</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Schedule Note</label>
+              <input
+                type="text"
+                value={form.scheduledNote}
+                onChange={(e) => set('scheduledNote', e.target.value)}
+                className={inputCls}
+                placeholder="e.g., Check before standup"
+              />
+            </div>
           </div>
-          <div>
-            <label className={labelCls}>Schedule Note</label>
-            <input
-              type="text"
-              value={form.scheduledNote}
-              onChange={(e) => set('scheduledNote', e.target.value)}
-              className={inputCls}
-              placeholder="e.g., Meeting at 2 PM"
-            />
-          </div>
+
+          {scheduleRecurring === 'none' ? (
+            <div>
+              <label className={labelCls}>Date &amp; Time</label>
+              <input
+                type="datetime-local"
+                value={form.scheduledFor}
+                onChange={(e) => set('scheduledFor', e.target.value)}
+                className={inputCls}
+                min={new Date().toISOString().slice(0, 16)}
+              />
+              <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Assignees notified at this time</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Remind until</label>
+                <select
+                  value={scheduleEndPreset}
+                  onChange={(e) => setScheduleEndPreset(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="1_week">1 week from now</option>
+                  <option value="1_month">1 month from now</option>
+                  <option value="3_months">3 months from now</option>
+                  <option value="6_months">6 months from now</option>
+                  <option value="custom">Custom date</option>
+                </select>
+              </div>
+              {scheduleEndPreset === 'custom' && (
+                <div>
+                  <label className={labelCls}>End Date</label>
+                  <input
+                    type="date"
+                    value={scheduleEndDate}
+                    onChange={(e) => setScheduleEndDate(e.target.value)}
+                    className={inputCls}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3 pt-2">

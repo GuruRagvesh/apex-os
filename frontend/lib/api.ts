@@ -62,6 +62,11 @@ export const usersApi = {
   resetPassword: (id: string, newPassword: string) => r(api.put(`/users/${id}/reset-password`, { newPassword })),
   deactivate: (id: string) => r(api.delete(`/users/${id}`)),
   getStats: () => r(api.get('/users/stats')),
+  uploadPhoto: async (file: File) => {
+    const formData = new FormData();
+    formData.append('photo', file);
+    return r(api.post('/users/me/photo', formData, { headers: { 'Content-Type': 'multipart/form-data' } }));
+  },
 };
 
 // Roles

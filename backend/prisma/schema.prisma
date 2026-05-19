@@ -13,6 +13,7 @@ model User {
   name         String
   password     String
   avatar       String?
+  photoUrl     String?
   isActive             Boolean  @default(true)
   mustChangePassword   Boolean  @default(true)
   roleId       String
@@ -110,10 +111,12 @@ model Ticket {
   departmentId  String?
   assignedToId  String?
   createdById   String
-  dueDate       DateTime?
-  scheduledFor  DateTime?
-  scheduledNote String?
-  resolvedAt    DateTime?
+  dueDate           DateTime?
+  scheduledFor      DateTime?
+  scheduledNote     String?
+  scheduleRecurring String?
+  scheduleEndDate   DateTime?
+  resolvedAt        DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

@@ -1,4 +1,5 @@
-﻿import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, Request } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -28,8 +29,17 @@ export class UsersController {
   }
 
   @Patch('me')
-  updateMe(@CurrentUser() user: any, @Body() body: { name?: string; avatar?: string }) {
+  updateMe(@CurrentUser() user: any, @Body() body: { name?: string; avatar?: string; photoUrl?: string | null }) {
     return this.usersService.update(user.id, body);
+  }
+
+  @Post('me/photo')
+  @UseInterceptors(FileInterceptor('photo'))
+  async uploadPhoto(
+    @CurrentUser() user: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.usersService.uploadPhoto(user.id, file);
   }
 
   @Patch('me/preferences')

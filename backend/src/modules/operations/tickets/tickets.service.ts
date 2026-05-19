@@ -195,6 +195,10 @@ export class TicketsService {
     if (data.scheduledFor) {
       data.scheduledFor = new Date(data.scheduledFor).toISOString();
     }
+    // Convert scheduleEndDate string → proper ISO DateTime
+    if (data.scheduleEndDate) {
+      data.scheduleEndDate = new Date(data.scheduleEndDate).toISOString();
+    }
 
     // Generate a collision-safe ticket ID by retrying on unique-constraint violations (P2002)
     let ticket: any;

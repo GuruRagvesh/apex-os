@@ -176,9 +176,9 @@ export default function DepartmentDetailPage() {
       <div className="flex items-start gap-3">
         <button
           onClick={() => router.push('/departments')}
-          className="p-2 hover:bg-slate-100 rounded-lg transition-colors mt-0.5"
+          className="p-2 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-lg transition-colors mt-0.5"
         >
-          <ArrowLeft size={18} className="text-slate-500" />
+          <ArrowLeft size={18} className="text-slate-500 dark:text-gray-400" />
         </button>
         <div className="flex-1">
           <div className="flex items-center gap-3 flex-wrap">
@@ -215,7 +215,7 @@ export default function DepartmentDetailPage() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-slate-800">{dept.name}</h1>
+                <h1 className="text-xl font-bold text-slate-800 dark:text-white">{dept.name}</h1>
                 {isAdmin && (
                   <button
                     onClick={() => { setNameVal(dept.name); setEditingName(true); }}
@@ -228,20 +228,20 @@ export default function DepartmentDetailPage() {
             )}
           </div>
           {dept.description && (
-            <p className="text-sm text-slate-500 mt-1 ml-11">{dept.description}</p>
+            <p className="text-sm text-slate-500 dark:text-gray-400 mt-1 ml-11">{dept.description}</p>
           )}
         </div>
       </div>
 
       {/* Team Lead */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4">
-        <div className="text-sm font-medium text-slate-500 w-28 flex-shrink-0">Team Lead</div>
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4 flex items-center gap-4">
+        <div className="text-sm font-medium text-slate-500 dark:text-gray-400 w-28 flex-shrink-0">Team Lead</div>
         {dept.teamLead ? (
           <div className="flex items-center gap-3">
             <Avatar name={dept.teamLead.name} avatar={dept.teamLead.avatar} size="md" />
             <div>
-              <p className="font-medium text-slate-800 text-sm">{dept.teamLead.name}</p>
-              <p className="text-xs text-slate-500">{dept.teamLead.role?.name}</p>
+              <p className="font-medium text-slate-800 dark:text-gray-200 text-sm">{dept.teamLead.name}</p>
+              <p className="text-xs text-slate-500 dark:text-gray-400">{dept.teamLead.role?.name}</p>
             </div>
           </div>
         ) : (
@@ -257,22 +257,22 @@ export default function DepartmentDetailPage() {
           { label: 'Pending Leave', value: dept.stats?.pendingLeave ?? 0, icon: Clock, color: 'text-purple-600 bg-purple-50' },
           { label: 'Projects', value: dept.stats?.projects ?? dept._count?.projects ?? 0, icon: FolderKanban, color: 'text-green-600 bg-green-50' },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-4 text-center">
+          <div key={s.label} className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4 text-center">
             <div className={`w-10 h-10 rounded-xl ${s.color} flex items-center justify-center mx-auto mb-2`}>
               <s.icon size={18} />
             </div>
-            <p className="text-2xl font-bold text-slate-800">{s.value}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{s.value}</p>
+            <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">{s.label}</p>
           </div>
         ))}
       </div>
 
       {/* Members List */}
-      <div className="bg-white rounded-xl border border-slate-200">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-800">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-gray-800">
+          <h2 className="font-semibold text-slate-800 dark:text-white">
             Members
-            <span className="ml-2 text-xs font-normal text-slate-400">
+            <span className="ml-2 text-xs font-normal text-slate-400 dark:text-gray-500">
               ({dept.users?.length ?? 0})
             </span>
           </h2>
@@ -286,26 +286,26 @@ export default function DepartmentDetailPage() {
             </button>
           )}
         </div>
-        <div className="divide-y divide-slate-50">
+        <div className="divide-y divide-slate-50 dark:divide-gray-800">
           {dept.users?.length === 0 && (
-            <p className="text-sm text-slate-400 text-center py-8">No members yet</p>
+            <p className="text-sm text-slate-400 dark:text-gray-500 text-center py-8">No members yet</p>
           )}
           {dept.users?.map((m: any) => (
             <div
               key={m.id}
-              className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
             >
               <div className="cursor-pointer flex items-center gap-3 flex-1 min-w-0" onClick={() => router.push(`/users/${m.id}`)}>
                 <Avatar name={m.name} avatar={m.avatar} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800">{m.name}</p>
-                  <p className="text-xs text-slate-500 truncate">{m.email}</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200">{m.name}</p>
+                  <p className="text-xs text-slate-500 dark:text-gray-400 truncate">{m.email}</p>
                 </div>
               </div>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium flex-shrink-0">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium flex-shrink-0">
                 {m.role?.name}
               </span>
-              <span className="text-xs text-slate-400 flex-shrink-0">
+              <span className="text-xs text-slate-400 dark:text-gray-500 flex-shrink-0">
                 {m._count?.assignedTickets ?? 0} tickets
               </span>
               {isAdmin && (
@@ -338,26 +338,26 @@ export default function DepartmentDetailPage() {
 
       {/* Active Tickets */}
       {dept.tickets?.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-5 py-4 border-b border-slate-100">
-            <h2 className="font-semibold text-slate-800">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-gray-800">
+            <h2 className="font-semibold text-slate-800 dark:text-white">
               Active Tickets
               <span className="ml-2 text-xs font-normal text-slate-400">
                 (last {dept.tickets.length})
               </span>
             </h2>
           </div>
-          <div className="divide-y divide-slate-50">
+          <div className="divide-y divide-slate-50 dark:divide-gray-800">
             {dept.tickets.map((t: any) => (
               <div
                 key={t.id}
-                className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 cursor-pointer transition-colors"
+                className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
                 onClick={() => router.push(`/tickets/${t.id}`)}
               >
-                <span className="text-xs text-slate-400 font-mono w-20 flex-shrink-0">
+                <span className="text-xs text-slate-400 dark:text-gray-500 font-mono w-20 flex-shrink-0">
                   {t.ticketId}
                 </span>
-                <p className="flex-1 text-sm text-slate-700 truncate">{t.title}</p>
+                <p className="flex-1 text-sm text-slate-700 dark:text-gray-300 truncate">{t.title}</p>
                 <span
                   className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${STATUS_COLORS[t.status] ?? 'bg-slate-100 text-slate-600'}`}
                 >
@@ -381,14 +381,14 @@ export default function DepartmentDetailPage() {
       {/* Add Member Modal */}
       {showAddMember && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
-            <h3 className="font-bold text-slate-800 text-lg mb-4">Add Member</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-2xl border dark:border-gray-700">
+            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-4">Add Member</h3>
             <input
               type="text"
               placeholder="Search by name or email..."
               value={memberSearch}
               onChange={(e) => setMemberSearch(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+              className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500"
               autoFocus
             />
             <div className="max-h-52 overflow-y-auto space-y-1">
@@ -405,20 +405,20 @@ export default function DepartmentDetailPage() {
                     onClick={() => setSelectedUserId(u.id)}
                     className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
                       selectedUserId === u.id
-                        ? 'bg-blue-50 border border-blue-200'
-                        : 'hover:bg-slate-50'
+                        ? 'bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700'
+                        : 'hover:bg-slate-50 dark:hover:bg-gray-800'
                     }`}
                   >
                     <Avatar name={u.name} avatar={u.avatar} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800">{u.name}</p>
-                      <p className="text-xs text-slate-500 truncate">{u.email}</p>
+                      <p className="text-sm font-medium text-slate-800 dark:text-gray-200">{u.name}</p>
+                      <p className="text-xs text-slate-500 dark:text-gray-400 truncate">{u.email}</p>
                     </div>
-                    <span className="text-xs text-slate-400">{u.role?.name}</span>
+                    <span className="text-xs text-slate-400 dark:text-gray-500">{u.role?.name}</span>
                   </div>
                 ))}
               {nonMembers.length === 0 && (
-                <p className="text-sm text-slate-400 text-center py-4">All users are already members</p>
+                <p className="text-sm text-slate-400 dark:text-gray-500 text-center py-4">All users are already members</p>
               )}
             </div>
             <div className="flex gap-3 mt-4">
@@ -435,7 +435,7 @@ export default function DepartmentDetailPage() {
                   setSelectedUserId('');
                   setMemberSearch('');
                 }}
-                className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg hover:bg-slate-50 text-sm"
+                className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm"
               >
                 Cancel
               </button>

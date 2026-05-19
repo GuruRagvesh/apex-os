@@ -24,6 +24,15 @@ import { Breadcrumb } from '@/components/ui/breadcrumb';
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 
+const RECURRENCE_LABELS: Record<string, string> = {
+  daily_morning: 'Every day — Morning (9 AM)',
+  daily_evening: 'Every day — Evening (6 PM)',
+  weekly: 'Every week',
+  monthly: 'Every month',
+  '1_month': 'Daily for 1 month',
+  '6_months': 'Daily for 6 months',
+};
+
 // ─── SLA Timer ───────────────────────────────────────────────────────────────
 function SlaTimer({ createdAt, slaHours, slaPercent, isOverdue }: {
   createdAt: string; slaHours?: number; slaPercent?: number; isOverdue?: boolean;
@@ -1066,17 +1075,31 @@ export default function TicketDetailPage() {
                   </span>
                 </div>
               )}
-              {ticket.scheduledFor && (
-                <div className="flex items-center gap-2">
-                  <Clock size={13} className="text-indigo-400" />
-                  <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-                    Scheduled: {new Date(ticket.scheduledFor).toLocaleString(undefined, {
-                      weekday: 'short', day: 'numeric', month: 'short',
-                      hour: '2-digit', minute: '2-digit',
-                    })}
-                  </span>
+              {ticket.scheduleRecurring && ticket.scheduleRecurring !== 'none' ? (
+                <>
+                  <div>
+                    <span className="text-xs text-slate-500 dark:text-gray-400">Recurrence</span>
+                    <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                      🔁 {RECURRENCE_LABELS[ticket.scheduleRecurring] ?? ticket.scheduleRecurring}
+                    </p>
+                  </div>
+                  {ticket.scheduleEndDate && (
+                    <div>
+                      <span className="text-xs text-slate-500 dark:text-gray-400">Until</span>
+                      <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                        {new Date(ticket.scheduleEndDate).toLocaleDateString()}
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : ticket.scheduledFor ? (
+                <div>
+                  <span className="text-xs text-slate-500 dark:text-gray-400">Scheduled</span>
+                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                    ⏰ {new Date(ticket.scheduledFor).toLocaleString()}
+                  </p>
                 </div>
-              )}
+              ) : null}
               {ticket.scheduledNote && (
                 <div className="flex items-start gap-2">
                   <Clock size={13} className="text-slate-400 dark:text-gray-500 mt-0.5 flex-shrink-0" />

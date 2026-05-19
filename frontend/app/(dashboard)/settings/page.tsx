@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi, usersApi, settingsApi } from '@/lib/api';
+import { UserAvatar } from '@/components/ui/user-avatar';
 import toast from 'react-hot-toast';
 import {
   User, Shield, Bell, Palette, SlidersHorizontal, Building2,
@@ -94,6 +95,7 @@ function ProfileSection({ user }: { user: any }) {
     try {
       await usersApi.updateMe({ name: name.trim(), avatar: color, bio });
       updateUser({ name: name.trim(), avatar: color });
+      useAuthStore.setState((s: any) => ({ user: { ...s.user, avatar: color } }));
       toast.success('Profile updated');
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to save profile');
@@ -102,14 +104,31 @@ function ProfileSection({ user }: { user: any }) {
     }
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast.error('Max 2MB'); return; }
+    try {
+      const data = await (usersApi as any).uploadPhoto(file) as any;
+      useAuthStore.setState((s: any) => ({ user: { ...s.user, photoUrl: data.photoUrl } }));
+      toast.success('Photo updated!');
+    } catch { toast.error('Failed to upload photo'); }
+  };
+
+  const handleRemovePhoto = async () => {
+    try {
+      await usersApi.updateMe({ photoUrl: null } as any);
+      useAuthStore.setState((s: any) => ({ user: { ...s.user, photoUrl: null } }));
+      toast.success('Photo removed');
+    } catch { toast.error('Failed to remove photo'); }
+  };
+
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
         <h3 className="font-semibold text-slate-800 dark:text-gray-100">Profile Information</h3>
         <div className="flex items-center gap-6">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center text-white text-2xl font-bold flex-shrink-0 select-none" style={{ background: color }}>
-            {getInitials(name)}
-          </div>
+          <UserAvatar name={name} avatar={color} photoUrl={(user as any)?.photoUrl} size="lg" />
           <div>
             <p className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-2">Avatar colour</p>
             <div className="flex gap-2">
@@ -119,6 +138,37 @@ function ProfileSection({ user }: { user: any }) {
                   style={{ background: c, borderColor: color === c ? '#1e40af' : 'transparent' }}
                 />
               ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Profile Photo Upload */}
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Profile Photo
+          </label>
+          <div className="flex items-center gap-4">
+            <UserAvatar
+              name={name}
+              avatar={color}
+              photoUrl={(user as any)?.photoUrl}
+              size="lg"
+            />
+            <div>
+              <label className="cursor-pointer inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                Upload Photo
+              </label>
+              {(user as any)?.photoUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  className="ml-2 text-sm text-red-500 hover:text-red-700"
+                >
+                  Remove
+                </button>
+              )}
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">JPG, PNG up to 2MB</p>
             </div>
           </div>
         </div>

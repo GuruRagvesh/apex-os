@@ -59,7 +59,7 @@ export class UsersService {
     return result;
   }
 
-  async update(id: string, data: { name?: string; email?: string; roleId?: string; departmentId?: string; isActive?: boolean; avatar?: string }) {
+  async update(id: string, data: { name?: string; email?: string; roleId?: string; departmentId?: string; isActive?: boolean; avatar?: string; photoUrl?: string | null }) {
     const user = await this.prisma.user.update({
       where: { id },
       data,
@@ -67,6 +67,12 @@ export class UsersService {
     });
     const { password, ...result } = user;
     return result;
+  }
+
+  async uploadPhoto(userId: string, file: Express.Multer.File): Promise<{ photoUrl: string }> {
+    const photoUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+    await this.prisma.user.update({ where: { id: userId }, data: { photoUrl } });
+    return { photoUrl };
   }
 
   async resetPassword(id: string, newPassword: string) {

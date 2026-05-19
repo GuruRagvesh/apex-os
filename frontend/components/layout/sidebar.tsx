@@ -10,6 +10,7 @@ import {
   Users, Building2, BarChart3, LogOut, ChevronRight, Zap, Settings,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { UserAvatar } from '@/components/ui/user-avatar';
 
 // ── Skeleton shown before Zustand hydrates ────────────────────────────────────
 function SidebarSkeleton() {
@@ -225,14 +226,7 @@ export function Sidebar() {
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-gray-800 cursor-pointer hover:bg-slate-100 dark:hover:bg-gray-700 transition-colors"
           onClick={() => router.push('/profile')}
         >
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
-          >
-            <span className="text-white text-xs font-semibold">
-              {getInitials(user?.name ?? 'U')}
-            </span>
-          </div>
+          <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-slate-800 dark:text-gray-200 truncate">{user?.name}</p>
             <span className={cn(
