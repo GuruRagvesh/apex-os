@@ -13,7 +13,7 @@ import { CommandPalette } from '@/components/ui/command-palette';
 import toast from 'react-hot-toast';
 
 const pageNames: Record<string, string> = {
-  '/dashboard': 'Dashboard',
+  '/dashboard': 'Home',
   '/tickets': 'Tickets',
   '/kanban': 'Kanban Board',
   '/projects': 'Projects',

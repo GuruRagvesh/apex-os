@@ -51,7 +51,7 @@ function SidebarSkeleton() {
 
 // ── Nav definitions ───────────────────────────────────────────────────────────
 const BASE_NAV = [
-  { href: '/dashboard', label: 'Dashboard',   icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Home',          icon: LayoutDashboard },
   { href: '/tickets',   label: 'Tickets',      icon: Ticket          },
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban          },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban    },
@@ -69,7 +69,7 @@ const SETTINGS_NAV  = [{ href: '/settings', label: 'Settings',      icon: Settin
 
 // Streamlined nav for SUPER_ADMIN in team_lead mode
 const TEAMLEAD_MODE_NAV = [
-  { href: '/dashboard', label: 'Dashboard',   icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Home',          icon: LayoutDashboard },
   { href: '/tickets',   label: 'My Team Tasks', icon: Ticket        },
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban        },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban  },
