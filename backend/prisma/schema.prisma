@@ -22,14 +22,15 @@ model User {
 
   role            Role              @relation(fields: [roleId], references: [id])
   department      Department?       @relation(fields: [departmentId], references: [id])
-  assignedTickets Ticket[]          @relation("TicketAssignee")
-  createdTickets  Ticket[]          @relation("TicketCreator")
-  comments        Comment[]
-  projectMembers  ProjectMember[]
-  leaveRequests   LeaveRequest[]
-  activityLogs    ActivityLog[]
-  notifications   Notification[]
-  ticketHistory   TicketHistory[]
+  assignedTickets    Ticket[]          @relation("TicketAssignee")
+  createdTickets     Ticket[]          @relation("TicketCreator")
+  comments           Comment[]
+  projectMembers     ProjectMember[]
+  leaveRequests      LeaveRequest[]
+  activityLogs       ActivityLog[]
+  notifications      Notification[]
+  ticketHistory      TicketHistory[]
+  ticketAssignments  TicketAssignee[]
 
   @@map("users")
 }
@@ -110,17 +111,20 @@ model Ticket {
   assignedToId  String?
   createdById   String
   dueDate       DateTime?
+  scheduledFor  DateTime?
+  scheduledNote String?
   resolvedAt    DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  project     Project?     @relation(fields: [projectId], references: [id])
-  department  Department?  @relation(fields: [departmentId], references: [id])
-  assignedTo  User?        @relation("TicketAssignee", fields: [assignedToId], references: [id])
-  createdBy   User         @relation("TicketCreator", fields: [createdById], references: [id])
+  project     Project?        @relation(fields: [projectId], references: [id])
+  department  Department?     @relation(fields: [departmentId], references: [id])
+  assignedTo  User?           @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  createdBy   User            @relation("TicketCreator", fields: [createdById], references: [id])
   comments    Comment[]
   attachments Attachment[]
   history     TicketHistory[]
+  assignees   TicketAssignee[]
 
   @@index([departmentId])
   @@index([assignedToId])
@@ -129,6 +133,19 @@ model Ticket {
   @@index([projectId])
   @@index([createdAt])
   @@map("tickets")
+}
+
+model TicketAssignee {
+  id         String   @id @default(cuid())
+  ticketId   String
+  userId     String
+  assignedAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([ticketId, userId])
+  @@map("ticket_assignees")
 }
 
 model Comment {
@@ -151,6 +168,8 @@ model Attachment {
   url       String
   size      Int?
   mimeType  String?
+  isPoc     Boolean  @default(false)
+  pocFor    String?
   ticketId  String
   createdAt DateTime @default(now())
 

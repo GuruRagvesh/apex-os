@@ -23,9 +23,13 @@ export class UploadsService {
     }
   }
 
-  async uploadTicketAttachment(ticketId: string, file: Express.Multer.File) {
+  async uploadTicketAttachment(
+    ticketId: string,
+    file: Express.Multer.File,
+    isPoc = false,
+    pocFor?: string,
+  ) {
     let url = '';
-    let publicId = '';
 
     if (this.configured) {
       const result = await new Promise<any>((resolve, reject) => {
@@ -36,9 +40,9 @@ export class UploadsService {
         stream.end(file.buffer);
       });
       url = result.secure_url;
-      publicId = result.public_id;
     } else {
       // Fallback: store filename only (no actual upload)
+      console.warn('[UploadsService] Cloudinary not configured — using local fallback');
       url = `/uploads/${file.originalname}`;
     }
 
@@ -49,6 +53,8 @@ export class UploadsService {
         url,
         size: file.size,
         mimeType: file.mimetype,
+        isPoc,
+        pocFor: pocFor ?? (isPoc ? ticketId : undefined),
       },
     });
   }

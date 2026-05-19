@@ -17,7 +17,7 @@ import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
   Copy, Timer, CheckCircle, XCircle, History, Paperclip, Upload,
   FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, Loader2,
-  Lightbulb, UserCheck, Hourglass,
+  Lightbulb, UserCheck, Hourglass, Download, Eye, Users,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
@@ -104,29 +104,68 @@ function humanValue(field: string, value: string | null) {
 // ─── Attachment card ──────────────────────────────────────────────────────────
 function AttachmentCard({ att }: { att: any }) {
   const isImage = att.mimeType?.startsWith('image/');
+  const isPdf = att.mimeType === 'application/pdf';
+  const isDoc = att.mimeType?.includes('word') || att.filename?.endsWith('.doc') || att.filename?.endsWith('.docx');
+  const isRemote = att.url?.startsWith('http');
   const sizeKb = att.size ? Math.round(att.size / 1024) : null;
 
+  const handleView = () => window.open(att.url, '_blank');
+  const handleDownload = () => {
+    const a = document.createElement('a');
+    a.href = att.url;
+    a.download = att.filename;
+    a.click();
+  };
+
   return (
-    <a
-      href={att.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-2 p-2 border border-slate-200 dark:border-gray-700 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
-    >
-      {isImage ? (
-        <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-slate-100 dark:bg-gray-800">
+    <div className="flex items-start gap-2 p-2.5 border border-slate-200 dark:border-gray-700 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800/50 transition-colors">
+      {/* Thumbnail / Icon */}
+      <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-slate-100 dark:bg-gray-800 flex items-center justify-center">
+        {isImage && isRemote ? (
           <img src={att.url} alt={att.filename} className="w-full h-full object-cover" />
-        </div>
-      ) : (
-        <div className="w-10 h-10 rounded bg-slate-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
+        ) : isPdf ? (
+          <FileText size={18} className="text-red-400" />
+        ) : isDoc ? (
+          <FileText size={18} className="text-blue-400" />
+        ) : (
           <FileText size={18} className="text-slate-400 dark:text-gray-500" />
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-slate-700 dark:text-gray-300 truncate">{att.filename}</p>
-        {sizeKb && <p className="text-[10px] text-slate-400 dark:text-gray-500">{sizeKb} KB</p>}
+        )}
       </div>
-    </a>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-xs font-medium text-slate-700 dark:text-gray-300 truncate max-w-[120px]">{att.filename}</p>
+          {att.isPoc && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-1.5 py-0.5 rounded">
+              POC
+            </span>
+          )}
+        </div>
+        <p className="text-[10px] text-slate-400 dark:text-gray-500 mt-0.5">
+          {sizeKb ? `${sizeKb} KB · ` : ''}
+          {att.createdAt ? new Date(att.createdAt).toLocaleDateString() : ''}
+        </p>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button
+          onClick={handleView}
+          title="View"
+          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-500 dark:text-gray-400 transition-colors"
+        >
+          <Eye size={13} />
+        </button>
+        <button
+          onClick={handleDownload}
+          title="Download"
+          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-500 dark:text-gray-400 transition-colors"
+        >
+          <Download size={13} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -229,6 +268,113 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
   );
 }
 
+// ─── POC Upload Modal ─────────────────────────────────────────────────────────
+function PocUploadModal({
+  ticketId,
+  onUploadAndSubmit,
+  onSkip,
+  onClose,
+  isUploading,
+}: {
+  ticketId: string;
+  onUploadAndSubmit: (file: File) => void;
+  onSkip: () => void;
+  onClose: () => void;
+  isUploading: boolean;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = (file: File) => {
+    if (file.size > 5 * 1024 * 1024) { toast.error('File must be under 5 MB'); return; }
+    setSelectedFile(file);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
+            <Paperclip size={18} className="text-purple-600 dark:text-purple-400" />
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-800 dark:text-white text-base">Upload Proof of Completion</h3>
+            <p className="text-xs text-slate-500 dark:text-gray-400">
+              Moving this ticket to Review requires uploading proof of work completed.
+            </p>
+          </div>
+        </div>
+
+        {/* Drop zone */}
+        <div
+          className={cn(
+            'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
+            dragOver
+              ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/10'
+              : 'border-slate-200 dark:border-gray-700 hover:border-purple-300',
+          )}
+          onClick={() => fileRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+          }}
+        >
+          {selectedFile ? (
+            <div className="flex items-center justify-center gap-2">
+              <FileText size={18} className="text-purple-500" />
+              <span className="text-sm font-medium text-slate-700 dark:text-gray-300 truncate max-w-[200px]">
+                {selectedFile.name}
+              </span>
+              <span className="text-xs text-slate-400">({Math.round(selectedFile.size / 1024)} KB)</span>
+            </div>
+          ) : (
+            <>
+              <Upload size={24} className="mx-auto text-slate-400 dark:text-gray-500 mb-2" />
+              <p className="text-sm font-medium text-slate-600 dark:text-gray-400">Drop files here or click to upload</p>
+              <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">Supports: PDF, PNG, JPG, DOC (max 5MB)</p>
+            </>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <button
+            onClick={onSkip}
+            disabled={isUploading}
+            className="flex-1 py-2.5 text-sm text-slate-600 dark:text-gray-400 border border-slate-200 dark:border-gray-700 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+          >
+            Skip for now
+          </button>
+          <button
+            onClick={() => selectedFile && onUploadAndSubmit(selectedFile)}
+            disabled={!selectedFile || isUploading}
+            className="flex-1 py-2.5 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            {isUploading ? (
+              <><Loader2 size={14} className="animate-spin" /> Uploading…</>
+            ) : (
+              <><Upload size={14} /> Upload & Submit</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 type Tab = 'comments' | 'history' | 'attachments';
 
@@ -243,6 +389,9 @@ export default function TicketDetailPage() {
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // POC upload modal state
+  const [showPocModal, setShowPocModal] = useState(false);
+  const [pocUploading, setPocUploading] = useState(false);
 
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
@@ -277,6 +426,36 @@ export default function TicketDetailPage() {
       toast.success('Status updated');
     },
   });
+
+  // Intercept REVIEW click to show POC modal
+  const handleStatusClick = (status: string) => {
+    if (status === 'REVIEW') {
+      setShowPocModal(true);
+    } else {
+      updateStatus.mutate(status);
+    }
+  };
+
+  const handlePocUploadAndSubmit = async (file: File) => {
+    setPocUploading(true);
+    try {
+      await ticketsApi.uploadAttachment(ticket.id, file, true);
+      await ticketsApi.updateStatus(ticket.id, 'REVIEW');
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      toast.success('POC uploaded and ticket moved to Review');
+      setShowPocModal(false);
+    } catch {
+      toast.error('Failed to upload POC or update status');
+    } finally {
+      setPocUploading(false);
+    }
+  };
+
+  const handlePocSkip = async () => {
+    setShowPocModal(false);
+    updateStatus.mutate('REVIEW');
+  };
 
   const assignMutation = useMutation({
     mutationFn: (assignedToId: string) => ticketsApi.assign(ticket.id, assignedToId),
@@ -364,6 +543,16 @@ export default function TicketDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">
+      {/* POC Upload Modal */}
+      {showPocModal && (
+        <PocUploadModal
+          ticketId={ticket.id}
+          onUploadAndSubmit={handlePocUploadAndSubmit}
+          onSkip={handlePocSkip}
+          onClose={() => setShowPocModal(false)}
+          isUploading={pocUploading}
+        />
+      )}
       {/* Breadcrumb */}
       <Breadcrumb items={[
         { label: 'Tickets', href: '/tickets' },
@@ -634,11 +823,11 @@ export default function TicketDetailPage() {
                     const isPast = i < currentIdx;
                     const isCurrent = i === currentIdx;
                     const isNext = i === currentIdx + 1;
-                    const canClick = canEdit && !updateStatus.isPending && (isNext || (isPast && !isClosed));
+                    const canClick = canEdit && !updateStatus.isPending && !pocUploading && (isNext || (isPast && !isClosed));
                     return (
                       <button
                         key={s}
-                        onClick={() => canClick && updateStatus.mutate(s)}
+                        onClick={() => canClick && handleStatusClick(s)}
                         disabled={!canClick}
                         className={cn(
                           'w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-2',
@@ -668,7 +857,7 @@ export default function TicketDetailPage() {
                   ) : canEdit && (
                     <button
                       onClick={() => updateStatus.mutate('CLOSED')}
-                      disabled={updateStatus.isPending}
+                      disabled={updateStatus.isPending || pocUploading}
                       className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
                     >
                       Close ticket
@@ -683,9 +872,11 @@ export default function TicketDetailPage() {
           <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4 space-y-3">
             <h3 className="font-semibold text-slate-700 dark:text-gray-300 text-sm">Details</h3>
 
-            {/* Assignee */}
+            {/* Assignee(s) */}
             <div>
-              <p className="text-xs text-slate-400 dark:text-gray-500 mb-1.5 flex items-center gap-1"><User size={11} /> Assignee</p>
+              <p className="text-xs text-slate-400 dark:text-gray-500 mb-1.5 flex items-center gap-1">
+                <Users size={11} /> Assignees
+              </p>
               {canEdit ? (
                 <select
                   value={ticket.assignedToId || ''}
@@ -693,24 +884,36 @@ export default function TicketDetailPage() {
                   className="w-full text-xs border border-slate-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100"
                 >
                   <option value="">Unassigned</option>
-                  {Array.isArray(users) && users.map((u: any) => (
+                  {(Array.isArray(users) ? users : (users as any)?.users ?? []).map((u: any) => (
                     <option key={u.id} value={u.id}>{u.name} — {u.role?.name}</option>
                   ))}
                 </select>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {ticket.assignedTo ? (
-                    <>
-                      <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-white text-[10px] font-bold">{getInitials(ticket.assignedTo.name)}</span>
+              ) : null}
+              {/* Primary assignee */}
+              <div className="flex flex-wrap gap-2 mt-2">
+                {ticket.assignedTo ? (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-white text-[10px] font-bold">{getInitials(ticket.assignedTo.name)}</span>
+                    </div>
+                    <span className="text-xs text-slate-700 dark:text-gray-300">{ticket.assignedTo.name}</span>
+                    <span className="text-[9px] text-slate-400 bg-slate-100 dark:bg-gray-800 px-1 py-0.5 rounded">Primary</span>
+                  </div>
+                ) : (
+                  <span className="text-sm text-slate-400 dark:text-gray-500">Unassigned</span>
+                )}
+                {/* Additional assignees */}
+                {(ticket.assignees ?? [])
+                  .filter((a: any) => a.user?.id !== ticket.assignedToId)
+                  .map((a: any) => (
+                    <div key={a.id} className="flex items-center gap-1.5">
+                      <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-white text-[10px] font-bold">{getInitials(a.user?.name)}</span>
                       </div>
-                      <span className="text-sm text-slate-700 dark:text-gray-300">{ticket.assignedTo.name}</span>
-                    </>
-                  ) : (
-                    <span className="text-sm text-slate-400 dark:text-gray-500">Unassigned</span>
-                  )}
-                </div>
-              )}
+                      <span className="text-xs text-slate-700 dark:text-gray-300">{a.user?.name}</span>
+                    </div>
+                  ))}
+              </div>
             </div>
 
             {/* Reporter */}
@@ -753,6 +956,23 @@ export default function TicketDetailPage() {
                   <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500 font-medium' : 'text-slate-600 dark:text-gray-400')}>
                     Due {formatDate(ticket.dueDate)}
                   </span>
+                </div>
+              )}
+              {ticket.scheduledFor && (
+                <div className="flex items-center gap-2">
+                  <Clock size={13} className="text-indigo-400" />
+                  <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                    Scheduled: {new Date(ticket.scheduledFor).toLocaleString(undefined, {
+                      weekday: 'short', day: 'numeric', month: 'short',
+                      hour: '2-digit', minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+              )}
+              {ticket.scheduledNote && (
+                <div className="flex items-start gap-2">
+                  <Clock size={13} className="text-slate-400 dark:text-gray-500 mt-0.5 flex-shrink-0" />
+                  <span className="text-xs text-slate-500 dark:text-gray-400 italic">{ticket.scheduledNote}</span>
                 </div>
               )}
               <div className="flex items-center gap-2">

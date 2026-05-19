@@ -6,9 +6,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Sparkles, Loader2 } from 'lucide-react';
+import { ArrowLeft, Sparkles, Loader2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { MultiSelect } from '@/components/ui/multi-select';
 
 const CATEGORIES = ['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
 const TYPES = ['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST'];
@@ -44,7 +45,14 @@ export default function NewTicketPage() {
     // Pre-fill self for Employee/Intern
     assignedToId: isEmployee ? (user?.id ?? '') : '',
     dueDate: '',
+    scheduledFor: '',
+    scheduledNote: '',
   });
+
+  // Multiple assignees state
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(
+    isEmployee && user?.id ? [user.id] : [],
+  );
 
   const [aiReason, setAiReason] = useState<string>('');
   const [aiSuggesting, setAiSuggesting] = useState(false);
@@ -87,9 +95,13 @@ export default function NewTicketPage() {
       ...form,
       estimatedTime: form.estimatedTime ? parseFloat(form.estimatedTime) : undefined,
       projectId: form.projectId || undefined,
-      assignedToId: form.assignedToId || undefined,
+      // Primary assignee = first selected, or the single assignedToId
+      assignedToId: assigneeIds[0] || form.assignedToId || undefined,
+      assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
       departmentId: form.departmentId || undefined,
       dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : undefined,
+      scheduledFor: form.scheduledFor ? new Date(form.scheduledFor).toISOString() : undefined,
+      scheduledNote: form.scheduledNote || undefined,
     });
   };
 
@@ -281,16 +293,21 @@ export default function NewTicketPage() {
           </div>
         </div>
 
-        {/* Row: Assignee + Due Date */}
+        {/* Row: Assignees + Due Date */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Assign To</label>
-            <select value={form.assignedToId} onChange={(e) => set('assignedToId', e.target.value)} className={inputCls}>
-              <option value="">Unassigned</option>
-              {filteredUsers.map((u: any) => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role?.name ?? u.role})</option>
-              ))}
-            </select>
+            <MultiSelect
+              options={filteredUsers.map((u: any) => ({
+                value: u.id,
+                label: u.name,
+                sublabel: u.role?.name ?? u.role,
+                avatar: u.avatar,
+              }))}
+              value={assigneeIds}
+              onChange={setAssigneeIds}
+              placeholder="Select assignees..."
+            />
           </div>
           <div>
             <label className={labelCls}>Due Date</label>
@@ -300,6 +317,36 @@ export default function NewTicketPage() {
               onChange={(e) => set('dueDate', e.target.value)}
               className={inputCls}
               min={new Date().toISOString().split('T')[0]}
+            />
+          </div>
+        </div>
+
+        {/* Schedule for */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>
+              <span className="flex items-center gap-1.5">
+                <Clock size={13} className="text-slate-400" />
+                Schedule for (optional)
+              </span>
+            </label>
+            <input
+              type="datetime-local"
+              value={form.scheduledFor}
+              onChange={(e) => set('scheduledFor', e.target.value)}
+              className={inputCls}
+              min={new Date().toISOString().slice(0, 16)}
+            />
+            <p className="mt-1 text-xs text-slate-400">Assignee will be notified at this time</p>
+          </div>
+          <div>
+            <label className={labelCls}>Schedule Note</label>
+            <input
+              type="text"
+              value={form.scheduledNote}
+              onChange={(e) => set('scheduledNote', e.target.value)}
+              className={inputCls}
+              placeholder="e.g., Meeting at 2 PM"
             />
           </div>
         </div>

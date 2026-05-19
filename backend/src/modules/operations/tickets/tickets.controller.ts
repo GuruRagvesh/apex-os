@@ -56,6 +56,7 @@ export class TicketsController {
   async uploadAttachment(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @Body() body: any,
     @CurrentUser() user: any,
   ) {
     // Ownership: only assignee, reporter, or Manager+ may attach
@@ -66,7 +67,8 @@ export class TicketsController {
     if (!isManagerPlus && !isParticipant) {
       throw new ForbiddenException('Only the assignee, reporter or a manager can attach files');
     }
-    return this.uploadsService.uploadTicketAttachment(ticket.id, file);
+    const isPoc = body?.isPoc === 'true' || body?.isPoc === true;
+    return this.uploadsService.uploadTicketAttachment(ticket.id, file, isPoc, ticket.id);
   }
 
   @Put(':id')

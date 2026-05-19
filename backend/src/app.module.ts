@@ -29,6 +29,7 @@ import { EmailModule } from './modules/platform/email/email.module';
 import { HealthModule } from './modules/platform/health/health.module';
 import { AutomationModule } from './modules/platform/automation/automation.module';
 import { SettingsModule } from './modules/platform/settings/settings.module';
+import { SchedulerModule } from './modules/platform/scheduler/scheduler.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { SettingsModule } from './modules/platform/settings/settings.module';
     HealthModule,
     AutomationModule,
     SettingsModule,
+    SchedulerModule,
   ],
 })
 export class AppModule {}

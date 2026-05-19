@@ -105,9 +105,10 @@ export const ticketsApi = {
   approve: (id: string) => r(api.patch(`/tickets/${id}/approve`)),
   reject: (id: string, comment: string) => r(api.patch(`/tickets/${id}/reject`, { comment })),
   getHistory: (id: string) => r(api.get(`/tickets/${id}/history`)),
-  uploadAttachment: (id: string, file: File) => {
+  uploadAttachment: (id: string, file: File, isPoc = false) => {
     const form = new FormData();
     form.append('file', file);
+    if (isPoc) form.append('isPoc', 'true');
     return r(api.post(`/tickets/${id}/attachments`, form, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
   exportCsv: async (params?: any) => {

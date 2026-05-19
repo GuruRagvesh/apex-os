@@ -38,6 +38,7 @@ export class TicketsService {
     createdBy: { select: { id: true, name: true, email: true, avatar: true } },
     department: true,
     project: { select: { id: true, projectId: true, name: true } },
+    assignees: { include: { user: { select: { id: true, name: true, avatar: true } } } },
     _count: { select: { comments: true } },
   };
 
@@ -158,7 +159,7 @@ export class TicketsService {
           include: { author: { select: { id: true, name: true, avatar: true, role: true } } },
           orderBy: { createdAt: 'asc' },
         },
-        attachments: true,
+        attachments: { orderBy: { createdAt: 'desc' } },
       },
     });
     if (!ticket) throw new NotFoundException('Ticket not found');
@@ -166,6 +167,10 @@ export class TicketsService {
   }
 
   async create(data: any, userId: string) {
+    // Extract assigneeIds before passing data to Prisma (not a real Ticket column)
+    const assigneeIds: string[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
+    delete data.assigneeIds;
+
     // Resolve departmentId: accept display name or UUID
     if (data.departmentId && !isUUID(data.departmentId)) {
       const dept = await this.prisma.department.findFirst({
@@ -185,6 +190,10 @@ export class TicketsService {
     // Convert dueDate string → proper ISO DateTime
     if (data.dueDate) {
       data.dueDate = new Date(data.dueDate).toISOString();
+    }
+    // Convert scheduledFor string → proper ISO DateTime
+    if (data.scheduledFor) {
+      data.scheduledFor = new Date(data.scheduledFor).toISOString();
     }
 
     // Generate a collision-safe ticket ID by retrying on unique-constraint violations (P2002)
@@ -210,6 +219,34 @@ export class TicketsService {
     }
     if (!ticket) {
       throw new BadRequestException('Failed to generate a unique ticket ID — please try again');
+    }
+
+    // Create multiple assignees if provided
+    if (assigneeIds.length > 0) {
+      await this.prisma.ticketAssignee.createMany({
+        data: assigneeIds.map((uid) => ({ ticketId: ticket.id, userId: uid })),
+        skipDuplicates: true,
+      });
+      // Notify each additional assignee
+      const creator = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+      for (const uid of assigneeIds) {
+        if (uid === ticket.assignedToId) continue; // primary assignee notified below
+        try {
+          await this.notificationsService.create(
+            uid,
+            `New ticket assigned: ${ticket.ticketId}`,
+            ticket.title,
+            NotificationType.INFO,
+            `/tickets/${ticket.id}`,
+            ticket.id,
+            'TICKET',
+          );
+          this.gateway.emitNotificationToUser(uid, {
+            title: `New ticket assigned: ${ticket.ticketId}`,
+            message: ticket.title,
+          });
+        } catch (_e) { /* never crash main op */ }
+      }
     }
 
     await this.prisma.activityLog.create({
@@ -255,6 +292,15 @@ export class TicketsService {
   }
 
   async update(id: string, data: any, userId: string, user?: any) {
+    // Extract assigneeIds (not a Ticket column)
+    const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
+    delete data.assigneeIds;
+
+    // Convert scheduledFor string → DateTime
+    if (data.scheduledFor) {
+      data.scheduledFor = new Date(data.scheduledFor).toISOString();
+    }
+
     const existing = await this.prisma.ticket.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Ticket not found');
 
@@ -390,6 +436,17 @@ export class TicketsService {
         title: `Ticket assigned to you: ${ticket.ticketId}`,
         message: ticket.title,
       });
+    }
+
+    // Update multiple assignees if provided
+    if (assigneeIds !== undefined) {
+      await this.prisma.ticketAssignee.deleteMany({ where: { ticketId: id } });
+      if (assigneeIds.length > 0) {
+        await this.prisma.ticketAssignee.createMany({
+          data: assigneeIds.map((uid) => ({ ticketId: id, userId: uid })),
+          skipDuplicates: true,
+        });
+      }
     }
 
     return this.addSla(ticket);
