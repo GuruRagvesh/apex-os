@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi, departmentsApi } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
 import { cn, PROJECT_STATUS_COLORS, PRIORITY_COLORS, formatDate, getInitials } from '@/lib/utils';
 import { Plus, FolderKanban, Users, Ticket, Calendar } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -69,6 +70,9 @@ function ProjectCard({ project }: { project: any }) {
 
 export default function ProjectsPage() {
   const qc = useQueryClient();
+  const { user } = useAuthStore();
+  const roleName = (user?.role as any)?.name ?? user?.role ?? '';
+  const canCreate = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', priority: 'MEDIUM', departmentId: '', endDate: '' });
 
@@ -105,12 +109,14 @@ export default function ProjectsPage() {
           <h2 className="text-xl font-bold text-slate-800 dark:text-white">Projects</h2>
           <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">{projectList.length} projects</p>
         </div>
-        <button
-          onClick={() => setShowNew(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-        >
-          <Plus size={16} />New Project
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowNew(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <Plus size={16} />New Project
+          </button>
+        )}
       </div>
 
       {/* New Project Modal */}
@@ -149,7 +155,7 @@ export default function ProjectsPage() {
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => form.name && createMutation.mutate({ ...form, departmentId: form.departmentId || undefined, endDate: form.endDate || undefined })}
+                onClick={() => form.name && createMutation.mutate({ ...form, departmentId: form.departmentId || undefined, endDate: form.endDate ? new Date(form.endDate).toISOString() : undefined })}
                 disabled={createMutation.isPending || !form.name}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm"
               >
@@ -175,8 +181,8 @@ export default function ProjectsPage() {
             icon="📁"
             title="No projects yet"
             description="Create a project to group related tickets and track progress"
-            actionLabel="New Project"
-            onAction={() => setShowNew(true)}
+            actionLabel={canCreate ? "New Project" : undefined}
+            onAction={canCreate ? () => setShowNew(true) : undefined}
           />
         </div>
       )}

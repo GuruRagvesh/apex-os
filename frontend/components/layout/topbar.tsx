@@ -52,7 +52,7 @@ export function TopBar() {
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications-count'],
     queryFn: () => notificationsApi.getUnreadCount() as Promise<{ count: number }>,
-    refetchInterval: 30000,
+    refetchInterval: 15000,
   });
 
   const { data: notifications } = useQuery({

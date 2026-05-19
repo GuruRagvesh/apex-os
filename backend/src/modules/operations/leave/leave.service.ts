@@ -54,11 +54,6 @@ export class LeaveService {
   }
 
   async create(data: any, userId: string) {
-    // SUPER_ADMIN does not apply for leave
-    const creator = await this.prisma.user.findUnique({ where: { id: userId }, include: { role: true } });
-    if (creator?.role?.name === 'SUPER_ADMIN') {
-      throw new ForbiddenException('Super Admins cannot apply for leave');
-    }
     const { startDate, endDate, ...rest } = data;
     return this.prisma.leaveRequest.create({
       data: {

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { projectsApi } from '@/lib/api';
+import { projectsApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, PROJECT_STATUS_COLORS, PRIORITY_COLORS, PROJECT_STATUS_LABELS, PRIORITY_LABELS, formatDate, getInitials } from '@/lib/utils';
 import { ArrowLeft, Ticket, Users, Edit3, Trash2 } from 'lucide-react';
@@ -21,7 +21,7 @@ export default function ProjectDetailPage() {
   const canEdit = ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'].includes(roleName);
   const canDelete = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', status: '', priority: '' });
+  const [form, setForm] = useState({ name: '', description: '', status: '', priority: '', departmentId: '', endDate: '' });
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -49,12 +49,20 @@ export default function ProjectDetailPage() {
     onError: (err: any) => toast.error(err?.message ?? 'Delete failed'),
   });
 
+  const { data: departments } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+    enabled: editing,
+  });
+
   const handleEditOpen = () => {
     setForm({
       name: project?.name ?? '',
       description: project?.description ?? '',
       status: project?.status ?? 'ACTIVE',
       priority: project?.priority ?? 'MEDIUM',
+      departmentId: project?.departmentId ?? '',
+      endDate: project?.endDate ? new Date(project.endDate).toISOString().split('T')[0] : '',
     });
     setEditing(true);
   };
@@ -130,8 +138,29 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
             </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Department</label>
+                  <select className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={form.departmentId} onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value }))}>
+                    <option value="">None</option>
+                    {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">End Date</label>
+                  <input type="date" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
+                </div>
+              </div>
             <div className="flex gap-3 mt-5">
-              <button onClick={() => updateMutation.mutate(form)} disabled={updateMutation.isPending} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded-lg disabled:opacity-50">
+              <button
+                onClick={() => updateMutation.mutate({
+                  ...form,
+                  departmentId: form.departmentId || undefined,
+                  endDate: form.endDate ? new Date(form.endDate).toISOString() : undefined,
+                })}
+                disabled={updateMutation.isPending}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded-lg disabled:opacity-50"
+              >
                 {updateMutation.isPending ? 'Saving…' : 'Save'}
               </button>
               <button onClick={() => setEditing(false)} className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg">Cancel</button>

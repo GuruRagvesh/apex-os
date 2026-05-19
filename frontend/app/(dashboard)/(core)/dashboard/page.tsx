@@ -162,6 +162,7 @@ interface CardCfg {
   label: string;
   sub: string;
   subColor: string;
+  href?: string;
 }
 
 function buildStatCards(role: string, stats: any, myOpenCount: number, myDueToday: number): CardCfg[] {
@@ -169,30 +170,30 @@ function buildStatCards(role: string, stats: any, myOpenCount: number, myDueToda
 
   if (['ADMIN', 'SUPER_ADMIN'].includes(role)) {
     return [
-      { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: s.openTickets   ?? 0, label: 'Open Tickets',      sub: `${s.urgentTickets ?? 0} urgent`,          subColor: 'text-blue-600   dark:text-blue-400' },
-      { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave  ?? 0, label: 'Pending Approvals', sub: 'Requires action',                         subColor: 'text-orange-600 dark:text-orange-400' },
-      { icon: <FolderKanban  size={20} className="text-green-600" />,  iconBg: 'bg-green-100  dark:bg-green-900/30',  value: s.activeProjects ?? 0, label: 'Active Projects',  sub: `of ${s.totalProjects ?? 0} total`,        subColor: 'text-green-600  dark:text-green-400' },
+      { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: s.openTickets   ?? 0, label: 'Open Tickets',      sub: `${s.urgentTickets ?? 0} urgent`,          subColor: 'text-blue-600   dark:text-blue-400',   href: '/tickets?status=OPEN' },
+      { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave  ?? 0, label: 'Pending Approvals', sub: 'Requires action',                         subColor: 'text-orange-600 dark:text-orange-400', href: '/leave' },
+      { icon: <FolderKanban  size={20} className="text-green-600" />,  iconBg: 'bg-green-100  dark:bg-green-900/30',  value: s.activeProjects ?? 0, label: 'Active Projects',  sub: `of ${s.totalProjects ?? 0} total`,        subColor: 'text-green-600  dark:text-green-400',  href: '/projects' },
     ];
   }
   if (role === 'MANAGER') {
     return [
-      { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: s.openTickets   ?? 0, label: 'Dept Open Tickets', sub: `${s.inProgressTickets ?? 0} in progress`, subColor: 'text-blue-600   dark:text-blue-400' },
-      { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave  ?? 0, label: 'Pending Approvals', sub: 'Requires action',                         subColor: 'text-orange-600 dark:text-orange-400' },
-      { icon: <FolderKanban  size={20} className="text-green-600" />,  iconBg: 'bg-green-100  dark:bg-green-900/30',  value: s.activeProjects ?? 0, label: 'Active Projects',  sub: `of ${s.totalProjects ?? 0} total`,        subColor: 'text-green-600  dark:text-green-400' },
+      { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: s.openTickets   ?? 0, label: 'Dept Open Tickets', sub: `${s.inProgressTickets ?? 0} in progress`, subColor: 'text-blue-600   dark:text-blue-400',   href: '/tickets?status=OPEN' },
+      { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave  ?? 0, label: 'Pending Approvals', sub: 'Requires action',                         subColor: 'text-orange-600 dark:text-orange-400', href: '/leave' },
+      { icon: <FolderKanban  size={20} className="text-green-600" />,  iconBg: 'bg-green-100  dark:bg-green-900/30',  value: s.activeProjects ?? 0, label: 'Active Projects',  sub: `of ${s.totalProjects ?? 0} total`,        subColor: 'text-green-600  dark:text-green-400',  href: '/projects' },
     ];
   }
   if (role === 'TEAM_LEAD') {
     return [
-      { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: myOpenCount,         label: 'My Open Tasks',     sub: `${myDueToday} due today`,                 subColor: 'text-blue-600   dark:text-blue-400' },
-      { icon: <Users         size={20} className="text-purple-600" />, iconBg: 'bg-purple-100 dark:bg-purple-900/30', value: s.openTickets   ?? 0, label: 'Team Tasks',        sub: `${s.inProgressTickets ?? 0} in progress`, subColor: 'text-purple-600 dark:text-purple-400' },
-      { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave  ?? 0, label: 'Pending Approvals', sub: 'Requires action',                         subColor: 'text-orange-600 dark:text-orange-400' },
+      { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: myOpenCount,         label: 'My Open Tasks',     sub: `${myDueToday} due today`,                 subColor: 'text-blue-600   dark:text-blue-400',   href: '/tickets' },
+      { icon: <Users         size={20} className="text-purple-600" />, iconBg: 'bg-purple-100 dark:bg-purple-900/30', value: s.openTickets   ?? 0, label: 'Team Tasks',        sub: `${s.inProgressTickets ?? 0} in progress`, subColor: 'text-purple-600 dark:text-purple-400', href: '/tickets?status=OPEN' },
+      { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave  ?? 0, label: 'Pending Approvals', sub: 'Requires action',                         subColor: 'text-orange-600 dark:text-orange-400', href: '/leave' },
     ];
   }
   // EMPLOYEE / INTERN
   return [
-    { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: myOpenCount,        label: 'My Open Tasks',       sub: `${myDueToday} due today`,                subColor: 'text-blue-600   dark:text-blue-400' },
-    { icon: <CheckCircle2  size={20} className="text-green-600" />,  iconBg: 'bg-green-100  dark:bg-green-900/30',  value: s.doneTickets ?? 0, label: 'Completed this week', sub: 'This week',                              subColor: 'text-green-600  dark:text-green-400' },
-    { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave ?? 0, label: 'Leave balance',       sub: `${s.pendingLeave ?? 0} pending`,         subColor: 'text-orange-600 dark:text-orange-400' },
+    { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: myOpenCount,        label: 'My Open Tasks',       sub: `${myDueToday} due today`,                subColor: 'text-blue-600   dark:text-blue-400',   href: '/tickets' },
+    { icon: <CheckCircle2  size={20} className="text-green-600" />,  iconBg: 'bg-green-100  dark:bg-green-900/30',  value: s.doneTickets ?? 0, label: 'Completed this week', sub: 'This week',                              subColor: 'text-green-600  dark:text-green-400',  href: '/tickets?status=DONE' },
+    { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave ?? 0, label: 'Leave balance',       sub: `${s.pendingLeave ?? 0} pending`,         subColor: 'text-orange-600 dark:text-orange-400', href: '/leave' },
   ];
 }
 
@@ -351,20 +352,37 @@ export default function DashboardPage() {
         {overviewLoading || tasksLoading
           ? Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)
           : statCards.map((cfg, i) => (
-            <div key={i} className={cn(card, 'p-5')}>
-              <div className="flex items-center gap-4">
-                <div className={cn('w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0', cfg.iconBg)}>
-                  {cfg.icon}
+            cfg.href ? (
+              <Link key={i} href={cfg.href} className={cn(card, 'p-5 block hover:shadow-md hover:border-blue-200 dark:hover:border-blue-700 transition-all cursor-pointer')}>
+                <div className="flex items-center gap-4">
+                  <div className={cn('w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0', cfg.iconBg)}>
+                    {cfg.icon}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[32px] font-bold leading-none text-slate-800 dark:text-white">
+                      {cfg.value}
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-gray-400 mt-1.5">{cfg.label}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-[32px] font-bold leading-none text-slate-800 dark:text-white">
-                    {cfg.value}
-                  </p>
-                  <p className="text-sm text-slate-500 dark:text-gray-400 mt-1.5">{cfg.label}</p>
+                <p className={cn('text-xs font-semibold mt-3.5', cfg.subColor)}>{cfg.sub}</p>
+              </Link>
+            ) : (
+              <div key={i} className={cn(card, 'p-5')}>
+                <div className="flex items-center gap-4">
+                  <div className={cn('w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0', cfg.iconBg)}>
+                    {cfg.icon}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[32px] font-bold leading-none text-slate-800 dark:text-white">
+                      {cfg.value}
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-gray-400 mt-1.5">{cfg.label}</p>
+                  </div>
                 </div>
+                <p className={cn('text-xs font-semibold mt-3.5', cfg.subColor)}>{cfg.sub}</p>
               </div>
-              <p className={cn('text-xs font-semibold mt-3.5', cfg.subColor)}>{cfg.sub}</p>
-            </div>
+            )
           ))}
       </div>
 

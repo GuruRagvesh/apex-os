@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi } from '@/lib/api';
@@ -59,8 +59,15 @@ export default function NewTicketPage() {
   const [aiDisabled, setAiDisabled] = useState(false);
 
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
-  const { data: projects } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
+  const { data: projectsRaw } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
   const { data: usersData } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any> });
+
+  const projectList = useMemo(() => {
+    if (!projectsRaw) return [];
+    if (Array.isArray(projectsRaw)) return projectsRaw;
+    if (Array.isArray(projectsRaw?.projects)) return projectsRaw.projects;
+    return [];
+  }, [projectsRaw]);
 
   const userList: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
 
@@ -286,7 +293,7 @@ export default function NewTicketPage() {
             <label className={labelCls}>Link to Project</label>
             <select value={form.projectId} onChange={(e) => set('projectId', e.target.value)} className={inputCls}>
               <option value="">No project</option>
-              {Array.isArray(projects?.projects) && projects.projects.map((p: any) => (
+              {projectList.map((p: any) => (
                 <option key={p.id} value={p.id}>{p.projectId} — {p.name}</option>
               ))}
             </select>

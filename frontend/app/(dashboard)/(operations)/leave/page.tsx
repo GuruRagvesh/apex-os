@@ -68,14 +68,12 @@ export default function LeavePage() {
           <h2 className="text-xl font-bold text-slate-800 dark:text-white">Leave Management</h2>
           <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">Manage leave requests and approvals</p>
         </div>
-        {!isSuperAdmin && (
-          <button
-            onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            <Plus size={16} />Apply Leave
-          </button>
-        )}
+        <button
+          onClick={() => setShowNew(true)}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <Plus size={16} />Apply Leave
+        </button>
       </div>
 
       {/* Stats */}

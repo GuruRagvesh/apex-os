@@ -14,7 +14,7 @@ export class ProjectsController {
   constructor(private projectsService: ProjectsService) {}
 
   @Get()
-  findAll(@Query() query: any) { return this.projectsService.findAll(query); }
+  findAll(@Query() query: any, @CurrentUser() user: any) { return this.projectsService.findAll(query, user); }
 
   @Get('stats')
   getStats() { return this.projectsService.getStats(); }

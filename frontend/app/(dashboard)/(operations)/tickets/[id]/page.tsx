@@ -17,7 +17,7 @@ import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
   Copy, Timer, CheckCircle, XCircle, History, Paperclip, Upload,
   FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, Loader2,
-  Lightbulb, UserCheck, Hourglass, Download, Eye, Users,
+  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
@@ -392,6 +392,9 @@ export default function TicketDetailPage() {
   // POC upload modal state
   const [showPocModal, setShowPocModal] = useState(false);
   const [pocUploading, setPocUploading] = useState(false);
+  // Edit modal state
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
 
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
@@ -504,6 +507,16 @@ export default function TicketDetailPage() {
     onError: () => toast.error('Failed to reject ticket'),
   });
 
+  const editMutation = useMutation({
+    mutationFn: (data: any) => ticketsApi.update(ticket.id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      toast.success('Ticket updated');
+      setEditing(false);
+    },
+    onError: (e: any) => toast.error(e?.message || 'Update failed'),
+  });
+
   const uploadMutation = useMutation({
     mutationFn: (file: File) => ticketsApi.uploadAttachment(ticket.id, file),
     onSuccess: () => {
@@ -553,6 +566,81 @@ export default function TicketDetailPage() {
           isUploading={pocUploading}
         />
       )}
+      {/* Edit Modal */}
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <h3 className="font-bold text-slate-800 dark:text-white text-base">Edit Ticket</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Title</label>
+                <input
+                  type="text"
+                  value={editForm.title}
+                  onChange={(e) => setEditForm((f: any) => ({ ...f, title: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Description</label>
+                <textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((f: any) => ({ ...f, description: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 resize-none"
+                  rows={3}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Priority</label>
+                  <select value={editForm.priority} onChange={(e) => setEditForm((f: any) => ({ ...f, priority: e.target.value }))} className="w-full px-2 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100">
+                    {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Category</label>
+                  <select value={editForm.category} onChange={(e) => setEditForm((f: any) => ({ ...f, category: e.target.value }))} className="w-full px-2 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100">
+                    {['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'].map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Type</label>
+                  <select value={editForm.type} onChange={(e) => setEditForm((f: any) => ({ ...f, type: e.target.value }))} className="w-full px-2 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100">
+                    {['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST'].map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Due Date</label>
+                  <input type="date" value={editForm.dueDate} onChange={(e) => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Est. Hours</label>
+                  <input type="number" min="0.5" step="0.5" value={editForm.estimatedTime} onChange={(e) => setEditForm((f: any) => ({ ...f, estimatedTime: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100" />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => editMutation.mutate({
+                  ...editForm,
+                  dueDate: editForm.dueDate ? new Date(editForm.dueDate).toISOString() : undefined,
+                  estimatedTime: editForm.estimatedTime ? parseFloat(editForm.estimatedTime) : undefined,
+                })}
+                disabled={editMutation.isPending || !editForm.title?.trim()}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm disabled:opacity-50 transition-colors"
+              >
+                {editMutation.isPending ? 'Saving…' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditing(false)} className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Breadcrumb */}
       <Breadcrumb items={[
         { label: 'Tickets', href: '/tickets' },
@@ -586,6 +674,26 @@ export default function TicketDetailPage() {
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
         </div>
+        {canEdit && (
+          <button
+            onClick={() => {
+              setEditForm({
+                title: ticket.title,
+                description: ticket.description ?? '',
+                priority: ticket.priority,
+                category: ticket.category,
+                type: ticket.type ?? 'TASK',
+                dueDate: ticket.dueDate ? new Date(ticket.dueDate).toISOString().split('T')[0] : '',
+                estimatedTime: ticket.estimatedTime ?? '',
+              });
+              setEditing(true);
+            }}
+            className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+            title="Edit ticket"
+          >
+            <Edit2 size={16} />
+          </button>
+        )}
         {canDelete && (
           <button
             onClick={() => { if (confirm('Delete this ticket? This cannot be undone.')) deleteTicket.mutate(); }}

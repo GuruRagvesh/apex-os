@@ -83,6 +83,7 @@ function ProfileSection({ user }: { user: any }) {
   const [bio, setBio]     = useState(user?.bio ?? '');
   const [color, setColor] = useState(user?.avatar ?? AVATAR_COLORS[0]);
   const [saving, setSaving] = useState(false);
+  const updateUser = useAuthStore((s) => s.updateUser);
 
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   const deptName = (user?.department as any)?.name ?? '';
@@ -92,6 +93,7 @@ function ProfileSection({ user }: { user: any }) {
     setSaving(true);
     try {
       await usersApi.updateMe({ name: name.trim(), avatar: color, bio });
+      updateUser({ name: name.trim(), avatar: color });
       toast.success('Profile updated');
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to save profile');
@@ -499,7 +501,7 @@ function CompanySection() {
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION: Leave Policy (admin only)
 // ─────────────────────────────────────────────────────────────────────────────
-function LeavePolicySection() {
+function LeavePolicySection({ canEdit = true }: { canEdit?: boolean }) {
   const qc = useQueryClient();
   const { data: remote } = useQuery({
     queryKey: ['settings', 'leave-policy'],
@@ -545,15 +547,23 @@ function LeavePolicySection() {
       </div>
       <div className={cardCls}>
         <h3 className="font-semibold text-slate-800 dark:text-gray-100">Working Schedule</h3>
+        {!canEdit && (
+          <p className="text-xs text-slate-400 dark:text-gray-500 mb-2">Read-only — contact your admin to change the schedule.</p>
+        )}
         <div>
           <label className={labelCls}>Working Days</label>
-          <select value={workingDays} onChange={(e) => setWorkingDays(e.target.value)} className={inputCls}>
+          <select
+            value={workingDays}
+            onChange={(e) => canEdit && setWorkingDays(e.target.value)}
+            disabled={!canEdit}
+            className={`${inputCls} ${!canEdit ? 'opacity-60 cursor-not-allowed' : ''}`}
+          >
             <option value="Mon–Fri">Mon–Fri (5 days)</option>
             <option value="Mon–Sat">Mon–Sat (6 days)</option>
             <option value="Mon–Sun">Mon–Sun (7 days)</option>
           </select>
         </div>
-        <SaveBtn loading={save.isPending} />
+        {canEdit && <SaveBtn loading={save.isPending} />}
       </div>
     </form>
   );
@@ -769,7 +779,7 @@ export default function SettingsPage() {
         {active === 'display'       && <DisplaySection />}
         {active === 'preferences'   && <PreferencesSection />}
         {active === 'company'       && isAdmin      && <CompanySection />}
-        {active === 'leave-policy'  && isAdmin      && <LeavePolicySection />}
+        {active === 'leave-policy'  && isAdmin      && <LeavePolicySection canEdit={isAdmin} />}
         {active === 'sla'           && isAdmin      && <SlaSection />}
         {active === 'smtp'          && isSuperAdmin && <SmtpSection />}
       </div>

@@ -214,6 +214,7 @@ export class TicketsService {
           attempts++;
           continue;
         }
+        console.error('TICKET CREATE ERROR:', { message: err?.message, code: err?.code, meta: err?.meta });
         throw new BadRequestException(err?.message ?? 'Failed to create ticket');
       }
     }

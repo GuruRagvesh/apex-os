@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, usersApi } from '@/lib/api';
+import { departmentsApi, usersApi, rolesApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import {
   ArrowLeft,
@@ -17,6 +17,8 @@ import {
   UserPlus,
   ExternalLink,
   AlertCircle,
+  UserMinus,
+  Crown,
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -80,6 +82,12 @@ export default function DepartmentDetailPage() {
   });
   const allUsers: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
 
+  const { data: rolesData } = useQuery({
+    queryKey: ['roles'],
+    queryFn: () => rolesApi.getAll() as Promise<any[]>,
+    enabled: isAdmin,
+  });
+
   // Users not already in this dept
   const nonMembers = allUsers.filter(
     (u: any) => u.departmentId !== id && memberSearch
@@ -110,6 +118,30 @@ export default function DepartmentDetailPage() {
       setMemberSearch('');
     },
     onError: () => toast.error('Failed to add member'),
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => usersApi.update(userId, { departmentId: null }),
+    onSuccess: () => {
+      toast.success('Member removed');
+      qc.invalidateQueries({ queryKey: ['department', id] });
+      qc.invalidateQueries({ queryKey: ['departments'] });
+    },
+    onError: () => toast.error('Failed to remove member'),
+  });
+
+  const setTeamLeadMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const roles = Array.isArray(rolesData) ? rolesData : [];
+      const tlRole = roles.find((r: any) => r.name === 'TEAM_LEAD');
+      if (!tlRole) throw new Error('TEAM_LEAD role not found');
+      return usersApi.update(userId, { roleId: tlRole.id });
+    },
+    onSuccess: () => {
+      toast.success('Team lead set');
+      qc.invalidateQueries({ queryKey: ['department', id] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to set team lead'),
   });
 
   if (isLoading) {
@@ -261,13 +293,14 @@ export default function DepartmentDetailPage() {
           {dept.users?.map((m: any) => (
             <div
               key={m.id}
-              className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors cursor-pointer"
-              onClick={() => router.push(`/users/${m.id}`)}
+              className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors"
             >
-              <Avatar name={m.name} avatar={m.avatar} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800">{m.name}</p>
-                <p className="text-xs text-slate-500 truncate">{m.email}</p>
+              <div className="cursor-pointer flex items-center gap-3 flex-1 min-w-0" onClick={() => router.push(`/users/${m.id}`)}>
+                <Avatar name={m.name} avatar={m.avatar} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800">{m.name}</p>
+                  <p className="text-xs text-slate-500 truncate">{m.email}</p>
+                </div>
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium flex-shrink-0">
                 {m.role?.name}
@@ -275,7 +308,29 @@ export default function DepartmentDetailPage() {
               <span className="text-xs text-slate-400 flex-shrink-0">
                 {m._count?.assignedTickets ?? 0} tickets
               </span>
-              <ExternalLink size={13} className="text-slate-300" />
+              {isAdmin && (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {m.role?.name !== 'TEAM_LEAD' && m.role?.name !== 'MANAGER' && (
+                    <button
+                      onClick={() => setTeamLeadMutation.mutate(m.id)}
+                      disabled={setTeamLeadMutation.isPending}
+                      className="p-1 text-slate-400 hover:text-amber-500 hover:bg-amber-50 rounded transition-colors"
+                      title="Set as Team Lead"
+                    >
+                      <Crown size={13} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { if (confirm(`Remove ${m.name} from this department?`)) removeMemberMutation.mutate(m.id); }}
+                    disabled={removeMemberMutation.isPending}
+                    className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                    title="Remove from department"
+                  >
+                    <UserMinus size={13} />
+                  </button>
+                </div>
+              )}
+              <ExternalLink size={13} className="text-slate-300 cursor-pointer" onClick={() => router.push(`/users/${m.id}`)} />
             </div>
           ))}
         </div>

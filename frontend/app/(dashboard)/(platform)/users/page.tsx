@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usersApi, rolesApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, getInitials } from '@/lib/utils';
-import { Plus, Search, Shield, UserCheck, UserX } from 'lucide-react';
+import { Plus, Search, Shield, UserCheck, UserX, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const roleBadge: Record<string, string> = {
@@ -23,6 +23,8 @@ export default function UsersPage() {
   const [search, setSearch] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '' });
+  const [editUser, setEditUser] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true });
 
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
@@ -47,6 +49,16 @@ export default function UsersPage() {
   const toggleActive = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => usersApi.update(id, { isActive }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => usersApi.update(id, data),
+    onSuccess: () => {
+      toast.success('User updated!');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setEditUser(null);
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to update user'),
   });
 
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(me?.role?.name ?? '');
@@ -107,17 +119,72 @@ export default function UsersPage() {
                   </div>
                 </div>
                 {isAdmin && u.id !== me?.id && (
-                  <button
-                    onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}
-                    className={cn('p-1.5 rounded-lg transition-colors', u.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-400 hover:text-green-500 hover:bg-green-50')}
-                    title={u.isActive ? 'Deactivate' : 'Activate'}
-                  >
-                    {u.isActive ? <UserX size={15} /> : <UserCheck size={15} />}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setEditUser(u);
+                        setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive: u.isActive });
+                      }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                      title="Edit user"
+                    >
+                      <Edit2 size={15} />
+                    </button>
+                    <button
+                      onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}
+                      className={cn('p-1.5 rounded-lg transition-colors', u.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-400 hover:text-green-500 hover:bg-green-50')}
+                      title={u.isActive ? 'Deactivate' : 'Activate'}
+                    >
+                      {u.isActive ? <UserX size={15} /> : <UserCheck size={15} />}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Edit User Modal */}
+      {editUser && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-5">Edit User</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Full Name</label>
+                <input type="text" value={editForm.name} onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))} className={inputCls} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Role</label>
+                  <select value={editForm.roleId} onChange={(e) => setEditForm(f => ({ ...f, roleId: e.target.value }))} className={inputCls}>
+                    <option value="">Select role</option>
+                    {Array.isArray(roles) && roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Department</label>
+                  <select value={editForm.departmentId} onChange={(e) => setEditForm(f => ({ ...f, departmentId: e.target.value }))} className={inputCls}>
+                    <option value="">None</option>
+                    {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || undefined, departmentId: editForm.departmentId || undefined } })}
+                disabled={editMutation.isPending || !editForm.name}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm"
+              >
+                {editMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditUser(null)} className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

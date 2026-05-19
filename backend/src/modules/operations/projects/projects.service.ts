@@ -10,7 +10,7 @@ function isUUID(str: string): boolean {
 export class ProjectsService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(query: { search?: string; status?: ProjectStatus; departmentId?: string; userId?: string }) {
+  async findAll(query: { search?: string; status?: ProjectStatus; departmentId?: string; userId?: string }, user?: any) {
     const where: any = {};
     if (query.search) {
       where.OR = [
@@ -21,6 +21,21 @@ export class ProjectsService {
     if (query.status) where.status = query.status;
     if (query.departmentId) where.departmentId = query.departmentId;
     if (query.userId) where.members = { some: { userId: query.userId } };
+
+    if (user) {
+      const roleName = user?.role?.name ?? user?.role ?? '';
+      if (['INTERN', 'EMPLOYEE'].includes(roleName)) {
+        where.members = { some: { userId: user.id } };
+      } else if (roleName === 'TEAM_LEAD') {
+        where.OR = [
+          { departmentId: user.departmentId },
+          { members: { some: { userId: user.id } } },
+        ];
+      } else if (roleName === 'MANAGER') {
+        if (user.departmentId) where.departmentId = user.departmentId;
+      }
+      // ADMIN/SUPER_ADMIN: no filter
+    }
 
     return this.prisma.project.findMany({
       where,
@@ -66,24 +81,40 @@ export class ProjectsService {
     }
     if (!data.name) throw new BadRequestException('Project name is required');
 
-    const count = await this.prisma.project.count();
-    const projectId = `PRJ-${String(count + 1).padStart(3, '0')}`;
+    // Convert endDate string → proper ISO DateTime
+    if (data.endDate) {
+      data.endDate = new Date(data.endDate);
+    }
 
     let project: any;
-    try {
-      project = await this.prisma.project.create({
-        data: {
-          ...data,
-          projectId,
-          members: { create: { userId, role: 'OWNER' } },
-        },
-        include: {
-          department: true,
-          members: { include: { user: { select: { id: true, name: true } } } },
-        },
-      });
-    } catch (err: any) {
-      throw new BadRequestException(err?.message ?? 'Failed to create project');
+    let attempts = 0;
+    while (attempts < 10) {
+      const count = await this.prisma.project.count();
+      const projectId = `PRJ-${String(count + 1 + attempts).padStart(3, '0')}`;
+      try {
+        project = await this.prisma.project.create({
+          data: {
+            ...data,
+            projectId,
+            members: { create: { userId, role: 'OWNER' } },
+          },
+          include: {
+            department: true,
+            members: { include: { user: { select: { id: true, name: true } } } },
+          },
+        });
+        break;
+      } catch (err: any) {
+        if (err?.code === 'P2002' && err?.meta?.target?.includes('projectId')) {
+          attempts++;
+          continue;
+        }
+        console.error('PROJECT CREATE ERROR:', { message: err?.message, code: err?.code, meta: err?.meta });
+        throw new BadRequestException(err?.message ?? 'Failed to create project');
+      }
+    }
+    if (!project) {
+      throw new BadRequestException('Failed to generate a unique project ID — please try again');
     }
 
     await this.prisma.activityLog.create({
