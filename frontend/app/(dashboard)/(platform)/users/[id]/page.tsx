@@ -1,12 +1,12 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { usersApi, ticketsApi } from '@/lib/api';
-import { ArrowLeft, Mail, Building2, BadgeCheck, Calendar, Ticket, ExternalLink, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Mail, Building2, BadgeCheck, Calendar, Ticket, ExternalLink, AlertCircle, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { cn, STATUS_COLORS, PRIORITY_COLORS, formatDate } from '@/lib/utils';
-import { Breadcrumb } from '@/components/ui/breadcrumb';
 
 const roleBadge: Record<string, string> = {
   SUPER_ADMIN: 'bg-purple-100 text-purple-700',
@@ -31,6 +31,12 @@ function Avatar({ name, avatar }: { name: string; avatar?: string }) {
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromContext = searchParams.get('from');
+  const deptId = searchParams.get('deptId');
+  const deptName = searchParams.get('deptName')
+    ? decodeURIComponent(searchParams.get('deptName')!)
+    : null;
 
   const { data: user, isLoading, isError } = useQuery({
     queryKey: ['user', id],
@@ -44,6 +50,28 @@ export default function UserDetailPage() {
   });
 
   const tickets: any[] = ticketsData?.tickets ?? (Array.isArray(ticketsData) ? ticketsData : []);
+
+  const breadcrumbs = useMemo(() => {
+    if (fromContext === 'department' && deptId && deptName) {
+      return [
+        { label: 'Departments', href: '/departments' },
+        { label: deptName, href: `/departments/${deptId}` },
+        { label: user?.name || 'Member', href: null },
+      ];
+    }
+    return [
+      { label: 'Users', href: '/users' },
+      { label: user?.name || 'Member', href: null },
+    ];
+  }, [fromContext, deptId, deptName, user]);
+
+  const handleBack = () => {
+    if (fromContext === 'department' && deptId) {
+      router.push(`/departments/${deptId}`);
+    } else {
+      router.push('/users');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -70,14 +98,27 @@ export default function UserDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <Breadcrumb items={[
-        { label: 'Users', href: '/users' },
-        { label: user.name },
-      ]} />
+      <nav className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mb-4 flex-wrap">
+        {breadcrumbs.map((crumb, i) => (
+          <span key={i} className="flex items-center gap-1">
+            {i > 0 && <ChevronRight className="w-3 h-3 flex-shrink-0" />}
+            {crumb.href ? (
+              <Link
+                href={crumb.href}
+                className="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+              >
+                {crumb.label}
+              </Link>
+            ) : (
+              <span className="text-gray-900 dark:text-gray-100 font-medium">{crumb.label}</span>
+            )}
+          </span>
+        ))}
+      </nav>
       {/* Back button */}
       <div className="flex items-center gap-3">
         <button
-          onClick={() => router.back()}
+          onClick={handleBack}
           className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
         >
           <ArrowLeft size={18} className="text-slate-500" />

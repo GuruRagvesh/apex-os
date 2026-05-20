@@ -295,7 +295,7 @@ export default function DepartmentDetailPage() {
               key={m.id}
               className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
             >
-              <div className="cursor-pointer flex items-center gap-3 flex-1 min-w-0" onClick={() => router.push(`/users/${m.id}`)}>
+              <div className="cursor-pointer flex items-center gap-3 flex-1 min-w-0" onClick={() => router.push(`/users/${m.id}?from=department&deptId=${dept.id}&deptName=${encodeURIComponent(dept.name)}`)}>
                 <Avatar name={m.name} avatar={m.avatar} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-800 dark:text-gray-200">{m.name}</p>
@@ -330,7 +330,7 @@ export default function DepartmentDetailPage() {
                   </button>
                 </div>
               )}
-              <ExternalLink size={13} className="text-slate-300 cursor-pointer" onClick={() => router.push(`/users/${m.id}`)} />
+              <ExternalLink size={13} className="text-slate-300 cursor-pointer" onClick={() => router.push(`/users/${m.id}?from=department&deptId=${dept.id}&deptName=${encodeURIComponent(dept.name)}`)} />
             </div>
           ))}
         </div>

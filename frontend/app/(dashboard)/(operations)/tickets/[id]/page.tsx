@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useRef, useMemo } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, commentsApi, usersApi, aiApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
@@ -16,11 +16,10 @@ import toast from 'react-hot-toast';
 import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
   Copy, Timer, CheckCircle, XCircle, History, Paperclip, Upload,
-  FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, Loader2,
+  FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, ChevronRight, Loader2,
   Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2,
 } from 'lucide-react';
 import Link from 'next/link';
-import { Breadcrumb } from '@/components/ui/breadcrumb';
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 
@@ -390,6 +389,12 @@ type Tab = 'comments' | 'history' | 'attachments';
 export default function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromContext = searchParams.get('from');
+  const fromProjectId = searchParams.get('projectId');
+  const fromProjectName = searchParams.get('projectName')
+    ? decodeURIComponent(searchParams.get('projectName')!)
+    : null;
   const { user } = useAuthStore();
   const qc = useQueryClient();
 
@@ -544,6 +549,28 @@ export default function TicketDetailPage() {
     e.target.value = '';
   };
 
+  const breadcrumbs = useMemo(() => {
+    if (fromContext === 'project' && fromProjectId && fromProjectName) {
+      return [
+        { label: 'Projects', href: '/projects' },
+        { label: fromProjectName, href: `/projects/${fromProjectId}` },
+        { label: ticket?.ticketId || 'Ticket', href: null },
+      ];
+    }
+    return [
+      { label: 'Tickets', href: '/tickets' },
+      { label: ticket?.ticketId || 'Ticket', href: null },
+    ];
+  }, [fromContext, fromProjectId, fromProjectName, ticket]);
+
+  const handleBack = () => {
+    if (fromContext === 'project' && fromProjectId) {
+      router.push(`/projects/${fromProjectId}`);
+    } else {
+      router.push('/tickets');
+    }
+  };
+
   if (isLoading) return <SkeletonTicketDetail />;
   if (!ticket) return <div className="text-center py-12 text-slate-500">Ticket not found</div>;
 
@@ -651,15 +678,28 @@ export default function TicketDetailPage() {
       )}
 
       {/* Breadcrumb */}
-      <Breadcrumb items={[
-        { label: 'Tickets', href: '/tickets' },
-        { label: ticket.ticketId },
-      ]} />
+      <nav className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mb-4 flex-wrap">
+        {breadcrumbs.map((crumb, i) => (
+          <span key={i} className="flex items-center gap-1">
+            {i > 0 && <ChevronRight className="w-3 h-3 flex-shrink-0" />}
+            {crumb.href ? (
+              <Link
+                href={crumb.href}
+                className="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+              >
+                {crumb.label}
+              </Link>
+            ) : (
+              <span className="text-gray-900 dark:text-gray-100 font-medium">{crumb.label}</span>
+            )}
+          </span>
+        ))}
+      </nav>
       {/* Header */}
       <div className="flex items-start gap-3">
-        <Link href="/tickets" className="p-2 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-lg transition-colors mt-0.5">
+        <button onClick={handleBack} className="p-2 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-lg transition-colors mt-0.5">
           <ArrowLeft size={18} className="text-slate-500 dark:text-gray-400" />
-        </Link>
+        </button>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <CopyableId ticketId={ticket.ticketId} />

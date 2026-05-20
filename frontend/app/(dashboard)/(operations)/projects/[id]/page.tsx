@@ -26,6 +26,7 @@ export default function ProjectDetailPage() {
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
     queryFn: () => projectsApi.getOne(id) as Promise<any>,
+    refetchOnWindowFocus: true,
   });
 
   const updateMutation = useMutation({
@@ -189,11 +190,17 @@ export default function ProjectDetailPage() {
               <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
                 <Ticket size={15} /> Tickets ({project.tickets?.length || 0})
               </h3>
-              <Link href={`/tickets/new?projectId=${project.id}`} className="text-xs text-blue-600 hover:underline">Add ticket</Link>
+              <Link href={`/tickets/new?projectId=${project.id}&projectName=${encodeURIComponent(project.name)}&from=${encodeURIComponent(`/projects/${project.id}`)}`} className="text-xs text-blue-600 hover:underline">Add ticket</Link>
             </div>
             <div>
               {project.tickets?.length > 0 ? (
-                project.tickets.map((t: any) => <TicketRow key={t.id} ticket={t} />)
+                project.tickets.map((t: any) => (
+                  <TicketRow
+                    key={t.id}
+                    ticket={t}
+                    href={`/tickets/${t.id}?from=project&projectId=${project.id}&projectName=${encodeURIComponent(project.name)}`}
+                  />
+                ))
               ) : (
                 <div className="p-8 text-center text-slate-400 text-sm">No tickets in this project</div>
               )}

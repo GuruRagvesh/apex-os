@@ -1,14 +1,13 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi, taskTypesApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Sparkles, Loader2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import Link from 'next/link';
 import { MultiSelect } from '@/components/ui/multi-select';
 
 const CATEGORIES = ['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
@@ -24,6 +23,12 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 export default function NewTicketPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromUrl = searchParams.get('from');
+  const preselectedProjectId = searchParams.get('projectId');
+  const preselectedProjectName = searchParams.get('projectName')
+    ? decodeURIComponent(searchParams.get('projectName')!)
+    : null;
   const { user } = useAuthStore();
   const qc = useQueryClient();
 
@@ -41,7 +46,7 @@ export default function NewTicketPage() {
     estimatedTime: '',
     // Pre-fill department for TL / Employee
     departmentId: (isTL || isEmployee) ? myDeptId : '',
-    projectId: '',
+    projectId: preselectedProjectId || '',
     // Pre-fill self for Employee/Intern
     assignedToId: isEmployee ? (user?.id ?? '') : '',
     dueDate: '',
@@ -101,12 +106,24 @@ export default function NewTicketPage() {
     return deptFiltered;
   })();
 
+  const handleBack = () => {
+    if (fromUrl) {
+      router.push(decodeURIComponent(fromUrl));
+    } else {
+      router.push('/tickets');
+    }
+  };
+
   const mutation = useMutation({
     mutationFn: (data: any) => ticketsApi.create(data),
     onSuccess: (ticket: any) => {
       toast.success(`Ticket ${ticket.ticketId} created!`);
       qc.invalidateQueries({ queryKey: ['tickets'] });
-      router.push(`/tickets/${ticket.id}`);
+      if (fromUrl) {
+        router.push(decodeURIComponent(fromUrl));
+      } else {
+        router.push(`/tickets/${ticket.id}`);
+      }
     },
     onError: (err: any) => toast.error(err?.message || 'Failed to create ticket'),
   });
@@ -181,14 +198,26 @@ export default function NewTicketPage() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <Link href="/tickets" className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+        <button onClick={handleBack} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
           <ArrowLeft size={18} className="text-slate-500" />
-        </Link>
+        </button>
         <div>
           <h2 className="text-xl font-bold text-slate-800">Create New Ticket</h2>
           <p className="text-sm text-slate-500">Report an issue, request, or task</p>
         </div>
       </div>
+      {preselectedProjectName && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300 mb-2">
+          <span>Creating ticket for project: <strong>{preselectedProjectName}</strong></span>
+          <button
+            type="button"
+            onClick={() => setForm(f => ({ ...f, projectId: '' }))}
+            className="ml-auto text-blue-400 hover:text-blue-600"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-900 dark:border-gray-700 rounded-xl border border-slate-200 p-6 space-y-5">
         {/* Title */}
@@ -489,12 +518,13 @@ export default function NewTicketPage() {
               'Create Ticket'
             )}
           </button>
-          <Link
-            href="/tickets"
-            className="flex-1 text-center border border-slate-200 text-slate-600 font-medium py-2.5 rounded-lg hover:bg-slate-50 transition-colors text-sm"
+          <button
+            type="button"
+            onClick={handleBack}
+            className="flex-1 text-center border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-300 font-medium py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors text-sm"
           >
             Cancel
-          </Link>
+          </button>
         </div>
       </form>
     </div>

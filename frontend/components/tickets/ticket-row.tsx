@@ -9,6 +9,7 @@ interface TicketRowProps {
   ticket: any;
   compact?: boolean;
   onStatusChange?: (id: string, status: string) => void;
+  href?: string;
 }
 
 function CopyId({ ticketId, className }: { ticketId: string; className?: string }) {
@@ -47,13 +48,14 @@ function SlaBar({ slaPercent, isOverdue }: { slaPercent: number; isOverdue: bool
   );
 }
 
-export function TicketRow({ ticket, compact, onStatusChange }: TicketRowProps) {
+export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowProps) {
   const isDone = ticket.status === 'DONE' || ticket.status === 'CLOSED';
   const deptColor = ticket.department?.color || DEPT_COLORS[ticket.department?.name] || '#e2e8f0';
+  const ticketHref = href ?? `/tickets/${ticket.id}`;
 
   if (compact) {
     return (
-      <Link href={`/tickets/${ticket.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors">
+      <Link href={ticketHref} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <CopyId ticketId={ticket.ticketId} className="text-xs text-slate-400" />
@@ -83,7 +85,7 @@ export function TicketRow({ ticket, compact, onStatusChange }: TicketRowProps) {
 
   return (
     <Link
-      href={`/tickets/${ticket.id}`}
+      href={ticketHref}
       className="grid grid-cols-12 items-center gap-4 px-4 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
       style={{ borderLeft: `3px solid ${deptColor}` }}
     >
