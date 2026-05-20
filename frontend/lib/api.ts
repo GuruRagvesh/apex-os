@@ -67,6 +67,27 @@ export const usersApi = {
     formData.append('photo', file);
     return r(api.post('/users/me/photo', formData, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
+  getProfile: (id: string) => r(api.get(`/users/${id}/profile`)),
+  updateProfile: (id: string, data: any) => r(api.patch(`/users/${id}/profile`, data)),
+  uploadDocument: async (id: string, file: File, documentType: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('documentType', documentType);
+    const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL
+      ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '')}/api`
+      : 'http://localhost:3001/api';
+    const res = await fetch(`${baseUrl}/users/${id}/documents`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Upload failed');
+    return res.json();
+  },
+  getDocuments: (id: string) => r(api.get(`/users/${id}/documents`)),
+  verifyDocument: (userId: string, docId: string, status: string, rejectionReason?: string) =>
+    r(api.patch(`/users/${userId}/documents/${docId}/verify`, { status, rejectionReason })),
 };
 
 // Roles

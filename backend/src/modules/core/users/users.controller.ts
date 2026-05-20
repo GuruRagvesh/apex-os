@@ -92,4 +92,40 @@ export class UsersController {
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }
+
+  @Get(':id/profile')
+  getProfile(@Param('id') id: string, @Request() req: any) {
+    return this.usersService.getProfile(req.user.id ?? req.user.sub, id);
+  }
+
+  @Patch(':id/profile')
+  updateProfile(@Param('id') id: string, @Request() req: any, @Body() dto: any) {
+    return this.usersService.updateProfile(req.user.id ?? req.user.sub, id, dto);
+  }
+
+  @Post(':id/documents')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDocument(
+    @Param('id') id: string,
+    @Request() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('documentType') documentType: string,
+  ) {
+    return this.usersService.uploadDocument(req.user.id ?? req.user.sub, id, file, documentType);
+  }
+
+  @Get(':id/documents')
+  getDocuments(@Param('id') id: string, @Request() req: any) {
+    return this.usersService.getDocuments(req.user.id ?? req.user.sub, id);
+  }
+
+  @Patch(':id/documents/:docId/verify')
+  verifyDocument(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Request() req: any,
+    @Body() body: { status: string; rejectionReason?: string },
+  ) {
+    return this.usersService.verifyDocument(req.user.id ?? req.user.sub, id, docId, body.status, body.rejectionReason);
+  }
 }

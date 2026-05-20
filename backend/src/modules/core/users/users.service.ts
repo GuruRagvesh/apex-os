@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
@@ -120,5 +120,195 @@ export class UsersService {
       this.prisma.user.groupBy({ by: ['departmentId'], _count: true }),
     ]);
     return { total, active, inactive: total - active, byRole, byDept };
+  }
+
+  private async logSensitiveAccess(requesterId: string, action: string, targetUserId: string, details?: object) {
+    try {
+      await this.prisma.activityLog.create({
+        data: {
+          userId: requesterId,
+          action,
+          entityType: 'User',
+          entityId: targetUserId,
+          details: details ?? {},
+        },
+      });
+    } catch (e) {
+      console.warn('[AUDIT] Could not log sensitive access:', action, e);
+    }
+  }
+
+  async getProfile(requesterId: string, targetUserId: string) {
+    const requester = await this.prisma.user.findUnique({
+      where: { id: requesterId },
+      include: { role: true },
+    });
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      include: { role: true, department: true, employeeDocuments: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    const roleName = (requester?.role as any)?.name ?? '';
+    const isHR = (requester as any)?.isHR;
+    const canSeeFull = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR;
+    const isOwnProfile = requesterId === targetUserId;
+    const isManagerOfDept = roleName === 'MANAGER' && requester?.departmentId === target.departmentId;
+    const isTeamLead = roleName === 'TEAM_LEAD' && requester?.departmentId === target.departmentId;
+
+    if (canSeeFull) {
+      await this.logSensitiveAccess(requesterId, 'VIEW_PAYROLL_DATA', targetUserId);
+      const { password, ...result } = target as any;
+      return result;
+    }
+
+    if (isOwnProfile) {
+      const { password, ...rest } = target as any;
+      const masked = { ...rest };
+      if (masked.accountNumber) {
+        masked.accountNumber = '••••••••' + masked.accountNumber.slice(-4);
+      }
+      if (masked.aadhaarNumber) {
+        masked.aadhaarNumber = 'XXXX-XXXX-' + masked.aadhaarNumber.slice(-4);
+      }
+      if (masked.panNumber && masked.panNumber.length >= 5) {
+        masked.panNumber = masked.panNumber.slice(0, 2) + '•••••' + masked.panNumber.slice(-3);
+      }
+      return masked;
+    }
+
+    if (isManagerOfDept) {
+      const { password, ctcAnnual, basicSalary, accountNumber, panNumber, aadhaarNumber, uanNumber,
+        bankName, ifscCode, accountHolderName, salaryStructure, pfApplicable, esicApplicable,
+        professionalTax, taxRegime, hrNotes, ...rest } = target as any;
+      return rest;
+    }
+
+    if (isTeamLead) {
+      return {
+        id: target.id, name: target.name, email: target.email, avatar: target.avatar,
+        phone: (target as any).phone, designation: (target as any).designation, department: (target as any).department,
+        role: target.role, workMode: (target as any).workMode, shiftTiming: (target as any).shiftTiming,
+        employmentType: (target as any).employmentType, joiningDate: (target as any).joiningDate,
+      };
+    }
+
+    // Default: public fields only
+    return {
+      id: target.id, name: target.name, email: target.email,
+      avatar: target.avatar, role: target.role, department: (target as any).department,
+      designation: (target as any).designation,
+    };
+  }
+
+  async updateProfile(requesterId: string, targetUserId: string, dto: any) {
+    const requester = await this.prisma.user.findUnique({
+      where: { id: requesterId },
+      include: { role: true },
+    });
+    const roleName = (requester?.role as any)?.name ?? '';
+    const isHR = (requester as any)?.isHR;
+    const canEditAll = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR;
+    const isOwnProfile = requesterId === targetUserId;
+
+    const PAYROLL_FIELDS = ['ctcAnnual','basicSalary','salaryStructure','bankName',
+      'accountNumber','ifscCode','accountHolderName','paymentMode','panNumber',
+      'aadhaarNumber','uanNumber','pfApplicable','esicApplicable','professionalTax','taxRegime'];
+
+    const PERSONAL_EDITABLE_BY_SELF = ['name','phone','currentAddress','permanentAddress',
+      'emergencyName','emergencyPhone','emergencyRelation','userLocation','bloodGroup',
+      'gender','dateOfBirth'];
+
+    let data: any = {};
+
+    if (canEditAll) {
+      data = { ...dto };
+      delete data.password;
+      delete data.id;
+      const payrollChanged = PAYROLL_FIELDS.filter((f) => f in dto);
+      if (payrollChanged.length > 0) {
+        await this.logSensitiveAccess(requesterId, 'EDIT_PAYROLL_DATA', targetUserId, { fieldsChanged: payrollChanged });
+      }
+    } else if (isOwnProfile) {
+      for (const key of PERSONAL_EDITABLE_BY_SELF) {
+        if (key in dto) data[key] = dto[key];
+      }
+    } else {
+      throw new ForbiddenException('Not authorized to edit this profile');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data,
+      include: { role: true, department: true },
+    });
+    const { password, ...result } = updated as any;
+    return result;
+  }
+
+  async uploadDocument(requesterId: string, targetUserId: string, file: Express.Multer.File, documentType: string) {
+    const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
+    const roleName = (requester?.role as any)?.name ?? '';
+    const isHR = (requester as any)?.isHR;
+    const canUploadForOthers = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR;
+
+    if (requesterId !== targetUserId && !canUploadForOthers) {
+      throw new ForbiddenException('Cannot upload documents for other users');
+    }
+
+    const fileUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+
+    const doc = await (this.prisma as any).employeeDocument.create({
+      data: {
+        userId: targetUserId,
+        documentType,
+        fileName: file.originalname,
+        fileUrl,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        verificationStatus: 'Pending',
+      },
+    });
+    return { document: doc };
+  }
+
+  async verifyDocument(requesterId: string, userId: string, docId: string, status: string, rejectionReason?: string) {
+    const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
+    const roleName = (requester?.role as any)?.name ?? '';
+    const isHR = (requester as any)?.isHR;
+
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(roleName) && !isHR) {
+      throw new ForbiddenException('Only HR/Admin can verify documents');
+    }
+
+    const doc = await (this.prisma as any).employeeDocument.update({
+      where: { id: docId },
+      data: {
+        verificationStatus: status,
+        verifiedBy: requester?.name,
+        verifiedAt: new Date(),
+        rejectionReason: status === 'REJECTED' ? rejectionReason : null,
+      },
+    });
+
+    await this.logSensitiveAccess(requesterId, status === 'VERIFIED' ? 'DOCUMENT_VERIFIED' : 'DOCUMENT_REJECTED', userId, { docId });
+    return { document: doc };
+  }
+
+  async getDocuments(requesterId: string, targetUserId: string) {
+    const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
+    const roleName = (requester?.role as any)?.name ?? '';
+    const isHR = (requester as any)?.isHR;
+    const canSeeAll = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR || requesterId === targetUserId;
+    const isManagerOfDept = roleName === 'MANAGER';
+
+    if (!canSeeAll && !isManagerOfDept) {
+      throw new ForbiddenException('Not authorized');
+    }
+
+    return (this.prisma as any).employeeDocument.findMany({
+      where: { userId: targetUserId },
+      orderBy: { uploadedAt: 'desc' },
+    });
   }
 }

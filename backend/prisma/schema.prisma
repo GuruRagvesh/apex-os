@@ -24,6 +24,53 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Personal Details
+  phone              String?
+  dateOfBirth        DateTime?
+  gender             String?
+  bloodGroup         String?
+  currentAddress     String?
+  permanentAddress   String?
+  emergencyName      String?
+  emergencyPhone     String?
+  emergencyRelation  String?
+  userLocation       String?   @default("Pune HQ")
+
+  // Employment Details
+  employeeId         String?   @unique
+  designation        String?
+  employmentType     String?   @default("Full-time")
+  workMode           String?   @default("Office")
+  joiningDate        DateTime?
+  probationPeriod    String?
+  reportingManager   String?
+  teamLeadName       String?
+  workLocation       String?   @default("Pune HQ")
+  shiftTiming        String?   @default("9:30 AM - 6:30 PM")
+
+  // Payroll & Statutory (sensitive)
+  ctcAnnual          String?
+  basicSalary        String?
+  salaryStructure    String?
+  bankName           String?
+  accountNumber      String?
+  ifscCode           String?
+  accountHolderName  String?
+  paymentMode        String?
+  panNumber          String?
+  aadhaarNumber      String?
+  uanNumber          String?
+  pfApplicable       Boolean?  @default(true)
+  esicApplicable     Boolean?  @default(false)
+  professionalTax    Boolean?  @default(true)
+  taxRegime          String?
+
+  // Verification
+  verificationStatus String?   @default("Pending")
+  verifiedBy         String?
+  verificationDate   DateTime?
+  hrNotes            String?
+
   role            Role              @relation(fields: [roleId], references: [id])
   department      Department?       @relation(fields: [departmentId], references: [id])
   assignedTickets    Ticket[]          @relation("TicketAssignee")
@@ -39,8 +86,30 @@ model User {
   breakLogs         BreakLog[]
   attendanceEvents  AttendanceEvent[]
   managedDepts      ManagerDeptAccess[] @relation("ManagerAccess")
+  employeeDocuments  EmployeeDocument[]
 
   @@map("users")
+}
+
+model EmployeeDocument {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType       String
+  fileName           String
+  fileUrl            String
+  fileSize           Int?
+  mimeType           String?
+  verificationStatus String   @default("Pending")
+  verifiedBy         String?
+  verifiedAt         DateTime?
+  rejectionReason    String?
+  uploadedAt         DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+  @@index([documentType])
+  @@map("employee_documents")
 }
 
 model Role {

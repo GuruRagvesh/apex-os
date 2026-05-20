@@ -2,12 +2,23 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { usersApi, rolesApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, getInitials } from '@/lib/utils';
-import { Plus, Search, Shield, UserCheck, UserX, Edit2 } from 'lucide-react';
+import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+const roleBadgeDark: Record<string, string> = {
+  SUPER_ADMIN: 'bg-purple-900 text-purple-300',
+  ADMIN: 'bg-red-900 text-red-300',
+  MANAGER: 'bg-blue-900 text-blue-300',
+  TEAM_LEAD: 'bg-cyan-900 text-cyan-300',
+  EMPLOYEE: 'bg-green-900 text-green-300',
+  INTERN: 'bg-yellow-900 text-yellow-300',
+};
+
+// Also keep light-mode badges for backward compat
 const roleBadge: Record<string, string> = {
   SUPER_ADMIN: 'bg-purple-100 text-purple-700',
   ADMIN: 'bg-red-100 text-red-700',
@@ -20,7 +31,11 @@ const roleBadge: Record<string, string> = {
 export default function UsersPage() {
   const { user: me } = useAuthStore();
   const qc = useQueryClient();
+  const router = useRouter();
   const [search, setSearch] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '' });
   const [editUser, setEditUser] = useState<any | null>(null);
@@ -30,7 +45,7 @@ export default function UsersPage() {
     queryKey: ['users', search],
     queryFn: () => usersApi.getAll(search ? { search } : {}) as Promise<any>,
   });
-  const users: any[] = usersResponse?.users ?? (Array.isArray(usersResponse) ? usersResponse : []);
+  const userList: any[] = usersResponse?.users ?? (Array.isArray(usersResponse) ? usersResponse : []);
 
   const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any[]> });
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
@@ -64,12 +79,21 @@ export default function UsersPage() {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(me?.role?.name ?? '');
   const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500';
 
+  // Client-side filtering
+  const filteredUsers = userList.filter((u: any) => {
+    const matchSearch = !search || u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase());
+    const matchDept = !deptFilter || u.departmentId === deptFilter;
+    const matchRole = !roleFilter || (u.role?.name ?? u.role) === roleFilter;
+    const matchStatus = !statusFilter || (statusFilter === 'active' ? u.isActive !== false : u.isActive === false);
+    return matchSearch && matchDept && matchRole && matchStatus;
+  });
+
   return (
     <div className="space-y-5 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-white">Users</h2>
-          <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">{Array.isArray(users) ? users.length : 0} team members</p>
+          <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">{filteredUsers.length} of {userList.length} team members</p>
         </div>
         {isAdmin && (
           <button onClick={() => setShowNew(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
@@ -90,58 +114,121 @@ export default function UsersPage() {
         />
       </div>
 
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <select
+          value={deptFilter}
+          onChange={(e) => setDeptFilter(e.target.value)}
+          className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All Departments</option>
+          {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <select
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All Roles</option>
+          {['INTERN','EMPLOYEE','TEAM_LEAD','MANAGER','ADMIN','SUPER_ADMIN'].map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        {(deptFilter || roleFilter || statusFilter) && (
+          <button
+            onClick={() => { setDeptFilter(''); setRoleFilter(''); setStatusFilter(''); }}
+            className="text-xs text-blue-500 hover:text-blue-400"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {/* Users Grid */}
       {isLoading ? (
         <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {Array.isArray(users) && users.map((u: any) => (
-            <div key={u.id} className={cn('bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4', !u.isActive && 'opacity-60')}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredUsers.map((u: any) => (
+            <div
+              key={u.id}
+              className={cn(
+                'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-3 transition-all hover:shadow-md hover:border-blue-400 dark:hover:border-blue-600',
+                !u.isActive && 'opacity-60'
+              )}
+            >
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-white font-semibold text-sm">{getInitials(u.name)}</span>
-                </div>
+                {u.photoUrl ? (
+                  <img src={u.photoUrl} alt={u.name} className="w-11 h-11 rounded-full object-cover flex-shrink-0" />
+                ) : (
+                  <div
+                    className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-sm"
+                    style={{ backgroundColor: u.avatar || '#6366f1' }}
+                  >
+                    {getInitials(u.name)}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-semibold text-slate-800 dark:text-gray-200 text-sm">{u.name}</p>
-                    {!u.isActive && <span className="text-xs text-slate-400 dark:text-gray-500">(inactive)</span>}
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-slate-800 dark:text-gray-100 text-sm truncate">{u.name}</p>
+                    {/* Status dot */}
+                    <span className={cn('w-2 h-2 rounded-full flex-shrink-0', u.isActive !== false ? 'bg-green-500' : 'bg-red-500')} title={u.isActive !== false ? 'Active' : 'Inactive'} />
                   </div>
                   <p className="text-xs text-slate-500 dark:text-gray-400 truncate">{u.email}</p>
                   <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', roleBadge[u.role?.name] || 'bg-gray-100 text-gray-700')}>
+                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', roleBadge[u.role?.name] || 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300')}>
                       {u.role?.name}
                     </span>
                     {u.department && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                         {u.department.name}
                       </span>
                     )}
                   </div>
                 </div>
                 {isAdmin && u.id !== me?.id && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       onClick={() => {
                         setEditUser(u);
                         setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive: u.isActive });
                       }}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
                       title="Edit user"
                     >
-                      <Edit2 size={15} />
+                      <Edit2 size={14} />
                     </button>
                     <button
                       onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}
-                      className={cn('p-1.5 rounded-lg transition-colors', u.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-400 hover:text-green-500 hover:bg-green-50')}
+                      className={cn('p-1.5 rounded-lg transition-colors', u.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30' : 'text-slate-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-900/30')}
                       title={u.isActive ? 'Deactivate' : 'Activate'}
                     >
-                      {u.isActive ? <UserX size={15} /> : <UserCheck size={15} />}
+                      {u.isActive ? <UserX size={14} /> : <UserCheck size={14} />}
                     </button>
                   </div>
                 )}
               </div>
+
+              {/* View Profile button */}
+              <button
+                onClick={() => router.push(`/users/${u.id}/profile`)}
+                className="flex items-center justify-center gap-1.5 w-full py-2 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+              >
+                <ExternalLink size={12} />
+                View Profile
+              </button>
             </div>
           ))}
+          {filteredUsers.length === 0 && !isLoading && (
+            <div className="col-span-3 text-center text-slate-400 py-12">No users match the current filters.</div>
+          )}
         </div>
       )}
 
