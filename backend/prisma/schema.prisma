@@ -55,9 +55,10 @@ model Department {
   color       String   @default("#6366f1")
   createdAt   DateTime @default(now())
 
-  users    User[]
-  projects Project[]
-  tickets  Ticket[]
+  users     User[]
+  projects  Project[]
+  tickets   Ticket[]
+  taskTypes TaskType[]
 
   @@map("departments")
 }
@@ -120,10 +121,15 @@ model Ticket {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
+  taskTypeId    String?
+  taskSubtypeId String?
+
   project     Project?        @relation(fields: [projectId], references: [id])
   department  Department?     @relation(fields: [departmentId], references: [id])
   assignedTo  User?           @relation("TicketAssignee", fields: [assignedToId], references: [id])
   createdBy   User            @relation("TicketCreator", fields: [createdById], references: [id])
+  taskType    TaskType?       @relation(fields: [taskTypeId], references: [id])
+  taskSubtype TaskSubtype?    @relation(fields: [taskSubtypeId], references: [id])
   comments    Comment[]
   attachments Attachment[]
   history     TicketHistory[]
@@ -249,6 +255,35 @@ model TicketHistory {
   changedBy User   @relation(fields: [changedById], references: [id])
 
   @@map("ticket_history")
+}
+
+model TaskType {
+  id           String        @id @default(cuid())
+  name         String
+  departmentId String?
+  department   Department?   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  subtypes     TaskSubtype[]
+  tickets      Ticket[]
+  isGlobal     Boolean       @default(false)
+  order        Int           @default(0)
+  createdAt    DateTime      @default(now())
+
+  @@unique([name, departmentId])
+  @@index([departmentId])
+  @@map("task_types")
+}
+
+model TaskSubtype {
+  id         String    @id @default(cuid())
+  name       String
+  taskTypeId String
+  taskType   TaskType  @relation(fields: [taskTypeId], references: [id], onDelete: Cascade)
+  tickets    Ticket[]
+  order      Int       @default(0)
+
+  @@unique([name, taskTypeId])
+  @@index([taskTypeId])
+  @@map("task_subtypes")
 }
 
 enum ProjectStatus {

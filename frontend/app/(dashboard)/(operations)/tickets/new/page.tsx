@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi } from '@/lib/api';
+import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi, taskTypesApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Sparkles, Loader2, Clock } from 'lucide-react';
@@ -58,6 +58,9 @@ export default function NewTicketPage() {
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiDisabled, setAiDisabled] = useState(false);
 
+  const [taskTypeId, setTaskTypeId] = useState('');
+  const [taskSubtypeId, setTaskSubtypeId] = useState('');
+
   const [scheduleRecurring, setScheduleRecurring] = useState('none');
   const [scheduleEndPreset, setScheduleEndPreset] = useState('1_month');
   const [scheduleEndDate, setScheduleEndDate] = useState('');
@@ -65,6 +68,15 @@ export default function NewTicketPage() {
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
   const { data: projectsRaw } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
   const { data: usersData } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any> });
+
+  const deptIdForTypes = form.departmentId || myDeptId;
+  const { data: taskTypesRaw } = useQuery({
+    queryKey: ['task-types', deptIdForTypes],
+    queryFn: () => taskTypesApi.getByDepartment(deptIdForTypes),
+    staleTime: 5 * 60 * 1000,
+  });
+  const taskTypes: any[] = Array.isArray(taskTypesRaw) ? taskTypesRaw : [];
+  const selectedTaskType = taskTypes.find((t: any) => t.id === taskTypeId);
 
   const projectList = useMemo(() => {
     if (!projectsRaw) return [];
@@ -127,6 +139,8 @@ export default function NewTicketPage() {
       scheduledNote: form.scheduledNote || undefined,
       scheduleRecurring: scheduleRecurring !== 'none' ? scheduleRecurring : undefined,
       scheduleEndDate: computeEndDate(),
+      taskTypeId: taskTypeId || undefined,
+      taskSubtypeId: taskSubtypeId || undefined,
     });
   };
 
@@ -218,6 +232,40 @@ export default function NewTicketPage() {
           </div>
         </div>
 
+        {/* Row: Task Type + Task Subtype */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Task Type</label>
+            <select
+              value={taskTypeId}
+              onChange={(e) => { setTaskTypeId(e.target.value); setTaskSubtypeId(''); }}
+              className={inputCls}
+            >
+              <option value="">Select task type...</option>
+              {taskTypes.map((t: any) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+          {taskTypeId && selectedTaskType?.subtypes?.length > 0 ? (
+            <div>
+              <label className={labelCls}>Subtype</label>
+              <select
+                value={taskSubtypeId}
+                onChange={(e) => setTaskSubtypeId(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Select subtype...</option>
+                {selectedTaskType.subtypes.map((s: any) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div />
+          )}
+        </div>
+
         {/* Row: Priority + Est Time */}
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -297,6 +345,8 @@ export default function NewTicketPage() {
                 value={form.departmentId}
                 onChange={(e) => {
                   setForm((f) => ({ ...f, departmentId: e.target.value, assignedToId: '' }));
+                  setTaskTypeId('');
+                  setTaskSubtypeId('');
                 }}
                 className={inputCls}
               >

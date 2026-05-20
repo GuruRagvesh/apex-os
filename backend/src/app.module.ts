@@ -30,6 +30,7 @@ import { HealthModule } from './modules/platform/health/health.module';
 import { AutomationModule } from './modules/platform/automation/automation.module';
 import { SettingsModule } from './modules/platform/settings/settings.module';
 import { SchedulerModule } from './modules/platform/scheduler/scheduler.module';
+import { TaskTypesModule } from './modules/platform/task-types/task-types.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { SchedulerModule } from './modules/platform/scheduler/scheduler.module';
     AutomationModule,
     SettingsModule,
     SchedulerModule,
+    TaskTypesModule,
   ],
 })
 export class AppModule {}

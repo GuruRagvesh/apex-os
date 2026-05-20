@@ -1135,6 +1135,19 @@ export default function TicketDetailPage() {
             </div>
           )}
 
+          {/* Task Type */}
+          {ticket.taskType && (
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4">
+              <p className="text-xs text-slate-500 dark:text-gray-400">Task Type</p>
+              <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                {ticket.taskType.name}
+                {ticket.taskSubtype && (
+                  <span className="text-slate-500 dark:text-gray-400"> / {ticket.taskSubtype.name}</span>
+                )}
+              </p>
+            </div>
+          )}
+
           {/* AI Suggestions */}
           <AiSuggestionsPanel ticketId={ticket.id} />
         </div>

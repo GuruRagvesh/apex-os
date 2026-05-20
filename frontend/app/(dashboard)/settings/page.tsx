@@ -3,12 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
-import { authApi, usersApi, settingsApi } from '@/lib/api';
+import { authApi, usersApi, settingsApi, taskTypesApi, departmentsApi } from '@/lib/api';
 import { UserAvatar } from '@/components/ui/user-avatar';
 import toast from 'react-hot-toast';
 import {
   User, Shield, Bell, Palette, SlidersHorizontal, Building2,
-  CalendarDays, Gauge, Mail, Eye, EyeOff, Lock,
+  CalendarDays, Gauge, Mail, Eye, EyeOff, Lock, Tags,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -750,11 +750,229 @@ function SmtpSection() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SECTION: Task Types (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+function TaskTypesSettings() {
+  const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null); // null = Global
+  const { data: allTypesRaw, refetch } = useQuery({
+    queryKey: ['task-types-all'],
+    queryFn: () => taskTypesApi.getAll() as Promise<any[]>,
+  });
+  const { data: departmentsRaw } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+  });
+
+  const allTypes: any[] = Array.isArray(allTypesRaw) ? allTypesRaw : [];
+  const departments: any[] = Array.isArray(departmentsRaw) ? departmentsRaw : [];
+
+  const [addTypeModal, setAddTypeModal] = useState(false);
+  const [newTypeName, setNewTypeName] = useState('');
+  const [addingSubtypeFor, setAddingSubtypeFor] = useState<string | null>(null);
+  const [newSubtypeName, setNewSubtypeName] = useState('');
+
+  // Filter types for selected dept
+  const deptTypes = allTypes.filter((t: any) =>
+    selectedDeptId === null ? t.isGlobal : t.departmentId === selectedDeptId
+  );
+
+  const deptList = [
+    { id: null, name: 'Global' },
+    ...departments,
+  ];
+
+  const handleAddType = async () => {
+    if (!newTypeName.trim()) return;
+    try {
+      await taskTypesApi.create({
+        name: newTypeName.trim(),
+        departmentId: selectedDeptId || undefined,
+        isGlobal: selectedDeptId === null,
+      });
+      setNewTypeName('');
+      setAddTypeModal(false);
+      refetch();
+      toast.success('Task type added');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to add type');
+    }
+  };
+
+  const handleAddSubtype = async (typeId: string) => {
+    if (!newSubtypeName.trim()) return;
+    try {
+      await taskTypesApi.createSubtype(typeId, { name: newSubtypeName.trim() });
+      setNewSubtypeName('');
+      setAddingSubtypeFor(null);
+      refetch();
+      toast.success('Subtype added');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to add subtype');
+    }
+  };
+
+  const handleDeleteType = async (id: string) => {
+    if (!confirm('Delete this task type and all its subtypes?')) return;
+    try {
+      await taskTypesApi.deleteType(id);
+      refetch();
+      toast.success('Task type deleted');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete type');
+    }
+  };
+
+  const handleDeleteSubtype = async (typeId: string, subtypeId: string) => {
+    try {
+      await taskTypesApi.deleteSubtype(typeId, subtypeId);
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete subtype');
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold text-slate-800 dark:text-gray-100">Task Types</h2>
+        <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">
+          Task types help organise work by department. They appear in the ticket creation form based on the selected department.
+        </p>
+      </div>
+      <div className="flex gap-6">
+        {/* Department list sidebar */}
+        <div className="w-48 flex-shrink-0">
+          <p className="text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase tracking-wide mb-2">Department</p>
+          <ul className="space-y-0.5">
+            {deptList.map((d: any) => (
+              <li key={d.id ?? 'global'}>
+                <button
+                  onClick={() => setSelectedDeptId(d.id)}
+                  className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                    selectedDeptId === d.id
+                      ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-medium'
+                      : 'text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {d.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Types list */}
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-slate-700 dark:text-gray-300">
+              {selectedDeptId === null ? 'Global' : deptList.find((d: any) => d.id === selectedDeptId)?.name} Types
+            </p>
+            <button
+              onClick={() => setAddTypeModal(true)}
+              className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors"
+            >
+              + Add Type
+            </button>
+          </div>
+
+          {deptTypes.length === 0 ? (
+            <p className="text-sm text-slate-400 dark:text-gray-500 py-4">No task types yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {deptTypes.map((type: any) => (
+                <div key={type.id} className="border border-slate-200 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-900">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm text-slate-800 dark:text-gray-200">{type.name}</span>
+                      <span className="text-xs text-slate-400 dark:text-gray-500">{type.subtypes?.length ?? 0} subtypes</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setAddingSubtypeFor(type.id); setNewSubtypeName(''); }}
+                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                      >
+                        + Subtype
+                      </button>
+                      <button
+                        onClick={() => handleDeleteType(type.id)}
+                        className="text-xs text-red-500 hover:text-red-700"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Subtypes */}
+                  {type.subtypes?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {type.subtypes.map((sub: any) => (
+                        <span key={sub.id} className="flex items-center gap-1 bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">
+                          {sub.name}
+                          <button
+                            onClick={() => handleDeleteSubtype(type.id, sub.id)}
+                            className="text-slate-400 hover:text-red-500 ml-0.5"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add subtype inline */}
+                  {addingSubtypeFor === type.id && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={newSubtypeName}
+                        onChange={(e) => setNewSubtypeName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtype(type.id); if (e.key === 'Escape') setAddingSubtypeFor(null); }}
+                        placeholder="Subtype name..."
+                        className="flex-1 px-2 py-1 text-xs border border-slate-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                      />
+                      <button onClick={() => handleAddSubtype(type.id)} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded">Add</button>
+                      <button onClick={() => setAddingSubtypeFor(null)} className="text-xs text-slate-400">Cancel</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add Type Modal */}
+          {addTypeModal && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+              <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-6 w-96 shadow-xl">
+                <h3 className="font-semibold text-slate-800 dark:text-gray-100 mb-4">Add Task Type</h3>
+                <input
+                  autoFocus
+                  type="text"
+                  value={newTypeName}
+                  onChange={(e) => setNewTypeName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddType(); }}
+                  placeholder="Type name..."
+                  className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 mb-4"
+                />
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setAddTypeModal(false)} className="px-4 py-2 text-sm text-slate-600 dark:text-gray-400 border border-slate-200 dark:border-gray-600 rounded-lg">Cancel</button>
+                  <button onClick={handleAddType} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Add Type</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ROOT — left sidebar layout
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
   | 'profile' | 'security' | 'notifications' | 'display' | 'preferences'
-  | 'company' | 'leave-policy' | 'sla' | 'smtp';
+  | 'company' | 'leave-policy' | 'sla' | 'smtp' | 'task-types';
 
 export default function SettingsPage() {
   const { user } = useAuthStore();
@@ -813,6 +1031,7 @@ export default function SettingsPage() {
               <NavItem id="company"      label="Company Info"   icon={<Building2 size={15} />}    badge="ADM" />
               <NavItem id="leave-policy" label="Leave Policy"   icon={<CalendarDays size={15} />} badge="ADM" />
               <NavItem id="sla"          label="SLA Settings"   icon={<Gauge size={15} />}         badge="ADM" />
+              <NavItem id="task-types"   label="Task Types"     icon={<Tags size={15} />}          badge="ADM" />
               {isSuperAdmin && (
                 <NavItem id="smtp" label="Email & SMTP" icon={<Mail size={15} />} badge="SA" />
               )}
@@ -831,6 +1050,7 @@ export default function SettingsPage() {
         {active === 'company'       && isAdmin      && <CompanySection />}
         {active === 'leave-policy'  && isAdmin      && <LeavePolicySection canEdit={isAdmin} />}
         {active === 'sla'           && isAdmin      && <SlaSection />}
+        {active === 'task-types'    && isAdmin      && <TaskTypesSettings />}
         {active === 'smtp'          && isSuperAdmin && <SmtpSection />}
       </div>
     </div>

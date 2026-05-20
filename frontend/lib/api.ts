@@ -196,6 +196,24 @@ export const settingsApi = {
   updateSmtp:          (data: any) => r(api.patch('/settings/smtp', data)),
 };
 
+// Task Types
+export const taskTypesApi = {
+  getByDepartment: (departmentId?: string) =>
+    r(api.get(`/task-types${departmentId ? `?departmentId=${departmentId}` : ''}`)),
+  getAll: () => r(api.get('/task-types/all')),
+  create: (data: { name: string; departmentId?: string; isGlobal?: boolean }) =>
+    r(api.post('/task-types', data)),
+  createSubtype: (typeId: string, data: { name: string }) =>
+    r(api.post(`/task-types/${typeId}/subtypes`, data)),
+  updateType: (id: string, data: { name?: string; order?: number }) =>
+    r(api.patch(`/task-types/${id}`, data)),
+  updateSubtype: (id: string, subtypeId: string, data: { name?: string; order?: number }) =>
+    r(api.patch(`/task-types/${id}/subtypes/${subtypeId}`, data)),
+  deleteType: (id: string) => r(api.delete(`/task-types/${id}`)),
+  deleteSubtype: (id: string, subtypeId: string) =>
+    r(api.delete(`/task-types/${id}/subtypes/${subtypeId}`)),
+};
+
 // Notifications
 export const notificationsApi = {
   getAll: (unread?: boolean) => r(api.get('/notifications', { params: { unread } })),

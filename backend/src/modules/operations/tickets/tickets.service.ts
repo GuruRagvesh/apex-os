@@ -39,6 +39,8 @@ export class TicketsService {
     department: true,
     project: { select: { id: true, projectId: true, name: true } },
     assignees: { include: { user: { select: { id: true, name: true, avatar: true } } } },
+    taskType: true,
+    taskSubtype: true,
     _count: { select: { comments: true } },
   };
 
