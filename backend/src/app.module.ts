@@ -31,6 +31,7 @@ import { AutomationModule } from './modules/platform/automation/automation.modul
 import { SettingsModule } from './modules/platform/settings/settings.module';
 import { SchedulerModule } from './modules/platform/scheduler/scheduler.module';
 import { TaskTypesModule } from './modules/platform/task-types/task-types.module';
+import { WorkdayModule } from './modules/platform/workday/workday.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { TaskTypesModule } from './modules/platform/task-types/task-types.module
     SettingsModule,
     SchedulerModule,
     TaskTypesModule,
+    WorkdayModule,
   ],
 })
 export class AppModule {}

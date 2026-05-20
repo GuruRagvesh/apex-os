@@ -121,4 +121,106 @@ export class SchedulerService {
       this.logger.error(`[scheduler] checkScheduledTickets error: ${err}`);
     }
   }
+
+  // 1. MIDNIGHT LEAVE STATUS SETTER — 00:01 every day
+  @Cron('1 0 * * *')
+  async setLeaveStatuses() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const approvedLeaves = await this.prisma.leaveRequest.findMany({
+      where: {
+        status: 'APPROVED',
+        startDate: { lte: today },
+        endDate: { gte: today },
+      },
+    });
+
+    for (const leave of approvedLeaves) {
+      await this.prisma.workSession.upsert({
+        where: { userId_date: { userId: leave.userId, date: today } },
+        update: { status: 'ON_LEAVE', leaveId: leave.id },
+        create: { userId: leave.userId, date: today, status: 'ON_LEAVE', leaveId: leave.id },
+      });
+      await this.prisma.user.update({
+        where: { id: leave.userId },
+        data: { currentStatus: 'ON_LEAVE' },
+      });
+    }
+
+    // Reset all non-leave users to OFFLINE
+    const leaveUserIds = approvedLeaves.map((l) => l.userId);
+    await this.prisma.user.updateMany({
+      where: {
+        isActive: true,
+        id: { notIn: leaveUserIds.length > 0 ? leaveUserIds : ['__none__'] },
+      },
+      data: { currentStatus: 'OFFLINE' },
+    });
+
+    console.log(`[Scheduler] Leave statuses set. ${approvedLeaves.length} users on leave today.`);
+  }
+
+  // 2. WORKDAY END REMINDER — 6:30 PM Mon-Sat
+  @Cron('30 18 * * 1-6')
+  async workdayEndReminder() {
+    const stillWorking = await this.prisma.user.findMany({
+      where: { currentStatus: { in: ['WORKING', 'ON_BREAK', 'IDLE'] }, isActive: true },
+    });
+
+    for (const user of stillWorking) {
+      await this.prisma.notification.create({
+        data: {
+          userId: user.id,
+          title: 'End your workday',
+          message: 'Official work hours (9:30 AM – 6:30 PM) are over. Remember to end your workday.',
+          type: NotificationType.INFO,
+          isRead: false,
+          link: '/dashboard',
+        },
+      });
+      this.gateway.server?.to(`user:${user.id}`).emit('notification:new', {
+        title: 'End your workday',
+        message: 'Official work hours are over.',
+      });
+    }
+    console.log(`[Scheduler] Workday end reminder sent to ${stillWorking.length} users.`);
+  }
+
+  // 3. AUTO LOGOUT — every hour
+  @Cron('0 * * * *')
+  async autoLogoutInactive() {
+    const hour = new Date().getHours();
+    if (hour < 9 || hour > 20) return;
+
+    const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const idleUsers = await this.prisma.user.findMany({
+      where: { currentStatus: 'IDLE', lastActiveAt: { lte: cutoff }, isActive: true },
+    });
+
+    for (const user of idleUsers) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { currentStatus: 'OFFLINE' },
+      });
+      await this.prisma.workSession.updateMany({
+        where: { userId: user.id, date: today, status: 'IDLE' },
+        data: { status: 'LOGGED_OUT', logoutAt: new Date() },
+      });
+      await this.prisma.attendanceEvent.create({
+        data: {
+          userId: user.id,
+          eventType: 'AUTO_LOGOUT',
+          source: 'system',
+          metadata: { reason: '2 hours idle' },
+        },
+      });
+    }
+    if (idleUsers.length > 0) {
+      console.log(`[Scheduler] Auto-logout: ${idleUsers.length} idle users logged out.`);
+    }
+  }
 }

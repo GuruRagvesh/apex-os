@@ -30,6 +30,29 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email);
     const { password, ...userWithoutPassword } = user;
 
+    // Create login attendance event
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+
+    try {
+      await this.prisma.workSession.upsert({
+        where: { userId_date: { userId: user.id, date: today } },
+        update: { loginAt: now, status: 'LOGGED_IN' },
+        create: { userId: user.id, date: today, loginAt: now, status: 'LOGGED_IN' },
+      });
+      await this.prisma.attendanceEvent.create({
+        data: { userId: user.id, eventType: 'LOGIN', source: 'manual' },
+      });
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { currentStatus: 'LOGGED_IN', lastActiveAt: now },
+      });
+    } catch (e) {
+      // Non-critical — don't fail login if attendance tracking fails
+      console.error('Attendance tracking error on login:', e);
+    }
+
     return { user: userWithoutPassword, ...tokens };
   }
 

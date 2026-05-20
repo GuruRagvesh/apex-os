@@ -3,12 +3,38 @@
 import { useState, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi, taskTypesApi } from '@/lib/api';
+import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi, taskTypesApi, workdayApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Sparkles, Loader2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MultiSelect } from '@/components/ui/multi-select';
+
+// ─── Leave Warning ────────────────────────────────────────────────────────────
+function LeaveWarning({ assigneeIds, users }: { assigneeIds: string[]; users: any[] }) {
+  const { data: teamStatus } = useQuery({
+    queryKey: ['workday-team'],
+    queryFn: () => workdayApi.getTeam() as Promise<any[]>,
+    staleTime: 60000,
+  });
+
+  const onLeave = (Array.isArray(teamStatus) ? teamStatus : []).filter(
+    (m: any) => assigneeIds.includes(m.id) && (m.onLeaveToday || m.workStatus === 'ON_LEAVE'),
+  );
+
+  if (onLeave.length === 0) return null;
+
+  return (
+    <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+      {onLeave.map((m: any) => (
+        <p key={m.id} className="text-xs text-amber-700 flex items-center gap-1.5">
+          <span className="text-amber-500">&#9888;</span>
+          <strong>{m.name}</strong> is on approved leave today. Are you sure you want to assign this task?
+        </p>
+      ))}
+    </div>
+  );
+}
 
 const CATEGORIES = ['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
 const TYPES = ['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST'];
@@ -412,6 +438,9 @@ export default function NewTicketPage() {
               onChange={setAssigneeIds}
               placeholder="Select assignees..."
             />
+            {assigneeIds.length > 0 && (
+              <LeaveWarning assigneeIds={assigneeIds} users={userList} />
+            )}
           </div>
           <div>
             <label className={labelCls}>Due Date</label>

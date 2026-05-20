@@ -18,6 +18,9 @@ model User {
   mustChangePassword   Boolean  @default(true)
   roleId       String
   departmentId String?
+  isHR              Boolean  @default(false)
+  currentStatus     String   @default("OFFLINE")
+  lastActiveAt      DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -32,6 +35,10 @@ model User {
   notifications      Notification[]
   ticketHistory      TicketHistory[]
   ticketAssignments  TicketAssignee[]
+  workSessions      WorkSession[]
+  breakLogs         BreakLog[]
+  attendanceEvents  AttendanceEvent[]
+  managedDepts      ManagerDeptAccess[] @relation("ManagerAccess")
 
   @@map("users")
 }
@@ -55,10 +62,11 @@ model Department {
   color       String   @default("#6366f1")
   createdAt   DateTime @default(now())
 
-  users     User[]
-  projects  Project[]
-  tickets   Ticket[]
-  taskTypes TaskType[]
+  users         User[]
+  projects      Project[]
+  tickets       Ticket[]
+  taskTypes     TaskType[]
+  managerAccess ManagerDeptAccess[]
 
   @@map("departments")
 }
@@ -203,6 +211,7 @@ model LeaveRequest {
   updatedAt   DateTime    @updatedAt
 
   user User @relation(fields: [userId], references: [id])
+  workSessions  WorkSession[]
 
   @@index([userId])
   @@index([status])
@@ -357,4 +366,82 @@ model AppSetting {
   updatedBy String?
 
   @@map("app_settings")
+}
+
+model WorkSession {
+  id                 String           @id @default(cuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id])
+  date               DateTime         @db.Date
+  loginAt            DateTime?
+  startWorkAt        DateTime?
+  logoutAt           DateTime?
+  status             String           @default("LOGGED_IN")
+  totalLoggedMinutes Int              @default(0)
+  totalBreakMinutes  Int              @default(0)
+  totalIdleMinutes   Int              @default(0)
+  totalWorkMinutes   Int              @default(0)
+  leaveId            String?
+  leaveRequest       LeaveRequest?    @relation(fields: [leaveId], references: [id])
+  breakLogs          BreakLog[]
+  attendanceEvents   AttendanceEvent[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@index([status])
+  @@map("work_sessions")
+}
+
+model BreakLog {
+  id               String      @id @default(cuid())
+  userId           String
+  user             User        @relation(fields: [userId], references: [id])
+  workSessionId    String
+  workSession      WorkSession @relation(fields: [workSessionId], references: [id])
+  breakType        String
+  estimatedMinutes Int?
+  startAt          DateTime
+  endAt            DateTime?
+  durationMinutes  Int?
+  autoDetected     Boolean     @default(false)
+  note             String?
+  createdAt        DateTime    @default(now())
+
+  @@index([userId])
+  @@index([workSessionId])
+  @@map("break_logs")
+}
+
+model AttendanceEvent {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id])
+  workSessionId String?
+  workSession   WorkSession? @relation(fields: [workSessionId], references: [id])
+  eventType     String
+  timestamp     DateTime     @default(now())
+  source        String       @default("manual")
+  metadata      Json?
+
+  @@index([userId])
+  @@index([timestamp])
+  @@index([eventType])
+  @@map("attendance_events")
+}
+
+model ManagerDeptAccess {
+  id           String     @id @default(cuid())
+  managerId    String
+  manager      User       @relation("ManagerAccess", fields: [managerId], references: [id])
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  accessLevel  String     @default("READ")
+  createdAt    DateTime   @default(now())
+
+  @@unique([managerId, departmentId])
+  @@index([managerId])
+  @@map("manager_dept_access")
 }

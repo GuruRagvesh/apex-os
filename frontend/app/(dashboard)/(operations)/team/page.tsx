@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { teamApi, usersApi } from '@/lib/api';
+import { teamApi, usersApi, workdayApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -431,27 +431,187 @@ function MyTeamView({ me }: { me: any }) {
   );
 }
 
-// ─── Root ─────────────────────────────────────────────────────────────────────
-export default function TeamPage() {
-  const { user: me } = useAuthStore();
+// ─── Status helpers ───────────────────────────────────────────────────────────
+function fmtMin(minutes: number) {
+  if (!minutes) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
-  const role = (me?.role as any)?.name ?? me?.role ?? '';
-  const mode = typeof window !== 'undefined' ? localStorage.getItem('apexMode') ?? 'super_admin' : 'super_admin';
-  const isSuperAdminCompanyMode = role === 'SUPER_ADMIN' && mode !== 'team_lead';
+const STATUS_CONFIG: Record<string, { dot: string; label: string; text: string }> = {
+  WORKING:    { dot: 'bg-green-500',  label: 'Working',     text: 'text-green-700 dark:text-green-400' },
+  ON_BREAK:   { dot: 'bg-orange-400', label: 'On Break',    text: 'text-orange-700 dark:text-orange-400' },
+  IDLE:       { dot: 'bg-yellow-400', label: 'Idle',        text: 'text-yellow-700 dark:text-yellow-400' },
+  ON_LEAVE:   { dot: 'bg-blue-500',   label: 'On Leave',    text: 'text-blue-700 dark:text-blue-400' },
+  LOGGED_OUT: { dot: 'bg-gray-400',   label: 'Ended day',   text: 'text-gray-500 dark:text-gray-400' },
+  OFFLINE:    { dot: 'bg-gray-300',   label: 'Not started', text: 'text-gray-400 dark:text-gray-500' },
+  LOGGED_IN:  { dot: 'bg-yellow-300', label: 'Logged in',   text: 'text-yellow-600 dark:text-yellow-400' },
+};
 
-  // Super Admin in company (admin) mode → show all departments
-  if (isSuperAdminCompanyMode) {
+// ─── Live Status View ─────────────────────────────────────────────────────────
+function LiveStatusView() {
+  const { data: teamStatus = [], isLoading: teamLoading } = useQuery({
+    queryKey: ['workday-team'],
+    queryFn: () => workdayApi.getTeam() as Promise<any[]>,
+    refetchInterval: 30000,
+  });
+
+  const members = Array.isArray(teamStatus) ? teamStatus : [];
+
+  if (teamLoading) {
     return (
-      <div className="max-w-6xl mx-auto">
-        <SuperAdminCompanyView me={me} />
+      <div className="space-y-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4 h-14 animate-pulse" />
+        ))}
       </div>
     );
   }
 
-  // TL, Employee, or Super Admin in team_lead mode → show own dept + directory
+  if (members.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-dashed border-slate-300 dark:border-gray-700 p-10 text-center">
+        <Users size={32} className="mx-auto text-slate-300 dark:text-gray-600 mb-3" />
+        <p className="text-slate-500 dark:text-gray-400 text-sm">No team members found</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="border-b border-slate-100 dark:border-gray-800 bg-slate-50 dark:bg-gray-800">
+          <tr>
+            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Member</th>
+            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Status</th>
+            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Work Time</th>
+            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Breaks</th>
+            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Department</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
+          {members.map((m: any) => {
+            const cfg = STATUS_CONFIG[m.workStatus] ?? STATUS_CONFIG.OFFLINE;
+            return (
+              <tr key={m.id} className="hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">
+                <td className="px-5 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative">
+                      <Avatar name={m.name} size="sm" />
+                      <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-gray-900 ${cfg.dot}`} />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-800 dark:text-gray-200">{m.name}</p>
+                      <p className="text-xs text-slate-400 dark:text-gray-500">{m.role?.name}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-5 py-3">
+                  <span className={`flex items-center gap-1.5 text-xs font-medium ${cfg.text}`}>
+                    <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+                    {cfg.label}
+                    {m.onLeaveToday && (
+                      <span className="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{m.leaveType ?? 'Leave'}</span>
+                    )}
+                  </span>
+                </td>
+                <td className="px-5 py-3 text-slate-600 dark:text-gray-400">
+                  {fmtMin(m.workMinutesToday)}
+                </td>
+                <td className="px-5 py-3 text-slate-500 dark:text-gray-400 text-xs">
+                  {m.breakCount > 0 ? `${m.breakCount}x · ${fmtMin(m.breakMinutesToday)}` : '—'}
+                </td>
+                <td className="px-5 py-3 text-slate-500 dark:text-gray-400 text-xs">
+                  {m.department?.name ?? '—'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
+export default function TeamPage() {
+  const { user: me } = useAuthStore();
+  const [tab, setTab] = useState<'team' | 'live'>('team');
+
+  const role = (me?.role as any)?.name ?? me?.role ?? '';
+  const isHR = (me as any)?.isHR;
+  const canSeeStatus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role) || isHR;
+  const mode = typeof window !== 'undefined' ? localStorage.getItem('apexMode') ?? 'super_admin' : 'super_admin';
+  const isSuperAdminCompanyMode = role === 'SUPER_ADMIN' && mode !== 'team_lead';
+
+  // Super Admin in company (admin) mode → show all departments + Live Status tab
+  if (isSuperAdminCompanyMode) {
+    return (
+      <div className="max-w-6xl mx-auto">
+        {canSeeStatus && (
+          <div className="flex gap-1 mb-6 border-b border-slate-200 dark:border-gray-700">
+            <button
+              onClick={() => setTab('team')}
+              className={cn(
+                'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+                tab === 'team'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
+              )}
+            >
+              Company Directory
+            </button>
+            <button
+              onClick={() => setTab('live')}
+              className={cn(
+                'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5',
+                tab === 'live'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
+              )}
+            >
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+              Live Status
+            </button>
+          </div>
+        )}
+        {tab === 'live' ? <LiveStatusView /> : <SuperAdminCompanyView me={me} />}
+      </div>
+    );
+  }
+
+  // TL, Employee, or Super Admin in team_lead mode → show own dept + directory + live tab for managers
   return (
     <div className="max-w-6xl mx-auto">
-      <MyTeamView me={me} />
+      {canSeeStatus && (
+        <div className="flex gap-1 mb-6 border-b border-slate-200 dark:border-gray-700">
+          <button
+            onClick={() => setTab('team')}
+            className={cn(
+              'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+              tab === 'team'
+                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
+            )}
+          >
+            Team
+          </button>
+          <button
+            onClick={() => setTab('live')}
+            className={cn(
+              'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5',
+              tab === 'live'
+                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
+            )}
+          >
+            <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+            Live Status
+          </button>
+        </div>
+      )}
+      {tab === 'live' && canSeeStatus ? <LiveStatusView /> : <MyTeamView me={me} />}
     </div>
   );
 }

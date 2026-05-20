@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Bell, Plus, CheckCheck, RefreshCw, Search } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { notificationsApi } from '@/lib/api';
+import { notificationsApi, workdayApi } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/utils';
 import { useSocket } from '@/hooks/useSocket';
 import { CommandPalette } from '@/components/ui/command-palette';
@@ -33,6 +33,7 @@ export function TopBar() {
   const qc = useQueryClient();
   const [showNotifs,   setShowNotifs]   = useState(false);
   const [paletteOpen,  setPaletteOpen]  = useState(false);
+  const [showWorkdayMenu, setShowWorkdayMenu] = useState(false);
   // Defensive: role may be an object { name } or a plain string
   const roleName     = (user?.role as any)?.name || (user?.role as any) || '';
   const isSuperAdmin = roleName === 'SUPER_ADMIN';
@@ -54,6 +55,15 @@ export function TopBar() {
     queryFn: () => notificationsApi.getUnreadCount() as Promise<{ count: number }>,
     refetchInterval: 15000,
   });
+
+  const { data: workdayData } = useQuery({
+    queryKey: ['workday-today'],
+    queryFn: () => workdayApi.getToday() as Promise<any>,
+    refetchInterval: 60000,
+    staleTime: 30000,
+    enabled: !!user,
+  });
+  const workStatus = (workdayData as any)?.session?.status ?? 'OFFLINE';
 
   const { data: notifications } = useQuery({
     queryKey: ['notifications'],
@@ -143,6 +153,49 @@ export function TopBar() {
           <Plus size={14} />
           New Ticket
         </Link>
+
+        {/* Workday status dot */}
+        <div className="relative">
+          <button
+            onClick={() => setShowWorkdayMenu((v) => !v)}
+            className="flex items-center gap-1.5 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-gray-800 transition-colors"
+            title="Workday status"
+          >
+            <span className={`w-2.5 h-2.5 rounded-full ${
+              workStatus === 'WORKING' ? 'bg-green-500' :
+              workStatus === 'ON_BREAK' ? 'bg-orange-400' :
+              workStatus === 'IDLE' ? 'bg-yellow-400' :
+              workStatus === 'ON_LEAVE' ? 'bg-blue-500' :
+              'bg-gray-400'
+            }`} />
+            <span className="hidden sm:inline text-xs text-slate-500 dark:text-gray-400">
+              {workStatus === 'WORKING' ? 'Working' :
+               workStatus === 'ON_BREAK' ? 'On Break' :
+               workStatus === 'IDLE' ? 'Idle' :
+               workStatus === 'ON_LEAVE' ? 'On Leave' :
+               workStatus === 'LOGGED_OUT' ? 'Ended' : 'Offline'}
+            </span>
+          </button>
+
+          {showWorkdayMenu && (
+            <div className="absolute right-0 top-10 w-52 bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-xl shadow-lg z-50 p-3">
+              <p className="text-xs font-semibold text-slate-500 dark:text-gray-400 mb-2">Workday</p>
+              <p className="text-sm font-medium text-slate-800 dark:text-gray-100 mb-3">
+                {workStatus === 'WORKING' ? 'Currently working' :
+                 workStatus === 'ON_BREAK' ? 'On break' :
+                 workStatus === 'IDLE' ? 'Idle' :
+                 workStatus === 'ON_LEAVE' ? 'On leave today' :
+                 workStatus === 'LOGGED_OUT' ? 'Day ended' : 'Not started'}
+              </p>
+              <button
+                onClick={() => { setShowWorkdayMenu(false); router.push('/dashboard'); }}
+                className="w-full text-xs text-center text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                Go to Dashboard
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Notifications bell */}
         <div className="relative">

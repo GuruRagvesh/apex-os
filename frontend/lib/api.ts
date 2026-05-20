@@ -214,6 +214,20 @@ export const taskTypesApi = {
     r(api.delete(`/task-types/${id}/subtypes/${subtypeId}`)),
 };
 
+// Workday
+export const workdayApi = {
+  startWork: () => r(api.post('/workday/start', {})),
+  endWork: () => r(api.post('/workday/end', {})),
+  startBreak: (data: { breakType: string; estimatedMinutes?: number }) =>
+    r(api.post('/workday/break/start', data)),
+  endBreak: () => r(api.post('/workday/break/end', {})),
+  resumeWork: () => r(api.post('/workday/resume', {})),
+  reportIdle: (idleDuration: number) =>
+    r(api.post('/workday/idle', { idleDuration })),
+  getToday: () => r(api.get('/workday/today')),
+  getTeam: () => r(api.get('/workday/team')),
+};
+
 // Notifications
 export const notificationsApi = {
   getAll: (unread?: boolean) => r(api.get('/notifications', { params: { unread } })),

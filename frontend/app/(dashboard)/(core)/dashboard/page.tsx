@@ -5,10 +5,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  dashboardApi, ticketsApi, projectsApi, notificationsApi,
+  dashboardApi, ticketsApi, projectsApi, notificationsApi, workdayApi,
 } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useSocket } from '@/hooks/useSocket';
+import { useIdleDetection } from '@/hooks/useIdleDetection';
+import { WorkdayBar } from '@/components/workday/WorkdayBar';
+import { IdleWarningToast } from '@/components/workday/IdleWarningToast';
+import { IdlePopup } from '@/components/workday/IdlePopup';
+import { SessionRecoveryModal } from '@/components/workday/SessionRecoveryModal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import {
@@ -242,10 +247,49 @@ export default function DashboardPage() {
   const router    = useRouter();
   const now       = useLiveClock();
   const [taskTab, setTaskTab] = useState<Bucket>('today');
+  const [showIdleToast, setShowIdleToast] = useState(false);
+  const [showIdlePopup, setShowIdlePopup] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(false);
+  const [awayMinutes, setAwayMinutes] = useState(0);
 
   const roleName  = (user?.role as any)?.name ?? '';
   const firstName = (user?.name ?? 'there').split(' ')[0];
   const userId    = user?.id ?? '';
+
+  const { data: todayWorkdayData, refetch: refetchWorkday } = useQuery({
+    queryKey: ['workday-today'],
+    queryFn: () => workdayApi.getToday() as Promise<any>,
+    refetchInterval: 60000,
+    enabled: !!userId,
+  });
+
+  const workStatus = (todayWorkdayData as any)?.session?.status ?? 'OFFLINE';
+
+  // Idle detection
+  useIdleDetection({
+    isWorking: workStatus === 'WORKING',
+    onWarning: () => setShowIdleToast(true),
+    onIdle: async () => {
+      try { await workdayApi.reportIdle(20); refetchWorkday(); } catch {}
+    },
+    onSuggest: () => setShowIdlePopup(true),
+  });
+
+  // Session recovery check
+  useEffect(() => {
+    if (!todayWorkdayData) return;
+    const session = (todayWorkdayData as any)?.session;
+    if (!session) return;
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const wasWorking = session.startWorkAt && !session.logoutAt && session.status === 'WORKING';
+    const lastSeen = session.updatedAt ? new Date(session.updatedAt) : null;
+    const longAway = lastSeen && lastSeen < thirtyMinAgo;
+    if (wasWorking && longAway) {
+      const mins = Math.floor((Date.now() - lastSeen.getTime()) / 60000);
+      setAwayMinutes(mins);
+      setShowRecovery(true);
+    }
+  }, [todayWorkdayData]);
 
   // ── Invalidate on real-time events ───────────────────────────────────────
   useSocket({
@@ -322,6 +366,7 @@ export default function DashboardPage() {
   const card = 'bg-white dark:bg-gray-800 rounded-xl border border-slate-200 dark:border-gray-700 shadow-sm';
 
   return (
+    <>
     <div className="max-w-7xl mx-auto space-y-7">
 
       {/* ─────────────────────────────────────────────────────────────────── */}
@@ -344,6 +389,11 @@ export default function DashboardPage() {
           <p className="text-sm text-slate-400 dark:text-gray-500">{fmtTime(now)}</p>
         </div>
       </div>
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* WORKDAY BAR                                                         */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      <WorkdayBar />
 
       {/* ─────────────────────────────────────────────────────────────────── */}
       {/* SECTION 2 — 3 stat cards                                           */}
@@ -618,5 +668,10 @@ export default function DashboardPage() {
       </div>
 
     </div>
+
+    {showIdleToast && <IdleWarningToast onDismiss={() => setShowIdleToast(false)} />}
+    {showIdlePopup && <IdlePopup onClose={() => setShowIdlePopup(false)} onRefetch={refetchWorkday} />}
+    {showRecovery && <SessionRecoveryModal awayMinutes={awayMinutes} onClose={() => setShowRecovery(false)} onRefetch={refetchWorkday} />}
+    </>
   );
 }
