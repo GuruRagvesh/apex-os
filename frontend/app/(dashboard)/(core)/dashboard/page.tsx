@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 import {
   ClipboardList, CheckCircle2, CalendarDays, Users, FolderKanban,
   BarChart3, Building2, User, Plus, Info, CheckCircle,
-  AlertTriangle, XCircle, Calendar, ChevronRight,
+  AlertTriangle, XCircle, Calendar, ChevronRight, Activity, X,
 } from 'lucide-react';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
 import { OverdueTicker } from '@/components/tickets/OverdueTicker';
@@ -249,6 +249,7 @@ export default function DashboardPage() {
   const router    = useRouter();
   const now       = useLiveClock();
   const [taskTab, setTaskTab] = useState<Bucket>('today');
+  const [showActivity, setShowActivity] = useState(false);
   const [showIdleToast, setShowIdleToast] = useState(false);
   const [showIdlePopup, setShowIdlePopup] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
@@ -388,12 +389,21 @@ export default function DashboardPage() {
             Here&apos;s what&apos;s happening in TechnoEdge today.
           </p>
         </div>
-        <div className="text-right flex-shrink-0 space-y-0.5">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-gray-300 justify-end">
-            <Calendar size={14} className="text-slate-400 dark:text-gray-500" />
-            {fmtLongDate(now)}
-          </p>
-          <p className="text-sm text-slate-400 dark:text-gray-500">{fmtTime(now)}</p>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <button
+            onClick={() => setShowActivity(true)}
+            className="flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
+          >
+            <Activity size={15} className="text-indigo-500" />
+            Recent Activity
+          </button>
+          <div className="text-right space-y-0.5">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-gray-300 justify-end">
+              <Calendar size={14} className="text-slate-400 dark:text-gray-500" />
+              {fmtLongDate(now)}
+            </p>
+            <p className="text-sm text-slate-400 dark:text-gray-500">{fmtTime(now)}</p>
+          </div>
         </div>
       </div>
 
@@ -682,6 +692,86 @@ export default function DashboardPage() {
       </div>
 
     </div>
+
+    {/* ── Recent Activity slide-over ───────────────────────────────────── */}
+    {showActivity && (
+      <>
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/30 z-40 transition-opacity"
+          onClick={() => setShowActivity(false)}
+        />
+        {/* Panel */}
+        <div className="fixed top-0 right-0 h-full w-full max-w-sm bg-white dark:bg-gray-900 shadow-2xl z-50 flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-gray-700">
+            <div className="flex items-center gap-2">
+              <Activity size={16} className="text-indigo-500" />
+              <h2 className="font-bold text-slate-800 dark:text-white">Recent Activity</h2>
+            </div>
+            <button
+              onClick={() => setShowActivity(false)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-gray-800 text-slate-500 dark:text-gray-400 transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-50 dark:divide-gray-800">
+            {notifsLoading
+              ? Array.from({ length: 6 }).map((_, i) => <NotifRowSkeleton key={i} />)
+              : (() => {
+                  const raw = Array.isArray(notifsRaw) ? notifsRaw : (notifsRaw?.notifications ?? []);
+                  const all = (raw as any[]).slice(0, 20);
+                  if (all.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center h-full py-20 text-slate-400 dark:text-gray-500">
+                        <Activity size={30} className="mb-3 text-slate-300 dark:text-gray-600" />
+                        <p className="text-sm">No recent activity</p>
+                      </div>
+                    );
+                  }
+                  return all.map((n: any) => (
+                    <div
+                      key={n.id}
+                      className={cn(
+                        'flex items-start gap-3 px-5 py-4',
+                        !n.isRead && 'bg-blue-50/50 dark:bg-blue-900/5',
+                      )}
+                    >
+                      <NotifIcon type={n.type} />
+                      <div className="flex-1 min-w-0">
+                        <p className={cn(
+                          'text-sm leading-snug',
+                          n.isRead
+                            ? 'font-medium text-slate-700 dark:text-gray-300'
+                            : 'font-semibold text-slate-900 dark:text-white',
+                        )}>
+                          {n.title}
+                        </p>
+                        {n.message && (
+                          <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5 leading-relaxed">
+                            {n.message}
+                          </p>
+                        )}
+                        <p className="text-[10px] text-slate-300 dark:text-gray-600 mt-1">
+                          {timeAgo(n.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  ));
+                })()
+            }
+          </div>
+          <div className="px-5 py-3 border-t border-slate-100 dark:border-gray-700">
+            <button
+              onClick={() => setShowActivity(false)}
+              className="w-full text-xs text-center font-medium text-slate-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+            >
+              Close panel
+            </button>
+          </div>
+        </div>
+      </>
+    )}
 
     {showIdleToast && <IdleWarningToast onDismiss={() => setShowIdleToast(false)} />}
     {showIdlePopup && <IdlePopup onClose={() => setShowIdlePopup(false)} onRefetch={refetchWorkday} />}

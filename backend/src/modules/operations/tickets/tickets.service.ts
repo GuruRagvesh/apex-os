@@ -117,19 +117,23 @@ export class TicketsService {
     const roleName: string = user.role?.name ?? user.role ?? '';
     // Admin / Super Admin → see everything
     if (['ADMIN', 'SUPER_ADMIN'].includes(roleName)) return where;
-    // Manager / TeamLead → scope to their department
-    if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
+    // Manager → scope to all departments they manage (via ManagerDeptAccess + home dept)
+    if (roleName === 'MANAGER') {
+      const access = await this.prisma.managerDeptAccess.findMany({ where: { managerId: user.id } });
+      const deptIds: string[] = access.map((a: any) => a.departmentId as string);
+      if (user.departmentId) deptIds.push(user.departmentId);
+      const uniqueDeptIds: string[] = [...new Set(deptIds)];
+      if (uniqueDeptIds.length > 0) where.departmentId = { in: uniqueDeptIds };
+      return where;
+    }
+    // TeamLead → scope to their department, but also see their own created/assigned tickets
+    if (roleName === 'TEAM_LEAD') {
       if (user.departmentId) {
-        // TL also sees tickets they created themselves, even outside dept
-        if (roleName === 'TEAM_LEAD') {
-          where.OR = [
-            { departmentId: user.departmentId },
-            { createdById: user.id },
-            { assignedToId: user.id },
-          ];
-        } else {
-          where.departmentId = user.departmentId;
-        }
+        where.OR = [
+          { departmentId: user.departmentId },
+          { createdById: user.id },
+          { assignedToId: user.id },
+        ];
       }
       return where;
     }

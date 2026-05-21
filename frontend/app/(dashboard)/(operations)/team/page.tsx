@@ -229,6 +229,85 @@ function SuperAdminCompanyView({ me }: { me: any }) {
   );
 }
 
+// ─── Manager Multi-Dept Team View ────────────────────────────────────────────
+function ManagerTeamView({ me }: { me: any }) {
+  const [search, setSearch] = useState('');
+
+  const { data: myTeamRaw, isLoading } = useQuery({
+    queryKey: ['my-team-manager'],
+    queryFn: () => usersApi.getMyTeam() as Promise<any[]>,
+  });
+
+  const allMembers: any[] = Array.isArray(myTeamRaw) ? myTeamRaw : [];
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return allMembers;
+    const q = search.toLowerCase();
+    return allMembers.filter(
+      (u) => u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.department?.name?.toLowerCase().includes(q),
+    );
+  }, [allMembers, search]);
+
+  // Group by department
+  const byDept = useMemo(() => {
+    const map = new Map<string, any[]>();
+    filtered.forEach((u) => {
+      const dept = u.department?.name ?? 'No Department';
+      if (!map.has(dept)) map.set(dept, []);
+      map.get(dept)!.push(u);
+    });
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [filtered]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">My Team</h2>
+          <p className="text-slate-500 dark:text-gray-400 text-sm mt-1">
+            {allMembers.length} members across {byDept.length} department{byDept.length !== 1 ? 's' : ''} you manage
+          </p>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
+          <Users size={14} className="text-indigo-600" />
+          <span className="text-sm font-semibold text-indigo-700">{allMembers.length} total</span>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-500" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, email, or department…"
+          className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500"
+        />
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => <div key={i} className="h-40 bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 animate-pulse" />)}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {byDept.map(([dept, members]) => (
+            <DeptSection key={dept} name={dept} members={members} />
+          ))}
+          {byDept.length === 0 && (
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-dashed border-slate-300 dark:border-gray-700 p-10 text-center">
+              <Search size={28} className="mx-auto text-slate-300 dark:text-gray-600 mb-2" />
+              <p className="text-slate-500 dark:text-gray-400 text-sm">
+                {search ? 'No members match your search' : 'No team members found'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── TL / Employee Team View ──────────────────────────────────────────────────
 function MyTeamView({ me }: { me: any }) {
   const [search, setSearch]       = useState('');
@@ -581,7 +660,43 @@ export default function TeamPage() {
     );
   }
 
-  // TL, Employee, or Super Admin in team_lead mode → show own dept + directory + live tab for managers
+  // Manager → show multi-dept view with Live Status tab
+  if (role === 'MANAGER') {
+    return (
+      <div className="max-w-6xl mx-auto">
+        {canSeeStatus && (
+          <div className="flex gap-1 mb-6 border-b border-slate-200 dark:border-gray-700">
+            <button
+              onClick={() => setTab('team')}
+              className={cn(
+                'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+                tab === 'team'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
+              )}
+            >
+              My Team
+            </button>
+            <button
+              onClick={() => setTab('live')}
+              className={cn(
+                'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5',
+                tab === 'live'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
+              )}
+            >
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+              Live Status
+            </button>
+          </div>
+        )}
+        {tab === 'live' ? <LiveStatusView /> : <ManagerTeamView me={me} />}
+      </div>
+    );
+  }
+
+  // TL, Employee, or Super Admin in team_lead mode → show own dept + directory + live tab
   return (
     <div className="max-w-6xl mx-auto">
       {canSeeStatus && (
