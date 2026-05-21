@@ -184,9 +184,9 @@ function buildStatCards(role: string, stats: any, myOpenCount: number, myDueToda
   }
   if (role === 'MANAGER') {
     return [
-      { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: s.openTickets   ?? 0, label: 'Dept Open Tickets', sub: `${s.inProgressTickets ?? 0} in progress`, subColor: 'text-blue-600   dark:text-blue-400',   href: '/tickets?status=OPEN' },
-      { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave  ?? 0, label: 'Pending Approvals', sub: 'Requires action',                         subColor: 'text-orange-600 dark:text-orange-400', href: '/leave' },
-      { icon: <FolderKanban  size={20} className="text-green-600" />,  iconBg: 'bg-green-100  dark:bg-green-900/30',  value: s.activeProjects ?? 0, label: 'Active Projects',  sub: `of ${s.totalProjects ?? 0} total`,        subColor: 'text-green-600  dark:text-green-400',  href: '/projects' },
+      { icon: <ClipboardList size={20} className="text-blue-600" />,   iconBg: 'bg-blue-100   dark:bg-blue-900/30',   value: s.openTickets    ?? 0, label: 'Dept Open Tickets', sub: `${s.inProgressTickets ?? 0} in progress`, subColor: 'text-blue-600   dark:text-blue-400',   href: '/tickets?status=OPEN' },
+      { icon: <CalendarDays  size={20} className="text-orange-600" />, iconBg: 'bg-orange-100 dark:bg-orange-900/30', value: s.pendingLeave   ?? 0, label: 'Pending Approvals', sub: 'Requires action',                         subColor: 'text-orange-600 dark:text-orange-400', href: '/leave' },
+      { icon: <Users         size={20} className="text-purple-600" />, iconBg: 'bg-purple-100 dark:bg-purple-900/30', value: s.teamMembers    ?? 0, label: 'Team Members',      sub: 'In your department(s)',                   subColor: 'text-purple-600 dark:text-purple-400', href: '/team' },
     ];
   }
   if (role === 'TEAM_LEAD') {

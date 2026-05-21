@@ -21,16 +21,18 @@ export class UsersController {
 
   @Get('my-team')
   async getMyTeam(@CurrentUser() user: any) {
-    const full = await this.usersService.findOne(user.id);
-    const deptId = (full as any)?.departmentId;
-    if (!deptId) return [];
-    const result = await this.usersService.findAll({ departmentId: deptId });
-    return result.users.filter((u: any) => u.id !== user.id);
+    return this.usersService.getMyTeam(user.id, user.role?.name ?? user.role ?? '');
   }
 
   @Patch('me')
-  updateMe(@CurrentUser() user: any, @Body() body: { name?: string; avatar?: string; photoUrl?: string | null }) {
-    return this.usersService.update(user.id, body);
+  updateMe(@CurrentUser() user: any, @Body() body: any) {
+    // Only allow safe fields to prevent unknown-field Prisma errors
+    const data: any = {};
+    if (body.name     !== undefined) data.name     = body.name;
+    if (body.avatar   !== undefined) data.avatar   = body.avatar;
+    if (body.photoUrl !== undefined) data.photoUrl = body.photoUrl;
+    if (body.bio      !== undefined) data.bio      = body.bio;
+    return this.usersService.update(user.id, data);
   }
 
   @Post('me/photo')

@@ -210,10 +210,17 @@ export class TicketsService {
     return this.addSla(ticket);
   }
 
-  async create(data: any, userId: string) {
+  async create(data: any, userId: string, user?: any) {
     // Extract assigneeIds before passing data to Prisma (not a real Ticket column)
-    const assigneeIds: string[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
+    let assigneeIds: string[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
     delete data.assigneeIds;
+
+    // Enforce self-assign for EMPLOYEE / INTERN
+    const creatorRole: string = user?.role?.name ?? user?.role ?? '';
+    if (['EMPLOYEE', 'INTERN'].includes(creatorRole)) {
+      data.assignedToId = userId;
+      assigneeIds = [userId];
+    }
 
     // Resolve departmentId: accept display name or UUID
     if (data.departmentId && !isUUID(data.departmentId)) {
@@ -229,8 +236,12 @@ export class TicketsService {
       });
       data.assignedToId = assignee?.id ?? undefined;
     }
-    // Null out empty projectId so Prisma doesn't try to connect to ''
+    // Null out empty string fields so Prisma doesn't try to set '' on non-String columns
     if (!data.projectId) data.projectId = undefined;
+    if (!data.departmentId) data.departmentId = undefined;
+    if (!data.assignedToId) data.assignedToId = undefined;
+    if (!data.taskTypeId) data.taskTypeId = undefined;
+    if (!data.taskSubtypeId) data.taskSubtypeId = undefined;
     // Convert dueDate string → proper ISO DateTime
     if (data.dueDate) {
       data.dueDate = new Date(data.dueDate).toISOString();

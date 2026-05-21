@@ -59,7 +59,7 @@ export class UsersService {
     return result;
   }
 
-  async update(id: string, data: { name?: string; email?: string; roleId?: string; departmentId?: string; isActive?: boolean; avatar?: string; photoUrl?: string | null }) {
+  async update(id: string, data: { name?: string; email?: string; roleId?: string; departmentId?: string; isActive?: boolean; avatar?: string; photoUrl?: string | null; bio?: string }) {
     const user = await this.prisma.user.update({
       where: { id },
       data,
@@ -84,6 +84,39 @@ export class UsersService {
   async remove(id: string) {
     await this.prisma.user.update({ where: { id }, data: { isActive: false } });
     return { message: 'User deactivated' };
+  }
+
+  async getMyTeam(userId: string, roleName: string) {
+    const me = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!me) return [];
+
+    // Managers see all users in their managed departments
+    if (roleName === 'MANAGER') {
+      const managedAccess = await (this.prisma as any).managerDeptAccess.findMany({
+        where: { managerId: userId },
+        select: { departmentId: true },
+      });
+      const deptIds: string[] = managedAccess.map((a: any) => a.departmentId as string);
+      if (me.departmentId) deptIds.push(me.departmentId);
+      const uniqueDeptIds: string[] = [...new Set(deptIds)];
+      if (uniqueDeptIds.length === 0) return [];
+      // Manually filter by dept since findAll doesn't support multi-dept
+      const users = await this.prisma.user.findMany({
+        where: { departmentId: { in: uniqueDeptIds }, isActive: true, id: { not: userId } },
+        include: { role: true, department: true },
+        orderBy: { name: 'asc' },
+      });
+      return users.map(({ password, ...u }) => u);
+    }
+
+    // Team Lead / Employee → same department
+    if (!me.departmentId) return [];
+    const users = await this.prisma.user.findMany({
+      where: { departmentId: me.departmentId, isActive: true, id: { not: userId } },
+      include: { role: true, department: true },
+      orderBy: { name: 'asc' },
+    });
+    return users.map(({ password, ...u }) => u);
   }
 
   async getDirectory() {

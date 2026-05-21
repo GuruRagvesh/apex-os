@@ -48,7 +48,7 @@ export class TicketsController {
 
   @Post()
   create(@Body() body: any, @CurrentUser() user: any) {
-    return this.ticketsService.create(body, user.id);
+    return this.ticketsService.create(body, user.id, user);
   }
 
   @Post(':id/attachments')

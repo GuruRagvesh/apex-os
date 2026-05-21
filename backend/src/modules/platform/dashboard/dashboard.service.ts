@@ -7,7 +7,25 @@ export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
   async getOverview(userId: string, userRole: string) {
-    const isAdmin = ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(userRole);
+    const isManagerPlus = ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(userRole);
+    const isEmployeeRole = ['EMPLOYEE', 'INTERN'].includes(userRole);
+
+    // Fetch managed department IDs for managers
+    let managedDeptIds: string[] = [];
+    let managerUser: any = null;
+    if (userRole === 'MANAGER') {
+      managerUser = await this.prisma.user.findUnique({ where: { id: userId } });
+      const access = await (this.prisma as any).managerDeptAccess.findMany({
+        where: { managerId: userId }, select: { departmentId: true },
+      });
+      managedDeptIds = access.map((a: any) => a.departmentId);
+      if (managerUser?.departmentId) managedDeptIds.push(managerUser.departmentId);
+      managedDeptIds = [...new Set(managedDeptIds)];
+    }
+
+    const ticketWhere = isManagerPlus
+      ? (managedDeptIds.length > 0 ? { departmentId: { in: managedDeptIds } } : {})
+      : { OR: [{ assignedToId: userId }, { createdById: userId }] };
 
     const [
       totalTickets,
@@ -20,21 +38,31 @@ export class DashboardService {
       activeProjects,
       pendingLeave,
       totalUsers,
+      teamMembers,
       recentTickets,
       myTickets,
     ] = await Promise.all([
       this.prisma.ticket.count(),
-      this.prisma.ticket.count({ where: { status: TicketStatus.OPEN } }),
-      this.prisma.ticket.count({ where: { status: TicketStatus.IN_PROGRESS } }),
-      this.prisma.ticket.count({ where: { status: TicketStatus.DONE } }),
-      this.prisma.ticket.count({ where: { priority: Priority.URGENT, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } } }),
+      this.prisma.ticket.count({ where: { status: TicketStatus.OPEN, ...ticketWhere } }),
+      this.prisma.ticket.count({ where: { status: TicketStatus.IN_PROGRESS, ...ticketWhere } }),
+      this.prisma.ticket.count({ where: { status: TicketStatus.DONE, ...ticketWhere } }),
+      this.prisma.ticket.count({ where: { priority: Priority.URGENT, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] }, ...ticketWhere } }),
       this.prisma.ticket.count({
-        where: { dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } },
+        where: { dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] }, ...ticketWhere },
       }),
       this.prisma.project.count(),
       this.prisma.project.count({ where: { status: 'ACTIVE' } }),
-      this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING } }),
+      // Employees see only their own pending leave; managers see their dept; admins see all
+      isEmployeeRole
+        ? this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING, userId } })
+        : managedDeptIds.length > 0
+          ? this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING, user: { departmentId: { in: managedDeptIds } } } })
+          : this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING } }),
       this.prisma.user.count({ where: { isActive: true } }),
+      // Team member count for managers
+      managedDeptIds.length > 0
+        ? this.prisma.user.count({ where: { isActive: true, departmentId: { in: managedDeptIds } } })
+        : this.prisma.user.count({ where: { isActive: true } }),
       this.prisma.ticket.findMany({
         take: 10,
         orderBy: { createdAt: 'desc' },
@@ -45,7 +73,7 @@ export class DashboardService {
         },
       }),
       this.prisma.ticket.findMany({
-        where: isAdmin ? {} : { OR: [{ assignedToId: userId }, { createdById: userId }] },
+        where: isManagerPlus ? {} : { OR: [{ assignedToId: userId }, { createdById: userId }] },
         take: 5,
         orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
         include: {
@@ -59,7 +87,7 @@ export class DashboardService {
       stats: {
         totalTickets, openTickets, inProgressTickets, doneTickets,
         urgentTickets, overdueTickets, totalProjects, activeProjects,
-        pendingLeave, totalUsers,
+        pendingLeave, totalUsers, teamMembers,
       },
       recentTickets,
       myTickets,

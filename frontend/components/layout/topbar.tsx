@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, Plus, CheckCheck, RefreshCw, Search } from 'lucide-react';
+import { Bell, Plus, CheckCheck, RefreshCw, Search, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi, workdayApi } from '@/lib/api';
@@ -65,11 +65,11 @@ export function TopBar() {
   });
   const workStatus = (workdayData as any)?.session?.status ?? 'OFFLINE';
 
-  const { data: notifications } = useQuery({
+  const { data: notifications, isLoading: notifsLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.getAll() as Promise<any[]>,
-    enabled: showNotifs,
-    refetchInterval: showNotifs ? 60000 : false,
+    staleTime: 30000,
+    refetchInterval: 60000,
   });
 
   const markAllRead = useMutation({
@@ -239,7 +239,11 @@ export function TopBar() {
                 </div>
               </div>
               <div className="max-h-72 overflow-y-auto">
-                {Array.isArray(notifications) && notifications.length > 0 ? (
+                {notifsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={18} className="animate-spin text-slate-400 dark:text-gray-500" />
+                  </div>
+                ) : Array.isArray(notifications) && notifications.length > 0 ? (
                   notifications.map((n: any) => {
                     const href = n.entityType === 'TICKET' && n.entityId
                       ? `/tickets/${n.entityId}`

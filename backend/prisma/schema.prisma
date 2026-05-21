@@ -14,6 +14,7 @@ model User {
   password     String
   avatar       String?
   photoUrl     String?
+  bio          String?
   isActive             Boolean  @default(true)
   mustChangePassword   Boolean  @default(true)
   roleId       String

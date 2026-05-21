@@ -140,8 +140,11 @@ export const ticketsApi = {
   exportCsv: async (params?: any) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL
+      ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '')}/api`
+      : 'http://localhost:3001/api';
     const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/tickets/export${query}`,
+      `${baseUrl}/tickets/export${query}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     const blob = await res.blob();

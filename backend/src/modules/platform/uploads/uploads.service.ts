@@ -41,9 +41,9 @@ export class UploadsService {
       });
       url = result.secure_url;
     } else {
-      // Fallback: store filename only (no actual upload)
-      console.warn('[UploadsService] Cloudinary not configured — using local fallback');
-      url = `/uploads/${file.originalname}`;
+      // Fallback: store as base64 data URL so the browser can display/download it
+      console.warn('[UploadsService] Cloudinary not configured — using base64 fallback');
+      url = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     }
 
     return this.prisma.attachment.create({

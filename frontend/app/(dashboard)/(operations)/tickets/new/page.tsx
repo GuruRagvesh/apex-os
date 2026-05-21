@@ -443,19 +443,29 @@ export default function NewTicketPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Assign To</label>
-            <MultiSelect
-              options={filteredUsers.map((u: any) => ({
-                value: u.id,
-                label: u.name,
-                sublabel: u.role?.name ?? u.role,
-                avatar: u.avatar,
-              }))}
-              value={assigneeIds}
-              onChange={setAssigneeIds}
-              placeholder="Select assignees..."
-            />
-            {assigneeIds.length > 0 && (
-              <LeaveWarning assigneeIds={assigneeIds} users={userList} />
+            {isEmployee ? (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm"
+                style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+                <span className="text-base">👤</span>
+                <span>This ticket will be assigned to you</span>
+              </div>
+            ) : (
+              <>
+                <MultiSelect
+                  options={filteredUsers.map((u: any) => ({
+                    value: u.id,
+                    label: u.name,
+                    sublabel: u.role?.name ?? u.role,
+                    avatar: u.avatar,
+                  }))}
+                  value={assigneeIds}
+                  onChange={setAssigneeIds}
+                  placeholder="Select assignees..."
+                />
+                {assigneeIds.length > 0 && (
+                  <LeaveWarning assigneeIds={assigneeIds} users={userList} />
+                )}
+              </>
             )}
           </div>
           <div>
