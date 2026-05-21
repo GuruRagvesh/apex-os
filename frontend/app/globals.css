@@ -310,3 +310,86 @@ html[data-theme="john-wick-dark"] textarea {
 .ticket-card:hover {
   @apply shadow-md -translate-y-0.5 transition-all;
 }
+
+/* ═══════════════════════════════════════
+   TYPOGRAPHY SYSTEM
+═══════════════════════════════════════ */
+:root {
+  --font-size-xs:    11px;
+  --font-size-sm:    12px;
+  --font-size-base:  13px;
+  --font-size-md:    14px;
+  --font-size-lg:    16px;
+  --font-size-xl:    20px;
+  --font-size-2xl:   24px;
+
+  --font-weight-normal:   400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  --line-height-tight:   1.25;
+  --line-height-normal:  1.5;
+  --line-height-relaxed: 1.7;
+}
+
+/* Font size presets */
+html[data-font-size="small"]  { --font-size-base: 12px; }
+html[data-font-size="medium"] { --font-size-base: 13px; }
+html[data-font-size="large"]  { --font-size-base: 15px; }
+
+body { font-size: var(--font-size-base); }
+
+/* ═══════════════════════════════════════
+   COMPACT MODE
+═══════════════════════════════════════ */
+html[data-compact="true"] { --spacing-unit: 0.75; }
+html[data-compact="true"] .apex-card { padding: 12px; }
+html[data-compact="true"] nav a { padding-top: 6px; padding-bottom: 6px; }
+
+/* ═══════════════════════════════════════
+   CUSTOM SCROLLBARS
+═══════════════════════════════════════ */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-secondary); }
+* { scrollbar-width: thin; scrollbar-color: var(--border-primary) transparent; }
+
+/* ═══════════════════════════════════════
+   ANIMATIONS & TRANSITIONS
+═══════════════════════════════════════ */
+.page-enter {
+  animation: fadeSlideIn 0.2s ease-out;
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Modal enter */
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.modal-enter { animation: modalIn 0.15s ease-out; }
+
+/* Slide-over panel */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+.slide-over { animation: slideInRight 0.2s ease-out; }
+
+/* No transitions during theme switch */
+html[data-theme-switching] * { transition: none !important; }
+
+/* ═══════════════════════════════════════
+   TOAST OVERRIDE (CSS var aware)
+═══════════════════════════════════════ */
+.apex-toast-success { border-left: 3px solid var(--color-success) !important; }
+.apex-toast-error   { border-left: 3px solid var(--color-danger)  !important; }
+.apex-toast-warning { border-left: 3px solid var(--color-warning) !important; }

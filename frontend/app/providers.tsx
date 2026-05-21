@@ -21,8 +21,23 @@ export function Providers({ children }: { children: React.ReactNode }) {
         position="top-right"
         toastOptions={{
           duration: 3000,
-          style: { background: '#363636', color: '#fff' },
-          success: { duration: 2000 },
+          style: {
+            background: 'var(--surface-elevated)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border-primary)',
+            borderRadius: '10px',
+            padding: '10px 14px',
+            fontSize: '13px',
+            boxShadow: 'var(--shadow-md)',
+            maxWidth: '320px',
+          },
+          success: {
+            duration: 2000,
+            style: { borderLeft: '3px solid var(--color-success)' },
+          },
+          error: {
+            style: { borderLeft: '3px solid var(--color-danger)' },
+          },
         }}
       />
     </QueryClientProvider>

@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, Plus, CheckCheck, RefreshCw, Search, Loader2 } from 'lucide-react';
+import { Bell, Plus, CheckCheck, RefreshCw, Search, Loader2, User, Palette, SlidersHorizontal, Camera, LogOut, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi, workdayApi } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/utils';
 import { useSocket } from '@/hooks/useSocket';
 import { CommandPalette } from '@/components/ui/command-palette';
+import { UserAvatar } from '@/components/ui/user-avatar';
+import { downloadScreenshot } from '@/lib/download-screenshot';
 import toast from 'react-hot-toast';
 
 const pageNames: Record<string, string> = {
@@ -31,9 +33,23 @@ export function TopBar() {
   const router = useRouter();
   const { user } = useAuthStore();
   const qc = useQueryClient();
-  const [showNotifs,   setShowNotifs]   = useState(false);
-  const [paletteOpen,  setPaletteOpen]  = useState(false);
+  const [showNotifs,      setShowNotifs]      = useState(false);
+  const [paletteOpen,     setPaletteOpen]     = useState(false);
   const [showWorkdayMenu, setShowWorkdayMenu] = useState(false);
+  const [showUserMenu,    setShowUserMenu]    = useState(false);
+  const [screenshotLoading, setScreenshotLoading] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close user menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+    if (showUserMenu) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showUserMenu]);
   // Defensive: role may be an object { name } or a plain string
   const roleName     = (user?.role as any)?.name || (user?.role as any) || '';
   const isSuperAdmin = roleName === 'SUPER_ADMIN';
@@ -107,6 +123,23 @@ export function TopBar() {
 
   const pageName = Object.entries(pageNames).find(([key]) => pathname.startsWith(key))?.[1] || 'Apex OS';
   const count = (unreadCount as any)?.count ?? 0;
+
+  const { logout } = useAuthStore();
+
+  const handleScreenshot = async () => {
+    setScreenshotLoading(true);
+    setShowUserMenu(false);
+    try {
+      const segments = pathname.split('/').filter(Boolean);
+      const page = segments[segments.length - 1] || 'dashboard';
+      await downloadScreenshot(page);
+      toast.success('Screenshot downloaded!');
+    } catch {
+      toast.error('Failed to capture screenshot');
+    } finally {
+      setScreenshotLoading(false);
+    }
+  };
 
   return (
     <>
@@ -287,6 +320,90 @@ export function TopBar() {
                     <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">No new notifications</p>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+        </div>
+        {/* User avatar + profile dropdown */}
+        <div className="relative" ref={userMenuRef}>
+          <button
+            onClick={() => { setShowUserMenu((v) => !v); setShowNotifs(false); setShowWorkdayMenu(false); }}
+            className="flex items-center gap-2 px-2 py-1 rounded-lg hover:opacity-80 transition-all"
+          >
+            <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
+            <span className="hidden sm:block text-sm font-medium max-w-[100px] truncate" style={{ color: 'var(--text-primary)' }}>
+              {user?.name?.split(' ')[0]}
+            </span>
+            <ChevronDown size={12} style={{ color: 'var(--text-tertiary)' }} />
+          </button>
+
+          {showUserMenu && (
+            <div
+              className="absolute right-0 top-11 w-56 z-50 rounded-xl overflow-hidden"
+              style={{
+                backgroundColor: 'var(--surface-elevated)',
+                border: '1px solid var(--border-primary)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+              }}
+            >
+              {/* User info header */}
+              <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user?.name}</p>
+                <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{user?.email}</p>
+              </div>
+
+              {/* Menu items */}
+              <div className="p-1.5">
+                {[
+                  { icon: User, label: 'My Profile', href: '/settings?tab=profile' },
+                  { icon: Palette, label: 'Appearance', href: '/settings?tab=appearance' },
+                  { icon: SlidersHorizontal, label: 'Preferences', href: '/settings?tab=preferences' },
+                ].map(({ icon: Icon, label, href }) => (
+                  <button
+                    key={href}
+                    onClick={() => { router.push(href); setShowUserMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left"
+                    style={{ color: 'var(--text-secondary)' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="p-1.5" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                <button
+                  onClick={handleScreenshot}
+                  disabled={screenshotLoading}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left disabled:opacity-50"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  {screenshotLoading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+                  {screenshotLoading ? 'Capturing…' : 'Download Screenshot'}
+                </button>
+              </div>
+
+              <div className="p-1.5" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                <button
+                  onClick={() => { setShowUserMenu(false); logout(); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
+                    e.currentTarget.style.color = 'var(--color-danger)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                  }}
+                >
+                  <LogOut size={14} />
+                  Logout
+                </button>
               </div>
             </div>
           )}

@@ -7,7 +7,7 @@ import { authApi, usersApi, settingsApi, taskTypesApi, departmentsApi } from '@/
 import { UserAvatar } from '@/components/ui/user-avatar';
 import toast from 'react-hot-toast';
 import {
-  User, Shield, Bell, Palette, SlidersHorizontal, Building2,
+  User, Shield, Palette, SlidersHorizontal, Building2,
   CalendarDays, Gauge, Mail, Eye, EyeOff, Lock, Tags,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -969,7 +969,7 @@ function TaskTypesSettings() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECTION: Appearance (theme + accent picker)
+// SECTION: Appearance (theme + accent + font size + compact mode)
 // ─────────────────────────────────────────────────────────────────────────────
 function AppearanceSettings() {
   const { theme, accent, setTheme, setAccent, setCompanyDefaults, resetToCompanyDefaults } = useTheme();
@@ -979,6 +979,32 @@ function AppearanceSettings() {
 
   const [companyTheme, setCompanyThemeState] = useState<ThemeId>('technoedge-light');
   const [companyAccent, setCompanyAccentState] = useState<AccentId>('royal-blue');
+
+  // Font size
+  const [fontSize, setFontSizeState] = useState<'small' | 'medium' | 'large'>(() =>
+    typeof window !== 'undefined'
+      ? ((localStorage.getItem('apex-font-size') as any) ?? 'medium')
+      : 'medium',
+  );
+
+  const applyFontSize = (size: 'small' | 'medium' | 'large') => {
+    setFontSizeState(size);
+    localStorage.setItem('apex-font-size', size);
+    document.documentElement.setAttribute('data-font-size', size);
+  };
+
+  // Compact mode
+  const [compact, setCompactState] = useState<boolean>(() =>
+    typeof window !== 'undefined'
+      ? localStorage.getItem('apex-compact') === 'true'
+      : false,
+  );
+
+  const applyCompact = (val: boolean) => {
+    setCompactState(val);
+    localStorage.setItem('apex-compact', String(val));
+    document.documentElement.setAttribute('data-compact', String(val));
+  };
 
   const THEMES = [
     { id: 'technoedge-light', name: 'TechnoEdge Light', desc: 'Clean Professional', preview: { bg: '#f8fafc', sidebar: '#ffffff', accent: '#2563eb' }, active: true },
@@ -1080,6 +1106,45 @@ function AppearanceSettings() {
         </div>
       </div>
 
+      {/* Font Size */}
+      <div>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Font Size</h3>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Adjusts the base text size across the app</p>
+        <div className="flex gap-3">
+          {([
+            { id: 'small',  label: 'Small',  desc: '12px' },
+            { id: 'medium', label: 'Medium', desc: '13px' },
+            { id: 'large',  label: 'Large',  desc: '15px' },
+          ] as const).map(({ id, label, desc }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => applyFontSize(id)}
+              className="flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all"
+              style={{
+                borderColor: fontSize === id ? 'var(--accent)' : 'var(--border-primary)',
+                backgroundColor: fontSize === id ? 'var(--accent-subtle)' : 'var(--surface-card)',
+                color: fontSize === id ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+            >
+              {label}
+              <span className="block text-xs mt-0.5" style={{ color: fontSize === id ? 'var(--accent-text)' : 'var(--text-tertiary)' }}>{desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Compact Mode */}
+      <div className="rounded-xl p-4 border" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Compact Mode</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Reduces spacing for denser information display</p>
+          </div>
+          <Toggle checked={compact} onChange={applyCompact} />
+        </div>
+      </div>
+
       {/* Reset */}
       <div>
         <button onClick={resetToCompanyDefaults} className="text-sm" style={{ color: 'var(--accent)' }}>
@@ -1138,7 +1203,7 @@ function AppearanceSettings() {
 // ROOT — left sidebar layout
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
-  | 'profile' | 'security' | 'notifications' | 'display' | 'preferences' | 'appearance'
+  | 'profile' | 'security' | 'preferences' | 'appearance'
   | 'company' | 'leave-policy' | 'sla' | 'smtp' | 'task-types';
 
 export default function SettingsPage() {
@@ -1148,7 +1213,14 @@ export default function SettingsPage() {
   const isSuperAdmin = roleName === 'SUPER_ADMIN';
   const isManager   = ['MANAGER', 'TEAM_LEAD', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
+  const validTabs: SectionId[] = ['profile', 'security', 'preferences', 'appearance', 'company', 'leave-policy', 'sla', 'smtp', 'task-types'];
   const [active, setActive] = useState<SectionId>('profile');
+
+  useEffect(() => {
+    const tabParam = new URLSearchParams(window.location.search).get('tab') as SectionId | null;
+    if (tabParam && validTabs.includes(tabParam)) setActive(tabParam);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── NavItem defined as closure — captures active / setActive ─────────────
   function NavItem({ id, label, icon, badge }: {
@@ -1183,12 +1255,10 @@ export default function SettingsPage() {
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2">
             My Account
           </p>
-          <NavItem id="profile"       label="Profile"           icon={<User size={15} />} />
-          <NavItem id="security"      label="Security"          icon={<Shield size={15} />} />
-          <NavItem id="notifications" label="Notifications"     icon={<Bell size={15} />} />
-          <NavItem id="display"       label="Display & Theme"   icon={<Palette size={15} />} />
-          <NavItem id="appearance"    label="Appearance"         icon={<Palette size={15} />} />
-          <NavItem id="preferences"   label="Preferences"       icon={<SlidersHorizontal size={15} />} />
+          <NavItem id="profile"     label="Profile"     icon={<User size={15} />} />
+          <NavItem id="appearance"  label="Appearance"  icon={<Palette size={15} />} />
+          <NavItem id="preferences" label="Preferences" icon={<SlidersHorizontal size={15} />} />
+          <NavItem id="security"    label="Security"    icon={<Shield size={15} />} />
 
           {isAdmin && (
             <>
@@ -1210,17 +1280,23 @@ export default function SettingsPage() {
 
       {/* ── RIGHT CONTENT ────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0">
-        {active === 'profile'       && <ProfileSection       user={user} />}
-        {active === 'security'      && <SecuritySection      user={user} />}
-        {active === 'notifications' && <NotificationsSection isManager={isManager} />}
-        {active === 'display'       && <DisplaySection />}
-        {active === 'appearance'    && <AppearanceSettings />}
-        {active === 'preferences'   && <PreferencesSection />}
-        {active === 'company'       && isAdmin      && <CompanySection />}
-        {active === 'leave-policy'  && isAdmin      && <LeavePolicySection canEdit={isAdmin} />}
-        {active === 'sla'           && isAdmin      && <SlaSection />}
-        {active === 'task-types'    && isAdmin      && <TaskTypesSettings />}
-        {active === 'smtp'          && isSuperAdmin && <SmtpSection />}
+        {active === 'profile'     && <ProfileSection user={user} />}
+        {active === 'appearance'  && <AppearanceSettings />}
+        {active === 'preferences' && (
+          <div className="space-y-8">
+            <PreferencesSection />
+            <div className="border-t pt-6" style={{ borderColor: 'var(--border-subtle)' }}>
+              <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Notification Preferences</h3>
+              <NotificationsSection isManager={isManager} />
+            </div>
+          </div>
+        )}
+        {active === 'security'    && <SecuritySection user={user} />}
+        {active === 'company'     && isAdmin      && <CompanySection />}
+        {active === 'leave-policy' && isAdmin     && <LeavePolicySection canEdit={isAdmin} />}
+        {active === 'sla'         && isAdmin      && <SlaSection />}
+        {active === 'task-types'  && isAdmin      && <TaskTypesSettings />}
+        {active === 'smtp'        && isSuperAdmin && <SmtpSection />}
       </div>
     </div>
   );
