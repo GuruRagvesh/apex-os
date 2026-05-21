@@ -10,6 +10,8 @@ import {
   STATUS_LABELS, PRIORITY_LABELS, CATEGORY_LABELS,
   formatDate, formatRelativeTime, getInitials,
 } from '@/lib/utils';
+import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
+import { OverdueTicker } from '@/components/tickets/OverdueTicker';
 import { SkeletonTicketDetail } from '@/components/ui/skeleton';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
@@ -574,6 +576,12 @@ export default function TicketDetailPage() {
   if (isLoading) return <SkeletonTicketDetail />;
   if (!ticket) return <div className="text-center py-12 text-slate-500">Ticket not found</div>;
 
+  const vis = getTicketVisibility({
+    status: ticket?.status,
+    isOverdue: ticket?.isOverdue,
+    overdueSeverity: ticket?.overdueSeverity,
+  });
+
   const roleName = (user?.role as any)?.name ?? (user?.role as any) ?? '';
   const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const isParticipant = ticket.createdById === user?.id || ticket.assignedToId === user?.id;
@@ -592,6 +600,17 @@ export default function TicketDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">
+      {/* Colored accent bar */}
+      <div className={`h-1 w-full rounded-full ${
+        ticket?.isOverdue
+          ? ticket?.overdueSeverity === 'red' ? 'bg-red-500'
+            : ticket?.overdueSeverity === 'deep-orange' ? 'bg-orange-600'
+            : 'bg-orange-400'
+          : ticket?.status === 'IN_PROGRESS' ? 'bg-yellow-400'
+          : ticket?.status === 'REVIEW' ? 'bg-purple-400'
+          : ticket?.status === 'DONE' ? 'bg-green-400'
+          : 'bg-slate-300 dark:bg-slate-600'
+      }`} />
       {/* POC Upload Modal */}
       {showPocModal && (
         <PocUploadModal
@@ -709,8 +728,8 @@ export default function TicketDetailPage() {
             <span className={cn('text-xs px-2 py-0.5 rounded font-medium', PRIORITY_COLORS[ticket.priority])}>
               {PRIORITY_LABELS[ticket.priority] ?? ticket.priority}
             </span>
-            <span className={cn('text-xs px-2.5 py-0.5 rounded-full font-medium', STATUS_COLORS[ticket.status])}>
-              {STATUS_LABELS[ticket.status] ?? ticket.status}
+            <span className={cn('text-xs px-2 py-1 rounded-lg font-medium', vis.badgeClass)}>
+              {vis.badgeText}
             </span>
             {ticket.isOverdue && (
               <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
@@ -719,6 +738,7 @@ export default function TicketDetailPage() {
             )}
           </div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-white">{ticket.title}</h2>
+          <OverdueTicker dueAt={ticket?.dueDate} scheduledEndAt={ticket?.scheduledEndAt} status={ticket?.status ?? ''} className="text-sm mt-1" />
           <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
@@ -1144,6 +1164,38 @@ export default function TicketDetailPage() {
                 <div className="flex items-start gap-2">
                   <Clock size={13} className="text-slate-400 dark:text-gray-500 mt-0.5 flex-shrink-0" />
                   <span className="text-xs text-slate-500 dark:text-gray-400 italic">{ticket.scheduledNote}</span>
+                </div>
+              )}
+              {ticket?.scheduledStartAt && ticket?.scheduledEndAt && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-gray-400">Scheduled</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                    ⏰ {new Date(ticket.scheduledStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} → {new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              )}
+              {ticket?.estimatedMinutes && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-gray-400">Estimated</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                    ⏱ {ticket.estimatedMinutes < 60 ? `${ticket.estimatedMinutes} min` : `${Math.floor(ticket.estimatedMinutes / 60)}h${ticket.estimatedMinutes % 60 > 0 ? ` ${ticket.estimatedMinutes % 60}m` : ''}`}
+                  </p>
+                </div>
+              )}
+              {ticket?.actualStartAt && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-gray-400">Started</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                    ▶ {new Date(ticket.actualStartAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              )}
+              {ticket?.actualCompletedAt && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-gray-400">Completed</p>
+                  <p className="text-sm font-medium text-green-600 dark:text-green-400 mt-0.5">
+                    ✓ {new Date(ticket.actualCompletedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
                 </div>
               )}
               <div className="flex items-center gap-2">

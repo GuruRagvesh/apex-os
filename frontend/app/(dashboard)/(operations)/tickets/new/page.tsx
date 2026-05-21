@@ -10,6 +10,8 @@ import { ArrowLeft, Sparkles, Loader2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MultiSelect } from '@/components/ui/multi-select';
 
+
+
 // ─── Leave Warning ────────────────────────────────────────────────────────────
 function LeaveWarning({ assigneeIds, users }: { assigneeIds: string[]; users: any[] }) {
   const { data: teamStatus } = useQuery({
@@ -69,7 +71,7 @@ export default function NewTicketPage() {
     category: 'IT',
     type: 'TASK',
     priority: 'MEDIUM',
-    estimatedTime: '',
+    estimatedMinutes: '',
     // Pre-fill department for TL / Employee
     departmentId: (isTL || isEmployee) ? myDeptId : '',
     projectId: preselectedProjectId || '',
@@ -78,7 +80,11 @@ export default function NewTicketPage() {
     dueDate: '',
     scheduledFor: '',
     scheduledNote: '',
+    scheduledStartAt: '',
+    scheduledEndAt: '',
   });
+
+  const [showAdvancedSchedule, setShowAdvancedSchedule] = useState(false);
 
   // Multiple assignees state
   const [assigneeIds, setAssigneeIds] = useState<string[]>(
@@ -171,7 +177,8 @@ export default function NewTicketPage() {
     if (!form.title.trim()) return toast.error('Title is required');
     mutation.mutate({
       ...form,
-      estimatedTime: form.estimatedTime ? parseFloat(form.estimatedTime) : undefined,
+      estimatedTime: undefined,
+      estimatedMinutes: form.estimatedMinutes ? parseInt(form.estimatedMinutes) : undefined,
       projectId: form.projectId || undefined,
       // Primary assignee = first selected, or the single assignedToId
       assignedToId: assigneeIds[0] || form.assignedToId || undefined,
@@ -184,6 +191,8 @@ export default function NewTicketPage() {
       scheduleEndDate: computeEndDate(),
       taskTypeId: taskTypeId || undefined,
       taskSubtypeId: taskSubtypeId || undefined,
+      scheduledStartAt: form.scheduledStartAt ? new Date(form.scheduledStartAt).toISOString() : undefined,
+      scheduledEndAt:   form.scheduledEndAt   ? new Date(form.scheduledEndAt).toISOString()   : undefined,
     });
   };
 
@@ -365,16 +374,23 @@ export default function NewTicketPage() {
             )}
           </div>
           <div>
-            <label className={labelCls}>Estimated Time (hours)</label>
+            <label className={labelCls}>Estimated Duration (minutes)</label>
             <input
               type="number"
-              min="0.5"
-              step="0.5"
-              value={form.estimatedTime}
-              onChange={(e) => set('estimatedTime', e.target.value)}
+              min="1"
+              step="1"
+              value={form.estimatedMinutes ?? ''}
+              onChange={(e) => set('estimatedMinutes', e.target.value)}
               className={inputCls}
-              placeholder="e.g., 2"
+              placeholder="e.g. 35 for 35 min, 90 for 1.5 hrs"
             />
+            {form.estimatedMinutes && Number(form.estimatedMinutes) > 0 && (
+              <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">
+                = {Number(form.estimatedMinutes) < 60
+                    ? `${form.estimatedMinutes} minutes`
+                    : `${Math.floor(Number(form.estimatedMinutes) / 60)}h${Number(form.estimatedMinutes) % 60 > 0 ? ` ${Number(form.estimatedMinutes) % 60}m` : ''}`}
+              </p>
+            )}
           </div>
         </div>
 
@@ -531,6 +547,71 @@ export default function NewTicketPage() {
                   />
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Advanced Scheduling */}
+        <div className="border border-slate-200 dark:border-gray-700 rounded-xl overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowAdvancedSchedule(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Clock size={14} className="text-slate-400" />
+              Advanced Scheduling
+            </span>
+            <span className="text-slate-400">{showAdvancedSchedule ? '▲' : '▼'}</span>
+          </button>
+          {showAdvancedSchedule && (
+            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-100 dark:border-gray-700">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Scheduled Start</label>
+                  <input
+                    type="datetime-local"
+                    value={form.scheduledStartAt ?? ''}
+                    onChange={(e) => set('scheduledStartAt', e.target.value)}
+                    className={inputCls}
+                    min={new Date().toISOString().slice(0, 16)}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Scheduled End</label>
+                  <input
+                    type="datetime-local"
+                    value={form.scheduledEndAt ?? ''}
+                    onChange={(e) => set('scheduledEndAt', e.target.value)}
+                    className={inputCls}
+                    min={form.scheduledStartAt || new Date().toISOString().slice(0, 16)}
+                  />
+                </div>
+              </div>
+              {form.scheduledStartAt && form.scheduledEndAt && (
+                (() => {
+                  const diffMs = new Date(form.scheduledEndAt).getTime() - new Date(form.scheduledStartAt).getTime();
+                  const diffMin = Math.floor(diffMs / 60000);
+                  if (diffMin < 0) return (
+                    <p className="text-xs text-red-500">⚠ End time must be after start time</p>
+                  );
+                  return (
+                    <p className="text-xs text-slate-400 dark:text-gray-500">
+                      Duration: {diffMin < 60 ? `${diffMin} min` : `${Math.floor(diffMin/60)}h${diffMin%60>0?` ${diffMin%60}m`:''}`.trim()}
+                    </p>
+                  );
+                })()
+              )}
+              <div>
+                <label className={labelCls}>Schedule Note</label>
+                <input
+                  type="text"
+                  value={form.scheduledNote ?? ''}
+                  onChange={(e) => set('scheduledNote', e.target.value)}
+                  className={inputCls}
+                  placeholder="e.g., Check before standup"
+                />
+              </div>
             </div>
           )}
         </div>

@@ -21,6 +21,8 @@ import {
   BarChart3, Building2, User, Plus, Info, CheckCircle,
   AlertTriangle, XCircle, Calendar, ChevronRight,
 } from 'lucide-react';
+import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
+import { OverdueTicker } from '@/components/tickets/OverdueTicker';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Clock & date helpers
@@ -338,7 +340,12 @@ export default function DashboardPage() {
 
   const todayTasks    = useMemo(() => allMyTasks.filter((t) => bucket(t.dueDate) === 'today'),    [allMyTasks]);
   const upcomingTasks = useMemo(() => allMyTasks.filter((t) => bucket(t.dueDate) === 'upcoming'), [allMyTasks]);
-  const overdueTasks  = useMemo(() => allMyTasks.filter((t) => bucket(t.dueDate) === 'overdue'),  [allMyTasks]);
+  const overdueTasks  = useMemo(
+    () => allMyTasks
+      .filter((t) => bucket(t.dueDate) === 'overdue' || t.isOverdue)
+      .sort((a, b) => (b.overdueMinutes ?? 0) - (a.overdueMinutes ?? 0)),
+    [allMyTasks],
+  );
 
   const visibleTasks = taskTab === 'today' ? todayTasks : taskTab === 'upcoming' ? upcomingTasks : overdueTasks;
 
@@ -501,29 +508,36 @@ export default function DashboardPage() {
                     </p>
                   </div>
                 )
-                : visibleTasks.slice(0, 5).map((t: any) => (
-                  <Link
-                    key={t.id}
-                    href={`/tickets/${t.id}`}
-                    className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-gray-700/40 transition-colors group"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 dark:text-gray-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                        {t.title.length > 45 ? t.title.slice(0, 45) + '…' : t.title}
-                      </p>
-                      <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5 truncate">
-                        {t.project?.name ? `${t.project.name} · ` : ''}
-                        {t.department?.name ?? '—'}
-                      </p>
-                    </div>
-                    <PriBadge p={t.priority} />
-                    {t.dueDate && (
-                      <span className="text-xs text-slate-400 dark:text-gray-500 flex-shrink-0 font-mono">
-                        {new Date(t.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                      </span>
-                    )}
-                  </Link>
-                ))
+                : visibleTasks.slice(0, 5).map((t: any) => {
+                    const tVis = getTicketVisibility({ status: t.status, isOverdue: t.isOverdue, overdueSeverity: t.overdueSeverity });
+                    return (
+                      <Link
+                        key={t.id}
+                        href={`/tickets/${t.id}`}
+                        className={cn('flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-gray-700/40 transition-all group', tVis.borderClass, tVis.bgClass)}
+                      >
+                        <span className={cn('w-2 h-2 rounded-full flex-shrink-0 inline-block', PRIORITY_DOT[t.priority] ?? 'bg-gray-400')} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-gray-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                            {t.title.length > 45 ? t.title.slice(0, 45) + '…' : t.title}
+                          </p>
+                          <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5 truncate">
+                            {t.project?.name ? `${t.project.name} · ` : ''}
+                            {t.department?.name ?? '—'}
+                          </p>
+                          {taskTab === 'overdue' && (
+                            <OverdueTicker dueAt={t.dueDate} scheduledEndAt={t.scheduledEndAt} status={t.status} />
+                          )}
+                        </div>
+                        <PriBadge p={t.priority} />
+                        {t.dueDate && (
+                          <span className="text-xs text-slate-400 dark:text-gray-500 flex-shrink-0 font-mono">
+                            {new Date(t.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })
             }
           </div>
 

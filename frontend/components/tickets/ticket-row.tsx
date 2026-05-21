@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { cn, PRIORITY_COLORS, STATUS_COLORS, CATEGORY_COLORS, STATUS_LABELS, PRIORITY_LABELS, CATEGORY_LABELS, formatDate, getInitials, DEPT_COLORS } from '@/lib/utils';
+import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
+import { OverdueTicker } from '@/components/tickets/OverdueTicker';
 import { Clock, Copy, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -83,11 +85,16 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
     );
   }
 
+  const vis = getTicketVisibility({
+    status: ticket.status,
+    isOverdue: ticket.isOverdue,
+    overdueSeverity: ticket.overdueSeverity,
+  });
+
   return (
     <Link
       href={ticketHref}
-      className="grid grid-cols-12 items-center gap-4 px-4 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
-      style={{ borderLeft: `3px solid ${deptColor}` }}
+      className={cn('grid grid-cols-12 items-center gap-4 px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-all border-b border-slate-50 dark:border-gray-800 last:border-0', vis.borderClass, vis.bgClass)}
     >
       {/* Ticket col-span-6 */}
       <div className="col-span-6 min-w-0">
@@ -103,9 +110,17 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
             </span>
           )}
         </div>
-        <p className="text-sm font-semibold text-slate-800 truncate">{ticket.title}</p>
+        <div className="flex items-center gap-2">
+          <span className={cn('inline-block w-2 h-2 rounded-full flex-shrink-0', PRIORITY_DOT[ticket.priority] ?? 'bg-gray-400')} />
+          <p className="text-sm font-semibold text-slate-800 dark:text-gray-200 truncate">{ticket.title}</p>
+        </div>
         {ticket.department && (
-          <p className="text-xs text-slate-400 mt-0.5">{ticket.department.name}</p>
+          <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">{ticket.department.name}</p>
+        )}
+        {ticket.scheduledStartAt && ticket.scheduledEndAt && (
+          <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">
+            📅 {new Date(ticket.scheduledStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} → {new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
         )}
         {!isDone && typeof ticket.slaPercent === 'number' && (
           <div className="mt-1.5">
@@ -129,10 +144,11 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
       </div>
 
       {/* Status col-span-2 */}
-      <div className="col-span-2">
-        <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium', STATUS_COLORS[ticket.status])}>
-          {STATUS_LABELS[ticket.status] ?? ticket.status}
+      <div className="col-span-2 space-y-1">
+        <span className={cn('text-xs px-2 py-1 rounded-lg font-medium', vis.badgeClass)}>
+          {vis.badgeText}
         </span>
+        <OverdueTicker dueAt={ticket.dueDate} scheduledEndAt={ticket.scheduledEndAt} status={ticket.status} />
       </div>
 
       {/* Assignee col-span-1 */}
@@ -142,14 +158,14 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
             <span className="text-white text-xs font-semibold">{getInitials(ticket.assignedTo.name)}</span>
           </div>
         ) : (
-          <div className="w-7 h-7 bg-slate-200 rounded-full flex items-center justify-center" title="Unassigned">
+          <div className="w-7 h-7 bg-slate-200 dark:bg-gray-700 rounded-full flex items-center justify-center" title="Unassigned">
             <span className="text-slate-400 text-xs">?</span>
           </div>
         )}
-        {ticket.estimatedTime && (
+        {(ticket.estimatedMinutes || ticket.estimatedTime) && (
           <div className="flex items-center gap-1 text-xs text-slate-400 hidden xl:flex">
             <Clock size={11} />
-            {ticket.estimatedTime}h
+            {ticket.estimatedMinutes ? `${ticket.estimatedMinutes}m` : `${ticket.estimatedTime}h`}
           </div>
         )}
       </div>

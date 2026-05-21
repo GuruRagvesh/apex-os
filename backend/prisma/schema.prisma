@@ -183,8 +183,13 @@ model Ticket {
   type          TicketType     @default(TASK)
   status        TicketStatus   @default(OPEN)
   priority      Priority       @default(MEDIUM)
-  estimatedTime Float?
-  actualTime    Float?
+  estimatedTime     Float?
+  actualTime        Float?
+  estimatedMinutes  Int?
+  scheduledStartAt  DateTime?
+  scheduledEndAt    DateTime?
+  actualStartAt     DateTime?
+  actualCompletedAt DateTime?
   projectId     String?
   departmentId  String?
   assignedToId  String?

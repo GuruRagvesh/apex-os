@@ -16,6 +16,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ticketsApi, departmentsApi } from '@/lib/api';
 import { cn, PRIORITY_COLORS, CATEGORY_COLORS, PRIORITY_LABELS, CATEGORY_LABELS, getInitials, formatDate, DEPT_COLORS } from '@/lib/utils';
+import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
+import { OverdueTicker } from '@/components/tickets/OverdueTicker';
 import { SkeletonKanbanColumn } from '@/components/ui/skeleton';
 import { Plus, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -31,25 +33,40 @@ const COLUMNS = [
 // ─── Static card UI (also used for DragOverlay) ───────────────────────────────
 function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }) {
   const deptColor = ticket.department?.color || DEPT_COLORS[ticket.department?.name] || '#e2e8f0';
+  const vis = getTicketVisibility({
+    status: ticket.status,
+    isOverdue: ticket.isOverdue,
+    overdueSeverity: ticket.overdueSeverity,
+  });
   return (
     <div
-      className={cn('bg-white rounded-lg border border-slate-200 p-3 shadow-sm', isPending && 'opacity-70')}
-      style={{ borderTop: `3px solid ${deptColor}` }}
+      className={cn('relative bg-white dark:bg-gray-800 rounded-xl border border-slate-200 dark:border-gray-700 p-3 shadow-sm', vis.borderClass, vis.bgClass, isPending && 'opacity-70')}
     >
+      {/* Priority dot — absolute top-right */}
+      <span className={cn('absolute top-2 right-2 w-2.5 h-2.5 rounded-full', PRIORITY_DOT[ticket.priority] ?? 'bg-gray-400')} />
+
       <div className="flex items-start justify-between gap-2 mb-2">
-        <span className="text-xs text-slate-400 font-mono">{ticket.ticketId}</span>
-        <div className="flex items-center gap-1.5">
+        <span className="text-xs text-slate-400 dark:text-gray-500 font-mono">{ticket.ticketId}</span>
+        <div className="flex items-center gap-1.5 pr-4">
           {isPending && <Loader2 size={12} className="animate-spin text-indigo-500" />}
           {ticket.priority === 'URGENT' && <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />}
-          {ticket.isOverdue && <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1 py-0.5 rounded">OVR</span>}
         </div>
       </div>
 
       <Link href={`/tickets/${ticket.id}`} onClick={(e) => e.stopPropagation()}>
-        <p className="text-sm font-medium text-slate-800 leading-snug hover:text-indigo-600 transition-colors line-clamp-2 mb-2.5">
+        <p className="text-sm font-medium text-slate-800 dark:text-gray-200 leading-snug hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors line-clamp-2 mb-1">
           {ticket.title}
         </p>
       </Link>
+
+      <OverdueTicker dueAt={ticket.dueDate} scheduledEndAt={ticket.scheduledEndAt} status={ticket.status} className="mt-1 mb-1.5" />
+
+      {ticket.scheduledStartAt && (
+        <p className="text-[11px] text-slate-400 dark:text-gray-500 mt-0.5 mb-1.5">
+          🕑 {new Date(ticket.scheduledStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {ticket.scheduledEndAt && ` → ${new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+        </p>
+      )}
 
       <div className="flex items-center gap-1.5 flex-wrap mb-3">
         <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', CATEGORY_COLORS[ticket.category])}>
@@ -62,13 +79,14 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {ticket.estimatedTime && (
-            <span className="text-xs text-slate-400 flex items-center gap-1">
-              <Clock size={11} />{ticket.estimatedTime}h
+          {(ticket.estimatedMinutes || ticket.estimatedTime) && (
+            <span className="text-xs text-slate-400 dark:text-gray-500 flex items-center gap-1">
+              <Clock size={11} />
+              {ticket.estimatedMinutes ? `${ticket.estimatedMinutes}m` : `${ticket.estimatedTime}h`}
             </span>
           )}
           {ticket.dueDate && (
-            <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500' : 'text-slate-400')}>
+            <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500' : 'text-slate-400 dark:text-gray-500')}>
               {formatDate(ticket.dueDate)}
             </span>
           )}
@@ -78,13 +96,13 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
             <span className="text-white text-[10px] font-bold">{getInitials(ticket.assignedTo.name)}</span>
           </div>
         ) : (
-          <div className="w-6 h-6 bg-slate-200 rounded-full" title="Unassigned" />
+          <div className="w-6 h-6 bg-slate-200 dark:bg-gray-700 rounded-full" title="Unassigned" />
         )}
       </div>
 
       {/* SLA bar */}
       {typeof ticket.slaPercent === 'number' && !['DONE', 'CLOSED'].includes(ticket.status) && (
-        <div className="mt-2 w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+        <div className="mt-2 w-full h-1 bg-slate-100 dark:bg-gray-700 rounded-full overflow-hidden">
           <div
             className={cn(
               'h-full rounded-full',

@@ -48,15 +48,57 @@ export class TicketsService {
     const slaHours = SLA_HOURS[ticket.priority] ?? 24;
     const elapsed = (Date.now() - new Date(ticket.createdAt).getTime()) / 3600000;
     const slaPercent = Math.min(Math.round((elapsed / slaHours) * 100), 100);
-    const isOverdue =
+    const slaOverdue =
       elapsed > slaHours && !['DONE', 'CLOSED'].includes(ticket.status);
-    return {
+    return this.computeOverdue({
       ...ticket,
       slaHours,
       elapsedHours: Math.round(elapsed * 10) / 10,
       slaPercent,
-      isOverdue,
-    };
+      isOverdue: slaOverdue,
+    });
+  }
+
+  private computeOverdue(ticket: any): any {
+    const now = new Date();
+    const dueAt = ticket.scheduledEndAt || ticket.dueDate;
+
+    if (!dueAt || ['DONE', 'CLOSED'].includes(ticket.status)) {
+      return { ...ticket, isOverdue: ticket.isOverdue ?? false, overdueMinutes: 0, overdueDisplay: null, overdueSeverity: null };
+    }
+
+    const dueTime = new Date(dueAt);
+    const diffMs = now.getTime() - dueTime.getTime();
+    const diffMinutes = Math.floor(diffMs / 60000);
+
+    if (diffMinutes <= 0) {
+      return { ...ticket, isOverdue: false, overdueMinutes: 0, overdueDisplay: null, overdueSeverity: null };
+    }
+
+    let overdueDisplay = '';
+    let overdueSeverity = 'orange';
+
+    if (diffMinutes < 60) {
+      overdueDisplay = `${diffMinutes}m overdue`;
+      overdueSeverity = 'orange';
+    } else if (diffMinutes < 240) {
+      const h = Math.floor(diffMinutes / 60);
+      const m = diffMinutes % 60;
+      overdueDisplay = m > 0 ? `${h}h ${m}m overdue` : `${h}h overdue`;
+      overdueSeverity = 'deep-orange';
+    } else {
+      const h = Math.floor(diffMinutes / 60);
+      const d = Math.floor(h / 24);
+      const rh = h % 24;
+      if (d > 0) {
+        overdueDisplay = rh > 0 ? `${d}d ${rh}h overdue` : `${d}d overdue`;
+      } else {
+        overdueDisplay = `${h}h overdue`;
+      }
+      overdueSeverity = 'red';
+    }
+
+    return { ...ticket, isOverdue: true, overdueMinutes: diffMinutes, overdueDisplay, overdueSeverity };
   }
 
   // Resolve a department filter that may be passed as either an ID or a name
@@ -201,6 +243,16 @@ export class TicketsService {
     if (data.scheduleEndDate) {
       data.scheduleEndDate = new Date(data.scheduleEndDate).toISOString();
     }
+    // Convert new time fields
+    if (data.scheduledStartAt) data.scheduledStartAt = new Date(data.scheduledStartAt);
+    if (data.scheduledEndAt)   data.scheduledEndAt   = new Date(data.scheduledEndAt);
+    if (data.actualStartAt)    data.actualStartAt    = new Date(data.actualStartAt);
+    if (data.actualCompletedAt) data.actualCompletedAt = new Date(data.actualCompletedAt);
+    if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null && data.estimatedMinutes !== '') {
+      data.estimatedMinutes = parseInt(data.estimatedMinutes, 10);
+    } else if (data.estimatedMinutes === '') {
+      data.estimatedMinutes = undefined;
+    }
 
     // Generate a collision-safe ticket ID by retrying on unique-constraint violations (P2002)
     let ticket: any;
@@ -306,6 +358,16 @@ export class TicketsService {
     // Convert scheduledFor string → DateTime
     if (data.scheduledFor) {
       data.scheduledFor = new Date(data.scheduledFor).toISOString();
+    }
+    // Convert new time fields
+    if (data.scheduledStartAt) data.scheduledStartAt = new Date(data.scheduledStartAt);
+    if (data.scheduledEndAt)   data.scheduledEndAt   = new Date(data.scheduledEndAt);
+    if (data.actualStartAt)    data.actualStartAt    = new Date(data.actualStartAt);
+    if (data.actualCompletedAt) data.actualCompletedAt = new Date(data.actualCompletedAt);
+    if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null && data.estimatedMinutes !== '') {
+      data.estimatedMinutes = parseInt(data.estimatedMinutes, 10);
+    } else if (data.estimatedMinutes === '') {
+      data.estimatedMinutes = undefined;
     }
 
     const existing = await this.prisma.ticket.findUnique({ where: { id } });
