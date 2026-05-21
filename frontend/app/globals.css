@@ -2,6 +2,260 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════
+   APEX OS — DESIGN SYSTEM v2
+   CSS Custom Properties
+═══════════════════════════════════════ */
+
+/* DEFAULT: TechnoEdge Light */
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --radius: 16px;
+  --radius-sm: 8px;
+  --radius-lg: 24px;
+
+  /* Surfaces */
+  --bg-primary:       #f8fafc;
+  --bg-secondary:     #ffffff;
+  --bg-tertiary:      #f1f5f9;
+  --surface-card:     #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-sunken:   #f8fafc;
+
+  /* Borders */
+  --border-primary:   #e2e8f0;
+  --border-secondary: #cbd5e1;
+  --border-subtle:    #f1f5f9;
+
+  /* Typography */
+  --text-primary:     #0f172a;
+  --text-secondary:   #475569;
+  --text-tertiary:    #94a3b8;
+  --text-inverse:     #ffffff;
+
+  /* Shadows */
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md:   0 4px 6px rgba(0,0,0,0.07);
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+
+  /* Accent — default Royal Blue */
+  --accent:        #2563eb;
+  --accent-hover:  #1d4ed8;
+  --accent-subtle: rgba(37,99,235,0.08);
+  --accent-border: rgba(37,99,235,0.25);
+  --accent-text:   #1e40af;
+  --accent-ring:   rgba(37,99,235,0.35);
+
+  /* Semantic — NEVER changes with theme */
+  --color-success:     #10b981;
+  --color-success-bg:  rgba(16,185,129,0.1);
+  --color-warning:     #f59e0b;
+  --color-warning-bg:  rgba(245,158,11,0.1);
+  --color-danger:      #ef4444;
+  --color-danger-bg:   rgba(239,68,68,0.1);
+  --color-info:        #3b82f6;
+  --color-info-bg:     rgba(59,130,246,0.1);
+
+  /* Priority colors */
+  --priority-urgent:   #ef4444;
+  --priority-high:     #f97316;
+  --priority-medium:   #3b82f6;
+  --priority-low:      #10b981;
+}
+
+/* ── THEME: John Wick Dark ────────────── */
+html[data-theme="john-wick-dark"] {
+  --bg-primary:       #050505;
+  --bg-secondary:     #0d0d0f;
+  --bg-tertiary:      #141417;
+  --surface-card:     #151518;
+  --surface-elevated: #1c1c20;
+  --surface-sunken:   #0a0a0c;
+  --border-primary:   #27272a;
+  --border-secondary: #3f3f46;
+  --border-subtle:    #18181b;
+  --text-primary:     #fafafa;
+  --text-secondary:   #a1a1aa;
+  --text-tertiary:    #52525b;
+  --text-inverse:     #050505;
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md:   0 4px 12px rgba(0,0,0,0.6);
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+/* ── Phase 2 themes (defined, inactive) ── */
+html[data-theme="gen-z-pastel"] {
+  --bg-primary: #faf9ff; --bg-secondary: #ffffff; --bg-tertiary: #f3f0ff;
+  --surface-card: #ffffff; --surface-elevated: #ffffff; --surface-sunken: #faf9ff;
+  --border-primary: #e8e0ff; --border-secondary: #d4c9ff; --border-subtle: #f3f0ff;
+  --text-primary: #1a1523; --text-secondary: #6b5f8a; --text-tertiary: #a89fc2; --text-inverse: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(139,92,246,0.06); --shadow-md: 0 4px 6px rgba(139,92,246,0.08); --shadow-card: 0 1px 3px rgba(139,92,246,0.1);
+}
+html[data-theme="executive-midnight"] {
+  --bg-primary: #0a0e1a; --bg-secondary: #0f1424; --bg-tertiary: #141929;
+  --surface-card: #111827; --surface-elevated: #1a2035; --surface-sunken: #080c16;
+  --border-primary: #1e2a3d; --border-secondary: #2d3a52; --border-subtle: #141c2e;
+  --text-primary: #f1f5f9; --text-secondary: #8892a4; --text-tertiary: #4a5568; --text-inverse: #0a0e1a;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5); --shadow-md: 0 4px 12px rgba(0,0,0,0.7); --shadow-card: 0 1px 3px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.03);
+}
+html[data-theme="focus-mode"] {
+  --bg-primary: #fafaf8; --bg-secondary: #f5f5f0; --bg-tertiary: #efefea;
+  --surface-card: #ffffff; --surface-elevated: #ffffff; --surface-sunken: #f5f5f0;
+  --border-primary: #e5e5de; --border-secondary: #d4d4c9; --border-subtle: #efefea;
+  --text-primary: #1c1c1a; --text-secondary: #57574f; --text-tertiary: #9a9a90; --text-inverse: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04); --shadow-md: 0 4px 6px rgba(0,0,0,0.05); --shadow-card: 0 1px 3px rgba(0,0,0,0.06);
+}
+html[data-theme="neo-future"] {
+  --bg-primary: #06060f; --bg-secondary: #0d0d1a; --bg-tertiary: #111122;
+  --surface-card: #0f0f1e; --surface-elevated: #151528; --surface-sunken: #08080f;
+  --border-primary: #1e1e38; --border-secondary: #2a2a4a; --border-subtle: #12122a;
+  --text-primary: #e8eaf6; --text-secondary: #9899b8; --text-tertiary: #4a4a6a; --text-inverse: #06060f;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.6); --shadow-md: 0 4px 12px rgba(0,0,0,0.7); --shadow-card: 0 1px 3px rgba(0,0,0,0.8), 0 0 0 1px rgba(120,120,255,0.06);
+}
+
+/* ── ACCENT THEMES ────────────────────── */
+html[data-accent="royal-blue"] { --accent:#2563eb;--accent-hover:#1d4ed8;--accent-subtle:rgba(37,99,235,0.08);--accent-border:rgba(37,99,235,0.25);--accent-text:#1e40af;--accent-ring:rgba(37,99,235,0.35); }
+html[data-accent="emerald"]    { --accent:#059669;--accent-hover:#047857;--accent-subtle:rgba(5,150,105,0.08);--accent-border:rgba(5,150,105,0.25);--accent-text:#065f46;--accent-ring:rgba(5,150,105,0.35); }
+html[data-accent="violet"]     { --accent:#7c3aed;--accent-hover:#6d28d9;--accent-subtle:rgba(124,58,237,0.08);--accent-border:rgba(124,58,237,0.25);--accent-text:#5b21b6;--accent-ring:rgba(124,58,237,0.35); }
+html[data-accent="gold"]       { --accent:#d4af37;--accent-hover:#b8960c;--accent-subtle:rgba(212,175,55,0.08);--accent-border:rgba(212,175,55,0.25);--accent-text:#92710a;--accent-ring:rgba(212,175,55,0.35); }
+html[data-accent="crimson"]    { --accent:#dc2626;--accent-hover:#b91c1c;--accent-subtle:rgba(220,38,38,0.08);--accent-border:rgba(220,38,38,0.25);--accent-text:#991b1b;--accent-ring:rgba(220,38,38,0.35); }
+html[data-accent="slate"]      { --accent:#475569;--accent-hover:#334155;--accent-subtle:rgba(71,85,105,0.08);--accent-border:rgba(71,85,105,0.25);--accent-text:#1e293b;--accent-ring:rgba(71,85,105,0.35); }
+
+/* ── GLOBAL ELEMENT STYLES ────────────── */
+* { font-family: var(--font-sans); }
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ── APEX UTILITY CLASSES ─────────────── */
+.apex-bg           { background-color: var(--bg-primary); }
+.apex-bg-secondary { background-color: var(--bg-secondary); }
+.apex-bg-tertiary  { background-color: var(--bg-tertiary); }
+
+.apex-card {
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+.apex-card-hover:hover {
+  border-left: 3px solid var(--accent);
+  box-shadow: var(--shadow-md);
+}
+
+.apex-text         { color: var(--text-primary); }
+.apex-text-muted   { color: var(--text-secondary); }
+.apex-text-subtle  { color: var(--text-tertiary); }
+.apex-text-accent  { color: var(--accent); }
+
+.apex-input {
+  background-color: var(--surface-sunken);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+.apex-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.apex-input::placeholder { color: var(--text-tertiary); }
+
+.apex-btn-primary {
+  background-color: var(--accent);
+  color: var(--text-inverse);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  transition: background-color 0.15s;
+  cursor: pointer;
+}
+.apex-btn-primary:hover { background-color: var(--accent-hover); }
+.apex-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.apex-btn-secondary {
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s;
+  cursor: pointer;
+}
+.apex-btn-secondary:hover { background-color: var(--bg-tertiary); }
+
+.apex-sidebar {
+  background-color: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+}
+.apex-nav-item {
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  display: flex; align-items: center;
+}
+.apex-nav-item:hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
+.apex-nav-item.active {
+  background-color: var(--accent-subtle);
+  color: var(--accent);
+  border-left: 3px solid var(--accent);
+  font-weight: 500;
+}
+
+.apex-avatar { border-radius: 50%; box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--accent-ring); }
+.apex-tab { color: var(--text-secondary); border-bottom: 2px solid transparent; transition: all 0.15s; }
+.apex-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+.apex-badge-accent { background-color: var(--accent-subtle); color: var(--accent-text); border: 1px solid var(--accent-border); border-radius: var(--radius-sm); }
+.apex-badge-success { background: var(--color-success-bg); color: var(--color-success); border-radius: 9999px; }
+.apex-badge-warning { background: var(--color-warning-bg); color: var(--color-warning); border-radius: 9999px; }
+.apex-badge-danger  { background: var(--color-danger-bg);  color: var(--color-danger);  border-radius: 9999px; }
+.apex-badge-info    { background: var(--color-info-bg);    color: var(--color-info);    border-radius: 9999px; }
+
+.apex-divider { border-color: var(--border-subtle); }
+.apex-modal {
+  background-color: var(--surface-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+/* Override Tailwind bg-white / bg-gray-* for theme compatibility */
+/* These ensure existing pages look correct in John Wick dark theme */
+html[data-theme="john-wick-dark"] .bg-white { background-color: var(--surface-card) !important; }
+html[data-theme="john-wick-dark"] .bg-gray-50 { background-color: var(--bg-tertiary) !important; }
+html[data-theme="john-wick-dark"] .bg-gray-100 { background-color: var(--bg-tertiary) !important; }
+html[data-theme="john-wick-dark"] .bg-gray-900 { background-color: var(--bg-secondary) !important; }
+html[data-theme="john-wick-dark"] .bg-slate-50 { background-color: var(--bg-primary) !important; }
+html[data-theme="john-wick-dark"] .bg-slate-100 { background-color: var(--bg-tertiary) !important; }
+html[data-theme="john-wick-dark"] .bg-slate-800 { background-color: var(--surface-sunken) !important; }
+html[data-theme="john-wick-dark"] .bg-slate-900 { background-color: var(--bg-secondary) !important; }
+html[data-theme="john-wick-dark"] .text-gray-900,
+html[data-theme="john-wick-dark"] .text-slate-800,
+html[data-theme="john-wick-dark"] .text-slate-900 { color: var(--text-primary) !important; }
+html[data-theme="john-wick-dark"] .text-gray-600,
+html[data-theme="john-wick-dark"] .text-gray-500,
+html[data-theme="john-wick-dark"] .text-slate-600,
+html[data-theme="john-wick-dark"] .text-slate-500 { color: var(--text-secondary) !important; }
+html[data-theme="john-wick-dark"] .text-gray-400,
+html[data-theme="john-wick-dark"] .text-slate-400 { color: var(--text-tertiary) !important; }
+html[data-theme="john-wick-dark"] .border-gray-200,
+html[data-theme="john-wick-dark"] .border-slate-200 { border-color: var(--border-primary) !important; }
+html[data-theme="john-wick-dark"] .border-gray-700,
+html[data-theme="john-wick-dark"] .border-slate-700 { border-color: var(--border-secondary) !important; }
+/* Input fields in dark theme */
+html[data-theme="john-wick-dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html[data-theme="john-wick-dark"] select,
+html[data-theme="john-wick-dark"] textarea {
+  background-color: var(--surface-sunken) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-secondary) !important;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -16,14 +270,11 @@
     --secondary-foreground: 222.2 47.4% 11.2%;
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
   }
 
   .dark {
@@ -39,8 +290,6 @@
     --secondary-foreground: 210 40% 98%;
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;

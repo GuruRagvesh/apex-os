@@ -11,6 +11,7 @@ import {
   CalendarDays, Gauge, Mail, Eye, EyeOff, Lock, Tags,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTheme, type ThemeId, type AccentId } from '@/hooks/useTheme';
 
 // ── Shared dark-mode-aware styles ─────────────────────────────────────────────
 const inputCls =
@@ -968,10 +969,176 @@ function TaskTypesSettings() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SECTION: Appearance (theme + accent picker)
+// ─────────────────────────────────────────────────────────────────────────────
+function AppearanceSettings() {
+  const { theme, accent, setTheme, setAccent, setCompanyDefaults, resetToCompanyDefaults } = useTheme();
+  const { user } = useAuthStore();
+  const roleName = (user?.role as any)?.name ?? '';
+  const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(roleName);
+
+  const [companyTheme, setCompanyThemeState] = useState<ThemeId>('technoedge-light');
+  const [companyAccent, setCompanyAccentState] = useState<AccentId>('royal-blue');
+
+  const THEMES = [
+    { id: 'technoedge-light', name: 'TechnoEdge Light', desc: 'Clean Professional', preview: { bg: '#f8fafc', sidebar: '#ffffff', accent: '#2563eb' }, active: true },
+    { id: 'john-wick-dark', name: 'John Wick Dark', desc: 'Matte Minimal', preview: { bg: '#050505', sidebar: '#0d0d0f', accent: '#fafafa' }, active: true },
+    { id: 'gen-z-pastel', name: 'Gen Z Pastel', desc: 'Soft Playful', preview: { bg: '#faf9ff', sidebar: '#ffffff', accent: '#7c3aed' }, active: false },
+    { id: 'executive-midnight', name: 'Executive Midnight', desc: 'Navy Premium', preview: { bg: '#0a0e1a', sidebar: '#0f1424', accent: '#3b82f6' }, active: false },
+    { id: 'focus-mode', name: 'Focus Mode', desc: 'Warm Minimal', preview: { bg: '#fafaf8', sidebar: '#f5f5f0', accent: '#475569' }, active: false },
+    { id: 'neo-future', name: 'Neo Future', desc: 'Deep Space', preview: { bg: '#06060f', sidebar: '#0d0d1a', accent: '#a78bfa' }, active: false },
+  ] as const;
+
+  const ACCENTS = [
+    { id: 'royal-blue', color: '#2563eb', name: 'Royal Blue' },
+    { id: 'emerald',    color: '#059669', name: 'Emerald' },
+    { id: 'violet',     color: '#7c3aed', name: 'Violet' },
+    { id: 'gold',       color: '#d4af37', name: 'Gold' },
+    { id: 'crimson',    color: '#dc2626', name: 'Crimson' },
+    { id: 'slate',      color: '#475569', name: 'Slate' },
+  ] as const;
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Appearance</h2>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Personalize your workspace look and feel</p>
+      </div>
+
+      {/* System Theme */}
+      <div>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>System Theme</h3>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Choose your workspace theme</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => t.active && setTheme(t.id as ThemeId)}
+              className="relative text-left rounded-xl border-2 p-3 transition-all"
+              style={{
+                borderColor: theme === t.id ? 'var(--accent)' : 'var(--border-primary)',
+                backgroundColor: 'var(--surface-card)',
+                opacity: t.active ? 1 : 0.5,
+                cursor: t.active ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {/* Mini preview */}
+              <div className="w-full h-12 rounded-lg mb-2 overflow-hidden flex" style={{ backgroundColor: t.preview.bg }}>
+                <div className="w-1/3 h-full" style={{ backgroundColor: t.preview.sidebar }} />
+                <div className="flex-1 p-1.5 flex flex-col gap-1">
+                  <div className="h-1.5 rounded-full w-3/4" style={{ backgroundColor: t.preview.accent, opacity: 0.7 }} />
+                  <div className="h-1 rounded-full w-1/2" style={{ backgroundColor: t.preview.accent, opacity: 0.3 }} />
+                </div>
+              </div>
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{t.name}</p>
+              <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{t.desc}</p>
+              {!t.active && (
+                <span className="absolute top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>Phase 2</span>
+              )}
+              {theme === t.id && (
+                <span className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs" style={{ backgroundColor: 'var(--accent)' }}>&#10003;</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Accent Color */}
+      <div>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Accent Color</h3>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Used for highlights, active states, and your avatar ring</p>
+        <div className="flex items-center gap-3 flex-wrap mb-4">
+          {ACCENTS.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => setAccent(a.id as AccentId)}
+              title={a.name}
+              className="relative flex items-center justify-center transition-transform hover:scale-110"
+              style={{
+                width: 36, height: 36,
+                borderRadius: '50%',
+                backgroundColor: a.color,
+                boxShadow: accent === a.id
+                  ? `0 0 0 3px var(--surface-card), 0 0 0 5px ${a.color}`
+                  : 'none',
+              }}
+            >
+              {accent === a.id && <span className="text-white text-sm font-bold">&#10003;</span>}
+            </button>
+          ))}
+        </div>
+
+        {/* Live Preview */}
+        <div className="rounded-xl p-4 border" style={{ backgroundColor: 'var(--surface-sunken)', borderColor: 'var(--border-primary)' }}>
+          <p className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>Preview</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button className="px-4 py-2 text-sm font-medium rounded-lg text-white" style={{ backgroundColor: 'var(--accent)' }}>Primary Button</button>
+            <span className="text-sm font-medium pb-1" style={{ color: 'var(--accent)', borderBottom: '2px solid var(--accent)' }}>Active Tab</span>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: 'var(--accent)', boxShadow: '0 0 0 3px var(--surface-sunken), 0 0 0 5px var(--accent-ring)' }}>AB</div>
+            <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)' }}>Active badge</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Reset */}
+      <div>
+        <button onClick={resetToCompanyDefaults} className="text-sm" style={{ color: 'var(--accent)' }}>
+          Reset to company defaults
+        </button>
+      </div>
+
+      {/* Admin: Company Defaults */}
+      {isAdmin && (
+        <div className="border-t pt-6" style={{ borderColor: 'var(--border-subtle)' }}>
+          <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Company Default Theme</h3>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>All new users start with these settings. Existing users keep their personal choice.</p>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            {THEMES.filter(t => t.active).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setCompanyThemeState(t.id as ThemeId)}
+                className="relative text-left rounded-xl border-2 p-3 transition-all"
+                style={{
+                  borderColor: companyTheme === t.id ? 'var(--accent)' : 'var(--border-primary)',
+                  backgroundColor: 'var(--surface-card)',
+                }}
+              >
+                <div className="w-full h-10 rounded-lg mb-2 overflow-hidden flex" style={{ backgroundColor: t.preview.bg }}>
+                  <div className="w-1/3 h-full" style={{ backgroundColor: t.preview.sidebar }} />
+                </div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{t.name}</p>
+                {companyTheme === t.id && <span className="absolute top-2 right-2 w-4 h-4 rounded-full text-white text-[10px] flex items-center justify-center" style={{ backgroundColor: 'var(--accent)' }}>&#10003;</span>}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3 mb-4">
+            {ACCENTS.map((a) => (
+              <button key={a.id} onClick={() => setCompanyAccentState(a.id as AccentId)} title={a.name}
+                className="transition-transform hover:scale-110" style={{ width:32, height:32, borderRadius:'50%', backgroundColor:a.color,
+                  boxShadow: companyAccent === a.id ? `0 0 0 2px var(--surface-card), 0 0 0 4px ${a.color}` : 'none' }} />
+            ))}
+          </div>
+
+          <button
+            onClick={() => setCompanyDefaults(companyTheme, companyAccent)}
+            className="px-4 py-2 text-sm font-medium text-white rounded-xl"
+            style={{ backgroundColor: 'var(--accent)' }}
+          >
+            Save Company Defaults
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ROOT — left sidebar layout
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
-  | 'profile' | 'security' | 'notifications' | 'display' | 'preferences'
+  | 'profile' | 'security' | 'notifications' | 'display' | 'preferences' | 'appearance'
   | 'company' | 'leave-policy' | 'sla' | 'smtp' | 'task-types';
 
 export default function SettingsPage() {
@@ -1020,6 +1187,7 @@ export default function SettingsPage() {
           <NavItem id="security"      label="Security"          icon={<Shield size={15} />} />
           <NavItem id="notifications" label="Notifications"     icon={<Bell size={15} />} />
           <NavItem id="display"       label="Display & Theme"   icon={<Palette size={15} />} />
+          <NavItem id="appearance"    label="Appearance"         icon={<Palette size={15} />} />
           <NavItem id="preferences"   label="Preferences"       icon={<SlidersHorizontal size={15} />} />
 
           {isAdmin && (
@@ -1046,6 +1214,7 @@ export default function SettingsPage() {
         {active === 'security'      && <SecuritySection      user={user} />}
         {active === 'notifications' && <NotificationsSection isManager={isManager} />}
         {active === 'display'       && <DisplaySection />}
+        {active === 'appearance'    && <AppearanceSettings />}
         {active === 'preferences'   && <PreferencesSection />}
         {active === 'company'       && isAdmin      && <CompanySection />}
         {active === 'leave-policy'  && isAdmin      && <LeavePolicySection canEdit={isAdmin} />}

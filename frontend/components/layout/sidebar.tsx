@@ -129,6 +129,11 @@ export function Sidebar() {
           'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group',
           active ? ACCENT : 'text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800 hover:text-slate-900 dark:hover:text-white',
         )}
+        style={active ? {
+          backgroundColor: 'var(--accent-subtle)',
+          color: 'var(--accent)',
+          borderLeft: '3px solid var(--accent)',
+        } : {}}
       >
         <Icon size={18} className={active ? ACCENT_ICON : 'text-slate-400 dark:text-gray-500 group-hover:text-slate-600 dark:group-hover:text-gray-300'} />
         {label}
@@ -138,9 +143,9 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="w-64 bg-white dark:bg-gray-900 border-r border-slate-200 dark:border-gray-800 flex flex-col shadow-sm">
+    <aside className="w-64 flex flex-col shadow-sm" style={{ backgroundColor: 'var(--bg-secondary)', borderRight: '1px solid var(--border-subtle)' }}>
       {/* Logo */}
-      <div className="p-5 border-b border-slate-100 dark:border-gray-800">
+      <div className="p-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <div className="flex items-center gap-3">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -157,14 +162,14 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        <p className="text-xs font-semibold text-slate-400 dark:text-gray-600 uppercase tracking-wider px-3 py-2">Main</p>
+        <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2" style={{ color: 'var(--text-tertiary)' }}>Main</p>
 
         {mainNav.map((item) => <NavItem key={item.href} {...item} />)}
 
         {/* Team — team leads and above */}
         {showTeam && (
           <>
-            <p className="text-xs font-semibold text-slate-400 dark:text-gray-600 uppercase tracking-wider px-3 py-2 mt-3">Team</p>
+            <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Team</p>
             {TEAMLEAD_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
@@ -172,7 +177,7 @@ export function Sidebar() {
         {/* Reports — managers and above */}
         {showReports && (
           <>
-            <p className="text-xs font-semibold text-slate-400 dark:text-gray-600 uppercase tracking-wider px-3 py-2 mt-3">Analytics</p>
+            <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Analytics</p>
             {MANAGER_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
@@ -180,13 +185,13 @@ export function Sidebar() {
         {/* Admin section */}
         {showAdminSect && (
           <>
-            <p className="text-xs font-semibold text-slate-400 dark:text-gray-600 uppercase tracking-wider px-3 py-2 mt-3">Admin</p>
+            <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Admin</p>
             {ADMIN_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
 
         {/* Settings — everyone */}
-        <div className="mt-3 border-t border-slate-100 dark:border-gray-800 pt-2">
+        <div className="mt-3 pt-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
           {SETTINGS_NAV.map((item) => <NavItem key={item.href} {...item} />)}
         </div>
       </nav>
@@ -221,9 +226,10 @@ export function Sidebar() {
       )}
 
       {/* User profile card */}
-      <div className="p-3 border-t border-slate-100 dark:border-gray-800">
+      <div className="p-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
         <div
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-gray-800 cursor-pointer hover:bg-slate-100 dark:hover:bg-gray-700 transition-colors"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors"
+          style={{ backgroundColor: 'var(--bg-tertiary)' }}
           onClick={() => router.push('/profile')}
         >
           <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />

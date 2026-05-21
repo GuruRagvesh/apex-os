@@ -37,6 +37,31 @@ export class SettingsService {
 
   // ── Convenience getters used by other services (e.g. SLA hours in tickets) ──
 
+  async getCompanyWithTheme(): Promise<any> {
+    const company = await this.get('company');
+    const themeRaw = await this.prisma.appSetting.findFirst({ where: { key: 'theme_defaults' } });
+    const parsed = themeRaw?.value ? JSON.parse(themeRaw.value as string) : {};
+    return {
+      ...company,
+      defaultTheme: parsed.theme || 'technoedge-light',
+      defaultAccent: parsed.accent || 'royal-blue',
+    };
+  }
+
+  async upsertThemeDefaults(theme?: string, accent?: string): Promise<void> {
+    const current = await this.prisma.appSetting.findFirst({ where: { key: 'theme_defaults' } });
+    const currentVal = current?.value ? JSON.parse(current.value as string) : {};
+    const newVal = {
+      theme: theme || currentVal.theme || 'technoedge-light',
+      accent: accent || currentVal.accent || 'royal-blue',
+    };
+    await this.prisma.appSetting.upsert({
+      where: { key: 'theme_defaults' },
+      update: { value: JSON.stringify(newVal) },
+      create: { key: 'theme_defaults', value: JSON.stringify(newVal) },
+    });
+  }
+
   async getSlaHours(): Promise<Record<string, number>> {
     const stored = await this.get('sla');
     return { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72, ...stored };

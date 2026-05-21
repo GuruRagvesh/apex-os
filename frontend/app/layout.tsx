@@ -16,10 +16,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning data-theme="technoedge-light" data-accent="royal-blue">
       <head>
-        {/* Flash-free dark mode: reads apex-theme before first paint */}
-        <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('apex-theme')||'light';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark')}catch(e){}` }} />
+        {/* Anti-flash: read stored theme before first paint */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('apex-theme')||localStorage.getItem('apex-company-theme')||'technoedge-light';var a=localStorage.getItem('apex-accent')||localStorage.getItem('apex-company-accent')||'royal-blue';document.documentElement.setAttribute('data-theme',t);document.documentElement.setAttribute('data-accent',a);}catch(e){}})();`,
+          }}
+        />
       </head>
       <body className={inter.className}>
         <Providers>{children}</Providers>

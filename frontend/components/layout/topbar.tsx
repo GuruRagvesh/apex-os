@@ -111,11 +111,11 @@ export function TopBar() {
   return (
     <>
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-    <header className="bg-white dark:bg-gray-900 border-b border-slate-200 dark:border-gray-800 h-14 flex items-center justify-between px-6 flex-shrink-0">
+    <header style={{ backgroundColor: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-subtle)' }} className="h-14 flex items-center justify-between px-6 flex-shrink-0">
       <div className="flex items-center gap-3">
-        <h1 className="font-semibold text-slate-800 dark:text-white">{pageName}</h1>
+        <h1 className="font-semibold" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
         {user?.department && (
-          <span className="text-xs px-2 py-0.5 bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 rounded-full">
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
             {user.department.name}
           </span>
         )}
@@ -125,7 +125,8 @@ export function TopBar() {
         {/* Global search trigger */}
         <button
           onClick={() => setPaletteOpen(true)}
-          className="hidden sm:flex items-center gap-2 text-xs text-slate-400 dark:text-gray-500 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-gray-700 hover:border-slate-300 dark:hover:border-gray-600 hover:text-slate-600 dark:hover:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
+          className="hidden sm:flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:opacity-80"
+          style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
         >
           <Search size={13} />
           <span>Search…</span>
@@ -138,7 +139,8 @@ export function TopBar() {
         {isSuperAdmin && (
           <button
             onClick={() => router.push('/select-mode')}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800 hover:border-slate-300 dark:hover:border-gray-600 transition-colors"
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors hover:opacity-80"
+            style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
             title="Switch between Super Admin and Team Lead mode"
           >
             <RefreshCw size={13} />
@@ -201,7 +203,8 @@ export function TopBar() {
         <div className="relative">
           <button
             onClick={() => setShowNotifs(!showNotifs)}
-            className="relative p-2 text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            className="relative p-2 rounded-lg transition-colors hover:opacity-80"
+            style={{ color: 'var(--text-secondary)' }}
           >
             <Bell size={18} />
             {count > 0 && (
@@ -212,7 +215,7 @@ export function TopBar() {
           </button>
 
           {showNotifs && (
-            <div className="absolute right-0 top-10 w-80 bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-xl shadow-lg z-50">
+            <div className="absolute right-0 top-10 w-80 rounded-xl shadow-lg z-50" style={{ backgroundColor: 'var(--surface-elevated)', borderColor: 'var(--border-primary)', border: '1px solid var(--border-primary)' }}>
               <div className="p-3 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
                 <h3 className="font-semibold text-sm text-slate-800 dark:text-white">Notifications</h3>
                 <div className="flex items-center gap-2">

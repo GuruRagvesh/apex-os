@@ -16,14 +16,18 @@ export class SettingsController {
 
   @Get('company')
   getCompany() {
-    return this.settings.get('company');
+    return this.settings.getCompanyWithTheme();
   }
 
   @Patch('company')
   @UseGuards(RolesGuard)
   @Roles('ADMIN', 'SUPER_ADMIN')
-  updateCompany(@Body() body: any, @Request() req: any) {
-    return this.settings.set('company', body, req.user?.sub);
+  async updateCompany(@Body() body: any, @Request() req: any) {
+    const { defaultTheme, defaultAccent, ...rest } = body;
+    if (defaultTheme || defaultAccent) {
+      await this.settings.upsertThemeDefaults(defaultTheme, defaultAccent);
+    }
+    return this.settings.set('company', rest, req.user?.sub);
   }
 
   // ── Leave Policy ───────────────────────────────────────────────────────────
