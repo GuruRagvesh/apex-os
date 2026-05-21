@@ -394,6 +394,19 @@ export class TicketsService {
       }
     }
 
+    // Auto-stamp actualStartAt when work begins (only set once)
+    if (data.status === TicketStatus.IN_PROGRESS && !existing.actualStartAt && !data.actualStartAt) {
+      data.actualStartAt = new Date();
+    }
+
+    // Auto-stamp actualCompletedAt when work finishes (only set once)
+    if (
+      (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) &&
+      !existing.actualCompletedAt && !data.actualCompletedAt
+    ) {
+      data.actualCompletedAt = new Date();
+    }
+
     if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) {
       data.resolvedAt = new Date();
     }

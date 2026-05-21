@@ -1198,6 +1198,34 @@ export default function TicketDetailPage() {
                   </p>
                 </div>
               )}
+              {ticket?.actualStartAt && ticket?.actualCompletedAt && (() => {
+                const diffMs = new Date(ticket.actualCompletedAt).getTime() - new Date(ticket.actualStartAt).getTime();
+                if (diffMs <= 0) return null;
+                const totalMins = Math.floor(diffMs / 60000);
+                const hours = Math.floor(totalMins / 60);
+                const mins = totalMins % 60;
+                const display = hours > 0
+                  ? mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
+                  : `${mins}m`;
+                const vsEstimate = ticket.estimatedMinutes
+                  ? totalMins <= ticket.estimatedMinutes
+                    ? { label: `${ticket.estimatedMinutes - totalMins}m under`, color: 'text-green-600 dark:text-green-400' }
+                    : { label: `${totalMins - ticket.estimatedMinutes}m over`, color: 'text-orange-500 dark:text-orange-400' }
+                  : null;
+                return (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <CheckCircle size={12} className="text-green-500 flex-shrink-0" />
+                    <div>
+                      <span className="text-xs font-semibold text-green-700 dark:text-green-400">Took {display}</span>
+                      {vsEstimate && (
+                        <span className={`ml-1.5 text-[10px] font-medium ${vsEstimate.color}`}>
+                          ({vsEstimate.label} estimate)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="flex items-center gap-2">
                 <Calendar size={13} className="text-slate-400 dark:text-gray-500" />
                 <span className="text-xs text-slate-500 dark:text-gray-400">Created {formatDate(ticket.createdAt)}</span>
