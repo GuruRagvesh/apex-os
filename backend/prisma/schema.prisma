@@ -201,6 +201,12 @@ model Ticket {
   scheduleRecurring String?
   scheduleEndDate   DateTime?
   resolvedAt        DateTime?
+  executionDueAt    DateTime?
+  submittedAt       DateTime?
+  reviewStartedAt   DateTime?
+  reviewDueAt       DateTime?
+  closedAt          DateTime?
+  cancelledAt       DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

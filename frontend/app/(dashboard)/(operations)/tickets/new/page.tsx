@@ -184,15 +184,22 @@ export default function NewTicketPage() {
       assignedToId: assigneeIds[0] || form.assignedToId || undefined,
       assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
       departmentId: form.departmentId || undefined,
-      dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : undefined,
+      // Normalize date-only inputs to 18:30 IST (13:00 UTC) so they don't become midnight
+      dueDate: form.dueDate
+        ? (form.dueDate.includes('T') ? form.dueDate : `${form.dueDate}T13:00:00.000Z`)
+        : undefined,
       scheduledFor: form.scheduledFor ? new Date(form.scheduledFor).toISOString() : undefined,
       scheduledNote: form.scheduledNote || undefined,
       scheduleRecurring: scheduleRecurring !== 'none' ? scheduleRecurring : undefined,
       scheduleEndDate: computeEndDate(),
       taskTypeId: taskTypeId || undefined,
       taskSubtypeId: taskSubtypeId || undefined,
-      scheduledStartAt: form.scheduledStartAt ? new Date(form.scheduledStartAt).toISOString() : undefined,
-      scheduledEndAt:   form.scheduledEndAt   ? new Date(form.scheduledEndAt).toISOString()   : undefined,
+      scheduledStartAt: form.scheduledStartAt
+        ? (form.scheduledStartAt.includes('T') ? form.scheduledStartAt : `${form.scheduledStartAt}T13:00:00.000Z`)
+        : undefined,
+      scheduledEndAt: form.scheduledEndAt
+        ? (form.scheduledEndAt.includes('T') ? form.scheduledEndAt : `${form.scheduledEndAt}T13:00:00.000Z`)
+        : undefined,
     });
   };
 

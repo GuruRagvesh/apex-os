@@ -18,6 +18,13 @@ const SLA_HOURS: Record<string, number> = {
   LOW: 72,
 };
 
+const REVIEW_SLA_HOURS: Record<string, number> = {
+  URGENT: 2,
+  HIGH: 4,
+  MEDIUM: 24,
+  LOW: 48,
+};
+
 @Injectable()
 export class TicketsService {
   constructor(
@@ -44,6 +51,58 @@ export class TicketsService {
     _count: { select: { comments: true } },
   };
 
+  // ── Timer helpers ────────────────────────────────────────────────────────
+
+  /** Normalize a date string: date-only "YYYY-MM-DD" → 18:30 IST (13:00 UTC) */
+  private normalizeDateInput(value: string | Date | null | undefined): Date | undefined {
+    if (!value) return undefined;
+    if (value instanceof Date) return value;
+    if (typeof value === 'string' && !value.includes('T')) {
+      return new Date(`${value}T13:00:00.000Z`);
+    }
+    return new Date(value);
+  }
+
+  /** Compute executionDueAt = base + estimatedMinutes. Returns null if inputs missing. */
+  private calcExecutionDueAt(
+    scheduledStartAt: Date | null | undefined,
+    actualStartAt: Date | null | undefined,
+    estimatedMinutes: number | null | undefined,
+  ): Date | null {
+    if (!estimatedMinutes) return null;
+    const base = scheduledStartAt || actualStartAt;
+    if (!base) return null;
+    return new Date(new Date(base).getTime() + estimatedMinutes * 60_000);
+  }
+
+  /** Query review SLA from AppSetting, fall back to hardcoded defaults. */
+  private async getReviewSlaHoursForPriority(priority: string): Promise<number> {
+    try {
+      const row = await this.prisma.appSetting.findUnique({ where: { key: 'review_sla' } });
+      if (row?.value) {
+        const stored = row.value as Record<string, number>;
+        if (stored[priority] != null) return stored[priority];
+      }
+    } catch { /* ignore */ }
+    return REVIEW_SLA_HOURS[priority] ?? 24;
+  }
+
+  private formatOverdueDuration(diffMinutes: number): { display: string; severity: string } {
+    if (diffMinutes < 60) {
+      return { display: `${diffMinutes}m overdue`, severity: 'orange' };
+    } else if (diffMinutes < 240) {
+      const h = Math.floor(diffMinutes / 60);
+      const m = diffMinutes % 60;
+      return { display: m > 0 ? `${h}h ${m}m overdue` : `${h}h overdue`, severity: 'deep-orange' };
+    } else {
+      const h = Math.floor(diffMinutes / 60);
+      const d = Math.floor(h / 24);
+      const rh = h % 24;
+      const display = d > 0 ? (rh > 0 ? `${d}d ${rh}h overdue` : `${d}d overdue`) : `${h}h overdue`;
+      return { display, severity: 'red' };
+    }
+  }
+
   private addSla(ticket: any) {
     const slaHours = SLA_HOURS[ticket.priority] ?? 24;
     const elapsed = (Date.now() - new Date(ticket.createdAt).getTime()) / 3600000;
@@ -60,44 +119,38 @@ export class TicketsService {
   }
 
   private computeOverdue(ticket: any): any {
-    const now = new Date();
-    const dueAt = ticket.scheduledEndAt || ticket.dueDate;
+    const status: string = ticket.status;
 
-    if (!dueAt || ['DONE', 'CLOSED'].includes(ticket.status)) {
+    // Terminal states — never overdue
+    if (['DONE', 'CLOSED'].includes(status)) {
+      return { ...ticket, isOverdue: false, overdueMinutes: 0, overdueDisplay: null, overdueSeverity: null };
+    }
+
+    let dueAt: Date | null = null;
+
+    if (status === 'REVIEW') {
+      // Review timer: use reviewDueAt set when the ticket moved into REVIEW
+      dueAt = ticket.reviewDueAt ? new Date(ticket.reviewDueAt) : null;
+    } else {
+      // Execution timer: use executionDueAt, but ONLY while ticket hasn't been submitted yet
+      // (submittedAt is set when moving to REVIEW — once submitted, execution timer stops)
+      if (!ticket.submittedAt && ticket.executionDueAt) {
+        dueAt = new Date(ticket.executionDueAt);
+      }
+    }
+
+    if (!dueAt) {
       return { ...ticket, isOverdue: ticket.isOverdue ?? false, overdueMinutes: 0, overdueDisplay: null, overdueSeverity: null };
     }
 
-    const dueTime = new Date(dueAt);
-    const diffMs = now.getTime() - dueTime.getTime();
-    const diffMinutes = Math.floor(diffMs / 60000);
+    const diffMs = Date.now() - dueAt.getTime();
+    const diffMinutes = Math.floor(diffMs / 60_000);
 
     if (diffMinutes <= 0) {
       return { ...ticket, isOverdue: false, overdueMinutes: 0, overdueDisplay: null, overdueSeverity: null };
     }
 
-    let overdueDisplay = '';
-    let overdueSeverity = 'orange';
-
-    if (diffMinutes < 60) {
-      overdueDisplay = `${diffMinutes}m overdue`;
-      overdueSeverity = 'orange';
-    } else if (diffMinutes < 240) {
-      const h = Math.floor(diffMinutes / 60);
-      const m = diffMinutes % 60;
-      overdueDisplay = m > 0 ? `${h}h ${m}m overdue` : `${h}h overdue`;
-      overdueSeverity = 'deep-orange';
-    } else {
-      const h = Math.floor(diffMinutes / 60);
-      const d = Math.floor(h / 24);
-      const rh = h % 24;
-      if (d > 0) {
-        overdueDisplay = rh > 0 ? `${d}d ${rh}h overdue` : `${d}d overdue`;
-      } else {
-        overdueDisplay = `${h}h overdue`;
-      }
-      overdueSeverity = 'red';
-    }
-
+    const { display: overdueDisplay, severity: overdueSeverity } = this.formatOverdueDuration(diffMinutes);
     return { ...ticket, isOverdue: true, overdueMinutes: diffMinutes, overdueDisplay, overdueSeverity };
   }
 
@@ -246,28 +299,26 @@ export class TicketsService {
     if (!data.assignedToId) data.assignedToId = undefined;
     if (!data.taskTypeId) data.taskTypeId = undefined;
     if (!data.taskSubtypeId) data.taskSubtypeId = undefined;
-    // Convert dueDate string → proper ISO DateTime
-    if (data.dueDate) {
-      data.dueDate = new Date(data.dueDate).toISOString();
+    // Normalize date inputs — date-only strings → 18:30 IST (13:00 UTC)
+    for (const field of ['dueDate', 'scheduledFor', 'scheduleEndDate']) {
+      if (data[field]) data[field] = this.normalizeDateInput(data[field])?.toISOString();
     }
-    // Convert scheduledFor string → proper ISO DateTime
-    if (data.scheduledFor) {
-      data.scheduledFor = new Date(data.scheduledFor).toISOString();
+    for (const field of ['scheduledStartAt', 'scheduledEndAt', 'actualStartAt', 'actualCompletedAt']) {
+      if (data[field]) data[field] = this.normalizeDateInput(data[field]);
     }
-    // Convert scheduleEndDate string → proper ISO DateTime
-    if (data.scheduleEndDate) {
-      data.scheduleEndDate = new Date(data.scheduleEndDate).toISOString();
-    }
-    // Convert new time fields
-    if (data.scheduledStartAt) data.scheduledStartAt = new Date(data.scheduledStartAt);
-    if (data.scheduledEndAt)   data.scheduledEndAt   = new Date(data.scheduledEndAt);
-    if (data.actualStartAt)    data.actualStartAt    = new Date(data.actualStartAt);
-    if (data.actualCompletedAt) data.actualCompletedAt = new Date(data.actualCompletedAt);
     if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null && data.estimatedMinutes !== '') {
       data.estimatedMinutes = parseInt(data.estimatedMinutes, 10);
     } else if (data.estimatedMinutes === '') {
       data.estimatedMinutes = undefined;
     }
+
+    // Pre-compute executionDueAt if enough info is provided at creation time
+    const executionDueAt = this.calcExecutionDueAt(
+      data.scheduledStartAt,
+      data.actualStartAt,
+      data.estimatedMinutes,
+    );
+    if (executionDueAt) data.executionDueAt = executionDueAt;
 
     // Generate a collision-safe ticket ID by retrying on unique-constraint violations (P2002)
     let ticket: any;
@@ -370,15 +421,13 @@ export class TicketsService {
     const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
     delete data.assigneeIds;
 
-    // Convert scheduledFor string → DateTime
-    if (data.scheduledFor) {
-      data.scheduledFor = new Date(data.scheduledFor).toISOString();
+    // Normalize date inputs — date-only strings → 18:30 IST (13:00 UTC)
+    for (const field of ['dueDate', 'scheduledFor', 'scheduleEndDate']) {
+      if (data[field]) data[field] = this.normalizeDateInput(data[field])?.toISOString();
     }
-    // Convert new time fields
-    if (data.scheduledStartAt) data.scheduledStartAt = new Date(data.scheduledStartAt);
-    if (data.scheduledEndAt)   data.scheduledEndAt   = new Date(data.scheduledEndAt);
-    if (data.actualStartAt)    data.actualStartAt    = new Date(data.actualStartAt);
-    if (data.actualCompletedAt) data.actualCompletedAt = new Date(data.actualCompletedAt);
+    for (const field of ['scheduledStartAt', 'scheduledEndAt', 'actualStartAt', 'actualCompletedAt']) {
+      if (data[field]) data[field] = this.normalizeDateInput(data[field]);
+    }
     if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null && data.estimatedMinutes !== '') {
       data.estimatedMinutes = parseInt(data.estimatedMinutes, 10);
     } else if (data.estimatedMinutes === '') {
@@ -409,20 +458,37 @@ export class TicketsService {
       }
     }
 
-    // Auto-stamp actualStartAt when work begins (only set once)
+    // ── Execution timer: stamp actualStartAt + executionDueAt ────────────────
     if (data.status === TicketStatus.IN_PROGRESS && !existing.actualStartAt && !data.actualStartAt) {
       data.actualStartAt = new Date();
     }
-
-    // Auto-stamp actualCompletedAt when work finishes (only set once)
-    if (
-      (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) &&
-      !existing.actualCompletedAt && !data.actualCompletedAt
-    ) {
-      data.actualCompletedAt = new Date();
+    if (data.status === TicketStatus.IN_PROGRESS && !existing.executionDueAt) {
+      const base: Date = existing.scheduledStartAt ?? data.actualStartAt ?? new Date();
+      const mins: number | null | undefined = existing.estimatedMinutes;
+      const due = this.calcExecutionDueAt(base, null, mins);
+      if (due) data.executionDueAt = due;
     }
 
-    if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) {
+    // ── Review timer: stamp submittedAt + reviewStartedAt + reviewDueAt ──────
+    if (data.status === TicketStatus.REVIEW && !existing.submittedAt) {
+      const now = new Date();
+      data.submittedAt = now;
+      data.reviewStartedAt = now;
+      const reviewHours = await this.getReviewSlaHoursForPriority(existing.priority);
+      data.reviewDueAt = new Date(now.getTime() + reviewHours * 3_600_000);
+    }
+
+    // ── Completion stamps ────────────────────────────────────────────────────
+    if (data.status === TicketStatus.DONE) {
+      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = new Date();
+      if (!existing.closedAt) data.closedAt = new Date();
+      data.resolvedAt = new Date();
+    }
+
+    if (data.status === TicketStatus.CLOSED) {
+      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = new Date();
+      if (!existing.closedAt) data.closedAt = new Date();
+      if (!existing.cancelledAt) data.cancelledAt = new Date();
       data.resolvedAt = new Date();
     }
 

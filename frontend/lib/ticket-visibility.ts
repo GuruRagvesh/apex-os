@@ -67,14 +67,14 @@ const OVERDUE_VISIBILITY: Record<OverdueSeverity, Partial<TicketVisibility>> = {
 export function getTicketVisibility(ticket: {
   status: string;
   isOverdue?: boolean;
-  overdueSeverity?: OverdueSeverity;
+  overdueSeverity?: OverdueSeverity | string | null;
 }): TicketVisibility {
   const status = (ticket.status as TicketStatus) || 'OPEN';
   const base = STATUS_VISIBILITY[status] || STATUS_VISIBILITY.OPEN;
   if (status === 'CLOSED') return base;
   if (ticket.isOverdue && ticket.overdueSeverity) {
-    const override = OVERDUE_VISIBILITY[ticket.overdueSeverity];
-    return { ...base, ...override };
+    const override = OVERDUE_VISIBILITY[ticket.overdueSeverity as OverdueSeverity];
+    if (override) return { ...base, ...override };
   }
   return base;
 }

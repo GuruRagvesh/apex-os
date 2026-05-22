@@ -11,7 +11,7 @@ import {
   formatDate, formatRelativeTime, getInitials,
 } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { OverdueTicker } from '@/components/tickets/OverdueTicker';
+import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { SkeletonTicketDetail } from '@/components/ui/skeleton';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
@@ -738,7 +738,7 @@ export default function TicketDetailPage() {
             )}
           </div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-white">{ticket.title}</h2>
-          <OverdueTicker dueAt={ticket?.dueDate} scheduledEndAt={ticket?.scheduledEndAt} status={ticket?.status ?? ''} className="text-sm mt-1" />
+          <TimingTicker ticket={ticket} showLabel className="text-sm mt-1" />
           <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
@@ -1187,6 +1187,30 @@ export default function TicketDetailPage() {
                   <p className="text-xs text-slate-500 dark:text-gray-400">Started</p>
                   <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
                     ▶ {new Date(ticket.actualStartAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              )}
+              {ticket?.executionDueAt && !ticket?.submittedAt && !['DONE','CLOSED'].includes(ticket?.status) && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-gray-400">Exec deadline</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                    ⏱ {new Date(ticket.executionDueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              )}
+              {ticket?.submittedAt && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-gray-400">Submitted for review</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                    📤 {new Date(ticket.submittedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              )}
+              {ticket?.reviewDueAt && ticket?.status === 'REVIEW' && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-gray-400">Review deadline</p>
+                  <p className="text-sm font-medium text-purple-700 dark:text-purple-300 mt-0.5">
+                    🔍 {new Date(ticket.reviewDueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
               )}

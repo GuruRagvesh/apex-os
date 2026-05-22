@@ -22,7 +22,7 @@ import {
   AlertTriangle, XCircle, Calendar, ChevronRight, Activity, X,
 } from 'lucide-react';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { OverdueTicker } from '@/components/tickets/OverdueTicker';
+import { TimingTicker } from '@/components/tickets/OverdueTicker';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Clock & date helpers
@@ -536,7 +536,7 @@ export default function DashboardPage() {
                             {t.department?.name ?? '—'}
                           </p>
                           {taskTab === 'overdue' && (
-                            <OverdueTicker dueAt={t.dueDate} scheduledEndAt={t.scheduledEndAt} status={t.status} />
+                            <TimingTicker ticket={t} />
                           )}
                         </div>
                         <PriBadge p={t.priority} />

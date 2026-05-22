@@ -47,15 +47,23 @@ export class SettingsController {
   // ── SLA ────────────────────────────────────────────────────────────────────
 
   @Get('sla')
-  getSla() {
-    return this.settings.get('sla');
+  async getSla() {
+    const [executionSla, reviewSla] = await Promise.all([
+      this.settings.getSlaHours(),
+      this.settings.getReviewSlaHours(),
+    ]);
+    return { ...executionSla, reviewSla };
   }
 
   @Patch('sla')
   @UseGuards(RolesGuard)
   @Roles('ADMIN', 'SUPER_ADMIN')
-  updateSla(@Body() body: any, @Request() req: any) {
-    return this.settings.set('sla', body, req.user?.sub);
+  async updateSla(@Body() body: any, @Request() req: any) {
+    const { reviewSla, ...executionSla } = body;
+    const ops: Promise<any>[] = [this.settings.set('sla', executionSla, req.user?.sub)];
+    if (reviewSla) ops.push(this.settings.set('review_sla', reviewSla, req.user?.sub));
+    await Promise.all(ops);
+    return this.getSla();
   }
 
   // ── SMTP ───────────────────────────────────────────────────────────────────

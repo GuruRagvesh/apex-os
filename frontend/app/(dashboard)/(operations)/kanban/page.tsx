@@ -17,7 +17,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { ticketsApi, departmentsApi } from '@/lib/api';
 import { cn, PRIORITY_COLORS, CATEGORY_COLORS, PRIORITY_LABELS, CATEGORY_LABELS, getInitials, formatDate, DEPT_COLORS } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { OverdueTicker } from '@/components/tickets/OverdueTicker';
+import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { SkeletonKanbanColumn } from '@/components/ui/skeleton';
 import { Plus, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -60,7 +60,7 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
         </p>
       </Link>
 
-      <OverdueTicker dueAt={ticket.dueDate} scheduledEndAt={ticket.scheduledEndAt} status={ticket.status} className="mt-1 mb-1.5" />
+      <TimingTicker ticket={ticket} className="mt-1 mb-1.5" />
 
       {ticket.scheduledStartAt && (
         <p className="text-[11px] text-slate-400 dark:text-gray-500 mt-0.5 mb-1.5">

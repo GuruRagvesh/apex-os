@@ -14,6 +14,7 @@ const DEFAULTS: Record<string, any> = {
     workingDays: 'Mon–Sat',
   },
   sla: { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 },
+  review_sla: { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 },
   smtp: { host: '', port: '587', email: '', password: '' },
 };
 
@@ -65,6 +66,11 @@ export class SettingsService {
   async getSlaHours(): Promise<Record<string, number>> {
     const stored = await this.get('sla');
     return { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72, ...stored };
+  }
+
+  async getReviewSlaHours(): Promise<Record<string, number>> {
+    const stored = await this.get('review_sla');
+    return { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48, ...stored };
   }
 
   async getLeaveQuotas(): Promise<Record<string, number>> {

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { cn, PRIORITY_COLORS, STATUS_COLORS, CATEGORY_COLORS, STATUS_LABELS, PRIORITY_LABELS, CATEGORY_LABELS, formatDate, getInitials, DEPT_COLORS } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { OverdueTicker } from '@/components/tickets/OverdueTicker';
+import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { Clock, Copy, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -148,7 +148,7 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
         <span className={cn('text-xs px-2 py-1 rounded-lg font-medium', vis.badgeClass)}>
           {vis.badgeText}
         </span>
-        <OverdueTicker dueAt={ticket.dueDate} scheduledEndAt={ticket.scheduledEndAt} status={ticket.status} />
+        <TimingTicker ticket={ticket} />
       </div>
 
       {/* Assignee col-span-1 */}

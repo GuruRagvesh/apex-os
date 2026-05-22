@@ -629,10 +629,14 @@ function SlaSection() {
     queryKey: ['settings', 'sla'],
     queryFn: () => settingsApi.getSla() as Promise<any>,
   });
-  const [sla, setSla] = useState({ URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 });
+  const [sla, setSla]           = useState({ URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 });
+  const [reviewSla, setReviewSla] = useState({ URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 });
 
   useEffect(() => {
-    if (remote && Object.keys(remote).length > 0) setSla((s) => ({ ...s, ...remote }));
+    if (!remote || !Object.keys(remote).length) return;
+    const { reviewSla: rv, ...exec } = remote;
+    setSla((s) => ({ ...s, ...exec }));
+    if (rv) setReviewSla((s) => ({ ...s, ...rv }));
   }, [remote]);
 
   const save = useMutation({
@@ -650,14 +654,14 @@ function SlaSection() {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    save.mutate(sla);
+    save.mutate({ ...sla, reviewSla });
   };
 
   return (
-    <form onSubmit={handleSave}>
+    <form onSubmit={handleSave} className="space-y-4">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">SLA Response Hours</h3>
-        <p className="text-xs text-slate-400 dark:text-gray-500">Max hours before a ticket is overdue, by priority.</p>
+        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Execution SLA — Response Hours</h3>
+        <p className="text-xs text-slate-400 dark:text-gray-500">Max hours before a ticket is overdue (SLA age timer), by priority.</p>
         <div className="grid grid-cols-2 gap-4">
           {(Object.entries(sla) as [keyof typeof sla, number][]).map(([priority, hours]) => (
             <div key={priority}>
@@ -665,6 +669,23 @@ function SlaSection() {
               <div className="relative">
                 <input type="number" min={1} className={inputCls} value={hours}
                   onChange={(e) => setSla((s) => ({ ...s, [priority]: Number(e.target.value) }))} />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">hrs</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className={cardCls}>
+        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Review SLA — Reviewer Deadline</h3>
+        <p className="text-xs text-slate-400 dark:text-gray-500">Max hours a reviewer has to approve/reject after submission, by priority.</p>
+        <div className="grid grid-cols-2 gap-4">
+          {(Object.entries(reviewSla) as [keyof typeof reviewSla, number][]).map(([priority, hours]) => (
+            <div key={priority}>
+              <label className={cn(labelCls, priorityColor[priority])}>{priority}</label>
+              <div className="relative">
+                <input type="number" min={1} className={inputCls} value={hours}
+                  onChange={(e) => setReviewSla((s) => ({ ...s, [priority]: Number(e.target.value) }))} />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">hrs</span>
               </div>
             </div>
