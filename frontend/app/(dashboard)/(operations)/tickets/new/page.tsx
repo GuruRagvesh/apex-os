@@ -39,7 +39,7 @@ function LeaveWarning({ assigneeIds, users }: { assigneeIds: string[]; users: an
 }
 
 const CATEGORIES = ['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
-const TYPES = ['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST'];
+const TYPES = ['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST', 'CUSTOM'];
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -97,8 +97,11 @@ export default function NewTicketPage() {
 
   const [taskTypeId, setTaskTypeId] = useState('');
   const [taskSubtypeId, setTaskSubtypeId] = useState('');
+  const [customType, setCustomType] = useState('');
+  const [customSubtype, setCustomSubtype] = useState('');
 
   const [scheduleRecurring, setScheduleRecurring] = useState('none');
+  const [customScheduleAt, setCustomScheduleAt] = useState('');
   const [scheduleEndPreset, setScheduleEndPreset] = useState('1_month');
   const [scheduleEndDate, setScheduleEndDate] = useState('');
 
@@ -175,8 +178,17 @@ export default function NewTicketPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) return toast.error('Title is required');
+    // CUSTOM type: use customType text or fall back to 'CUSTOM'
+    const resolvedType = form.type === 'CUSTOM' ? (customType.trim() || 'CUSTOM') : form.type;
+    // CUSTOM subtype: append note to description instead of sending an id
+    const hasCustomSubtype = taskSubtypeId === '__custom__' && customSubtype.trim();
+    const resolvedDescription = hasCustomSubtype
+      ? `${form.description ? form.description + '\n\n' : ''}[Custom subtype: ${customSubtype.trim()}]`
+      : form.description;
     mutation.mutate({
       ...form,
+      type: resolvedType,
+      description: resolvedDescription,
       estimatedTime: undefined,
       estimatedMinutes: form.estimatedMinutes ? parseInt(form.estimatedMinutes) : undefined,
       projectId: form.projectId || undefined,
@@ -188,12 +200,14 @@ export default function NewTicketPage() {
       dueDate: form.dueDate
         ? (form.dueDate.includes('T') ? form.dueDate : `${form.dueDate}T13:00:00.000Z`)
         : undefined,
-      scheduledFor: form.scheduledFor ? new Date(form.scheduledFor).toISOString() : undefined,
+      scheduledFor: scheduleRecurring === 'custom_time' && customScheduleAt
+        ? new Date(customScheduleAt).toISOString()
+        : (form.scheduledFor ? new Date(form.scheduledFor).toISOString() : undefined),
       scheduledNote: form.scheduledNote || undefined,
-      scheduleRecurring: scheduleRecurring !== 'none' ? scheduleRecurring : undefined,
+      scheduleRecurring: (scheduleRecurring !== 'none' && scheduleRecurring !== 'custom_time') ? scheduleRecurring : undefined,
       scheduleEndDate: computeEndDate(),
       taskTypeId: taskTypeId || undefined,
-      taskSubtypeId: taskSubtypeId || undefined,
+      taskSubtypeId: (taskSubtypeId && taskSubtypeId !== '__custom__') ? taskSubtypeId : undefined,
       scheduledStartAt: form.scheduledStartAt
         ? (form.scheduledStartAt.includes('T') ? form.scheduledStartAt : `${form.scheduledStartAt}T13:00:00.000Z`)
         : undefined,
@@ -297,9 +311,20 @@ export default function NewTicketPage() {
           </div>
           <div>
             <label className={labelCls}>Type</label>
-            <select value={form.type} onChange={(e) => set('type', e.target.value)} className={inputCls}>
-              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            <select value={form.type} onChange={(e) => { set('type', e.target.value); if (e.target.value !== 'CUSTOM') setCustomType(''); }} className={inputCls}>
+              {TYPES.map((t) => <option key={t} value={t}>{t === 'CUSTOM' ? 'Custom…' : t}</option>)}
             </select>
+            {form.type === 'CUSTOM' && (
+              <input
+                type="text"
+                value={customType}
+                onChange={(e) => setCustomType(e.target.value)}
+                className={`${inputCls} mt-2`}
+                placeholder="Describe the type…"
+                autoFocus
+                maxLength={50}
+              />
+            )}
           </div>
         </div>
 
@@ -323,14 +348,26 @@ export default function NewTicketPage() {
               <label className={labelCls}>Subtype</label>
               <select
                 value={taskSubtypeId}
-                onChange={(e) => setTaskSubtypeId(e.target.value)}
+                onChange={(e) => { setTaskSubtypeId(e.target.value); if (e.target.value !== '__custom__') setCustomSubtype(''); }}
                 className={inputCls}
               >
                 <option value="">Select subtype...</option>
                 {selectedTaskType.subtypes.map((s: any) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
+                <option value="__custom__">Custom…</option>
               </select>
+              {taskSubtypeId === '__custom__' && (
+                <input
+                  type="text"
+                  value={customSubtype}
+                  onChange={(e) => setCustomSubtype(e.target.value)}
+                  className={`${inputCls} mt-2`}
+                  placeholder="Describe the subtype…"
+                  autoFocus
+                  maxLength={80}
+                />
+              )}
             </div>
           ) : (
             <div />
@@ -504,6 +541,7 @@ export default function NewTicketPage() {
                 className={inputCls}
               >
                 <option value="none">One-time only</option>
+                <option value="custom_time">Custom date & time…</option>
                 <option value="daily_morning">Every day — Morning (9:00 AM)</option>
                 <option value="daily_evening">Every day — Evening (6:00 PM)</option>
                 <option value="weekly">Every week (same day)</option>
@@ -535,6 +573,18 @@ export default function NewTicketPage() {
                 min={new Date().toISOString().slice(0, 16)}
               />
               <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Assignees notified at this time</p>
+            </div>
+          ) : scheduleRecurring === 'custom_time' ? (
+            <div>
+              <label className={labelCls}>Custom Date &amp; Time</label>
+              <input
+                type="datetime-local"
+                value={customScheduleAt}
+                onChange={(e) => setCustomScheduleAt(e.target.value)}
+                className={inputCls}
+                min={new Date().toISOString().slice(0, 16)}
+              />
+              <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">One-time schedule at this exact time</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">

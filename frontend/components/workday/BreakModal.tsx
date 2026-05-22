@@ -29,13 +29,19 @@ interface Props {
 export function BreakModal({ onClose, onBreakStarted }: Props) {
   const [breakType, setBreakType] = useState('');
   const [duration, setDuration] = useState<number | null>(null);
+  const [customDuration, setCustomDuration] = useState('');
+  const [showCustomDuration, setShowCustomDuration] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const effectiveDuration = showCustomDuration
+    ? (customDuration ? parseInt(customDuration) : null)
+    : duration;
 
   const handleStart = async () => {
     if (!breakType) { toast.error('Select a break type'); return; }
     setLoading(true);
     try {
-      await workdayApi.startBreak({ breakType, estimatedMinutes: duration ?? undefined });
+      await workdayApi.startBreak({ breakType, estimatedMinutes: effectiveDuration ?? undefined });
       toast.success('Break started');
       onBreakStarted();
     } catch { toast.error('Failed to start break'); }
@@ -43,7 +49,7 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm shadow-xl">
         <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-4">Take a Break</h3>
 
@@ -70,9 +76,9 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
               {DURATIONS.map((d) => (
                 <button
                   key={d.value}
-                  onClick={() => setDuration(duration === d.value ? null : d.value)}
+                  onClick={() => { setDuration(duration === d.value ? null : d.value); setShowCustomDuration(false); }}
                   className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-                    duration === d.value
+                    !showCustomDuration && duration === d.value
                       ? 'bg-indigo-100 dark:bg-indigo-900/40 border-indigo-400 text-indigo-700 dark:text-indigo-300'
                       : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-indigo-300'
                   }`}
@@ -80,7 +86,32 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
                   {d.label}
                 </button>
               ))}
+              <button
+                onClick={() => { setShowCustomDuration(!showCustomDuration); setDuration(null); }}
+                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                  showCustomDuration
+                    ? 'bg-indigo-100 dark:bg-indigo-900/40 border-indigo-400 text-indigo-700 dark:text-indigo-300'
+                    : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-indigo-300'
+                }`}
+              >
+                Custom
+              </button>
             </div>
+            {showCustomDuration && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  max="480"
+                  value={customDuration}
+                  onChange={(e) => setCustomDuration(e.target.value)}
+                  placeholder="Minutes..."
+                  autoFocus
+                  className="w-28 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <span className="text-xs text-gray-400">min</span>
+              </div>
+            )}
           </div>
         )}
 

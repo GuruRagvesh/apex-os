@@ -81,12 +81,16 @@ export function TopBar() {
   });
   const workStatus = (workdayData as any)?.session?.status ?? 'OFFLINE';
 
-  const { data: notifications, isLoading: notifsLoading } = useQuery({
+  const { data: notifRaw, isLoading: notifsLoading } = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => notificationsApi.getAll() as Promise<any[]>,
+    queryFn: () => notificationsApi.getAll() as Promise<any>,
     staleTime: 30000,
     refetchInterval: 60000,
   });
+  // Backend may return array directly OR { notifications: [...], total }
+  const notifications: any[] = Array.isArray(notifRaw)
+    ? notifRaw
+    : (notifRaw as any)?.notifications ?? (notifRaw as any)?.data?.notifications ?? [];
 
   const markAllRead = useMutation({
     mutationFn: () => notificationsApi.markAllRead(),
@@ -164,7 +168,7 @@ export function TopBar() {
           <Search size={13} />
           <span>Search…</span>
           <kbd className="hidden lg:inline font-mono text-[10px] bg-slate-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-slate-400 dark:text-gray-500">
-            ⌘K
+            Ctrl K
           </kbd>
         </button>
 
@@ -234,7 +238,7 @@ export function TopBar() {
                 className="w-full text-xs text-center hover:underline"
                 style={{ color: 'var(--accent)' }}
               >
-                Go to Dashboard
+                Go to Home
               </button>
             </div>
           )}
@@ -289,7 +293,7 @@ export function TopBar() {
                   <div className="flex items-center justify-center py-8">
                     <Loader2 size={18} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
                   </div>
-                ) : Array.isArray(notifications) && notifications.length > 0 ? (
+                ) : notifications.length > 0 ? (
                   notifications.map((n: any) => {
                     const href = n.entityType === 'TICKET' && n.entityId
                       ? `/tickets/${n.entityId}`

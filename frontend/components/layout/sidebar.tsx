@@ -196,35 +196,6 @@ export function Sidebar() {
         </div>
       </nav>
 
-      {/* Mode badge (SUPER_ADMIN only) */}
-      {isSuperAdmin && (
-        <div className="mx-3 mb-2">
-          {apexMode === 'super_admin' ? (
-            <div
-              className="px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-semibold"
-              style={{
-                background: 'linear-gradient(135deg,rgba(88,28,135,0.12) 0%,rgba(109,40,217,0.08) 100%)',
-                border: '1px solid rgba(139,92,246,0.25)',
-              }}
-            >
-              <Zap size={12} className="text-purple-500" />
-              <span className="text-purple-700">Super Admin</span>
-            </div>
-          ) : (
-            <div
-              className="px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-semibold"
-              style={{
-                background: 'linear-gradient(135deg,rgba(30,64,175,0.12) 0%,rgba(79,70,229,0.08) 100%)',
-                border: '1px solid rgba(96,165,250,0.25)',
-              }}
-            >
-              <Users size={12} className="text-blue-500" />
-              <span className="text-blue-700">AI & R&D Lead</span>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* User profile card */}
       <div className="p-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
         <div
@@ -235,15 +206,33 @@ export function Sidebar() {
           <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-slate-800 dark:text-gray-200 truncate">{user?.name}</p>
-            <span className={cn(
-              'text-xs px-1.5 py-0.5 rounded font-medium',
-              ROLE_BADGE_COLOR[role] ?? 'bg-gray-100 text-gray-700',
-            )}>
-              {role}
-            </span>
+            <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+              <span className={cn(
+                'text-xs px-1.5 py-0.5 rounded font-medium',
+                ROLE_BADGE_COLOR[role] ?? 'bg-gray-100 text-gray-700',
+              )}>
+                {role}
+              </span>
+              {isSuperAdmin && (
+                <span
+                  className="text-xs px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5"
+                  style={{
+                    background: apexMode === 'super_admin'
+                      ? 'linear-gradient(135deg,rgba(88,28,135,0.15) 0%,rgba(109,40,217,0.10) 100%)'
+                      : 'linear-gradient(135deg,rgba(30,64,175,0.15) 0%,rgba(79,70,229,0.10) 100%)',
+                    border: apexMode === 'super_admin' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(96,165,250,0.3)',
+                    color: apexMode === 'super_admin' ? '#7c3aed' : '#2563eb',
+                  }}
+                >
+                  {apexMode === 'super_admin'
+                    ? <><Zap size={9} />SA</>
+                    : <><Users size={9} />TL</>}
+                </span>
+              )}
+            </div>
           </div>
           <button
-            onClick={logout}
+            onClick={(e) => { e.stopPropagation(); logout(); }}
             className="text-slate-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors flex-shrink-0"
             title="Logout"
           >

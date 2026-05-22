@@ -7,8 +7,8 @@ import { authApi, usersApi, settingsApi, taskTypesApi, departmentsApi } from '@/
 import { UserAvatar } from '@/components/ui/user-avatar';
 import toast from 'react-hot-toast';
 import {
-  User, Shield, Palette, SlidersHorizontal, Building2,
-  CalendarDays, Gauge, Mail, Eye, EyeOff, Lock, Tags,
+  User, Shield, Palette, Building2,
+  CalendarDays, Mail, Eye, EyeOff, Lock, Tags,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme, type ThemeId, type AccentId } from '@/hooks/useTheme';
@@ -1224,8 +1224,8 @@ function AppearanceSettings() {
 // ROOT — left sidebar layout
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
-  | 'profile' | 'security' | 'preferences' | 'appearance'
-  | 'company' | 'leave-policy' | 'sla' | 'smtp' | 'task-types';
+  | 'profile' | 'security' | 'appearance'
+  | 'company' | 'policies' | 'smtp' | 'task-types';
 
 export default function SettingsPage() {
   const { user } = useAuthStore();
@@ -1234,12 +1234,17 @@ export default function SettingsPage() {
   const isSuperAdmin = roleName === 'SUPER_ADMIN';
   const isManager   = ['MANAGER', 'TEAM_LEAD', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
-  const validTabs: SectionId[] = ['profile', 'security', 'preferences', 'appearance', 'company', 'leave-policy', 'sla', 'smtp', 'task-types'];
+  const validTabs: SectionId[] = ['profile', 'security', 'appearance', 'company', 'policies', 'smtp', 'task-types'];
+  // Legacy tab aliases (deep-links from other pages still work)
+  const tabAliases: Record<string, SectionId> = {
+    preferences: 'profile', 'leave-policy': 'policies', sla: 'policies',
+  };
   const [active, setActive] = useState<SectionId>('profile');
 
   useEffect(() => {
-    const tabParam = new URLSearchParams(window.location.search).get('tab') as SectionId | null;
-    if (tabParam && validTabs.includes(tabParam)) setActive(tabParam);
+    const raw = new URLSearchParams(window.location.search).get('tab') ?? '';
+    const resolved = (tabAliases[raw] ?? raw) as SectionId;
+    if (resolved && validTabs.includes(resolved)) setActive(resolved);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1271,15 +1276,14 @@ export default function SettingsPage() {
   return (
     <div className="flex gap-6 max-w-5xl mx-auto">
       {/* ── LEFT SIDEBAR ─────────────────────────────────────────────────── */}
-      <div className="w-56 flex-shrink-0">
+      <div className="w-52 flex-shrink-0">
         <nav className="sticky top-6 space-y-0.5 bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-2">
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2">
             My Account
           </p>
-          <NavItem id="profile"     label="Profile"     icon={<User size={15} />} />
-          <NavItem id="appearance"  label="Appearance"  icon={<Palette size={15} />} />
-          <NavItem id="preferences" label="Preferences" icon={<SlidersHorizontal size={15} />} />
-          <NavItem id="security"    label="Security"    icon={<Shield size={15} />} />
+          <NavItem id="profile"    label="Profile"    icon={<User size={15} />} />
+          <NavItem id="appearance" label="Appearance" icon={<Palette size={15} />} />
+          <NavItem id="security"   label="Security"   icon={<Shield size={15} />} />
 
           {isAdmin && (
             <>
@@ -1287,12 +1291,11 @@ export default function SettingsPage() {
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2">
                 Workspace
               </p>
-              <NavItem id="company"      label="Company Info"   icon={<Building2 size={15} />}    badge="ADM" />
-              <NavItem id="leave-policy" label="Leave Policy"   icon={<CalendarDays size={15} />} badge="ADM" />
-              <NavItem id="sla"          label="SLA Settings"   icon={<Gauge size={15} />}         badge="ADM" />
-              <NavItem id="task-types"   label="Task Types"     icon={<Tags size={15} />}          badge="ADM" />
+              <NavItem id="company"    label="Company"    icon={<Building2 size={15} />}    badge="ADM" />
+              <NavItem id="policies"   label="Policies"   icon={<CalendarDays size={15} />} badge="ADM" />
+              <NavItem id="task-types" label="Task Types" icon={<Tags size={15} />}          badge="ADM" />
               {isSuperAdmin && (
-                <NavItem id="smtp" label="Email & SMTP" icon={<Mail size={15} />} badge="SA" />
+                <NavItem id="smtp" label="Email" icon={<Mail size={15} />} badge="SA" />
               )}
             </>
           )}
@@ -1301,21 +1304,33 @@ export default function SettingsPage() {
 
       {/* ── RIGHT CONTENT ────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0">
-        {active === 'profile'     && <ProfileSection user={user} />}
-        {active === 'appearance'  && <AppearanceSettings />}
-        {active === 'preferences' && (
+        {active === 'profile' && (
           <div className="space-y-8">
-            <PreferencesSection />
+            <ProfileSection user={user} />
             <div className="border-t pt-6" style={{ borderColor: 'var(--border-subtle)' }}>
-              <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Notification Preferences</h3>
-              <NotificationsSection isManager={isManager} />
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Preferences</h3>
+              <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>Ticket defaults and notification settings</p>
+              <PreferencesSection />
+              <div className="mt-8">
+                <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Notification Preferences</h3>
+                <NotificationsSection isManager={isManager} />
+              </div>
             </div>
           </div>
         )}
+        {active === 'appearance'  && <AppearanceSettings />}
         {active === 'security'    && <SecuritySection user={user} />}
-        {active === 'company'     && isAdmin      && <CompanySection />}
-        {active === 'leave-policy' && isAdmin     && <LeavePolicySection canEdit={isAdmin} />}
-        {active === 'sla'         && isAdmin      && <SlaSection />}
+        {active === 'company'     && isAdmin && <CompanySection />}
+        {active === 'policies'    && isAdmin && (
+          <div className="space-y-8">
+            <LeavePolicySection canEdit={isAdmin} />
+            <div className="border-t pt-6" style={{ borderColor: 'var(--border-subtle)' }}>
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>SLA Settings</h3>
+              <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>Response time targets for execution and review phases</p>
+              <SlaSection />
+            </div>
+          </div>
+        )}
         {active === 'task-types'  && isAdmin      && <TaskTypesSettings />}
         {active === 'smtp'        && isSuperAdmin && <SmtpSection />}
       </div>

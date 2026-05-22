@@ -43,7 +43,7 @@ export function SessionRecoveryModal({ awayMinutes, onClose, onRefetch }: Props)
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm shadow-xl">
         <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-1">Welcome back!</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">

@@ -331,6 +331,17 @@ export default function DashboardPage() {
     refetchInterval: 30_000,
   });
 
+  // Separate query for the activity feed slide-over — uses the proper endpoint
+  const { data: activityFeedRaw, isLoading: activityLoading } = useQuery({
+    queryKey: ['activity-feed'],
+    queryFn:  () => dashboardApi.getActivityFeed(20) as Promise<any>,
+    enabled:  showActivity,
+    staleTime: 0,
+  });
+  const activityList: any[] = Array.isArray(activityFeedRaw)
+    ? activityFeedRaw
+    : (activityFeedRaw as any)?.activities ?? (activityFeedRaw as any)?.data ?? [];
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const stats = (overview?.stats ?? {}) as Record<string, number>;
 
@@ -356,7 +367,9 @@ export default function DashboardPage() {
   }, [projectsRaw]);
 
   const notifications = useMemo<any[]>(() => {
-    const raw = Array.isArray(notifsRaw) ? notifsRaw : (notifsRaw?.notifications ?? []);
+    const raw = Array.isArray(notifsRaw)
+      ? notifsRaw
+      : (notifsRaw?.notifications ?? notifsRaw?.data?.notifications ?? []);
     return (raw as any[]).slice(0, 5);
   }, [notifsRaw]);
 
@@ -716,49 +729,40 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto divide-y divide-slate-50 dark:divide-gray-800">
-            {notifsLoading
+            {activityLoading
               ? Array.from({ length: 6 }).map((_, i) => <NotifRowSkeleton key={i} />)
-              : (() => {
-                  const raw = Array.isArray(notifsRaw) ? notifsRaw : (notifsRaw?.notifications ?? []);
-                  const all = (raw as any[]).slice(0, 20);
-                  if (all.length === 0) {
-                    return (
-                      <div className="flex flex-col items-center justify-center h-full py-20 text-slate-400 dark:text-gray-500">
-                        <Activity size={30} className="mb-3 text-slate-300 dark:text-gray-600" />
-                        <p className="text-sm">No recent activity</p>
+              : activityList.length === 0
+              ? (
+                  <div className="flex flex-col items-center justify-center h-full py-20 text-slate-400 dark:text-gray-500">
+                    <Activity size={30} className="mb-3 text-slate-300 dark:text-gray-600" />
+                    <p className="text-sm">No recent activity</p>
+                  </div>
+                )
+              : activityList.map((a: any, i: number) => {
+                  const initials = (a.user?.name ?? a.userId ?? '?')
+                    .split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
+                  const actionLabel = (a.action ?? '')
+                    .toLowerCase().replace(/_/g, ' ')
+                    .replace('ticket ', '').replace('leave ', '');
+                  const entityRef = a.details?.ticketId ?? a.details?.title ?? a.entityId ?? '';
+                  return (
+                    <div key={a.id ?? i} className="flex items-center gap-3 px-5 py-3.5">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold"
+                        style={{ backgroundColor: 'var(--accent)' }}>
+                        {initials}
                       </div>
-                    );
-                  }
-                  return all.map((n: any) => (
-                    <div
-                      key={n.id}
-                      className={cn(
-                        'flex items-start gap-3 px-5 py-4',
-                        !n.isRead && 'bg-blue-50/50 dark:bg-blue-900/5',
-                      )}
-                    >
-                      <NotifIcon type={n.type} />
                       <div className="flex-1 min-w-0">
-                        <p className={cn(
-                          'text-sm leading-snug',
-                          n.isRead
-                            ? 'font-medium text-slate-700 dark:text-gray-300'
-                            : 'font-semibold text-slate-900 dark:text-white',
-                        )}>
-                          {n.title}
+                        <p className="text-sm text-slate-700 dark:text-gray-300 leading-snug">
+                          <span className="font-semibold text-slate-800 dark:text-gray-200">{a.user?.name ?? 'System'}</span>
+                          {' '}{actionLabel}{entityRef ? ` — ${entityRef}` : ''}
                         </p>
-                        {n.message && (
-                          <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5 leading-relaxed">
-                            {n.message}
-                          </p>
-                        )}
-                        <p className="text-[10px] text-slate-300 dark:text-gray-600 mt-1">
-                          {timeAgo(n.createdAt)}
+                        <p className="text-[10px] text-slate-400 dark:text-gray-500 mt-0.5">
+                          {timeAgo(a.createdAt)}
                         </p>
                       </div>
                     </div>
-                  ));
-                })()
+                  );
+                })
             }
           </div>
           <div className="px-5 py-3 border-t border-slate-100 dark:border-gray-700">
