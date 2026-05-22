@@ -183,7 +183,7 @@ export function TopBar() {
 
         <Link
           href="/tickets/new"
-          className="flex items-center gap-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition-colors"
+          className="apex-btn-new-ticket"
         >
           <Plus size={14} />
           New Ticket
@@ -213,9 +213,16 @@ export function TopBar() {
           </button>
 
           {showWorkdayMenu && (
-            <div className="absolute right-0 top-10 w-52 bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-xl shadow-lg z-50 p-3">
-              <p className="text-xs font-semibold text-slate-500 dark:text-gray-400 mb-2">Workday</p>
-              <p className="text-sm font-medium text-slate-800 dark:text-gray-100 mb-3">
+            <div
+              className="absolute right-0 top-10 w-52 rounded-xl z-50 p-3"
+              style={{
+                backgroundColor: 'var(--surface-elevated)',
+                border: '1px solid var(--border-primary)',
+                boxShadow: 'var(--shadow-lg)',
+              }}
+            >
+              <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-tertiary)' }}>Workday</p>
+              <p className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
                 {workStatus === 'WORKING' ? 'Currently working' :
                  workStatus === 'ON_BREAK' ? 'On break' :
                  workStatus === 'IDLE' ? 'Idle' :
@@ -224,7 +231,8 @@ export function TopBar() {
               </p>
               <button
                 onClick={() => { setShowWorkdayMenu(false); router.push('/dashboard'); }}
-                className="w-full text-xs text-center text-indigo-600 dark:text-indigo-400 hover:underline"
+                className="w-full text-xs text-center hover:underline"
+                style={{ color: 'var(--accent)' }}
               >
                 Go to Dashboard
               </button>
@@ -249,14 +257,18 @@ export function TopBar() {
 
           {showNotifs && (
             <div className="absolute right-0 top-10 w-80 rounded-xl shadow-lg z-50" style={{ backgroundColor: 'var(--surface-elevated)', borderColor: 'var(--border-primary)', border: '1px solid var(--border-primary)' }}>
-              <div className="p-3 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
-                <h3 className="font-semibold text-sm text-slate-800 dark:text-white">Notifications</h3>
+              <div
+                className="p-3 flex items-center justify-between"
+                style={{ borderBottom: '1px solid var(--border-subtle)' }}
+              >
+                <h3 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Notifications</h3>
                 <div className="flex items-center gap-2">
                   {count > 0 && (
                     <button
                       onClick={() => markAllRead.mutate()}
                       disabled={markAllRead.isPending}
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40"
+                      className="flex items-center gap-1 text-xs disabled:opacity-40 hover:underline"
+                      style={{ color: 'var(--accent)' }}
                       title="Mark all as read"
                     >
                       <CheckCheck size={13} />
@@ -265,7 +277,8 @@ export function TopBar() {
                   )}
                   <button
                     onClick={() => setShowNotifs(false)}
-                    className="text-xs text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300"
+                    className="text-xs hover:opacity-70"
+                    style={{ color: 'var(--text-tertiary)' }}
                   >
                     Close
                   </button>
@@ -274,7 +287,7 @@ export function TopBar() {
               <div className="max-h-72 overflow-y-auto">
                 {notifsLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 size={18} className="animate-spin text-slate-400 dark:text-gray-500" />
+                    <Loader2 size={18} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
                   </div>
                 ) : Array.isArray(notifications) && notifications.length > 0 ? (
                   notifications.map((n: any) => {
@@ -300,24 +313,32 @@ export function TopBar() {
                       <div
                         key={n.id}
                         onClick={handleClick}
-                        className={`p-3 border-b border-slate-50 dark:border-gray-800 last:border-0 flex gap-2.5 transition-colors ${!n.isRead ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${href ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-gray-800' : ''}`}
+                        className="flex gap-2.5 transition-colors"
+                        style={{
+                          padding: '0.75rem',
+                          borderBottom: '1px solid var(--border-subtle)',
+                          backgroundColor: !n.isRead ? 'var(--accent-subtle)' : 'transparent',
+                          cursor: href ? 'pointer' : 'default',
+                        }}
+                        onMouseEnter={(e) => { if (href) e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = !n.isRead ? 'var(--accent-subtle)' : 'transparent'; }}
                       >
                         {!n.isRead && (
-                          <span className="mt-1.5 flex-shrink-0 w-2 h-2 rounded-full bg-blue-500" />
+                          <span className="mt-1.5 flex-shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
                         )}
                         <div className={!n.isRead ? 'flex-1' : 'pl-4 flex-1'}>
-                          <p className="text-sm font-medium text-slate-800 dark:text-gray-200">{n.title}</p>
-                          <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">{n.message}</p>
-                          <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">{formatRelativeTime(n.createdAt)}</p>
+                          <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{n.title}</p>
+                          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{n.message}</p>
+                          <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>{formatRelativeTime(n.createdAt)}</p>
                         </div>
                       </div>
                     );
                   })
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                    <span className="text-3xl mb-2" role="img" aria-label="All caught up">✓</span>
-                    <p className="text-sm font-semibold text-slate-700 dark:text-gray-300">You&apos;re all caught up</p>
-                    <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">No new notifications</p>
+                  <div className="apex-empty" style={{ padding: '2rem 1rem' }}>
+                    <div className="apex-empty-icon" style={{ width: '40px', height: '40px', fontSize: '20px' }}>✓</div>
+                    <p className="apex-empty-title">You&apos;re all caught up</p>
+                    <p className="apex-empty-desc">No new notifications</p>
                   </div>
                 )}
               </div>

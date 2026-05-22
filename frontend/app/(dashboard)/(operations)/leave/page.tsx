@@ -59,19 +59,14 @@ export default function LeavePage() {
     onSuccess: () => { toast.success('Rejected'); qc.invalidateQueries({ queryKey: ['leave'] }); },
   });
 
-  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500';
-
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Leave Management</h2>
-          <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">Manage leave requests and approvals</p>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Leave Management</h2>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>Manage leave requests and approvals</p>
         </div>
-        <button
-          onClick={() => setShowNew(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-        >
+        <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
           <Plus size={16} />Apply Leave
         </button>
       </div>
@@ -79,15 +74,17 @@ export default function LeavePage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: 'Total', value: stats?.total || 0, icon: <Clock size={18} className="text-slate-600" />, bg: 'bg-slate-50' },
-          { label: 'Pending', value: stats?.pending || 0, icon: <Clock size={18} className="text-yellow-600" />, bg: 'bg-yellow-50' },
-          { label: 'Approved', value: stats?.approved || 0, icon: <CheckCircle size={18} className="text-green-600" />, bg: 'bg-green-50' },
-          { label: 'Rejected', value: stats?.rejected || 0, icon: <XCircle size={18} className="text-red-600" />, bg: 'bg-red-50' },
+          { label: 'Total',    value: stats?.total    || 0, color: 'var(--text-secondary)',  bg: 'var(--bg-tertiary)'         },
+          { label: 'Pending',  value: stats?.pending  || 0, color: 'var(--color-warning)',   bg: 'var(--color-warning-bg)'    },
+          { label: 'Approved', value: stats?.approved || 0, color: 'var(--color-success)',   bg: 'var(--color-success-bg)'    },
+          { label: 'Rejected', value: stats?.rejected || 0, color: 'var(--color-danger)',    bg: 'var(--color-danger-bg)'     },
         ].map((s) => (
-          <div key={s.label} className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4">
-            <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center mb-2', s.bg)}>{s.icon}</div>
-            <p className="text-2xl font-bold text-slate-800 dark:text-white">{s.value}</p>
-            <p className="text-xs text-slate-500 dark:text-gray-400">{s.label}</p>
+          <div key={s.label} className="apex-card p-4">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-2" style={{ backgroundColor: s.bg }}>
+              {s.label === 'Approved' ? <CheckCircle size={18} style={{ color: s.color }} /> : s.label === 'Rejected' ? <XCircle size={18} style={{ color: s.color }} /> : <Clock size={18} style={{ color: s.color }} />}
+            </div>
+            <p className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{s.value}</p>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{s.label}</p>
           </div>
         ))}
       </div>
@@ -198,42 +195,40 @@ export default function LeavePage() {
 
       {/* New Leave Modal */}
       {showNew && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-2xl">
-            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-5">Apply for Leave</h3>
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Apply for Leave</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Leave Type</label>
-                <select value={form.type} onChange={(e) => setForm(f => ({ ...f, type: e.target.value }))} className={inputCls}>
+                <label className="apex-label">Leave Type</label>
+                <select value={form.type} onChange={(e) => setForm(f => ({ ...f, type: e.target.value }))} className="apex-select w-full">
                   {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Start Date</label>
-                  <input type="date" value={form.startDate} onChange={(e) => setForm(f => ({ ...f, startDate: e.target.value }))} className={inputCls} />
+                  <label className="apex-label">Start Date</label>
+                  <input type="date" value={form.startDate} onChange={(e) => setForm(f => ({ ...f, startDate: e.target.value }))} className="apex-input" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">End Date</label>
-                  <input type="date" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} className={inputCls} />
+                  <label className="apex-label">End Date</label>
+                  <input type="date" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} className="apex-input" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Reason</label>
-                <textarea value={form.reason} onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} className={`${inputCls} resize-none`} rows={3} placeholder="Brief reason for leave..." />
+                <label className="apex-label">Reason</label>
+                <textarea value={form.reason} onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} className="apex-textarea" rows={3} placeholder="Brief reason for leave..." />
               </div>
             </div>
             <div className="flex gap-3 mt-5">
               <button
                 onClick={() => form.startDate && form.endDate && form.reason && createMutation.mutate(form)}
                 disabled={createMutation.isPending || !form.startDate || !form.endDate || !form.reason}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm"
+                className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Submitting...' : 'Submit Request'}
               </button>
-              <button onClick={() => setShowNew(false)} className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm">
-                Cancel
-              </button>
+              <button onClick={() => setShowNew(false)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
             </div>
           </div>
         </div>

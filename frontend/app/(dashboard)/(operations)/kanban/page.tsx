@@ -40,7 +40,8 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
   });
   return (
     <div
-      className={cn('relative bg-white dark:bg-gray-800 rounded-xl border border-slate-200 dark:border-gray-700 p-3 shadow-sm', vis.borderClass, vis.bgClass, isPending && 'opacity-70')}
+      className={cn('relative rounded-xl p-3', vis.borderClass, vis.bgClass, isPending && 'opacity-70')}
+      style={{ backgroundColor: 'var(--surface-card)', border: '1px solid var(--border-primary)', boxShadow: 'var(--shadow-sm)' }}
     >
       {/* Priority dot — absolute top-right */}
       <span className={cn('absolute top-2 right-2 w-2.5 h-2.5 rounded-full', PRIORITY_DOT[ticket.priority] ?? 'bg-gray-400')} />
@@ -174,7 +175,10 @@ function DroppableColumn({
         <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full', col.headerColor)}>
           {col.label}
         </span>
-        <span className="text-xs font-bold text-slate-500 bg-white rounded-full w-6 h-6 flex items-center justify-center shadow-sm">
+        <span
+          className="text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center"
+          style={{ backgroundColor: 'var(--surface-card)', color: 'var(--text-secondary)', boxShadow: 'var(--shadow-sm)' }}
+        >
           {tickets.length}
         </span>
       </div>
@@ -212,13 +216,16 @@ function DroppableColumn({
         ))}
 
         {tickets.length === 0 && (
-          <div className={cn(
-            'flex flex-col items-center justify-center h-32 rounded-lg border-2 border-dashed transition-colors p-4 text-center',
-            isOver ? 'border-indigo-300 bg-indigo-50/50' : 'border-slate-200',
-          )}>
-            <span className="text-2xl mb-1">+</span>
-            <p className="text-xs font-medium text-slate-500">No tickets here</p>
-            <Link href="/tickets/new" className="text-xs text-blue-500 hover:underline mt-0.5" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="flex flex-col items-center justify-center h-32 rounded-lg border-2 border-dashed transition-colors p-4 text-center"
+            style={{
+              borderColor: isOver ? 'var(--accent-border)' : 'var(--border-primary)',
+              backgroundColor: isOver ? 'var(--accent-subtle)' : 'transparent',
+            }}
+          >
+            <span className="text-2xl mb-1" style={{ color: 'var(--text-tertiary)' }}>+</span>
+            <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>No tickets here</p>
+            <Link href="/tickets/new" className="text-xs hover:underline mt-0.5" style={{ color: 'var(--accent)' }} onClick={(e) => e.stopPropagation()}>
               Create a new ticket
             </Link>
           </div>
@@ -331,26 +338,22 @@ export default function KanbanPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Kanban Board</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Drag cards between columns to update status</p>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>Drag cards between columns to update status</p>
         </div>
         <div className="flex items-center gap-3">
           <select
             value={departmentId}
             onChange={(e) => setDepartmentId(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            className="apex-select"
           >
             <option value="">All Departments</option>
             {Array.isArray(departments) && departments.map((d: any) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
-          <Link
-            href="/tickets/new"
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            <Plus size={16} />
-            New Ticket
+          <Link href="/tickets/new" className="apex-btn-new-ticket">
+            <Plus size={16} /> New Ticket
           </Link>
         </div>
       </div>

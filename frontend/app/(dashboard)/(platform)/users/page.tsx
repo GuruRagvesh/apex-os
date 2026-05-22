@@ -77,7 +77,6 @@ export default function UsersPage() {
   });
 
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(me?.role?.name ?? '');
-  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500';
 
   // Client-side filtering
   const filteredUsers = userList.filter((u: any) => {
@@ -92,11 +91,11 @@ export default function UsersPage() {
     <div className="space-y-5 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Users</h2>
-          <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">{filteredUsers.length} of {userList.length} team members</p>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Users</h2>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{filteredUsers.length} of {userList.length} team members</p>
         </div>
         {isAdmin && (
-          <button onClick={() => setShowNew(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
             <Plus size={16} />Add User
           </button>
         )}
@@ -104,39 +103,27 @@ export default function UsersPage() {
 
       {/* Search */}
       <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-500" />
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
         <input
           type="text"
           placeholder="Search by name or email..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500"
+          className="apex-input pl-9 rounded-xl"
         />
       </div>
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <select
-          value={deptFilter}
-          onChange={(e) => setDeptFilter(e.target.value)}
-          className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
+        <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="apex-select">
           <option value="">All Departments</option>
           {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
-        <select
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value)}
-          className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="apex-select">
           <option value="">All Roles</option>
           {['INTERN','EMPLOYEE','TEAM_LEAD','MANAGER','ADMIN','SUPER_ADMIN'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="apex-select">
           <option value="">All Status</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
@@ -144,7 +131,8 @@ export default function UsersPage() {
         {(deptFilter || roleFilter || statusFilter) && (
           <button
             onClick={() => { setDeptFilter(''); setRoleFilter(''); setStatusFilter(''); }}
-            className="text-xs text-blue-500 hover:text-blue-400"
+            className="text-xs font-medium"
+            style={{ color: 'var(--color-danger)' }}
           >
             Clear filters
           </button>
@@ -153,16 +141,16 @@ export default function UsersPage() {
 
       {/* Users Grid */}
       {isLoading ? (
-        <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>
+        <div className="flex items-center justify-center h-40">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredUsers.map((u: any) => (
             <div
               key={u.id}
-              className={cn(
-                'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-3 transition-all hover:shadow-md hover:border-blue-400 dark:hover:border-blue-600',
-                !u.isActive && 'opacity-60'
-              )}
+              className={cn('apex-card p-5 flex flex-col gap-3 transition-all hover:shadow-md rounded-2xl', !u.isActive && 'opacity-60')}
+              style={{'--hover-border': 'var(--accent-border)'} as any}
             >
               <div className="flex items-start gap-3">
                 {u.photoUrl ? (
@@ -177,17 +165,23 @@ export default function UsersPage() {
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <p className="font-semibold text-slate-800 dark:text-gray-100 text-sm truncate">{u.name}</p>
-                    {/* Status dot */}
-                    <span className={cn('w-2 h-2 rounded-full flex-shrink-0', u.isActive !== false ? 'bg-green-500' : 'bg-red-500')} title={u.isActive !== false ? 'Active' : 'Inactive'} />
+                    <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{u.name}</p>
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: u.isActive !== false ? 'var(--color-success)' : 'var(--color-danger)' }}
+                      title={u.isActive !== false ? 'Active' : 'Inactive'}
+                    />
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400 truncate">{u.email}</p>
+                  <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{u.email}</p>
                   <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', roleBadge[u.role?.name] || 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300')}>
+                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', roleBadge[u.role?.name] || 'bg-gray-100 text-gray-700')}>
                       {u.role?.name}
                     </span>
                     {u.department && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+                      >
                         {u.department.name}
                       </span>
                     )}
@@ -200,14 +194,23 @@ export default function UsersPage() {
                         setEditUser(u);
                         setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive: u.isActive });
                       }}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                      className="p-1.5 rounded-lg transition-colors"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
                       title="Edit user"
                     >
                       <Edit2 size={14} />
                     </button>
                     <button
                       onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}
-                      className={cn('p-1.5 rounded-lg transition-colors', u.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30' : 'text-slate-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-900/30')}
+                      className="p-1.5 rounded-lg transition-colors"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = u.isActive ? 'var(--color-danger)' : 'var(--color-success)';
+                        e.currentTarget.style.backgroundColor = u.isActive ? 'var(--color-danger-bg)' : 'var(--color-success-bg)';
+                      }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
                       title={u.isActive ? 'Deactivate' : 'Activate'}
                     >
                       {u.isActive ? <UserX size={14} /> : <UserCheck size={14} />}
@@ -219,7 +222,10 @@ export default function UsersPage() {
               {/* View Profile button */}
               <button
                 onClick={() => router.push(`/users/${u.id}/profile`)}
-                className="flex items-center justify-center gap-1.5 w-full py-2 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                className="flex items-center justify-center gap-1.5 w-full py-2 text-xs font-medium rounded-xl transition-colors"
+                style={{ color: 'var(--accent)', border: '1px solid var(--accent-border)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--accent-subtle)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 <ExternalLink size={12} />
                 View Profile
@@ -227,32 +233,35 @@ export default function UsersPage() {
             </div>
           ))}
           {filteredUsers.length === 0 && !isLoading && (
-            <div className="col-span-3 text-center text-slate-400 py-12">No users match the current filters.</div>
+            <div className="col-span-3 apex-empty">
+              <p className="apex-empty-title">No users match the current filters</p>
+              <p className="apex-empty-desc">Try adjusting your search or filters.</p>
+            </div>
           )}
         </div>
       )}
 
       {/* Edit User Modal */}
       {editUser && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-2xl">
-            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-5">Edit User</h3>
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Edit User</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Full Name</label>
-                <input type="text" value={editForm.name} onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))} className={inputCls} />
+                <label className="apex-label">Full Name</label>
+                <input type="text" value={editForm.name} onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))} className="apex-input" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Role</label>
-                  <select value={editForm.roleId} onChange={(e) => setEditForm(f => ({ ...f, roleId: e.target.value }))} className={inputCls}>
+                  <label className="apex-label">Role</label>
+                  <select value={editForm.roleId} onChange={(e) => setEditForm(f => ({ ...f, roleId: e.target.value }))} className="apex-select w-full">
                     <option value="">Select role</option>
                     {Array.isArray(roles) && roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Department</label>
-                  <select value={editForm.departmentId} onChange={(e) => setEditForm(f => ({ ...f, departmentId: e.target.value }))} className={inputCls}>
+                  <label className="apex-label">Department</label>
+                  <select value={editForm.departmentId} onChange={(e) => setEditForm(f => ({ ...f, departmentId: e.target.value }))} className="apex-select w-full">
                     <option value="">None</option>
                     {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
@@ -263,13 +272,11 @@ export default function UsersPage() {
               <button
                 onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || undefined, departmentId: editForm.departmentId || undefined } })}
                 disabled={editMutation.isPending || !editForm.name}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm"
+                className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
                 {editMutation.isPending ? 'Saving...' : 'Save Changes'}
               </button>
-              <button onClick={() => setEditUser(null)} className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm">
-                Cancel
-              </button>
+              <button onClick={() => setEditUser(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
             </div>
           </div>
         </div>
@@ -277,33 +284,33 @@ export default function UsersPage() {
 
       {/* New User Modal */}
       {showNew && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-2xl">
-            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-5">Add New User</h3>
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Add New User</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Full Name *</label>
-                <input type="text" value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} className={inputCls} placeholder="Rajesh Kumar" />
+                <label className="apex-label">Full Name *</label>
+                <input type="text" value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} className="apex-input" placeholder="Rajesh Kumar" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Email *</label>
-                <input type="email" value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} className={inputCls} placeholder="rajesh@technoedge.com" />
+                <label className="apex-label">Email *</label>
+                <input type="email" value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} className="apex-input" placeholder="rajesh@technoedge.com" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Password *</label>
-                <input type="password" value={form.password} onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))} className={inputCls} placeholder="Min 6 characters" />
+                <label className="apex-label">Password *</label>
+                <input type="password" value={form.password} onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))} className="apex-input" placeholder="Min 6 characters" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Role *</label>
-                  <select value={form.roleId} onChange={(e) => setForm(f => ({ ...f, roleId: e.target.value }))} className={inputCls}>
+                  <label className="apex-label">Role *</label>
+                  <select value={form.roleId} onChange={(e) => setForm(f => ({ ...f, roleId: e.target.value }))} className="apex-select w-full">
                     <option value="">Select role</option>
                     {Array.isArray(roles) && roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Department</label>
-                  <select value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value }))} className={inputCls}>
+                  <label className="apex-label">Department</label>
+                  <select value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value }))} className="apex-select w-full">
                     <option value="">Select</option>
                     {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
@@ -314,13 +321,11 @@ export default function UsersPage() {
               <button
                 onClick={() => form.name && form.email && form.password && form.roleId && createMutation.mutate({ ...form, departmentId: form.departmentId || undefined })}
                 disabled={createMutation.isPending || !form.name || !form.email || !form.password || !form.roleId}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm"
+                className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Creating...' : 'Create User'}
               </button>
-              <button onClick={() => setShowNew(false)} className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm">
-                Cancel
-              </button>
+              <button onClick={() => setShowNew(false)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
             </div>
           </div>
         </div>

@@ -68,26 +68,19 @@ export default function DepartmentsPage() {
       toast.error(err?.message || err?.error || 'Cannot delete department'),
   });
 
-  const inputCls =
-    'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500';
-
   return (
     <div className="space-y-5 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Departments</h2>
-          <p className="text-sm text-slate-500 dark:text-gray-400">
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Departments</h2>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {Array.isArray(departments) ? departments.length : 0} departments
           </p>
         </div>
         {isAdmin && (
-          <button
-            onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            <Plus size={16} />
-            New Department
+          <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
+            <Plus size={16} /> New Department
           </button>
         )}
       </div>
@@ -95,7 +88,7 @@ export default function DepartmentsPage() {
       {/* Cards */}
       {isLoading ? (
         <div className="flex items-center justify-center h-40">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -103,7 +96,7 @@ export default function DepartmentsPage() {
             departments.map((d: any) => (
               <div
                 key={d.id}
-                className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-5 hover:shadow-md transition-all cursor-pointer group relative"
+                className="apex-card-clickable p-5 group relative"
                 onClick={() => router.push(`/departments/${d.id}`)}
               >
                 {/* Card header */}
@@ -113,48 +106,46 @@ export default function DepartmentsPage() {
                       className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: (d.color || '#6366f1') + '20' }}
                     >
-                      <div
-                        className="w-5 h-5 rounded-full"
-                        style={{ backgroundColor: d.color || '#6366f1' }}
-                      />
+                      <div className="w-5 h-5 rounded-full" style={{ backgroundColor: d.color || '#6366f1' }} />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-slate-800 dark:text-white">{d.name}</h3>
+                      <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>{d.name}</h3>
                       {d.description && (
-                        <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5 line-clamp-1">{d.description}</p>
+                        <p className="text-xs mt-0.5 line-clamp-1" style={{ color: 'var(--text-secondary)' }}>{d.description}</p>
                       )}
                     </div>
                   </div>
 
                   {/* Actions menu */}
                   <div className="flex items-center gap-1" ref={menuOpen === d.id ? menuRef : undefined}>
-                    <ChevronRight
-                      size={16}
-                      className="text-slate-300 dark:text-gray-600 group-hover:text-slate-500 dark:group-hover:text-gray-400 transition-colors"
-                    />
+                    <ChevronRight size={16} style={{ color: 'var(--text-tertiary)' }} />
                     {isAdmin && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMenuOpen(menuOpen === d.id ? null : d.id);
-                        }}
-                        className="p-1 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-md transition-colors"
+                        onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === d.id ? null : d.id); }}
+                        className="p-1 rounded-md transition-colors"
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                       >
-                        <MoreVertical size={15} className="text-slate-400 dark:text-gray-500" />
+                        <MoreVertical size={15} style={{ color: 'var(--text-tertiary)' }} />
                       </button>
                     )}
                     {menuOpen === d.id && (
-                      <div className="absolute top-12 right-4 bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-lg shadow-lg z-10 min-w-[140px]">
+                      <div
+                        className="absolute top-12 right-4 rounded-lg shadow-lg z-10 min-w-[140px] p-1"
+                        style={{
+                          backgroundColor: 'var(--surface-elevated)',
+                          border: '1px solid var(--border-primary)',
+                          boxShadow: 'var(--shadow-lg)',
+                        }}
+                      >
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteTarget({ id: d.id, name: d.name });
-                            setMenuOpen(null);
-                          }}
-                          className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: d.id, name: d.name }); setMenuOpen(null); }}
+                          className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg transition-colors"
+                          style={{ color: 'var(--color-danger)' }}
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-danger-bg)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                         >
-                          <Trash2 size={14} />
-                          Delete
+                          <Trash2 size={14} /> Delete
                         </button>
                       </div>
                     )}
@@ -163,37 +154,27 @@ export default function DepartmentsPage() {
 
                 {/* Team lead */}
                 {d.teamLead && (
-                  <div className="flex items-center gap-2 mb-3 text-xs text-slate-500 dark:text-gray-400">
-                    <UserCircle2 size={13} className="text-slate-400 dark:text-gray-500" />
-                    <span>Lead: <span className="font-medium text-slate-700 dark:text-gray-300">{d.teamLead.name}</span></span>
+                  <div className="flex items-center gap-2 mb-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    <UserCircle2 size={13} style={{ color: 'var(--text-tertiary)' }} />
+                    <span>Lead: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{d.teamLead.name}</span></span>
                   </div>
                 )}
 
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-slate-50 dark:bg-gray-800 rounded-lg p-2">
-                    <div className="flex items-center justify-center mb-1">
-                      <Users size={13} className="text-slate-400 dark:text-gray-500" />
+                  {[
+                    { icon: Users, val: d._count?.users || 0, label: 'Members' },
+                    { icon: Ticket, val: d.activeTickets ?? d._count?.tickets ?? 0, label: 'Active' },
+                    { icon: FolderKanban, val: d._count?.projects || 0, label: 'Projects' },
+                  ].map(({ icon: Icon, val, label }) => (
+                    <div key={label} className="rounded-lg p-2" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+                      <div className="flex items-center justify-center mb-1">
+                        <Icon size={13} style={{ color: 'var(--text-tertiary)' }} />
+                      </div>
+                      <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{val}</p>
+                      <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{label}</p>
                     </div>
-                    <p className="text-sm font-bold text-slate-800 dark:text-white">{d._count?.users || 0}</p>
-                    <p className="text-xs text-slate-400 dark:text-gray-500">Members</p>
-                  </div>
-                  <div className="bg-slate-50 dark:bg-gray-800 rounded-lg p-2">
-                    <div className="flex items-center justify-center mb-1">
-                      <Ticket size={13} className="text-slate-400 dark:text-gray-500" />
-                    </div>
-                    <p className="text-sm font-bold text-slate-800 dark:text-white">
-                      {d.activeTickets ?? d._count?.tickets ?? 0}
-                    </p>
-                    <p className="text-xs text-slate-400 dark:text-gray-500">Active</p>
-                  </div>
-                  <div className="bg-slate-50 dark:bg-gray-800 rounded-lg p-2">
-                    <div className="flex items-center justify-center mb-1">
-                      <FolderKanban size={13} className="text-slate-400 dark:text-gray-500" />
-                    </div>
-                    <p className="text-sm font-bold text-slate-800 dark:text-white">{d._count?.projects || 0}</p>
-                    <p className="text-xs text-slate-400 dark:text-gray-500">Projects</p>
-                  </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -202,62 +183,31 @@ export default function DepartmentsPage() {
 
       {/* New Department Modal */}
       {showNew && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-2xl">
-            <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-5">New Department</h3>
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-sm p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>New Department</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">
-                  Name *
-                </label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  className={inputCls}
-                  placeholder="e.g., Finance"
-                  autoFocus
-                />
+                <label className="apex-label">Name *</label>
+                <input type="text" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="apex-input" placeholder="e.g., Finance" autoFocus />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  className={inputCls}
-                  placeholder="Brief description"
-                />
+                <label className="apex-label">Description</label>
+                <input type="text" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className="apex-input" placeholder="Brief description" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5">Color</label>
+                <label className="apex-label">Color</label>
                 <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={form.color}
-                    onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
-                    className="w-10 h-10 rounded-lg border border-slate-200 dark:border-gray-700 cursor-pointer"
-                  />
-                  <span className="text-sm text-slate-500 dark:text-gray-400">{form.color}</span>
+                  <input type="color" value={form.color} onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))} className="w-10 h-10 rounded-lg cursor-pointer" style={{ border: '1px solid var(--border-primary)' }} />
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{form.color}</span>
                 </div>
               </div>
             </div>
             <div className="flex gap-3 mt-5">
-              <button
-                onClick={() => form.name && createMutation.mutate(form)}
-                disabled={createMutation.isPending || !form.name.trim()}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg disabled:opacity-50 text-sm"
-              >
+              <button onClick={() => form.name && createMutation.mutate(form)} disabled={createMutation.isPending || !form.name.trim()} className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50">
                 {createMutation.isPending ? 'Creating...' : 'Create'}
               </button>
-              <button
-                onClick={() => setShowNew(false)}
-                className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm"
-              >
-                Cancel
-              </button>
+              <button onClick={() => setShowNew(false)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
             </div>
           </div>
         </div>
@@ -265,35 +215,26 @@ export default function DepartmentsPage() {
 
       {/* Delete Confirm Dialog */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-sm p-6 modal-enter">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                <Trash2 size={18} className="text-red-600" />
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-danger-bg)' }}>
+                <Trash2 size={18} style={{ color: 'var(--color-danger)' }} />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800 dark:text-white">Delete Department</h3>
-                <p className="text-sm text-slate-500 dark:text-gray-400">This action cannot be undone.</p>
+                <h3 className="font-bold" style={{ color: 'var(--text-primary)' }}>Delete Department</h3>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>This action cannot be undone.</p>
               </div>
             </div>
-            <p className="text-sm text-slate-600 dark:text-gray-400 mb-5 bg-slate-50 dark:bg-gray-800 rounded-lg p-3">
-              Delete <span className="font-semibold text-slate-800 dark:text-white">{deleteTarget.name}</span>?
+            <p className="text-sm mb-5 rounded-lg p-3" style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-tertiary)' }}>
+              Delete <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{deleteTarget.name}</span>?
               Members will be unassigned from this department.
             </p>
             <div className="flex gap-3">
-              <button
-                onClick={() => deleteMutation.mutate(deleteTarget.id)}
-                disabled={deleteMutation.isPending}
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg disabled:opacity-50 text-sm"
-              >
+              <button onClick={() => deleteMutation.mutate(deleteTarget.id)} disabled={deleteMutation.isPending} className="apex-btn apex-btn-danger flex-1 justify-center py-2.5 disabled:opacity-50">
                 {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
               </button>
-              <button
-                onClick={() => setDeleteTarget(null)}
-                className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg hover:bg-slate-50 text-sm"
-              >
-                Cancel
-              </button>
+              <button onClick={() => setDeleteTarget(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
             </div>
           </div>
         </div>

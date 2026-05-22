@@ -107,7 +107,7 @@ function NotifIcon({ type }: { type: string }) {
 // Skeleton shimmer blocks
 function CardSkeleton() {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-slate-200 dark:border-gray-700 shadow-sm p-5 space-y-4">
+    <div className="apex-card p-5 space-y-4">
       <div className="flex items-center gap-4">
         <Skeleton className="w-12 h-12 rounded-full flex-shrink-0" />
         <div className="space-y-2 flex-1">
