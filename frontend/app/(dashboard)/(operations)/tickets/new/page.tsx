@@ -180,15 +180,11 @@ export default function NewTicketPage() {
     if (!form.title.trim()) return toast.error('Title is required');
     // CUSTOM type: use customType text or fall back to 'CUSTOM'
     const resolvedType = form.type === 'CUSTOM' ? (customType.trim() || 'CUSTOM') : form.type;
-    // CUSTOM subtype: append note to description instead of sending an id
-    const hasCustomSubtype = taskSubtypeId === '__custom__' && customSubtype.trim();
-    const resolvedDescription = hasCustomSubtype
-      ? `${form.description ? form.description + '\n\n' : ''}[Custom subtype: ${customSubtype.trim()}]`
-      : form.description;
+    const isCustomSubtype = taskSubtypeId === '__custom__';
     mutation.mutate({
       ...form,
       type: resolvedType,
-      description: resolvedDescription,
+      description: form.description,
       estimatedTime: undefined,
       estimatedMinutes: form.estimatedMinutes ? parseInt(form.estimatedMinutes) : undefined,
       projectId: form.projectId || undefined,
@@ -207,7 +203,8 @@ export default function NewTicketPage() {
       scheduleRecurring: (scheduleRecurring !== 'none' && scheduleRecurring !== 'custom_time') ? scheduleRecurring : undefined,
       scheduleEndDate: computeEndDate(),
       taskTypeId: taskTypeId || undefined,
-      taskSubtypeId: (taskSubtypeId && taskSubtypeId !== '__custom__') ? taskSubtypeId : undefined,
+      taskSubtypeId: (!isCustomSubtype && taskSubtypeId) ? taskSubtypeId : undefined,
+      customSubtypeText: isCustomSubtype ? (customSubtype.trim() || undefined) : undefined,
       scheduledStartAt: form.scheduledStartAt
         ? (form.scheduledStartAt.includes('T') ? form.scheduledStartAt : `${form.scheduledStartAt}T13:00:00.000Z`)
         : undefined,

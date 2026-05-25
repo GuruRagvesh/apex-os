@@ -17,7 +17,7 @@ export class LeaveController {
   findAll(@Query() query: any, @CurrentUser() user: any) { return this.leaveService.findAll(query, user); }
 
   @Get('stats')
-  getStats() { return this.leaveService.getStats(); }
+  getStats(@CurrentUser() user: any) { return this.leaveService.getStats(user); }
 
   @Get(':id')
   findOne(@Param('id') id: string) { return this.leaveService.findOne(id); }

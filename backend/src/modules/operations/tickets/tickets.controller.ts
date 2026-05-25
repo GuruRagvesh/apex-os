@@ -26,7 +26,7 @@ export class TicketsController {
   findAll(@Query() query: any, @CurrentUser() user: any) { return this.ticketsService.findAll(query, user); }
 
   @Get('stats')
-  getStats() { return this.ticketsService.getStats(); }
+  getStats(@CurrentUser() user: any) { return this.ticketsService.getStats(user); }
 
   @Get('kanban')
   getKanban(@Query() query: any, @CurrentUser() user: any) { return this.ticketsService.getKanban(query, user); }

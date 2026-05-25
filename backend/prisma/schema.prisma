@@ -210,8 +210,9 @@ model Ticket {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  taskTypeId    String?
-  taskSubtypeId String?
+  taskTypeId         String?
+  taskSubtypeId      String?
+  customSubtypeText  String?
 
   project     Project?        @relation(fields: [projectId], references: [id])
   department  Department?     @relation(fields: [departmentId], references: [id])

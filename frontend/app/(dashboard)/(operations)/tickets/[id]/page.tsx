@@ -1285,9 +1285,11 @@ export default function TicketDetailPage() {
               <p className="text-xs text-slate-500 dark:text-gray-400">Task Type</p>
               <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
                 {ticket.taskType.name}
-                {ticket.taskSubtype && (
+                {ticket.taskSubtype ? (
                   <span className="text-slate-500 dark:text-gray-400"> / {ticket.taskSubtype.name}</span>
-                )}
+                ) : (ticket as any).customSubtypeText ? (
+                  <span className="text-slate-500 dark:text-gray-400"> / {(ticket as any).customSubtypeText} <span className="text-xs text-slate-400">(custom)</span></span>
+                ) : null}
               </p>
             </div>
           )}

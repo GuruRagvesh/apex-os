@@ -190,8 +190,12 @@ export class TicketsService {
       }
       return where;
     }
-    // Employee / Intern → only their own tickets
-    where.OR = [{ assignedToId: user.id }, { createdById: user.id }];
+    // Employee / Intern → only tickets they created, are assigned to (primary or multi-assignee)
+    where.OR = [
+      { assignedToId: user.id },
+      { createdById: user.id },
+      { assignees: { some: { userId: user.id } } },
+    ];
     return where;
   }
 
@@ -298,7 +302,15 @@ export class TicketsService {
     if (!data.departmentId) data.departmentId = undefined;
     if (!data.assignedToId) data.assignedToId = undefined;
     if (!data.taskTypeId) data.taskTypeId = undefined;
-    if (!data.taskSubtypeId) data.taskSubtypeId = undefined;
+    // Handle custom subtype: if taskSubtypeId is '__custom__', clear it and use customSubtypeText
+    if (data.taskSubtypeId === '__custom__' || data.taskSubtypeId === 'custom') {
+      data.taskSubtypeId = null;
+      // customSubtypeText is passed through as-is
+    } else {
+      if (!data.taskSubtypeId) data.taskSubtypeId = undefined;
+      // Clear customSubtypeText when a real subtype is chosen
+      if (data.taskSubtypeId) data.customSubtypeText = null;
+    }
     // Normalize date inputs — date-only strings → 18:30 IST (13:00 UTC)
     for (const field of ['dueDate', 'scheduledFor', 'scheduleEndDate']) {
       if (data[field]) data[field] = this.normalizeDateInput(data[field])?.toISOString();
@@ -420,6 +432,13 @@ export class TicketsService {
     // Extract assigneeIds (not a Ticket column)
     const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
     delete data.assigneeIds;
+
+    // Handle custom subtype on update
+    if (data.taskSubtypeId === '__custom__' || data.taskSubtypeId === 'custom') {
+      data.taskSubtypeId = null;
+    } else if (data.taskSubtypeId) {
+      data.customSubtypeText = null; // clear custom text when real subtype chosen
+    }
 
     // Normalize date inputs — date-only strings → 18:30 IST (13:00 UTC)
     for (const field of ['dueDate', 'scheduledFor', 'scheduleEndDate']) {
@@ -748,16 +767,18 @@ export class TicketsService {
     return this.prisma.ticket.delete({ where: { id } });
   }
 
-  async getStats() {
+  async getStats(user?: any) {
+    const scope = user ? await this.applyRoleScope({}, user) : {};
+    const overdueScope = { ...scope, dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } };
+    const unassignedScope = { ...scope, assignedToId: null };
+
     const [total, byStatus, byCategory, byPriority, overdue, unassigned] = await Promise.all([
-      this.prisma.ticket.count(),
-      this.prisma.ticket.groupBy({ by: ['status'], _count: true }),
-      this.prisma.ticket.groupBy({ by: ['category'], _count: true }),
-      this.prisma.ticket.groupBy({ by: ['priority'], _count: true }),
-      this.prisma.ticket.count({
-        where: { dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } },
-      }),
-      this.prisma.ticket.count({ where: { assignedToId: null } }),
+      this.prisma.ticket.count({ where: scope }),
+      this.prisma.ticket.groupBy({ by: ['status'], where: scope, _count: true }),
+      this.prisma.ticket.groupBy({ by: ['category'], where: scope, _count: true }),
+      this.prisma.ticket.groupBy({ by: ['priority'], where: scope, _count: true }),
+      this.prisma.ticket.count({ where: overdueScope }),
+      this.prisma.ticket.count({ where: unassignedScope }),
     ]);
 
     return { total, byStatus, byCategory, byPriority, overdue, unassigned };

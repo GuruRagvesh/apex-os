@@ -64,6 +64,7 @@ export class DashboardService {
         ? this.prisma.user.count({ where: { isActive: true, departmentId: { in: managedDeptIds } } })
         : this.prisma.user.count({ where: { isActive: true } }),
       this.prisma.ticket.findMany({
+        where: ticketWhere,
         take: 10,
         orderBy: { createdAt: 'desc' },
         include: {

@@ -20,21 +20,40 @@ export class LeaveService {
     return this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }
 
+  private async buildLeaveScope(user: any): Promise<any> {
+    const roleName: string = user?.role?.name ?? user?.role ?? '';
+    if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
+      return { userId: user.id };
+    }
+    if (roleName === 'TEAM_LEAD') {
+      if (!user.departmentId) return { userId: user.id };
+      return { user: { departmentId: user.departmentId } };
+    }
+    if (roleName === 'MANAGER') {
+      const access = await this.prisma.managerDeptAccess.findMany({ where: { managerId: user.id } });
+      const deptIds: string[] = access.map((a: any) => a.departmentId as string);
+      if (user.departmentId && !deptIds.includes(user.departmentId)) deptIds.push(user.departmentId);
+      const unique = [...new Set(deptIds)];
+      if (unique.length === 0) return { userId: user.id };
+      return { user: { departmentId: { in: unique } } };
+    }
+    if ((user as any).isHR) return {};
+    // ADMIN / SUPER_ADMIN
+    return {};
+  }
+
   async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string }, user?: any) {
     const where: any = {};
     if (query.userId) where.userId = query.userId;
     if (query.status) where.status = query.status;
     if (query.departmentId) where.user = { departmentId: query.departmentId };
 
-    // Role-based scoping
+    // Role-based scoping — merge with explicit query filters
     if (user) {
-      const roleName: string = user?.role?.name ?? user?.role ?? '';
-      if (['MANAGER', 'TEAM_LEAD'].includes(roleName) && user.departmentId) {
-        where.user = { ...(where.user ?? {}), departmentId: user.departmentId };
-      } else if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
-        where.userId = user.id;
-      }
-      // ADMIN / SUPER_ADMIN: no scope
+      const scope = await this.buildLeaveScope(user);
+      // Merge scope into where (scope keys take precedence for security unless explicitly overridden)
+      if (scope.userId) where.userId = scope.userId;
+      if (scope.user) where.user = { ...(where.user ?? {}), ...scope.user };
     }
 
     return this.prisma.leaveRequest.findMany({
@@ -183,12 +202,13 @@ export class LeaveService {
     });
   }
 
-  async getStats() {
+  async getStats(user?: any) {
+    const scope = user ? await this.buildLeaveScope(user) : {};
     const [total, pending, approved, rejected] = await Promise.all([
-      this.prisma.leaveRequest.count(),
-      this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING } }),
-      this.prisma.leaveRequest.count({ where: { status: LeaveStatus.APPROVED } }),
-      this.prisma.leaveRequest.count({ where: { status: LeaveStatus.REJECTED } }),
+      this.prisma.leaveRequest.count({ where: scope }),
+      this.prisma.leaveRequest.count({ where: { ...scope, status: LeaveStatus.PENDING } }),
+      this.prisma.leaveRequest.count({ where: { ...scope, status: LeaveStatus.APPROVED } }),
+      this.prisma.leaveRequest.count({ where: { ...scope, status: LeaveStatus.REJECTED } }),
     ]);
     return { total, pending, approved, rejected };
   }
