@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { LoginDto, RegisterDto } from './dto/login.dto';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 
 @Injectable()
 export class AuthService {
@@ -14,6 +15,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private eventLogger: EventLoggerService,
   ) {}
 
   async login(dto: LoginDto) {
@@ -52,6 +54,8 @@ export class AuthService {
       // Non-critical — don't fail login if attendance tracking fails
       console.error('Attendance tracking error on login:', e);
     }
+
+    this.eventLogger.log({ actorId: user.id, entityType: 'User', entityId: user.id, action: OperationalAction.USER_LOGIN }).catch(() => {});
 
     return { user: userWithoutPassword, ...tokens };
   }

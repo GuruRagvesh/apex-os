@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
   Users, Building2, BarChart3, LogOut, ChevronRight, Zap, Settings,
+  Calendar, Activity,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UserAvatar } from '@/components/ui/user-avatar';
@@ -57,6 +58,7 @@ const BASE_NAV = [
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban          },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban    },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff     },
+  { href: '/calendar',  label: 'Calendar',       icon: Calendar        },
 ];
 
 const TEAMLEAD_NAV  = [{ href: '/team',    label: 'Team',          icon: Users    }];
@@ -67,6 +69,7 @@ const ADMIN_NAV     = [
 ];
 
 const SETTINGS_NAV  = [{ href: '/settings', label: 'Settings',      icon: Settings  }];
+const ACTIVITY_NAV  = [{ href: '/admin/activity', label: 'Activity Log', icon: Activity }];
 
 // Streamlined nav for SUPER_ADMIN in team_lead mode
 const TEAMLEAD_MODE_NAV = [
@@ -187,6 +190,14 @@ export function Sidebar() {
           <>
             <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Admin</p>
             {ADMIN_NAV.map((item) => <NavItem key={item.href} {...item} />)}
+          </>
+        )}
+
+        {/* Activity Log — team leads and above */}
+        {isTeamLead && !(isSuperAdmin && apexMode === 'team_lead') && (
+          <>
+            <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Workday</p>
+            {ACTIVITY_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
 

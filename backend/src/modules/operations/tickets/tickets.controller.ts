@@ -115,6 +115,6 @@ export class TicketsController {
     if (!['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
       throw new ForbiddenException('Only managers and admins can delete tickets');
     }
-    return this.ticketsService.remove(id);
+    return this.ticketsService.remove(id, user?.id);
   }
 }

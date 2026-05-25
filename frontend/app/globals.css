@@ -711,3 +711,81 @@ html[data-theme="john-wick-dark"] .divide-slate-100 > * + * { border-color: var(
   cursor: pointer;
 }
 .apex-btn-new-ticket:hover { background-color: var(--accent-hover); }
+
+/* ═══════════════════════════════════════
+   APEX OS — MOTION SYSTEM
+═══════════════════════════════════════ */
+
+@keyframes apex-page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes apex-modal-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes apex-slide-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes apex-toast-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes apex-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+main#apex-main-content {
+  animation: apex-page-in 0.18s ease-out both;
+}
+
+.apex-modal-animated {
+  animation: apex-modal-in 0.15s ease-out both;
+}
+
+.apex-drawer-animated {
+  animation: apex-slide-right 0.22s ease-out both;
+}
+
+.apex-card {
+  transition: box-shadow 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+
+.apex-card-clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent-border);
+}
+
+.apex-btn:active:not(:disabled) {
+  transform: scale(0.97);
+  transition: transform 0.08s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── FullCalendar theme ─── */
+.fc { font-family: var(--font-sans) !important; font-size: 12px; }
+.fc .fc-toolbar-title { font-size: 15px; font-weight: 500; color: var(--text-primary); }
+.fc .fc-button { background: var(--surface-card) !important; border: 1px solid var(--border-primary) !important; color: var(--text-secondary) !important; font-size: 11px !important; border-radius: 6px !important; box-shadow: none !important; }
+.fc .fc-button:hover { background: var(--bg-tertiary) !important; }
+.fc .fc-button-active, .fc .fc-button-primary:not(:disabled).fc-button-active { background: var(--accent-subtle) !important; color: var(--accent-text) !important; border-color: var(--accent-border) !important; }
+.fc .fc-daygrid-day { background: var(--surface-card); }
+.fc .fc-daygrid-day:hover { background: var(--bg-tertiary); }
+.fc .fc-event { border-radius: 4px; font-size: 11px; border: none !important; padding: 1px 4px; cursor: pointer; }
+.fc-theme-standard td, .fc-theme-standard th { border-color: var(--border-subtle) !important; }
+.fc .fc-scrollgrid { border-color: var(--border-subtle) !important; }
+.fc .fc-col-header-cell { background: var(--bg-tertiary); }
+.fc .fc-daygrid-day-number, .fc .fc-col-header-cell-cushion { color: var(--text-secondary); text-decoration: none; }
+.fc .fc-day-today { background: var(--accent-subtle) !important; }

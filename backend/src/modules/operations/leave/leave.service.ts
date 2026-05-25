@@ -5,6 +5,7 @@ import { LeaveStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { EmailService } from '../../platform/email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 
 @Injectable()
 export class LeaveService {
@@ -14,6 +15,7 @@ export class LeaveService {
     private emailService: EmailService,
     private notificationsService: NotificationsService,
     private configService: ConfigService,
+    private eventLogger: EventLoggerService,
   ) {}
 
   private get frontendUrl() {
@@ -74,7 +76,7 @@ export class LeaveService {
 
   async create(data: any, userId: string) {
     const { startDate, endDate, ...rest } = data;
-    return this.prisma.leaveRequest.create({
+    const leave = await this.prisma.leaveRequest.create({
       data: {
         ...rest,
         userId,
@@ -83,6 +85,8 @@ export class LeaveService {
       },
       include: { user: { select: { id: true, name: true } } },
     });
+    this.eventLogger.log({ actorId: userId, entityType: 'LeaveRequest', entityId: leave.id, action: OperationalAction.LEAVE_REQUESTED, toState: 'PENDING', metadata: { type: leave.type } }).catch(() => {});
+    return leave;
   }
 
   async approve(id: string, approverId: string) {
@@ -104,6 +108,8 @@ export class LeaveService {
       where: { id },
       data: { status: LeaveStatus.APPROVED, approvedBy: approverId, approvedAt: new Date() },
     });
+
+    this.eventLogger.log({ actorId: approverId, entityType: 'LeaveRequest', entityId: id, action: OperationalAction.LEAVE_APPROVED, fromState: 'PENDING', toState: 'APPROVED' }).catch(() => {});
 
     // Real-time + notification + email
     this.gateway.emitLeaveStatusChanged(id, 'APPROVED', leave.userId);
@@ -157,6 +163,8 @@ export class LeaveService {
       where: { id },
       data: { status: LeaveStatus.REJECTED, rejectedBy: rejectorId, rejectedAt: new Date() },
     });
+
+    this.eventLogger.log({ actorId: rejectorId, entityType: 'LeaveRequest', entityId: id, action: OperationalAction.LEAVE_REJECTED, fromState: 'PENDING', toState: 'REJECTED' }).catch(() => {});
 
     this.gateway.emitLeaveStatusChanged(id, 'REJECTED', leave.userId);
 

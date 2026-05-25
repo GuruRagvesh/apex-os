@@ -88,6 +88,7 @@ model User {
   attendanceEvents  AttendanceEvent[]
   managedDepts      ManagerDeptAccess[] @relation("ManagerAccess")
   employeeDocuments  EmployeeDocument[]
+  operationalEvents OperationalEvent[] @relation("EventActor")
 
   @@map("users")
 }
@@ -512,6 +513,28 @@ model AttendanceEvent {
   @@index([timestamp])
   @@index([eventType])
   @@map("attendance_events")
+}
+
+model OperationalEvent {
+  id          String   @id @default(cuid())
+  actorId     String
+  actor       User     @relation("EventActor", fields: [actorId], references: [id])
+  entityType  String
+  entityId    String
+  action      String
+  fromState   String?
+  toState     String?
+  metadata    Json?
+  ip          String?
+  device      String?
+  timestamp   DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([timestamp])
+
+  @@map("operational_events")
 }
 
 model ManagerDeptAccess {

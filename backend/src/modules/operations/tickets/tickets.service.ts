@@ -6,6 +6,7 @@ import { TicketStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { EmailService } from '../../platform/email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -34,6 +35,7 @@ export class TicketsService {
     private notificationsService: NotificationsService,
     private configService: ConfigService,
     private eventEmitter: EventEmitter2,
+    private eventLogger: EventLoggerService,
   ) {}
 
   private get frontendUrl() {
@@ -396,6 +398,7 @@ export class TicketsService {
       },
     });
 
+    this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: OperationalAction.TICKET_CREATED, toState: 'OPEN', metadata: { ticketId: ticket.ticketId, title: ticket.title } }).catch(() => {});
     this.gateway.emitTicketCreated(ticket);
     this.eventEmitter.emit('ticket.created', { ticket, userId });
 
@@ -550,6 +553,16 @@ export class TicketsService {
     });
 
     if (data.status) {
+      const statusActionMap: Record<string, OperationalAction> = {
+        IN_PROGRESS: OperationalAction.TICKET_STARTED,
+        REVIEW: OperationalAction.TICKET_SUBMITTED_FOR_REVIEW,
+        DONE: OperationalAction.TICKET_DONE,
+        CLOSED: OperationalAction.TICKET_CANCELLED,
+      };
+      const mappedAction = statusActionMap[data.status];
+      if (mappedAction) {
+        this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: mappedAction, fromState: existing.status, toState: data.status, metadata: { ticketId: ticket.ticketId } }).catch(() => {});
+      }
       this.eventEmitter.emit('ticket.status_changed', {
         ticket,
         oldStatus: existing.status,
@@ -763,7 +776,10 @@ export class TicketsService {
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   }
 
-  async remove(id: string) {
+  async remove(id: string, userId?: string) {
+    if (userId) {
+      this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: id, action: OperationalAction.TICKET_DELETED }).catch(() => {});
+    }
     return this.prisma.ticket.delete({ where: { id } });
   }
 

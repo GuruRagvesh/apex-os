@@ -50,7 +50,7 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm shadow-xl">
+      <div className="apex-modal-animated bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm shadow-xl">
         <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-4">Take a Break</h3>
 
         <div className="grid grid-cols-2 gap-2 mb-4">

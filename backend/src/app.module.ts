@@ -4,6 +4,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { PrismaModule } from './prisma/prisma.module';
+import { CommonModule } from './common/common.module';
 
 // ── 🔐 Core ───────────────────────────────────────────────────────────────────
 import { AuthModule } from './modules/core/auth/auth.module';
@@ -32,6 +33,7 @@ import { SettingsModule } from './modules/platform/settings/settings.module';
 import { SchedulerModule } from './modules/platform/scheduler/scheduler.module';
 import { TaskTypesModule } from './modules/platform/task-types/task-types.module';
 import { WorkdayModule } from './modules/platform/workday/workday.module';
+import { EventsModule } from './modules/platform/events/events.module';
 
 @Module({
   imports: [
@@ -40,6 +42,7 @@ import { WorkdayModule } from './modules/platform/workday/workday.module';
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     EventEmitterModule.forRoot(),
     PrismaModule,
+    CommonModule,
     // 🔐 Core
     AuthModule,
     UsersModule,
@@ -64,6 +67,7 @@ import { WorkdayModule } from './modules/platform/workday/workday.module';
     SchedulerModule,
     TaskTypesModule,
     WorkdayModule,
+    EventsModule,
   ],
 })
 export class AppModule {}

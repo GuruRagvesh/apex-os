@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/topbar';
 import { ColdStartBanner } from '@/components/ui/cold-start-banner';
+import { QuickActionDock } from '@/components/ui/QuickActionDock';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -31,6 +32,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main id="apex-main-content" className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
       <ColdStartBanner />
+      <QuickActionDock />
     </div>
   );
 }
