@@ -137,7 +137,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 label: u.name,
                 sub:   u.department?.name ?? u.email,
                 badge: u.role?.name,
-                href:  `/users`,
+                href:  `/users/${u.id}`,
                 group: 'People',
               });
             });
