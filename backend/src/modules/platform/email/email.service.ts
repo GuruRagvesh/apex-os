@@ -50,7 +50,7 @@ export class EmailService {
 <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
   <tr><td style="background:#1e3a5f;padding:20px 32px">
     <table cellpadding="0" cellspacing="0"><tr>
-      <td style="width:36px;height:36px;background:#2563eb;border-radius:8px;text-align:center;line-height:36px;font-weight:bold;color:#fff;font-size:18px">N</td>
+      <td style="width:36px;height:36px;background:#2563eb;border-radius:8px;text-align:center;line-height:36px;font-weight:bold;color:#fff;font-size:18px">A</td>
       <td style="padding-left:12px;color:#fff;font-size:17px;font-weight:700">Apex OS</td>
       <td style="padding-left:8px;color:#93c5fd;font-size:12px">TechnoEdge</td>
     </tr></table>

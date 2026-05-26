@@ -155,7 +155,7 @@ export class AiCronService {
     <table cellpadding="0" cellspacing="0" width="100%"><tr>
       <td>
         <table cellpadding="0" cellspacing="0"><tr>
-          <td style="width:36px;height:36px;background:rgba(255,255,255,.2);border-radius:8px;text-align:center;line-height:36px;font-weight:bold;color:#fff;font-size:18px">N</td>
+          <td style="width:36px;height:36px;background:rgba(255,255,255,.2);border-radius:8px;text-align:center;line-height:36px;font-weight:bold;color:#fff;font-size:18px">A</td>
           <td style="padding-left:10px;color:#fff;font-size:17px;font-weight:700">Apex OS</td>
           <td style="padding-left:6px;color:#c7d2fe;font-size:11px;letter-spacing:.05em;text-transform:uppercase">TechnoEdge</td>
         </tr></table>

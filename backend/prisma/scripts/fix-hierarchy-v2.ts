@@ -529,7 +529,7 @@ async function step8_verify() {
 // ─────────────────────────────────────────────────────────────────────────────
 async function main() {
   log('╔══════════════════════════════════════════════════╗');
-  log('║  nexus-app  •  fix-hierarchy-v2.ts               ║');
+  log('║  apex-os  •  fix-hierarchy-v2.ts                 ║');
   log('║  Production hierarchy correction                  ║');
   log('╚══════════════════════════════════════════════════╝');
   log(`Started at: ${new Date().toISOString()}\n`);

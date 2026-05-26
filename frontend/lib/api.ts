@@ -1,5 +1,19 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 
+// ── One-time localStorage key migration (nexus_* → apex_*) ─────────────────
+// Runs on module load in the browser. Safe to remove after all users have
+// been migrated (legacy compatibility only — do not remove the comment).
+if (typeof window !== 'undefined') {
+  const oldToken = localStorage.getItem('nexus_token');
+  if (oldToken && !localStorage.getItem('apex_token')) {
+    localStorage.setItem('apex_token', oldToken);
+  }
+  // Clean up any legacy keys regardless
+  localStorage.removeItem('nexus_token');
+  localStorage.removeItem('nexus_user'); // was used in older builds
+  localStorage.removeItem('nexus-auth'); // legacy zustand persist key
+}
+
 // Strip any trailing /api from the env var so we never get a double /api
 // Works whether NEXT_PUBLIC_API_URL ends with /api or not
 const API_URL = process.env.NEXT_PUBLIC_API_URL
@@ -24,7 +38,6 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('apex_token');
-      localStorage.removeItem('nexus_user');
       localStorage.removeItem('apex-auth');
       // Only redirect if not already on the login page
       if (!window.location.pathname.startsWith('/login')) {

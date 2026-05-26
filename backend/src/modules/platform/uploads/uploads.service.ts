@@ -34,7 +34,7 @@ export class UploadsService {
     if (this.configured) {
       const result = await new Promise<any>((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
-          { folder: `nexus/tickets/${ticketId}`, resource_type: 'auto' },
+          { folder: `apex/tickets/${ticketId}`, resource_type: 'auto' },
           (err, result) => (err ? reject(err) : resolve(result)),
         );
         stream.end(file.buffer);

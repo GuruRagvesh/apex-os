@@ -1,5 +1,5 @@
 /**
- * NEXUS — Development Reset Seed
+ * APEX OS — Development Reset Seed
  * ─────────────────────────────────────────────────────────────────────────────
  * ⚠️  DEVELOPMENT ONLY — wipes ALL data then re-seeds from scratch.
  * ⚠️  NEVER run this against a production database.
