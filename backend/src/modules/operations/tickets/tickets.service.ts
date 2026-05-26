@@ -438,7 +438,7 @@ export class TicketsService {
     return this.addSla(ticket);
   }
 
-  async update(id: string, data: any, userId: string, user?: any) {
+  async update(id: string, data: any, userId: string, user?: any, opts?: { suppressCompletionNotification?: boolean }) {
     // Extract assigneeIds (not a Ticket column)
     const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
     delete data.assigneeIds;
@@ -615,8 +615,10 @@ export class TicketsService {
             this.frontendUrl,
           );
         }
-        // Notify reporter (createdBy) that their ticket is done
-        if (existing.createdById && existing.createdById !== userId) {
+        // Notify reporter (createdBy) that their ticket is done.
+        // Suppressed when called from approve() which sends its own targeted notification
+        // to prevent duplicate "Ticket resolved" + "Ticket approved" spam to the same user.
+        if (!opts?.suppressCompletionNotification && existing.createdById && existing.createdById !== userId) {
           try {
             await this.notificationsService.create(
               existing.createdById,
@@ -699,9 +701,11 @@ export class TicketsService {
       throw new ForbiddenException('Only tickets in REVIEW status can be approved');
     }
 
-    const updated = await this.update(id, { status: TicketStatus.DONE }, userId);
+    // suppressCompletionNotification=true: update() skips its generic "Ticket resolved"
+    // notification so we can send a more specific "Ticket approved" message here instead.
+    const updated = await this.update(id, { status: TicketStatus.DONE }, userId, undefined, { suppressCompletionNotification: true });
 
-    // Notify reporter
+    // Single targeted notification to reporter — "Ticket approved" (not generic "resolved")
     await this.notificationsService.create(
       ticket.createdById,
       `Ticket approved: ${ticket.ticketId}`,

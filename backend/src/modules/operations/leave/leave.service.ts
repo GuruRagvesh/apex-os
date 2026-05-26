@@ -121,7 +121,7 @@ export class LeaveService {
       this.notificationsService.create(
         leave.userId,
         'Leave request approved',
-        `Your ${leave.type} leave (${startStr} â€“ ${endStr}) has been approved.`,
+        `Your ${leave.type} leave (${startStr} to ${endStr}) has been approved.`,
         NotificationType.SUCCESS,
         '/leave',
         leave.id,
@@ -175,7 +175,7 @@ export class LeaveService {
       this.notificationsService.create(
         leave.userId,
         'Leave request rejected',
-        `Your ${leave.type} leave (${startStr} â€“ ${endStr}) has been rejected.`,
+        `Your ${leave.type} leave (${startStr} to ${endStr}) has been rejected.`,
         NotificationType.WARNING,
         '/leave',
         leave.id,
@@ -200,14 +200,69 @@ export class LeaveService {
   }
 
   async cancel(id: string, userId: string) {
-    const leave = await this.prisma.leaveRequest.findUnique({ where: { id } });
+    const leave = await this.prisma.leaveRequest.findUnique({
+      where: { id },
+      include: { user: { select: { id: true, name: true, departmentId: true } } },
+    });
     if (!leave) throw new NotFoundException();
     if (leave.userId !== userId) throw new ForbiddenException();
 
-    return this.prisma.leaveRequest.update({
+    // Only PENDING leaves can be cancelled by the requester.
+    // APPROVED leaves would require HR/manager to reverse — out of scope here.
+    if (leave.status !== LeaveStatus.PENDING) {
+      throw new ForbiddenException('Only pending leave requests can be cancelled');
+    }
+
+    const updated = await this.prisma.leaveRequest.update({
       where: { id },
       data: { status: LeaveStatus.CANCELLED },
     });
+
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'LeaveRequest',
+      entityId: id,
+      action: OperationalAction.LEAVE_REJECTED, // closest available action; captures the cancel event
+      fromState: 'PENDING',
+      toState: 'CANCELLED',
+    }).catch(() => {});
+
+    // Notify managers/admins in the requester's department so their pending queue stays accurate
+    try {
+      if (leave.user.departmentId) {
+        const managers = await this.prisma.user.findMany({
+          where: {
+            isActive: true,
+            role: { name: { in: ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'] } },
+            OR: [
+              { departmentId: leave.user.departmentId },
+              { managedDepts: { some: { departmentId: leave.user.departmentId } } },
+            ],
+          },
+          select: { id: true },
+        });
+        const startStr = leave.startDate.toISOString().split('T')[0];
+        const endStr   = leave.endDate.toISOString().split('T')[0];
+        for (const mgr of managers) {
+          if (mgr.id === userId) continue; // don't notify self
+          await this.notificationsService.create(
+            mgr.id,
+            `Leave cancelled: ${leave.user.name}`,
+            `${leave.type} leave request (${startStr} to ${endStr}) has been cancelled by the employee.`,
+            NotificationType.INFO,
+            '/leave',
+            leave.id,
+            'LEAVE',
+          );
+          this.gateway.emitNotificationToUser(mgr.id, {
+            title: `Leave cancelled: ${leave.user.name}`,
+            message: `${leave.type} leave (${startStr} to ${endStr}) was withdrawn.`,
+          });
+        }
+      }
+    } catch (_e) { /* non-critical — never crash the cancel operation */ }
+
+    return updated;
   }
 
   async getStats(user?: any) {

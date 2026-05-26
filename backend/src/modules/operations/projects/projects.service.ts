@@ -61,7 +61,15 @@ export class ProjectsService {
       },
     });
     if (!project) throw new NotFoundException('Project not found');
-    return project;
+
+    // Compute progress: percentage of linked tickets in terminal state (DONE or CLOSED).
+    // Returned as an integer 0–100 for direct use in progress bars.
+    const tickets = project.tickets ?? [];
+    const total = tickets.length;
+    const done  = tickets.filter((t) => t.status === 'DONE' || t.status === 'CLOSED').length;
+    const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+
+    return { ...project, progress, ticketStats: { total, done, open: total - done } };
   }
 
   async create(data: any, userId: string) {
