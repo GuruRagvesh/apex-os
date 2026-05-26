@@ -83,6 +83,22 @@ export default function AnalyticsPage() {
 
   const tickets: any[] = allTickets?.tickets ?? [];
 
+  // Compute real period-over-period trends from the fetched trend chart data.
+  // Splits the window in half (first half = previous period, second half = current period)
+  // and calculates % change. Returns undefined when data is insufficient to avoid showing
+  // a fake indicator.
+  function computePeriodTrend(data: any[] | undefined, field: 'created' | 'resolved'): number | undefined {
+    if (!data || data.length < 2) return undefined;
+    const half = Math.floor(data.length / 2);
+    const prev = data.slice(0, half).reduce((s, d) => s + (d[field] ?? 0), 0);
+    const curr = data.slice(half).reduce((s, d) => s + (d[field] ?? 0), 0);
+    if (prev === 0) return curr > 0 ? 100 : undefined;
+    return Math.round(((curr - prev) / prev) * 100);
+  }
+
+  const createdTrend  = computePeriodTrend(trend, 'created');
+  const resolvedTrend = computePeriodTrend(trend, 'resolved');
+
   const handleExport = () => {
     ticketsApi.exportCsv();
   };
@@ -113,10 +129,10 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
           {/* Stat cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Total Tickets" value={total} trend={12} />
-            <StatCard label="Resolved" value={stats.doneTickets ?? 0} trend={8} />
-            <StatCard label="Resolution Rate" value={`${resRate}%`} trend={resRate > 60 ? 3 : -5} />
-            <StatCard label="Overdue" value={stats.overdueTickets ?? 0} trend={-(stats.overdueTickets ?? 0)} />
+            <StatCard label="Total Tickets" value={total} trend={createdTrend} />
+            <StatCard label="Resolved" value={stats.doneTickets ?? 0} trend={resolvedTrend} />
+            <StatCard label="Resolution Rate" value={`${resRate}%`} />
+            <StatCard label="Overdue" value={stats.overdueTickets ?? 0} />
           </div>
 
           {/* Trend chart */}
