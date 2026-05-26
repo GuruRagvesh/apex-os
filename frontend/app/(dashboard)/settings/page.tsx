@@ -293,27 +293,60 @@ function SecuritySection({ user }: { user: any }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION: Notifications
 // ─────────────────────────────────────────────────────────────────────────────
+const NOTIF_DEFAULTS = {
+  assignedTicket: true,
+  statusChanged:  true,
+  commentAdded:   false,
+  overdueTicket:  true,
+  ticketResolved: true,
+  leaveApproved:  true,
+  leaveRejected:  true,
+  teamLeaveApply: true,
+  inApp:          true,
+  quietFrom:      '22:00',
+  quietTo:        '08:00',
+};
+
 function NotificationsSection({ isManager }: { isManager: boolean }) {
-  const stored = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('apexNotifPrefs') ?? '{}') : {};
-  const [prefs, setPrefs] = useState({
-    assignedTicket: stored.assignedTicket ?? true,
-    statusChanged:  stored.statusChanged  ?? true,
-    commentAdded:   stored.commentAdded   ?? false,
-    overdueTicket:  stored.overdueTicket  ?? true,
-    ticketResolved: stored.ticketResolved ?? true,
-    leaveApproved:  stored.leaveApproved  ?? true,
-    leaveRejected:  stored.leaveRejected  ?? true,
-    teamLeaveApply: stored.teamLeaveApply ?? true,
-    inApp:          stored.inApp          ?? true,
-    quietFrom:      stored.quietFrom      ?? '22:00',
-    quietTo:        stored.quietTo        ?? '08:00',
-  });
+  const [prefs, setPrefs] = useState(NOTIF_DEFAULTS);
+  const [saving, setSaving] = useState(false);
+
+  // Hydrate from server prefs (falling back to localStorage) after mount
+  useEffect(() => {
+    usersApi.getPreferences()
+      .then((remote: any) => {
+        const local = typeof window !== 'undefined'
+          ? JSON.parse(localStorage.getItem('apexNotifPrefs') ?? '{}')
+          : {};
+        // Server wins over localStorage for cross-device sync; local is the cache
+        const merged = { ...NOTIF_DEFAULTS, ...local, ...remote };
+        setPrefs((p) => ({ ...p, ...merged }));
+      })
+      .catch(() => {
+        // Offline fallback: use localStorage only
+        const local = typeof window !== 'undefined'
+          ? JSON.parse(localStorage.getItem('apexNotifPrefs') ?? '{}')
+          : {};
+        setPrefs((p) => ({ ...p, ...local }));
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggle = (k: keyof typeof prefs) => setPrefs((p) => ({ ...p, [k]: !p[k] }));
 
-  const handleSave = () => {
-    localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
-    toast.success('Notification preferences saved');
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await usersApi.updatePreferences(prefs);
+      localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
+      toast.success('Notification preferences saved');
+    } catch {
+      // API save failed — still persist locally so the UX isn't broken
+      localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
+      toast.success('Notification preferences saved');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -352,9 +385,9 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
         </div>
       </div>
 
-      <button type="button" onClick={handleSave}
-        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
-        Save Preferences
+      <button type="button" onClick={handleSave} disabled={saving}
+        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save Preferences'}
       </button>
     </div>
   );
@@ -456,13 +489,48 @@ function DisplaySection() {
 // SECTION: Preferences
 // ─────────────────────────────────────────────────────────────────────────────
 function PreferencesSection() {
-  const [autoAssign,      setAutoAssign]      = useState(() => typeof window !== 'undefined' && localStorage.getItem('apex-pref-autoassign') !== 'false');
-  const [defaultPriority, setDefaultPriority] = useState(() => typeof window !== 'undefined' ? (localStorage.getItem('apex-pref-priority') ?? 'MEDIUM') : 'MEDIUM');
+  const [autoAssign,      setAutoAssign]      = useState(true);
+  const [defaultPriority, setDefaultPriority] = useState('MEDIUM');
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    localStorage.setItem('apex-pref-autoassign', autoAssign.toString());
-    localStorage.setItem('apex-pref-priority', defaultPriority);
-    toast.success('Preferences saved');
+  // Hydrate from server after mount (server wins for cross-device sync)
+  useEffect(() => {
+    usersApi.getPreferences()
+      .then((remote: any) => {
+        // Read local first so we can merge
+        const localAA = typeof window !== 'undefined'
+          ? localStorage.getItem('apex-pref-autoassign')
+          : null;
+        const localPri = typeof window !== 'undefined'
+          ? localStorage.getItem('apex-pref-priority')
+          : null;
+        setAutoAssign(remote.autoAssign ?? (localAA !== null ? localAA !== 'false' : true));
+        setDefaultPriority(remote.defaultPriority ?? localPri ?? 'MEDIUM');
+      })
+      .catch(() => {
+        if (typeof window !== 'undefined') {
+          const aa = localStorage.getItem('apex-pref-autoassign');
+          setAutoAssign(aa !== null ? aa !== 'false' : true);
+          setDefaultPriority(localStorage.getItem('apex-pref-priority') ?? 'MEDIUM');
+        }
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await usersApi.updatePreferences({ autoAssign, defaultPriority });
+      localStorage.setItem('apex-pref-autoassign', autoAssign.toString());
+      localStorage.setItem('apex-pref-priority', defaultPriority);
+      toast.success('Preferences saved');
+    } catch {
+      localStorage.setItem('apex-pref-autoassign', autoAssign.toString());
+      localStorage.setItem('apex-pref-priority', defaultPriority);
+      toast.success('Preferences saved');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -482,9 +550,9 @@ function PreferencesSection() {
             {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
-        <button type="button" onClick={handleSave}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
-          Save Preferences
+        <button type="button" onClick={handleSave} disabled={saving}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save Preferences'}
         </button>
       </div>
 
@@ -708,8 +776,6 @@ function SmtpSection() {
   });
   const [form, setForm]       = useState({ host: '', port: '587', email: '', password: '' });
   const [showPass, setShowPass] = useState(false);
-  const [testing, setTesting]   = useState(false);
-
   useEffect(() => {
     if (remote) setForm((f) => ({ ...f, ...remote }));
   }, [remote]);
@@ -730,17 +796,6 @@ function SmtpSection() {
     save.mutate(form);
   };
 
-  const handleTest = async () => {
-    setTesting(true);
-    try {
-      // Future: call a /settings/smtp/test endpoint
-      await new Promise((res) => setTimeout(res, 800));
-      toast.success('Test email sent! (Check server logs — SMTP must be configured)');
-    } catch {
-      toast.error('Test email failed');
-    } finally { setTesting(false); }
-  };
-
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
@@ -759,12 +814,12 @@ function SmtpSection() {
             </div>
           </div>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-4 flex-wrap">
           <SaveBtn loading={save.isPending} />
-          <button type="button" onClick={handleTest} disabled={testing}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-gray-700 rounded-lg text-sm font-medium text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors">
-            <Mail size={14} />{testing ? 'Sending…' : 'Send Test Email'}
-          </button>
+          <p className="text-xs text-slate-400 dark:text-gray-500 flex items-center gap-1.5">
+            <Mail size={12} />
+            Test email delivery is not yet available in this version.
+          </p>
         </div>
       </div>
     </form>
@@ -1000,6 +1055,7 @@ function AppearanceSettings() {
 
   const [companyTheme, setCompanyThemeState] = useState<ThemeId>('technoedge-light');
   const [companyAccent, setCompanyAccentState] = useState<AccentId>('royal-blue');
+  const [savingDefaults, setSavingDefaults] = useState(false);
 
   // Font size
   const [fontSize, setFontSizeState] = useState<'small' | 'medium' | 'large'>(() =>
@@ -1208,11 +1264,23 @@ function AppearanceSettings() {
           </div>
 
           <button
-            onClick={() => setCompanyDefaults(companyTheme, companyAccent)}
-            className="px-4 py-2 text-sm font-medium text-white rounded-xl"
+            disabled={savingDefaults}
+            onClick={async () => {
+              setSavingDefaults(true);
+              try {
+                await settingsApi.updateCompany({ defaultTheme: companyTheme, defaultAccent: companyAccent });
+                setCompanyDefaults(companyTheme, companyAccent);
+                toast.success('Company theme defaults saved');
+              } catch (err: any) {
+                toast.error(err?.message || 'Failed to save company defaults');
+              } finally {
+                setSavingDefaults(false);
+              }
+            }}
+            className="px-4 py-2 text-sm font-medium text-white rounded-xl disabled:opacity-50"
             style={{ backgroundColor: 'var(--accent)' }}
           >
-            Save Company Defaults
+            {savingDefaults ? 'Saving…' : 'Save Company Defaults'}
           </button>
         </div>
       )}

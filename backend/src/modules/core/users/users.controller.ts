@@ -45,9 +45,14 @@ export class UsersController {
     return this.usersService.uploadPhoto(user.id, file);
   }
 
+  @Get('me/preferences')
+  getPreferences(@CurrentUser() user: any) {
+    return this.usersService.getPreferences(user.id ?? user.sub);
+  }
+
   @Patch('me/preferences')
-  updatePreferences(@CurrentUser() user: any, @Body() body: any) {
-    return { message: 'Preferences saved', preferences: body };
+  async updatePreferences(@CurrentUser() user: any, @Body() body: any) {
+    return this.usersService.savePreferences(user.id ?? user.sub, body);
   }
 
   @Get()

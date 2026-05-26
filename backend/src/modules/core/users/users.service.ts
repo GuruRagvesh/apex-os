@@ -344,4 +344,23 @@ export class UsersService {
       orderBy: { uploadedAt: 'desc' },
     });
   }
+
+  // ── Per-user preferences (notification + ticket defaults) ─────────────────
+  // Stored in AppSetting with key `user-prefs-{userId}` — no schema migration needed.
+
+  async getPreferences(userId: string): Promise<any> {
+    const row = await this.prisma.appSetting.findUnique({
+      where: { key: `user-prefs-${userId}` },
+    });
+    return row ? (row.value as any) : {};
+  }
+
+  async savePreferences(userId: string, prefs: any): Promise<any> {
+    const saved = await this.prisma.appSetting.upsert({
+      where: { key: `user-prefs-${userId}` },
+      create: { key: `user-prefs-${userId}`, value: prefs, updatedBy: userId },
+      update: { value: prefs, updatedBy: userId },
+    });
+    return saved.value;
+  }
 }

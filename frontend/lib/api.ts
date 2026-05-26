@@ -55,6 +55,7 @@ export const usersApi = {
   getMe: () => r(api.get('/users/me')),
   getMyTeam: () => r(api.get('/users/my-team')),
   updateMe: (data: any) => r(api.patch('/users/me', data)),
+  getPreferences: () => r(api.get('/users/me/preferences')),
   updatePreferences: (data: any) => r(api.patch('/users/me/preferences', data)),
   getOne: (id: string) => r(api.get(`/users/${id}`)),
   create: (data: any) => r(api.post('/users', data)),
