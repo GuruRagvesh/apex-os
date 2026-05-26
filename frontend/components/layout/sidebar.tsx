@@ -7,11 +7,12 @@ import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
-  Users, Building2, BarChart3, LogOut, ChevronRight, Zap, Settings,
+  Users, Building2, BarChart3, LogOut, Zap, Settings,
   Calendar, Activity, ArrowRight,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UserAvatar } from '@/components/ui/user-avatar';
+import { motion } from 'motion/react';
 
 // ── Skeleton shown before Zustand hydrates ────────────────────────────────────
 function SidebarSkeleton() {
@@ -89,10 +90,6 @@ const ROLE_BADGE_COLOR: Record<string, { bg: string; text: string }> = {
   INTERN:      { bg: 'rgba(20,184,166,0.15)', text: '#2dd4bf' },
 };
 
-function getInitials(name: string) {
-  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
-}
-
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 export function Sidebar() {
   const pathname            = usePathname();
@@ -121,35 +118,57 @@ export function Sidebar() {
 
   const roleBadge = ROLE_BADGE_COLOR[role] ?? { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
 
+  // ── Intern-style animated nav button ──────────────────────────────────────
   function NavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
     const active = pathname === href || pathname.startsWith(href + '/');
+
     return (
-      <Link
-        href={href}
-        className={cn(
-          'group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all',
-          active
-            ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
-            : 'text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent',
-        )}
-      >
-        <Icon
-          size={20}
+      <Link href={href}>
+        <motion.div
+          whileHover="hover"
+          initial="initial"
           className={cn(
-            'flex-shrink-0 transition-colors',
-            active ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-300',
-          )}
-        />
-        <span className="flex-1">{label}</span>
-        <ArrowRight
-          size={14}
-          className={cn(
-            'flex-shrink-0 transition-all duration-150',
+            'group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer overflow-hidden',
             active
-              ? 'opacity-100 text-blue-400'
-              : 'opacity-0 group-hover:opacity-60 text-slate-400 -translate-x-1 group-hover:translate-x-0',
+              ? 'bg-blue-600/15 text-blue-400 border border-blue-900/40 shadow-inner'
+              : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100 border border-transparent',
           )}
-        />
+        >
+          {/* Sliding ArrowRight on hover */}
+          <motion.span
+            variants={{
+              initial: { x: -12, opacity: 0, width: 0 },
+              hover: { x: 0, opacity: 1, width: 'auto' },
+            }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="flex-shrink-0 overflow-hidden"
+          >
+            <ArrowRight
+              size={14}
+              className={active ? 'text-blue-400' : 'text-slate-400'}
+            />
+          </motion.span>
+
+          <Icon
+            size={18}
+            className={cn(
+              'flex-shrink-0 transition-colors',
+              active ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-300',
+            )}
+          />
+
+          {/* Label with skew on hover */}
+          <motion.span
+            variants={{
+              initial: { skewX: 0, color: active ? '#60a5fa' : '#94a3b8' },
+              hover: { skewX: -6, color: '#307cf6' },
+            }}
+            transition={{ duration: 0.18 }}
+            className="flex-1 leading-none"
+          >
+            {label}
+          </motion.span>
+        </motion.div>
       </Link>
     );
   }
@@ -227,8 +246,19 @@ export function Sidebar() {
         </div>
       </nav>
 
-      {/* User profile card */}
-      <div className="p-3" style={{ borderTop: '1px solid rgba(30,41,59,0.5)' }}>
+      {/* Footer area */}
+      <div className="p-3 space-y-2.5" style={{ borderTop: '1px solid rgba(30,41,59,0.5)' }}>
+        {/* OPERATIONS PANEL status block */}
+        <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800/40 font-mono text-[9px] text-slate-500 space-y-1">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="font-bold uppercase tracking-tight">OPERATIONS PANEL</span>
+            <span className="text-emerald-500 font-black">● LIVE</span>
+          </div>
+          <p className="truncate">SLA_SHIELD: STABLE_BOUND</p>
+          <p>METRICS_CONNEC: DYNAMIC</p>
+        </div>
+
+        {/* User profile card */}
         <div
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-slate-800/60"
           onClick={() => router.push('/profile')}

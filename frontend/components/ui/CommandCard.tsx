@@ -1,78 +1,107 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+import { LucideIcon, ArrowUpRight } from 'lucide-react';
+import HoverPreview from './HoverPreview';
 
 interface CommandCardProps {
+  id: string;
   title: string;
-  subtitle?: string;
-  icon?: React.ReactNode;
-  accentColor?: string;
-  footer?: React.ReactNode;
-  className?: string;
-  children: React.ReactNode;
-  onClick?: () => void;
+  count: number | string;
+  summary: string;
+  icon: LucideIcon;
+  severity?: 'success' | 'warning' | 'urgent' | 'neutral' | 'blue';
+  previewItems: string[];
+  onClick: () => void;
 }
 
-export function CommandCard({
+export default function CommandCard({
+  id,
   title,
-  subtitle,
-  icon,
-  accentColor = '#2563EB',
-  footer,
-  className = '',
-  children,
+  count,
+  summary,
+  icon: Icon,
+  severity = 'blue',
+  previewItems,
   onClick,
 }: CommandCardProps) {
+  const [isHovered, setIsHovered] = useState(false);
+
+  // Status-based bullet & badge colors
+  const getStyleConfigs = () => {
+    switch (severity) {
+      case 'urgent':
+        return {
+          badge: 'bg-red-500 text-white font-mono',
+          iconColor: 'text-red-500 group-hover:text-blue-500',
+        };
+      case 'warning':
+        return {
+          badge: 'bg-amber-500 text-white font-mono',
+          iconColor: 'text-amber-500 group-hover:text-blue-500',
+        };
+      case 'success':
+        return {
+          badge: 'bg-emerald-500 text-white font-mono',
+          iconColor: 'text-emerald-500 group-hover:text-blue-500',
+        };
+      default:
+        return {
+          badge: 'bg-blue-600 text-white font-mono',
+          iconColor: 'text-blue-500 group-hover:text-blue-500',
+        };
+    }
+  };
+
+  const style = getStyleConfigs();
+
   return (
-    <div
-      className={`rounded-2xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700/50 transition-all duration-150 ${onClick ? 'cursor-pointer' : ''} ${className}`}
-      style={{
-        borderLeft: `3px solid ${accentColor}`,
-        transform: 'translateY(0)',
-        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-      }}
+    <button
+      id={`command-card-${id}`}
       onClick={onClick}
-      onMouseEnter={onClick ? (e) => {
-        (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
-        (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
-      } : undefined}
-      onMouseLeave={onClick ? (e) => {
-        (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
-        (e.currentTarget as HTMLElement).style.boxShadow = '';
-      } : undefined}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="relative text-left w-full h-full bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 rounded-[22px] p-5 flex flex-col justify-between transition-all duration-[220ms] ease-out hover:border-blue-500 hover:shadow-[0_12px_28px_rgba(37,99,235,0.08)] dark:hover:shadow-[0_12px_28px_rgba(37,99,235,0.15)] hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 select-none group"
     >
-      {/* Dark navy header */}
-      <div
-        className="px-5 py-4 flex items-center gap-3"
-        style={{ backgroundColor: '#0B1220' }}
-      >
-        {icon && (
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: `${accentColor}20`, color: accentColor }}
-          >
-            {icon}
+      {/* Absolute Hover preview peek panel */}
+      <div className="hidden md:block">
+        <HoverPreview
+          items={previewItems}
+          visible={isHovered}
+          severity={severity}
+        />
+      </div>
+
+      <div className="w-full flex flex-col gap-3.5">
+        {/* Header row */}
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-xl transition-colors duration-200 ${isHovered ? 'bg-[#EFF6FF] dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' : 'bg-slate-50 dark:bg-slate-900 text-slate-400 dark:text-slate-500'}`}>
+              <Icon className="w-5 h-5 transition-transform duration-200 group-hover:scale-110" />
+            </div>
+            <span className="font-sans font-bold text-[#0B1220] dark:text-slate-100 text-sm tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+              {title}
+            </span>
           </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-white truncate">{title}</h3>
-          {subtitle && (
-            <p className="text-xs text-slate-400 mt-0.5 truncate">{subtitle}</p>
-          )}
+
+          <div className={`px-2.5 py-0.5 text-xs font-black rounded-lg ${style.badge}`}>
+            {count}
+          </div>
         </div>
+
+        {/* Short Summary */}
+        <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold pl-0.5 leading-relaxed">
+          {summary}
+        </p>
       </div>
 
-      {/* White/light body */}
-      <div className="bg-white dark:bg-slate-900 px-5 py-4">
-        {children}
+      {/* Mini CTA row indicator */}
+      <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end w-full transition-colors">
+        <ArrowUpRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
       </div>
-
-      {/* Optional footer */}
-      {footer && (
-        <div className="bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700/50 px-5 py-3">
-          {footer}
-        </div>
-      )}
-    </div>
+    </button>
   );
 }
+
+// Named export for backward compatibility with existing dashboard imports
+export { CommandCard };

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { KpiCapsule, KpiCapsuleProps } from './KpiCapsule';
+import KpiCapsule, { KpiCapsuleProps } from './KpiCapsule';
 
 interface KpiCapsuleStripProps {
   capsules: KpiCapsuleProps[];
@@ -12,7 +12,7 @@ export function KpiCapsuleStrip({ capsules, className = '' }: KpiCapsuleStripPro
   if (!capsules || capsules.length === 0) return null;
 
   return (
-    <div className={`grid gap-3 ${className}`} style={{ gridTemplateColumns: `repeat(${Math.min(capsules.length, 4)}, 1fr)` }}>
+    <div className={`grid grid-cols-2 md:grid-cols-4 gap-4 ${className}`}>
       {capsules.map((capsule, i) => (
         <KpiCapsule key={i} {...capsule} />
       ))}

@@ -1,156 +1,269 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
-import { Search } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Ticket, ShieldAlert, CheckSquare, KanbanSquare,
+  AlertTriangle, Users, Search, X, ArrowRight, CalendarDays, FolderKanban,
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
-interface PaletteAction {
+interface QuickAction {
   id: string;
-  label: string;
-  description?: string;
-  icon?: React.ReactNode;
+  title: string;
+  desc: string;
+  icon: React.ComponentType<{ className?: string }>;
   shortcut?: string;
-  onClick: () => void;
-  category?: string;
+  href?: string;
 }
 
 interface QuickActionPaletteProps {
-  isOpen: boolean;
+  open?: boolean;
   onClose: () => void;
-  actions: PaletteAction[];
+  onSelectAction?: (actionId: string) => void;
+  // Legacy compat props accepted but not used (navigation replaces mock data creation)
+  isOpen?: boolean;
+  actions?: any[];
 }
 
-export function QuickActionPalette({ isOpen, onClose, actions }: QuickActionPaletteProps) {
-  const [query, setQuery] = useState('');
-  const [focused, setFocused] = useState(0);
+const DEFAULT_ACTIONS: QuickAction[] = [
+  {
+    id: 'create-ticket',
+    title: 'Create New Ticket',
+    desc: 'Report issue, request, or task',
+    icon: Ticket,
+    shortcut: 'CMD + N',
+    href: '/tickets/new',
+  },
+  {
+    id: 'risks',
+    title: 'Review Delivery Risks',
+    desc: 'Clear blockers affecting today\'s work',
+    icon: AlertTriangle,
+    shortcut: 'CMD + R',
+    href: '/tickets?priority=HIGH',
+  },
+  {
+    id: 'kanban',
+    title: 'Open Kanban Board',
+    desc: 'Visualize your team\'s workflow',
+    icon: KanbanSquare,
+    shortcut: 'CMD + K',
+    href: '/kanban',
+  },
+  {
+    id: 'high-priority',
+    title: 'Review High Priority',
+    desc: 'Audit urgent tickets approaching SLA limits',
+    icon: ShieldAlert,
+    shortcut: 'CMD + H',
+    href: '/tickets?priority=URGENT',
+  },
+  {
+    id: 'projects',
+    title: 'Open Projects',
+    desc: 'Evaluate dashboard releases and streams',
+    icon: FolderKanban,
+    shortcut: 'CMD + P',
+    href: '/projects',
+  },
+  {
+    id: 'team',
+    title: 'Check Team Availability',
+    desc: 'Look at active roster and presence status',
+    icon: Users,
+    shortcut: 'CMD + A',
+    href: '/team',
+  },
+  {
+    id: 'leaves',
+    title: 'Review Leave Requests',
+    desc: 'Manage pending absence and medical requests',
+    icon: CalendarDays,
+    shortcut: 'CMD + L',
+    href: '/leave',
+  },
+  {
+    id: 'my-tickets',
+    title: 'My Tickets',
+    desc: 'View all tickets assigned to you',
+    icon: CheckSquare,
+    shortcut: 'CMD + T',
+    href: '/tickets',
+  },
+];
+
+export function QuickActionPalette({
+  open,
+  onClose,
+  onSelectAction,
+  isOpen,
+}: QuickActionPaletteProps) {
+  const isVisible = open ?? isOpen ?? false;
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const paletteRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const filtered = query
-    ? actions.filter((a) =>
-        a.label.toLowerCase().includes(query.toLowerCase()) ||
-        a.description?.toLowerCase().includes(query.toLowerCase())
-      )
-    : actions;
-
-  // Reset on open
   useEffect(() => {
-    if (isOpen) {
-      setQuery('');
-      setFocused(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
+    if (isVisible) {
+      setSearchQuery('');
+      setFocusedIndex(0);
+      setTimeout(() => inputRef.current?.focus(), 60);
     }
-  }, [isOpen]);
+  }, [isVisible]);
 
-  // Keyboard navigation
+  const filteredActions = DEFAULT_ACTIONS.filter(
+    (act) =>
+      act.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      act.desc.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Keyboard navigation & Esc support
   useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
+    if (!isVisible) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setFocused((f) => Math.min(f + 1, filtered.length - 1));
-      }
-      if (e.key === 'ArrowUp') {
+        setFocusedIndex((prev) => (prev + 1) % filteredActions.length);
+      } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setFocused((f) => Math.max(f - 1, 0));
-      }
-      if (e.key === 'Enter') {
+        setFocusedIndex((prev) => (prev - 1 + filteredActions.length) % filteredActions.length);
+      } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (filtered[focused]) {
-          filtered[focused].onClick();
-          onClose();
+        if (filteredActions[focusedIndex]) {
+          triggerAction(filteredActions[focusedIndex]);
         }
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isOpen, filtered, focused, onClose]);
 
-  if (!isOpen) return null;
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isVisible, focusedIndex, filteredActions, onClose]);
+
+  const triggerAction = (action: QuickAction) => {
+    onSelectAction?.(action.id);
+    if (action.href) {
+      // Use window.location for navigation to avoid needing useRouter here
+      window.location.href = action.href;
+    }
+    onClose();
+  };
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-start justify-center pt-24 px-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="apex-scale-in w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden"
-        style={{ backgroundColor: 'white' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Dark header with search */}
-        <div className="px-5 py-4" style={{ backgroundColor: '#0B1220' }}>
-          <p className="text-xs font-mono uppercase tracking-widest text-slate-500 mb-3">Operations Directory</p>
-          <div className="flex items-center gap-3 bg-slate-800/60 rounded-xl px-3 py-2.5">
-            <Search size={15} className="text-slate-400 flex-shrink-0" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); setFocused(0); }}
-              placeholder="Search actions..."
-              className="flex-1 bg-transparent text-sm text-white placeholder-slate-500 outline-none"
-            />
-            {query && (
-              <button onClick={() => setQuery('')} className="text-slate-500 hover:text-white text-xs">
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
+    <AnimatePresence>
+      {isVisible && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-10 select-none">
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-[#0B1220]/65 backdrop-blur-md cursor-pointer"
+          />
 
-        {/* Action list */}
-        <div className="bg-white max-h-80 overflow-y-auto">
-          {filtered.length === 0 ? (
-            <div className="py-8 text-center text-sm text-slate-400">No actions found</div>
-          ) : (
-            filtered.map((action, i) => (
+          {/* Palette Box Wrapper */}
+          <motion.div
+            ref={paletteRef}
+            initial={{ opacity: 0, scale: 0.96, y: -20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: -10 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="relative bg-[#0B1220] border border-blue-900/40 text-white w-full max-w-xl rounded-[24px] shadow-[0_24px_60px_rgba(11,18,32,0.5)] overflow-hidden flex flex-col z-10 mt-10 max-h-[85vh]"
+          >
+            {/* Header / Config Bar */}
+            <div className="p-4 bg-[#090e1a] border-b border-blue-950 flex items-center justify-between">
+              <span className="text-[10px] font-mono font-black text-blue-400 tracking-widest uppercase">
+                Quick Actions — Operations Directory
+              </span>
               <button
-                key={action.id}
-                onClick={() => { action.onClick(); onClose(); }}
-                className="w-full flex items-center gap-3 px-5 py-3 text-left transition-all"
-                style={{
-                  backgroundColor: i === focused ? '#F8FAFC' : 'transparent',
-                  borderLeft: i === focused ? '3px solid #2563EB' : '3px solid transparent',
-                }}
-                onMouseEnter={() => setFocused(i)}
+                onClick={onClose}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
               >
-                {action.icon && (
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 flex-shrink-0">
-                    {action.icon}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 truncate">{action.label}</p>
-                  {action.description && (
-                    <p className="text-xs text-slate-400 mt-0.5 truncate">{action.description}</p>
-                  )}
-                </div>
-                {action.shortcut && (
-                  <kbd className="text-[10px] font-mono bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded flex-shrink-0">
-                    {action.shortcut}
-                  </kbd>
-                )}
-                {action.category && (
-                  <span className="text-[10px] font-mono uppercase tracking-wide text-slate-300 flex-shrink-0 ml-1">
-                    {action.category}
-                  </span>
-                )}
+                <X className="w-4 h-4" />
               </button>
-            ))
-          )}
-        </div>
+            </div>
 
-        {/* Footer */}
-        <div
-          className="px-5 py-2.5 flex items-center gap-3 text-[11px] text-slate-400"
-          style={{ borderTop: '1px solid #F1F5F9', backgroundColor: '#F8FAFC' }}
-        >
-          <span><kbd className="font-mono bg-white border border-slate-200 px-1 py-0.5 rounded text-[10px]">ESC</kbd> to close</span>
-          <span><kbd className="font-mono bg-white border border-slate-200 px-1 py-0.5 rounded text-[10px]">↑↓</kbd> to navigate</span>
-          <span><kbd className="font-mono bg-white border border-slate-200 px-1 py-0.5 rounded text-[10px]">↵</kbd> to select</span>
+            {/* Search Bar */}
+            <div className="p-4 bg-slate-900/30 relative flex items-center border-b border-blue-950/30">
+              <Search className="w-4 h-4 text-slate-400 absolute left-8 pointer-events-none" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setFocusedIndex(0);
+                }}
+                placeholder="Search operations directory (e.g. ticket, roster)..."
+                className="w-full pl-10 pr-4 py-2.5 bg-[#090e1a]/90 text-xs font-semibold rounded-xl border border-blue-900/30 focus:outline-none focus:border-blue-500 font-sans text-slate-100 placeholder-slate-500"
+              />
+            </div>
+
+            {/* Rows Actions */}
+            <div className="p-2 overflow-y-auto max-h-[380px] space-y-1">
+              {filteredActions.length === 0 ? (
+                <div className="py-12 text-center text-slate-500">
+                  <p className="text-xs font-semibold">No commands match your query.</p>
+                </div>
+              ) : (
+                filteredActions.map((action, index) => {
+                  const Icon = action.icon;
+                  const isFocused = index === focusedIndex;
+                  return (
+                    <button
+                      key={action.id}
+                      onClick={() => triggerAction(action)}
+                      onMouseEnter={() => setFocusedIndex(index)}
+                      className={`w-full text-left p-3.5 rounded-xl flex items-center justify-between transition-all duration-200 cursor-pointer select-none border ${
+                        isFocused
+                          ? 'bg-blue-600 border-transparent shadow-[0_4px_16px_rgba(37,99,235,0.22)] text-white scale-[1.01]'
+                          : 'bg-slate-900/60 text-slate-100 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3.5 truncate">
+                        {/* Icon Blue Chip */}
+                        <div className={`p-2 rounded-lg transition-colors ${
+                          isFocused ? 'bg-white/20 text-white' : 'bg-blue-950/40 text-blue-400'
+                        }`}>
+                          <Icon className="w-4 h-4 shrink-0" />
+                        </div>
+                        <div className="truncate text-left font-sans">
+                          <h4 className={`text-xs font-bold leading-none ${isFocused ? 'text-white' : 'text-slate-100'}`}>
+                            {action.title}
+                          </h4>
+                          <p className={`text-[10px] mt-1 font-semibold leading-normal truncate ${isFocused ? 'text-white/60' : 'text-slate-400'}`}>
+                            {action.desc}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Arrow indicator */}
+                      <div className="flex items-center gap-2 pr-1 shrink-0 select-none font-mono">
+                        <ArrowRight className={`w-3.5 h-3.5 transition-transform ${isFocused ? 'text-white translate-x-0.5' : 'text-slate-400'}`} />
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer instructions */}
+            <div className="p-3 bg-slate-950/80 border-t border-slate-800 text-[10px] font-mono text-slate-500 flex items-center justify-between select-none">
+              <span>Use ↑↓ arrows to navigate. Enter to execute bounds</span>
+              <span>ESC to exit</span>
+            </div>
+          </motion.div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 }
+
+export default QuickActionPalette;
