@@ -145,6 +145,8 @@ export class DashboardService {
         role: true,
         department: true,
       },
+      take: 100,
+      orderBy: { name: 'asc' },
     });
 
     return users.map((user) => ({

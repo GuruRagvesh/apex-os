@@ -28,10 +28,12 @@ export default function LeavePage() {
 
   const queryParams = tab === 'mine' ? { userId: user?.id } : tab === 'pending' ? { status: 'PENDING' } : {};
 
-  const { data: leaves, isLoading } = useQuery({
+  const { data: leaveData, isLoading } = useQuery({
     queryKey: ['leave', tab],
-    queryFn: () => leaveApi.getAll(queryParams) as Promise<any[]>,
+    queryFn: () => leaveApi.getAll(queryParams) as Promise<any>,
   });
+  // API returns { items, total, page, limit, totalPages } — unwrap for backward compat
+  const leaves: any[] = Array.isArray(leaveData) ? leaveData : (leaveData?.items ?? []);
 
   const { data: stats } = useQuery({
     queryKey: ['leave-stats'],

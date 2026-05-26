@@ -44,7 +44,7 @@ export class LeaveService {
     return {};
   }
 
-  async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string }, user?: any) {
+  async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string; page?: number; limit?: number }, user?: any) {
     const where: any = {};
     if (query.userId) where.userId = query.userId;
     if (query.status) where.status = query.status;
@@ -58,11 +58,21 @@ export class LeaveService {
       if (scope.user) where.user = { ...(where.user ?? {}), ...scope.user };
     }
 
-    return this.prisma.leaveRequest.findMany({
-      where,
-      include: { user: { select: { id: true, name: true, email: true, department: true, role: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
+    const page  = Math.max(1, Number(query.page)  || 1);
+    const limit = Math.min(200, Math.max(1, Number(query.limit) || 50));
+    const skip  = (page - 1) * limit;
+
+    const [total, items] = await Promise.all([
+      this.prisma.leaveRequest.count({ where }),
+      this.prisma.leaveRequest.findMany({
+        where,
+        include: { user: { select: { id: true, name: true, email: true, department: true, role: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findOne(id: string) {

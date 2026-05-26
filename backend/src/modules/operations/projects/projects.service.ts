@@ -10,7 +10,7 @@ function isUUID(str: string): boolean {
 export class ProjectsService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(query: { search?: string; status?: ProjectStatus; departmentId?: string; userId?: string }, user?: any) {
+  async findAll(query: { search?: string; status?: ProjectStatus; departmentId?: string; userId?: string; page?: number; limit?: number }, user?: any) {
     const where: any = {};
     if (query.search) {
       where.OR = [
@@ -37,15 +37,25 @@ export class ProjectsService {
       // ADMIN/SUPER_ADMIN: no filter
     }
 
-    return this.prisma.project.findMany({
-      where,
-      include: {
-        department: true,
-        members: { include: { user: { select: { id: true, name: true, avatar: true } } } },
-        _count: { select: { tickets: true, members: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const page  = Math.max(1, Number(query.page)  || 1);
+    const limit = Math.min(200, Math.max(1, Number(query.limit) || 50));
+    const skip  = (page - 1) * limit;
+
+    const [total, projects] = await Promise.all([
+      this.prisma.project.count({ where }),
+      this.prisma.project.findMany({
+        where,
+        include: {
+          department: true,
+          members: { include: { user: { select: { id: true, name: true, avatar: true } } } },
+          _count: { select: { tickets: true, members: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    return { projects, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findOne(id: string) {

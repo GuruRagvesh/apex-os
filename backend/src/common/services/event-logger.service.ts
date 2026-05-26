@@ -51,11 +51,12 @@ export class EventLoggerService {
     }
   }
 
-  async getTimeline(entityType: string, entityId: string) {
+  async getTimeline(entityType: string, entityId: string, limit = 200) {
     return (this.prisma as any).operationalEvent.findMany({
       where: { entityType, entityId },
       include: { actor: { select: { id: true, name: true, avatar: true } } },
       orderBy: { timestamp: 'asc' },
+      take: limit,
     });
   }
 
