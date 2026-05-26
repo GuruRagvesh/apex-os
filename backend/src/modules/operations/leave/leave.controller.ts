@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { ROLES } from '../../../shared/constants/roles';
 
 @ApiTags('Leave')
 @ApiBearerAuth()
@@ -29,14 +30,14 @@ export class LeaveController {
 
   @Patch(':id/approve')
   @UseGuards(RolesGuard)
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.approve(id, user.id);
   }
 
   @Patch(':id/reject')
   @UseGuards(RolesGuard)
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   reject(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.reject(id, user.id);
   }

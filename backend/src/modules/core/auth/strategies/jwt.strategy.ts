@@ -10,10 +10,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private configService: ConfigService,
     private prisma: PrismaService,
   ) {
+    // SECURITY: No fallback default — throws if JWT_SECRET absent.
+    // main.ts guards this at startup; the explicit undefined here surfaces
+    // any test/import bypass rather than silently accepting unknown tokens.
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get('JWT_SECRET', 'nexus-secret-key-change-in-prod'),
+      secretOrKey: configService.get<string>('JWT_SECRET'),
     });
   }
 

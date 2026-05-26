@@ -11,6 +11,7 @@ import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { Roles } from '../../../shared/decorators/roles.decorator';
+import { ROLES } from '../../../shared/constants/roles';
 
 @ApiTags('Tickets')
 @ApiBearerAuth()
@@ -92,14 +93,14 @@ export class TicketsController {
   }
 
   @UseGuards(RolesGuard)
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   @Patch(':id/approve')
   approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ticketsService.approve(id, user.id);
   }
 
   @UseGuards(RolesGuard)
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   @Patch(':id/reject')
   reject(
     @Param('id') id: string,

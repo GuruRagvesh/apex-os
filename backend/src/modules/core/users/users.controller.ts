@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { ROLES } from '../../../shared/constants/roles';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -55,13 +56,13 @@ export class UsersController {
   }
 
   @Get('stats')
-  @UseGuards(RolesGuard) @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   getStats() {
     return this.usersService.getStats();
   }
 
   @Get('directory')
-  @UseGuards(RolesGuard) @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   getDirectory() {
     return this.usersService.getDirectory();
   }
@@ -72,25 +73,25 @@ export class UsersController {
   }
 
   @Post()
-  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   create(@Body() body: { name: string; email: string; password: string; roleId: string; departmentId?: string }) {
     return this.usersService.create(body);
   }
 
   @Put(':id')
-  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   update(@Param('id') id: string, @Body() body: any) {
     return this.usersService.update(id, body);
   }
 
   @Put(':id/reset-password')
-  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   resetPassword(@Param('id') id: string, @Body() body: { newPassword: string }) {
     return this.usersService.resetPassword(id, body.newPassword);
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }

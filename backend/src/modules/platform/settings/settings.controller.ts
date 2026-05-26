@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/decorators/roles.decorator';
 import { SettingsService } from './settings.service';
+import { ROLES } from '../../../shared/constants/roles';
 
 @ApiTags('Settings')
 @ApiBearerAuth()
@@ -21,7 +22,7 @@ export class SettingsController {
 
   @Patch('company')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   async updateCompany(@Body() body: any, @Request() req: any) {
     const { defaultTheme, defaultAccent, ...rest } = body;
     if (defaultTheme || defaultAccent) {
@@ -39,7 +40,7 @@ export class SettingsController {
 
   @Patch('leave-policy')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   updateLeavePolicy(@Body() body: any, @Request() req: any) {
     return this.settings.set('leave_policy', body, req.user?.sub);
   }
@@ -57,7 +58,7 @@ export class SettingsController {
 
   @Patch('sla')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   async updateSla(@Body() body: any, @Request() req: any) {
     const { reviewSla, ...executionSla } = body;
     const ops: Promise<any>[] = [this.settings.set('sla', executionSla, req.user?.sub)];
@@ -70,7 +71,7 @@ export class SettingsController {
 
   @Get('smtp')
   @UseGuards(RolesGuard)
-  @Roles('SUPER_ADMIN')
+  @Roles(ROLES.SUPER_ADMIN)
   async getSmtp() {
     const data = await this.settings.get('smtp');
     // Mask password in response
@@ -79,7 +80,7 @@ export class SettingsController {
 
   @Patch('smtp')
   @UseGuards(RolesGuard)
-  @Roles('SUPER_ADMIN')
+  @Roles(ROLES.SUPER_ADMIN)
   async updateSmtp(@Body() body: any, @Request() req: any) {
     // If password is the mask placeholder, preserve the existing password
     let value = { ...body };
