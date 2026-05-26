@@ -527,6 +527,7 @@ export default function TicketDetailPage() {
     mutationFn: (data: any) => ticketsApi.update(ticket.id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['tickets'] });
       toast.success('Ticket updated');
       setEditing(false);
     },
@@ -587,7 +588,9 @@ export default function TicketDetailPage() {
   const isParticipant = ticket.createdById === user?.id || ticket.assignedToId === user?.id;
   const canEdit = isManagerPlus || isParticipant;
   const canDelete = isManagerPlus;
-  const canApprove = isManagerPlus && ticket.status === 'REVIEW';
+  const isTeamLeadPlus = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
+  const isSelfAssigned = ticket.createdById === ticket.assignedToId && ticket.createdById === user?.id;
+  const canApprove = (isTeamLeadPlus || isSelfAssigned) && ticket.status === 'REVIEW';
   const isDone = ticket.status === 'DONE' || ticket.status === 'CLOSED';
 
   const submitComment = () => { if (comment.trim()) addComment.mutate(); };
@@ -671,8 +674,8 @@ export default function TicketDetailPage() {
                   <input type="date" value={editForm.dueDate} onChange={(e) => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Est. Hours</label>
-                  <input type="number" min="0.5" step="0.5" value={editForm.estimatedTime} onChange={(e) => setEditForm((f: any) => ({ ...f, estimatedTime: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100" />
+                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Est. Minutes</label>
+                  <input type="number" min="1" step="1" value={editForm.estimatedMinutes} onChange={(e) => setEditForm((f: any) => ({ ...f, estimatedMinutes: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100" placeholder="e.g. 60 for 1 hour" />
                 </div>
               </div>
             </div>
@@ -680,8 +683,9 @@ export default function TicketDetailPage() {
               <button
                 onClick={() => editMutation.mutate({
                   ...editForm,
-                  dueDate: editForm.dueDate ? new Date(editForm.dueDate).toISOString() : undefined,
+                  dueDate: editForm.dueDate ? (editForm.dueDate.includes('T') ? editForm.dueDate : `${editForm.dueDate}T13:00:00.000Z`) : undefined,
                   estimatedTime: editForm.estimatedTime ? parseFloat(editForm.estimatedTime) : undefined,
+                  estimatedMinutes: editForm.estimatedMinutes ? parseInt(editForm.estimatedMinutes, 10) : undefined,
                 })}
                 disabled={editMutation.isPending || !editForm.title?.trim()}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm disabled:opacity-50 transition-colors"
@@ -754,6 +758,7 @@ export default function TicketDetailPage() {
                 type: ticket.type ?? 'TASK',
                 dueDate: ticket.dueDate ? new Date(ticket.dueDate).toISOString().split('T')[0] : '',
                 estimatedTime: ticket.estimatedTime ?? '',
+                estimatedMinutes: ticket.estimatedMinutes ? String(ticket.estimatedMinutes) : '',
               });
               setEditing(true);
             }}
@@ -778,7 +783,9 @@ export default function TicketDetailPage() {
       {canApprove && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <p className="text-sm font-semibold text-amber-800 mb-3">
-            This ticket is awaiting review — approve or send back
+            {isSelfAssigned
+              ? 'This ticket is awaiting self-review — approve & complete or send back for rework'
+              : 'This ticket is awaiting review — approve or send back'}
           </p>
           {rejectMode ? (
             <div className="space-y-2">

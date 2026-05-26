@@ -305,12 +305,14 @@ export default function NewTicketPage() {
             <select value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls}>
               {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
+            <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Area of work (IT, HR, Facilities...)</p>
           </div>
           <div>
             <label className={labelCls}>Type</label>
             <select value={form.type} onChange={(e) => { set('type', e.target.value); if (e.target.value !== 'CUSTOM') setCustomType(''); }} className={inputCls}>
               {TYPES.map((t) => <option key={t} value={t}>{t === 'CUSTOM' ? 'Custom…' : t}</option>)}
             </select>
+            <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Nature of work (Task, Bug, Feature...)</p>
             {form.type === 'CUSTOM' && (
               <input
                 type="text"
@@ -339,6 +341,7 @@ export default function NewTicketPage() {
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Department-specific classification</p>
           </div>
           {taskTypeId && selectedTaskType?.subtypes?.length > 0 ? (
             <div>
@@ -354,6 +357,7 @@ export default function NewTicketPage() {
                 ))}
                 <option value="__custom__">Custom…</option>
               </select>
+              <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Specific subtype</p>
               {taskSubtypeId === '__custom__' && (
                 <input
                   type="text"

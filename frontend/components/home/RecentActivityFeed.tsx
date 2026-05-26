@@ -1,6 +1,7 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
+import { useRouter } from 'next/navigation';
 
 function timeAgo(iso: string) {
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -30,6 +31,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 export function RecentActivityFeed() {
   const user = useAuthStore(s => s.user);
+  const router = useRouter();
   const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
 
   const { data: events = [], isLoading } = useQuery({
@@ -71,10 +73,16 @@ export function RecentActivityFeed() {
   return (
     <div className="apex-card" style={{ padding: 0, overflow: 'hidden' }}>
       {events.slice(0, 10).map((ev: any, i: number) => (
-        <div key={i} style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
-          borderBottom: i < Math.min(events.length, 10) - 1 ? '1px solid var(--border-subtle)' : 'none',
-        }}>
+        <div
+          key={i}
+          onClick={() => ev.entityUrl && router.push(ev.entityUrl)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+            borderBottom: i < Math.min(events.length, 10) - 1 ? '1px solid var(--border-subtle)' : 'none',
+            cursor: ev.entityUrl ? 'pointer' : 'default',
+          }}
+          className={ev.entityUrl ? 'hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors' : ''}
+        >
           <div style={{
             width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
             background: ev.actor?.avatar ?? 'var(--accent)',
@@ -85,10 +93,10 @@ export function RecentActivityFeed() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 11, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <strong>{ev.actor?.name ?? 'Someone'}</strong> {ACTION_LABELS[ev.action] ?? ev.action.toLowerCase().replace(/_/g, ' ')}
+              <strong>{ev.actor?.name ?? 'Someone'}</strong> {ev.description ?? ACTION_LABELS[ev.action] ?? ev.action?.toLowerCase().replace(/_/g, ' ')}
             </p>
           </div>
-          <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>{timeAgo(ev.timestamp)}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>{ev.timeAgo ?? timeAgo(ev.timestamp)}</span>
         </div>
       ))}
     </div>

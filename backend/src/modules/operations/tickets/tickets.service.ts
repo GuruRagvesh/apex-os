@@ -327,12 +327,19 @@ export class TicketsService {
     }
 
     // Pre-compute executionDueAt if enough info is provided at creation time
+    // Only set executionDueAt if scheduledStartAt is in the future (not past midnight UTC edge cases)
+    const scheduledBase = data.scheduledStartAt ? new Date(data.scheduledStartAt) : null;
+    const actualBase = data.actualStartAt ? new Date(data.actualStartAt) : null;
+    const baseForExec = scheduledBase && scheduledBase.getTime() > Date.now() ? scheduledBase : null;
     const executionDueAt = this.calcExecutionDueAt(
-      data.scheduledStartAt,
-      data.actualStartAt,
+      baseForExec,
+      actualBase,
       data.estimatedMinutes,
     );
-    if (executionDueAt) data.executionDueAt = executionDueAt;
+    // Never store an executionDueAt that is already in the past
+    if (executionDueAt && executionDueAt.getTime() > Date.now()) {
+      data.executionDueAt = executionDueAt;
+    }
 
     // Generate a collision-safe ticket ID by retrying on unique-constraint violations (P2002)
     let ticket: any;
@@ -467,16 +474,32 @@ export class TicketsService {
       if (!isManagerPlus && !isParticipant) {
         throw new ForbiddenException('Only the assignee, reporter or a manager can update this ticket');
       }
-      // INTERN cannot move directly from OPEN to DONE/REVIEW
+      // Self-assigned tickets: creator/assignee can approve their own ticket
+      const isSelfAssigned = existing.createdById === existing.assignedToId;
+      const isCreatorMovingOwnTicket = existing.createdById === userId;
+      const isSelfReview = isSelfAssigned && isCreatorMovingOwnTicket;
+
+      // INTERN cannot move directly from OPEN to DONE/REVIEW (unless self-assigned)
       if (roleName === 'INTERN' && data.status) {
-        const allowed = data.status === 'IN_PROGRESS';
+        const allowed = data.status === 'IN_PROGRESS' || (isSelfReview && data.status === 'DONE');
         if (!allowed) {
           throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS');
         }
       }
-      // REVIEW → DONE requires Manager+
-      if (data.status === 'DONE' && existing.status === 'REVIEW' && !isManagerPlus) {
+      // REVIEW → DONE requires Manager+ OR self-review
+      if (data.status === 'DONE' && existing.status === 'REVIEW' && !isManagerPlus && !isSelfReview) {
         throw new ForbiddenException('Only managers can close tickets in review');
+      }
+    }
+
+    // ── REVIEW → IN_PROGRESS (rework): reset review stamps + recalculate executionDueAt ──
+    if (data.status === TicketStatus.IN_PROGRESS && existing.status === TicketStatus.REVIEW) {
+      data.submittedAt = null;
+      data.reviewStartedAt = null;
+      data.reviewDueAt = null;
+      data.actualStartAt = existing.actualStartAt ?? new Date();
+      if (existing.estimatedMinutes) {
+        data.executionDueAt = new Date(Date.now() + existing.estimatedMinutes * 60_000);
       }
     }
 
@@ -489,6 +512,17 @@ export class TicketsService {
       const mins: number | null | undefined = existing.estimatedMinutes;
       const due = this.calcExecutionDueAt(base, null, mins);
       if (due) data.executionDueAt = due;
+    }
+
+    // ── Recalculate executionDueAt when estimatedMinutes is updated ───────────
+    if (data.estimatedMinutes !== undefined && !existing.submittedAt) {
+      const baseTime = existing.actualStartAt || existing.scheduledStartAt;
+      if (baseTime) {
+        const newExecutionDueAt = new Date(
+          new Date(baseTime).getTime() + data.estimatedMinutes * 60_000,
+        );
+        data.executionDueAt = newExecutionDueAt;
+      }
     }
 
     // ── Review timer: stamp submittedAt + reviewStartedAt + reviewDueAt ──────

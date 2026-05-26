@@ -34,6 +34,9 @@ export function WorkdayBar() {
     queryKey: ['workday-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
     refetchInterval: 60000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const session = (todayData as any)?.session;

@@ -15,6 +15,7 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { ticketsApi, departmentsApi } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
 import { cn, PRIORITY_COLORS, CATEGORY_COLORS, PRIORITY_LABELS, CATEGORY_LABELS, getInitials, formatDate, DEPT_COLORS } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
 import { TimingTicker } from '@/components/tickets/OverdueTicker';
@@ -118,11 +119,11 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
 }
 
 // ─── Draggable card wrapper ───────────────────────────────────────────────────
-function DraggableCard({ ticket, columnKey, isPending }: { ticket: any; columnKey: string; isPending: boolean }) {
+function DraggableCard({ ticket, columnKey, isPending, canMove }: { ticket: any; columnKey: string; isPending: boolean; canMove: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: ticket.id,
     data: { columnKey, ticket },
-    disabled: isPending,
+    disabled: isPending || !canMove,
   });
 
   const style = transform
@@ -151,6 +152,7 @@ function DroppableColumn({
   onMoveNext,
   getPrevStatus,
   getNextStatus,
+  canMoveCard,
 }: {
   col: typeof COLUMNS[0];
   tickets: any[];
@@ -159,6 +161,7 @@ function DroppableColumn({
   onMoveNext: (id: string) => void;
   getPrevStatus: (key: string) => string | null;
   getNextStatus: (key: string) => string | null;
+  canMoveCard: (ticket: any) => boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
 
@@ -190,9 +193,10 @@ function DroppableColumn({
               ticket={ticket}
               columnKey={col.key}
               isPending={pendingIds.has(ticket.id)}
+              canMove={canMoveCard(ticket)}
             />
             {/* Fallback move buttons for non-drag interactions */}
-            {!pendingIds.has(ticket.id) && (
+            {!pendingIds.has(ticket.id) && canMoveCard(ticket) && (
               <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 {getPrevStatus(col.key) && (
                   <button
@@ -240,10 +244,22 @@ type KanbanData = Record<string, any[]>;
 
 export default function KanbanPage() {
   const qc = useQueryClient();
+  const { user } = useAuthStore();
   const [departmentId, setDepartmentId] = useState('');
   const [localKanban, setLocalKanban] = useState<KanbanData>({});
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [activeTicket, setActiveTicket] = useState<any>(null);
+
+  const canMoveCard = (ticket: any) => {
+    if (!user) return false;
+    const roleName = (user.role as any)?.name ?? user.role ?? '';
+    const isOwner = ticket.createdById === user.id;
+    const isAssignee = ticket.assignedToId === user.id ||
+      ticket.assignees?.some((a: any) => a.userId === user.id);
+    const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
+    const isTeamLead = roleName === 'TEAM_LEAD';
+    return isOwner || isAssignee || isManagerPlus || isTeamLead;
+  };
 
   const { data: kanban, isLoading } = useQuery({
     queryKey: ['kanban', departmentId],
@@ -330,6 +346,11 @@ export default function KanbanPage() {
     if (!over) return;
     const fromColumn = active.data.current?.columnKey as string;
     const toColumn = over.id as string;
+    const ticket = active.data.current?.ticket;
+    if (ticket && !canMoveCard(ticket)) {
+      toast.error('You do not have permission to move this ticket');
+      return;
+    }
     moveTicket(active.id as string, fromColumn, toColumn);
   };
 
@@ -373,6 +394,7 @@ export default function KanbanPage() {
                 pendingIds={pendingIds}
                 getPrevStatus={getPrevStatus}
                 getNextStatus={getNextStatus}
+                canMoveCard={canMoveCard}
                 onMovePrev={(id) => {
                   const prev = getPrevStatus(col.key);
                   if (prev) moveTicket(id, col.key, prev);
