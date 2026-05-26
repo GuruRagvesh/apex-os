@@ -50,6 +50,7 @@ export function TopBar() {
     if (showUserMenu) document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showUserMenu]);
+
   // Defensive: role may be an object { name } or a plain string
   const roleName     = (user?.role as any)?.name || (user?.role as any) || '';
   const isSuperAdmin = roleName === 'SUPER_ADMIN';
@@ -145,29 +146,62 @@ export function TopBar() {
     }
   };
 
+  const workStatusColor =
+    workStatus === 'WORKING' ? '#10B981' :
+    workStatus === 'ON_BREAK' ? '#F97316' :
+    workStatus === 'IDLE' ? '#FBBF24' :
+    workStatus === 'ON_LEAVE' ? '#3B82F6' :
+    '#94A3B8';
+
+  const workStatusLabel =
+    workStatus === 'WORKING' ? 'Working' :
+    workStatus === 'ON_BREAK' ? 'On Break' :
+    workStatus === 'IDLE' ? 'Idle' :
+    workStatus === 'ON_LEAVE' ? 'On Leave' :
+    workStatus === 'LOGGED_OUT' ? 'Ended' : 'Offline';
+
   return (
     <>
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-    <header style={{ backgroundColor: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-subtle)' }} className="h-14 flex items-center justify-between px-6 flex-shrink-0">
-      <div className="flex items-center gap-3">
-        <h1 className="font-semibold" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
+    <header
+      className="sticky top-0 z-30 h-14 px-6 flex items-center gap-4 flex-shrink-0"
+      style={{
+        backgroundColor: 'var(--bg-secondary)',
+        borderBottom: '1px solid var(--border-subtle)',
+        backdropFilter: 'blur(12px)',
+      }}
+    >
+      {/* Left: page name */}
+      <div className="flex items-center gap-3 flex-1">
+        <h1 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
         {user?.department && (
-          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+          <span
+            className="text-xs px-2 py-0.5 rounded-full hidden sm:inline"
+            style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+          >
             {user.department.name}
           </span>
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      {/* Right: actions */}
+      <div className="flex items-center gap-2">
         {/* Global search trigger */}
         <button
           onClick={() => setPaletteOpen(true)}
-          className="hidden sm:flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:opacity-80"
-          style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
+          className="hidden sm:flex items-center gap-2 text-xs px-3 py-2 rounded-xl transition-colors"
+          style={{
+            backgroundColor: 'var(--bg-tertiary)',
+            color: 'var(--text-secondary)',
+            border: '1px solid var(--border-primary)',
+          }}
         >
           <Search size={13} />
           <span>Search…</span>
-          <kbd className="hidden lg:inline font-mono text-[10px] bg-slate-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-slate-400 dark:text-gray-500">
+          <kbd
+            className="hidden lg:inline font-mono text-[10px] px-1.5 py-0.5 rounded"
+            style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)', border: '1px solid var(--border-primary)' }}
+          >
             Ctrl K
           </kbd>
         </button>
@@ -176,18 +210,26 @@ export function TopBar() {
         {isSuperAdmin && (
           <button
             onClick={() => router.push('/select-mode')}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors hover:opacity-80"
-            style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl transition-colors"
+            style={{
+              backgroundColor: 'transparent',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-primary)',
+            }}
             title="Switch between Super Admin and Team Lead mode"
           >
             <RefreshCw size={13} />
-            Switch Mode
+            <span className="hidden sm:inline">Switch Mode</span>
           </button>
         )}
 
+        {/* New Ticket */}
         <Link
           href="/tickets/new"
-          className="apex-btn-new-ticket"
+          className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl text-white transition-colors"
+          style={{ backgroundColor: '#2563EB' }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1D4ED8')}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2563EB')}
         >
           <Plus size={14} />
           New Ticket
@@ -197,22 +239,18 @@ export function TopBar() {
         <div className="relative">
           <button
             onClick={() => setShowWorkdayMenu((v) => !v)}
-            className="flex items-center gap-1.5 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-gray-800 transition-colors"
+            className="flex items-center gap-1.5 px-2 py-2 rounded-xl transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             title="Workday status"
           >
-            <span className={`w-2.5 h-2.5 rounded-full ${
-              workStatus === 'WORKING' ? 'bg-green-500' :
-              workStatus === 'ON_BREAK' ? 'bg-orange-400' :
-              workStatus === 'IDLE' ? 'bg-yellow-400' :
-              workStatus === 'ON_LEAVE' ? 'bg-blue-500' :
-              'bg-gray-400'
-            }`} />
-            <span className="hidden sm:inline text-xs text-slate-500 dark:text-gray-400">
-              {workStatus === 'WORKING' ? 'Working' :
-               workStatus === 'ON_BREAK' ? 'On Break' :
-               workStatus === 'IDLE' ? 'Idle' :
-               workStatus === 'ON_LEAVE' ? 'On Leave' :
-               workStatus === 'LOGGED_OUT' ? 'Ended' : 'Offline'}
+            <span
+              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: workStatusColor }}
+            />
+            <span className="hidden sm:inline text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {workStatusLabel}
             </span>
           </button>
 
@@ -227,11 +265,7 @@ export function TopBar() {
             >
               <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-tertiary)' }}>Workday</p>
               <p className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
-                {workStatus === 'WORKING' ? 'Currently working' :
-                 workStatus === 'ON_BREAK' ? 'On break' :
-                 workStatus === 'IDLE' ? 'Idle' :
-                 workStatus === 'ON_LEAVE' ? 'On leave today' :
-                 workStatus === 'LOGGED_OUT' ? 'Day ended' : 'Not started'}
+                {workStatusLabel === 'Offline' ? 'Not started' : workStatusLabel}
               </p>
               <button
                 onClick={() => { setShowWorkdayMenu(false); router.push('/dashboard'); }}
@@ -248,8 +282,10 @@ export function TopBar() {
         <div className="relative">
           <button
             onClick={() => setShowNotifs(!showNotifs)}
-            className="relative p-2 rounded-lg transition-colors hover:opacity-80"
+            className="relative p-2 rounded-xl transition-colors"
             style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             <Bell size={18} />
             {count > 0 && (
@@ -260,7 +296,13 @@ export function TopBar() {
           </button>
 
           {showNotifs && (
-            <div className="absolute right-0 top-10 w-80 rounded-xl shadow-lg z-50" style={{ backgroundColor: 'var(--surface-elevated)', borderColor: 'var(--border-primary)', border: '1px solid var(--border-primary)' }}>
+            <div
+              className="absolute right-0 top-10 w-80 rounded-xl shadow-lg z-50"
+              style={{
+                backgroundColor: 'var(--surface-elevated)',
+                border: '1px solid var(--border-primary)',
+              }}
+            >
               <div
                 className="p-3 flex items-center justify-between"
                 style={{ borderBottom: '1px solid var(--border-subtle)' }}
@@ -349,16 +391,24 @@ export function TopBar() {
             </div>
           )}
         </div>
+
         {/* User avatar + profile dropdown */}
         <div className="relative" ref={userMenuRef}>
           <button
             onClick={() => { setShowUserMenu((v) => !v); setShowNotifs(false); setShowWorkdayMenu(false); }}
-            className="flex items-center gap-2 px-2 py-1 rounded-lg hover:opacity-80 transition-all"
+            className="flex items-center gap-2 px-2 py-1 rounded-xl transition-all"
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
-            <span className="hidden sm:block text-sm font-medium max-w-[100px] truncate" style={{ color: 'var(--text-primary)' }}>
-              {user?.name?.split(' ')[0]}
-            </span>
+            <div className="hidden sm:block text-left">
+              <p className="text-sm font-semibold max-w-[100px] truncate leading-none" style={{ color: 'var(--text-primary)' }}>
+                {user?.name?.split(' ')[0]}
+              </p>
+              <p className="text-[10px] font-mono uppercase text-slate-400 mt-0.5 truncate leading-none">
+                {roleName}
+              </p>
+            </div>
             <ChevronDown size={12} style={{ color: 'var(--text-tertiary)' }} />
           </button>
 

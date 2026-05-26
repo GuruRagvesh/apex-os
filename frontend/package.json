@@ -43,6 +43,7 @@
     "date-fns-tz": "^3.2.0",
     "html-to-image": "^1.11.13",
     "lucide-react": "^0.379.0",
+    "motion": "^12.40.0",
     "next": "14.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

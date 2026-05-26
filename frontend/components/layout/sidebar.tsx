@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
   Users, Building2, BarChart3, LogOut, ChevronRight, Zap, Settings,
-  Calendar, Activity,
+  Calendar, Activity, ArrowRight,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UserAvatar } from '@/components/ui/user-avatar';
@@ -16,34 +16,34 @@ import { UserAvatar } from '@/components/ui/user-avatar';
 // ── Skeleton shown before Zustand hydrates ────────────────────────────────────
 function SidebarSkeleton() {
   return (
-    <aside className="w-64 bg-white dark:bg-gray-900 border-r border-slate-200 dark:border-gray-800 flex flex-col shadow-sm">
+    <aside className="w-64 flex flex-col" style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}>
       {/* Logo */}
-      <div className="p-5 border-b border-slate-100 dark:border-gray-800">
+      <div className="p-5" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }}>
         <div className="flex items-center gap-3">
           <div
             className="w-9 h-9 rounded-xl flex-shrink-0"
             style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
           />
           <div className="space-y-1.5">
-            <div className="h-3.5 w-16 bg-slate-200 dark:bg-gray-700 rounded animate-pulse" />
-            <div className="h-2.5 w-20 bg-slate-100 dark:bg-gray-800 rounded animate-pulse" />
+            <div className="h-3.5 w-16 bg-slate-700 rounded animate-pulse" />
+            <div className="h-2.5 w-20 bg-slate-800 rounded animate-pulse" />
           </div>
         </div>
       </div>
       {/* Nav bars */}
       <nav className="flex-1 p-3 space-y-2">
-        <div className="h-2.5 w-10 bg-slate-100 dark:bg-gray-800 rounded mx-3 mb-3 animate-pulse" />
+        <div className="h-2.5 w-10 bg-slate-800 rounded mx-3 mb-3 animate-pulse" />
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-9 rounded-lg bg-slate-100 dark:bg-gray-800 animate-pulse" style={{ animationDelay: `${i * 60}ms` }} />
+          <div key={i} className="h-9 rounded-xl bg-slate-800 animate-pulse" style={{ animationDelay: `${i * 60}ms` }} />
         ))}
       </nav>
       {/* Bottom user area */}
-      <div className="p-3 border-t border-slate-100 dark:border-gray-800">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-gray-800">
-          <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-gray-700 animate-pulse flex-shrink-0" />
+      <div className="p-3" style={{ borderTop: '1px solid rgba(30,41,59,0.5)' }}>
+        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-800/60">
+          <div className="w-8 h-8 rounded-full bg-slate-700 animate-pulse flex-shrink-0" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3 w-24 bg-slate-200 dark:bg-gray-700 rounded animate-pulse" />
-            <div className="h-2.5 w-16 bg-slate-100 dark:bg-gray-800 rounded animate-pulse" />
+            <div className="h-3 w-24 bg-slate-700 rounded animate-pulse" />
+            <div className="h-2.5 w-16 bg-slate-800 rounded animate-pulse" />
           </div>
         </div>
       </div>
@@ -54,7 +54,7 @@ function SidebarSkeleton() {
 // ── Nav definitions ───────────────────────────────────────────────────────────
 const BASE_NAV = [
   { href: '/dashboard', label: 'Home',          icon: LayoutDashboard },
-  { href: '/tickets',   label: 'Tickets',      icon: Ticket          },
+  { href: '/tickets',   label: 'Tickets',       icon: Ticket          },
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban          },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban    },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff     },
@@ -62,7 +62,7 @@ const BASE_NAV = [
 ];
 
 const TEAMLEAD_NAV  = [{ href: '/team',    label: 'Team',          icon: Users    }];
-const MANAGER_NAV   = [{ href: '/analytics', label: 'Analytics',    icon: BarChart3 }];
+const MANAGER_NAV   = [{ href: '/analytics', label: 'Analytics',   icon: BarChart3 }];
 const ADMIN_NAV     = [
   { href: '/users',       label: 'Users & Roles',  icon: Users     },
   { href: '/departments', label: 'Departments',     icon: Building2 },
@@ -80,18 +80,14 @@ const TEAMLEAD_MODE_NAV = [
   { href: '/leave',     label: 'Leave',          icon: CalendarOff   },
 ];
 
-const ROLE_BADGE_COLOR: Record<string, string> = {
-  SUPER_ADMIN: 'bg-purple-100 text-purple-700',
-  ADMIN:       'bg-red-100    text-red-700',
-  MANAGER:     'bg-amber-100  text-amber-700',
-  TEAM_LEAD:   'bg-blue-100   text-blue-700',
-  EMPLOYEE:    'bg-green-100  text-green-700',
-  INTERN:      'bg-teal-100   text-teal-700',
+const ROLE_BADGE_COLOR: Record<string, { bg: string; text: string }> = {
+  SUPER_ADMIN: { bg: 'rgba(139,92,246,0.15)', text: '#a78bfa' },
+  ADMIN:       { bg: 'rgba(239,68,68,0.15)',  text: '#f87171' },
+  MANAGER:     { bg: 'rgba(245,158,11,0.15)', text: '#fbbf24' },
+  TEAM_LEAD:   { bg: 'rgba(37,99,235,0.15)',  text: '#60a5fa' },
+  EMPLOYEE:    { bg: 'rgba(16,185,129,0.15)', text: '#34d399' },
+  INTERN:      { bg: 'rgba(20,184,166,0.15)', text: '#2dd4bf' },
 };
-
-const ACCENT         = 'bg-indigo-50 dark:bg-gray-800 text-indigo-700 dark:text-indigo-400';
-const ACCENT_ICON    = 'text-indigo-600 dark:text-indigo-400';
-const ACCENT_CHEVRON = 'text-indigo-400 dark:text-indigo-500';
 
 function getInitials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
@@ -123,32 +119,56 @@ export function Sidebar() {
   const showReports   = isManager  && !(isSuperAdmin && apexMode === 'team_lead');
   const showAdminSect = isAdmin    && !(isSuperAdmin && apexMode === 'team_lead');
 
+  const roleBadge = ROLE_BADGE_COLOR[role] ?? { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
+
   function NavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
     const active = pathname === href || pathname.startsWith(href + '/');
     return (
       <Link
         href={href}
         className={cn(
-          'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group',
-          active ? ACCENT : 'text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800 hover:text-slate-900 dark:hover:text-white',
+          'group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all',
+          active
+            ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
+            : 'text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent',
         )}
-        style={active ? {
-          backgroundColor: 'var(--accent-subtle)',
-          color: 'var(--accent)',
-          borderLeft: '3px solid var(--accent)',
-        } : {}}
       >
-        <Icon size={18} className={active ? ACCENT_ICON : 'text-slate-400 dark:text-gray-500 group-hover:text-slate-600 dark:group-hover:text-gray-300'} />
-        {label}
-        {active && <ChevronRight size={14} className={cn('ml-auto', ACCENT_CHEVRON)} />}
+        <Icon
+          size={20}
+          className={cn(
+            'flex-shrink-0 transition-colors',
+            active ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-300',
+          )}
+        />
+        <span className="flex-1">{label}</span>
+        <ArrowRight
+          size={14}
+          className={cn(
+            'flex-shrink-0 transition-all duration-150',
+            active
+              ? 'opacity-100 text-blue-400'
+              : 'opacity-0 group-hover:opacity-60 text-slate-400 -translate-x-1 group-hover:translate-x-0',
+          )}
+        />
       </Link>
     );
   }
 
+  function SectionLabel({ children }: { children: React.ReactNode }) {
+    return (
+      <p className="font-mono text-[10px] uppercase tracking-widest text-slate-500 px-3 mb-1 mt-4">
+        {children}
+      </p>
+    );
+  }
+
   return (
-    <aside className="w-64 flex flex-col shadow-sm" style={{ backgroundColor: 'var(--bg-secondary)', borderRight: '1px solid var(--border-subtle)' }}>
+    <aside
+      className="w-64 flex flex-col"
+      style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}
+    >
       {/* Logo */}
-      <div className="p-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="p-5" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }}>
         <div className="flex items-center gap-3">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -157,22 +177,22 @@ export function Sidebar() {
             <span className="text-white font-bold text-lg">A</span>
           </div>
           <div>
-            <p className="font-bold text-slate-800 dark:text-white text-base leading-none">Apex</p>
-            <p className="text-[10px] text-slate-400 dark:text-gray-500 mt-0.5 font-medium tracking-wide uppercase">TechnoEdge</p>
+            <p className="font-bold text-white text-base leading-none">Apex</p>
+            <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest">TechnoEdge</p>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2" style={{ color: 'var(--text-tertiary)' }}>Main</p>
+        <SectionLabel>Main</SectionLabel>
 
         {mainNav.map((item) => <NavItem key={item.href} {...item} />)}
 
         {/* Team — team leads and above */}
         {showTeam && (
           <>
-            <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Team</p>
+            <SectionLabel>Team</SectionLabel>
             {TEAMLEAD_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
@@ -180,7 +200,7 @@ export function Sidebar() {
         {/* Reports — managers and above */}
         {showReports && (
           <>
-            <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Analytics</p>
+            <SectionLabel>Analytics</SectionLabel>
             {MANAGER_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
@@ -188,7 +208,7 @@ export function Sidebar() {
         {/* Admin section */}
         {showAdminSect && (
           <>
-            <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Admin</p>
+            <SectionLabel>Admin</SectionLabel>
             {ADMIN_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
@@ -196,43 +216,42 @@ export function Sidebar() {
         {/* Activity Log — team leads and above */}
         {isTeamLead && !(isSuperAdmin && apexMode === 'team_lead') && (
           <>
-            <p className="text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-3" style={{ color: 'var(--text-tertiary)' }}>Workday</p>
+            <SectionLabel>Workday</SectionLabel>
             {ACTIVITY_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
 
         {/* Settings — everyone */}
-        <div className="mt-3 pt-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <div className="mt-3 pt-2" style={{ borderTop: '1px solid rgba(30,41,59,0.5)' }}>
           {SETTINGS_NAV.map((item) => <NavItem key={item.href} {...item} />)}
         </div>
       </nav>
 
       {/* User profile card */}
-      <div className="p-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+      <div className="p-3" style={{ borderTop: '1px solid rgba(30,41,59,0.5)' }}>
         <div
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors"
-          style={{ backgroundColor: 'var(--bg-tertiary)' }}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-slate-800/60"
           onClick={() => router.push('/profile')}
         >
           <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-800 dark:text-gray-200 truncate">{user?.name}</p>
+            <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
             <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-              <span className={cn(
-                'text-xs px-1.5 py-0.5 rounded font-medium',
-                ROLE_BADGE_COLOR[role] ?? 'bg-gray-100 text-gray-700',
-              )}>
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
+                style={{ backgroundColor: roleBadge.bg, color: roleBadge.text }}
+              >
                 {role}
               </span>
               {isSuperAdmin && (
                 <span
-                  className="text-xs px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5"
+                  className="text-[10px] px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5"
                   style={{
                     background: apexMode === 'super_admin'
                       ? 'linear-gradient(135deg,rgba(88,28,135,0.15) 0%,rgba(109,40,217,0.10) 100%)'
                       : 'linear-gradient(135deg,rgba(30,64,175,0.15) 0%,rgba(79,70,229,0.10) 100%)',
                     border: apexMode === 'super_admin' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(96,165,250,0.3)',
-                    color: apexMode === 'super_admin' ? '#7c3aed' : '#2563eb',
+                    color: apexMode === 'super_admin' ? '#a78bfa' : '#60a5fa',
                   }}
                 >
                   {apexMode === 'super_admin'
@@ -244,7 +263,7 @@ export function Sidebar() {
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); logout(); }}
-            className="text-slate-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors flex-shrink-0"
+            className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0"
             title="Logout"
           >
             <LogOut size={16} />

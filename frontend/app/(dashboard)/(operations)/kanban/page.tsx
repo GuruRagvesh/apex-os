@@ -25,10 +25,10 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 
 const COLUMNS = [
-  { key: 'OPEN',        label: 'Open',        color: 'bg-yellow-50 border-yellow-200', headerColor: 'text-yellow-700 bg-yellow-100' },
-  { key: 'IN_PROGRESS', label: 'In Progress',  color: 'bg-blue-50 border-blue-200',    headerColor: 'text-blue-700 bg-blue-100'   },
-  { key: 'REVIEW',      label: 'Review',       color: 'bg-purple-50 border-purple-200', headerColor: 'text-purple-700 bg-purple-100' },
-  { key: 'DONE',        label: 'Done',         color: 'bg-green-50 border-green-200',  headerColor: 'text-green-700 bg-green-100' },
+  { key: 'OPEN',        label: 'Open',        color: 'bg-amber-50/60 border-amber-200/80',    headerColor: 'text-amber-700 bg-amber-100',   accentColor: '#F59E0B' },
+  { key: 'IN_PROGRESS', label: 'In Progress', color: 'bg-blue-50/60 border-blue-200/80',      headerColor: 'text-blue-700 bg-blue-100',     accentColor: '#2563EB' },
+  { key: 'REVIEW',      label: 'Review',      color: 'bg-purple-50/60 border-purple-200/80',  headerColor: 'text-purple-700 bg-purple-100', accentColor: '#7C3AED' },
+  { key: 'DONE',        label: 'Done',        color: 'bg-emerald-50/60 border-emerald-200/80', headerColor: 'text-emerald-700 bg-emerald-100', accentColor: '#10B981' },
 ];
 
 // ─── Static card UI (also used for DragOverlay) ───────────────────────────────
@@ -41,8 +41,17 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
   });
   return (
     <div
-      className={cn('relative rounded-xl p-3', vis.borderClass, vis.bgClass, isPending && 'opacity-70')}
-      style={{ backgroundColor: 'var(--surface-card)', border: '1px solid var(--border-primary)', boxShadow: 'var(--shadow-sm)' }}
+      className={cn('relative rounded-2xl p-3 transition-shadow', vis.borderClass, vis.bgClass, isPending && 'opacity-70')}
+      style={{
+        backgroundColor: 'var(--surface-card)',
+        border: '1px solid var(--border-primary)',
+        boxShadow: 'var(--shadow-sm)',
+        borderLeft: ticket.priority === 'URGENT' ? '3px solid #EF4444' :
+                    ticket.priority === 'HIGH' ? '3px solid #F97316' :
+                    ticket.priority === 'MEDIUM' ? '3px solid #2563EB' :
+                    '1px solid var(--border-primary)',
+        cursor: 'grab',
+      }}
     >
       {/* Priority dot — absolute top-right */}
       <span className={cn('absolute top-2 right-2 w-2.5 h-2.5 rounded-full', PRIORITY_DOT[ticket.priority] ?? 'bg-gray-400')} />
@@ -169,18 +178,27 @@ function DroppableColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'rounded-xl border p-3 min-h-[400px] transition-all',
+        'rounded-2xl border p-3 min-h-[400px] transition-all overflow-hidden',
         col.color,
-        isOver && 'ring-2 ring-indigo-400 ring-offset-1',
+        isOver && 'ring-2 ring-offset-1',
       )}
+      style={isOver ? { outlineColor: col.accentColor } : {}}
     >
-      <div className="flex items-center justify-between mb-3">
-        <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full', col.headerColor)}>
-          {col.label}
-        </span>
+      {/* Column header — dark navy */}
+      <div
+        className="flex items-center justify-between mb-3 px-3 py-2.5 rounded-xl"
+        style={{ backgroundColor: '#0B1220' }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ backgroundColor: col.accentColor }}
+          />
+          <span className="text-xs font-semibold text-white">{col.label}</span>
+        </div>
         <span
-          className="text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center"
-          style={{ backgroundColor: 'var(--surface-card)', color: 'var(--text-secondary)', boxShadow: 'var(--shadow-sm)' }}
+          className="text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center font-mono"
+          style={{ backgroundColor: `${col.accentColor}20`, color: col.accentColor }}
         >
           {tickets.length}
         </span>

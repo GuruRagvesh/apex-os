@@ -1,20 +1,38 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/topbar';
 import { ColdStartBanner } from '@/components/ui/cold-start-banner';
 import { QuickActionDock } from '@/components/ui/QuickActionDock';
+import { QuickActionPalette } from '@/components/ui/QuickActionPalette';
+import {
+  Ticket, CalendarDays, AlertTriangle, FolderKanban,
+  Calendar, Activity, LogIn,
+} from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
   const router = useRouter();
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) router.replace('/login');
   }, [isAuthenticated, router]);
+
+  // Alt+K shortcut for Quick Action Palette (Ctrl+K is taken by CommandPalette in TopBar)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.altKey && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   if (!isAuthenticated) {
     return (
@@ -24,6 +42,78 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
+  const paletteActions = [
+    {
+      id: 'new-ticket',
+      label: 'Create New Ticket',
+      description: 'Open a new support or task ticket',
+      icon: <Ticket size={15} />,
+      shortcut: 'N',
+      category: 'tickets',
+      onClick: () => router.push('/tickets/new'),
+    },
+    {
+      id: 'due-today',
+      label: 'View Due Today',
+      description: 'Tickets due today',
+      icon: <CalendarDays size={15} />,
+      shortcut: 'D',
+      category: 'tickets',
+      onClick: () => router.push('/tickets?filter=due-today'),
+    },
+    {
+      id: 'high-priority',
+      label: 'High Priority Tickets',
+      description: 'View all high priority items',
+      icon: <AlertTriangle size={15} />,
+      category: 'tickets',
+      onClick: () => router.push('/tickets?priority=HIGH'),
+    },
+    {
+      id: 'leave',
+      label: 'Review Leave',
+      description: 'Leave requests and approvals',
+      icon: <CalendarDays size={15} />,
+      shortcut: 'L',
+      category: 'hr',
+      onClick: () => router.push('/leave'),
+    },
+    {
+      id: 'projects',
+      label: 'Open Projects',
+      description: 'View active projects',
+      icon: <FolderKanban size={15} />,
+      shortcut: 'P',
+      category: 'projects',
+      onClick: () => router.push('/projects'),
+    },
+    {
+      id: 'activity',
+      label: 'Activity Log',
+      description: 'View team activity history',
+      icon: <Activity size={15} />,
+      category: 'admin',
+      onClick: () => router.push('/admin/activity'),
+    },
+    {
+      id: 'calendar',
+      label: 'Calendar',
+      description: 'Open the team calendar',
+      icon: <Calendar size={15} />,
+      shortcut: 'C',
+      category: 'planning',
+      onClick: () => router.push('/calendar'),
+    },
+    {
+      id: 'login',
+      label: 'Start Workday',
+      description: 'Log in to start your working session',
+      icon: <LogIn size={15} />,
+      category: 'workday',
+      onClick: () => router.push('/dashboard'),
+    },
+  ];
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-gray-950 overflow-hidden">
       <Sidebar />
@@ -32,7 +122,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main id="apex-main-content" className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
       <ColdStartBanner />
+      {/* Existing FAB dock — kept as-is (Alt+Q) */}
       <QuickActionDock />
+      {/* New command palette — Alt+K */}
+      <QuickActionPalette
+        isOpen={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        actions={paletteActions}
+      />
     </div>
   );
 }

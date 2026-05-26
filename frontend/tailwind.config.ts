@@ -17,7 +17,8 @@ const config: Config = {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'],
       },
       colors: {
         border: "hsl(var(--border))",

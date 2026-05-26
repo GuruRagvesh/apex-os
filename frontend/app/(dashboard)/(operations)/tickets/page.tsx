@@ -106,11 +106,12 @@ export default function TicketsPage() {
           <button
             key={status}
             onClick={() => setFilter('status', status)}
-            className="text-xs font-medium px-3 py-1.5 rounded-full transition-colors border"
+            className="text-xs font-semibold px-3.5 py-1.5 rounded-full transition-all border"
             style={filters.status === status ? {
               backgroundColor: 'var(--accent)',
               color: 'white',
               borderColor: 'var(--accent)',
+              boxShadow: '0 2px 8px var(--accent-ring)',
             } : {
               backgroundColor: 'var(--surface-card)',
               color: 'var(--text-secondary)',

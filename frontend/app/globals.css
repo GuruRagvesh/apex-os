@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -7,9 +9,26 @@
    CSS Custom Properties
 ═══════════════════════════════════════ */
 
+/* ═══════════════════════════════════════
+   APEX OS — NEW DESIGN TOKENS (Phase 1)
+═══════════════════════════════════════ */
+:root {
+  --apex-navy: #0B1220;
+  --apex-surface: #0F172A;
+  --apex-blue: #2563EB;
+  --apex-blue-hover: #1D4ED8;
+  --apex-soft: #F8FAFC;
+  --apex-border: #E2E8F0;
+  --apex-muted: #64748B;
+  --apex-danger: #EF4444;
+  --apex-warning: #F59E0B;
+  --apex-success: #10B981;
+  --apex-orange: #FF6A13;
+}
+
 /* DEFAULT: TechnoEdge Light */
 :root {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --radius: 16px;
   --radius-sm: 8px;
   --radius-lg: 24px;
@@ -124,9 +143,13 @@ html[data-accent="slate"]      { --accent:#475569;--accent-hover:#334155;--accen
 /* ── GLOBAL ELEMENT STYLES ────────────── */
 * { font-family: var(--font-sans); }
 body {
+  font-family: var(--font-sans);
   background-color: var(--bg-primary);
   color: var(--text-primary);
   transition: background-color 0.2s ease, color 0.2s ease;
+}
+code, pre, .mono, [data-mono] {
+  font-family: var(--font-mono);
 }
 
 /* ── APEX UTILITY CLASSES ─────────────── */
@@ -348,16 +371,29 @@ html[data-compact="true"] .apex-card { padding: 12px; }
 html[data-compact="true"] nav a { padding-top: 6px; padding-bottom: 6px; }
 
 /* ═══════════════════════════════════════
-   CUSTOM SCROLLBARS
+   CUSTOM SCROLLBARS (Apex OS)
 ═══════════════════════════════════════ */
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-primary);
-  border-radius: 2px;
+  background: #334155;
+  border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--border-secondary); }
-* { scrollbar-width: thin; scrollbar-color: var(--border-primary) transparent; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+* { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+
+/* ═══════════════════════════════════════
+   APEX OS — ANIMATION UTILITIES
+═══════════════════════════════════════ */
+@keyframes apex-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes apex-scale-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes apex-slide-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes apex-pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.apex-fade-in { animation: apex-fade-in 0.2s ease-out both; }
+.apex-scale-in { animation: apex-scale-in 0.15s ease-out both; }
+.apex-slide-up { animation: apex-slide-up 0.25s ease-out both; }
+.apex-pulse-dot { animation: apex-pulse-dot 2s ease-in-out infinite; }
 
 /* ═══════════════════════════════════════
    ANIMATIONS & TRANSITIONS

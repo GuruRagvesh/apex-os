@@ -94,7 +94,12 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
   return (
     <Link
       href={ticketHref}
-      className={cn('grid grid-cols-12 items-center gap-4 px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-all border-b border-slate-50 dark:border-gray-800 last:border-0', vis.borderClass, vis.bgClass)}
+      className={cn(
+        'grid grid-cols-12 items-center gap-4 px-4 py-3.5 transition-all border-b last:border-0',
+        'hover:bg-slate-50 dark:hover:bg-slate-800/40',
+        vis.borderClass, vis.bgClass,
+      )}
+      style={{ borderColor: 'var(--border-subtle)' }}
     >
       {/* Ticket col-span-6 */}
       <div className="col-span-6 min-w-0">
