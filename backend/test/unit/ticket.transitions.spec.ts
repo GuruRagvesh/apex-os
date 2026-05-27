@@ -11,6 +11,9 @@ import { NotificationsService } from '../../src/modules/operations/notifications
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
 import { EmailService } from '../../src/modules/platform/email/email.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
+import { AccessPolicyService } from '../../src/common/services/access-policy.service';
+import { TicketAccessService } from '../../src/common/services/ticket-access.service';
+import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ForbiddenException } from '@nestjs/common';
@@ -84,6 +87,9 @@ describe('TicketsService — status transitions', () => {
     jest.clearAllMocks();
 
     // Default: ticket update succeeds
+    mockPrisma.ticket.findFirst.mockResolvedValue(makeTicket());
+    mockPrisma.ticket.findUnique.mockResolvedValue(makeTicket());
+    mockPrisma.ticket.count.mockResolvedValue(1);
     mockPrisma.ticket.update.mockImplementation(async ({ data }) => ({
       ...makeTicket(), ...data,
     }));
@@ -92,6 +98,9 @@ describe('TicketsService — status transitions', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TicketsService,
+        AccessPolicyService,
+        TicketAccessService,
+        TicketTimingService,
         { provide: PrismaService,         useValue: mockPrisma       },
         { provide: NotificationsService,  useValue: mockNotif        },
         { provide: EventsGateway,         useValue: mockGateway      },

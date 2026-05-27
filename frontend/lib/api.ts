@@ -44,7 +44,14 @@ api.interceptors.response.use(
         window.location.href = '/login?expired=true';
       }
     }
-    return Promise.reject(error.response?.data || error);
+    const data = error.response?.data;
+    if (error.response?.status === 403) {
+      return Promise.reject({ ...data, message: data?.message || 'You do not have permission to perform this action.' });
+    }
+    if (Array.isArray(data?.message)) {
+      return Promise.reject({ ...data, message: data.message.join(', ') });
+    }
+    return Promise.reject(data || error);
   },
 );
 

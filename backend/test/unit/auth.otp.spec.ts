@@ -15,6 +15,7 @@ import * as bcrypt from 'bcryptjs';
 const mockPrisma = {
   user: {
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     update: jest.fn(),
     create: jest.fn(),
     upsert: jest.fn(),
@@ -32,6 +33,7 @@ describe('AuthService — OTP', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockPrisma.user.findFirst.mockImplementation(() => mockPrisma.user.findUnique());
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -126,6 +128,7 @@ describe('AuthService — login', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockPrisma.user.findFirst.mockImplementation(() => mockPrisma.user.findUnique());
     mockConfig.get.mockImplementation((key: string) => {
       if (key === 'JWT_SECRET') return 'test-secret-at-least-32-chars-long!!';
       if (key === 'JWT_EXPIRES_IN') return '24h';

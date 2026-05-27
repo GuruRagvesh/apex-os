@@ -1,12 +1,16 @@
 ﻿import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private accessPolicy: AccessPolicyService,
+  ) {}
 
-  async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }) {
+  async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
     const skip = (page - 1) * limit;
@@ -21,6 +25,17 @@ export class UsersService {
     if (query.departmentId) where.departmentId = query.departmentId;
     if (query.roleId) where.roleId = query.roleId;
 
+    if (requester && !this.accessPolicy.isHrOrAdmin(requester)) {
+      const roleName = this.accessPolicy.roleName(requester);
+      if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
+        const deptIds = await this.accessPolicy.managedDepartmentIds(requester);
+        if (deptIds.length > 0) where.departmentId = { in: deptIds };
+        else where.id = requester.id;
+      } else {
+        where.id = requester.id;
+      }
+    }
+
     const [total, rawUsers] = await Promise.all([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
@@ -32,18 +47,23 @@ export class UsersService {
       }),
     ]);
 
-    const users = rawUsers.map(({ password, ...u }) => u);
+    const users = rawUsers.map((u) => this.accessPolicy.safeUser(u));
     return { users, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, requester?: any) {
     const user = await this.prisma.user.findUnique({
       where: { id },
       include: { role: true, department: true },
     });
     if (!user) throw new NotFoundException('User not found');
-    const { password, ...result } = user;
-    return result;
+    if (requester) {
+      this.accessPolicy.assertAllowed(
+        await this.accessPolicy.canViewUser(requester, user),
+        'You do not have permission to view this user',
+      );
+    }
+    return this.accessPolicy.safeUser(user);
   }
 
   async create(data: { name: string; email: string; password: string; roleId: string; departmentId?: string }) {
@@ -106,7 +126,7 @@ export class UsersService {
         include: { role: true, department: true },
         orderBy: { name: 'asc' },
       });
-      return users.map(({ password, ...u }) => u);
+      return users.map((u) => this.accessPolicy.safeUser(u));
     }
 
     // Team Lead / Employee → same department
@@ -116,13 +136,19 @@ export class UsersService {
       include: { role: true, department: true },
       orderBy: { name: 'asc' },
     });
-    return users.map(({ password, ...u }) => u);
+    return users.map((u) => this.accessPolicy.safeUser(u));
   }
 
-  async getDirectory() {
+  async getDirectory(requester?: any) {
     // Fetch all active users with role + dept
+    const where: any = { isActive: true };
+    if (requester && !this.accessPolicy.isHrOrAdmin(requester)) {
+      const deptIds = await this.accessPolicy.managedDepartmentIds(requester);
+      if (deptIds.length > 0) where.departmentId = { in: deptIds };
+      else where.id = requester.id;
+    }
     const users = await this.prisma.user.findMany({
-      where: { isActive: true },
+      where,
       include: { role: true, department: true },
       orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
     });
@@ -139,8 +165,8 @@ export class UsersService {
     const countMap: Record<string, number> = {};
     openCounts.forEach((r) => { if (r.assignedToId) countMap[r.assignedToId] = r._count.id; });
 
-    return users.map(({ password, ...u }) => ({
-      ...u,
+    return users.map((u) => ({
+      ...this.accessPolicy.safeUser(u),
       ticketCount: countMap[u.id] ?? 0,
     }));
   }
@@ -174,40 +200,35 @@ export class UsersService {
   async getProfile(requesterId: string, targetUserId: string) {
     const requester = await this.prisma.user.findUnique({
       where: { id: requesterId },
-      include: { role: true },
+      include: { role: true, department: true },
     });
     const target = await this.prisma.user.findUnique({
       where: { id: targetUserId },
       include: { role: true, department: true, employeeDocuments: true },
     });
     if (!target) throw new NotFoundException('User not found');
+    if (!requester) throw new ForbiddenException('Not authorized');
+    this.accessPolicy.assertAllowed(
+      await this.accessPolicy.canViewUser(requester, target),
+      'You do not have permission to view this profile',
+    );
 
     const roleName = (requester?.role as any)?.name ?? '';
     const isHR = (requester as any)?.isHR;
     const canSeeFull = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR;
     const isOwnProfile = requesterId === targetUserId;
-    const isManagerOfDept = roleName === 'MANAGER' && requester?.departmentId === target.departmentId;
+    const managerDeptIds = roleName === 'MANAGER' ? await this.accessPolicy.managedDepartmentIds(requester) : [];
+    const isManagerOfDept = roleName === 'MANAGER' && Boolean(target.departmentId && managerDeptIds.includes(target.departmentId));
     const isTeamLead = roleName === 'TEAM_LEAD' && requester?.departmentId === target.departmentId;
 
     if (canSeeFull) {
       await this.logSensitiveAccess(requesterId, 'VIEW_PAYROLL_DATA', targetUserId);
-      const { password, ...result } = target as any;
+      const { password, employeeDocuments, ...result } = target as any;
       return result;
     }
 
     if (isOwnProfile) {
-      const { password, ...rest } = target as any;
-      const masked = { ...rest };
-      if (masked.accountNumber) {
-        masked.accountNumber = '••••••••' + masked.accountNumber.slice(-4);
-      }
-      if (masked.aadhaarNumber) {
-        masked.aadhaarNumber = 'XXXX-XXXX-' + masked.aadhaarNumber.slice(-4);
-      }
-      if (masked.panNumber && masked.panNumber.length >= 5) {
-        masked.panNumber = masked.panNumber.slice(0, 2) + '•••••' + masked.panNumber.slice(-3);
-      }
-      return masked;
+      return this.accessPolicy.maskPayrollForSelf(target as any);
     }
 
     if (isManagerOfDept) {
@@ -239,6 +260,9 @@ export class UsersService {
       where: { id: requesterId },
       include: { role: true },
     });
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }, include: { role: true, department: true } });
+    if (!target) throw new NotFoundException('User not found');
+    if (!requester) throw new ForbiddenException('Not authorized');
     const roleName = (requester?.role as any)?.name ?? '';
     const isHR = (requester as any)?.isHR;
     const canEditAll = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR;
@@ -281,13 +305,14 @@ export class UsersService {
 
   async uploadDocument(requesterId: string, targetUserId: string, file: Express.Multer.File, documentType: string) {
     const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
-    const roleName = (requester?.role as any)?.name ?? '';
-    const isHR = (requester as any)?.isHR;
-    const canUploadForOthers = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR;
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }, include: { role: true, department: true } });
+    if (!target) throw new NotFoundException('User not found');
+    if (!requester) throw new ForbiddenException('Not authorized');
 
-    if (requesterId !== targetUserId && !canUploadForOthers) {
-      throw new ForbiddenException('Cannot upload documents for other users');
-    }
+    this.accessPolicy.assertAllowed(
+      this.accessPolicy.canUploadDocuments(requester, target),
+      'Cannot upload documents for this user',
+    );
 
     const fileUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 
@@ -307,12 +332,17 @@ export class UsersService {
 
   async verifyDocument(requesterId: string, userId: string, docId: string, status: string, rejectionReason?: string) {
     const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
-    const roleName = (requester?.role as any)?.name ?? '';
-    const isHR = (requester as any)?.isHR;
+    if (!requester) throw new ForbiddenException('Not authorized');
 
-    if (!['SUPER_ADMIN', 'ADMIN'].includes(roleName) && !isHR) {
-      throw new ForbiddenException('Only HR/Admin can verify documents');
-    }
+    this.accessPolicy.assertAllowed(
+      this.accessPolicy.canVerifyDocuments(requester),
+      'Only HR/Admin can verify documents',
+    );
+
+    const existing = await (this.prisma as any).employeeDocument.findFirst({
+      where: { id: docId, userId },
+    });
+    if (!existing) throw new NotFoundException('Document not found');
 
     const doc = await (this.prisma as any).employeeDocument.update({
       where: { id: docId },
@@ -330,14 +360,14 @@ export class UsersService {
 
   async getDocuments(requesterId: string, targetUserId: string) {
     const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
-    const roleName = (requester?.role as any)?.name ?? '';
-    const isHR = (requester as any)?.isHR;
-    const canSeeAll = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR || requesterId === targetUserId;
-    const isManagerOfDept = roleName === 'MANAGER';
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }, include: { role: true, department: true } });
+    if (!target) throw new NotFoundException('User not found');
+    if (!requester) throw new ForbiddenException('Not authorized');
 
-    if (!canSeeAll && !isManagerOfDept) {
-      throw new ForbiddenException('Not authorized');
-    }
+    this.accessPolicy.assertAllowed(
+      this.accessPolicy.canViewDocuments(requester, target),
+      'Not authorized to view documents',
+    );
 
     return (this.prisma as any).employeeDocument.findMany({
       where: { userId: targetUserId },

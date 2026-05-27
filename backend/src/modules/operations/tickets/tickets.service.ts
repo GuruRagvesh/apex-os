@@ -7,6 +7,8 @@ import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { EmailService } from '../../platform/email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
+import { TicketAccessService } from '../../../common/services/ticket-access.service';
+import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -36,10 +38,19 @@ export class TicketsService {
     private configService: ConfigService,
     private eventEmitter: EventEmitter2,
     private eventLogger: EventLoggerService,
+    private ticketAccess: TicketAccessService,
+    private ticketTiming: TicketTimingService,
   ) {}
 
   private get frontendUrl() {
     return this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+  }
+
+  private andWhere(...clauses: any[]) {
+    const parts = clauses.filter((clause) => clause && Object.keys(clause).length > 0);
+    if (parts.length === 0) return {};
+    if (parts.length === 1) return parts[0];
+    return { AND: parts };
   }
 
   private includeOptions = {
@@ -105,19 +116,12 @@ export class TicketsService {
     }
   }
 
-  private addSla(ticket: any) {
-    const slaHours = SLA_HOURS[ticket.priority] ?? 24;
-    const elapsed = (Date.now() - new Date(ticket.createdAt).getTime()) / 3600000;
-    const slaPercent = Math.min(Math.round((elapsed / slaHours) * 100), 100);
-    const slaOverdue =
-      elapsed > slaHours && !['DONE', 'CLOSED'].includes(ticket.status);
-    return this.computeOverdue({
-      ...ticket,
-      slaHours,
-      elapsedHours: Math.round(elapsed * 10) / 10,
-      slaPercent,
-      isOverdue: slaOverdue,
-    });
+  private async addSla(ticket: any) {
+    return this.ticketTiming.decorateTicket(ticket);
+  }
+
+  private async addSlaMany(tickets: any[]) {
+    return this.ticketTiming.decorateTickets(tickets);
   }
 
   private computeOverdue(ticket: any): any {
@@ -217,25 +221,7 @@ export class TicketsService {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
-
-    let where: any = {};
-    if (query.search) {
-      where.OR = [
-        { title: { contains: query.search, mode: 'insensitive' } },
-        { ticketId: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
-      ];
-    }
-    if (query.status) where.status = query.status;
-    if (query.category) where.category = query.category;
-    if (query.priority) where.priority = query.priority;
-    const deptId = await this.resolveDeptFilter(query.departmentId || query.department);
-    if (deptId) where.departmentId = deptId;
-    if (query.projectId) where.projectId = query.projectId;
-    if (query.assignedToId) where.assignedToId = query.assignedToId;
-    if (query.createdById) where.createdById = query.createdById;
-
-    where = await this.applyRoleScope(where, user);
+    const where = await this.ticketAccess.buildTicketWhereForUser(query, user);
 
     const [tickets, total] = await Promise.all([
       this.prisma.ticket.findMany({
@@ -249,7 +235,7 @@ export class TicketsService {
     ]);
 
     return {
-      tickets: tickets.map((t) => this.addSla(t)),
+      tickets: await this.addSlaMany(tickets),
       total,
       page,
       limit,
@@ -257,20 +243,24 @@ export class TicketsService {
     };
   }
 
-  async findOne(id: string) {
-    const ticket = await this.prisma.ticket.findFirst({
-      where: { OR: [{ id }, { ticketId: id }] },
-      include: {
-        ...this.includeOptions,
-        comments: {
-          include: { author: { select: { id: true, name: true, avatar: true, role: true } } },
-          orderBy: { createdAt: 'asc' },
-        },
-        attachments: { orderBy: { createdAt: 'desc' } },
+  async findOne(id: string, user?: any) {
+    const include: any = {
+      ...this.includeOptions,
+      comments: {
+        include: { author: { select: { id: true, name: true, avatar: true, role: true } } },
+        orderBy: { createdAt: 'asc' },
       },
-    });
+      attachments: { orderBy: { createdAt: 'desc' } },
+    };
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, include)
+      : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include });
     if (!ticket) throw new NotFoundException('Ticket not found');
     return this.addSla(ticket);
+  }
+
+  async assertCanUploadAttachment(user: any, ticket: any) {
+    return this.ticketAccess.assertCanUploadAttachment(user, ticket);
   }
 
   async create(data: any, userId: string, user?: any) {
@@ -463,32 +453,25 @@ export class TicketsService {
       data.estimatedMinutes = undefined;
     }
 
-    const existing = await this.prisma.ticket.findUnique({ where: { id } });
+    const existing = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, { assignees: true })
+      : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: { assignees: true } });
     if (!existing) throw new NotFoundException('Ticket not found');
+    const ticketDbId = existing.id;
 
-    // Permission: only assignee, reporter, or Manager+ can update
     if (user) {
-      const roleName: string = user?.role?.name ?? user?.role ?? '';
-      const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
-      const isParticipant = existing.assignedToId === userId || existing.createdById === userId;
-      if (!isManagerPlus && !isParticipant) {
-        throw new ForbiddenException('Only the assignee, reporter or a manager can update this ticket');
+      if (data.assignedToId !== undefined) {
+        await this.ticketAccess.assertCanAssignTicket(user, existing, data.assignedToId);
       }
-      // Self-assigned tickets: creator/assignee can approve their own ticket
-      const isSelfAssigned = existing.createdById === existing.assignedToId;
-      const isCreatorMovingOwnTicket = existing.createdById === userId;
-      const isSelfReview = isSelfAssigned && isCreatorMovingOwnTicket;
-
-      // INTERN cannot move directly from OPEN to DONE/REVIEW (unless self-assigned)
-      if (roleName === 'INTERN' && data.status) {
-        const allowed = data.status === 'IN_PROGRESS' || (isSelfReview && data.status === 'DONE');
-        if (!allowed) {
-          throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS');
+      if (assigneeIds !== undefined) {
+        for (const assigneeId of assigneeIds) {
+          await this.ticketAccess.assertCanAssignTicket(user, existing, assigneeId);
         }
       }
-      // REVIEW → DONE requires Manager+ OR self-review
-      if (data.status === 'DONE' && existing.status === 'REVIEW' && !isManagerPlus && !isSelfReview) {
-        throw new ForbiddenException('Only managers can close tickets in review');
+      if (data.status) {
+        await this.ticketAccess.assertCanTransitionTicket(user, existing, data.status);
+      } else {
+        await this.ticketAccess.assertCanUpdateTicket(user, existing);
       }
     }
 
@@ -553,7 +536,7 @@ export class TicketsService {
     const historyEntries = trackedFields
       .filter((f) => data[f] !== undefined && String(data[f]) !== String(existing[f]))
       .map((f) => ({
-        ticketId: id,
+        ticketId: ticketDbId,
         field: f,
         oldValue: existing[f] != null ? String(existing[f]) : null,
         newValue: data[f] != null ? String(data[f]) : null,
@@ -561,7 +544,7 @@ export class TicketsService {
       }));
 
     const ticket = await this.prisma.ticket.update({
-      where: { id },
+      where: { id: ticketDbId },
       data,
       include: this.includeOptions,
     });
@@ -671,10 +654,10 @@ export class TicketsService {
 
     // Update multiple assignees if provided
     if (assigneeIds !== undefined) {
-      await this.prisma.ticketAssignee.deleteMany({ where: { ticketId: id } });
+      await this.prisma.ticketAssignee.deleteMany({ where: { ticketId: ticketDbId } });
       if (assigneeIds.length > 0) {
         await this.prisma.ticketAssignee.createMany({
-          data: assigneeIds.map((uid) => ({ ticketId: id, userId: uid })),
+          data: assigneeIds.map((uid) => ({ ticketId: ticketDbId, userId: uid })),
           skipDuplicates: true,
         });
       }
@@ -691,19 +674,22 @@ export class TicketsService {
     return this.update(id, { assignedToId }, userId, user);
   }
 
-  async approve(id: string, userId: string) {
-    const ticket = await this.prisma.ticket.findUnique({
-      where: { id },
+  async approve(id: string, userId: string, user?: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, { createdBy: { select: { id: true, name: true } }, assignees: true })
+      : await this.prisma.ticket.findFirst({
+      where: { OR: [{ id }, { ticketId: id }] },
       include: { createdBy: { select: { id: true, name: true } } },
     });
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (ticket.status !== TicketStatus.REVIEW) {
       throw new ForbiddenException('Only tickets in REVIEW status can be approved');
     }
+    if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.DONE);
 
     // suppressCompletionNotification=true: update() skips its generic "Ticket resolved"
     // notification so we can send a more specific "Ticket approved" message here instead.
-    const updated = await this.update(id, { status: TicketStatus.DONE }, userId, undefined, { suppressCompletionNotification: true });
+    const updated = await this.update(ticket.id, { status: TicketStatus.DONE }, userId, user, { suppressCompletionNotification: true });
 
     // Single targeted notification to reporter — "Ticket approved" (not generic "resolved")
     await this.notificationsService.create(
@@ -723,21 +709,24 @@ export class TicketsService {
     return updated;
   }
 
-  async reject(id: string, comment: string, userId: string) {
-    const ticket = await this.prisma.ticket.findUnique({
-      where: { id },
+  async reject(id: string, comment: string, userId: string, user?: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, { createdBy: { select: { id: true, name: true } }, assignees: true })
+      : await this.prisma.ticket.findFirst({
+      where: { OR: [{ id }, { ticketId: id }] },
       include: { createdBy: { select: { id: true, name: true } } },
     });
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (ticket.status !== TicketStatus.REVIEW) {
       throw new ForbiddenException('Only tickets in REVIEW status can be rejected');
     }
+    if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.IN_PROGRESS);
 
     const [updated] = await Promise.all([
-      this.update(id, { status: TicketStatus.IN_PROGRESS }, userId),
+      this.update(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user),
       this.prisma.comment.create({
         data: {
-          ticketId: id,
+          ticketId: ticket.id,
           authorId: userId,
           content: `[REJECTED] ${comment}`,
         },
@@ -761,8 +750,10 @@ export class TicketsService {
     return updated;
   }
 
-  async getHistory(id: string) {
-    const ticket = await this.prisma.ticket.findFirst({
+  async getHistory(id: string, user?: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user)
+      : await this.prisma.ticket.findFirst({
       where: { OR: [{ id }, { ticketId: id }] },
       select: { id: true },
     });
@@ -814,37 +805,47 @@ export class TicketsService {
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   }
 
-  async remove(id: string, userId?: string) {
+  async remove(id: string, userId?: string, user?: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user)
+      : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    if (user) await this.ticketAccess.assertCanDeleteTicket(user, ticket);
     if (userId) {
-      this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: id, action: OperationalAction.TICKET_DELETED }).catch(() => {});
+      this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: OperationalAction.TICKET_DELETED }).catch(() => {});
     }
-    return this.prisma.ticket.delete({ where: { id } });
+    return this.prisma.ticket.delete({ where: { id: ticket.id } });
   }
 
   async getStats(user?: any) {
-    const scope = user ? await this.applyRoleScope({}, user) : {};
-    const overdueScope = { ...scope, dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } };
-    const unassignedScope = { ...scope, assignedToId: null };
+    const scope = await this.ticketAccess.buildTicketWhereForUser({}, user);
+    const activeScope = this.andWhere(scope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } });
+    const unassignedScope = this.andWhere(scope, { assignedToId: null });
 
-    const [total, byStatus, byCategory, byPriority, overdue, unassigned] = await Promise.all([
+    const [total, byStatus, byCategory, byPriority, overdueCandidates, unassigned] = await Promise.all([
       this.prisma.ticket.count({ where: scope }),
       this.prisma.ticket.groupBy({ by: ['status'], where: scope, _count: true }),
       this.prisma.ticket.groupBy({ by: ['category'], where: scope, _count: true }),
       this.prisma.ticket.groupBy({ by: ['priority'], where: scope, _count: true }),
-      this.prisma.ticket.count({ where: overdueScope }),
+      this.prisma.ticket.findMany({
+        where: activeScope,
+        select: {
+          id: true, status: true, priority: true, dueDate: true, createdAt: true, updatedAt: true,
+          scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
+          submittedAt: true, reviewStartedAt: true, reviewDueAt: true, closedAt: true, cancelledAt: true,
+        },
+      }),
       this.prisma.ticket.count({ where: unassignedScope }),
     ]);
+    const slaConfig = await this.ticketTiming.getSlaConfig();
+    const overdue = overdueCandidates.filter((ticket) => this.ticketTiming.getTimingState(ticket, slaConfig).isOverdue).length;
 
     return { total, byStatus, byCategory, byPriority, overdue, unassigned };
   }
 
   async getKanban(filters: { departmentId?: string; department?: string; projectId?: string; assignedToId?: string }, user?: any) {
-    let where: any = { status: { notIn: [TicketStatus.CLOSED] } };
-    const deptId = await this.resolveDeptFilter(filters.departmentId || filters.department);
-    if (deptId) where.departmentId = deptId;
-    if (filters.projectId) where.projectId = filters.projectId;
-    if (filters.assignedToId) where.assignedToId = filters.assignedToId;
-    where = await this.applyRoleScope(where, user);
+    const scopedWhere = await this.ticketAccess.buildTicketWhereForUser(filters, user);
+    const where = this.andWhere(scopedWhere, { status: { notIn: [TicketStatus.CLOSED] } });
 
     const tickets = await this.prisma.ticket.findMany({
       where,
@@ -852,7 +853,7 @@ export class TicketsService {
       orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
     });
 
-    const withSla = tickets.map((t) => this.addSla(t));
+    const withSla = await this.addSlaMany(tickets);
 
     return {
       OPEN: withSla.filter((t) => t.status === TicketStatus.OPEN),

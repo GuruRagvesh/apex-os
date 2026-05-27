@@ -1,6 +1,9 @@
 ﻿import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ForbiddenException } from '@nestjs/common';
 import { ProjectStatus, Priority } from '@prisma/client';
+import { AccessPolicyService } from '../../../common/services/access-policy.service';
+import { ROLES } from '../../../shared/constants/roles';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str ?? '');
@@ -8,7 +11,10 @@ function isUUID(str: string): boolean {
 
 @Injectable()
 export class ProjectsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private accessPolicy: AccessPolicyService,
+  ) {}
 
   async findAll(query: { search?: string; status?: ProjectStatus; departmentId?: string; userId?: string; page?: number; limit?: number }, user?: any) {
     const where: any = {};
@@ -32,7 +38,15 @@ export class ProjectsService {
           { members: { some: { userId: user.id } } },
         ];
       } else if (roleName === 'MANAGER') {
-        if (user.departmentId) where.departmentId = user.departmentId;
+        const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+        if (deptIds.length > 0) {
+          where.OR = [
+            { departmentId: { in: deptIds } },
+            { members: { some: { userId: user.id } } },
+          ];
+        } else {
+          where.members = { some: { userId: user.id } };
+        }
       }
       // ADMIN/SUPER_ADMIN: no filter
     }
@@ -58,9 +72,15 @@ export class ProjectsService {
     return { projects, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async findOne(id: string) {
-    const project = await this.prisma.project.findFirst({
+  async findOne(id: string, user?: any) {
+    const existing = await this.prisma.project.findFirst({
       where: { OR: [{ id }, { projectId: id }] },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Project not found');
+    const scope = user ? await this.buildProjectScope(user) : {};
+    const project = await this.prisma.project.findFirst({
+      where: this.andWhere({ id: existing.id }, scope),
       include: {
         department: true,
         members: { include: { user: { select: { id: true, name: true, email: true, avatar: true, role: true } } } },
@@ -70,7 +90,7 @@ export class ProjectsService {
         },
       },
     });
-    if (!project) throw new NotFoundException('Project not found');
+    if (!project) throw new ForbiddenException('You do not have permission to view this project');
 
     // Compute progress: percentage of linked tickets in terminal state (DONE or CLOSED).
     // Returned as an integer 0–100 for direct use in progress bars.
@@ -152,39 +172,94 @@ export class ProjectsService {
     return project;
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, data: any, user?: any) {
+    const project = await this.findOne(id, user);
+    if (user) await this.assertCanEditProject(user, project);
     return this.prisma.project.update({
-      where: { id },
+      where: { id: project.id },
       data,
       include: { department: true },
     });
   }
 
-  async addMember(projectId: string, userId: string, role = 'MEMBER') {
+  async addMember(projectId: string, userId: string, role = 'MEMBER', user?: any) {
+    const project = await this.findOne(projectId, user);
+    if (user) await this.assertCanEditProject(user, project);
+    if (user) await this.assertUserWithinProjectScope(user, userId);
     return this.prisma.projectMember.upsert({
-      where: { projectId_userId: { projectId, userId } },
+      where: { projectId_userId: { projectId: project.id, userId } },
       update: { role },
-      create: { projectId, userId, role },
+      create: { projectId: project.id, userId, role },
     });
   }
 
-  async removeMember(projectId: string, userId: string) {
+  async removeMember(projectId: string, userId: string, user?: any) {
+    const project = await this.findOne(projectId, user);
+    if (user) await this.assertCanEditProject(user, project);
     return this.prisma.projectMember.delete({
-      where: { projectId_userId: { projectId, userId } },
+      where: { projectId_userId: { projectId: project.id, userId } },
     });
   }
 
-  async remove(id: string) {
-    return this.prisma.project.delete({ where: { id } });
+  async remove(id: string, user?: any) {
+    const project = await this.findOne(id, user);
+    if (user && !this.accessPolicy.isAdmin(user)) throw new ForbiddenException('Only admins can delete projects');
+    return this.prisma.project.delete({ where: { id: project.id } });
   }
 
-  async getStats(projectId?: string) {
-    const where = projectId ? { projectId } : {};
+  async getStats(projectId?: string, user?: any) {
+    const where = this.andWhere(projectId ? { projectId } : {}, user ? await this.buildProjectScope(user) : {});
     const [total, byStatus, byPriority] = await Promise.all([
-      this.prisma.project.count(),
-      this.prisma.project.groupBy({ by: ['status'], _count: true }),
-      this.prisma.project.groupBy({ by: ['priority'], _count: true }),
+      this.prisma.project.count({ where }),
+      this.prisma.project.groupBy({ by: ['status'], where, _count: true }),
+      this.prisma.project.groupBy({ by: ['priority'], where, _count: true }),
     ]);
     return { total, byStatus, byPriority };
+  }
+
+  private async buildProjectScope(user: any): Promise<any> {
+    const roleName = this.accessPolicy.roleName(user);
+    if (this.accessPolicy.isAdmin(user)) return {};
+    if ([ROLES.EMPLOYEE, ROLES.INTERN].includes(roleName as any)) {
+      return { members: { some: { userId: user.id } } };
+    }
+    if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {
+      const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+      const clauses: any[] = [{ members: { some: { userId: user.id } } }];
+      if (deptIds.length > 0) clauses.push({ departmentId: { in: deptIds } });
+      return { OR: clauses };
+    }
+    return { members: { some: { userId: user.id } } };
+  }
+
+  private async assertCanEditProject(user: any, project: any) {
+    const roleName = this.accessPolicy.roleName(user);
+    if (this.accessPolicy.isAdmin(user)) return;
+    if (![ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {
+      throw new ForbiddenException('You do not have permission to edit this project');
+    }
+    const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+    const isMember = project.members?.some?.((row: any) => row.userId === user.id || row.user?.id === user.id);
+    const inDepartment = Boolean(project.departmentId && deptIds.includes(project.departmentId));
+    if (!inDepartment && !isMember) {
+      throw new ForbiddenException('You do not have permission to edit this project');
+    }
+  }
+
+  private async assertUserWithinProjectScope(user: any, targetUserId: string) {
+    if (this.accessPolicy.isAdmin(user)) return;
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, departmentId: true, isActive: true } });
+    if (!target || !target.isActive) throw new ForbiddenException('Project member is not available');
+    const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+    if (!target.departmentId || !deptIds.includes(target.departmentId)) {
+      throw new ForbiddenException('Project member is outside your allowed scope');
+    }
+  }
+
+  private andWhere(...clauses: any[]): any {
+    const parts = clauses.filter((clause) => clause && Object.keys(clause).length > 0);
+    if (parts.length === 0) return {};
+    if (parts.length === 1) return parts[0];
+    return { AND: parts };
   }
 }

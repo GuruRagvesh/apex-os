@@ -1,6 +1,6 @@
 ﻿import {
   Controller, Get, Post, Put, Patch, Delete, Body, Param, Query,
-  UseGuards, UseInterceptors, UploadedFile, Res, ForbiddenException,
+  UseGuards, UseInterceptors, UploadedFile, Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -42,10 +42,10 @@ export class TicketsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) { return this.ticketsService.findOne(id); }
+  findOne(@Param('id') id: string, @CurrentUser() user: any) { return this.ticketsService.findOne(id, user); }
 
   @Get(':id/history')
-  getHistory(@Param('id') id: string) { return this.ticketsService.getHistory(id); }
+  getHistory(@Param('id') id: string, @CurrentUser() user: any) { return this.ticketsService.getHistory(id, user); }
 
   @Post()
   create(@Body() body: any, @CurrentUser() user: any) {
@@ -60,14 +60,8 @@ export class TicketsController {
     @Body() body: any,
     @CurrentUser() user: any,
   ) {
-    // Ownership: only assignee, reporter, or Manager+ may attach
-    const ticket = await this.ticketsService.findOne(id);
-    const roleName: string = user?.role?.name ?? user?.role ?? '';
-    const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
-    const isParticipant = ticket.assignedToId === user.id || ticket.createdById === user.id;
-    if (!isManagerPlus && !isParticipant) {
-      throw new ForbiddenException('Only the assignee, reporter or a manager can attach files');
-    }
+    const ticket = await this.ticketsService.findOne(id, user);
+    await this.ticketsService.assertCanUploadAttachment(user, ticket);
     const isPoc = body?.isPoc === 'true' || body?.isPoc === true;
     return this.uploadsService.uploadTicketAttachment(ticket.id, file, isPoc, ticket.id);
   }
@@ -93,29 +87,25 @@ export class TicketsController {
   }
 
   @UseGuards(RolesGuard)
-  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   @Patch(':id/approve')
   approve(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.ticketsService.approve(id, user.id);
+    return this.ticketsService.approve(id, user.id, user);
   }
 
   @UseGuards(RolesGuard)
-  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   @Patch(':id/reject')
   reject(
     @Param('id') id: string,
     @Body() body: { comment: string },
     @CurrentUser() user: any,
   ) {
-    return this.ticketsService.reject(id, body.comment ?? 'No reason provided', user.id);
+    return this.ticketsService.reject(id, body.comment ?? 'No reason provided', user.id, user);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: any) {
-    const roleName: string = user?.role?.name || user?.role || '';
-    if (!['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
-      throw new ForbiddenException('Only managers and admins can delete tickets');
-    }
-    return this.ticketsService.remove(id, user?.id);
+    return this.ticketsService.remove(id, user?.id, user);
   }
 }

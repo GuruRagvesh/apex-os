@@ -53,12 +53,22 @@ export default function LeavePage() {
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => leaveApi.approve(id),
-    onSuccess: () => { toast.success('Approved!'); qc.invalidateQueries({ queryKey: ['leave'] }); },
+    onSuccess: () => {
+      toast.success('Approved!');
+      qc.invalidateQueries({ queryKey: ['leave'] });
+      qc.invalidateQueries({ queryKey: ['leave-stats'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'You do not have permission to perform this action.'),
   });
 
   const rejectMutation = useMutation({
     mutationFn: (id: string) => leaveApi.reject(id),
-    onSuccess: () => { toast.success('Rejected'); qc.invalidateQueries({ queryKey: ['leave'] }); },
+    onSuccess: () => {
+      toast.success('Rejected');
+      qc.invalidateQueries({ queryKey: ['leave'] });
+      qc.invalidateQueries({ queryKey: ['leave-stats'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'You do not have permission to perform this action.'),
   });
 
   return (

@@ -35,8 +35,8 @@ const RECURRENCE_LABELS: Record<string, string> = {
 };
 
 // ─── SLA Timer ───────────────────────────────────────────────────────────────
-function SlaTimer({ createdAt, slaHours, slaPercent, isOverdue }: {
-  createdAt: string; slaHours?: number; slaPercent?: number; isOverdue?: boolean;
+function SlaTimer({ createdAt, slaHours, slaPercent, isOverdue, timing }: {
+  createdAt: string; slaHours?: number; slaPercent?: number; isOverdue?: boolean; timing?: any;
 }) {
   const ms = Date.now() - new Date(createdAt).getTime();
   const totalMins = Math.floor(ms / 60000);
@@ -44,26 +44,29 @@ function SlaTimer({ createdAt, slaHours, slaPercent, isOverdue }: {
   const hours = Math.floor((totalMins % 1440) / 60);
   const mins = totalMins % 60;
 
-  const label = days > 0
+  const fallbackLabel = days > 0
     ? `${days}d ${hours}h open`
     : hours > 0
     ? `${hours}h ${mins}m open`
     : `${mins}m open`;
 
-  const pct = slaPercent ?? 0;
-  const barColor = isOverdue || pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-orange-400' : 'bg-emerald-400';
+  const label = timing?.label || fallbackLabel;
+  const pct = timing?.progressPercent ?? slaPercent ?? 0;
+  const overdue = timing?.isOverdue ?? isOverdue;
+  const dueAt = timing?.dueAt ? new Date(timing.dueAt) : null;
+  const barColor = overdue || pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-orange-400' : 'bg-emerald-400';
 
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2 flex-wrap">
-        <Timer size={13} className={isOverdue ? 'text-red-400' : 'text-slate-400'} />
+        <Timer size={13} className={overdue ? 'text-red-400' : 'text-slate-400'} />
         <span
-          className={cn('text-xs', isOverdue ? 'text-red-500 font-medium' : '')}
-          style={!isOverdue ? { color: 'var(--text-secondary)' } : undefined}
+          className={cn('text-xs', overdue ? 'text-red-500 font-medium' : '')}
+          style={!overdue ? { color: 'var(--text-secondary)' } : undefined}
         >
           {label}{slaHours ? ` · SLA: ${slaHours}h` : ''}
         </span>
-        {isOverdue && (
+        {overdue && (
           <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
             <AlertTriangle size={9} /> OVERDUE
           </span>
@@ -1376,6 +1379,7 @@ export default function TicketDetailPage() {
                   slaHours={ticket.slaHours}
                   slaPercent={ticket.slaPercent}
                   isOverdue={ticket.isOverdue}
+                  timing={ticket.timing}
                 />
               )}
             </div>

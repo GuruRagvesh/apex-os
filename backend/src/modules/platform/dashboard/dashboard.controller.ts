@@ -13,11 +13,11 @@ export class DashboardController {
 
   @Get('overview')
   getOverview(@CurrentUser() user: any) {
-    return this.dashboardService.getOverview(user.id, user.role?.name);
+    return this.dashboardService.getOverview(user);
   }
 
   @Get('tickets-by-category')
-  getTicketsByCategory() { return this.dashboardService.getTicketsByCategory(); }
+  getTicketsByCategory(@CurrentUser() user: any) { return this.dashboardService.getTicketsByCategory(user); }
 
   @Get('tickets-by-department')
   getTicketsByDepartment() { return this.dashboardService.getTicketsByDepartment(); }
@@ -28,10 +28,10 @@ export class DashboardController {
   }
 
   @Get('workload')
-  getWorkload() { return this.dashboardService.getWorkloadByUser(); }
+  getWorkload(@CurrentUser() user: any) { return this.dashboardService.getWorkloadByUser(user); }
 
   @Get('ticket-trend')
-  getTicketTrend(@Query('days') days?: string) {
-    return this.dashboardService.getTicketTrend(days ? parseInt(days) : 14);
+  getTicketTrend(@CurrentUser() user: any, @Query('days') days?: string) {
+    return this.dashboardService.getTicketTrend(days ? parseInt(days) : 14, user);
   }
 }

@@ -21,7 +21,7 @@ export class LeaveController {
   getStats(@CurrentUser() user: any) { return this.leaveService.getStats(user); }
 
   @Get(':id')
-  findOne(@Param('id') id: string) { return this.leaveService.findOne(id); }
+  findOne(@Param('id') id: string, @CurrentUser() user: any) { return this.leaveService.findOne(id, user); }
 
   @Post()
   create(@Body() body: any, @CurrentUser() user: any) {
@@ -30,16 +30,16 @@ export class LeaveController {
 
   @Patch(':id/approve')
   @UseGuards(RolesGuard)
-  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   approve(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.leaveService.approve(id, user.id);
+    return this.leaveService.approve(id, user.id, user);
   }
 
   @Patch(':id/reject')
   @UseGuards(RolesGuard)
-  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   reject(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.leaveService.reject(id, user.id);
+    return this.leaveService.reject(id, user.id, user);
   }
 
   @Patch(':id/cancel')

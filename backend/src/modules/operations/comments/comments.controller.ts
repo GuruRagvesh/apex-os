@@ -12,22 +12,22 @@ export class CommentsController {
   constructor(private commentsService: CommentsService) {}
 
   @Get()
-  findAll(@Param('ticketId') ticketId: string) {
-    return this.commentsService.findByTicket(ticketId);
+  findAll(@Param('ticketId') ticketId: string, @CurrentUser() user: any) {
+    return this.commentsService.findByTicket(ticketId, user);
   }
 
   @Post()
   create(@Param('ticketId') ticketId: string, @Body() body: { content: string }, @CurrentUser() user: any) {
-    return this.commentsService.create(ticketId, body.content, user.id);
+    return this.commentsService.create(ticketId, body.content, user.id, user);
   }
 
   @Put(':id')
   update(@Param('id') id: string, @Body() body: { content: string }, @CurrentUser() user: any) {
-    return this.commentsService.update(id, body.content, user.id);
+    return this.commentsService.update(id, body.content, user.id, user);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.commentsService.remove(id, user.id, user.role?.name);
+    return this.commentsService.remove(id, user.id, user.role?.name, user);
   }
 }

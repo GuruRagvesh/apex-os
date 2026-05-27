@@ -17,7 +17,7 @@ export class UsersController {
 
   @Get('me')
   getMe(@CurrentUser() user: any) {
-    return this.usersService.findOne(user.id);
+    return this.usersService.findOne(user.id, user);
   }
 
   @Get('my-team')
@@ -56,8 +56,8 @@ export class UsersController {
   }
 
   @Get()
-  findAll(@Query() query: { search?: string; departmentId?: string; roleId?: string }) {
-    return this.usersService.findAll(query);
+  findAll(@Query() query: { search?: string; departmentId?: string; roleId?: string }, @CurrentUser() user: any) {
+    return this.usersService.findAll(query, user);
   }
 
   @Get('stats')
@@ -68,13 +68,13 @@ export class UsersController {
 
   @Get('directory')
   @UseGuards(RolesGuard) @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  getDirectory() {
-    return this.usersService.getDirectory();
+  getDirectory(@CurrentUser() user: any) {
+    return this.usersService.getDirectory(user);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.usersService.findOne(id, user);
   }
 
   @Post()

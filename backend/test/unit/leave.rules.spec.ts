@@ -12,6 +12,8 @@ import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway
 import { EmailService } from '../../src/modules/platform/email/email.service';
 import { NotificationsService } from '../../src/modules/operations/notifications/notifications.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
+import { AccessPolicyService } from '../../src/common/services/access-policy.service';
+import { LeaveAccessService } from '../../src/common/services/leave-access.service';
 import { ForbiddenException } from '@nestjs/common';
 
 // ── Minimal mocks ─────────────────────────────────────────────────────────────
@@ -41,8 +43,8 @@ const mockConfig  = { get: jest.fn().mockReturnValue('http://localhost:3000') };
 const mockLogger  = { log: jest.fn().mockResolvedValue(undefined) };
 
 // Fixture: a pending leave request owned by EMPLOYEE user
-const EMPLOYEE_USER = { id: 'emp1', role: { name: 'EMPLOYEE' }, departmentId: 'd1' };
-const MANAGER_USER  = { id: 'mgr1', role: { name: 'MANAGER'  }, departmentId: 'd1' };
+const EMPLOYEE_USER = { id: 'emp1', role: { name: 'EMPLOYEE', level: 4 }, departmentId: 'd1' };
+const MANAGER_USER  = { id: 'mgr1', role: { name: 'MANAGER', level: 2 }, departmentId: 'd1' };
 
 const pendingLeave = {
   id: 'leave1',
@@ -51,7 +53,7 @@ const pendingLeave = {
   type: 'ANNUAL',
   startDate: new Date(),
   endDate: new Date(),
-  user: { id: 'emp1', name: 'QC Employee', email: 'employee@apex.local', role: { name: 'EMPLOYEE' } },
+  user: { id: 'emp1', name: 'QC Employee', email: 'employee@apex.local', departmentId: 'd1', role: { name: 'EMPLOYEE', level: 4 } },
 };
 
 describe('LeaveService — approval rules', () => {
@@ -63,6 +65,8 @@ describe('LeaveService — approval rules', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LeaveService,
+        AccessPolicyService,
+        LeaveAccessService,
         { provide: PrismaService,         useValue: mockPrisma  },
         { provide: EventsGateway,         useValue: mockGateway },
         { provide: EmailService,          useValue: mockEmail   },
@@ -97,7 +101,7 @@ describe('LeaveService — approval rules', () => {
     mockPrisma.leaveRequest.findUnique.mockResolvedValue({ ...pendingLeave, status: 'APPROVED' });
     mockPrisma.user.findUnique.mockResolvedValue(MANAGER_USER);
 
-    await expect(service.approve('leave1', 'mgr1')).rejects.toThrow('Already processed');
+    await expect(service.approve('leave1', 'mgr1')).rejects.toThrow('Only pending leave requests can be processed');
   });
 
   it('throws ForbiddenException when employee tries to reject own leave', async () => {
