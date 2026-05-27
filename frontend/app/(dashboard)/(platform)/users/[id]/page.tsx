@@ -98,19 +98,22 @@ export default function UserDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <nav className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mb-4 flex-wrap">
+      <nav className="flex items-center gap-1 text-sm mb-4 flex-wrap" style={{ color: 'var(--text-secondary)' }}>
         {breadcrumbs.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1">
             {i > 0 && <ChevronRight className="w-3 h-3 flex-shrink-0" />}
             {crumb.href ? (
               <Link
                 href={crumb.href}
-                className="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                className="transition-colors"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'; }}
               >
                 {crumb.label}
               </Link>
             ) : (
-              <span className="text-gray-900 dark:text-gray-100 font-medium">{crumb.label}</span>
+              <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{crumb.label}</span>
             )}
           </span>
         ))}

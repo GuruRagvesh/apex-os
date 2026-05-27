@@ -92,7 +92,7 @@ export default function LeavePage() {
       </div>
 
       {/* Tabs — managers see "Needs Action" first */}
-      <div className="flex items-center gap-1 bg-slate-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
+      <div className="flex items-center gap-1 rounded-lg p-1 w-fit" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
         {(isManager
           ? [
               { key: 'pending', label: 'Needs Action', badge: stats?.pending ?? 0 },
@@ -107,17 +107,22 @@ export default function LeavePage() {
           <button
             key={key}
             onClick={() => setTab(key as any)}
-            className={cn(
-              'flex items-center gap-1.5 text-xs font-medium px-4 py-1.5 rounded-md transition-colors',
-              tab === key ? 'bg-white dark:bg-gray-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
-            )}
+            className={cn('flex items-center gap-1.5 text-xs font-medium px-4 py-1.5 rounded-md transition-colors', tab === key && 'shadow-sm')}
+            style={{
+              backgroundColor: tab === key ? 'var(--surface-card)' : 'transparent',
+              color: tab === key ? 'var(--text-primary)' : 'var(--text-secondary)',
+            }}
+            onMouseEnter={(e) => { if (tab !== key) e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={(e) => { if (tab !== key) e.currentTarget.style.color = 'var(--text-secondary)'; }}
           >
             {label}
             {badge != null && badge > 0 && (
-              <span className={cn(
-                'text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none',
-                tab === key ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 dark:bg-gray-700 text-slate-600 dark:text-gray-300',
-              )}>
+              <span
+                className="text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
+                style={tab === key
+                  ? { backgroundColor: 'var(--color-warning-bg)', color: 'var(--color-warning)' }
+                  : { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
+              >
                 {badge}
               </span>
             )}
@@ -126,27 +131,27 @@ export default function LeavePage() {
       </div>
 
       {/* Leave List */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden">
+      <div className="apex-card overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /></div>
         ) : Array.isArray(leaves) && leaves.length > 0 ? (
-          <div className="divide-y divide-slate-50 dark:divide-gray-800">
+          <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
             {leaves.map((leave: any) => (
               <div key={leave.id} className="flex items-center gap-4 px-5 py-4">
                 <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-white text-xs font-semibold">{getInitials(leave.user?.name || '')}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-gray-200">{leave.user?.name}</p>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{leave.user?.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-slate-500 dark:text-gray-400">{leave.type}</span>
-                    <span className="text-slate-300 dark:text-gray-600">·</span>
-                    <span className="text-xs text-slate-500 dark:text-gray-400">{formatDate(leave.startDate)} – {formatDate(leave.endDate)}</span>
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{leave.type}</span>
+                    <span style={{ color: 'var(--border-primary)' }}>·</span>
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{formatDate(leave.startDate)} – {formatDate(leave.endDate)}</span>
                     {leave.user?.department && (
-                      <><span className="text-slate-300 dark:text-gray-600">·</span><span className="text-xs text-slate-400 dark:text-gray-500">{leave.user.department.name}</span></>
+                      <><span style={{ color: 'var(--border-primary)' }}>·</span><span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{leave.user.department.name}</span></>
                     )}
                   </div>
-                  {leave.reason && <p className="text-xs text-slate-400 dark:text-gray-500 mt-1 truncate">{leave.reason}</p>}
+                  {leave.reason && <p className="text-xs mt-1 truncate" style={{ color: 'var(--text-tertiary)' }}>{leave.reason}</p>}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium', LEAVE_STATUS_COLORS[leave.status])}>
