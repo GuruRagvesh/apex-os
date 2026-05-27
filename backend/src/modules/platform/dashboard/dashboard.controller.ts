@@ -23,8 +23,12 @@ export class DashboardController {
   getTicketsByDepartment(@CurrentUser() user: any) { return this.dashboardService.getTicketsByDepartment(user); }
 
   @Get('activity-feed')
-  getActivityFeed(@CurrentUser() user: any, @Query('limit') limit?: string) {
-    return this.dashboardService.getActivityFeed(limit ? parseInt(limit) : 20, user);
+  getActivityFeed(
+    @CurrentUser() user: any,
+    @Query('limit') limit?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return this.dashboardService.getActivityFeed(limit ? parseInt(limit) : 20, user, userId);
   }
 
   @Get('workload')

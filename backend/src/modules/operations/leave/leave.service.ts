@@ -4,9 +4,11 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { LeaveStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { EmailService } from '../../platform/email/email.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
+import { LeaveBalanceService } from './leave-balance.service';
+import { AccessPolicyService } from '../../../common/services/access-policy.service';
 
 @Injectable()
 export class LeaveService {
@@ -14,10 +16,12 @@ export class LeaveService {
     private prisma: PrismaService,
     private gateway: EventsGateway,
     private emailService: EmailService,
-    private notificationsService: NotificationsService,
+    private notificationEventService: NotificationEventService,
     private configService: ConfigService,
     private eventLogger: EventLoggerService,
     private leaveAccess: LeaveAccessService,
+    private leaveBalance: LeaveBalanceService,
+    private accessPolicy: AccessPolicyService,
   ) {}
 
   private get frontendUrl() {
@@ -57,7 +61,7 @@ export class LeaveService {
   }
 
   async create(data: any, userId: string) {
-    const { startDate, endDate, ...rest } = data;
+    const { startDate, endDate, isHalfDay, halfDayType, ...rest } = data;
     const start = new Date(startDate);
     const end = new Date(endDate);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -66,17 +70,71 @@ export class LeaveService {
     if (start.getTime() > end.getTime()) {
       throw new ForbiddenException('Leave start date cannot be after end date');
     }
+
+    // Validate balance and check overlaps
+    await this.leaveBalance.validateLeaveRequest(userId, start, end, !!isHalfDay);
+
     const leave = await this.prisma.leaveRequest.create({
       data: {
         ...rest,
         userId,
         startDate: start.toISOString(),
         endDate: end.toISOString(),
+        isHalfDay: !!isHalfDay,
+        halfDayType: halfDayType || null,
       },
-      include: { user: { select: { id: true, name: true } } },
+      include: { user: { select: { id: true, name: true, departmentId: true } } },
     });
     this.eventLogger.log({ actorId: userId, entityType: 'LeaveRequest', entityId: leave.id, action: OperationalAction.LEAVE_REQUESTED, toState: 'PENDING', metadata: { type: leave.type } }).catch(() => {});
+
+    // Notify managers
+    try {
+      if (leave.user.departmentId) {
+        const managers = await this.prisma.user.findMany({
+          where: {
+            isActive: true,
+            role: { name: { in: ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'] } },
+            OR: [
+              { departmentId: leave.user.departmentId },
+              { managedDepts: { some: { departmentId: leave.user.departmentId } } },
+            ],
+          },
+          select: { id: true },
+        });
+        const startStr = start.toISOString().split('T')[0];
+        const endStr   = end.toISOString().split('T')[0];
+        for (const mgr of managers) {
+          if (mgr.id === userId) continue; // don't notify self
+          await this.notificationEventService.sendNotification(
+            mgr.id,
+            'teamLeaveApply',
+            {
+              title: `New leave request: ${leave.user.name}`,
+              message: `${leave.user.name} requested ${leave.type} leave (${startStr} to ${endStr}).`,
+              type: NotificationType.INFO,
+              link: '/leave',
+              entityId: leave.id,
+              entityType: 'LEAVE',
+            }
+          );
+        }
+      }
+    } catch (_e) { /* non-critical */ }
+
     return leave;
+  }
+
+  async getUserBalance(userId: string, requester: any) {
+    if (requester.id !== userId) {
+      const targetUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true, department: true },
+      });
+      if (!targetUser) throw new NotFoundException('User not found');
+      const canView = await this.accessPolicy.canViewUser(requester, targetUser);
+      if (!canView) throw new ForbiddenException('You do not have permission to view this user\'s leave balance');
+    }
+    return this.leaveBalance.getLeaveBalance(userId);
   }
 
   async approve(id: string, approverId: string, user?: any) {
@@ -102,30 +160,31 @@ export class LeaveService {
     const startStr = leave.startDate.toISOString().split('T')[0];
     const endStr = leave.endDate.toISOString().split('T')[0];
 
-    await Promise.all([
-      this.notificationsService.create(
+    try {
+      await this.notificationEventService.sendNotification(
         leave.userId,
-        'Leave request approved',
-        `Your ${leave.type} leave (${startStr} to ${endStr}) has been approved.`,
-        NotificationType.SUCCESS,
-        '/leave',
-        leave.id,
-        'LEAVE',
-      ),
-      this.emailService.sendLeaveDecision(
+        'leaveApproved',
+        {
+          title: 'Leave request approved',
+          message: `Your ${leave.type} leave (${startStr} to ${endStr}) has been approved.`,
+          type: NotificationType.SUCCESS,
+          link: '/leave',
+          entityId: leave.id,
+          entityType: 'LEAVE',
+        }
+      );
+    } catch (_e) { /* never crash main op */ }
+
+    try {
+      await this.emailService.sendLeaveDecision(
         leave.user.email,
         'APPROVED',
         leave.type,
         startStr,
         endStr,
         this.frontendUrl,
-      ),
-    ]);
-
-    this.gateway.emitNotificationToUser(leave.userId, {
-      title: 'Leave request approved',
-      message: `Your ${leave.type} leave has been approved.`,
-    });
+      );
+    } catch (_e) { /* never crash main op */ }
 
     return updated;
   }
@@ -152,30 +211,31 @@ export class LeaveService {
     const startStr = leave.startDate.toISOString().split('T')[0];
     const endStr = leave.endDate.toISOString().split('T')[0];
 
-    await Promise.all([
-      this.notificationsService.create(
+    try {
+      await this.notificationEventService.sendNotification(
         leave.userId,
-        'Leave request rejected',
-        `Your ${leave.type} leave (${startStr} to ${endStr}) has been rejected.`,
-        NotificationType.WARNING,
-        '/leave',
-        leave.id,
-        'LEAVE',
-      ),
-      this.emailService.sendLeaveDecision(
+        'leaveRejected',
+        {
+          title: 'Leave request rejected',
+          message: `Your ${leave.type} leave (${startStr} to ${endStr}) has been rejected.`,
+          type: NotificationType.WARNING,
+          link: '/leave',
+          entityId: leave.id,
+          entityType: 'LEAVE',
+        }
+      );
+    } catch (_e) { /* never crash main op */ }
+
+    try {
+      await this.emailService.sendLeaveDecision(
         leave.user.email,
         'REJECTED',
         leave.type,
         startStr,
         endStr,
         this.frontendUrl,
-      ),
-    ]);
-
-    this.gateway.emitNotificationToUser(leave.userId, {
-      title: 'Leave request rejected',
-      message: `Your ${leave.type} leave has been rejected.`,
-    });
+      );
+    } catch (_e) { /* never crash main op */ }
 
     return updated;
   }
@@ -226,19 +286,18 @@ export class LeaveService {
         const endStr   = leave.endDate.toISOString().split('T')[0];
         for (const mgr of managers) {
           if (mgr.id === userId) continue; // don't notify self
-          await this.notificationsService.create(
+          await this.notificationEventService.sendNotification(
             mgr.id,
-            `Leave cancelled: ${leave.user.name}`,
-            `${leave.type} leave request (${startStr} to ${endStr}) has been cancelled by the employee.`,
-            NotificationType.INFO,
-            '/leave',
-            leave.id,
-            'LEAVE',
+            'teamLeaveApply',
+            {
+              title: `Leave cancelled: ${leave.user.name}`,
+              message: `${leave.type} leave request (${startStr} to ${endStr}) has been cancelled by the employee.`,
+              type: NotificationType.INFO,
+              link: '/leave',
+              entityId: leave.id,
+              entityType: 'LEAVE',
+            }
           );
-          this.gateway.emitNotificationToUser(mgr.id, {
-            title: `Leave cancelled: ${leave.user.name}`,
-            message: `${leave.type} leave (${startStr} to ${endStr}) was withdrawn.`,
-          });
         }
       }
     } catch (_e) { /* non-critical — never crash the cancel operation */ }

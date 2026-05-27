@@ -5,7 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { EmailService } from '../../platform/email/email.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
@@ -34,7 +34,7 @@ export class TicketsService {
     private prisma: PrismaService,
     private gateway: EventsGateway,
     private emailService: EmailService,
-    private notificationsService: NotificationsService,
+    private notificationEventService: NotificationEventService,
     private configService: ConfigService,
     private eventEmitter: EventEmitter2,
     private eventLogger: EventLoggerService,
@@ -277,23 +277,21 @@ export class TicketsService {
         skipDuplicates: true,
       });
       // Notify each additional assignee
-      const creator = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
       for (const uid of assigneeIds) {
         if (uid === ticket.assignedToId) continue; // primary assignee notified below
         try {
-          await this.notificationsService.create(
+          await this.notificationEventService.sendNotification(
             uid,
-            `New ticket assigned: ${ticket.ticketId}`,
-            ticket.title,
-            NotificationType.INFO,
-            `/tickets/${ticket.id}`,
-            ticket.id,
-            'TICKET',
+            'assignedTicket',
+            {
+              title: `New ticket assigned: ${ticket.ticketId}`,
+              message: ticket.title,
+              type: NotificationType.INFO,
+              link: `/tickets/${ticket.id}`,
+              entityId: ticket.id,
+              entityType: 'TICKET',
+            }
           );
-          this.gateway.emitNotificationToUser(uid, {
-            title: `New ticket assigned: ${ticket.ticketId}`,
-            message: ticket.title,
-          });
         } catch (_e) { /* never crash main op */ }
       }
     }
@@ -314,28 +312,29 @@ export class TicketsService {
 
     if (ticket.assignedTo) {
       const creator = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-      await Promise.all([
-        this.notificationsService.create(
+      try {
+        await this.notificationEventService.sendNotification(
           ticket.assignedTo.id,
-          `New ticket assigned: ${ticket.ticketId}`,
-          `${ticket.title}`,
-          NotificationType.INFO,
-          `/tickets/${ticket.id}`,
-          ticket.id,
-          'TICKET',
-        ),
-        this.emailService.sendTicketAssigned(
+          'assignedTicket',
+          {
+            title: `New ticket assigned: ${ticket.ticketId}`,
+            message: ticket.title,
+            type: NotificationType.INFO,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          }
+        );
+      } catch (_e) { /* never crash main op */ }
+      try {
+        await this.emailService.sendTicketAssigned(
           ticket.assignedTo.email,
           ticket.ticketId,
           ticket.title,
           creator?.name ?? 'Someone',
           this.frontendUrl,
-        ),
-      ]);
-      this.gateway.emitNotificationToUser(ticket.assignedTo.id, {
-        title: `New ticket assigned: ${ticket.ticketId}`,
-        message: ticket.title,
-      });
+        );
+      } catch (_e) { /* never crash main op */ }
     }
 
     return this.addSla(ticket);
@@ -516,19 +515,18 @@ export class TicketsService {
         // to prevent duplicate "Ticket resolved" + "Ticket approved" spam to the same user.
         if (!opts?.suppressCompletionNotification && existing.createdById && existing.createdById !== userId) {
           try {
-            await this.notificationsService.create(
+            await this.notificationEventService.sendNotification(
               existing.createdById,
-              `Ticket resolved: ${ticket.ticketId}`,
-              `${ticket.title} has been marked ${data.status}`,
-              NotificationType.SUCCESS,
-              `/tickets/${ticket.id}`,
-              ticket.id,
-              'TICKET',
+              'ticketResolved',
+              {
+                title: `Ticket resolved: ${ticket.ticketId}`,
+                message: `${ticket.title} has been marked ${data.status}`,
+                type: NotificationType.SUCCESS,
+                link: `/tickets/${ticket.id}`,
+                entityId: ticket.id,
+                entityType: 'TICKET',
+              }
             );
-            this.gateway.emitNotificationToUser(existing.createdById, {
-              title: `Ticket resolved: ${ticket.ticketId}`,
-              message: `${ticket.title} has been marked ${data.status}`,
-            });
           } catch (_e) { /* never crash main operation */ }
         }
       }
@@ -541,28 +539,29 @@ export class TicketsService {
         assignedBy: userId,
       });
       const updater = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-      await Promise.all([
-        this.notificationsService.create(
+      try {
+        await this.notificationEventService.sendNotification(
           ticket.assignedTo.id,
-          `Ticket assigned to you: ${ticket.ticketId}`,
-          ticket.title,
-          NotificationType.INFO,
-          `/tickets/${ticket.id}`,
-          ticket.id,
-          'TICKET',
-        ),
-        this.emailService.sendTicketAssigned(
+          'assignedTicket',
+          {
+            title: `Ticket assigned to you: ${ticket.ticketId}`,
+            message: ticket.title,
+            type: NotificationType.INFO,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          }
+        );
+      } catch (_e) { /* never crash main op */ }
+      try {
+        await this.emailService.sendTicketAssigned(
           ticket.assignedTo.email,
           ticket.ticketId,
           ticket.title,
           updater?.name ?? 'Someone',
           this.frontendUrl,
-        ),
-      ]);
-      this.gateway.emitNotificationToUser(ticket.assignedTo.id, {
-        title: `Ticket assigned to you: ${ticket.ticketId}`,
-        message: ticket.title,
-      });
+        );
+      } catch (_e) { /* never crash main op */ }
     }
 
     // Update multiple assignees if provided
@@ -605,19 +604,20 @@ export class TicketsService {
     const updated = await this.update(ticket.id, { status: TicketStatus.DONE }, userId, user, { suppressCompletionNotification: true });
 
     // Single targeted notification to reporter — "Ticket approved" (not generic "resolved")
-    await this.notificationsService.create(
-      ticket.createdById,
-      `Ticket approved: ${ticket.ticketId}`,
-      ticket.title,
-      NotificationType.SUCCESS,
-      `/tickets/${ticket.id}`,
-      ticket.id,
-      'TICKET',
-    );
-    this.gateway.emitNotificationToUser(ticket.createdById, {
-      title: `Ticket approved: ${ticket.ticketId}`,
-      message: ticket.title,
-    });
+    try {
+      await this.notificationEventService.sendNotification(
+        ticket.createdById,
+        'ticketResolved',
+        {
+          title: `Ticket approved: ${ticket.ticketId}`,
+          message: ticket.title,
+          type: NotificationType.SUCCESS,
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        }
+      );
+    } catch (_e) { /* never crash main op */ }
 
     return updated;
   }
@@ -646,19 +646,20 @@ export class TicketsService {
       }),
     ]);
 
-    await this.notificationsService.create(
-      ticket.createdById,
-      `Ticket rejected: ${ticket.ticketId}`,
-      ticket.title,
-      NotificationType.WARNING,
-      `/tickets/${ticket.id}`,
-      ticket.id,
-      'TICKET',
-    );
-    this.gateway.emitNotificationToUser(ticket.createdById, {
-      title: `Ticket rejected: ${ticket.ticketId}`,
-      message: ticket.title,
-    });
+    try {
+      await this.notificationEventService.sendNotification(
+        ticket.createdById,
+        'statusChanged',
+        {
+          title: `Ticket rejected: ${ticket.ticketId}`,
+          message: ticket.title,
+          type: NotificationType.WARNING,
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        }
+      );
+    } catch (_e) { /* never crash main op */ }
 
     return updated;
   }

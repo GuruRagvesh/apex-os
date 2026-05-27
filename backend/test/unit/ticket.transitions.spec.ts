@@ -7,7 +7,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { NotificationsService } from '../../src/modules/operations/notifications/notifications.service';
+import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
 import { EmailService } from '../../src/modules/platform/email/email.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
@@ -46,7 +46,7 @@ const mockPrisma = {
   managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },
   user: { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn() },
 };
-const mockNotif   = { create: jest.fn().mockResolvedValue(undefined) };
+const mockNotif   = { create: jest.fn().mockResolvedValue(undefined), sendNotification: jest.fn().mockResolvedValue(undefined) };
 const mockGateway = {
   emitToUser: jest.fn(),
   emitTicketCreated: jest.fn(),
@@ -102,7 +102,7 @@ describe('TicketsService — status transitions', () => {
         TicketAccessService,
         TicketTimingService,
         { provide: PrismaService,         useValue: mockPrisma       },
-        { provide: NotificationsService,  useValue: mockNotif        },
+        { provide: NotificationEventService,  useValue: mockNotif        },
         { provide: EventsGateway,         useValue: mockGateway      },
         { provide: EmailService,          useValue: mockEmail        },
         { provide: EventLoggerService,    useValue: mockLogger       },

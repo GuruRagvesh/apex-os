@@ -194,7 +194,7 @@ export const dashboardApi = {
   getOverview: () => r(api.get('/dashboard/overview')),
   getTicketsByCategory: () => r(api.get('/dashboard/tickets-by-category')),
   getTicketsByDepartment: () => r(api.get('/dashboard/tickets-by-department')),
-  getActivityFeed: (limit?: number) => r(api.get('/dashboard/activity-feed', { params: { limit } })),
+  getActivityFeed: (limit?: number, userId?: string) => r(api.get('/dashboard/activity-feed', { params: { limit, userId } })),
   getWorkload: () => r(api.get('/dashboard/workload')),
   getTicketTrend: (days?: number) => r(api.get('/dashboard/ticket-trend', { params: { days } })),
 };
@@ -208,6 +208,7 @@ export const leaveApi = {
   reject: (id: string) => r(api.patch(`/leave/${id}/reject`)),
   cancel: (id: string) => r(api.patch(`/leave/${id}/cancel`)),
   getStats: () => r(api.get('/leave/stats')),
+  getBalance: (userId?: string) => r(api.get(userId ? `/leave/balance/${userId}` : '/leave/balance')),
 };
 
 // AI Assistant
@@ -271,6 +272,7 @@ export const workdayApi = {
     r(api.post('/workday/idle', { idleDuration })),
   getToday: () => r(api.get('/workday/today')),
   getTeam: () => r(api.get('/workday/team')),
+  getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
 };
 
 // Notifications

@@ -306,6 +306,9 @@ model LeaveRequest {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
+  isHalfDay   Boolean     @default(false)
+  halfDayType String?
+
   user User @relation(fields: [userId], references: [id])
   workSessions  WorkSession[]
 

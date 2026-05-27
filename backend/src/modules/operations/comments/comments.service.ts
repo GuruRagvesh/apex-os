@@ -1,12 +1,15 @@
-﻿import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
+import { NotificationEventService } from '../notifications/notification-event.service';
+import { NotificationType } from '@prisma/client';
 
 @Injectable()
 export class CommentsService {
   constructor(
     private prisma: PrismaService,
     private ticketAccess: TicketAccessService,
+    private notificationEventService: NotificationEventService,
   ) {}
 
   async findByTicket(ticketId: string, user: any) {
@@ -28,6 +31,46 @@ export class CommentsService {
     await this.prisma.activityLog.create({
       data: { userId: authorId, action: 'COMMENTED', entityType: 'TICKET', entityId: ticketId },
     });
+
+    try {
+      const ticket = await this.prisma.ticket.findUnique({
+        where: { id: ticketId },
+        include: {
+          assignees: { select: { userId: true } },
+        },
+      });
+
+      if (ticket) {
+        const recipients = new Set<string>();
+        if (ticket.createdById && ticket.createdById !== authorId) {
+          recipients.add(ticket.createdById);
+        }
+        if (ticket.assignedToId && ticket.assignedToId !== authorId) {
+          recipients.add(ticket.assignedToId);
+        }
+        if (ticket.assignees) {
+          for (const a of ticket.assignees) {
+            if (a.userId && a.userId !== authorId) {
+              recipients.add(a.userId);
+            }
+          }
+        }
+
+        const authorName = comment.author?.name || 'Someone';
+        for (const recipientId of recipients) {
+          await this.notificationEventService.sendNotification(recipientId, 'commentAdded', {
+            title: `New comment on ${ticket.ticketId}`,
+            message: `${authorName} commented: "${content.length > 60 ? content.substring(0, 60) + '...' : content}"`,
+            type: NotificationType.INFO,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to send comment notification:', err);
+    }
 
     return comment;
   }

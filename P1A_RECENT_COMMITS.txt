@@ -1,0 +1,10 @@
+dda5011 docs(p0): freeze verified stabilization architecture
+8251fdf fix(p0): scope dashboard activity feed and department counts
+50b5c24 docs(p0): configure eslint for backend and frontend
+94d156e refactor(p0): migrate dashboard widgets to ticketAccess and leaveAccess services
+02cd599 refactor(p0): clean up unused and dead scoping methods
+7242d52 docs(p0): record stabilization verification and handoff
+9411fef fix(p0): stabilize access scope sla analytics and leave policies
+fa8f463 fix(auth): case-insensitive email lookup for login, OTP, register, and findByEmail
+7041a06 Stage 9 Leave/Team/Departments/Users — replace dark: Tailwind classes with CSS variable system
+bd915a9 Stage 9 Dashboard/Kanban/Tickets — replace dark: Tailwind classes with CSS variable system

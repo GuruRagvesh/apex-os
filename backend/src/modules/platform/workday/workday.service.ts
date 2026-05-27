@@ -1,9 +1,32 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AccessPolicyService } from '../../../common/services/access-policy.service';
 
 @Injectable()
 export class WorkdayService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private accessPolicy: AccessPolicyService,
+  ) {}
+
+  async getHistory(userId: string, requester: any) {
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true, department: true },
+    });
+    if (!targetUser) throw new NotFoundException('User not found');
+    const canView = await this.accessPolicy.canViewUser(requester, targetUser);
+    if (!canView) throw new ForbiddenException('You do not have permission to view this user\'s work history');
+
+    return this.prisma.workSession.findMany({
+      where: { userId },
+      orderBy: { date: 'desc' },
+      take: 30,
+      include: {
+        breakLogs: { orderBy: { startAt: 'asc' } },
+      },
+    });
+  }
 
   private getTodayDate(): Date {
     const today = new Date();

@@ -1,4 +1,4 @@
-﻿import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { LeaveService } from './leave.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -16,6 +16,16 @@ export class LeaveController {
 
   @Get()
   findAll(@Query() query: any, @CurrentUser() user: any) { return this.leaveService.findAll(query, user); }
+
+  @Get('balance')
+  getBalance(@CurrentUser() user: any) {
+    return this.leaveService.getUserBalance(user.id, user);
+  }
+
+  @Get('balance/:userId')
+  getUserBalance(@Param('userId') userId: string, @CurrentUser() user: any) {
+    return this.leaveService.getUserBalance(userId, user);
+  }
 
   @Get('stats')
   getStats(@CurrentUser() user: any) { return this.leaveService.getStats(user); }

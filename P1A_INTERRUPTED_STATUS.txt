@@ -1,0 +1,29 @@
+ M backend/prisma/schema.prisma
+ M backend/src/modules/operations/comments/comments.module.ts
+ M backend/src/modules/operations/comments/comments.service.ts
+ M backend/src/modules/operations/leave/leave.controller.ts
+ M backend/src/modules/operations/leave/leave.module.ts
+ M backend/src/modules/operations/leave/leave.service.ts
+ M backend/src/modules/operations/notifications/notifications.module.ts
+ M backend/src/modules/operations/tickets/tickets.service.ts
+ M backend/src/modules/platform/dashboard/dashboard.controller.ts
+ M backend/src/modules/platform/dashboard/dashboard.service.ts
+ M backend/src/modules/platform/workday/workday.controller.ts
+ M backend/src/modules/platform/workday/workday.service.ts
+ M backend/test/unit/leave.rules.spec.ts
+ M backend/test/unit/ticket.transitions.spec.ts
+ M frontend/app/(dashboard)/(platform)/users/[id]/page.tsx
+ M frontend/app/(dashboard)/settings/page.tsx
+ M frontend/lib/api.ts
+ M "project Features.txt"
+?? DATABASE_STABILIZATION_REPORT.md
+?? LEAVE_BALANCE_ENGINE_REPORT.md
+?? NOTIFICATION_SYSTEM_REPORT.md
+?? P1A_INTERRUPTED_CHANGES.patch
+?? P1A_INTERRUPTED_STATUS.txt
+?? SETTINGS_PERSISTENCE_REPORT.md
+?? USER_PROFILE_COMPLETION_REPORT.md
+?? backend/src/modules/operations/leave/leave-balance.service.ts
+?? backend/src/modules/operations/notifications/notification-event.service.ts
+?? backend/test/unit/p1.leave-balance.spec.ts
+?? backend/test/unit/p1.notification-event.spec.ts

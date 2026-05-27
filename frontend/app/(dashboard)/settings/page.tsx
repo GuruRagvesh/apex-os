@@ -623,7 +623,13 @@ function CompanySection() {
     queryKey: ['settings', 'company'],
     queryFn: () => settingsApi.getCompany() as Promise<any>,
   });
-  const [form, setForm] = useState({ companyName: 'TechnoEdge Learning Services', tagline: '', contactEmail: '' });
+  const [form, setForm] = useState({ 
+    companyName: 'TechnoEdge Learning Services', 
+    tagline: '', 
+    contactEmail: '', 
+    timezone: 'Asia/Kolkata', 
+    branding: 'Royal Blue' 
+  });
 
   // Sync from API once loaded
   useEffect(() => {
@@ -651,6 +657,29 @@ function CompanySection() {
         <div><label className={labelCls}>Company Name</label><input className={inputCls} value={form.companyName} onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))} /></div>
         <div><label className={labelCls}>Tagline</label><input className={inputCls} value={form.tagline} onChange={(e) => setForm((f) => ({ ...f, tagline: e.target.value }))} placeholder="e.g. AI-powered workplace operations" /></div>
         <div><label className={labelCls}>Contact Email</label><input type="email" className={inputCls} value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} placeholder="hr@company.com" /></div>
+        <div>
+          <label className={labelCls}>Company Timezone</label>
+          <select 
+            className={inputCls} 
+            value={form.timezone || 'Asia/Kolkata'} 
+            onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
+          >
+            <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+            <option value="UTC">Coordinated Universal Time (UTC)</option>
+            <option value="America/New_York">America/New_York (EST/EDT)</option>
+            <option value="Europe/London">Europe/London (GMT/BST)</option>
+            <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Company Branding</label>
+          <input 
+            className={inputCls} 
+            value={form.branding || 'Royal Blue'} 
+            onChange={(e) => setForm((f) => ({ ...f, branding: e.target.value }))} 
+            placeholder="e.g. Royal Blue, Emerald Green" 
+          />
+        </div>
         <SaveBtn loading={save.isPending} />
       </div>
     </form>

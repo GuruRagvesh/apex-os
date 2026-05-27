@@ -144,11 +144,11 @@ export class DashboardService {
     }));
   }
 
-  async getActivityFeed(limit = 20, user?: any) {
+  async getActivityFeed(limit = 20, user?: any, userId?: string) {
     const roleName = this.accessPolicy.roleName(user);
     const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
-    let whereClause = {};
+    let whereClause: any = {};
     if (!isAdmin && user) {
       const deptIds = await this.accessPolicy.managedDepartmentIds(user);
       whereClause = {
@@ -156,6 +156,23 @@ export class DashboardService {
           { userId: user.id },
           { user: { departmentId: { in: deptIds } } },
         ],
+      };
+    }
+
+    if (userId) {
+      if (!isAdmin && user) {
+        // Enforce access control: target user must be self or in managed department
+        if (userId !== user.id) {
+          const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+          const targetUser = await this.prisma.user.findUnique({ where: { id: userId } });
+          if (!targetUser || !targetUser.departmentId || !deptIds.includes(targetUser.departmentId)) {
+            return []; // forbidden
+          }
+        }
+      }
+      whereClause = {
+        ...whereClause,
+        userId: userId,
       };
     }
 

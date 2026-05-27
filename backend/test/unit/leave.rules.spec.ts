@@ -10,10 +10,12 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
 import { EmailService } from '../../src/modules/platform/email/email.service';
-import { NotificationsService } from '../../src/modules/operations/notifications/notifications.service';
+import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { LeaveAccessService } from '../../src/common/services/leave-access.service';
+import { LeaveBalanceService } from '../../src/modules/operations/leave/leave-balance.service';
+import { SettingsService } from '../../src/modules/platform/settings/settings.service';
 import { ForbiddenException } from '@nestjs/common';
 
 // ── Minimal mocks ─────────────────────────────────────────────────────────────
@@ -32,15 +34,23 @@ const mockPrisma = {
   managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },
   notification: { create: jest.fn() },
 };
+const mockSettings = {
+  getLeaveQuotas: jest.fn().mockResolvedValue({ EMPLOYEE: 12, TEAM_LEAD: 12, MANAGER: 15, INTERN: 6 }),
+  get: jest.fn().mockResolvedValue({ workingDays: 'Mon–Sat' }),
+};
 const mockGateway = {
   emitToUser: jest.fn(),
   emitLeaveStatusChanged: jest.fn(),
   emitNotificationToUser: jest.fn(),
 };
 const mockEmail   = { sendLeaveDecision: jest.fn().mockResolvedValue(undefined) };
-const mockNotif   = { create: jest.fn().mockResolvedValue(undefined) };
+const mockNotif   = { create: jest.fn().mockResolvedValue(undefined), sendNotification: jest.fn().mockResolvedValue(undefined) };
 const mockConfig  = { get: jest.fn().mockReturnValue('http://localhost:3000') };
 const mockLogger  = { log: jest.fn().mockResolvedValue(undefined) };
+const mockLeaveBalance = {
+  validateLeaveRequest: jest.fn().mockResolvedValue(undefined),
+  getLeaveBalance: jest.fn().mockResolvedValue({ allocation: 12, approved: 0, pending: 0, balance: 12 }),
+};
 
 // Fixture: a pending leave request owned by EMPLOYEE user
 const EMPLOYEE_USER = { id: 'emp1', role: { name: 'EMPLOYEE', level: 4 }, departmentId: 'd1' };
@@ -67,12 +77,14 @@ describe('LeaveService — approval rules', () => {
         LeaveService,
         AccessPolicyService,
         LeaveAccessService,
+        { provide: LeaveBalanceService,   useValue: mockLeaveBalance },
         { provide: PrismaService,         useValue: mockPrisma  },
         { provide: EventsGateway,         useValue: mockGateway },
         { provide: EmailService,          useValue: mockEmail   },
-        { provide: NotificationsService,  useValue: mockNotif   },
+        { provide: NotificationEventService,  useValue: mockNotif   },
         { provide: ConfigService,         useValue: mockConfig  },
         { provide: EventLoggerService,    useValue: mockLogger  },
+        { provide: SettingsService,       useValue: mockSettings }, // Wait, in SettingsService, we can just inject it
       ],
     }).compile();
 
