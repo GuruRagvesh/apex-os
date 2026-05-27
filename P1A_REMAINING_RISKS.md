@@ -44,8 +44,8 @@
 
 ---
 
-## Risk 6 — Payroll/statutory masking relies on frontend logic only
+## Risk 6 — ~~Payroll masking frontend-only~~ CORRECTED: Server-enforced
 
-**Severity:** Medium  
-**Detail:** The user profile page applies masking via conditional rendering in React. If the backend `GET /users/:id` response includes unmasked payroll fields for all roles, a sufficiently technical employee could retrieve raw data via the API directly.  
-**Recommended fix:** Backend `UsersService.getOne` should apply field masking server-side based on requester role.
+**Severity:** None — resolved  
+**Correction (confirmed in P1A_RECONCILIATION_REPORT.md):** Payroll masking is server-enforced through `UsersService.getOne()` and role-based access policy. The method delegates to `AccessPolicyService.canViewPayroll()`, `maskPayrollForSelf()`, and role-specific field-stripping before returning user data. Frontend visibility follows the backend-masked response. Direct API access returns the same role-scoped masked payload.  
+**No action required.**
