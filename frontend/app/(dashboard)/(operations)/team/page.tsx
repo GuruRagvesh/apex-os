@@ -639,7 +639,7 @@ export default function TeamPage() {
 
   const role = (me?.role as any)?.name ?? me?.role ?? '';
   const isHR = (me as any)?.isHR;
-  const canSeeStatus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role) || isHR;
+  const canSeeStatus = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role) || isHR;
   const mode = typeof window !== 'undefined' ? localStorage.getItem('apexMode') ?? 'super_admin' : 'super_admin';
   const isSuperAdminCompanyMode = role === 'SUPER_ADMIN' && mode !== 'team_lead';
 

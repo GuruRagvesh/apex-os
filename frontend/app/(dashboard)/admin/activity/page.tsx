@@ -36,7 +36,7 @@ export default function ActivityLogPage() {
   const user = useAuthStore(s => s.user);
   const role: string = (user?.role as any)?.name ?? '';
   const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'].includes(role);
-  const [dateRange, setDateRange] = useState('today');
+  const [dateRange, setDateRange] = useState<'today' | 'week' | 'last30'>('today');
   const [eventType, setEventType] = useState('');
   const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
 
@@ -46,13 +46,18 @@ export default function ActivityLogPage() {
     if (eventType) p.set('action', eventType);
     const now = new Date();
     if (dateRange === 'today') {
-      const start = new Date(now); start.setHours(0,0,0,0);
+      const start = new Date(now); start.setHours(0, 0, 0, 0);
       p.set('from', start.toISOString());
     } else if (dateRange === 'week') {
-      const start = new Date(now); start.setDate(start.getDate() - 7);
+      // Start of current week (Monday)
+      const start = new Date(now);
+      const day = start.getDay();
+      const diff = day === 0 ? -6 : 1 - day; // Monday of this week
+      start.setDate(start.getDate() + diff);
+      start.setHours(0, 0, 0, 0);
       p.set('from', start.toISOString());
-    } else if (dateRange === 'last7') {
-      const start = new Date(now); start.setDate(start.getDate() - 7);
+    } else if (dateRange === 'last30') {
+      const start = new Date(now); start.setDate(start.getDate() - 30);
       p.set('from', start.toISOString());
     }
     return p.toString();
@@ -76,20 +81,20 @@ export default function ActivityLogPage() {
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Workday Activity Log</h1>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-          {isManagerPlus ? 'Operational event timeline for your team' : 'Your personal activity timeline'}
+          Your personal activity timeline
         </p>
       </div>
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {(['today','week','last7'] as const).map(r => (
+        {(['today','week','last30'] as const).map(r => (
           <button key={r} onClick={() => setDateRange(r)} style={{
             padding: '5px 12px', borderRadius: 8, fontSize: 12, border: '1px solid', cursor: 'pointer',
             background: dateRange === r ? 'var(--accent-subtle)' : 'var(--surface-card)',
             color: dateRange === r ? 'var(--accent-text)' : 'var(--text-secondary)',
             borderColor: dateRange === r ? 'var(--accent-border)' : 'var(--border-primary)',
           }}>
-            {{ today: 'Today', week: 'This Week', last7: 'Last 7 Days' }[r]}
+            {{ today: 'Today', week: 'This Week', last30: 'Last 30 Days' }[r]}
           </button>
         ))}
         <select value={eventType} onChange={e => setEventType(e.target.value)} style={{

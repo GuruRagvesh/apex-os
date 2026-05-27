@@ -240,7 +240,8 @@ export default function HomePage() {
 
   // ── Announcement broadcast data ───────────────────────────────────────────
   const criticalAlerts: any[] = summary?.criticalAlerts ?? [];
-  const firstUrgentAlert = criticalAlerts.find((a: any) => a.type === 'urgent' || a.severity === 'urgent');
+  // Backend uses severity: 'red' | 'purple' | 'amber' — 'red' is the urgent/critical level
+  const firstUrgentAlert = criticalAlerts.find((a: any) => a.severity === 'red' || a.severity === 'urgent' || a.type === 'urgent');
   const broadcastTitle = firstUrgentAlert
     ? (firstUrgentAlert.title ?? firstUrgentAlert.message ?? 'Urgent alert requires your attention')
     : 'No active broadcasts today';
@@ -388,13 +389,13 @@ export default function HomePage() {
       >
         <CommandCard
           id="high-priority"
-          title="High Priority Tickets"
-          count={metrics.overdue ?? 0}
-          summary="Tickets requiring immediate SLA attention"
+          title={['EMPLOYEE', 'INTERN'].includes(role) ? 'In Review' : 'Overdue Tickets'}
+          count={['EMPLOYEE', 'INTERN'].includes(role) ? (metrics.inReview ?? 0) : (metrics.overdue ?? 0)}
+          summary={['EMPLOYEE', 'INTERN'].includes(role) ? 'Tickets awaiting review approval' : 'Tickets past their SLA deadline'}
           icon={ShieldAlert}
-          severity="urgent"
+          severity={['EMPLOYEE', 'INTERN'].includes(role) ? 'warning' : 'urgent'}
           previewItems={[]}
-          onClick={() => router.push('/tickets?priority=HIGH')}
+          onClick={() => ['EMPLOYEE', 'INTERN'].includes(role) ? router.push('/tickets?status=REVIEW') : router.push('/tickets?overdue=true')}
         />
 
         <CommandCard

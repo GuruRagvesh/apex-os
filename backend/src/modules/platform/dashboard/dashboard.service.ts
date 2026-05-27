@@ -263,46 +263,50 @@ export class DashboardService {
     if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
       const weekStart = new Date();
       weekStart.setDate(weekStart.getDate() - 7);
-      const [open, inProgress, inReview, doneThisWeek] = await Promise.all([
+      const [open, inProgress, inReview, doneThisWeek, activeProjects] = await Promise.all([
         this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.OPEN }) }),
         this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.IN_PROGRESS }) }),
         this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }) }),
         this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.DONE, updatedAt: { gte: weekStart } }) }),
+        this.prisma.project.count({ where: { status: 'ACTIVE' } }),
       ]);
-      return { open, inProgress, inReview, doneThisWeek };
+      return { open, inProgress, inReview, doneThisWeek, activeProjects };
     }
 
     if (roleName === 'TEAM_LEAD') {
       const today = new Date(); today.setHours(0, 0, 0, 0);
-      const [total, overdue, inReview, teamOnline] = await Promise.all([
+      const [total, overdue, inReview, teamOnline, activeProjects] = await Promise.all([
         this.prisma.ticket.count({ where: ticketScope }),
         this.prisma.ticket.count({ where: this.andWhere(ticketScope, { dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }) }),
         this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }) }),
         this.prisma.user.count({ where: { departmentId: user.departmentId, currentStatus: { in: ['WORKING', 'ON_BREAK', 'LOGGED_IN'] } } }),
+        this.prisma.project.count({ where: { status: 'ACTIVE' } }),
       ]);
-      return { total, overdue, inReview, teamOnline };
+      return { total, overdue, inReview, teamOnline, activeProjects };
     }
 
     if (roleName === 'MANAGER') {
       const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
-      const [total, overdue, pendingLeave, teamCount] = await Promise.all([
+      const [total, overdue, pendingLeave, teamCount, activeProjects] = await Promise.all([
         this.prisma.ticket.count({ where: ticketScope }),
         this.prisma.ticket.count({ where: this.andWhere(ticketScope, { dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }) }),
         this.prisma.leaveRequest.count({ where: this.andWhere(leaveScope, { status: LeaveStatus.PENDING }) }),
         this.prisma.user.count({ where: { isActive: true, ...(user.departmentId ? { departmentId: user.departmentId } : {}) } }),
+        this.prisma.project.count({ where: { status: 'ACTIVE' } }),
       ]);
-      return { total, overdue, pendingLeave, teamCount };
+      return { total, overdue, pendingLeave, teamCount, activeProjects };
     }
 
     // ADMIN / SUPER_ADMIN
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const [activeToday, totalTickets, overdue, pendingLeave] = await Promise.all([
+    const [activeToday, totalTickets, overdue, pendingLeave, activeProjects] = await Promise.all([
       this.prisma.user.count({ where: { currentStatus: { in: ['WORKING', 'ON_BREAK', 'LOGGED_IN'] } } }),
       this.prisma.ticket.count({ where: { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } } }),
       this.prisma.ticket.count({ where: { dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } } }),
       this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING } }),
+      this.prisma.project.count({ where: { status: 'ACTIVE' } }),
     ]);
-    return { activeToday, totalTickets, overdue, pendingLeave };
+    return { activeToday, totalTickets, overdue, pendingLeave, activeProjects };
   }
 
   private async getWorkdayStatus(user: any) {

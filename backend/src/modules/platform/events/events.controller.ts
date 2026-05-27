@@ -34,7 +34,8 @@ function getEntityUrl(entityType: string, entityId: string, metadata?: any): str
   switch (entityType) {
     case 'Ticket': return `/tickets/${entityId}`;
     case 'LeaveRequest': return `/leave`;
-    case 'WorkdaySession': return `/workday`;
+    // WorkdaySession events link to dashboard (where WorkdayBar lives) — no standalone /workday page
+    case 'WorkdaySession': return null;
     default: return null;
   }
 }
