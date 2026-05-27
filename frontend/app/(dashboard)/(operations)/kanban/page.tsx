@@ -57,7 +57,7 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
       <span className={cn('absolute top-2 right-2 w-2.5 h-2.5 rounded-full', PRIORITY_DOT[ticket.priority] ?? 'bg-gray-400')} />
 
       <div className="flex items-start justify-between gap-2 mb-2">
-        <span className="text-xs text-slate-400 dark:text-gray-500 font-mono">{ticket.ticketId}</span>
+        <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>{ticket.ticketId}</span>
         <div className="flex items-center gap-1.5 pr-4">
           {isPending && <Loader2 size={12} className="animate-spin text-indigo-500" />}
           {ticket.priority === 'URGENT' && <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />}
@@ -65,7 +65,7 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
       </div>
 
       <Link href={`/tickets/${ticket.id}`} onClick={(e) => e.stopPropagation()}>
-        <p className="text-sm font-medium text-slate-800 dark:text-gray-200 leading-snug hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors line-clamp-2 mb-1">
+        <p className="text-sm font-medium leading-snug hover:text-indigo-600 transition-colors line-clamp-2 mb-1" style={{ color: 'var(--text-primary)' }}>
           {ticket.title}
         </p>
       </Link>
@@ -73,7 +73,7 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
       <TimingTicker ticket={ticket} className="mt-1 mb-1.5" />
 
       {ticket.scheduledStartAt && (
-        <p className="text-[11px] text-slate-400 dark:text-gray-500 mt-0.5 mb-1.5">
+        <p className="text-[11px] mt-0.5 mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
           🕑 {new Date(ticket.scheduledStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           {ticket.scheduledEndAt && ` → ${new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
         </p>
@@ -91,13 +91,13 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {(ticket.estimatedMinutes || ticket.estimatedTime) && (
-            <span className="text-xs text-slate-400 dark:text-gray-500 flex items-center gap-1">
+            <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
               <Clock size={11} />
               {ticket.estimatedMinutes ? `${ticket.estimatedMinutes}m` : `${ticket.estimatedTime}h`}
             </span>
           )}
           {ticket.dueDate && (
-            <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500' : 'text-slate-400 dark:text-gray-500')}>
+            <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500' : '')} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-tertiary)' } : undefined}>
               {formatDate(ticket.dueDate)}
             </span>
           )}
@@ -107,13 +107,13 @@ function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }
             <span className="text-white text-[10px] font-bold">{getInitials(ticket.assignedTo.name)}</span>
           </div>
         ) : (
-          <div className="w-6 h-6 bg-slate-200 dark:bg-gray-700 rounded-full" title="Unassigned" />
+          <div className="w-6 h-6 rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)' }} title="Unassigned" />
         )}
       </div>
 
       {/* SLA bar */}
       {typeof ticket.slaPercent === 'number' && !['DONE', 'CLOSED'].includes(ticket.status) && (
-        <div className="mt-2 w-full h-1 bg-slate-100 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div className="mt-2 w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
           <div
             className={cn(
               'h-full rounded-full',
