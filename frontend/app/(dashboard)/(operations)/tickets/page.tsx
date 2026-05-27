@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, departmentsApi } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { TicketRow } from '@/components/tickets/ticket-row';
 import { SkeletonTicketRows } from '@/components/ui/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSocket } from '@/hooks/useSocket';
 import { cn, CATEGORY_COLORS, STATUS_LABELS } from '@/lib/utils';
-import { Plus, Search, RefreshCw, Download } from 'lucide-react';
+import { Plus, Search, RefreshCw, Download, AlertTriangle, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
@@ -18,8 +19,11 @@ const PRIORITIES = ['', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
 
 export default function TicketsPage() {
   const qc = useQueryClient();
+  const currentUser = useAuthStore(s => s.user);
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState({ status: '', category: '', priority: '', departmentId: '' });
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [myTickets, setMyTickets] = useState(false);
   const [page, setPage] = useState(1);
 
   const debouncedSearch = useDebounce(search, 300);
@@ -30,9 +34,13 @@ export default function TicketsPage() {
     onTicketStatusChanged: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
   });
 
+  const extraFilters: Record<string, any> = {};
+  if (overdueOnly) extraFilters.dueBefore = new Date().toISOString();
+  if (myTickets && currentUser?.id) extraFilters.assignedToId = currentUser.id;
+
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['tickets', { ...filters, search: debouncedSearch }, page],
-    queryFn: () => ticketsApi.getAll({ ...filters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
+    queryKey: ['tickets', { ...filters, ...extraFilters, search: debouncedSearch }, page],
+    queryFn: () => ticketsApi.getAll({ ...filters, ...extraFilters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
   });
 
   const { data: departments } = useQuery({
@@ -58,7 +66,7 @@ export default function TicketsPage() {
     return acc;
   }, {});
 
-  const hasActiveFilters = search || Object.values(filters).some(Boolean);
+  const hasActiveFilters = search || Object.values(filters).some(Boolean) || overdueOnly || myTickets;
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
@@ -82,7 +90,7 @@ export default function TicketsPage() {
           <button
             onClick={async () => {
               try {
-                await ticketsApi.exportCsv({ ...filters, search });
+                await ticketsApi.exportCsv({ ...filters, ...extraFilters, search });
               } catch {
                 toast.error('Export failed');
               }
@@ -170,9 +178,45 @@ export default function TicketsPage() {
             ))}
           </select>
 
+          {/* Overdue toggle */}
+          <button
+            onClick={() => { setOverdueOnly((v) => !v); setPage(1); }}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all"
+            style={overdueOnly ? {
+              backgroundColor: 'var(--color-danger)',
+              color: 'white',
+              borderColor: 'var(--color-danger)',
+            } : {
+              backgroundColor: 'var(--surface-card)',
+              color: 'var(--text-secondary)',
+              borderColor: 'var(--border-primary)',
+            }}
+            title="Show overdue tickets only"
+          >
+            <AlertTriangle size={12} />Overdue
+          </button>
+
+          {/* My Tickets toggle */}
+          <button
+            onClick={() => { setMyTickets((v) => !v); setPage(1); }}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all"
+            style={myTickets ? {
+              backgroundColor: 'var(--accent)',
+              color: 'white',
+              borderColor: 'var(--accent)',
+            } : {
+              backgroundColor: 'var(--surface-card)',
+              color: 'var(--text-secondary)',
+              borderColor: 'var(--border-primary)',
+            }}
+            title="Show tickets assigned to me"
+          >
+            <UserCheck size={12} />My Tickets
+          </button>
+
           {hasActiveFilters && (
             <button
-              onClick={() => { setSearch(''); setFilters({ status: '', category: '', priority: '', departmentId: '' }); setPage(1); }}
+              onClick={() => { setSearch(''); setFilters({ status: '', category: '', priority: '', departmentId: '' }); setOverdueOnly(false); setMyTickets(false); setPage(1); }}
               className="text-xs font-medium"
               style={{ color: 'var(--color-danger)' }}
             >

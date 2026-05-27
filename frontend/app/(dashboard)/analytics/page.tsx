@@ -100,7 +100,13 @@ export default function AnalyticsPage() {
   const resolvedTrend = computePeriodTrend(trend, 'resolved');
 
   const handleExport = () => {
-    ticketsApi.exportCsv();
+    const dateTo = new Date();
+    const dateFrom = new Date(dateTo);
+    dateFrom.setDate(dateFrom.getDate() - days);
+    ticketsApi.exportCsv({
+      dateFrom: dateFrom.toISOString().split('T')[0],
+      dateTo: dateTo.toISOString().split('T')[0],
+    });
   };
 
   return (

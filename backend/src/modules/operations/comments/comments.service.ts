@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { NotificationEventService } from '../notifications/notification-event.service';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { NotificationType } from '@prisma/client';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class CommentsService {
     private prisma: PrismaService,
     private ticketAccess: TicketAccessService,
     private notificationEventService: NotificationEventService,
+    private eventLogger: EventLoggerService,
   ) {}
 
   async findByTicket(ticketId: string, user: any) {
@@ -31,6 +33,14 @@ export class CommentsService {
     await this.prisma.activityLog.create({
       data: { userId: authorId, action: 'COMMENTED', entityType: 'TICKET', entityId: ticketId },
     });
+
+    this.eventLogger.log({
+      actorId: authorId,
+      entityType: 'Ticket',
+      entityId: ticketId,
+      action: OperationalAction.COMMENT_ADDED,
+      metadata: { commentId: comment.id },
+    }).catch(() => {});
 
     try {
       const ticket = await this.prisma.ticket.findUnique({

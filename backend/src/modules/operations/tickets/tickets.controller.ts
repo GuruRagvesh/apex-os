@@ -12,6 +12,7 @@ import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { Roles } from '../../../shared/decorators/roles.decorator';
 import { ROLES } from '../../../shared/constants/roles';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 
 @ApiTags('Tickets')
 @ApiBearerAuth()
@@ -21,6 +22,7 @@ export class TicketsController {
   constructor(
     private ticketsService: TicketsService,
     private uploadsService: UploadsService,
+    private eventLogger: EventLoggerService,
   ) {}
 
   @Get()
@@ -28,6 +30,9 @@ export class TicketsController {
 
   @Get('stats')
   getStats(@CurrentUser() user: any) { return this.ticketsService.getStats(user); }
+
+  @Get('sla-risk')
+  getSlaRisk(@CurrentUser() user: any) { return this.ticketsService.getSlaRiskCategories(user); }
 
   @Get('kanban')
   getKanban(@Query() query: any, @CurrentUser() user: any) { return this.ticketsService.getKanban(query, user); }
@@ -38,6 +43,13 @@ export class TicketsController {
     const filename = `tickets-${new Date().toISOString().split('T')[0]}.csv`;
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    this.eventLogger.log({
+      actorId: user.id,
+      entityType: 'Ticket',
+      entityId: 'export',
+      action: OperationalAction.EXPORT_PERFORMED,
+      metadata: { format: 'csv', filters: query },
+    }).catch(() => {});
     return csv;
   }
 
@@ -53,7 +65,27 @@ export class TicketsController {
   }
 
   @Post(':id/attachments')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 5 * 1024 * 1024 },  // 5 MB max
+    fileFilter: (_req, file, cb) => {
+      // Allow images, PDFs, common office docs, and plain text
+      const ALLOWED_MIME = [
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/plain', 'text/csv',
+        'application/zip',
+      ];
+      if (ALLOWED_MIME.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`File type "${file.mimetype}" is not allowed`), false);
+      }
+    },
+  }))
   async uploadAttachment(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
@@ -63,7 +95,15 @@ export class TicketsController {
     const ticket = await this.ticketsService.findOne(id, user);
     await this.ticketsService.assertCanUploadAttachment(user, ticket);
     const isPoc = body?.isPoc === 'true' || body?.isPoc === true;
-    return this.uploadsService.uploadTicketAttachment(ticket.id, file, isPoc, ticket.id);
+    const attachment = await this.uploadsService.uploadTicketAttachment(ticket.id, file, isPoc, ticket.id);
+    this.eventLogger.log({
+      actorId: user.id,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action: OperationalAction.ATTACHMENT_UPLOADED,
+      metadata: { ticketId: ticket.ticketId, filename: file.originalname, mimeType: file.mimetype, size: file.size },
+    }).catch(() => {});
+    return attachment;
   }
 
   @Put(':id')

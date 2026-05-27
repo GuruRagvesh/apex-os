@@ -466,6 +466,10 @@ export class TicketsService {
     }
 
     const action = data.status ? 'STATUS_CHANGED' : data.assignedToId ? 'TICKET_ASSIGNED' : 'TICKET_UPDATED';
+    // Non-status, non-assign edits → TICKET_UPDATED audit
+    if (!data.status && !data.assignedToId) {
+      this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticketDbId, action: OperationalAction.TICKET_UPDATED, metadata: { ticketId: existing.ticketId, fields: Object.keys(data) } }).catch(() => {});
+    }
 
     await this.prisma.activityLog.create({
       data: {
@@ -486,9 +490,14 @@ export class TicketsService {
         IN_PROGRESS: OperationalAction.TICKET_STARTED,
         REVIEW: OperationalAction.TICKET_SUBMITTED_FOR_REVIEW,
         DONE: OperationalAction.TICKET_DONE,
-        CLOSED: OperationalAction.TICKET_CANCELLED,
+        CLOSED: OperationalAction.TICKET_CLOSED,
       };
-      const mappedAction = statusActionMap[data.status];
+      // Detect reopen: DONE/CLOSED → OPEN/IN_PROGRESS
+      const isReopening = ['DONE', 'CLOSED'].includes(existing.status) &&
+        ['OPEN', 'IN_PROGRESS'].includes(data.status);
+      const mappedAction = isReopening
+        ? OperationalAction.TICKET_REOPENED
+        : (statusActionMap[data.status] ?? null);
       if (mappedAction) {
         this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: mappedAction, fromState: existing.status, toState: data.status, metadata: { ticketId: ticket.ticketId } }).catch(() => {});
       }
@@ -775,5 +784,56 @@ export class TicketsService {
       REVIEW: withSla.filter((t) => t.status === TicketStatus.REVIEW),
       DONE: withSla.filter((t) => t.status === TicketStatus.DONE),
     };
+  }
+
+  /** SLA risk category counts — used by analytics and dashboard risk panels */
+  async getSlaRiskCategories(user?: any): Promise<{
+    overdue: number;
+    dueSoon: number;
+    reviewAgeing: number;
+    unassigned: number;
+    total: number;
+  }> {
+    const scope = await this.ticketAccess.buildTicketWhereForUser({}, user);
+    const activeScope = this.andWhere(scope, {
+      status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] },
+    });
+
+    const candidates = await this.prisma.ticket.findMany({
+      where: activeScope,
+      select: {
+        id: true, status: true, priority: true, dueDate: true, createdAt: true, updatedAt: true,
+        scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
+        submittedAt: true, reviewStartedAt: true, reviewDueAt: true, closedAt: true, cancelledAt: true,
+        assignedToId: true,
+      },
+    });
+
+    const slaConfig = await this.ticketTiming.getSlaConfig();
+    const now = Date.now();
+    const DUE_SOON_MS = 4 * 3_600_000; // 4 hours
+
+    let overdue = 0;
+    let dueSoon = 0;
+    let reviewAgeing = 0;
+
+    for (const ticket of candidates) {
+      const timing = this.ticketTiming.getTimingState(ticket, slaConfig);
+      if (timing.isOverdue) {
+        overdue++;
+      } else if (timing.timerType === 'review') {
+        // Ticket is in review phase — check if review SLA is nearly expired
+        if (timing.remainingMs <= 0) reviewAgeing++;
+        else if (timing.remainingMs <= DUE_SOON_MS) dueSoon++;
+      } else if (timing.timerType === 'execution' && timing.remainingMs > 0 && timing.remainingMs <= DUE_SOON_MS) {
+        dueSoon++;
+      }
+    }
+
+    const unassigned = await this.prisma.ticket.count({
+      where: this.andWhere(activeScope, { assignedToId: null }),
+    });
+
+    return { overdue, dueSoon, reviewAgeing, unassigned, total: candidates.length };
   }
 }

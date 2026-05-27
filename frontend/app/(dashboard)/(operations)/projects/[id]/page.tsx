@@ -75,8 +75,17 @@ export default function ProjectDetailPage() {
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>;
   if (!project) return <div className="text-center py-12 text-slate-500">Project not found</div>;
 
-  const doneTickets = project.tickets?.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length || 0;
-  const progress = project.tickets?.length ? Math.round((doneTickets / project.tickets.length) * 100) : 0;
+  // Use backend-computed progress (ticketStats.done / ticketStats.total).
+  // Falls back to client-side calculation only if the backend field is absent (e.g. old API).
+  const progress: number = project.progress ??
+    (project.ticketStats?.total > 0
+      ? Math.round((project.ticketStats.done / project.ticketStats.total) * 100)
+      : (project.tickets?.length
+          ? Math.round(
+              (project.tickets.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length /
+                project.tickets.length) * 100,
+            )
+          : 0));
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">

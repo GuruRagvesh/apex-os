@@ -263,7 +263,7 @@ export class LeaveService {
       actorId: userId,
       entityType: 'LeaveRequest',
       entityId: id,
-      action: OperationalAction.LEAVE_REJECTED, // closest available action; captures the cancel event
+      action: OperationalAction.LEAVE_CANCELLED,
       fromState: 'PENDING',
       toState: 'CANCELLED',
     }).catch(() => {});

@@ -1,6 +1,7 @@
 ﻿import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
+    private eventLogger: EventLoggerService,
   ) {}
 
   async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
@@ -66,7 +68,7 @@ export class UsersService {
     return this.accessPolicy.safeUser(user);
   }
 
-  async create(data: { name: string; email: string; password: string; roleId: string; departmentId?: string }) {
+  async create(data: { name: string; email: string; password: string; roleId: string; departmentId?: string }, actorId?: string) {
     const existing = await this.prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new ConflictException('Email already registered');
 
@@ -75,16 +77,31 @@ export class UsersService {
       data: { ...data, password: hashedPassword },
       include: { role: true, department: true },
     });
+    this.eventLogger.log({
+      actorId: actorId ?? user.id,
+      entityType: 'User',
+      entityId: user.id,
+      action: OperationalAction.USER_CREATED,
+      metadata: { name: user.name, email: user.email, roleId: user.roleId },
+    }).catch(() => {});
     const { password, ...result } = user;
     return result;
   }
 
-  async update(id: string, data: { name?: string; email?: string; roleId?: string; departmentId?: string; isActive?: boolean; avatar?: string; photoUrl?: string | null; bio?: string }) {
+  async update(id: string, data: { name?: string; email?: string; roleId?: string; departmentId?: string; isActive?: boolean; avatar?: string; photoUrl?: string | null; bio?: string }, actorId?: string) {
     const user = await this.prisma.user.update({
       where: { id },
       data,
       include: { role: true, department: true },
     });
+    const action = data.roleId ? OperationalAction.USER_ROLE_CHANGED : OperationalAction.USER_UPDATED;
+    this.eventLogger.log({
+      actorId: actorId ?? id,
+      entityType: 'User',
+      entityId: id,
+      action,
+      metadata: { fields: Object.keys(data) },
+    }).catch(() => {});
     const { password, ...result } = user;
     return result;
   }
@@ -101,8 +118,14 @@ export class UsersService {
     return { message: 'Password reset successfully' };
   }
 
-  async remove(id: string) {
+  async remove(id: string, actorId?: string) {
     await this.prisma.user.update({ where: { id }, data: { isActive: false } });
+    this.eventLogger.log({
+      actorId: actorId ?? id,
+      entityType: 'User',
+      entityId: id,
+      action: OperationalAction.USER_DEACTIVATED,
+    }).catch(() => {});
     return { message: 'User deactivated' };
   }
 

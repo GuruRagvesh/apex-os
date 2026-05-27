@@ -79,14 +79,14 @@ export class UsersController {
 
   @Post()
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  create(@Body() body: { name: string; email: string; password: string; roleId: string; departmentId?: string }) {
-    return this.usersService.create(body);
+  create(@Body() body: { name: string; email: string; password: string; roleId: string; departmentId?: string }, @CurrentUser() actor: any) {
+    return this.usersService.create(body, actor?.id);
   }
 
   @Put(':id')
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.usersService.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @CurrentUser() actor: any) {
+    return this.usersService.update(id, body, actor?.id);
   }
 
   @Put(':id/reset-password')
@@ -97,8 +97,8 @@ export class UsersController {
 
   @Delete(':id')
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() actor: any) {
+    return this.usersService.remove(id, actor?.id);
   }
 
   @Get(':id/profile')

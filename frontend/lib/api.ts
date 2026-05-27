@@ -178,6 +178,7 @@ export const ticketsApi = {
   },
   remove: (id: string) => r(api.delete(`/tickets/${id}`)),
   getStats: () => r(api.get('/tickets/stats')),
+  getSlaRisk: () => r(api.get('/tickets/sla-risk')),
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
 };
 

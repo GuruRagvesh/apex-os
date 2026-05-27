@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ForbiddenException } from '@nestjs/common';
 import { ProjectStatus, Priority } from '@prisma/client';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { ROLES } from '../../../shared/constants/roles';
 
 function isUUID(str: string): boolean {
@@ -14,6 +15,7 @@ export class ProjectsService {
   constructor(
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
+    private eventLogger: EventLoggerService,
   ) {}
 
   async findAll(query: { search?: string; status?: ProjectStatus; departmentId?: string; userId?: string; page?: number; limit?: number }, user?: any) {
@@ -155,19 +157,13 @@ export class ProjectsService {
       throw new BadRequestException('Failed to generate a unique project ID — please try again');
     }
 
-    await this.prisma.activityLog.create({
-      data: {
-        userId,
-        action: 'PROJECT_CREATED',
-        entityType: 'PROJECT',
-        entityId: project.id,
-        details: {
-          projectId: project.projectId,
-          name: project.name,
-          priority: project.priority,
-        },
-      },
-    });
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'Project',
+      entityId: project.id,
+      action: OperationalAction.PROJECT_CREATED,
+      metadata: { projectId: project.projectId, name: project.name, priority: project.priority },
+    }).catch(() => {});
 
     return project;
   }
@@ -175,36 +171,76 @@ export class ProjectsService {
   async update(id: string, data: any, user?: any) {
     const project = await this.findOne(id, user);
     if (user) await this.assertCanEditProject(user, project);
-    return this.prisma.project.update({
+    const updated = await this.prisma.project.update({
       where: { id: project.id },
       data,
       include: { department: true },
     });
+    if (user) {
+      this.eventLogger.log({
+        actorId: user.id,
+        entityType: 'Project',
+        entityId: project.id,
+        action: OperationalAction.PROJECT_UPDATED,
+        metadata: { projectId: (project as any).projectId, fields: Object.keys(data) },
+      }).catch(() => {});
+    }
+    return updated;
   }
 
   async addMember(projectId: string, userId: string, role = 'MEMBER', user?: any) {
     const project = await this.findOne(projectId, user);
     if (user) await this.assertCanEditProject(user, project);
     if (user) await this.assertUserWithinProjectScope(user, userId);
-    return this.prisma.projectMember.upsert({
+    const result = await this.prisma.projectMember.upsert({
       where: { projectId_userId: { projectId: project.id, userId } },
       update: { role },
       create: { projectId: project.id, userId, role },
     });
+    if (user) {
+      this.eventLogger.log({
+        actorId: user.id,
+        entityType: 'Project',
+        entityId: project.id,
+        action: OperationalAction.PROJECT_MEMBER_ADDED,
+        metadata: { projectId: (project as any).projectId, memberId: userId, role },
+      }).catch(() => {});
+    }
+    return result;
   }
 
   async removeMember(projectId: string, userId: string, user?: any) {
     const project = await this.findOne(projectId, user);
     if (user) await this.assertCanEditProject(user, project);
-    return this.prisma.projectMember.delete({
+    const result = await this.prisma.projectMember.delete({
       where: { projectId_userId: { projectId: project.id, userId } },
     });
+    if (user) {
+      this.eventLogger.log({
+        actorId: user.id,
+        entityType: 'Project',
+        entityId: project.id,
+        action: OperationalAction.PROJECT_MEMBER_REMOVED,
+        metadata: { projectId: (project as any).projectId, memberId: userId },
+      }).catch(() => {});
+    }
+    return result;
   }
 
   async remove(id: string, user?: any) {
     const project = await this.findOne(id, user);
     if (user && !this.accessPolicy.isAdmin(user)) throw new ForbiddenException('Only admins can delete projects');
-    return this.prisma.project.delete({ where: { id: project.id } });
+    const result = await this.prisma.project.delete({ where: { id: project.id } });
+    if (user) {
+      this.eventLogger.log({
+        actorId: user.id,
+        entityType: 'Project',
+        entityId: project.id,
+        action: OperationalAction.PROJECT_DELETED,
+        metadata: { projectId: (project as any).projectId },
+      }).catch(() => {});
+    }
+    return result;
   }
 
   async getStats(projectId?: string, user?: any) {

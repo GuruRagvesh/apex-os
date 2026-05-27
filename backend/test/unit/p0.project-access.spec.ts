@@ -22,7 +22,8 @@ describe('P0 project edit access', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ProjectsService(prisma, new AccessPolicyService(prisma));
+    const mockEventLogger: any = { log: jest.fn().mockResolvedValue(undefined) };
+    service = new ProjectsService(prisma, new AccessPolicyService(prisma), mockEventLogger);
   });
 
   it('blocks a manager from editing a project outside scoped departments/membership', async () => {

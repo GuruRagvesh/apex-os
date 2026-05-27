@@ -2,31 +2,62 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export enum OperationalAction {
+  // ── Tickets ──────────────────────────────────────────────────────────────
   TICKET_CREATED = 'TICKET_CREATED',
   TICKET_ASSIGNED = 'TICKET_ASSIGNED',
+  TICKET_UPDATED = 'TICKET_UPDATED',
   TICKET_STARTED = 'TICKET_STARTED',
   TICKET_SUBMITTED_FOR_REVIEW = 'TICKET_SUBMITTED_FOR_REVIEW',
   TICKET_REVIEWED = 'TICKET_REVIEWED',
   TICKET_DONE = 'TICKET_DONE',
+  TICKET_CLOSED = 'TICKET_CLOSED',
+  TICKET_REOPENED = 'TICKET_REOPENED',
   TICKET_OVERDUE = 'TICKET_OVERDUE',
   TICKET_BLOCKED = 'TICKET_BLOCKED',
-  TICKET_CANCELLED = 'TICKET_CANCELLED',
+  TICKET_CANCELLED = 'TICKET_CANCELLED',   // legacy alias kept for backward compat
   TICKET_DELETED = 'TICKET_DELETED',
+  COMMENT_ADDED = 'COMMENT_ADDED',
+  ATTACHMENT_UPLOADED = 'ATTACHMENT_UPLOADED',
+
+  // ── Projects ─────────────────────────────────────────────────────────────
+  PROJECT_CREATED = 'PROJECT_CREATED',
+  PROJECT_UPDATED = 'PROJECT_UPDATED',
+  PROJECT_MEMBER_ADDED = 'PROJECT_MEMBER_ADDED',
+  PROJECT_MEMBER_REMOVED = 'PROJECT_MEMBER_REMOVED',
+  PROJECT_DELETED = 'PROJECT_DELETED',
+
+  // ── Workday ──────────────────────────────────────────────────────────────
   WORKDAY_STARTED = 'WORKDAY_STARTED',
   BREAK_STARTED = 'BREAK_STARTED',
   BREAK_ENDED = 'BREAK_ENDED',
   IDLE_DETECTED = 'IDLE_DETECTED',
   IDLE_CLASSIFIED = 'IDLE_CLASSIFIED',
   WORKDAY_ENDED = 'WORKDAY_ENDED',
+
+  // ── Leave ─────────────────────────────────────────────────────────────────
   LEAVE_REQUESTED = 'LEAVE_REQUESTED',
   LEAVE_APPROVED = 'LEAVE_APPROVED',
   LEAVE_REJECTED = 'LEAVE_REJECTED',
+  LEAVE_CANCELLED = 'LEAVE_CANCELLED',
+
+  // ── Users / Auth ──────────────────────────────────────────────────────────
   USER_LOGIN = 'USER_LOGIN',
   USER_LOGOUT = 'USER_LOGOUT',
   USER_AUTO_LOGOUT = 'USER_AUTO_LOGOUT',
+  USER_CREATED = 'USER_CREATED',
+  USER_UPDATED = 'USER_UPDATED',
+  USER_DEACTIVATED = 'USER_DEACTIVATED',
+  USER_REACTIVATED = 'USER_REACTIVATED',
+  USER_ROLE_CHANGED = 'USER_ROLE_CHANGED',
   PROFILE_UPDATED = 'PROFILE_UPDATED',
   SENSITIVE_DATA_VIEWED = 'SENSITIVE_DATA_VIEWED',
   SENSITIVE_DATA_EDITED = 'SENSITIVE_DATA_EDITED',
+
+  // ── Settings ──────────────────────────────────────────────────────────────
+  SETTINGS_UPDATED = 'SETTINGS_UPDATED',
+
+  // ── Exports ───────────────────────────────────────────────────────────────
+  EXPORT_PERFORMED = 'EXPORT_PERFORMED',
 }
 
 @Injectable()
