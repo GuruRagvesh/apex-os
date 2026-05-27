@@ -2,15 +2,8 @@
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../platform/email/email.service';
+import { TicketTimingService } from '../../common/services/ticket-timing.service';
 import { ConfigService } from '@nestjs/config';
-
-const SLA_HOURS: Record<string, number> = { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 };
-
-function isOverdue(createdAt: Date, priority: string, status: string): boolean {
-  if (['DONE', 'CLOSED'].includes(status)) return false;
-  const elapsed = (Date.now() - createdAt.getTime()) / 3600000;
-  return elapsed > (SLA_HOURS[priority] ?? 24);
-}
 
 @Injectable()
 export class AiCronService {
@@ -19,6 +12,7 @@ export class AiCronService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private ticketTiming: TicketTimingService,
     private configService: ConfigService,
   ) {}
 
@@ -75,7 +69,13 @@ export class AiCronService {
       return;
     }
 
-    const overdueTickets = allOpen.filter((t) => isOverdue(t.createdAt, t.priority, t.status));
+    // Use DB-configured SLA values so admin changes are respected
+    const { execution: slaConfig } = await this.ticketTiming.getSlaConfig();
+    const overdueTickets = allOpen.filter((t) => {
+      if (['DONE', 'CLOSED'].includes(t.status)) return false;
+      const elapsed = (Date.now() - t.createdAt.getTime()) / 3_600_000;
+      return elapsed > (slaConfig[t.priority] ?? 24);
+    });
 
     // â”€â”€ Build email HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const dateStr = new Date().toLocaleDateString('en-GB', {

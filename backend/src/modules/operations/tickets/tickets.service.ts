@@ -14,19 +14,7 @@ function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
 
-const SLA_HOURS: Record<string, number> = {
-  URGENT: 4,
-  HIGH: 8,
-  MEDIUM: 24,
-  LOW: 72,
-};
-
-const REVIEW_SLA_HOURS: Record<string, number> = {
-  URGENT: 2,
-  HIGH: 4,
-  MEDIUM: 24,
-  LOW: 48,
-};
+// SLA hours are read from DB via TicketTimingService.getSlaConfig() — no local constants needed.
 
 @Injectable()
 export class TicketsService {
@@ -88,16 +76,10 @@ export class TicketsService {
     return new Date(new Date(base).getTime() + estimatedMinutes * 60_000);
   }
 
-  /** Query review SLA from AppSetting, fall back to hardcoded defaults. */
+  /** Query review SLA from TicketTimingService (DB-backed with fallback to defaults). */
   private async getReviewSlaHoursForPriority(priority: string): Promise<number> {
-    try {
-      const row = await this.prisma.appSetting.findUnique({ where: { key: 'review_sla' } });
-      if (row?.value) {
-        const stored = row.value as Record<string, number>;
-        if (stored[priority] != null) return stored[priority];
-      }
-    } catch { /* ignore */ }
-    return REVIEW_SLA_HOURS[priority] ?? 24;
+    const { review } = await this.ticketTiming.getSlaConfig();
+    return review[priority] ?? 24;
   }
 
   private async addSla(ticket: any) {

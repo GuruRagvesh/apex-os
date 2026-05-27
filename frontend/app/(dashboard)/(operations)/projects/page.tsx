@@ -90,7 +90,7 @@ export default function ProjectsPage() {
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', priority: 'MEDIUM', departmentId: '', endDate: '' });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['projects'],
     queryFn: () => projectsApi.getAll() as Promise<any>,
   });
@@ -181,6 +181,11 @@ export default function ProjectsPage() {
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center h-64 gap-3 apex-card">
+          <p className="text-sm" style={{ color: 'var(--color-danger)' }}>Failed to load projects.</p>
+          <button onClick={() => refetch()} className="apex-btn apex-btn-secondary text-xs">Retry</button>
         </div>
       ) : projectList.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

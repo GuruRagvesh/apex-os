@@ -28,7 +28,7 @@ export default function LeavePage() {
 
   const queryParams = tab === 'mine' ? { userId: user?.id } : tab === 'pending' ? { status: 'PENDING' } : {};
 
-  const { data: leaveData, isLoading } = useQuery({
+  const { data: leaveData, isLoading, isError, refetch } = useQuery({
     queryKey: ['leave', tab],
     queryFn: () => leaveApi.getAll(queryParams) as Promise<any>,
   });
@@ -144,6 +144,11 @@ export default function LeavePage() {
       <div className="apex-card overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /></div>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center h-40 gap-3">
+            <p className="text-sm" style={{ color: 'var(--color-danger)' }}>Failed to load leave requests.</p>
+            <button onClick={() => refetch()} className="apex-btn apex-btn-secondary text-xs">Retry</button>
+          </div>
         ) : Array.isArray(leaves) && leaves.length > 0 ? (
           <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
             {leaves.map((leave: any) => (

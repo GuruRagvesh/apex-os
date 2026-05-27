@@ -190,7 +190,7 @@ export default function ProjectDetailPage() {
             <div className="w-full bg-slate-100 rounded-full h-2.5">
               <div className="bg-blue-600 h-2.5 rounded-full transition-all" style={{ width: `${progress}%` }} />
             </div>
-            <p className="text-xs text-slate-400 mt-2">{doneTickets} of {project.tickets?.length || 0} tickets resolved</p>
+            <p className="text-xs text-slate-400 mt-2">{project.ticketStats?.done ?? project.tickets?.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length ?? 0} of {project.ticketStats?.total ?? project.tickets?.length ?? 0} tickets resolved</p>
           </div>
 
           {/* Tickets */}

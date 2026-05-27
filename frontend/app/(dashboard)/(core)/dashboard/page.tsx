@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
+import { ticketsApi } from '@/lib/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { CriticalActionPanel } from '@/components/home/CriticalActionPanel';
 import { UpcomingEvents } from '@/components/home/UpcomingEvents';
@@ -43,6 +44,16 @@ export default function HomePage() {
     },
     refetchInterval: 60000,
     staleTime: 30000,
+  });
+
+  const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
+
+  const { data: slaRisk } = useQuery({
+    queryKey: ['sla-risk'],
+    queryFn: () => ticketsApi.getSlaRisk() as Promise<any>,
+    enabled: isLeadOrAbove,
+    refetchInterval: 120000,
+    staleTime: 60000,
   });
 
   if (isLoading) return <HomeSkeleton />;
@@ -310,6 +321,46 @@ export default function HomePage() {
           className="mb-6"
         >
           <KpiCapsuleStrip capsules={kpiCapsules} />
+        </motion.section>
+      )}
+
+      {/* ── SLA RISK BANNER (managers/leads only, shown when there are at-risk tickets) ── */}
+      {isLeadOrAbove && slaRisk && (slaRisk.overdue > 0 || slaRisk.dueSoon > 0 || slaRisk.reviewAgeing > 0) && (
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.14 }}
+          className="mb-4"
+        >
+          <div
+            className="flex items-center gap-4 px-4 py-3 rounded-xl text-sm flex-wrap"
+            style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)' }}
+          >
+            <ShieldAlert size={16} style={{ color: 'var(--color-danger)', flexShrink: 0 }} />
+            <span className="font-semibold" style={{ color: 'var(--color-danger)' }}>SLA Risk</span>
+            {slaRisk.overdue > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 15%, transparent)', color: 'var(--color-danger)' }}>
+                {slaRisk.overdue} overdue
+              </span>
+            )}
+            {slaRisk.dueSoon > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 15%, transparent)', color: 'var(--color-warning)' }}>
+                {slaRisk.dueSoon} due soon
+              </span>
+            )}
+            {slaRisk.reviewAgeing > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 15%, transparent)', color: 'var(--color-warning)' }}>
+                {slaRisk.reviewAgeing} reviews ageing
+              </span>
+            )}
+            <button
+              onClick={() => router.push('/tickets')}
+              className="ml-auto text-xs font-medium flex items-center gap-1"
+              style={{ color: 'var(--color-danger)' }}
+            >
+              View tickets <ArrowRight size={12} />
+            </button>
+          </div>
         </motion.section>
       )}
 

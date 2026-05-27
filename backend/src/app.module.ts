@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { PrismaModule } from './prisma/prisma.module';
@@ -36,6 +37,11 @@ import { WorkdayModule } from './modules/platform/workday/workday.module';
 import { EventsModule } from './modules/platform/events/events.module';
 
 @Module({
+  providers: [
+    // Apply rate limiting globally: 100 requests per 60 s per IP.
+    // Individual controllers can override with @Throttle() or @SkipThrottle().
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),

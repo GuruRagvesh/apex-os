@@ -11,9 +11,8 @@ import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 
 const WS_ORIGINS = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  process.env.FRONTEND_URL,
+  'http://localhost:3000',    // local frontend dev server
+  process.env.FRONTEND_URL,  // production / staging frontend URL
 ].filter(Boolean) as string[];
 
 @WebSocketGateway({
