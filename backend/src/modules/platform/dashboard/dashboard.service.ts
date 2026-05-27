@@ -4,6 +4,7 @@ import { TicketStatus, Priority, LeaveStatus } from '@prisma/client';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
+import { AccessPolicyService } from '../../../common/services/access-policy.service';
 
 @Injectable()
 export class DashboardService {
@@ -12,6 +13,7 @@ export class DashboardService {
     private ticketAccess: TicketAccessService,
     private ticketTiming: TicketTimingService,
     private leaveAccess: LeaveAccessService,
+    private accessPolicy: AccessPolicyService,
   ) {}
 
   private andWhere(...clauses: any[]): any {
@@ -114,13 +116,18 @@ export class DashboardService {
     return data.map((d) => ({ category: d.category, count: d._count._all }));
   }
 
-  async getTicketsByDepartment() {
+  async getTicketsByDepartment(user?: any) {
+    const roleName = this.accessPolicy.roleName(user);
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
+
+    const deptWhere = isAdmin ? {} : { id: { in: await this.accessPolicy.managedDepartmentIds(user) } };
+    const ticketWhere = await this.ticketAccess.buildTicketWhereForUser({}, user);
+
     const departments = await this.prisma.department.findMany({
+      where: deptWhere,
       include: {
-        _count: {
-          select: { tickets: true },
-        },
         tickets: {
+          where: ticketWhere,
           select: { status: true },
         },
       },
@@ -130,18 +137,33 @@ export class DashboardService {
       id: dept.id,
       name: dept.name,
       color: dept.color,
-      total: dept._count.tickets,
+      total: dept.tickets.length,
       open: dept.tickets.filter((t) => t.status === TicketStatus.OPEN).length,
       inProgress: dept.tickets.filter((t) => t.status === TicketStatus.IN_PROGRESS).length,
       done: dept.tickets.filter((t) => t.status === TicketStatus.DONE).length,
     }));
   }
 
-  async getActivityFeed(limit = 20) {
+  async getActivityFeed(limit = 20, user?: any) {
+    const roleName = this.accessPolicy.roleName(user);
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
+
+    let whereClause = {};
+    if (!isAdmin && user) {
+      const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+      whereClause = {
+        OR: [
+          { userId: user.id },
+          { user: { departmentId: { in: deptIds } } },
+        ],
+      };
+    }
+
     return this.prisma.activityLog.findMany({
+      where: whereClause,
       take: limit,
       orderBy: { createdAt: 'desc' },
-      include: { user: { select: { id: true, name: true, avatar: true } } },
+      include: { user: { select: { id: true, name: true, avatar: true, departmentId: true } } },
     });
   }
 

@@ -310,5 +310,67 @@ describe('API Smoke Tests', () => {
       const empOpen   = empRes.body.openTickets  ?? empRes.body.open  ?? 0;
       expect(adminOpen).toBeGreaterThanOrEqual(empOpen);
     });
+
+    it('GET /api/dashboard/tickets-by-department limits department list based on role scope', async () => {
+      const adminToken    = await bearerFor(app, 'admin');
+      const employeeToken = await bearerFor(app, 'employee');
+
+      const adminRes = await request(app.getHttpServer())
+        .get('/api/dashboard/tickets-by-department')
+        .set('Authorization', adminToken)
+        .expect(200);
+
+      const empRes = await request(app.getHttpServer())
+        .get('/api/dashboard/tickets-by-department')
+        .set('Authorization', employeeToken)
+        .expect(200);
+
+      expect(adminRes.body.length).toBeGreaterThan(0);
+      // Employee should only see their scoped departments, which is strictly less than or equal to total departments
+      expect(empRes.body.length).toBeLessThanOrEqual(adminRes.body.length);
+
+      // Verify employee only sees their own department's counts
+      const employeeUser = await request(app.getHttpServer())
+        .get('/api/auth/me')
+        .set('Authorization', employeeToken)
+        .expect(200);
+      const empDeptId = employeeUser.body.departmentId;
+
+      for (const dept of empRes.body) {
+        expect(dept.id).toBe(empDeptId);
+      }
+    });
+
+    it('GET /api/dashboard/activity-feed scopes activity logs based on role scope', async () => {
+      const adminToken    = await bearerFor(app, 'admin');
+      const employeeToken = await bearerFor(app, 'employee');
+
+      const adminRes = await request(app.getHttpServer())
+        .get('/api/dashboard/activity-feed')
+        .set('Authorization', adminToken)
+        .expect(200);
+
+      const empRes = await request(app.getHttpServer())
+        .get('/api/dashboard/activity-feed')
+        .set('Authorization', employeeToken)
+        .expect(200);
+
+      expect(Array.isArray(adminRes.body)).toBe(true);
+      expect(Array.isArray(empRes.body)).toBe(true);
+
+      const employeeUser = await request(app.getHttpServer())
+        .get('/api/auth/me')
+        .set('Authorization', employeeToken)
+        .expect(200);
+      const empDeptId = employeeUser.body.departmentId;
+      const empId = employeeUser.body.id;
+
+      for (const log of empRes.body) {
+        const actor = log.user;
+        const isOwnActivity = actor.id === empId;
+        const isSameDepartment = actor.departmentId === empDeptId;
+        expect(isOwnActivity || isSameDepartment).toBe(true);
+      }
+    });
   });
 });

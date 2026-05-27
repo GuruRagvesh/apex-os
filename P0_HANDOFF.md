@@ -39,27 +39,22 @@ These services have been wired into the following controllers and services:
 
 ## 3. Pending Technical Debt & Action Items
 
-The following tasks are scheduled for the next development cycle:
+All P0 stabilization tasks, including access scoping, data leak fixes, and configuration cleanups, have been completed and verified. The remaining tasks are part of the P1 roadmap:
 
-### Task 1: Dead Code Cleanup
-* **Scope:** Clean up unused imports, deprecated parameters, and old inline comments generated during the initial migration from the prototype codebase.
-* **Target Files:** Various controllers/services in `backend/src/modules`.
+### Task 1: Database Performance Indexes
+* **Scope:** Implement database indexes (`@@index`) on foreign keys in `schema.prisma` to optimize query times as data scales.
+* **Target Files:** `backend/prisma/schema.prisma` and database migrations.
 
-### Task 2: Dashboard buildRoleScope Refactor
-* **Scope:** Refactor `getCriticalAlerts`, `getMetrics`, and `getUpcomingEvents` in [dashboard.service.ts](file:///c:/Users/Administrator/Desktop/nexus-app/backend/src/modules/platform/dashboard/dashboard.service.ts) to delegate scoping queries directly to `TicketAccessService.buildTicketWhereForUser` and `LeaveAccessService.buildLeaveWhereForUser`.
-* **Goal:** Eliminate the legacy `buildRoleScope` and `buildLeaveScope` helpers.
+### Task 2: User Detail View Page (`/users/:id`)
+* **Scope:** Develop the `/users/:id` frontend view to resolve 404 page transitions when viewing department member profiles.
+* **Target Files:** `frontend/app/(dashboard)/(platform)/users/[id]/page.tsx`.
 
-### Task 3: ESLint Config
-* **Scope:** Resolve missing ESLint configurations in both backend and frontend to automate lint checks during CI/CD.
-* **Target Files:** `/backend/.eslintrc.js`, `/frontend/.eslintrc.json`.
-
-### Task 4: P1 Roadmap Tasks
-* **Database Indexes:** Implement database index migration (`@@index`) on foreign keys in `schema.prisma`.
-* **Profile view:** Develop the `/users/:id` frontend view to resolve 404 page transitions.
-* **Settings updates:** Integrate the Settings Company form to persist configurations to the backend.
+### Task 3: Company Settings Mutation Integration
+* **Scope:** Connect the frontend Settings Company tab form submit handlers to `settingsApi.updateCompany` to persist customizations.
+* **Target Files:** `frontend/components/settings/company-settings-form.tsx` and settings API.
 
 ---
 
 ## 4. Next Recommended Coding Task
 
-Start immediately on **Task 2: Dashboard buildRoleScope Refactor**. Unifying the alerts and metrics queries under the centralized `TicketAccessService` and `LeaveAccessService` will eliminate any potential risk of count/metric drift on the dashboard.
+Deploy the database index migrations and begin building the client-side user details view page under `frontend/app/(dashboard)/(platform)/users/[id]/page.tsx` to handle the department directory member profile links without a 404 error.

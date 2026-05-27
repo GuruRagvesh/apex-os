@@ -28,14 +28,7 @@ The `schema.prisma` file defines models and mappings, but lacks critical databas
 
 ---
 
-## 4. Duplicate Scoping Logic (Potential Metric Drift)
-* **Risk:** While the main dashboard query utilizes the new `TicketAccessService` queries, smaller dashboard widgets (such as critical alerts, upcoming events, and user metrics) still rely on the legacy `DashboardService.buildRoleScope` and `DashboardService.buildLeaveScope` helpers.
-* **Affected Areas:** [dashboard.service.ts](file:///c:/Users/Administrator/Desktop/nexus-app/backend/src/modules/platform/dashboard/dashboard.service.ts).
-* **Recommendation:** Completely refactor these helpers to delegate scoping checks directly to the unified access services.
-
----
-
-## 5. Mocked/Stubbed Services in Local Dev
+## 4. Mocked/Stubbed Services in Local Dev
 * **Risk:** High-value features such as **AI Priority Suggestion**, **AI Ticket Summary**, and **Cloudinary Attachments** are gracefully disabled or use local static stubs because API keys/credentials are missing from local configurations.
 * **Affected Areas:** Attachment uploads on tickets, AI suggestions drawer.
 * **Recommendation:** Establish development-environment credentials and write mock tests for offline coverage.

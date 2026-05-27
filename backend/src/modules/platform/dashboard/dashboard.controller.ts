@@ -1,4 +1,4 @@
-﻿import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -20,11 +20,11 @@ export class DashboardController {
   getTicketsByCategory(@CurrentUser() user: any) { return this.dashboardService.getTicketsByCategory(user); }
 
   @Get('tickets-by-department')
-  getTicketsByDepartment() { return this.dashboardService.getTicketsByDepartment(); }
+  getTicketsByDepartment(@CurrentUser() user: any) { return this.dashboardService.getTicketsByDepartment(user); }
 
   @Get('activity-feed')
-  getActivityFeed(@Query('limit') limit?: string) {
-    return this.dashboardService.getActivityFeed(limit ? parseInt(limit) : 20);
+  getActivityFeed(@CurrentUser() user: any, @Query('limit') limit?: string) {
+    return this.dashboardService.getActivityFeed(limit ? parseInt(limit) : 20, user);
   }
 
   @Get('workload')
