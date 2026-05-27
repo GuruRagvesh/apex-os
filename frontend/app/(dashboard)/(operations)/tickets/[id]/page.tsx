@@ -57,7 +57,10 @@ function SlaTimer({ createdAt, slaHours, slaPercent, isOverdue }: {
     <div className="space-y-1">
       <div className="flex items-center gap-2 flex-wrap">
         <Timer size={13} className={isOverdue ? 'text-red-400' : 'text-slate-400'} />
-        <span className={cn('text-xs', isOverdue ? 'text-red-500 font-medium' : 'text-slate-600 dark:text-gray-400')}>
+        <span
+          className={cn('text-xs', isOverdue ? 'text-red-500 font-medium' : '')}
+          style={!isOverdue ? { color: 'var(--text-secondary)' } : undefined}
+        >
           {label}{slaHours ? ` · SLA: ${slaHours}h` : ''}
         </span>
         {isOverdue && (
@@ -67,7 +70,7 @@ function SlaTimer({ createdAt, slaHours, slaPercent, isOverdue }: {
         )}
       </div>
       {typeof pct === 'number' && (
-        <div className="w-full h-1.5 bg-slate-100 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
           <div className={cn('h-full rounded-full transition-all', barColor)} style={{ width: `${Math.min(pct, 100)}%` }} />
         </div>
       )}
@@ -84,7 +87,10 @@ function CopyableId({ ticketId }: { ticketId: string }) {
           toast.success(`Copied ${ticketId}`, { duration: 2000 }),
         );
       }}
-      className="group flex items-center gap-1 text-slate-400 dark:text-gray-500 font-mono text-sm font-medium hover:text-slate-600 dark:hover:text-gray-300 transition-colors"
+      className="group flex items-center gap-1 font-mono text-sm font-medium transition-colors"
+      style={{ color: 'var(--text-tertiary)' }}
+      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
+      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-tertiary)')}
       title="Click to copy"
     >
       {ticketId}
@@ -128,9 +134,17 @@ function AttachmentCard({ att }: { att: any }) {
   };
 
   return (
-    <div className="flex items-start gap-2 p-2.5 border border-slate-200 dark:border-gray-700 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800/50 transition-colors">
+    <div
+      className="flex items-start gap-2 p-2.5 rounded-lg transition-colors border"
+      style={{ borderColor: 'var(--border-primary)' }}
+      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+    >
       {/* Thumbnail / Icon */}
-      <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-slate-100 dark:bg-gray-800 flex items-center justify-center">
+      <div
+        className="w-10 h-10 rounded overflow-hidden flex-shrink-0 flex items-center justify-center"
+        style={{ backgroundColor: 'var(--bg-tertiary)' }}
+      >
         {isImage && isRemote ? (
           <img src={att.url} alt={att.filename} className="w-full h-full object-cover" />
         ) : isPdf ? (
@@ -138,21 +152,21 @@ function AttachmentCard({ att }: { att: any }) {
         ) : isDoc ? (
           <FileText size={18} className="text-blue-400" />
         ) : (
-          <FileText size={18} className="text-slate-400 dark:text-gray-500" />
+          <FileText size={18} style={{ color: 'var(--text-tertiary)' }} />
         )}
       </div>
 
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <p className="text-xs font-medium text-slate-700 dark:text-gray-300 truncate max-w-[120px]">{att.filename}</p>
+          <p className="text-xs font-medium truncate max-w-[120px]" style={{ color: 'var(--text-secondary)' }}>{att.filename}</p>
           {att.isPoc && (
-            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-1.5 py-0.5 rounded">
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
               POC
             </span>
           )}
         </div>
-        <p className="text-[10px] text-slate-400 dark:text-gray-500 mt-0.5">
+        <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
           {sizeKb ? `${sizeKb} KB · ` : ''}
           {att.createdAt ? new Date(att.createdAt).toLocaleDateString() : ''}
         </p>
@@ -163,14 +177,20 @@ function AttachmentCard({ att }: { att: any }) {
         <button
           onClick={handleView}
           title="View"
-          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-500 dark:text-gray-400 transition-colors"
+          className="p-1 rounded transition-colors"
+          style={{ color: 'var(--text-tertiary)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
         >
           <Eye size={13} />
         </button>
         <button
           onClick={handleDownload}
           title="Download"
-          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-500 dark:text-gray-400 transition-colors"
+          className="p-1 rounded transition-colors"
+          style={{ color: 'var(--text-tertiary)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
         >
           <Download size={13} />
         </button>
@@ -213,30 +233,37 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-indigo-100 dark:border-indigo-900/50 overflow-hidden">
+    <div className="apex-card overflow-hidden">
       {/* Header — always visible */}
       <button
         onClick={handleToggle}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 transition-colors"
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
       >
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md flex items-center justify-center"
             style={{ background: 'linear-gradient(135deg,#1e40af,#4f46e5)' }}>
             <Sparkles size={12} className="text-white" />
           </div>
-          <span className="text-sm font-semibold text-slate-700 dark:text-gray-300">AI Suggestions</span>
-          <span className="text-[10px] font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded">GPT-4o mini</span>
+          <span className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>AI Suggestions</span>
+          <span
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+            style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
+          >
+            GPT-4o mini
+          </span>
         </div>
         {open
-          ? <ChevronUp size={15} className="text-slate-400 dark:text-gray-500" />
-          : <ChevronDown size={15} className="text-slate-400 dark:text-gray-500" />}
+          ? <ChevronUp size={15} style={{ color: 'var(--text-tertiary)' }} />
+          : <ChevronDown size={15} style={{ color: 'var(--text-tertiary)' }} />}
       </button>
 
       {/* Collapsible body */}
       {open && (
-        <div className="px-4 pb-4 border-t border-indigo-50 dark:border-gray-800">
+        <div className="px-4 pb-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
           {isLoading && (
-            <div className="flex items-center gap-2 py-4 text-sm text-slate-500 dark:text-gray-400">
+            <div className="flex items-center gap-2 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
               <Loader2 size={16} className="animate-spin text-indigo-400" />
               Analysing ticket with AI…
             </div>
@@ -248,9 +275,9 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
           )}
           {aiDisabled && (
             <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
-              <Sparkles size={20} className="text-slate-300 dark:text-gray-600" />
-              <p className="text-sm text-slate-600 dark:text-gray-400 font-medium">AI suggestions coming soon</p>
-              <p className="text-xs text-slate-400 dark:text-gray-500">Smart next-action, assignee and time-estimate suggestions will appear here.</p>
+              <Sparkles size={20} style={{ color: 'var(--text-tertiary)' }} />
+              <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>AI suggestions coming soon</p>
+              <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Smart next-action, assignee and time-estimate suggestions will appear here.</p>
             </div>
           )}
           {data && !aiDisabled && (
@@ -259,8 +286,8 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
                 <div key={row.label} className="flex items-start gap-2.5">
                   <div className="mt-0.5 flex-shrink-0">{row.icon}</div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-gray-500">{row.label}</p>
-                    <p className="text-sm text-slate-700 dark:text-gray-300 mt-0.5">{row.value}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{row.label}</p>
+                    <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{row.value}</p>
                   </div>
                 </div>
               ))}
@@ -303,15 +330,18 @@ function PocUploadModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+      <div className="apex-card rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
-            <Paperclip size={18} className="text-purple-600 dark:text-purple-400" />
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: 'var(--accent-subtle)' }}
+          >
+            <Paperclip size={18} style={{ color: 'var(--accent)' }} />
           </div>
           <div>
-            <h3 className="font-bold text-slate-800 dark:text-white text-base">Upload Proof of Completion</h3>
-            <p className="text-xs text-slate-500 dark:text-gray-400">
+            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Upload Proof of Completion</h3>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               Moving this ticket to Review requires uploading proof of work completed.
             </p>
           </div>
@@ -321,10 +351,12 @@ function PocUploadModal({
         <div
           className={cn(
             'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
-            dragOver
-              ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/10'
-              : 'border-slate-200 dark:border-gray-700 hover:border-purple-300',
+            dragOver ? 'border-purple-400' : 'hover:border-purple-300',
           )}
+          style={{
+            borderColor: dragOver ? '#a855f7' : 'var(--border-primary)',
+            backgroundColor: dragOver ? 'var(--accent-subtle)' : 'transparent',
+          }}
           onClick={() => fileRef.current?.click()}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -338,16 +370,16 @@ function PocUploadModal({
           {selectedFile ? (
             <div className="flex items-center justify-center gap-2">
               <FileText size={18} className="text-purple-500" />
-              <span className="text-sm font-medium text-slate-700 dark:text-gray-300 truncate max-w-[200px]">
+              <span className="text-sm font-medium truncate max-w-[200px]" style={{ color: 'var(--text-secondary)' }}>
                 {selectedFile.name}
               </span>
-              <span className="text-xs text-slate-400">({Math.round(selectedFile.size / 1024)} KB)</span>
+              <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>({Math.round(selectedFile.size / 1024)} KB)</span>
             </div>
           ) : (
             <>
-              <Upload size={24} className="mx-auto text-slate-400 dark:text-gray-500 mb-2" />
-              <p className="text-sm font-medium text-slate-600 dark:text-gray-400">Drop files here or click to upload</p>
-              <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">Supports: PDF, PNG, JPG, DOC (max 5MB)</p>
+              <Upload size={24} className="mx-auto mb-2" style={{ color: 'var(--text-tertiary)' }} />
+              <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Drop files here or click to upload</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Supports: PDF, PNG, JPG, DOC (max 5MB)</p>
             </>
           )}
           <input
@@ -364,7 +396,14 @@ function PocUploadModal({
           <button
             onClick={onSkip}
             disabled={isUploading}
-            className="flex-1 py-2.5 text-sm text-slate-600 dark:text-gray-400 border border-slate-200 dark:border-gray-700 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+            className="flex-1 py-2.5 text-sm rounded-lg border transition-colors disabled:opacity-50"
+            style={{
+              color: 'var(--text-secondary)',
+              borderColor: 'var(--border-primary)',
+              backgroundColor: 'var(--surface-card)',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-card)')}
           >
             Skip for now
           </button>
@@ -575,7 +614,7 @@ export default function TicketDetailPage() {
   };
 
   if (isLoading) return <SkeletonTicketDetail />;
-  if (!ticket) return <div className="text-center py-12 text-slate-500">Ticket not found</div>;
+  if (!ticket) return <div className="text-center py-12" style={{ color: 'var(--text-secondary)' }}>Ticket not found</div>;
 
   const vis = getTicketVisibility({
     status: ticket?.status,
@@ -612,8 +651,13 @@ export default function TicketDetailPage() {
           : ticket?.status === 'IN_PROGRESS' ? 'bg-yellow-400'
           : ticket?.status === 'REVIEW' ? 'bg-purple-400'
           : ticket?.status === 'DONE' ? 'bg-green-400'
-          : 'bg-slate-300 dark:bg-slate-600'
-      }`} />
+          : ''
+      }`}
+      style={!ticket?.isOverdue && !['IN_PROGRESS','REVIEW','DONE'].includes(ticket?.status)
+        ? { backgroundColor: 'var(--border-secondary)' }
+        : undefined}
+      />
+
       {/* POC Upload Modal */}
       {showPocModal && (
         <PocUploadModal
@@ -624,58 +668,59 @@ export default function TicketDetailPage() {
           isUploading={pocUploading}
         />
       )}
+
       {/* Edit Modal */}
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
-            <h3 className="font-bold text-slate-800 dark:text-white text-base">Edit Ticket</h3>
+          <div className="apex-card rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Edit Ticket</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Title</label>
+                <label className="apex-label">Title</label>
                 <input
                   type="text"
                   value={editForm.title}
                   onChange={(e) => setEditForm((f: any) => ({ ...f, title: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100"
+                  className="apex-input"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Description</label>
+                <label className="apex-label">Description</label>
                 <textarea
                   value={editForm.description}
                   onChange={(e) => setEditForm((f: any) => ({ ...f, description: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 resize-none"
+                  className="apex-input resize-none"
                   rows={3}
                 />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Priority</label>
-                  <select value={editForm.priority} onChange={(e) => setEditForm((f: any) => ({ ...f, priority: e.target.value }))} className="w-full px-2 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100">
+                  <label className="apex-label">Priority</label>
+                  <select value={editForm.priority} onChange={(e) => setEditForm((f: any) => ({ ...f, priority: e.target.value }))} className="apex-select w-full">
                     {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Category</label>
-                  <select value={editForm.category} onChange={(e) => setEditForm((f: any) => ({ ...f, category: e.target.value }))} className="w-full px-2 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100">
+                  <label className="apex-label">Category</label>
+                  <select value={editForm.category} onChange={(e) => setEditForm((f: any) => ({ ...f, category: e.target.value }))} className="apex-select w-full">
                     {['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'].map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Type</label>
-                  <select value={editForm.type} onChange={(e) => setEditForm((f: any) => ({ ...f, type: e.target.value }))} className="w-full px-2 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100">
+                  <label className="apex-label">Type</label>
+                  <select value={editForm.type} onChange={(e) => setEditForm((f: any) => ({ ...f, type: e.target.value }))} className="apex-select w-full">
                     {['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST'].map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Due Date</label>
-                  <input type="date" value={editForm.dueDate} onChange={(e) => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100" />
+                  <label className="apex-label">Due Date</label>
+                  <input type="date" value={editForm.dueDate} onChange={(e) => setEditForm((f: any) => ({ ...f, dueDate: e.target.value }))} className="apex-input" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Est. Minutes</label>
-                  <input type="number" min="1" step="1" value={editForm.estimatedMinutes} onChange={(e) => setEditForm((f: any) => ({ ...f, estimatedMinutes: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100" placeholder="e.g. 60 for 1 hour" />
+                  <label className="apex-label">Est. Minutes</label>
+                  <input type="number" min="1" step="1" value={editForm.estimatedMinutes} onChange={(e) => setEditForm((f: any) => ({ ...f, estimatedMinutes: e.target.value }))} className="apex-input" placeholder="e.g. 60 for 1 hour" />
                 </div>
               </div>
             </div>
@@ -692,7 +737,17 @@ export default function TicketDetailPage() {
               >
                 {editMutation.isPending ? 'Saving…' : 'Save Changes'}
               </button>
-              <button onClick={() => setEditing(false)} className="flex-1 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-sm transition-colors">
+              <button
+                onClick={() => setEditing(false)}
+                className="flex-1 py-2.5 rounded-lg text-sm transition-colors border"
+                style={{
+                  borderColor: 'var(--border-primary)',
+                  color: 'var(--text-secondary)',
+                  backgroundColor: 'var(--surface-card)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-card)')}
+              >
                 Cancel
               </button>
             </div>
@@ -701,27 +756,36 @@ export default function TicketDetailPage() {
       )}
 
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mb-4 flex-wrap">
+      <nav className="flex items-center gap-1 text-sm mb-4 flex-wrap" style={{ color: 'var(--text-secondary)' }}>
         {breadcrumbs.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1">
             {i > 0 && <ChevronRight className="w-3 h-3 flex-shrink-0" />}
             {crumb.href ? (
               <Link
                 href={crumb.href}
-                className="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                className="transition-colors hover:underline"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
               >
                 {crumb.label}
               </Link>
             ) : (
-              <span className="text-gray-900 dark:text-gray-100 font-medium">{crumb.label}</span>
+              <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{crumb.label}</span>
             )}
           </span>
         ))}
       </nav>
+
       {/* Header */}
       <div className="flex items-start gap-3">
-        <button onClick={handleBack} className="p-2 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-lg transition-colors mt-0.5">
-          <ArrowLeft size={18} className="text-slate-500 dark:text-gray-400" />
+        <button
+          onClick={handleBack}
+          className="p-2 rounded-lg transition-colors mt-0.5"
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+        >
+          <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
         </button>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -741,9 +805,9 @@ export default function TicketDetailPage() {
               </span>
             )}
           </div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">{ticket.title}</h2>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{ticket.title}</h2>
           <TimingTicker ticket={ticket} showLabel className="text-sm mt-1" />
-          <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">
+          <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
         </div>
@@ -794,7 +858,7 @@ export default function TicketDetailPage() {
                 value={rejectComment}
                 onChange={(e) => setRejectComment(e.target.value)}
                 placeholder="Reason for rejection..."
-                className="w-full text-sm px-3 py-2 border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100"
+                className="apex-input"
               />
               <div className="flex gap-2">
                 <button
@@ -837,16 +901,16 @@ export default function TicketDetailPage() {
         <div className="lg:col-span-2 space-y-4">
           {/* Description */}
           {ticket.description && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-5">
-              <h3 className="font-semibold text-slate-700 dark:text-gray-300 text-sm mb-3">Description</h3>
-              <p className="text-sm text-slate-600 dark:text-gray-400 whitespace-pre-wrap leading-relaxed">{ticket.description}</p>
+            <div className="apex-card p-5">
+              <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>Description</h3>
+              <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{ticket.description}</p>
             </div>
           )}
 
           {/* Tabs */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700">
+          <div className="apex-card">
             {/* Tab Header */}
-            <div className="flex border-b border-slate-100 dark:border-gray-800 overflow-x-auto">
+            <div className="flex border-b overflow-x-auto" style={{ borderColor: 'var(--border-subtle)' }}>
               {tabs.map((t) => (
                 <button
                   key={t.key}
@@ -854,15 +918,19 @@ export default function TicketDetailPage() {
                   className={cn(
                     'flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap',
                     activeTab === t.key
-                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent hover:text-slate-700',
                   )}
+                  style={activeTab !== t.key ? { color: 'var(--text-secondary)' } : undefined}
                 >
                   {t.key === 'history' && <History size={13} />}
                   {t.key === 'attachments' && <Paperclip size={13} />}
                   {t.label}
                   {typeof t.count === 'number' && (
-                    <span className="text-xs bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 px-1.5 py-0.5 rounded-full">
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded-full"
+                      style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}
+                    >
                       {t.count}
                     </span>
                   )}
@@ -873,9 +941,9 @@ export default function TicketDetailPage() {
             {/* Comments Tab */}
             {activeTab === 'comments' && (
               <>
-                <div className="divide-y divide-slate-50 dark:divide-gray-800">
+                <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
                   {ticket.comments?.map((c: any) => (
-                    <div key={c.id} className="px-5 py-4">
+                    <div key={c.id} className="px-5 py-4" style={{ borderColor: 'var(--border-subtle)' }}>
                       <div className="flex items-center gap-2 mb-2">
                         <div className={cn(
                           'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0',
@@ -883,23 +951,25 @@ export default function TicketDetailPage() {
                         )}>
                           <span className="text-white text-xs font-semibold">{getInitials(c.author?.name)}</span>
                         </div>
-                        <span className="text-sm font-medium text-slate-800 dark:text-gray-200">{c.author?.name}</span>
-                        <span className="text-xs text-slate-400 dark:text-gray-500 ml-auto">{formatRelativeTime(c.createdAt)}</span>
+                        <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{c.author?.name}</span>
+                        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>{formatRelativeTime(c.createdAt)}</span>
                       </div>
                       <p className={cn(
                         'text-sm ml-9',
-                        c.content?.startsWith('[REJECTED]') ? 'text-red-600 font-medium' : 'text-slate-600 dark:text-gray-400',
-                      )}>
+                        c.content?.startsWith('[REJECTED]') ? 'text-red-600 font-medium' : '',
+                      )}
+                      style={!c.content?.startsWith('[REJECTED]') ? { color: 'var(--text-secondary)' } : undefined}
+                      >
                         {c.content}
                       </p>
                     </div>
                   ))}
                   {(!ticket.comments || ticket.comments.length === 0) && (
-                    <div className="px-5 py-6 text-sm text-slate-400 dark:text-gray-500 text-center">No comments yet</div>
+                    <div className="px-5 py-6 text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>No comments yet</div>
                   )}
                 </div>
                 {/* Add Comment */}
-                <div className="px-5 py-4 border-t border-slate-100 dark:border-gray-800">
+                <div className="px-5 py-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
                   <div className="flex gap-3">
                     <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-white text-xs font-semibold">{getInitials(user?.name || 'U')}</span>
@@ -911,7 +981,7 @@ export default function TicketDetailPage() {
                         onChange={(e) => setComment(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && submitComment()}
                         placeholder="Add a comment..."
-                        className="flex-1 text-sm px-3 py-2 border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500"
+                        className="flex-1 apex-input"
                       />
                       <button
                         onClick={submitComment}
@@ -928,27 +998,30 @@ export default function TicketDetailPage() {
 
             {/* History Tab */}
             {activeTab === 'history' && (
-              <div className="divide-y divide-slate-50 dark:divide-gray-800">
+              <div>
                 {!history ? (
-                  <div className="px-5 py-6 text-sm text-slate-400 dark:text-gray-500 text-center">Loading...</div>
+                  <div className="px-5 py-6 text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>Loading...</div>
                 ) : history.length === 0 ? (
-                  <div className="px-5 py-6 text-sm text-slate-400 dark:text-gray-500 text-center">No changes recorded yet</div>
+                  <div className="px-5 py-6 text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>No changes recorded yet</div>
                 ) : history.map((h: any) => (
-                  <div key={h.id} className="px-5 py-3 flex items-start gap-3">
-                    <div className="w-6 h-6 bg-slate-200 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-slate-600 dark:text-gray-300 text-[10px] font-bold">{getInitials(h.changedBy?.name)}</span>
+                  <div key={h.id} className="px-5 py-3 flex items-start gap-3 border-b last:border-0" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{ backgroundColor: 'var(--bg-tertiary)' }}
+                    >
+                      <span className="text-[10px] font-bold" style={{ color: 'var(--text-secondary)' }}>{getInitials(h.changedBy?.name)}</span>
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm text-slate-700 dark:text-gray-300">
+                      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                         <span className="font-medium">{h.changedBy?.name}</span>
                         {' changed '}
                         <span className="font-medium">{FIELD_LABELS[h.field] ?? h.field}</span>
                         {' from '}
-                        <span className="text-slate-400 dark:text-gray-500 line-through">{humanValue(h.field, h.oldValue)}</span>
+                        <span className="line-through" style={{ color: 'var(--text-tertiary)' }}>{humanValue(h.field, h.oldValue)}</span>
                         {' → '}
-                        <span className="font-medium text-slate-800 dark:text-white">{humanValue(h.field, h.newValue)}</span>
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{humanValue(h.field, h.newValue)}</span>
                       </p>
-                      <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">{formatRelativeTime(h.changedAt)}</p>
+                      <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{formatRelativeTime(h.changedAt)}</p>
                     </div>
                   </div>
                 ))}
@@ -959,8 +1032,11 @@ export default function TicketDetailPage() {
             {activeTab === 'attachments' && (
               <div className="p-5 space-y-4">
                 <div
-                  className="border-2 border-dashed border-slate-200 dark:border-gray-700 rounded-xl p-6 text-center hover:border-blue-400 dark:hover:border-blue-500 transition-colors cursor-pointer"
+                  className="border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer"
+                  style={{ borderColor: 'var(--border-primary)' }}
                   onClick={() => fileInputRef.current?.click()}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-primary)')}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault();
@@ -970,11 +1046,11 @@ export default function TicketDetailPage() {
                     uploadMutation.mutate(file);
                   }}
                 >
-                  <Upload size={24} className="mx-auto text-slate-400 dark:text-gray-500 mb-2" />
-                  <p className="text-sm text-slate-500 dark:text-gray-400 font-medium">
+                  <Upload size={24} className="mx-auto mb-2" style={{ color: 'var(--text-tertiary)' }} />
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
                     {uploadMutation.isPending ? 'Uploading...' : 'Drop a file or click to upload'}
                   </p>
-                  <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">Max 5 MB · Images, PDFs, docs</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Max 5 MB · Images, PDFs, docs</p>
                   <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
                 </div>
 
@@ -985,7 +1061,7 @@ export default function TicketDetailPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-400 dark:text-gray-500 text-center">No attachments yet</p>
+                  <p className="text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>No attachments yet</p>
                 )}
               </div>
             )}
@@ -995,8 +1071,8 @@ export default function TicketDetailPage() {
         {/* Sidebar */}
         <div className="space-y-4">
           {/* Status stepper */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4">
-            <h3 className="font-semibold text-slate-700 dark:text-gray-300 text-sm mb-3">Status</h3>
+          <div className="apex-card p-4">
+            <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>Status</h3>
             {(() => {
               const steps = ['OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE'];
               const currentIdx = steps.indexOf(ticket.status);
@@ -1019,30 +1095,52 @@ export default function TicketDetailPage() {
                             ? 'bg-blue-600 text-white ring-2 ring-blue-300'
                             : isPast
                             ? 'bg-green-50 text-green-700 cursor-pointer hover:bg-green-100'
-                            : isNext && canEdit
-                            ? 'bg-slate-50 dark:bg-gray-800 text-slate-600 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-400 cursor-pointer border border-dashed border-slate-200 dark:border-gray-700'
-                            : 'bg-slate-50 dark:bg-gray-800 text-slate-300 dark:text-gray-600 cursor-not-allowed',
+                            : '',
                         )}
+                        style={!isCurrent && !isPast ? {
+                          backgroundColor: 'var(--bg-tertiary)',
+                          color: isNext && canEdit ? 'var(--text-secondary)' : 'var(--text-tertiary)',
+                          cursor: isNext && canEdit ? 'pointer' : 'not-allowed',
+                          border: isNext && canEdit ? '1px dashed var(--border-secondary)' : 'none',
+                        } : undefined}
+                        onMouseEnter={(e) => {
+                          if (isNext && canEdit && !isCurrent && !isPast) {
+                            e.currentTarget.style.backgroundColor = 'var(--accent-subtle)';
+                            e.currentTarget.style.color = 'var(--accent)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (isNext && canEdit && !isCurrent && !isPast) {
+                            e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
+                            e.currentTarget.style.color = 'var(--text-secondary)';
+                          }
+                        }}
                       >
                         <span className="flex-shrink-0">
                           {isPast ? '✓' : isCurrent ? '●' : '○'}
                         </span>
                         {STATUS_LABELS[s] ?? s}
                         {isNext && canEdit && !isClosed && (
-                          <span className="ml-auto text-[10px] text-slate-400">→ advance</span>
+                          <span className="ml-auto text-[10px]" style={{ color: 'var(--text-tertiary)' }}>→ advance</span>
                         )}
                       </button>
                     );
                   })}
                   {isClosed ? (
-                    <div className="px-3 py-2 rounded-lg bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 text-xs font-medium flex items-center gap-2">
+                    <div
+                      className="px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2"
+                      style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+                    >
                       <span>✕</span> Closed
                     </div>
                   ) : canEdit && (
                     <button
                       onClick={() => updateStatus.mutate('CLOSED')}
                       disabled={updateStatus.isPending || pocUploading}
-                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
+                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
                     >
                       Close ticket
                     </button>
@@ -1053,19 +1151,19 @@ export default function TicketDetailPage() {
           </div>
 
           {/* Details */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4 space-y-3">
-            <h3 className="font-semibold text-slate-700 dark:text-gray-300 text-sm">Details</h3>
+          <div className="apex-card p-4 space-y-3">
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--text-secondary)' }}>Details</h3>
 
             {/* Assignee(s) */}
             <div>
-              <p className="text-xs text-slate-400 dark:text-gray-500 mb-1.5 flex items-center gap-1">
+              <p className="text-xs mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
                 <Users size={11} /> Assignees
               </p>
               {canEdit ? (
                 <select
                   value={ticket.assignedToId || ''}
                   onChange={(e) => assignMutation.mutate(e.target.value)}
-                  className="w-full text-xs border border-slate-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100"
+                  className="apex-select w-full text-xs"
                 >
                   <option value="">Unassigned</option>
                   {(Array.isArray(users) ? users : (users as any)?.users ?? []).map((u: any) => (
@@ -1080,11 +1178,14 @@ export default function TicketDetailPage() {
                     <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-white text-[10px] font-bold">{getInitials(ticket.assignedTo.name)}</span>
                     </div>
-                    <span className="text-xs text-slate-700 dark:text-gray-300">{ticket.assignedTo.name}</span>
-                    <span className="text-[9px] text-slate-400 bg-slate-100 dark:bg-gray-800 px-1 py-0.5 rounded">Primary</span>
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{ticket.assignedTo.name}</span>
+                    <span
+                      className="text-[9px] px-1 py-0.5 rounded"
+                      style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}
+                    >Primary</span>
                   </div>
                 ) : (
-                  <span className="text-sm text-slate-400 dark:text-gray-500">Unassigned</span>
+                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Unassigned</span>
                 )}
                 {/* Additional assignees */}
                 {(ticket.assignees ?? [])
@@ -1094,7 +1195,7 @@ export default function TicketDetailPage() {
                       <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
                         <span className="text-white text-[10px] font-bold">{getInitials(a.user?.name)}</span>
                       </div>
-                      <span className="text-xs text-slate-700 dark:text-gray-300">{a.user?.name}</span>
+                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{a.user?.name}</span>
                     </div>
                   ))}
               </div>
@@ -1103,26 +1204,28 @@ export default function TicketDetailPage() {
             {/* Reporter */}
             {ticket.createdBy && (
               <div>
-                <p className="text-xs text-slate-400 dark:text-gray-500 mb-1.5 flex items-center gap-1"><User size={11} /> Reporter</p>
+                <p className="text-xs mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
+                  <User size={11} /> Reporter
+                </p>
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 bg-slate-400 rounded-full flex items-center justify-center flex-shrink-0">
                     <span className="text-white text-[10px] font-bold">{getInitials(ticket.createdBy.name)}</span>
                   </div>
-                  <span className="text-sm text-slate-700 dark:text-gray-300">{ticket.createdBy.name}</span>
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{ticket.createdBy.name}</span>
                 </div>
               </div>
             )}
 
-            <div className="space-y-2.5 pt-1 border-t border-slate-50 dark:border-gray-800">
+            <div className="space-y-2.5 pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               {ticket.department && (
                 <div className="flex items-center gap-2">
-                  <Building2 size={13} className="text-slate-400 dark:text-gray-500" />
-                  <span className="text-xs text-slate-600 dark:text-gray-400">{ticket.department.name}</span>
+                  <Building2 size={13} style={{ color: 'var(--text-tertiary)' }} />
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{ticket.department.name}</span>
                 </div>
               )}
               {ticket.project && (
                 <div className="flex items-center gap-2">
-                  <Tag size={13} className="text-slate-400 dark:text-gray-500" />
+                  <Tag size={13} style={{ color: 'var(--text-tertiary)' }} />
                   <Link href={`/projects/${ticket.project.id}`} className="text-xs text-blue-600 hover:underline">
                     {ticket.project.projectId} — {ticket.project.name}
                   </Link>
@@ -1130,14 +1233,14 @@ export default function TicketDetailPage() {
               )}
               {ticket.estimatedTime && (
                 <div className="flex items-center gap-2">
-                  <Clock size={13} className="text-slate-400 dark:text-gray-500" />
-                  <span className="text-xs text-slate-600 dark:text-gray-400">Est. {ticket.estimatedTime}h</span>
+                  <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Est. {ticket.estimatedTime}h</span>
                 </div>
               )}
               {ticket.dueDate && (
                 <div className="flex items-center gap-2">
-                  <Calendar size={13} className={new Date(ticket.dueDate) < new Date() ? 'text-red-400' : 'text-slate-400 dark:text-gray-500'} />
-                  <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500 font-medium' : 'text-slate-600 dark:text-gray-400')}>
+                  <Calendar size={13} className={new Date(ticket.dueDate) < new Date() ? 'text-red-400' : ''} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-tertiary)' } : undefined} />
+                  <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500 font-medium' : '')} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-secondary)' } : undefined}>
                     Due {formatDate(ticket.dueDate)}
                   </span>
                 </div>
@@ -1145,15 +1248,15 @@ export default function TicketDetailPage() {
               {ticket.scheduleRecurring && ticket.scheduleRecurring !== 'none' ? (
                 <>
                   <div>
-                    <span className="text-xs text-slate-500 dark:text-gray-400">Recurrence</span>
-                    <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Recurrence</span>
+                    <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                       🔁 {RECURRENCE_LABELS[ticket.scheduleRecurring] ?? ticket.scheduleRecurring}
                     </p>
                   </div>
                   {ticket.scheduleEndDate && (
                     <div>
-                      <span className="text-xs text-slate-500 dark:text-gray-400">Until</span>
-                      <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                      <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Until</span>
+                      <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                         {new Date(ticket.scheduleEndDate).toLocaleDateString()}
                       </p>
                     </div>
@@ -1161,70 +1264,70 @@ export default function TicketDetailPage() {
                 </>
               ) : ticket.scheduledFor ? (
                 <div>
-                  <span className="text-xs text-slate-500 dark:text-gray-400">Scheduled</span>
-                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                  <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Scheduled</span>
+                  <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                     ⏰ {new Date(ticket.scheduledFor).toLocaleString()}
                   </p>
                 </div>
               ) : null}
               {ticket.scheduledNote && (
                 <div className="flex items-start gap-2">
-                  <Clock size={13} className="text-slate-400 dark:text-gray-500 mt-0.5 flex-shrink-0" />
-                  <span className="text-xs text-slate-500 dark:text-gray-400 italic">{ticket.scheduledNote}</span>
+                  <Clock size={13} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} />
+                  <span className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>{ticket.scheduledNote}</span>
                 </div>
               )}
               {ticket?.scheduledStartAt && ticket?.scheduledEndAt && (
                 <div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400">Scheduled</p>
-                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Scheduled</p>
+                  <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                     ⏰ {new Date(ticket.scheduledStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} → {new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
               )}
               {ticket?.estimatedMinutes && (
                 <div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400">Estimated</p>
-                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Estimated</p>
+                  <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                     ⏱ {ticket.estimatedMinutes < 60 ? `${ticket.estimatedMinutes} min` : `${Math.floor(ticket.estimatedMinutes / 60)}h${ticket.estimatedMinutes % 60 > 0 ? ` ${ticket.estimatedMinutes % 60}m` : ''}`}
                   </p>
                 </div>
               )}
               {ticket?.actualStartAt && (
                 <div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400">Started</p>
-                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Started</p>
+                  <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                     ▶ {new Date(ticket.actualStartAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
               )}
               {ticket?.executionDueAt && !ticket?.submittedAt && !['DONE','CLOSED'].includes(ticket?.status) && (
                 <div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400">Exec deadline</p>
-                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Exec deadline</p>
+                  <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                     ⏱ {new Date(ticket.executionDueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
               )}
               {ticket?.submittedAt && (
                 <div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400">Submitted for review</p>
-                  <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Submitted for review</p>
+                  <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                     📤 {new Date(ticket.submittedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
               )}
               {ticket?.reviewDueAt && ticket?.status === 'REVIEW' && (
                 <div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400">Review deadline</p>
-                  <p className="text-sm font-medium text-purple-700 dark:text-purple-300 mt-0.5">
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Review deadline</p>
+                  <p className="text-sm font-medium text-purple-700 mt-0.5">
                     🔍 {new Date(ticket.reviewDueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
               )}
               {ticket?.actualCompletedAt && (
                 <div>
-                  <p className="text-xs text-slate-500 dark:text-gray-400">Completed</p>
-                  <p className="text-sm font-medium text-green-600 dark:text-green-400 mt-0.5">
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Completed</p>
+                  <p className="text-sm font-medium text-green-600 mt-0.5">
                     ✓ {new Date(ticket.actualCompletedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
@@ -1240,14 +1343,14 @@ export default function TicketDetailPage() {
                   : `${mins}m`;
                 const vsEstimate = ticket.estimatedMinutes
                   ? totalMins <= ticket.estimatedMinutes
-                    ? { label: `${ticket.estimatedMinutes - totalMins}m under`, color: 'text-green-600 dark:text-green-400' }
-                    : { label: `${totalMins - ticket.estimatedMinutes}m over`, color: 'text-orange-500 dark:text-orange-400' }
+                    ? { label: `${ticket.estimatedMinutes - totalMins}m under`, color: 'text-green-600' }
+                    : { label: `${totalMins - ticket.estimatedMinutes}m over`, color: 'text-orange-500' }
                   : null;
                 return (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 rounded-lg">
                     <CheckCircle size={12} className="text-green-500 flex-shrink-0" />
                     <div>
-                      <span className="text-xs font-semibold text-green-700 dark:text-green-400">Took {display}</span>
+                      <span className="text-xs font-semibold text-green-700">Took {display}</span>
                       {vsEstimate && (
                         <span className={`ml-1.5 text-[10px] font-medium ${vsEstimate.color}`}>
                           ({vsEstimate.label} estimate)
@@ -1258,13 +1361,13 @@ export default function TicketDetailPage() {
                 );
               })()}
               <div className="flex items-center gap-2">
-                <Calendar size={13} className="text-slate-400 dark:text-gray-500" />
-                <span className="text-xs text-slate-500 dark:text-gray-400">Created {formatDate(ticket.createdAt)}</span>
+                <Calendar size={13} style={{ color: 'var(--text-tertiary)' }} />
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Created {formatDate(ticket.createdAt)}</span>
               </div>
               {ticket.updatedAt && ticket.updatedAt !== ticket.createdAt && (
                 <div className="flex items-center gap-2">
-                  <Calendar size={13} className="text-slate-400 dark:text-gray-500" />
-                  <span className="text-xs text-slate-500 dark:text-gray-400">Updated {formatRelativeTime(ticket.updatedAt)}</span>
+                  <Calendar size={13} style={{ color: 'var(--text-tertiary)' }} />
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Updated {formatRelativeTime(ticket.updatedAt)}</span>
                 </div>
               )}
               {!isDone && (
@@ -1280,22 +1383,22 @@ export default function TicketDetailPage() {
 
           {/* Type */}
           {ticket.type && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4">
-              <p className="text-xs text-slate-400 dark:text-gray-500 mb-1">Type</p>
-              <span className="text-sm font-medium text-slate-700 dark:text-gray-300">{ticket.type}</span>
+            <div className="apex-card p-4">
+              <p className="text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>Type</p>
+              <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>{ticket.type}</span>
             </div>
           )}
 
           {/* Task Type */}
           {ticket.taskType && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4">
-              <p className="text-xs text-slate-500 dark:text-gray-400">Task Type</p>
-              <p className="text-sm font-medium text-slate-800 dark:text-gray-200 mt-0.5">
+            <div className="apex-card p-4">
+              <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Task Type</p>
+              <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                 {ticket.taskType.name}
                 {ticket.taskSubtype ? (
-                  <span className="text-slate-500 dark:text-gray-400"> / {ticket.taskSubtype.name}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}> / {ticket.taskSubtype.name}</span>
                 ) : (ticket as any).customSubtypeText ? (
-                  <span className="text-slate-500 dark:text-gray-400"> / {(ticket as any).customSubtypeText} <span className="text-xs text-slate-400">(custom)</span></span>
+                  <span style={{ color: 'var(--text-secondary)' }}> / {(ticket as any).customSubtypeText} <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>(custom)</span></span>
                 ) : null}
               </p>
             </div>
