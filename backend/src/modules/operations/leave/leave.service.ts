@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { LeaveStatus, NotificationType } from '@prisma/client';
@@ -22,28 +22,6 @@ export class LeaveService {
 
   private get frontendUrl() {
     return this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
-  }
-
-  private async buildLeaveScope(user: any): Promise<any> {
-    const roleName: string = user?.role?.name ?? user?.role ?? '';
-    if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
-      return { userId: user.id };
-    }
-    if (roleName === 'TEAM_LEAD') {
-      if (!user.departmentId) return { userId: user.id };
-      return { user: { departmentId: user.departmentId } };
-    }
-    if (roleName === 'MANAGER') {
-      const access = await this.prisma.managerDeptAccess.findMany({ where: { managerId: user.id } });
-      const deptIds: string[] = access.map((a: any) => a.departmentId as string);
-      if (user.departmentId && !deptIds.includes(user.departmentId)) deptIds.push(user.departmentId);
-      const unique = [...new Set(deptIds)];
-      if (unique.length === 0) return { userId: user.id };
-      return { user: { departmentId: { in: unique } } };
-    }
-    if ((user as any).isHR) return {};
-    // ADMIN / SUPER_ADMIN
-    return {};
   }
 
   async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string; page?: number; limit?: number }, user?: any) {

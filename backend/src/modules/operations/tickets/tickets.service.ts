@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -100,64 +100,12 @@ export class TicketsService {
     return REVIEW_SLA_HOURS[priority] ?? 24;
   }
 
-  private formatOverdueDuration(diffMinutes: number): { display: string; severity: string } {
-    if (diffMinutes < 60) {
-      return { display: `${diffMinutes}m overdue`, severity: 'orange' };
-    } else if (diffMinutes < 240) {
-      const h = Math.floor(diffMinutes / 60);
-      const m = diffMinutes % 60;
-      return { display: m > 0 ? `${h}h ${m}m overdue` : `${h}h overdue`, severity: 'deep-orange' };
-    } else {
-      const h = Math.floor(diffMinutes / 60);
-      const d = Math.floor(h / 24);
-      const rh = h % 24;
-      const display = d > 0 ? (rh > 0 ? `${d}d ${rh}h overdue` : `${d}d overdue`) : `${h}h overdue`;
-      return { display, severity: 'red' };
-    }
-  }
-
   private async addSla(ticket: any) {
     return this.ticketTiming.decorateTicket(ticket);
   }
 
   private async addSlaMany(tickets: any[]) {
     return this.ticketTiming.decorateTickets(tickets);
-  }
-
-  private computeOverdue(ticket: any): any {
-    const status: string = ticket.status;
-
-    // Terminal states — never overdue
-    if (['DONE', 'CLOSED'].includes(status)) {
-      return { ...ticket, isOverdue: false, overdueMinutes: 0, overdueDisplay: null, overdueSeverity: null };
-    }
-
-    let dueAt: Date | null = null;
-
-    if (status === 'REVIEW') {
-      // Review timer: use reviewDueAt set when the ticket moved into REVIEW
-      dueAt = ticket.reviewDueAt ? new Date(ticket.reviewDueAt) : null;
-    } else {
-      // Execution timer: use executionDueAt, but ONLY while ticket hasn't been submitted yet
-      // (submittedAt is set when moving to REVIEW — once submitted, execution timer stops)
-      if (!ticket.submittedAt && ticket.executionDueAt) {
-        dueAt = new Date(ticket.executionDueAt);
-      }
-    }
-
-    if (!dueAt) {
-      return { ...ticket, isOverdue: ticket.isOverdue ?? false, overdueMinutes: 0, overdueDisplay: null, overdueSeverity: null };
-    }
-
-    const diffMs = Date.now() - dueAt.getTime();
-    const diffMinutes = Math.floor(diffMs / 60_000);
-
-    if (diffMinutes <= 0) {
-      return { ...ticket, isOverdue: false, overdueMinutes: 0, overdueDisplay: null, overdueSeverity: null };
-    }
-
-    const { display: overdueDisplay, severity: overdueSeverity } = this.formatOverdueDuration(diffMinutes);
-    return { ...ticket, isOverdue: true, overdueMinutes: diffMinutes, overdueDisplay, overdueSeverity };
   }
 
   // Resolve a department filter that may be passed as either an ID or a name
@@ -168,41 +116,6 @@ export class TicketsService {
       where: { name: { equals: value, mode: 'insensitive' } },
     });
     return dept?.id;
-  }
-
-  // Apply role-based scoping to a Prisma `where` clause
-  private async applyRoleScope(where: any, user?: { id: string; role?: any; departmentId?: string | null }) {
-    if (!user) return where;
-    const roleName: string = user.role?.name ?? user.role ?? '';
-    // Admin / Super Admin → see everything
-    if (['ADMIN', 'SUPER_ADMIN'].includes(roleName)) return where;
-    // Manager → scope to all departments they manage (via ManagerDeptAccess + home dept)
-    if (roleName === 'MANAGER') {
-      const access = await this.prisma.managerDeptAccess.findMany({ where: { managerId: user.id } });
-      const deptIds: string[] = access.map((a: any) => a.departmentId as string);
-      if (user.departmentId) deptIds.push(user.departmentId);
-      const uniqueDeptIds: string[] = [...new Set(deptIds)];
-      if (uniqueDeptIds.length > 0) where.departmentId = { in: uniqueDeptIds };
-      return where;
-    }
-    // TeamLead → scope to their department, but also see their own created/assigned tickets
-    if (roleName === 'TEAM_LEAD') {
-      if (user.departmentId) {
-        where.OR = [
-          { departmentId: user.departmentId },
-          { createdById: user.id },
-          { assignedToId: user.id },
-        ];
-      }
-      return where;
-    }
-    // Employee / Intern → only tickets they created, are assigned to (primary or multi-assignee)
-    where.OR = [
-      { assignedToId: user.id },
-      { createdById: user.id },
-      { assignees: { some: { userId: user.id } } },
-    ];
-    return where;
   }
 
   async findAll(query: {
