@@ -36,7 +36,7 @@ export function useSocket(events: SocketEvents = {}) {
     socket.on('leave:status_changed', (data) => eventsRef.current.onLeaveStatusChanged?.(data));
 
     socket.on('connect_error', (err) => {
-      console.warn('[Socket] connection error:', err.message);
+      console.debug('[Socket] connection error:', err.message);
     });
 
     return () => {

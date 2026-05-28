@@ -87,7 +87,7 @@ export default function ProjectDetailPage() {
   };
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>;
-  if (!project) return <div className="text-center py-12 text-slate-500">Project not found</div>;
+  if (!project) return <div className="text-center py-12 text-slate-500">This project could not be located</div>;
 
   // Use backend-computed progress (ticketStats.done / ticketStats.total).
   // Falls back to client-side calculation only if the backend field is absent (e.g. old API).
@@ -157,7 +157,7 @@ export default function ProjectDetailPage() {
         </div>
         <div className="flex gap-2">
           {canEdit && (
-            <button onClick={handleEditOpen} className="flex items-center gap-1.5 text-sm px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+            <button onClick={handleEditOpen} className="apex-btn-secondary flex items-center gap-1.5 text-sm">
               <Edit3 size={13} /> Edit
             </button>
           )}

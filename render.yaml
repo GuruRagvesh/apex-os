@@ -4,4 +4,4 @@ services:
     runtime: node
     rootDir: backend
     buildCommand: npm install --include=dev && npm run build
-    startCommand: node dist/main.js
+    startCommand: npx prisma migrate deploy && node dist/main.js

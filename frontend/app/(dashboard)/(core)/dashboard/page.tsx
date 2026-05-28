@@ -107,13 +107,7 @@ export default function HomePage() {
   const { data: summary, isLoading, isError: summaryError } = useQuery({
     queryKey: ['home-summary'],
     queryFn: async () => {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/home/summary`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!res.ok) throw new Error('Failed to load dashboard');
-      return res.json();
+      return await dashboardApi.getHomeSummary();
     },
     refetchInterval: 60000,
     staleTime: 30000,
