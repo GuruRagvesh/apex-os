@@ -14,9 +14,12 @@ import {
 } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const roleName = (user?.role as any)?.name ?? user?.role ?? '';
+  const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
+  const isManagerOrAbove = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
   useEffect(() => {
     if (!isAuthenticated) router.replace('/login');
@@ -55,7 +58,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     {
       id: 'due-today',
       label: 'View Due Today',
-      description: 'Tickets due today',
+      description: 'Tickets due today in your scope',
       icon: <CalendarDays size={15} />,
       shortcut: 'D',
       category: 'tickets',
@@ -63,42 +66,60 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     },
     {
       id: 'high-priority',
-      label: 'High Priority Tickets',
-      description: 'View all high priority items',
+      label: isLeadOrAbove ? 'High Priority Tickets' : 'My High Priority Tickets',
+      description: isLeadOrAbove ? 'View high priority items in your scope' : 'View your high priority work',
       icon: <AlertTriangle size={15} />,
       category: 'tickets',
       onClick: () => router.push('/tickets?priority=HIGH'),
     },
-    {
-      id: 'leave',
-      label: 'Review Leave',
-      description: 'Leave requests and approvals',
-      icon: <CalendarDays size={15} />,
-      shortcut: 'L',
-      category: 'hr',
-      onClick: () => router.push('/leave'),
-    },
+    isLeadOrAbove
+      ? {
+        id: 'leave-review',
+        label: 'Review Leave Requests',
+        description: 'Leave requests and approvals in your scope',
+        icon: <CalendarDays size={15} />,
+        shortcut: 'L',
+        category: 'hr',
+        onClick: () => router.push('/leave'),
+      }
+      : {
+        id: 'leave-self',
+        label: 'Apply or View Leave',
+        description: 'Open your own leave requests',
+        icon: <CalendarDays size={15} />,
+        shortcut: 'L',
+        category: 'hr',
+        onClick: () => router.push('/leave'),
+      },
     {
       id: 'projects',
       label: 'Open Projects',
-      description: 'View active projects',
+      description: 'View projects available to your role',
       icon: <FolderKanban size={15} />,
       shortcut: 'P',
       category: 'projects',
       onClick: () => router.push('/projects'),
     },
-    {
-      id: 'activity',
-      label: 'Activity Log',
-      description: 'View team activity history',
+    ...(isLeadOrAbove ? [{
+      id: 'team',
+      label: 'Check Team Availability',
+      description: 'Open roster and live team status',
       icon: <Activity size={15} />,
-      category: 'admin',
+      category: 'team',
+      onClick: () => router.push('/team'),
+    }] : []),
+    ...(isLeadOrAbove ? [{
+      id: 'activity',
+      label: isManagerOrAbove ? 'Activity Log' : 'Team Activity Log',
+      description: 'View scoped operational activity',
+      icon: <Activity size={15} />,
+      category: 'workday',
       onClick: () => router.push('/admin/activity'),
-    },
+    }] : []),
     {
       id: 'calendar',
       label: 'Calendar',
-      description: 'Open the team calendar',
+      description: isLeadOrAbove ? 'Open your scoped operations calendar' : 'Open your work calendar',
       icon: <Calendar size={15} />,
       shortcut: 'C',
       category: 'planning',

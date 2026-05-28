@@ -30,9 +30,11 @@ export class DashboardService {
         id: true, status: true, priority: true, dueDate: true, createdAt: true, updatedAt: true,
         scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
         submittedAt: true, reviewStartedAt: true, reviewDueAt: true, closedAt: true, cancelledAt: true,
+        isBlocked: true, blockedAt: true, blockedReason: true,
       },
     });
     const config = await this.ticketTiming.getSlaConfig();
+    // Blocked tickets are excluded from overdue counts
     return tickets.filter((ticket) => this.ticketTiming.getTimingState(ticket, config).isOverdue).length;
   }
 
@@ -108,7 +110,7 @@ export class DashboardService {
     ]);
     const overdueTickets = await this.countOverdueTickets(ticketWhere);
 
-    // Fetch real bottleneck tickets in user scope
+    // Fetch active tickets for bottleneck + blocked counts
     const activeTickets = await this.prisma.ticket.findMany({
       where: this.andWhere(ticketWhere, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
       include: {
@@ -118,7 +120,12 @@ export class DashboardService {
       orderBy: { createdAt: 'desc' },
     });
     const config = await this.ticketTiming.getSlaConfig();
-    const bottleneckTickets = activeTickets.filter((ticket) => {
+
+    const blockedTickets = activeTickets.filter((ticket: any) => ticket.isBlocked).slice(0, 5);
+    const blockedCount   = activeTickets.filter((ticket: any) => ticket.isBlocked).length;
+
+    const bottleneckTickets = activeTickets.filter((ticket: any) => {
+      if (ticket.isBlocked) return false; // blocked tickets surface separately
       const isOverdue = this.ticketTiming.getTimingState(ticket, config).isOverdue;
       const isReview = ticket.status === TicketStatus.REVIEW;
       return isOverdue || isReview;
@@ -127,12 +134,14 @@ export class DashboardService {
     return {
       stats: {
         totalTickets, openTickets, inProgressTickets, doneTickets,
-        urgentTickets, overdueTickets, totalProjects, activeProjects,
+        urgentTickets, overdueTickets, blockedCount,
+        totalProjects, activeProjects,
         pendingLeave, totalUsers, teamMembers,
       },
       recentTickets,
       myTickets,
       bottleneckTickets,
+      blockedTickets,
     };
   }
 

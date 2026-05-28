@@ -1412,7 +1412,13 @@ export default function SettingsPage() {
   const isSuperAdmin = roleName === 'SUPER_ADMIN';
   const isManager   = ['MANAGER', 'TEAM_LEAD', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
-  const validTabs: SectionId[] = ['profile', 'security', 'appearance', 'company', 'policies', 'smtp', 'task-types'];
+  const allowedTabs: SectionId[] = [
+    'profile',
+    'security',
+    'appearance',
+    ...(isAdmin ? (['company', 'policies', 'task-types'] as SectionId[]) : []),
+    ...(isSuperAdmin ? (['smtp'] as SectionId[]) : []),
+  ];
   // Legacy tab aliases (deep-links from other pages still work)
   const tabAliases: Record<string, SectionId> = {
     preferences: 'profile', 'leave-policy': 'policies', sla: 'policies',
@@ -1422,9 +1428,9 @@ export default function SettingsPage() {
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get('tab') ?? '';
     const resolved = (tabAliases[raw] ?? raw) as SectionId;
-    if (resolved && validTabs.includes(resolved)) setActive(resolved);
+    setActive(resolved && allowedTabs.includes(resolved) ? resolved : 'profile');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [roleName]);
 
   // ── NavItem defined as closure — captures active / setActive ─────────────
   function NavItem({ id, label, icon, badge }: {

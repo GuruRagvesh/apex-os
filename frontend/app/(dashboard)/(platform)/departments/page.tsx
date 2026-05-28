@@ -5,14 +5,15 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { departmentsApi, usersApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import { Plus, Users, Ticket, FolderKanban, MoreVertical, Trash2, ChevronRight, UserCircle2 } from 'lucide-react';
+import { Plus, Users, Ticket, FolderKanban, MoreVertical, Trash2, ChevronRight, UserCircle2, ShieldAlert } from 'lucide-react';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 
 const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
 
 export default function DepartmentsPage() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
   const qc = useQueryClient();
 
   const isAdmin = ADMIN_ROLES.includes(user?.role?.name ?? '');
@@ -37,12 +38,13 @@ export default function DepartmentsPage() {
   const { data: departments, isLoading } = useQuery({
     queryKey: ['departments'],
     queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+    enabled: hasHydrated && isAdmin,
   });
 
   const { data: usersData } = useQuery({
     queryKey: ['users'],
     queryFn: () => usersApi.getAll() as Promise<any>,
-    enabled: showNew,
+    enabled: hasHydrated && isAdmin && showNew,
   });
   const userList: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
 
@@ -67,6 +69,33 @@ export default function DepartmentsPage() {
     onError: (err: any) =>
       toast.error(err?.message || err?.error || 'Cannot delete department'),
   });
+
+  if (!hasHydrated) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
+        <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
+          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Departments is admin-only</h1>
+          <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
+            Use Team for your role-specific department and roster view.
+          </p>
+        </div>
+        <Link href="/dashboard" className="apex-btn apex-btn-primary inline-flex justify-center">
+          Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto">

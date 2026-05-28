@@ -146,6 +146,20 @@ export class TicketsController {
     return this.ticketsService.assign(id, body.assignedToId, user.id, user);
   }
 
+  @Post(':id/block')
+  block(
+    @Param('id') id: string,
+    @Body() body: { reason: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.ticketsService.blockTicket(id, body.reason ?? '', user.id, user);
+  }
+
+  @Post(':id/unblock')
+  unblock(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ticketsService.unblockTicket(id, user.id, user);
+  }
+
   @Patch(':id/approve')
   approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ticketsService.approve(id, user.id, user);

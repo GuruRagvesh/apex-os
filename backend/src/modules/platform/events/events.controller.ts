@@ -15,6 +15,7 @@ const ACTION_DESCRIPTIONS: Record<string, string> = {
   TICKET_DONE: 'completed a ticket',
   TICKET_OVERDUE: 'ticket became overdue',
   TICKET_BLOCKED: 'ticket was blocked',
+  TICKET_UNBLOCKED: 'ticket was unblocked',
   TICKET_CANCELLED: 'cancelled a ticket',
   TICKET_DELETED: 'deleted a ticket',
   TICKET_REOPENED: 'reopened a ticket',
@@ -275,6 +276,7 @@ export class EventsController {
             case 'TICKET_REOPENED':             description = `reopened '${title}'`; break;
             case 'TICKET_CANCELLED':            description = `cancelled '${title}'`; break;
             case 'TICKET_BLOCKED':              description = `blocked '${title}'`; break;
+            case 'TICKET_UNBLOCKED':            description = `unblocked '${title}'`; break;
             case 'TICKET_CLOSED':               description = `closed '${title}'`; break;
             case 'TICKET_UPDATED':              description = `updated '${title}'`; break;
             case 'TICKET_DELETED':              description = `deleted ticket ${tid}`; break;

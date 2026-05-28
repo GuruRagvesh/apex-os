@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Ticket, ShieldAlert, CheckSquare, KanbanSquare,
   AlertTriangle, Users, Search, X, ArrowRight, CalendarDays, FolderKanban,
@@ -11,16 +11,17 @@ interface QuickAction {
   id: string;
   title: string;
   desc: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string }> | React.ReactNode;
   shortcut?: string;
   href?: string;
+  onClick?: () => void;
 }
 
 interface QuickActionPaletteProps {
   open?: boolean;
   onClose: () => void;
   onSelectAction?: (actionId: string) => void;
-  // Legacy compat props accepted but not used (navigation replaces mock data creation)
+  // Accepts the role-filtered actions supplied by the dashboard layout.
   isOpen?: boolean;
   actions?: any[];
 }
@@ -97,6 +98,7 @@ export function QuickActionPalette({
   onClose,
   onSelectAction,
   isOpen,
+  actions,
 }: QuickActionPaletteProps) {
   const isVisible = open ?? isOpen ?? false;
 
@@ -113,11 +115,34 @@ export function QuickActionPalette({
     }
   }, [isVisible]);
 
-  const filteredActions = DEFAULT_ACTIONS.filter(
+  const sourceActions: QuickAction[] = actions?.length
+    ? actions.map((action, index) => ({
+      id: action.id ?? action.href ?? `action-${index}`,
+      title: action.title ?? action.label ?? 'Action',
+      desc: action.desc ?? action.description ?? '',
+      icon: action.icon ?? ArrowRight,
+      shortcut: action.shortcut,
+      href: action.href,
+      onClick: action.onClick,
+    }))
+    : DEFAULT_ACTIONS;
+
+  const filteredActions = sourceActions.filter(
     (act) =>
       act.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       act.desc.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const triggerAction = useCallback((action: QuickAction) => {
+    onSelectAction?.(action.id);
+    if (action.onClick) {
+      action.onClick();
+    } else if (action.href) {
+      // Use window.location for navigation to avoid needing useRouter here
+      window.location.href = action.href;
+    }
+    onClose();
+  }, [onClose, onSelectAction]);
 
   // Keyboard navigation & Esc support
   useEffect(() => {
@@ -144,15 +169,17 @@ export function QuickActionPalette({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isVisible, focusedIndex, filteredActions, onClose]);
+  }, [isVisible, focusedIndex, filteredActions, onClose, triggerAction]);
 
-  const triggerAction = (action: QuickAction) => {
-    onSelectAction?.(action.id);
-    if (action.href) {
-      // Use window.location for navigation to avoid needing useRouter here
-      window.location.href = action.href;
+  const renderIcon = (icon: QuickAction['icon']) => {
+    if (React.isValidElement(icon)) {
+      return icon;
     }
-    onClose();
+    if (typeof icon === 'function') {
+      const Icon = icon;
+      return <Icon className="w-4 h-4 shrink-0" />;
+    }
+    return <ArrowRight className="w-4 h-4 shrink-0" />;
   };
 
   return (
@@ -214,7 +241,6 @@ export function QuickActionPalette({
                 </div>
               ) : (
                 filteredActions.map((action, index) => {
-                  const Icon = action.icon;
                   const isFocused = index === focusedIndex;
                   return (
                     <button
@@ -232,7 +258,7 @@ export function QuickActionPalette({
                         <div className={`p-2 rounded-lg transition-colors ${
                           isFocused ? 'bg-white/20 text-white' : 'bg-blue-950/40 text-blue-400'
                         }`}>
-                          <Icon className="w-4 h-4 shrink-0" />
+                          {renderIcon(action.icon)}
                         </div>
                         <div className="truncate text-left font-sans">
                           <h4 className={`text-xs font-bold leading-none ${isFocused ? 'text-white' : 'text-slate-100'}`}>

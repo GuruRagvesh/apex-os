@@ -64,15 +64,19 @@ export default function CalendarPage() {
     queryFn: () => apiFetch('/tickets?limit=200', token),
   });
 
-  const { data: leaveData } = useQuery({
+  const { data: leaveData, isError: leaveError } = useQuery({
     queryKey: ['calendar-leave'],
-    queryFn: () => apiFetch('/leave?status=APPROVED&limit=100', token),
+    queryFn: async () => {
+      const data = await apiFetch('/leave?status=APPROVED&limit=100', token);
+      if (!data) throw new Error('Approved leave events could not be loaded');
+      return data;
+    },
   });
 
   const events = useMemo(() => {
     const result: any[] = [];
     const tickets: any[] = ticketsData?.tickets ?? (Array.isArray(ticketsData) ? ticketsData : []);
-    const leaves: any[] = Array.isArray(leaveData) ? leaveData : (leaveData?.leaves ?? []);
+    const approvedLeaves: any[] = leaveData?.items ?? [];
 
     const STATUS_COLORS: Record<string, string> = {
       OPEN: '#94a3b8', IN_PROGRESS: '#f59e0b', REVIEW: '#8b5cf6', DONE: '#10b981', CLOSED: '#6b7280',
@@ -103,7 +107,7 @@ export default function CalendarPage() {
       }
     });
 
-    leaves.forEach((l: any) => {
+    approvedLeaves.forEach((l: any) => {
       result.push({
         id: 'leave-' + l.id,
         title: `${l.user?.name ?? 'Leave'} · ${l.type}`,
@@ -127,6 +131,11 @@ export default function CalendarPage() {
       </div>
 
       <div className="apex-card" style={{ padding: 16, overflow: 'hidden' }}>
+        {leaveError && (
+          <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--color-warning)' }}>
+            Approved leave events could not be loaded. Ticket events are still shown.
+          </p>
+        )}
         <CalendarView events={events} router={router} />
       </div>
     </div>

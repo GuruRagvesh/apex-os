@@ -34,6 +34,16 @@ export function TimingTicker({ ticket, showLabel = false, className = '' }: Timi
 
   if (!state.countdownLabel) return null;
 
+  // Blocked state — amber pill, no timer
+  if (state.phase === 'blocked') {
+    return (
+      <span className={`inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-400 ${className}`}>
+        <span>🚫</span>
+        <span>Blocked</span>
+      </span>
+    );
+  }
+
   const colors = getTimingColorClasses(state.overdueSeverity);
   const icon = state.isOverdue
     ? (state.overdueSeverity === 'red' ? '🔥' : '⏱')
