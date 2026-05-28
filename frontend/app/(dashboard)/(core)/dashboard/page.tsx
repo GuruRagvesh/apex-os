@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ticketsApi, dashboardApi } from '@/lib/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
+import { WorkdayHistoryStrip } from '@/components/workday/WorkdayHistoryStrip';
 import { CriticalActionPanel } from '@/components/home/CriticalActionPanel';
 import { UpcomingEvents } from '@/components/home/UpcomingEvents';
 import { RecentActivityFeed } from '@/components/home/RecentActivityFeed';
@@ -382,8 +383,10 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* WorkdayBar — preserved as-is */}
+        {/* WorkdayBar — workday state, timer, break management */}
         <WorkdayBar />
+        {/* Recent session history — last 7 sessions, compact strip */}
+        <WorkdayHistoryStrip />
       </motion.section>
 
       {/* ── ERROR BANNER (shown when dashboard data fails to load) ── */}

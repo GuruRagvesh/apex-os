@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
+import { AlertTriangle } from 'lucide-react';
 import { BreakModal } from './BreakModal';
 import { EndDayModal } from './EndDayModal';
 
@@ -28,6 +29,7 @@ export function WorkdayBar() {
   const [showBreakModal, setShowBreakModal] = useState(false);
   const [showEndModal, setShowEndModal] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [breakElapsed, setBreakElapsed] = useState(0);
   const [loading, setLoading] = useState<string | null>(null);
 
   const { data: todayData, refetch } = useQuery({
@@ -47,7 +49,7 @@ export function WorkdayBar() {
   const onLeaveToday = (todayData as any)?.onLeaveToday;
   const leaveInfo = (todayData as any)?.leaveInfo;
 
-  // Live elapsed time
+  // Live elapsed time (WORKING)
   useEffect(() => {
     if (status !== 'WORKING' || !startWorkAt) { setElapsed(0); return; }
     const calc = () => {
@@ -59,6 +61,28 @@ export function WorkdayBar() {
     const t = setInterval(calc, 10000);
     return () => clearInterval(t);
   }, [status, startWorkAt, totalBreakMinutes]);
+
+  // Live break timer (ON_BREAK)
+  useEffect(() => {
+    if (status !== 'ON_BREAK') { setBreakElapsed(0); return; }
+    const openBreak = breakLogs.find((b: any) => !b.endAt);
+    if (!openBreak?.startAt) { setBreakElapsed(0); return; }
+    const calc = () => {
+      setBreakElapsed(Math.floor((Date.now() - new Date(openBreak.startAt).getTime()) / 60000));
+    };
+    calc();
+    const t = setInterval(calc, 10000);
+    return () => clearInterval(t);
+  }, [status, breakLogs]);
+
+  // Stale session: session started on a previous calendar day and never closed
+  const today = new Date().toDateString();
+  const sessionDate = startWorkAt ? new Date(startWorkAt).toDateString() : null;
+  const isStaleSession =
+    !!session &&
+    !['LOGGED_OUT', 'OFFLINE', 'ON_LEAVE'].includes(status) &&
+    sessionDate !== null &&
+    sessionDate !== today;
 
   const handleStartWork = async () => {
     setLoading('start');
@@ -91,6 +115,41 @@ export function WorkdayBar() {
   };
 
   const dotCls = `w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[status] ?? 'bg-gray-400'}`;
+
+  // ── Stale session: session from a previous day never closed ──────────────────
+  if (isStaleSession) {
+    const sessionDay = new Date(startWorkAt!).toLocaleDateString([], {
+      weekday: 'short', month: 'short', day: 'numeric',
+    });
+    return (
+      <>
+        <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-xl px-4 py-3 mb-4">
+          <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Workday from {sessionDay} was never closed
+            </p>
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+              Your previous session is still open. End it now to keep your records accurate.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowEndModal(true)}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg flex-shrink-0 transition-colors"
+          >
+            End Session
+          </button>
+        </div>
+        {showEndModal && (
+          <EndDayModal
+            session={session}
+            onClose={() => setShowEndModal(false)}
+            onEnded={() => { setShowEndModal(false); refetch(); }}
+          />
+        )}
+      </>
+    );
+  }
 
   if (onLeaveToday && status === 'ON_LEAVE') {
     return (
@@ -150,7 +209,10 @@ export function WorkdayBar() {
       <div className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4">
         <div className="flex items-center gap-2">
           <span className={dotCls} />
-          <span className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Logged in - workday not started</span>
+          <div>
+            <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Ready to start</p>
+            <p className="text-xs text-yellow-600 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
+          </div>
         </div>
         <button
           onClick={handleStartWork}
@@ -165,16 +227,24 @@ export function WorkdayBar() {
 
   if (status === 'ON_BREAK') {
     const openBreak = breakLogs.find((b: any) => !b.endAt);
-    const breakMins = openBreak
-      ? Math.floor((Date.now() - new Date(openBreak.startAt).getTime()) / 60000)
-      : 0;
+    const breakTypeLabel = openBreak?.breakType
+      ? openBreak.breakType.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase())
+      : null;
+    const plannedMins = openBreak?.estimatedMinutes ?? null;
     return (
       <div className="flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl px-4 py-3 mb-4">
         <div className="flex items-center gap-2">
           <span className={dotCls} />
-          <span className="text-sm font-medium text-orange-700 dark:text-orange-300">
-            On Break{openBreak ? ` · ${openBreak.breakType.replace('_', ' ')}` : ''} · {breakMins} min
-          </span>
+          <div>
+            <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
+              On Break{breakTypeLabel ? ` · ${breakTypeLabel}` : ''}
+            </p>
+            <p className="text-xs text-orange-500 dark:text-orange-400">
+              {breakElapsed > 0 ? `${breakElapsed} min so far` : 'Just started'}
+              {plannedMins && ` · ${plannedMins} min planned`}
+              {elapsed > 0 && ` · ${formatMinutes(elapsed)} worked today`}
+            </p>
+          </div>
         </div>
         <button
           onClick={handleEndBreak}
