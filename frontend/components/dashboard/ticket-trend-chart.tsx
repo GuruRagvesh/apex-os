@@ -4,7 +4,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { format } from 'date-fns';
 
 export function TicketTrendChart({ data }: { data: any[] }) {
-  if (!data?.length) return <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No data</div>;
+  if (!data?.length) return <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No ticket volume data available for this range</div>;
 
   const formatted = data.map((d) => ({
     ...d,

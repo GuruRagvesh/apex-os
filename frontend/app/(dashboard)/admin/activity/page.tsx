@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { useRouter } from 'next/navigation';
 import { ArrowUpRight, Activity } from 'lucide-react';
 import Link from 'next/link';
+import { eventsApi } from '@/lib/api';
 
 // ── Timestamp helpers ─────────────────────────────────────────────────────────
 
@@ -129,37 +130,37 @@ export default function ActivityLogPage() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
 
   const buildParams = () => {
-    const p = new URLSearchParams();
-    p.set('limit', '100');
-    if (eventType) p.set('action', eventType);
+    const p: any = { limit: 100 };
+    if (eventType) p.action = eventType;
     const now = new Date();
     if (dateRange === 'today') {
       const start = new Date(now); start.setHours(0, 0, 0, 0);
-      p.set('from', start.toISOString());
+      p.from = start.toISOString();
     } else if (dateRange === 'week') {
       const start = new Date(now);
       const day = start.getDay();
       const diff = day === 0 ? -6 : 1 - day;
       start.setDate(start.getDate() + diff);
       start.setHours(0, 0, 0, 0);
-      p.set('from', start.toISOString());
+      p.from = start.toISOString();
     } else if (dateRange === 'last7') {
       const start = new Date(now); start.setDate(start.getDate() - 7);
-      p.set('from', start.toISOString());
+      p.from = start.toISOString();
     }
     // 'all' — no date filter
-    return p.toString();
+    return p;
   };
 
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['activity-log', dateRange, eventType],
     queryFn: async () => {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/events?${buildParams()}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!res.ok) return [];
-      return res.json();
+      try {
+        const res: any = await eventsApi.getAll(buildParams());
+        return res;
+      } catch (err) {
+        console.error('Failed to load activity log', err);
+        return [];
+      }
     },
     staleTime: 30000,
   });

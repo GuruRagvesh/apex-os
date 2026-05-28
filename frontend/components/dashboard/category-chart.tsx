@@ -10,7 +10,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function CategoryChart({ data }: { data: any[] }) {
-  if (!data?.length) return <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No data</div>;
+  if (!data?.length) return <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No categorization data matches the selected filters</div>;
 
   const formatted = data.map((d) => ({
     name: CATEGORY_LABELS[d.category] || d.category,

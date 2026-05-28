@@ -185,7 +185,7 @@ export default function DepartmentDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center h-60 gap-3">
         <AlertCircle size={32} className="text-slate-300" />
-        <p className="text-slate-500">Department not found</p>
+        <p className="text-slate-500">This department could not be located</p>
         <button onClick={() => router.back()} className="text-sm text-blue-600 hover:underline">
           Go back
         </button>

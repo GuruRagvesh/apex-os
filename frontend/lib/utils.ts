@@ -6,18 +6,18 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const PRIORITY_COLORS: Record<string, string> = {
-  LOW: 'bg-slate-100 text-slate-700',
-  MEDIUM: 'bg-blue-100 text-blue-700',
-  HIGH: 'bg-orange-100 text-orange-700',
-  URGENT: 'bg-red-100 text-red-700',
+  LOW: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
+  MEDIUM: 'apex-status-open',
+  HIGH: 'apex-status-progress',
+  URGENT: 'bg-red-600 text-white shadow-[0_0_8px_rgba(220,38,38,0.4)]',
 };
 
 export const STATUS_COLORS: Record<string, string> = {
-  OPEN: 'bg-yellow-100 text-yellow-700',
-  IN_PROGRESS: 'bg-blue-100 text-blue-700',
-  REVIEW: 'bg-purple-100 text-purple-700',
-  DONE: 'bg-green-100 text-green-700',
-  CLOSED: 'bg-slate-100 text-slate-700',
+  OPEN: 'apex-status-open',
+  IN_PROGRESS: 'apex-status-progress',
+  REVIEW: 'apex-status-review',
+  DONE: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700',
+  CLOSED: 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700',
 };
 
 export const CATEGORY_COLORS: Record<string, string> = {
@@ -69,17 +69,17 @@ export const LEAVE_STATUS_LABELS: Record<string, string> = {
 };
 
 export const PROJECT_STATUS_COLORS: Record<string, string> = {
-  ACTIVE: 'bg-green-100 text-green-700',
-  ON_HOLD: 'bg-yellow-100 text-yellow-700',
-  COMPLETED: 'bg-blue-100 text-blue-700',
-  CANCELLED: 'bg-red-100 text-red-700',
+  ACTIVE: 'apex-status-open',
+  ON_HOLD: 'apex-status-progress',
+  COMPLETED: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
+  CANCELLED: 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500',
 };
 
 export const LEAVE_STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-yellow-100 text-yellow-700',
-  APPROVED: 'bg-green-100 text-green-700',
-  REJECTED: 'bg-red-100 text-red-700',
-  CANCELLED: 'bg-slate-100 text-slate-700',
+  PENDING: 'apex-badge-warning',
+  APPROVED: 'apex-badge-success',
+  REJECTED: 'apex-badge-danger',
+  CANCELLED: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
 };
 
 export function getInitials(name: string): string {

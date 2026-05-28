@@ -162,6 +162,7 @@ code, pre, .mono, [data-mono] {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
+  padding: 1.5rem; /* 24px standard spacing */
 }
 .apex-card-hover:hover {
   border-left: 3px solid var(--accent);
@@ -462,6 +463,7 @@ html[data-theme="john-wick-dark"] {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
+  padding: 1.5rem; /* 24px standard spacing */
   cursor: pointer;
   transition: box-shadow var(--transition-normal), transform var(--transition-normal), border-color var(--transition-normal);
 }

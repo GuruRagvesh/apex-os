@@ -94,17 +94,7 @@ export const usersApi = {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('documentType', documentType);
-    const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL
-      ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '')}/api`
-      : 'http://localhost:3001/api';
-    const res = await fetch(`${baseUrl}/users/${id}/documents`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: formData,
-    });
-    if (!res.ok) throw new Error('Upload failed');
-    return res.json();
+    return r(api.post(`/users/${id}/documents`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
   getDocuments: (id: string) => r(api.get(`/users/${id}/documents`)),
   verifyDocument: (userId: string, docId: string, status: string, rejectionReason?: string) =>
@@ -214,6 +204,12 @@ export const dashboardApi = {
   getActivityFeed: (limit?: number, userId?: string) => r(api.get('/dashboard/activity-feed', { params: { limit, userId } })),
   getWorkload: () => r(api.get('/dashboard/workload')),
   getTicketTrend: (days?: number) => r(api.get('/dashboard/ticket-trend', { params: { days } })),
+  getHomeSummary: () => r(api.get('/home/summary')),
+};
+
+// Events
+export const eventsApi = {
+  getAll: (params?: any) => r(api.get('/events', { params })),
 };
 
 // Leave

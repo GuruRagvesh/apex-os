@@ -716,7 +716,7 @@ export default function TicketDetailPage() {
   };
 
   if (isLoading) return <SkeletonTicketDetail />;
-  if (!ticket) return <div className="text-center py-12" style={{ color: 'var(--text-secondary)' }}>Ticket not found</div>;
+  if (!ticket) return <div className="text-center py-12" style={{ color: 'var(--text-secondary)' }}>This ticket could not be located</div>;
 
   const vis = getTicketVisibility({
     status: ticket?.status,

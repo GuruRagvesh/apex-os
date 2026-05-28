@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import { useRouter } from 'next/navigation';
+import { eventsApi } from '@/lib/api';
 
 function timeAgo(iso: string) {
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -47,12 +48,17 @@ export function RecentActivityFeed() {
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['recent-activity'],
     queryFn: async () => {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/events?limit=15`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!res.ok) return [];
-      return res.json();
+      try {
+        const res: any = await eventsApi.getAll({ limit: 15 });
+        // The API returns the array directly, or { items } depending on pagination wrapper,
+        // but looking at the old code (`return res.json()`), it seems it expects an array directly.
+        // Wait, the API wrapper `api.interceptors.response.use` returns `response.data`.
+        // We can just return it.
+        return res;
+      } catch (err) {
+        console.error('Failed to load recent activity', err);
+        return [];
+      }
     },
     staleTime: 30000,
   });

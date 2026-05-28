@@ -4,14 +4,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
-
-async function apiFetch(path: string, token: string | null) {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return null;
-  return res.json();
-}
+import { ticketsApi, leaveApi } from '@/lib/api';
 
 function CalendarView({ events, router }: { events: any[]; router: any }) {
   const [FC, setFC] = useState<any>(null);
@@ -61,13 +54,19 @@ export default function CalendarPage() {
 
   const { data: ticketsData } = useQuery({
     queryKey: ['calendar-tickets'],
-    queryFn: () => apiFetch('/tickets?limit=200', token),
+    queryFn: async () => {
+      try {
+        return await ticketsApi.getAll({ limit: 200 });
+      } catch (err) {
+        return null;
+      }
+    },
   });
 
   const { data: leaveData, isError: leaveError } = useQuery({
     queryKey: ['calendar-leave'],
     queryFn: async () => {
-      const data = await apiFetch('/leave?status=APPROVED&limit=100', token);
+      const data: any = await leaveApi.getAll({ status: 'APPROVED', limit: 100 });
       if (!data) throw new Error('Approved leave events could not be loaded');
       return data;
     },
