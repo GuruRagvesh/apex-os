@@ -6,7 +6,9 @@ import { dashboardApi, ticketsApi } from '@/lib/api';
 import { TicketTrendChart } from '@/components/dashboard/ticket-trend-chart';
 import { CategoryChart } from '@/components/dashboard/category-chart';
 import { Skeleton } from '@/components/ui/skeleton';
-import { TrendingUp, TrendingDown, Minus, Download } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Download, ShieldAlert } from 'lucide-react';
+import { useAuthStore } from '@/store/auth.store';
+import Link from 'next/link';
 
 type Tab = 'overview' | 'detailed';
 type Range = '7d' | '30d' | '90d';
@@ -46,6 +48,9 @@ function AgeBadge({ days }: { days: number }) {
 }
 
 export default function AnalyticsPage() {
+  const { user, hasHydrated } = useAuthStore();
+  const roleName = (user?.role as any)?.name ?? user?.role ?? '';
+  const canAccess = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const [tab, setTab] = useState<Tab>('overview');
   const [range, setRange] = useState<Range>('30d');
   const days = RANGE_DAYS[range];
@@ -53,28 +58,32 @@ export default function AnalyticsPage() {
   const { data: trend, isLoading: trendLoading } = useQuery({
     queryKey: ['ticket-trend', days],
     queryFn: () => dashboardApi.getTicketTrend(days) as Promise<any[]>,
+    enabled: canAccess,
   });
 
   const { data: byCategory } = useQuery({
     queryKey: ['tickets-by-category'],
     queryFn: () => dashboardApi.getTicketsByCategory() as Promise<any[]>,
+    enabled: canAccess,
   });
 
   const { data: overview } = useQuery({
     queryKey: ['dashboard-overview'],
     queryFn: () => dashboardApi.getOverview() as Promise<any>,
     refetchInterval: 60000,
+    enabled: canAccess,
   });
 
   const { data: workload } = useQuery({
     queryKey: ['workload'],
     queryFn: () => dashboardApi.getWorkload() as Promise<any[]>,
+    enabled: canAccess,
   });
 
   const { data: allTickets } = useQuery({
     queryKey: ['all-tickets-analytics'],
     queryFn: () => ticketsApi.getAll({ limit: 200, page: 1 }) as Promise<any>,
-    enabled: tab === 'detailed',
+    enabled: canAccess && tab === 'detailed',
   });
 
   const stats = overview?.stats ?? {};
@@ -108,6 +117,33 @@ export default function AnalyticsPage() {
       dateTo: dateTo.toISOString().split('T')[0],
     });
   };
+
+  if (!hasHydrated) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
+      </div>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
+        <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
+          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Analytics is not available for your role</h1>
+          <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
+            Your dashboard, tickets, kanban board, projects, leave, and calendar already show your personal operational scope.
+          </p>
+        </div>
+        <Link href="/dashboard" className="apex-btn apex-btn-primary inline-flex justify-center">
+          Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -164,18 +200,31 @@ export default function AnalyticsPage() {
               <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Team Workload</h3>
               {Array.isArray(workload) && workload.length > 0 ? (
                 <div className="space-y-2">
-                  {workload.slice(0, 8).map((row: any) => (
-                    <div key={row.user?.id} className="flex items-center gap-3">
-                      <span className="text-sm w-32 truncate" style={{ color: 'var(--text-primary)' }}>{row.user?.name ?? row.name}</span>
-                      <div className="apex-progress-track flex-1">
-                        <div
-                          className="apex-progress-fill"
-                          style={{ width: `${Math.min(((row.open ?? 0) + (row.inProgress ?? 0)) * 10, 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-xs w-8 text-right" style={{ color: 'var(--text-secondary)' }}>{(row.open ?? 0) + (row.inProgress ?? 0)}</span>
-                    </div>
-                  ))}
+                  {(() => {
+                    const maxAssigned = Math.max(...workload.map((r: any) => r.totalAssigned ?? 0), 1);
+                    return workload.slice(0, 10).map((row: any) => {
+                      const name = row.name ?? row.user?.name ?? '—';
+                      const total = row.totalAssigned ?? 0;
+                      const urgent = row.urgent ?? 0;
+                      return (
+                        <div key={row.id ?? row.user?.id} className="flex items-center gap-3">
+                          <span className="text-sm w-28 truncate flex-shrink-0" style={{ color: 'var(--text-primary)' }}>{name}</span>
+                          <div className="apex-progress-track flex-1">
+                            <div
+                              className="apex-progress-fill"
+                              style={{ width: `${Math.round((total / maxAssigned) * 100)}%` }}
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {urgent > 0 && (
+                              <span className="text-[10px] font-bold px-1 rounded bg-red-100 text-red-600">{urgent}U</span>
+                            )}
+                            <span className="text-xs w-6 text-right font-semibold" style={{ color: total > 5 ? 'var(--color-danger)' : 'var(--text-secondary)' }}>{total}</span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               ) : (
                 <div className="apex-empty" style={{ padding: '2rem' }}>

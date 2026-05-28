@@ -73,12 +73,34 @@ export class TicketTimingService {
     const status = ticket.status as TicketStatus;
     const priority = String(ticket.priority ?? 'MEDIUM');
 
+    // ── Terminal states always take priority — even over isBlocked ──────────
     if (status === TicketStatus.DONE) {
       return this.completed('completed', 'Ticket is done');
     }
 
     if (status === TicketStatus.CLOSED || ticket.cancelledAt) {
       return this.completed('cancelled', 'Ticket is closed');
+    }
+
+    // ── Blocked state — SLA paused (comes after terminal checks) ────────────
+    if (ticket.isBlocked) {
+      const frozenAt = this.asDate(ticket.blockedAt) ?? this.asDate(ticket.updatedAt);
+      const startAt  = this.asDate(ticket.actualStartAt) ?? this.asDate(ticket.createdAt);
+      const dueAt    = this.asDate(ticket.executionDueAt) ?? this.asDate(ticket.reviewDueAt);
+      const total    = startAt && dueAt ? Math.max(1, dueAt.getTime() - startAt.getTime()) : 1;
+      const elapsed  = startAt && frozenAt ? Math.max(0, frozenAt.getTime() - startAt.getTime()) : 0;
+      return {
+        timerType: 'blocked',
+        label: 'Blocked — SLA paused',
+        isOverdue: false,
+        dueAt: frozenAt,
+        remainingMs: 0,
+        overdueMs: 0,
+        responsibleRole: null,
+        displayColor: 'amber',
+        progressPercent: Math.min(100, Math.round((elapsed / total) * 100)),
+        reason: ticket.blockedReason ?? 'Ticket is blocked — timer is paused',
+      };
     }
 
     if (status === TicketStatus.REVIEW) {

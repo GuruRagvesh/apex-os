@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, LEAVE_STATUS_COLORS, formatDate, getInitials } from '@/lib/utils';
-import { Plus, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, Info, ChevronDown } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
@@ -50,6 +50,14 @@ export default function LeavePage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [balances, setBalances] = useState<Record<string, any>>({});
   const [loadingBalances, setLoadingBalances] = useState<Record<string, boolean>>({});
+
+  // Apply leave form extras
+  const [isHalfDay, setIsHalfDay] = useState(false);
+  const [halfDayType, setHalfDayType] = useState<'FIRST_HALF' | 'SECOND_HALF'>('FIRST_HALF');
+
+  // Reject confirmation state
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   const toggleExpand = async (id: string, userId: string) => {
     if (expandedId === id) {
@@ -186,12 +194,33 @@ export default function LeavePage() {
     mutationFn: (id: string) => leaveApi.reject(id),
     onSuccess: () => {
       toast.success('Rejected');
+      setRejectingId(null);
+      setRejectReason('');
       qc.invalidateQueries({ queryKey: ['leave'] });
       qc.invalidateQueries({ queryKey: ['leave-stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
     },
-    onError: (err: any) => toast.error(err?.message || 'You do not have permission to perform this action.'),
+    onError: (err: any) => {
+      setRejectingId(null);
+      toast.error(err?.message || 'You do not have permission to perform this action.');
+    },
   });
+
+  const handleRejectClick = (id: string) => {
+    setRejectingId(id);
+    setRejectReason('');
+  };
+
+  const handleRejectConfirm = () => {
+    if (!rejectingId) return;
+    rejectMutation.mutate(rejectingId);
+  };
+
+  // Form: computed duration + balance check
+  const formDuration = form.startDate && form.endDate
+    ? getLeaveDuration(form.startDate, form.endDate, isHalfDay)
+    : 0;
+  const exceedsBalance = myBalance != null && formDuration > 0 && formDuration > (myBalance.balance ?? 0);
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
@@ -228,14 +257,41 @@ export default function LeavePage() {
             </div>
           ))}
         </div>
-        <div className="md:col-span-1 apex-card p-4 flex flex-col justify-between" style={{ minHeight: '120px' }}>
+        <div className="md:col-span-1 apex-card p-4 flex flex-col gap-2">
           <p className="text-xs uppercase tracking-wider font-semibold" style={{ color: 'var(--text-secondary)' }}>My Leave Balance</p>
           {loadingMyBalance ? (
-            <p className="text-sm font-semibold animate-pulse mt-2">Loading balance...</p>
+            <div className="space-y-1.5 mt-1">
+              {[1,2,3,4].map(i => <div key={i} className="h-3 rounded animate-pulse" style={{ backgroundColor: 'var(--bg-tertiary)' }} />)}
+            </div>
           ) : myBalance ? (
-            <div className="mt-2">
-              <p className="text-3xl font-extrabold text-indigo-500">{myBalance.balance} <span className="text-xs font-normal text-slate-500">days</span></p>
-              <p className="text-[10px] text-slate-400 mt-1 font-mono">Allocation: {myBalance.allocation}d · Approved: {myBalance.approved}d</p>
+            <div className="space-y-1">
+              {/* Remaining — prominent */}
+              <div className="flex items-end gap-1">
+                <span className={cn("text-3xl font-extrabold leading-none", (myBalance.balance ?? 0) <= 2 ? 'text-red-500' : 'text-indigo-500')}>
+                  {myBalance.balance ?? 0}
+                </span>
+                <span className="text-xs text-slate-500 mb-1">days remaining</span>
+              </div>
+              {/* Detail grid */}
+              <div className="grid grid-cols-3 gap-x-2 mt-1.5">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Alloc</p>
+                  <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{myBalance.allocation}d</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Used</p>
+                  <p className="text-xs font-semibold text-emerald-600">{myBalance.approved}d</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Pend</p>
+                  <p className="text-xs font-semibold text-amber-500">{myBalance.pending ?? 0}d</p>
+                </div>
+              </div>
+              {(myBalance.balance ?? 0) <= 2 && (
+                <p className="text-[10px] text-red-500 font-semibold flex items-center gap-1 mt-0.5">
+                  <AlertTriangle size={9} /> Low balance
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-xs text-slate-500 mt-2">No balance data available</p>
@@ -329,20 +385,20 @@ export default function LeavePage() {
                         {leave.status}
                       </span>
                       {approvalState.allowed && (
-                        <div className="flex gap-1">
+                        <div className="flex gap-1.5">
                           <button
                             onClick={() => approveMutation.mutate(leave.id)}
-                            className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                            title="Approve Leave"
+                            disabled={approveMutation.isPending}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40 rounded-lg transition-colors disabled:opacity-50"
                           >
-                            <CheckCircle size={15} />
+                            <CheckCircle size={13} /> Approve
                           </button>
                           <button
-                            onClick={() => rejectMutation.mutate(leave.id)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Reject Leave"
+                            onClick={(e) => { e.stopPropagation(); handleRejectClick(leave.id); }}
+                            disabled={rejectMutation.isPending}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 rounded-lg transition-colors disabled:opacity-50"
                           >
-                            <XCircle size={15} />
+                            <XCircle size={13} /> Reject
                           </button>
                         </div>
                       )}
@@ -447,7 +503,20 @@ export default function LeavePage() {
       {showNew && (
         <div className="apex-backdrop flex items-center justify-center p-4">
           <div className="apex-modal w-full max-w-md p-6 modal-enter">
-            <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Apply for Leave</h3>
+            <h3 className="font-bold text-lg mb-1" style={{ color: 'var(--text-primary)' }}>Apply for Leave</h3>
+
+            {/* Balance context */}
+            {myBalance && (
+              <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+                <Info size={12} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  You have <strong style={{ color: (myBalance.balance ?? 0) <= 2 ? 'var(--color-danger)' : 'var(--accent-text)' }}>{myBalance.balance ?? 0} days</strong> remaining
+                  {(myBalance.pending ?? 0) > 0 && ` (${myBalance.pending}d pending)`}
+                  {' '}· Allocation: {myBalance.allocation}d · Used: {myBalance.approved}d
+                </span>
+              </div>
+            )}
+
             <div className="space-y-4">
               <div>
                 <label className="apex-label">Leave Type</label>
@@ -455,6 +524,7 @@ export default function LeavePage() {
                   {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="apex-label">Start Date</label>
@@ -462,23 +532,151 @@ export default function LeavePage() {
                 </div>
                 <div>
                   <label className="apex-label">End Date</label>
-                  <input type="date" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} className="apex-input" />
+                  <input type="date"
+                    value={form.endDate}
+                    min={form.startDate || undefined}
+                    onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))}
+                    className="apex-input"
+                  />
                 </div>
               </div>
+
+              {/* Half-day toggle */}
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isHalfDay}
+                    onChange={(e) => setIsHalfDay(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Half-day</span>
+                </label>
+                {isHalfDay && (
+                  <div className="relative flex-1">
+                    <select
+                      value={halfDayType}
+                      onChange={(e) => setHalfDayType(e.target.value as 'FIRST_HALF' | 'SECOND_HALF')}
+                      className="apex-select w-full text-sm"
+                    >
+                      <option value="FIRST_HALF">First Half (Morning)</option>
+                      <option value="SECOND_HALF">Second Half (Afternoon)</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Duration preview */}
+              {formDuration > 0 && (
+                <div className={cn(
+                  "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border",
+                  exceedsBalance
+                    ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400"
+                    : "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400"
+                )}>
+                  {exceedsBalance
+                    ? <AlertTriangle size={12} className="flex-shrink-0" />
+                    : <CheckCircle size={12} className="flex-shrink-0" />
+                  }
+                  <span>
+                    This request = <strong>{formDuration} working day{formDuration !== 1 ? 's' : ''}</strong>
+                    {isHalfDay && ' (half-day)'}
+                    {exceedsBalance && ` — exceeds your remaining balance of ${myBalance?.balance ?? 0} days`}
+                    {!exceedsBalance && myBalance && ` · ${(myBalance.balance ?? 0) - formDuration} days remaining after`}
+                  </span>
+                </div>
+              )}
+
               <div>
                 <label className="apex-label">Reason</label>
                 <textarea value={form.reason} onChange={(e) => setForm(f => ({ ...f, reason: e.target.value }))} className="apex-textarea" rows={3} placeholder="Brief reason for leave..." />
               </div>
             </div>
-            <div className="flex gap-3 mt-5">
+
+            {/* What happens after submission */}
+            <div className="mt-3 px-3 py-2 rounded-lg flex items-start gap-2 text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+              <Info size={11} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 1 }} />
+              <span style={{ color: 'var(--text-secondary)' }}>
+                After submitting, your request goes to <strong>Pending</strong> status. Your manager or team lead will approve or reject it. You'll receive a notification when a decision is made. Pending requests count towards your tracked balance.
+              </span>
+            </div>
+
+            <div className="flex gap-3 mt-4">
               <button
-                onClick={() => form.startDate && form.endDate && form.reason && createMutation.mutate(form)}
-                disabled={createMutation.isPending || !form.startDate || !form.endDate || !form.reason}
+                onClick={() => {
+                  if (form.startDate && form.endDate && form.reason) {
+                    createMutation.mutate({ ...form, isHalfDay, halfDayType: isHalfDay ? halfDayType : undefined });
+                  }
+                }}
+                disabled={createMutation.isPending || !form.startDate || !form.endDate || !form.reason || exceedsBalance}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
-                {createMutation.isPending ? 'Submitting...' : 'Submit Request'}
+                {createMutation.isPending ? 'Submitting...' : exceedsBalance ? 'Balance Exceeded' : 'Submit Request'}
               </button>
-              <button onClick={() => setShowNew(false)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
+              <button
+                onClick={() => {
+                  setShowNew(false);
+                  setIsHalfDay(false);
+                  setHalfDayType('FIRST_HALF');
+                }}
+                className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Confirmation Modal */}
+      {rejectingId && (
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-sm p-6 modal-enter">
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-danger-bg)' }}>
+                <XCircle size={16} style={{ color: 'var(--color-danger)' }} />
+              </div>
+              <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Reject Leave Request</h3>
+            </div>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+              You are about to reject this leave request. This action cannot be undone.
+            </p>
+
+            <div>
+              <label className="apex-label">Rejection Reason <span className="font-normal" style={{ color: 'var(--text-tertiary)' }}>(optional, for your reference)</span></label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="apex-textarea"
+                rows={3}
+                placeholder="e.g. Team coverage conflict, insufficient notice..."
+              />
+            </div>
+
+            {/* Backend gap note */}
+            <div className="mt-2 px-3 py-2 rounded-lg flex items-start gap-2 text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+              <Info size={11} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 1 }} />
+              <span style={{ color: 'var(--text-tertiary)' }}>
+                Rejection reason is for your reference only and is <strong>not currently stored by the system</strong>. Only the rejection status and your name are recorded.
+              </span>
+            </div>
+
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={handleRejectConfirm}
+                disabled={rejectMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: 'var(--color-danger)' }}
+              >
+                {rejectMutation.isPending ? 'Rejecting...' : <><XCircle size={14} /> Confirm Rejection</>}
+              </button>
+              <button
+                onClick={() => { setRejectingId(null); setRejectReason(''); }}
+                disabled={rejectMutation.isPending}
+                className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

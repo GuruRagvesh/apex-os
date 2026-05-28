@@ -139,6 +139,8 @@ export class TicketsService {
     overdue?: string | boolean;
     risk?: string;
     filter?: string;
+    blocked?: string | boolean;
+    isBlocked?: string | boolean;
     page?: number;
     limit?: number;
   }, user?: any) {
@@ -146,6 +148,14 @@ export class TicketsService {
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
     const where = await this.ticketAccess.buildTicketWhereForUser(query, user);
+
+    // isBlocked / blocked filter — show only blocked tickets
+    const blockedFilter = query.blocked === true || query.blocked === 'true'
+      || query.isBlocked === true || query.isBlocked === 'true';
+    if (blockedFilter) {
+      (where as any).isBlocked = true;
+    }
+
     const needsTimingFilter = query.overdue === true || query.overdue === 'true' || query.risk === 'overdue' || query.filter === 'overdue';
 
     if (needsTimingFilter) {
@@ -643,6 +653,144 @@ export class TicketsService {
     return this.update(id, { status }, userId, user);
   }
 
+  async blockTicket(id: string, reason: string, userId: string, user?: any) {
+    if (!reason || reason.trim().length < 3) {
+      throw new BadRequestException('A blocker reason of at least 3 characters is required');
+    }
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, { assignees: true })
+      : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: { assignees: true } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    if ([TicketStatus.DONE, TicketStatus.CLOSED].includes(ticket.status)) {
+      throw new BadRequestException('Cannot block a completed or closed ticket');
+    }
+    if (ticket.isBlocked) throw new BadRequestException('Ticket is already blocked');
+    if (user) await this.ticketAccess.assertCanBlockTicket(user, ticket);
+
+    const updated = await this.prisma.ticket.update({
+      where: { id: ticket.id },
+      data: { isBlocked: true, blockedAt: new Date(), blockedReason: reason.trim(), blockedById: userId },
+      include: this.includeOptions,
+    });
+
+    await this.prisma.ticketHistory.create({
+      data: { ticketId: ticket.id, field: 'isBlocked', oldValue: 'false', newValue: 'true', changedById: userId },
+    });
+    await this.prisma.activityLog.create({
+      data: {
+        userId,
+        action: 'TICKET_BLOCKED',
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        details: { ticketId: ticket.ticketId, reason: reason.trim() },
+      },
+    });
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action: OperationalAction.TICKET_BLOCKED,
+      fromState: ticket.status,
+      metadata: { ticketId: ticket.ticketId, reason: reason.trim() },
+    }).catch(() => {});
+    this.gateway.emitTicketStatusChanged(ticket.id, 'BLOCKED', userId);
+
+    // Notify assignee (if different from blocker) that their ticket is blocked
+    if (ticket.assignedTo && ticket.assignedToId !== userId) {
+      try {
+        await this.notificationEventService.sendNotification(
+          ticket.assignedToId,
+          'ticketBlocked',
+          {
+            title: `Ticket blocked: ${ticket.ticketId}`,
+            message: reason.trim(),
+            type: NotificationType.WARNING,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          },
+        );
+      } catch (_e) { /* never crash main op */ }
+    }
+    // Notify creator (if different from blocker and assignee)
+    if (ticket.createdById && ticket.createdById !== userId && ticket.createdById !== ticket.assignedToId) {
+      try {
+        await this.notificationEventService.sendNotification(
+          ticket.createdById,
+          'ticketBlocked',
+          {
+            title: `Ticket blocked: ${ticket.ticketId}`,
+            message: reason.trim(),
+            type: NotificationType.WARNING,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          },
+        );
+      } catch (_e) { /* never crash main op */ }
+    }
+
+    return this.addSla(updated);
+  }
+
+  async unblockTicket(id: string, userId: string, user?: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, { assignees: true })
+      : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: { assignees: true } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    if (!ticket.isBlocked) throw new BadRequestException('Ticket is not currently blocked');
+    if (user) await this.ticketAccess.assertCanBlockTicket(user, ticket);
+
+    const updated = await this.prisma.ticket.update({
+      where: { id: ticket.id },
+      data: { isBlocked: false, blockedAt: null, blockedReason: null, blockedById: null },
+      include: this.includeOptions,
+    });
+
+    await this.prisma.ticketHistory.create({
+      data: { ticketId: ticket.id, field: 'isBlocked', oldValue: 'true', newValue: 'false', changedById: userId },
+    });
+    await this.prisma.activityLog.create({
+      data: {
+        userId,
+        action: 'TICKET_UNBLOCKED',
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        details: { ticketId: ticket.ticketId },
+      },
+    });
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action: OperationalAction.TICKET_UNBLOCKED,
+      fromState: 'BLOCKED',
+      toState: ticket.status,
+      metadata: { ticketId: ticket.ticketId },
+    }).catch(() => {});
+    this.gateway.emitTicketStatusChanged(ticket.id, ticket.status, userId);
+
+    // Notify assignee that the blocker has been resolved
+    if (ticket.assignedToId && ticket.assignedToId !== userId) {
+      try {
+        await this.notificationEventService.sendNotification(
+          ticket.assignedToId,
+          'ticketBlocked',
+          {
+            title: `Ticket unblocked: ${ticket.ticketId}`,
+            message: `${ticket.title} is no longer blocked. Resume work.`,
+            type: NotificationType.SUCCESS,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          },
+        );
+      } catch (_e) { /* never crash main op */ }
+    }
+
+    return this.addSla(updated);
+  }
+
   async assign(id: string, assignedToId: string, userId: string, user?: any) {
     return this.update(id, { assignedToId }, userId, user);
   }
@@ -796,8 +944,9 @@ export class TicketsService {
     const scope = await this.ticketAccess.buildTicketWhereForUser({}, user);
     const activeScope = this.andWhere(scope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } });
     const unassignedScope = this.andWhere(scope, { assignedToId: null });
+    const blockedScope = this.andWhere(activeScope, { isBlocked: true });
 
-    const [total, byStatus, byCategory, byPriority, overdueCandidates, unassigned] = await Promise.all([
+    const [total, byStatus, byCategory, byPriority, overdueCandidates, unassigned, blocked] = await Promise.all([
       this.prisma.ticket.count({ where: scope }),
       this.prisma.ticket.groupBy({ by: ['status'], where: scope, _count: true }),
       this.prisma.ticket.groupBy({ by: ['category'], where: scope, _count: true }),
@@ -808,14 +957,17 @@ export class TicketsService {
           id: true, status: true, priority: true, dueDate: true, createdAt: true, updatedAt: true,
           scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
           submittedAt: true, reviewStartedAt: true, reviewDueAt: true, closedAt: true, cancelledAt: true,
+          isBlocked: true, blockedAt: true, blockedReason: true,
         },
       }),
       this.prisma.ticket.count({ where: unassignedScope }),
+      this.prisma.ticket.count({ where: blockedScope }),
     ]);
     const slaConfig = await this.ticketTiming.getSlaConfig();
+    // Blocked tickets are NOT counted as overdue while the flag is set
     const overdue = overdueCandidates.filter((ticket) => this.ticketTiming.getTimingState(ticket, slaConfig).isOverdue).length;
 
-    return { total, byStatus, byCategory, byPriority, overdue, unassigned };
+    return { total, byStatus, byCategory, byPriority, overdue, unassigned, blocked };
   }
 
   async getKanban(filters: { departmentId?: string; department?: string; projectId?: string; assignedToId?: string }, user?: any) {
@@ -844,6 +996,7 @@ export class TicketsService {
     dueSoon: number;
     reviewAgeing: number;
     unassigned: number;
+    blocked: number;
     total: number;
   }> {
     const scope = await this.ticketAccess.buildTicketWhereForUser({}, user);
@@ -858,23 +1011,27 @@ export class TicketsService {
         scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
         submittedAt: true, reviewStartedAt: true, reviewDueAt: true, closedAt: true, cancelledAt: true,
         assignedToId: true,
+        isBlocked: true, blockedAt: true, blockedReason: true,
       },
     });
 
     const slaConfig = await this.ticketTiming.getSlaConfig();
-    const now = Date.now();
     const DUE_SOON_MS = 4 * 3_600_000; // 4 hours
 
     let overdue = 0;
     let dueSoon = 0;
     let reviewAgeing = 0;
+    let blocked = 0;
 
     for (const ticket of candidates) {
+      if (ticket.isBlocked) {
+        blocked++;
+        continue; // blocked tickets are NOT counted as overdue or dueSoon
+      }
       const timing = this.ticketTiming.getTimingState(ticket, slaConfig);
       if (timing.isOverdue) {
         overdue++;
       } else if (timing.timerType === 'review') {
-        // Ticket is in review phase — check if review SLA is nearly expired
         if (timing.remainingMs <= 0) reviewAgeing++;
         else if (timing.remainingMs <= DUE_SOON_MS) dueSoon++;
       } else if (timing.timerType === 'execution' && timing.remainingMs > 0 && timing.remainingMs <= DUE_SOON_MS) {
@@ -886,6 +1043,6 @@ export class TicketsService {
       where: this.andWhere(activeScope, { assignedToId: null }),
     });
 
-    return { overdue, dueSoon, reviewAgeing, unassigned, total: candidates.length };
+    return { overdue, dueSoon, reviewAgeing, unassigned, blocked, total: candidates.length };
   }
 }

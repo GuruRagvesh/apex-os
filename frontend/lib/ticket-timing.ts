@@ -14,6 +14,7 @@
 export type TimerPhase =
   | 'execution'   // ticket is being worked on (OPEN / IN_PROGRESS)
   | 'review'      // ticket is in REVIEW
+  | 'blocked'     // ticket is blocked — SLA paused
   | 'none';       // terminal or timer not applicable
 
 export interface TicketTimingState {
@@ -76,6 +77,21 @@ export function computeClientTimingState(ticket: Record<string, any>): TicketTim
   const backendTiming = ticket.timing;
   if (backendTiming) {
     if (['completed', 'cancelled', 'none'].includes(backendTiming.timerType)) return DONE_STATE;
+
+    // Blocked — SLA paused, show amber "Blocked" indicator instead of timer
+    if (backendTiming.timerType === 'blocked') {
+      return {
+        phase: 'blocked',
+        dueAt: null,
+        msUntilDue: null,
+        isOverdue: false,
+        overdueMinutes: 0,
+        overdueDisplay: null,
+        overdueSeverity: 'orange',
+        countdownLabel: '🚫 Blocked',
+      };
+    }
+
     const dueAt = backendTiming.dueAt ? new Date(backendTiming.dueAt) : null;
     if (!dueAt) return DONE_STATE;
     const msUntilDue = dueAt.getTime() - Date.now();

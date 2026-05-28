@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { usersApi, rolesApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, getInitials } from '@/lib/utils';
-import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink } from 'lucide-react';
+import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert } from 'lucide-react';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 
 // Light-mode classes — dark themes handled via globals.css CSS-variable overrides
@@ -20,9 +21,10 @@ const roleBadge: Record<string, string> = {
 };
 
 export default function UsersPage() {
-  const { user: me } = useAuthStore();
+  const { user: me, hasHydrated } = useAuthStore();
   const qc = useQueryClient();
   const router = useRouter();
+  const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(me?.role?.name ?? '');
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -35,11 +37,12 @@ export default function UsersPage() {
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
     queryFn: () => usersApi.getAll(search ? { search } : {}) as Promise<any>,
+    enabled: hasHydrated && isAdmin,
   });
   const userList: any[] = usersResponse?.users ?? (Array.isArray(usersResponse) ? usersResponse : []);
 
-  const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any[]> });
-  const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
+  const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any[]>, enabled: hasHydrated && isAdmin });
+  const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]>, enabled: hasHydrated && isAdmin });
 
   const createMutation = useMutation({
     mutationFn: (data: any) => usersApi.create(data),
@@ -67,8 +70,6 @@ export default function UsersPage() {
     onError: (err: any) => toast.error(err?.message || 'Failed to update user'),
   });
 
-  const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(me?.role?.name ?? '');
-
   // Client-side filtering
   const filteredUsers = userList.filter((u: any) => {
     const matchSearch = !search || u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase());
@@ -77,6 +78,33 @@ export default function UsersPage() {
     const matchStatus = !statusFilter || (statusFilter === 'active' ? u.isActive !== false : u.isActive === false);
     return matchSearch && matchDept && matchRole && matchStatus;
   });
+
+  if (!hasHydrated) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
+        <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
+          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Users & Roles is admin-only</h1>
+          <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
+            Use Team, Profile, or Settings for your own role-specific people and account information.
+          </p>
+        </div>
+        <Link href="/dashboard" className="apex-btn apex-btn-primary inline-flex justify-center">
+          Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto">

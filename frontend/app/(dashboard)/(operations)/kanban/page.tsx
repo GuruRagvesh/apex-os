@@ -51,11 +51,14 @@ function CardContent({ ticket, isPending, canMove = true }: { ticket: any; isPen
       )}
       style={{
         backgroundColor: isDone ? 'var(--bg-secondary)' : 'var(--surface-card)',
-        border: ticket.isOverdue && !isDone
+        border: ticket.isBlocked && !isDone
+          ? '2px solid #F59E0B'
+          : ticket.isOverdue && !isDone
           ? '2px solid var(--color-danger)'
           : '1px solid var(--border-primary)',
         boxShadow: 'var(--shadow-sm)',
         borderLeft: isDone ? '1px solid var(--border-primary)' :
+                    ticket.isBlocked ? '3px solid #F59E0B' :
                     ticket.priority === 'URGENT' ? '3px solid #EF4444' :
                     ticket.priority === 'HIGH' ? '3px solid #F97316' :
                     ticket.priority === 'MEDIUM' ? '3px solid #2563EB' :

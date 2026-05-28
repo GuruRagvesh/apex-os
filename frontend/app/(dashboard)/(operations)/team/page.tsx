@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
 import {
   Users, Search, Building2, Ticket, UserPlus, Check,
-  Mail, Clock, ChevronDown, ChevronRight, Loader2,
+  Mail, Clock, ChevronDown, ChevronRight, Loader2, AlertTriangle,
 } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -554,6 +554,19 @@ function fmtMin(minutes: number) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// A session is stale if it's marked active but the startWorkAt is from a previous day
+function checkStale(member: any): boolean {
+  if (!['WORKING', 'ON_BREAK', 'IDLE'].includes(member.workStatus)) return false;
+  const startIso = member.todaySession?.startWorkAt;
+  if (!startIso) return false;
+  return new Date(startIso).toDateString() !== new Date().toDateString();
+}
+
 const STATUS_CONFIG: Record<string, { dot: string; label: string; color: string }> = {
   WORKING:    { dot: 'bg-green-500',  label: 'Working',     color: 'var(--color-success)' },
   ON_BREAK:   { dot: 'bg-orange-400', label: 'On Break',    color: 'var(--color-warning)' },
@@ -588,68 +601,96 @@ function LiveStatusView() {
     return (
       <div className="apex-card border-dashed p-10 text-center">
         <Users size={32} className="mx-auto mb-3" style={{ color: 'var(--text-tertiary)' }} />
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No team members found</p>
+        <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>No team members have started their workday yet</p>
+        <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Members appear here once they log in and start their session</p>
       </div>
     );
   }
 
+  const staleCount = members.filter(checkStale).length;
+
   return (
-    <div className="apex-card overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="border-b" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-tertiary)' }}>
-          <tr>
-            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Member</th>
-            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Status</th>
-            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Work Time</th>
-            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Breaks</th>
-            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Department</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-          {members.map((m: any) => {
-            const cfg = STATUS_CONFIG[m.workStatus] ?? STATUS_CONFIG.OFFLINE;
-            return (
-              <tr
-                key={m.id}
-                className="transition-colors"
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-              >
-                <td className="px-5 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="relative">
-                      <Avatar name={m.name} size="sm" />
-                      <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 ${cfg.dot}`} style={{ borderColor: 'var(--surface-card)' }} />
+    <div className="space-y-3">
+      {/* Stale sessions warning banner */}
+      {staleCount > 0 && (
+        <div className="flex items-center gap-2.5 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl">
+          <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+            {staleCount} member{staleCount > 1 ? 's have' : ' has'} a session from a previous day that was never closed — highlighted below
+          </p>
+        </div>
+      )}
+
+      <div className="apex-card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="border-b" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-tertiary)' }}>
+            <tr>
+              <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Member</th>
+              <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Status</th>
+              <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Started</th>
+              <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Work Time</th>
+              <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Breaks</th>
+              <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Department</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+            {members.map((m: any) => {
+              const cfg = STATUS_CONFIG[m.workStatus] ?? STATUS_CONFIG.OFFLINE;
+              const stale = checkStale(m);
+              const startedAt = m.todaySession?.startWorkAt;
+              return (
+                <tr
+                  key={m.id}
+                  className="transition-colors"
+                  style={stale ? { backgroundColor: 'rgba(245,158,11,0.06)' } : undefined}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = stale ? 'rgba(245,158,11,0.1)' : 'var(--bg-tertiary)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = stale ? 'rgba(245,158,11,0.06)' : 'transparent'; }}
+                >
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="relative">
+                        <Avatar name={m.name} size="sm" />
+                        <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 ${cfg.dot}`} style={{ borderColor: 'var(--surface-card)' }} />
+                      </div>
+                      <div>
+                        <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{m.name}</p>
+                        <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{m.role?.name}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{m.name}</p>
-                      <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{m.role?.name}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-5 py-3">
-                  <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: cfg.color }}>
-                    <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
-                    {cfg.label}
-                    {m.onLeaveToday && (
-                      <span className="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{m.leaveType ?? 'Leave'}</span>
-                    )}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  {fmtMin(m.workMinutesToday)}
-                </td>
-                <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  {m.breakCount > 0 ? `${m.breakCount}x · ${fmtMin(m.breakMinutesToday)}` : '—'}
-                </td>
-                <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  {m.department?.name ?? '—'}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className="flex items-center gap-1.5 text-xs font-medium flex-wrap" style={{ color: cfg.color }}>
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                      {cfg.label}
+                      {m.onLeaveToday && (
+                        <span className="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{m.leaveType ?? 'Leave'}</span>
+                      )}
+                      {stale && (
+                        <span className="flex items-center gap-0.5 text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded font-semibold">
+                          <AlertTriangle size={8} />
+                          Stale
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-xs font-mono" style={{ color: startedAt ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                    {fmtTime(startedAt)}
+                  </td>
+                  <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    {fmtMin(m.workMinutesToday)}
+                  </td>
+                  <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    {m.breakCount > 0 ? `${m.breakCount}x · ${fmtMin(m.breakMinutesToday)}` : '—'}
+                  </td>
+                  <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    {m.department?.name ?? '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

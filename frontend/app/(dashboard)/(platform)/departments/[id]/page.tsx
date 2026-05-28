@@ -19,6 +19,7 @@ import {
   AlertCircle,
   UserMinus,
   Crown,
+  ShieldAlert,
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -56,7 +57,7 @@ function Avatar({ name, avatar, size = 'sm' }: { name: string; avatar?: string; 
 export default function DepartmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
   const qc = useQueryClient();
 
   const isAdmin = ADMIN_ROLES.includes(user?.role?.name ?? '');
@@ -73,19 +74,20 @@ export default function DepartmentDetailPage() {
   const { data: dept, isLoading, isError } = useQuery({
     queryKey: ['department', id],
     queryFn: () => departmentsApi.getOne(id) as Promise<any>,
+    enabled: hasHydrated && isAdmin,
   });
 
   const { data: usersData } = useQuery({
     queryKey: ['users'],
     queryFn: () => usersApi.getAll() as Promise<any>,
-    enabled: showAddMember,
+    enabled: hasHydrated && isAdmin && showAddMember,
   });
   const allUsers: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
 
   const { data: rolesData } = useQuery({
     queryKey: ['roles'],
     queryFn: () => rolesApi.getAll() as Promise<any[]>,
-    enabled: isAdmin,
+    enabled: hasHydrated && isAdmin,
   });
 
   // Users not already in this dept
@@ -143,6 +145,33 @@ export default function DepartmentDetailPage() {
     },
     onError: (err: any) => toast.error(err?.message || 'Failed to set team lead'),
   });
+
+  if (!hasHydrated) {
+    return (
+      <div className="flex items-center justify-center h-60">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
+        <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
+          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+        </div>
+        <div>
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Department administration is admin-only</h1>
+          <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
+            Use Team for your role-specific department and roster view.
+          </p>
+        </div>
+        <Link href="/dashboard" className="apex-btn apex-btn-primary inline-flex justify-center">
+          Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

@@ -93,6 +93,33 @@ export default function CommandCard({
         <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold pl-0.5 leading-relaxed">
           {summary}
         </p>
+
+        {/* Inline preview rows — always visible when items exist */}
+        {previewItems.length > 0 && (
+          <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+            <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 font-mono uppercase tracking-widest leading-none mb-2">
+              Top Items
+            </p>
+            <div className="space-y-1.5">
+              {previewItems.slice(0, 2).map((item, idx) => (
+                <div key={idx} className="flex items-center gap-1.5">
+                  <span className={`w-1 h-1 rounded-full shrink-0 flex-shrink-0 ${
+                    severity === 'urgent' ? 'bg-red-500' :
+                    severity === 'warning' ? 'bg-amber-500' :
+                    severity === 'success' ? 'bg-emerald-500' :
+                    'bg-blue-500'
+                  }`} />
+                  <span className="text-[10.5px] text-slate-600 dark:text-slate-400 font-medium truncate">{item}</span>
+                </div>
+              ))}
+              {previewItems.length > 2 && (
+                <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-semibold pl-2.5">
+                  +{previewItems.length - 2} more — click to view all
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mini CTA row indicator */}

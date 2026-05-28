@@ -142,6 +142,23 @@ export class TicketAccessService {
     throw new ForbiddenException('You do not have permission to change this ticket status');
   }
 
+  async assertCanBlockTicket(user: any, ticket: any): Promise<void> {
+    const roleName = this.access.roleName(user);
+    if (roleName === ROLES.INTERN) {
+      throw new ForbiddenException('Interns cannot block or unblock tickets');
+    }
+    if (this.access.isAdmin(user)) return;
+    if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {
+      if (!(await this.isTicketInUserScope(user, ticket))) {
+        throw new ForbiddenException('Ticket is outside your scope');
+      }
+      return;
+    }
+    // EMPLOYEE: must be assignee, creator, or listed in assignees
+    if (this.isTicketParticipant(user.id, ticket)) return;
+    throw new ForbiddenException('Only participants (assignee/creator) or scoped leads/managers can block this ticket');
+  }
+
   async assertCanDeleteTicket(user: any, ticket: any): Promise<void> {
     if (!this.access.isAdmin(user)) {
       throw new ForbiddenException('Only admins can delete tickets');

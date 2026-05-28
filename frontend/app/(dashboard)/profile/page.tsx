@@ -2,7 +2,7 @@
 
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery } from '@tanstack/react-query';
-import { ticketsApi, dashboardApi } from '@/lib/api';
+import { ticketsApi, dashboardApi, leaveApi, projectsApi } from '@/lib/api';
 import Link from 'next/link';
 import { Settings, Ticket, Clock, CalendarOff, FolderKanban } from 'lucide-react';
 import { TicketRow } from '@/components/tickets/ticket-row';
@@ -36,9 +36,23 @@ export default function ProfilePage() {
     queryFn: () => dashboardApi.getActivityFeed(10) as Promise<any[]>,
   });
 
+  const { data: leaveBalance, isLoading: leaveLoading } = useQuery({
+    queryKey: ['my-leave-balance-profile'],
+    queryFn: () => leaveApi.getBalance() as Promise<any>,
+    enabled: !!user?.id,
+  });
+
+  const { data: projectsData, isLoading: projectsLoading } = useQuery({
+    queryKey: ['my-projects-profile'],
+    queryFn: () => projectsApi.getAll({ limit: 100, page: 1 }) as Promise<any>,
+    enabled: !!user?.id,
+  });
+
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   const deptName = (user?.department as any)?.name ?? '';
   const tickets: any[] = myTickets?.tickets ?? [];
+  const projects: any[] = projectsData?.projects ?? (Array.isArray(projectsData) ? projectsData : []);
+  const approvedLeaveDays = leaveBalance?.approved ?? 0;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -78,8 +92,8 @@ export default function ProfilePage() {
         {[
           { label: 'Open Tickets', value: tickets.length, icon: <Ticket size={18} className="text-yellow-600" />, bg: 'bg-yellow-50' },
           { label: 'In Progress', value: myTickets?.tickets?.filter((t: any) => t.status === 'IN_PROGRESS').length ?? 0, icon: <Clock size={18} className="text-blue-600" />, bg: 'bg-blue-50' },
-          { label: 'Leave Days', value: 0, icon: <CalendarOff size={18} className="text-pink-600" />, bg: 'bg-pink-50' },
-          { label: 'Projects', value: 0, icon: <FolderKanban size={18} className="text-indigo-600" />, bg: 'bg-indigo-50' },
+          { label: 'Leave Days', value: leaveLoading ? '...' : approvedLeaveDays, icon: <CalendarOff size={18} className="text-pink-600" />, bg: 'bg-pink-50' },
+          { label: 'Projects', value: projectsLoading ? '...' : projects.length, icon: <FolderKanban size={18} className="text-indigo-600" />, bg: 'bg-indigo-50' },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-4">
             <div className={`w-9 h-9 rounded-lg ${s.bg} flex items-center justify-center mb-3`}>{s.icon}</div>

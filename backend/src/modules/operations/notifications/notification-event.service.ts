@@ -10,6 +10,7 @@ const NOTIF_DEFAULTS = {
   commentAdded:   false,
   overdueTicket:  true,
   ticketResolved: true,
+  ticketBlocked:  true,
   leaveApproved:  true,
   leaveRejected:  true,
   teamLeaveApply: true,

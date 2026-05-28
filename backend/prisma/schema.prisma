@@ -222,6 +222,12 @@ model Ticket {
   taskSubtypeId      String?
   customSubtypeText  String?
 
+  // ── Blocked overlay (Option B) ───────────────────────────────────────────
+  isBlocked     Boolean   @default(false)
+  blockedAt     DateTime?
+  blockedReason String?
+  blockedById   String?
+
   project     Project?        @relation(fields: [projectId], references: [id])
   department  Department?     @relation(fields: [departmentId], references: [id])
   assignedTo  User?           @relation("TicketAssignee", fields: [assignedToId], references: [id])
@@ -243,6 +249,8 @@ model Ticket {
   @@index([dueDate])
   @@index([status, assignedToId])
   @@index([status, departmentId])
+  @@index([isBlocked])
+  @@index([status, isBlocked])
   @@map("tickets")
 }
 

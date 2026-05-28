@@ -15,6 +15,7 @@ const ACTION_DESCRIPTIONS: Record<string, string> = {
   TICKET_DONE: 'completed a ticket',
   TICKET_OVERDUE: 'ticket became overdue',
   TICKET_BLOCKED: 'ticket was blocked',
+  TICKET_UNBLOCKED: 'ticket was unblocked',
   TICKET_CANCELLED: 'cancelled a ticket',
   TICKET_DELETED: 'deleted a ticket',
   TICKET_REOPENED: 'reopened a ticket',
@@ -74,6 +75,11 @@ function enrichEvent(event: any): any {
   else timeAgo = `${Math.floor(diffMin / 1440)}d ago`;
 
   return { ...event, description, entityUrl, timeAgo };
+}
+
+function clip(s: string | null | undefined, max = 45): string {
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
 @ApiTags('Events')
@@ -218,6 +224,85 @@ export class EventsController {
       orderBy: { timestamp: 'desc' },
       take: limit,
     });
-    return events.map(enrichEvent);
+    const enriched = events.map(enrichEvent);
+    return this.enrichWithTitles(enriched);
+  }
+
+  // ── Batch-enrich events with entity names (avoids N+1) ───────────────────
+  private async enrichWithTitles(events: any[]): Promise<any[]> {
+    const ticketIds = [...new Set(
+      events.filter((e) => e.entityType === 'Ticket' && e.entityId).map((e) => e.entityId as string),
+    )];
+    const projectIds = [...new Set(
+      events.filter((e) => e.entityType === 'Project' && e.entityId).map((e) => e.entityId as string),
+    )];
+
+    const [tickets, projects] = await Promise.all([
+      ticketIds.length > 0
+        ? this.prisma.ticket.findMany({
+            where: { id: { in: ticketIds } },
+            select: { id: true, ticketId: true, title: true },
+          })
+        : [],
+      projectIds.length > 0
+        ? this.prisma.project.findMany({
+            where: { id: { in: projectIds } },
+            select: { id: true, name: true },
+          })
+        : [],
+    ]);
+
+    const ticketMap = new Map<string, { id: string; ticketId: string; title: string }>();
+    for (const t of tickets) ticketMap.set(t.id, t);
+    const projectMap = new Map<string, { id: string; name: string }>();
+    for (const p of projects) projectMap.set(p.id, p);
+
+    return events.map((event) => {
+      let { description } = event;
+      let metadata = event.metadata ?? {};
+
+      if (event.entityType === 'Ticket') {
+        const ticket = ticketMap.get(event.entityId);
+        if (ticket) {
+          const title = clip(ticket.title);
+          const tid = ticket.ticketId;
+          switch (event.action) {
+            case 'TICKET_CREATED':              description = `created '${title}'`; break;
+            case 'TICKET_STARTED':              description = `started working on '${title}'`; break;
+            case 'TICKET_SUBMITTED_FOR_REVIEW': description = `submitted '${title}' for review`; break;
+            case 'TICKET_DONE':                 description = `completed '${title}'`; break;
+            case 'TICKET_ASSIGNED':             description = `was assigned '${title}'`; break;
+            case 'TICKET_REVIEWED':             description = `reviewed '${title}'`; break;
+            case 'TICKET_REOPENED':             description = `reopened '${title}'`; break;
+            case 'TICKET_CANCELLED':            description = `cancelled '${title}'`; break;
+            case 'TICKET_BLOCKED':              description = `blocked '${title}'`; break;
+            case 'TICKET_UNBLOCKED':            description = `unblocked '${title}'`; break;
+            case 'TICKET_CLOSED':               description = `closed '${title}'`; break;
+            case 'TICKET_UPDATED':              description = `updated '${title}'`; break;
+            case 'TICKET_DELETED':              description = `deleted ticket ${tid}`; break;
+            case 'COMMENT_ADDED':               description = `commented on '${title}'`; break;
+            case 'ATTACHMENT_UPLOADED':         description = `uploaded file to '${title}'`; break;
+          }
+          // Ensure ticketId is in metadata so frontend can show the badge
+          if (!metadata.ticketId) metadata = { ...metadata, ticketId: tid };
+        }
+      }
+
+      if (event.entityType === 'Project') {
+        const project = projectMap.get(event.entityId);
+        if (project) {
+          const name = clip(project.name);
+          switch (event.action) {
+            case 'PROJECT_CREATED':        description = `created project '${name}'`; break;
+            case 'PROJECT_UPDATED':        description = `updated project '${name}'`; break;
+            case 'PROJECT_MEMBER_ADDED':   description = `added a member to '${name}'`; break;
+            case 'PROJECT_MEMBER_REMOVED': description = `removed a member from '${name}'`; break;
+            case 'PROJECT_DELETED':        description = `deleted project '${name}'`; break;
+          }
+        }
+      }
+
+      return { ...event, description, metadata };
+    });
   }
 }
