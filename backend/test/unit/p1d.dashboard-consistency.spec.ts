@@ -32,7 +32,7 @@ const prisma: any = {
     findMany: jest.fn(),
   },
   user: { count: jest.fn() },
-  project: { count: jest.fn() },
+  project: { count: jest.fn(), findMany: jest.fn() },
   workSession: { findUnique: jest.fn() },
   managerDeptAccess: { findMany: jest.fn() },
 };
@@ -46,6 +46,7 @@ describe('P1-D dashboard count convergence', () => {
     prisma.leaveRequest.findMany.mockResolvedValue([]);
     prisma.user.count.mockResolvedValue(0);
     prisma.project.count.mockResolvedValue(0);
+    prisma.project.findMany.mockResolvedValue([]);
     prisma.workSession.findUnique.mockResolvedValue(null);
     prisma.managerDeptAccess.findMany.mockResolvedValue([{ departmentId: 'dept1' }]);
   });

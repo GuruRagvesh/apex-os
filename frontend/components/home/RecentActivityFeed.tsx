@@ -36,11 +36,13 @@ export function RecentActivityFeed() {
 
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   // EventsController scopes: ADMIN/SUPER_ADMIN see all org events;
-  // everyone else (including MANAGER/TEAM_LEAD) sees only their own events.
+  // MANAGER/TEAM_LEAD see their department's events; everyone else sees own.
   const scopeLabel =
     roleName === 'SUPER_ADMIN' || roleName === 'ADMIN'
       ? 'Company-wide Activity'
-      : 'Your Personal Activity';
+      : roleName === 'MANAGER' || roleName === 'TEAM_LEAD'
+      ? 'Your Department Activity'
+      : 'Your Activity';
 
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['recent-activity'],
@@ -81,25 +83,27 @@ export function RecentActivityFeed() {
     );
   }
 
+  const visible = (events as any[]).slice(0, 5);
+
   return (
     <div className="apex-card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--border-subtle)', backgroundColor: 'rgba(0,0,0,0.02)' }} className="flex justify-between items-center">
         <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-450 dark:text-slate-500">{scopeLabel}</span>
       </div>
-      {events.slice(0, 10).map((ev: any, i: number) => (
+      {visible.map((ev: any, i: number) => (
         <div
           key={i}
           onClick={() => ev.entityUrl && router.push(ev.entityUrl)}
           style={{
             display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
-            borderBottom: i < Math.min(events.length, 10) - 1 ? '1px solid var(--border-subtle)' : 'none',
+            borderBottom: i < visible.length - 1 ? '1px solid var(--border-subtle)' : 'none',
             cursor: ev.entityUrl ? 'pointer' : 'default',
           }}
           className={ev.entityUrl ? 'hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors' : ''}
         >
           <div style={{
             width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-            background: ev.actor?.avatar ?? 'var(--accent)',
+            background: 'var(--accent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 10, fontWeight: 700, color: '#fff',
           }}>
@@ -107,17 +111,36 @@ export function RecentActivityFeed() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 11, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <strong>{ev.actor?.name ?? 'Someone'}</strong> {ev.description ?? ACTION_LABELS[ev.action] ?? ev.action?.toLowerCase().replace(/_/g, ' ')}
+              <strong>{ev.actor?.name ?? 'System'}</strong>{' '}
+              {ev.description ?? ACTION_LABELS[ev.action] ?? ev.action?.toLowerCase().replace(/_/g, ' ')}
               {ev.entityType === 'Ticket' && ev.metadata?.ticketId && (
-                <span className="ml-1.5 text-blue-600 dark:text-blue-400 font-mono font-bold hover:underline">
+                <span className="ml-1 text-blue-600 dark:text-blue-400 font-mono font-bold text-[10px]">
                   [{ev.metadata.ticketId}]
                 </span>
               )}
             </p>
           </div>
-          <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>{ev.timeAgo ?? timeAgo(ev.timestamp)}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            {ev.timeAgo ?? timeAgo(ev.timestamp)}
+          </span>
         </div>
       ))}
+
+      {/* View all link */}
+      <div
+        onClick={() => router.push('/admin/activity')}
+        style={{
+          padding: '8px 12px', borderTop: '1px solid var(--border-subtle)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', gap: 4,
+        }}
+        className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-text)' }}>
+          View all activity
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--accent-text)' }}>→</span>
+      </div>
     </div>
   );
 }
