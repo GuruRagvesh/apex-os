@@ -1,11 +1,14 @@
-﻿import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { LeaveStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { EmailService } from '../../platform/email/email.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
+import { LeaveAccessService } from '../../../common/services/leave-access.service';
+import { LeaveBalanceService } from './leave-balance.service';
+import { AccessPolicyService } from '../../../common/services/access-policy.service';
 
 @Injectable()
 export class LeaveService {
@@ -13,96 +16,136 @@ export class LeaveService {
     private prisma: PrismaService,
     private gateway: EventsGateway,
     private emailService: EmailService,
-    private notificationsService: NotificationsService,
+    private notificationEventService: NotificationEventService,
     private configService: ConfigService,
     private eventLogger: EventLoggerService,
+    private leaveAccess: LeaveAccessService,
+    private leaveBalance: LeaveBalanceService,
+    private accessPolicy: AccessPolicyService,
   ) {}
 
   private get frontendUrl() {
     return this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }
 
-  private async buildLeaveScope(user: any): Promise<any> {
-    const roleName: string = user?.role?.name ?? user?.role ?? '';
-    if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
-      return { userId: user.id };
-    }
-    if (roleName === 'TEAM_LEAD') {
-      if (!user.departmentId) return { userId: user.id };
-      return { user: { departmentId: user.departmentId } };
-    }
-    if (roleName === 'MANAGER') {
-      const access = await this.prisma.managerDeptAccess.findMany({ where: { managerId: user.id } });
-      const deptIds: string[] = access.map((a: any) => a.departmentId as string);
-      if (user.departmentId && !deptIds.includes(user.departmentId)) deptIds.push(user.departmentId);
-      const unique = [...new Set(deptIds)];
-      if (unique.length === 0) return { userId: user.id };
-      return { user: { departmentId: { in: unique } } };
-    }
-    if ((user as any).isHR) return {};
-    // ADMIN / SUPER_ADMIN
-    return {};
+  async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string; page?: number; limit?: number }, user?: any) {
+    const where = await this.leaveAccess.buildLeaveWhereForUser(query, user);
+
+    const page  = Math.max(1, Number(query.page)  || 1);
+    const limit = Math.min(200, Math.max(1, Number(query.limit) || 50));
+    const skip  = (page - 1) * limit;
+
+    const [total, items] = await Promise.all([
+      this.prisma.leaveRequest.count({ where }),
+      this.prisma.leaveRequest.findMany({
+        where,
+        include: { user: { select: { id: true, name: true, email: true, department: true, role: true, reportingManager: true, teamLeadName: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string }, user?: any) {
-    const where: any = {};
-    if (query.userId) where.userId = query.userId;
-    if (query.status) where.status = query.status;
-    if (query.departmentId) where.user = { departmentId: query.departmentId };
-
-    // Role-based scoping — merge with explicit query filters
-    if (user) {
-      const scope = await this.buildLeaveScope(user);
-      // Merge scope into where (scope keys take precedence for security unless explicitly overridden)
-      if (scope.userId) where.userId = scope.userId;
-      if (scope.user) where.user = { ...(where.user ?? {}), ...scope.user };
-    }
-
-    return this.prisma.leaveRequest.findMany({
-      where,
-      include: { user: { select: { id: true, name: true, email: true, department: true, role: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async findOne(id: string) {
-    const leave = await this.prisma.leaveRequest.findUnique({
+  async findOne(id: string, user?: any) {
+    const include = { user: { select: { id: true, name: true, email: true, department: true, role: true, reportingManager: true, teamLeadName: true } } };
+    const leave = user
+      ? await this.leaveAccess.findAccessibleLeave(id, user, include)
+      : await this.prisma.leaveRequest.findUnique({
       where: { id },
-      include: { user: { select: { id: true, name: true, email: true, department: true } } },
+      include,
     });
     if (!leave) throw new NotFoundException('Leave request not found');
     return leave;
   }
 
   async create(data: any, userId: string) {
-    const { startDate, endDate, ...rest } = data;
+    const { startDate, endDate, isHalfDay, halfDayType, ...rest } = data;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new ForbiddenException('Invalid leave dates');
+    }
+    if (start.getTime() > end.getTime()) {
+      throw new ForbiddenException('Leave start date cannot be after end date');
+    }
+
+    // Validate balance and check overlaps
+    await this.leaveBalance.validateLeaveRequest(userId, start, end, !!isHalfDay);
+
     const leave = await this.prisma.leaveRequest.create({
       data: {
         ...rest,
         userId,
-        startDate: new Date(startDate).toISOString(),
-        endDate: new Date(endDate).toISOString(),
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        isHalfDay: !!isHalfDay,
+        halfDayType: halfDayType || null,
       },
-      include: { user: { select: { id: true, name: true } } },
+      include: { user: { select: { id: true, name: true, departmentId: true } } },
     });
     this.eventLogger.log({ actorId: userId, entityType: 'LeaveRequest', entityId: leave.id, action: OperationalAction.LEAVE_REQUESTED, toState: 'PENDING', metadata: { type: leave.type } }).catch(() => {});
+
+    // Notify managers
+    try {
+      if (leave.user.departmentId) {
+        const managers = await this.prisma.user.findMany({
+          where: {
+            isActive: true,
+            role: { name: { in: ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'] } },
+            OR: [
+              { departmentId: leave.user.departmentId },
+              { managedDepts: { some: { departmentId: leave.user.departmentId } } },
+            ],
+          },
+          select: { id: true },
+        });
+        const startStr = start.toISOString().split('T')[0];
+        const endStr   = end.toISOString().split('T')[0];
+        for (const mgr of managers) {
+          if (mgr.id === userId) continue; // don't notify self
+          await this.notificationEventService.sendNotification(
+            mgr.id,
+            'teamLeaveApply',
+            {
+              title: `New leave request: ${leave.user.name}`,
+              message: `${leave.user.name} requested ${leave.type} leave (${startStr} to ${endStr}).`,
+              type: NotificationType.INFO,
+              link: '/leave',
+              entityId: leave.id,
+              entityType: 'LEAVE',
+            }
+          );
+        }
+      }
+    } catch (_e) { /* non-critical */ }
+
     return leave;
   }
 
-  async approve(id: string, approverId: string) {
-    const leave = await this.prisma.leaveRequest.findUnique({
-      where: { id },
-      include: { user: { select: { id: true, name: true, email: true, role: true } } },
-    });
-    if (!leave) throw new NotFoundException();
-    if (leave.status !== LeaveStatus.PENDING) throw new ForbiddenException('Already processed');
-    if (leave.userId === approverId) throw new ForbiddenException('You cannot approve your own leave request');
-
-    // Role-level: approver must outrank requester (lower level number = higher role)
-    const approver = await this.prisma.user.findUnique({ where: { id: approverId }, include: { role: true } });
-    if (approver && leave.user.role && approver.role.level >= leave.user.role.level) {
-      throw new ForbiddenException(`A ${approver.role.name} cannot approve a ${leave.user.role.name}'s leave`);
+  async getUserBalance(userId: string, requester: any) {
+    if (requester.id !== userId) {
+      const targetUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true, department: true },
+      });
+      if (!targetUser) throw new NotFoundException('User not found');
+      const canView = await this.accessPolicy.canViewUser(requester, targetUser);
+      if (!canView) throw new ForbiddenException('You do not have permission to view this user\'s leave balance');
     }
+    return this.leaveBalance.getLeaveBalance(userId);
+  }
+
+  async approve(id: string, approverId: string, user?: any) {
+    const include = { user: { select: { id: true, name: true, email: true, role: true, departmentId: true } } };
+    const leave = user
+      ? await this.leaveAccess.findAccessibleLeave(id, user, include)
+      : await this.prisma.leaveRequest.findUnique({ where: { id }, include });
+    if (!leave) throw new NotFoundException();
+    const actor = user ?? await this.prisma.user.findUnique({ where: { id: approverId }, include: { role: true, department: true } });
+    if (!actor) throw new ForbiddenException('Not authorized');
+    await this.leaveAccess.assertCanApproveReject(actor, leave, 'approve');
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },
@@ -117,47 +160,44 @@ export class LeaveService {
     const startStr = leave.startDate.toISOString().split('T')[0];
     const endStr = leave.endDate.toISOString().split('T')[0];
 
-    await Promise.all([
-      this.notificationsService.create(
+    try {
+      await this.notificationEventService.sendNotification(
         leave.userId,
-        'Leave request approved',
-        `Your ${leave.type} leave (${startStr} â€“ ${endStr}) has been approved.`,
-        NotificationType.SUCCESS,
-        '/leave',
-        leave.id,
-        'LEAVE',
-      ),
-      this.emailService.sendLeaveDecision(
+        'leaveApproved',
+        {
+          title: 'Leave request approved',
+          message: `Your ${leave.type} leave (${startStr} to ${endStr}) has been approved.`,
+          type: NotificationType.SUCCESS,
+          link: '/leave',
+          entityId: leave.id,
+          entityType: 'LEAVE',
+        }
+      );
+    } catch (_e) { /* never crash main op */ }
+
+    try {
+      await this.emailService.sendLeaveDecision(
         leave.user.email,
         'APPROVED',
         leave.type,
         startStr,
         endStr,
         this.frontendUrl,
-      ),
-    ]);
-
-    this.gateway.emitNotificationToUser(leave.userId, {
-      title: 'Leave request approved',
-      message: `Your ${leave.type} leave has been approved.`,
-    });
+      );
+    } catch (_e) { /* never crash main op */ }
 
     return updated;
   }
 
-  async reject(id: string, rejectorId: string) {
-    const leave = await this.prisma.leaveRequest.findUnique({
-      where: { id },
-      include: { user: { select: { id: true, name: true, email: true, role: true } } },
-    });
+  async reject(id: string, rejectorId: string, user?: any) {
+    const include = { user: { select: { id: true, name: true, email: true, role: true, departmentId: true } } };
+    const leave = user
+      ? await this.leaveAccess.findAccessibleLeave(id, user, include)
+      : await this.prisma.leaveRequest.findUnique({ where: { id }, include });
     if (!leave) throw new NotFoundException();
-    if (leave.status !== LeaveStatus.PENDING) throw new ForbiddenException('Already processed');
-    if (leave.userId === rejectorId) throw new ForbiddenException('You cannot reject your own leave request');
-
-    const rejector = await this.prisma.user.findUnique({ where: { id: rejectorId }, include: { role: true } });
-    if (rejector && leave.user.role && rejector.role.level >= leave.user.role.level) {
-      throw new ForbiddenException(`A ${rejector.role.name} cannot reject a ${leave.user.role.name}'s leave`);
-    }
+    const actor = user ?? await this.prisma.user.findUnique({ where: { id: rejectorId }, include: { role: true, department: true } });
+    if (!actor) throw new ForbiddenException('Not authorized');
+    await this.leaveAccess.assertCanApproveReject(actor, leave, 'reject');
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },
@@ -171,47 +211,102 @@ export class LeaveService {
     const startStr = leave.startDate.toISOString().split('T')[0];
     const endStr = leave.endDate.toISOString().split('T')[0];
 
-    await Promise.all([
-      this.notificationsService.create(
+    try {
+      await this.notificationEventService.sendNotification(
         leave.userId,
-        'Leave request rejected',
-        `Your ${leave.type} leave (${startStr} â€“ ${endStr}) has been rejected.`,
-        NotificationType.WARNING,
-        '/leave',
-        leave.id,
-        'LEAVE',
-      ),
-      this.emailService.sendLeaveDecision(
+        'leaveRejected',
+        {
+          title: 'Leave request rejected',
+          message: `Your ${leave.type} leave (${startStr} to ${endStr}) has been rejected.`,
+          type: NotificationType.WARNING,
+          link: '/leave',
+          entityId: leave.id,
+          entityType: 'LEAVE',
+        }
+      );
+    } catch (_e) { /* never crash main op */ }
+
+    try {
+      await this.emailService.sendLeaveDecision(
         leave.user.email,
         'REJECTED',
         leave.type,
         startStr,
         endStr,
         this.frontendUrl,
-      ),
-    ]);
-
-    this.gateway.emitNotificationToUser(leave.userId, {
-      title: 'Leave request rejected',
-      message: `Your ${leave.type} leave has been rejected.`,
-    });
+      );
+    } catch (_e) { /* never crash main op */ }
 
     return updated;
   }
 
   async cancel(id: string, userId: string) {
-    const leave = await this.prisma.leaveRequest.findUnique({ where: { id } });
+    const leave = await this.prisma.leaveRequest.findUnique({
+      where: { id },
+      include: { user: { select: { id: true, name: true, departmentId: true } } },
+    });
     if (!leave) throw new NotFoundException();
     if (leave.userId !== userId) throw new ForbiddenException();
 
-    return this.prisma.leaveRequest.update({
+    // Only PENDING leaves can be cancelled by the requester.
+    // APPROVED leaves would require HR/manager to reverse — out of scope here.
+    if (leave.status !== LeaveStatus.PENDING) {
+      throw new ForbiddenException('Only pending leave requests can be cancelled');
+    }
+
+    const updated = await this.prisma.leaveRequest.update({
       where: { id },
       data: { status: LeaveStatus.CANCELLED },
     });
+
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'LeaveRequest',
+      entityId: id,
+      action: OperationalAction.LEAVE_CANCELLED,
+      fromState: 'PENDING',
+      toState: 'CANCELLED',
+    }).catch(() => {});
+
+    // Notify managers/admins in the requester's department so their pending queue stays accurate
+    try {
+      if (leave.user.departmentId) {
+        const managers = await this.prisma.user.findMany({
+          where: {
+            isActive: true,
+            role: { name: { in: ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'] } },
+            OR: [
+              { departmentId: leave.user.departmentId },
+              { managedDepts: { some: { departmentId: leave.user.departmentId } } },
+            ],
+          },
+          select: { id: true },
+        });
+        const startStr = leave.startDate.toISOString().split('T')[0];
+        const endStr   = leave.endDate.toISOString().split('T')[0];
+        for (const mgr of managers) {
+          if (mgr.id === userId) continue; // don't notify self
+          await this.notificationEventService.sendNotification(
+            mgr.id,
+            'teamLeaveApply',
+            {
+              title: `Leave cancelled: ${leave.user.name}`,
+              message: `${leave.type} leave request (${startStr} to ${endStr}) has been cancelled by the employee.`,
+              type: NotificationType.INFO,
+              link: '/leave',
+              entityId: leave.id,
+              entityType: 'LEAVE',
+            }
+          );
+        }
+      }
+    } catch (_e) { /* non-critical — never crash the cancel operation */ }
+
+    return updated;
   }
 
   async getStats(user?: any) {
-    const scope = user ? await this.buildLeaveScope(user) : {};
+    const scope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
     const [total, pending, approved, rejected] = await Promise.all([
       this.prisma.leaveRequest.count({ where: scope }),
       this.prisma.leaveRequest.count({ where: { ...scope, status: LeaveStatus.PENDING } }),

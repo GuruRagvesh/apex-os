@@ -39,14 +39,14 @@ export function MetricCards({ metrics, role }: { metrics: any; role?: string }) 
   } else if (role === 'TEAM_LEAD') {
     cards.push(
       { label: 'Team Tickets', value: metrics.total ?? 0, url: '/tickets' },
-      { label: 'Overdue', value: metrics.overdue ?? 0, color: metrics.overdue > 0 ? 'var(--color-danger)' : undefined, url: '/tickets' },
+      { label: 'Overdue', value: metrics.overdue ?? 0, color: metrics.overdue > 0 ? 'var(--color-danger)' : undefined, url: '/tickets?overdue=true' },
       { label: 'Pending Reviews', value: metrics.inReview ?? 0, color: 'var(--accent)', url: '/tickets?status=REVIEW' },
       { label: 'Team Online', value: metrics.teamOnline ?? 0, color: 'var(--color-success)', url: '/team' },
     );
   } else if (role === 'MANAGER') {
     cards.push(
       { label: 'Dept Tickets', value: metrics.total ?? 0, url: '/tickets' },
-      { label: 'Overdue', value: metrics.overdue ?? 0, color: metrics.overdue > 0 ? 'var(--color-danger)' : undefined, url: '/tickets' },
+      { label: 'Overdue', value: metrics.overdue ?? 0, color: metrics.overdue > 0 ? 'var(--color-danger)' : undefined, url: '/tickets?overdue=true' },
       { label: 'Pending Leave', value: metrics.pendingLeave ?? 0, color: metrics.pendingLeave > 0 ? 'var(--color-warning)' : undefined, url: '/leave' },
       { label: 'Team Size', value: metrics.teamCount ?? 0, url: '/team' },
     );
@@ -55,7 +55,7 @@ export function MetricCards({ metrics, role }: { metrics: any; role?: string }) 
     cards.push(
       { label: 'Active Today', value: metrics.activeToday ?? 0, color: 'var(--color-success)', url: '/team' },
       { label: 'Open Tickets', value: metrics.totalTickets ?? 0, url: '/tickets' },
-      { label: 'Overdue', value: metrics.overdue ?? 0, color: metrics.overdue > 0 ? 'var(--color-danger)' : undefined, url: '/tickets' },
+      { label: 'Overdue', value: metrics.overdue ?? 0, color: metrics.overdue > 0 ? 'var(--color-danger)' : undefined, url: '/tickets?overdue=true' },
       { label: 'Pending Leave', value: metrics.pendingLeave ?? 0, color: metrics.pendingLeave > 0 ? 'var(--color-warning)' : undefined, url: '/leave' },
     );
   }

@@ -1,17 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TicketTimingService } from '../../common/services/ticket-timing.service';
 import OpenAI from 'openai';
 
 const MODEL = 'gpt-4o-mini';
-
-const SLA_HOURS: Record<string, number> = { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 };
-
-function isTicketOverdue(ticket: { createdAt: Date; priority: string; status: string }): boolean {
-  const sla = SLA_HOURS[ticket.priority] ?? 24;
-  const elapsed = (Date.now() - ticket.createdAt.getTime()) / 3600000;
-  return elapsed > sla && !['DONE', 'CLOSED'].includes(ticket.status);
-}
 
 @Injectable()
 export class AiService {
@@ -21,6 +14,7 @@ export class AiService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private ticketTiming: TicketTimingService,
   ) {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (apiKey && apiKey.trim()) {
@@ -35,6 +29,13 @@ export class AiService {
   // "coming soon" payload so the UI can render a graceful disabled state instead of erroring.
   private isAiDisabled(): boolean {
     return !process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY;
+  }
+
+  // Checks overdue using DB-configured SLA hours (not hardcoded constants).
+  private ticketIsOverdue(ticket: { createdAt: Date; priority: string; status: string }, slaHours: Record<string, number>): boolean {
+    if (['DONE', 'CLOSED'].includes(ticket.status)) return false;
+    const elapsed = (Date.now() - ticket.createdAt.getTime()) / 3_600_000;
+    return elapsed > (slaHours[ticket.priority] ?? 24);
   }
 
   // ── Core helper ─────────────────────────────────────────────────────────────
@@ -119,9 +120,11 @@ Priority guide:
       return { summary: '✅ No open or in-progress tickets at this time. Great work, team!' };
     }
 
+    const { execution: slaHours } = await this.ticketTiming.getSlaConfig();
+
     if (!this.client) {
       const lines = tickets.map(
-        (t) => `• [${t.ticketId}] ${t.title} (${t.status}, ${t.priority}${isTicketOverdue(t) ? ' — OVERDUE' : ''})`,
+        (t) => `• [${t.ticketId}] ${t.title} (${t.status}, ${t.priority}${this.ticketIsOverdue(t, slaHours) ? ' — OVERDUE' : ''})`,
       );
       return { summary: `${tickets.length} open tickets:\n\n${lines.join('\n')}` };
     }
@@ -131,7 +134,7 @@ Priority guide:
         (t) =>
           `[${t.ticketId}] ${t.title} | ${t.status} | ${t.priority} | ` +
           `Dept: ${t.department?.name ?? 'N/A'} | Assigned: ${t.assignedTo?.name ?? 'Unassigned'}` +
-          (isTicketOverdue(t) ? ' | ⚠️ OVERDUE' : ''),
+          (this.ticketIsOverdue(t, slaHours) ? ' | ⚠️ OVERDUE' : ''),
       )
       .join('\n');
 
@@ -183,6 +186,7 @@ Rules:
 
     if (!this.client) return fallback;
 
+    const { execution: slaHours } = await this.ticketTiming.getSlaConfig();
     const commentBlock =
       ticket.comments.length > 0
         ? ticket.comments.map((c) => `  ${c.author.name}: ${c.content}`).join('\n')
@@ -197,7 +201,7 @@ Status: ${ticket.status}
 Department: ${ticket.department?.name ?? 'N/A'}
 Assigned to: ${ticket.assignedTo?.name ?? 'Unassigned'}
 Reported by: ${ticket.createdBy?.name}
-Overdue: ${isTicketOverdue(ticket) ? 'Yes' : 'No'}
+Overdue: ${this.ticketIsOverdue(ticket, slaHours) ? 'Yes' : 'No'}
 
 Discussion (newest to oldest):
 ${commentBlock}`;

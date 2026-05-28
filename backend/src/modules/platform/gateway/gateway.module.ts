@@ -7,7 +7,7 @@ import { EventsGateway } from './events.gateway';
   imports: [
     JwtModule.registerAsync({
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET', 'nexus-secret'),
+        secret: config.get<string>('JWT_SECRET', 'set-JWT_SECRET-in-env'),
       }),
       inject: [ConfigService],
     }),

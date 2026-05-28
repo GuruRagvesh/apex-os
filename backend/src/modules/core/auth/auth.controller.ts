@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { ROLES } from '../../../shared/constants/roles';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -22,7 +23,7 @@ export class AuthController {
   @Post('register')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth()
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }

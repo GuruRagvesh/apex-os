@@ -4,6 +4,7 @@ import { RolesService } from './roles.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/decorators/roles.decorator';
+import { ROLES } from '../../../shared/constants/roles';
 
 @ApiTags('Roles')
 @ApiBearerAuth()
@@ -20,20 +21,20 @@ export class RolesController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   create(@Body() body: { name: string; level: number; description?: string }) {
     return this.rolesService.create(body);
   }
 
   @Put(':id')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   update(@Param('id') id: string, @Body() body: any) {
     return this.rolesService.update(id, body);
   }
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   remove(@Param('id') id: string) { return this.rolesService.remove(id); }
 }

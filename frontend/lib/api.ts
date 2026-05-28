@@ -1,5 +1,19 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 
+// ── One-time localStorage key migration (nexus_* → apex_*) ─────────────────
+// Runs on module load in the browser. Safe to remove after all users have
+// been migrated (legacy compatibility only — do not remove the comment).
+if (typeof window !== 'undefined') {
+  const oldToken = localStorage.getItem('nexus_token');
+  if (oldToken && !localStorage.getItem('apex_token')) {
+    localStorage.setItem('apex_token', oldToken);
+  }
+  // Clean up any legacy keys regardless
+  localStorage.removeItem('nexus_token');
+  localStorage.removeItem('nexus_user'); // was used in older builds
+  localStorage.removeItem('nexus-auth'); // legacy zustand persist key
+}
+
 // Strip any trailing /api from the env var so we never get a double /api
 // Works whether NEXT_PUBLIC_API_URL ends with /api or not
 const API_URL = process.env.NEXT_PUBLIC_API_URL
@@ -24,14 +38,20 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('apex_token');
-      localStorage.removeItem('nexus_user');
       localStorage.removeItem('apex-auth');
       // Only redirect if not already on the login page
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login?expired=true';
       }
     }
-    return Promise.reject(error.response?.data || error);
+    const data = error.response?.data;
+    if (error.response?.status === 403) {
+      return Promise.reject({ ...data, message: data?.message || 'You do not have permission to perform this action.' });
+    }
+    if (Array.isArray(data?.message)) {
+      return Promise.reject({ ...data, message: data.message.join(', ') });
+    }
+    return Promise.reject(data || error);
   },
 );
 
@@ -55,6 +75,7 @@ export const usersApi = {
   getMe: () => r(api.get('/users/me')),
   getMyTeam: () => r(api.get('/users/my-team')),
   updateMe: (data: any) => r(api.patch('/users/me', data)),
+  getPreferences: () => r(api.get('/users/me/preferences')),
   updatePreferences: (data: any) => r(api.patch('/users/me/preferences', data)),
   getOne: (id: string) => r(api.get(`/users/${id}`)),
   create: (data: any) => r(api.post('/users', data)),
@@ -137,6 +158,20 @@ export const ticketsApi = {
     if (isPoc) form.append('isPoc', 'true');
     return r(api.post(`/tickets/${id}/attachments`, form, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
+  fetchAttachmentBlob: async (ticketId: string, attachmentId: string, mode: 'inline' | 'download' = 'inline') => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
+    const res = await fetch(
+      `${API_URL}/tickets/${ticketId}/attachments/${attachmentId}/download?mode=${mode}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!res.ok) {
+      const message = res.status === 403
+        ? 'You do not have permission to view this attachment.'
+        : 'Attachment could not be loaded.';
+      throw new Error(message);
+    }
+    return res.blob();
+  },
   exportCsv: async (params?: any) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -157,6 +192,7 @@ export const ticketsApi = {
   },
   remove: (id: string) => r(api.delete(`/tickets/${id}`)),
   getStats: () => r(api.get('/tickets/stats')),
+  getSlaRisk: () => r(api.get('/tickets/sla-risk')),
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
 };
 
@@ -173,7 +209,7 @@ export const dashboardApi = {
   getOverview: () => r(api.get('/dashboard/overview')),
   getTicketsByCategory: () => r(api.get('/dashboard/tickets-by-category')),
   getTicketsByDepartment: () => r(api.get('/dashboard/tickets-by-department')),
-  getActivityFeed: (limit?: number) => r(api.get('/dashboard/activity-feed', { params: { limit } })),
+  getActivityFeed: (limit?: number, userId?: string) => r(api.get('/dashboard/activity-feed', { params: { limit, userId } })),
   getWorkload: () => r(api.get('/dashboard/workload')),
   getTicketTrend: (days?: number) => r(api.get('/dashboard/ticket-trend', { params: { days } })),
 };
@@ -187,6 +223,7 @@ export const leaveApi = {
   reject: (id: string) => r(api.patch(`/leave/${id}/reject`)),
   cancel: (id: string) => r(api.patch(`/leave/${id}/cancel`)),
   getStats: () => r(api.get('/leave/stats')),
+  getBalance: (userId?: string) => r(api.get(userId ? `/leave/balance/${userId}` : '/leave/balance')),
 };
 
 // AI Assistant
@@ -218,6 +255,7 @@ export const settingsApi = {
   updateSla:           (data: any) => r(api.patch('/settings/sla', data)),
   getSmtp:             ()         => r(api.get('/settings/smtp')),
   updateSmtp:          (data: any) => r(api.patch('/settings/smtp', data)),
+  testEmail:           (to?: string) => r(api.post('/settings/email/test', { to })),
 };
 
 // Task Types
@@ -250,6 +288,7 @@ export const workdayApi = {
     r(api.post('/workday/idle', { idleDuration })),
   getToday: () => r(api.get('/workday/today')),
   getTeam: () => r(api.get('/workday/team')),
+  getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
 };
 
 // Notifications

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { teamApi, usersApi, workdayApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { useSearchParams } from 'next/navigation';
 import {
   Users, Search, Building2, Ticket, UserPlus, Check,
   Mail, Clock, ChevronDown, ChevronRight, Loader2,
@@ -39,7 +40,7 @@ function WorkloadDots({ count }: { count: number }) {
   const colors = { free: 'bg-green-400', light: 'bg-yellow-400', medium: 'bg-orange-400', heavy: 'bg-red-400' };
   const labels = { free: 'Available', light: 'Light load', medium: 'Medium load', heavy: 'High load' };
   return (
-    <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-gray-400">
+    <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
       <span className={cn('w-2 h-2 rounded-full', colors[level])} />
       {labels[level]}
     </span>
@@ -49,23 +50,23 @@ function WorkloadDots({ count }: { count: number }) {
 // ─── My Team Card ─────────────────────────────────────────────────────────────
 function TeamMemberCard({ user }: { user: any }) {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4 flex items-start gap-4 hover:border-indigo-200 dark:hover:border-indigo-700 hover:shadow-sm transition-all">
+    <div className="apex-card p-4 flex items-start gap-4 hover:shadow-sm transition-all">
       <Avatar name={user.name} size="lg" />
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="font-semibold text-slate-800 dark:text-gray-200 truncate">{user.name}</p>
-            <p className="text-xs text-slate-500 dark:text-gray-400 truncate mt-0.5">{user.email}</p>
+            <p className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user.name}</p>
+            <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>{user.email}</p>
           </div>
           <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0', ROLE_COLORS[user.role?.name] ?? 'bg-gray-100 text-gray-700')}>
             {user.role?.name}
           </span>
         </div>
         <div className="flex items-center gap-3 mt-2.5 flex-wrap">
-          <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-gray-400">
+          <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
             <Building2 size={11} /> {user.department?.name ?? 'No dept'}
           </span>
-          <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-gray-400">
+          <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
             <Ticket size={11} /> {user._count?.assignedTickets ?? user.ticketCount ?? 0} open tickets
           </span>
           <WorkloadDots count={user._count?.assignedTickets ?? user.ticketCount ?? 0} />
@@ -80,18 +81,18 @@ function DirectoryCard({ user, isRequested, isLoading: loading, onRequest }: {
   user: any; isRequested: boolean; isLoading: boolean; onRequest: () => void;
 }) {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4 flex items-center gap-3 hover:border-slate-300 dark:hover:border-gray-600 hover:shadow-sm transition-all">
+    <div className="apex-card p-4 flex items-center gap-3 hover:shadow-sm transition-all">
       <Avatar name={user.name} size="md" />
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-slate-800 dark:text-gray-200 truncate text-sm">{user.name}</p>
+        <p className="font-medium truncate text-sm" style={{ color: 'var(--text-primary)' }}>{user.name}</p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', ROLE_COLORS[user.role?.name] ?? 'bg-gray-100 text-gray-700')}>
             {user.role?.name}
           </span>
-          <span className="text-xs text-slate-400 dark:text-gray-500">{user.department?.name}</span>
+          <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{user.department?.name}</span>
         </div>
         <div className="flex items-center gap-3 mt-1.5">
-          <span className="flex items-center gap-1 text-xs text-slate-400 dark:text-gray-500"><Ticket size={10} /> {user._count?.assignedTickets ?? 0} open</span>
+          <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-tertiary)' }}><Ticket size={10} /> {user._count?.assignedTickets ?? 0} open</span>
           <WorkloadDots count={user._count?.assignedTickets ?? 0} />
         </div>
       </div>
@@ -115,38 +116,47 @@ function DirectoryCard({ user, isRequested, isLoading: loading, onRequest }: {
 function DeptSection({ name, members }: { name: string; members: any[] }) {
   const [open, setOpen] = useState(true);
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden">
+    <div className="apex-card overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
+        className="w-full flex items-center justify-between px-5 py-4 transition-colors"
+        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
       >
         <div className="flex items-center gap-3">
           <div className="w-1 h-5 rounded-full bg-indigo-500" />
-          <span className="font-semibold text-slate-800 dark:text-white">{name}</span>
-          <span className="text-xs bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 px-2 py-0.5 rounded-full">{members.length} members</span>
+          <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{name}</span>
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>{members.length} members</span>
         </div>
-        {open ? <ChevronDown size={16} className="text-slate-400 dark:text-gray-500" /> : <ChevronRight size={16} className="text-slate-400 dark:text-gray-500" />}
+        {open
+          ? <ChevronDown size={16} style={{ color: 'var(--text-tertiary)' }} />
+          : <ChevronRight size={16} style={{ color: 'var(--text-tertiary)' }} />}
       </button>
       {open && (
-        <div className="divide-y divide-slate-50 dark:divide-gray-800">
+        <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
           {members.map((m) => (
-            <div key={m.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">
+            <div
+              key={m.id}
+              className="flex items-center gap-3 px-5 py-3 transition-colors"
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+            >
               <Avatar name={m.name} size="sm" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 dark:text-gray-200 truncate">{m.name}</p>
-                <p className="text-xs text-slate-400 dark:text-gray-500 truncate">{m.email}</p>
+                <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{m.name}</p>
+                <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{m.email}</p>
               </div>
               <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0', ROLE_COLORS[m.role?.name] ?? 'bg-gray-100 text-gray-700')}>
                 {m.role?.name}
               </span>
-              <span className="flex items-center gap-1 text-xs text-slate-400 dark:text-gray-500 flex-shrink-0">
+              <span className="flex items-center gap-1 text-xs flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
                 <Ticket size={10} /> {m._count?.assignedTickets ?? 0}
               </span>
               <WorkloadDots count={m._count?.assignedTickets ?? 0} />
             </div>
           ))}
           {members.length === 0 && (
-            <p className="text-sm text-slate-400 dark:text-gray-500 text-center py-6">No members in this department</p>
+            <p className="text-sm text-center py-6" style={{ color: 'var(--text-tertiary)' }}>No members in this department</p>
           )}
         </div>
       )}
@@ -188,10 +198,10 @@ function SuperAdminCompanyView({ me }: { me: any }) {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Company Directory</h2>
-          <p className="text-slate-500 dark:text-gray-400 text-sm mt-1">All {allUsers.length} members across {byDept.length} departments</p>
+          <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Company Directory</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>All {allUsers.length} members across {byDept.length} departments</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }}>
           <Users size={14} className="text-indigo-600" />
           <span className="text-sm font-semibold text-indigo-700">{allUsers.length} total</span>
         </div>
@@ -199,18 +209,18 @@ function SuperAdminCompanyView({ me }: { me: any }) {
 
       {/* Search */}
       <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-500" />
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name, email, or department…"
-          className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500"
+          className="apex-input pl-9 pr-3 py-2"
         />
       </div>
 
       {isLoading ? (
         <div className="space-y-4">
-          {[1, 2, 3].map((i) => <div key={i} className="h-40 bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 animate-pulse" />)}
+          {[1, 2, 3].map((i) => <div key={i} className="apex-card h-40 animate-pulse" />)}
         </div>
       ) : (
         <div className="space-y-4">
@@ -218,9 +228,9 @@ function SuperAdminCompanyView({ me }: { me: any }) {
             <DeptSection key={dept} name={dept} members={members} />
           ))}
           {byDept.length === 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-dashed border-slate-300 dark:border-gray-700 p-10 text-center">
-              <Search size={28} className="mx-auto text-slate-300 dark:text-gray-600 mb-2" />
-              <p className="text-slate-500 dark:text-gray-400 text-sm">No members match your search</p>
+            <div className="apex-card border-dashed p-10 text-center">
+              <Search size={28} className="mx-auto mb-2" style={{ color: 'var(--text-tertiary)' }} />
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No members match your search</p>
             </div>
           )}
         </div>
@@ -263,12 +273,12 @@ function ManagerTeamView({ me }: { me: any }) {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">My Team</h2>
-          <p className="text-slate-500 dark:text-gray-400 text-sm mt-1">
+          <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>My Team</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             {allMembers.length} members across {byDept.length} department{byDept.length !== 1 ? 's' : ''} you manage
           </p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }}>
           <Users size={14} className="text-indigo-600" />
           <span className="text-sm font-semibold text-indigo-700">{allMembers.length} total</span>
         </div>
@@ -276,18 +286,18 @@ function ManagerTeamView({ me }: { me: any }) {
 
       {/* Search */}
       <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-500" />
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name, email, or department…"
-          className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500"
+          className="apex-input pl-9 pr-3 py-2"
         />
       </div>
 
       {isLoading ? (
         <div className="space-y-4">
-          {[1, 2, 3].map((i) => <div key={i} className="h-40 bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 animate-pulse" />)}
+          {[1, 2, 3].map((i) => <div key={i} className="apex-card h-40 animate-pulse" />)}
         </div>
       ) : (
         <div className="space-y-4">
@@ -295,9 +305,9 @@ function ManagerTeamView({ me }: { me: any }) {
             <DeptSection key={dept} name={dept} members={members} />
           ))}
           {byDept.length === 0 && (
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-dashed border-slate-300 dark:border-gray-700 p-10 text-center">
-              <Search size={28} className="mx-auto text-slate-300 dark:text-gray-600 mb-2" />
-              <p className="text-slate-500 dark:text-gray-400 text-sm">
+            <div className="apex-card border-dashed p-10 text-center">
+              <Search size={28} className="mx-auto mb-2" style={{ color: 'var(--text-tertiary)' }} />
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                 {search ? 'No members match your search' : 'No team members found'}
               </p>
             </div>
@@ -314,6 +324,22 @@ function MyTeamView({ me }: { me: any }) {
   const [deptFilter, setDeptFilter] = useState('');
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (me?.id) {
+      const stored = localStorage.getItem(`requestedIds_${me.id}`);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setRequestedIds(new Set(parsed));
+          }
+        } catch (e) {
+          console.error('[Team] Failed to parse requestedIds from localStorage', e);
+        }
+      }
+    }
+  }, [me?.id]);
 
   const { data: directory = [], isLoading } = useQuery({
     queryKey: ['team-directory'],
@@ -359,7 +385,12 @@ function MyTeamView({ me }: { me: any }) {
         targetUser.id,
         `Requested ${targetUser.name} (${targetUser.department?.name}) to join ${myDeptName} team`,
       );
-      setRequestedIds((prev) => new Set(prev).add(targetUser.id));
+      const newSet = new Set(requestedIds);
+      newSet.add(targetUser.id);
+      setRequestedIds(newSet);
+      if (me?.id) {
+        localStorage.setItem(`requestedIds_${me.id}`, JSON.stringify(Array.from(newSet)));
+      }
       toast.success(res.message ?? 'Request sent!');
     } catch {
       toast.error('Failed to send request');
@@ -373,12 +404,12 @@ function MyTeamView({ me }: { me: any }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Team</h2>
-          <p className="text-slate-500 dark:text-gray-400 text-sm mt-1">{myDeptName} — manage your team and request new members</p>
+          <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Team</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{myDeptName} — manage your team and request new members</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
-          <Users size={14} className="text-indigo-600 dark:text-indigo-400" />
-          <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-400">{myTeam.length} team members</span>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }}>
+          <Users size={14} style={{ color: 'var(--accent)' }} />
+          <span className="text-sm font-semibold" style={{ color: 'var(--accent-text)' }}>{myTeam.length} team members</span>
         </div>
       </div>
 
@@ -386,8 +417,8 @@ function MyTeamView({ me }: { me: any }) {
       <section>
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-indigo-500" />
-          <h3 className="font-semibold text-slate-800 dark:text-white text-lg">My Team — {myDeptName}</h3>
-          <span className="text-xs bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 px-2 py-0.5 rounded-full">{myTeam.length}</span>
+          <h3 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>My Team — {myDeptName}</h3>
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>{myTeam.length}</span>
         </div>
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -398,10 +429,10 @@ function MyTeamView({ me }: { me: any }) {
             {myTeam.map((u) => <TeamMemberCard key={u.id} user={u} />)}
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-dashed border-slate-300 dark:border-gray-700 p-10 text-center">
-            <Users size={32} className="mx-auto text-slate-300 dark:text-gray-600 mb-3" />
-            <p className="text-slate-500 dark:text-gray-400 text-sm font-medium">No team members in {myDeptName} yet</p>
-            <p className="text-slate-400 dark:text-gray-500 text-xs mt-1">Use the directory below to request additions</p>
+          <div className="apex-card border-dashed p-10 text-center">
+            <Users size={32} className="mx-auto mb-3" style={{ color: 'var(--text-tertiary)' }} />
+            <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>No team members in {myDeptName} yet</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Use the directory below to request additions</p>
           </div>
         )}
       </section>
@@ -410,24 +441,24 @@ function MyTeamView({ me }: { me: any }) {
       <section>
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-emerald-500" />
-          <h3 className="font-semibold text-slate-800 dark:text-white text-lg">Employee Directory</h3>
-          <span className="text-xs bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 px-2 py-0.5 rounded-full">{filtered.length} people</span>
+          <h3 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>Employee Directory</h3>
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>{filtered.length} people</span>
         </div>
         <div className="flex gap-3 mb-4">
           <div className="relative flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-gray-500" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name, email, or department…"
-              className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-slate-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-gray-500"
+              className="apex-input pl-9 pr-3 py-2"
             />
           </div>
           <div className="relative">
             <select
               value={deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
-              className="appearance-none pl-3 pr-8 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-slate-600 dark:text-gray-400"
+              className="apex-select appearance-none pl-3 pr-8 py-2"
             >
               <option value="">All Departments</option>
               {departments.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -437,7 +468,7 @@ function MyTeamView({ me }: { me: any }) {
         </div>
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {[1, 2, 3, 4].map((i) => <div key={i} className="bg-white rounded-xl border border-slate-200 p-4 h-20 animate-pulse" />)}
+            {[1, 2, 3, 4].map((i) => <div key={i} className="apex-card h-20 animate-pulse" />)}
           </div>
         ) : filtered.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -452,9 +483,9 @@ function MyTeamView({ me }: { me: any }) {
             ))}
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-dashed border-slate-300 dark:border-gray-700 p-10 text-center">
-            <Search size={28} className="mx-auto text-slate-300 dark:text-gray-600 mb-2" />
-            <p className="text-slate-500 dark:text-gray-400 text-sm">No employees match your search</p>
+          <div className="apex-card border-dashed p-10 text-center">
+            <Search size={28} className="mx-auto mb-2" style={{ color: 'var(--text-tertiary)' }} />
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No employees match your search</p>
           </div>
         )}
       </section>
@@ -464,32 +495,37 @@ function MyTeamView({ me }: { me: any }) {
         <section>
           <div className="flex items-center gap-2 mb-4">
             <div className="w-1 h-5 rounded-full bg-amber-400" />
-            <h3 className="font-semibold text-slate-800 dark:text-white text-lg">Pending Requests</h3>
+            <h3 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>Pending Requests</h3>
             <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">{pendingRequests.length} pending</span>
           </div>
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden">
+          <div className="apex-card overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="border-b border-slate-100 dark:border-gray-800 bg-slate-50 dark:bg-gray-800">
+              <thead className="border-b" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-tertiary)' }}>
                 <tr>
-                  <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Employee</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Department</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Role</th>
-                  <th className="text-right text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Status</th>
+                  <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Employee</th>
+                  <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Department</th>
+                  <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Role</th>
+                  <th className="text-right text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
+              <tbody className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
                 {pendingRequests.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">
+                  <tr
+                    key={u.id}
+                    className="transition-colors"
+                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                  >
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2.5">
                         <Avatar name={u.name} size="sm" />
                         <div>
-                          <p className="font-medium text-slate-800 dark:text-gray-200">{u.name}</p>
-                          <p className="text-xs text-slate-400 dark:text-gray-500 flex items-center gap-1"><Mail size={10} />{u.email}</p>
+                          <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{u.name}</p>
+                          <p className="text-xs flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}><Mail size={10} />{u.email}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-3 text-slate-600 dark:text-gray-400">{u.department?.name}</td>
+                    <td className="px-5 py-3" style={{ color: 'var(--text-secondary)' }}>{u.department?.name}</td>
                     <td className="px-5 py-3">
                       <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', ROLE_COLORS[u.role?.name] ?? 'bg-gray-100 text-gray-700')}>{u.role?.name}</span>
                     </td>
@@ -503,7 +539,7 @@ function MyTeamView({ me }: { me: any }) {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-slate-400 dark:text-gray-500 mt-2">Requests sent to manager — they will approve or reject via their notification panel.</p>
+          <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>Requests sent to manager — they will approve or reject via their notification panel.</p>
         </section>
       )}
     </div>
@@ -518,14 +554,14 @@ function fmtMin(minutes: number) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-const STATUS_CONFIG: Record<string, { dot: string; label: string; text: string }> = {
-  WORKING:    { dot: 'bg-green-500',  label: 'Working',     text: 'text-green-700 dark:text-green-400' },
-  ON_BREAK:   { dot: 'bg-orange-400', label: 'On Break',    text: 'text-orange-700 dark:text-orange-400' },
-  IDLE:       { dot: 'bg-yellow-400', label: 'Idle',        text: 'text-yellow-700 dark:text-yellow-400' },
-  ON_LEAVE:   { dot: 'bg-blue-500',   label: 'On Leave',    text: 'text-blue-700 dark:text-blue-400' },
-  LOGGED_OUT: { dot: 'bg-gray-400',   label: 'Ended day',   text: 'text-gray-500 dark:text-gray-400' },
-  OFFLINE:    { dot: 'bg-gray-300',   label: 'Not started', text: 'text-gray-400 dark:text-gray-500' },
-  LOGGED_IN:  { dot: 'bg-yellow-300', label: 'Logged in',   text: 'text-yellow-600 dark:text-yellow-400' },
+const STATUS_CONFIG: Record<string, { dot: string; label: string; color: string }> = {
+  WORKING:    { dot: 'bg-green-500',  label: 'Working',     color: 'var(--color-success)' },
+  ON_BREAK:   { dot: 'bg-orange-400', label: 'On Break',    color: 'var(--color-warning)' },
+  IDLE:       { dot: 'bg-yellow-400', label: 'Idle',        color: 'var(--color-warning)' },
+  ON_LEAVE:   { dot: 'bg-blue-500',   label: 'On Leave',    color: 'var(--color-info)' },
+  LOGGED_OUT: { dot: 'bg-gray-400',   label: 'Ended day',   color: 'var(--text-secondary)' },
+  OFFLINE:    { dot: 'bg-gray-300',   label: 'Not started', color: 'var(--text-tertiary)' },
+  LOGGED_IN:  { dot: 'bg-yellow-300', label: 'Logged in',   color: 'var(--color-warning)' },
 };
 
 // ─── Live Status View ─────────────────────────────────────────────────────────
@@ -542,7 +578,7 @@ function LiveStatusView() {
     return (
       <div className="space-y-3">
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-4 h-14 animate-pulse" />
+          <div key={i} className="apex-card p-4 h-14 animate-pulse" />
         ))}
       </div>
     );
@@ -550,44 +586,49 @@ function LiveStatusView() {
 
   if (members.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-dashed border-slate-300 dark:border-gray-700 p-10 text-center">
-        <Users size={32} className="mx-auto text-slate-300 dark:text-gray-600 mb-3" />
-        <p className="text-slate-500 dark:text-gray-400 text-sm">No team members found</p>
+      <div className="apex-card border-dashed p-10 text-center">
+        <Users size={32} className="mx-auto mb-3" style={{ color: 'var(--text-tertiary)' }} />
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No team members found</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 overflow-hidden">
+    <div className="apex-card overflow-hidden">
       <table className="w-full text-sm">
-        <thead className="border-b border-slate-100 dark:border-gray-800 bg-slate-50 dark:bg-gray-800">
+        <thead className="border-b" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-tertiary)' }}>
           <tr>
-            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Member</th>
-            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Status</th>
-            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Work Time</th>
-            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Breaks</th>
-            <th className="text-left text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase px-5 py-3">Department</th>
+            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Member</th>
+            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Status</th>
+            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Work Time</th>
+            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Breaks</th>
+            <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Department</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
+        <tbody className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
           {members.map((m: any) => {
             const cfg = STATUS_CONFIG[m.workStatus] ?? STATUS_CONFIG.OFFLINE;
             return (
-              <tr key={m.id} className="hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">
+              <tr
+                key={m.id}
+                className="transition-colors"
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2.5">
                     <div className="relative">
                       <Avatar name={m.name} size="sm" />
-                      <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-gray-900 ${cfg.dot}`} />
+                      <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 ${cfg.dot}`} style={{ borderColor: 'var(--surface-card)' }} />
                     </div>
                     <div>
-                      <p className="font-medium text-slate-800 dark:text-gray-200">{m.name}</p>
-                      <p className="text-xs text-slate-400 dark:text-gray-500">{m.role?.name}</p>
+                      <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{m.name}</p>
+                      <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{m.role?.name}</p>
                     </div>
                   </div>
                 </td>
                 <td className="px-5 py-3">
-                  <span className={`flex items-center gap-1.5 text-xs font-medium ${cfg.text}`}>
+                  <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: cfg.color }}>
                     <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
                     {cfg.label}
                     {m.onLeaveToday && (
@@ -595,13 +636,13 @@ function LiveStatusView() {
                     )}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-slate-600 dark:text-gray-400">
+                <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
                   {fmtMin(m.workMinutesToday)}
                 </td>
-                <td className="px-5 py-3 text-slate-500 dark:text-gray-400 text-xs">
+                <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
                   {m.breakCount > 0 ? `${m.breakCount}x · ${fmtMin(m.breakMinutesToday)}` : '—'}
                 </td>
-                <td className="px-5 py-3 text-slate-500 dark:text-gray-400 text-xs">
+                <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
                   {m.department?.name ?? '—'}
                 </td>
               </tr>
@@ -618,9 +659,22 @@ export default function TeamPage() {
   const { user: me } = useAuthStore();
   const [tab, setTab] = useState<'team' | 'live'>('team');
 
+  const searchParams = useSearchParams();
+  const queryString = searchParams.toString();
+
+  useEffect(() => {
+    const params = new URLSearchParams(queryString);
+    const qTab = params.get('tab');
+    if (qTab === 'live-status' || qTab === 'live') {
+      setTab('live');
+    } else if (qTab === 'team') {
+      setTab('team');
+    }
+  }, [queryString]);
+
   const role = (me?.role as any)?.name ?? me?.role ?? '';
   const isHR = (me as any)?.isHR;
-  const canSeeStatus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role) || isHR;
+  const canSeeStatus = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role) || isHR;
   const mode = typeof window !== 'undefined' ? localStorage.getItem('apexMode') ?? 'super_admin' : 'super_admin';
   const isSuperAdminCompanyMode = role === 'SUPER_ADMIN' && mode !== 'team_lead';
 
@@ -629,26 +683,22 @@ export default function TeamPage() {
     return (
       <div className="max-w-6xl mx-auto">
         {canSeeStatus && (
-          <div className="flex gap-1 mb-6 border-b border-slate-200 dark:border-gray-700">
+          <div className="flex gap-1 mb-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
             <button
               onClick={() => setTab('team')}
-              className={cn(
-                'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
-                tab === 'team'
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
-              )}
+              className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'team' ? 'border-indigo-500' : 'border-transparent')}
+              style={{ color: tab === 'team' ? 'var(--accent)' : 'var(--text-secondary)' }}
+              onMouseEnter={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
               Company Directory
             </button>
             <button
               onClick={() => setTab('live')}
-              className={cn(
-                'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5',
-                tab === 'live'
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
-              )}
+              className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5', tab === 'live' ? 'border-indigo-500' : 'border-transparent')}
+              style={{ color: tab === 'live' ? 'var(--accent)' : 'var(--text-secondary)' }}
+              onMouseEnter={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
               <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
               Live Status
@@ -665,26 +715,22 @@ export default function TeamPage() {
     return (
       <div className="max-w-6xl mx-auto">
         {canSeeStatus && (
-          <div className="flex gap-1 mb-6 border-b border-slate-200 dark:border-gray-700">
+          <div className="flex gap-1 mb-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
             <button
               onClick={() => setTab('team')}
-              className={cn(
-                'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
-                tab === 'team'
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
-              )}
+              className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'team' ? 'border-indigo-500' : 'border-transparent')}
+              style={{ color: tab === 'team' ? 'var(--accent)' : 'var(--text-secondary)' }}
+              onMouseEnter={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
               My Team
             </button>
             <button
               onClick={() => setTab('live')}
-              className={cn(
-                'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5',
-                tab === 'live'
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
-              )}
+              className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5', tab === 'live' ? 'border-indigo-500' : 'border-transparent')}
+              style={{ color: tab === 'live' ? 'var(--accent)' : 'var(--text-secondary)' }}
+              onMouseEnter={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
               <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
               Live Status
@@ -700,26 +746,22 @@ export default function TeamPage() {
   return (
     <div className="max-w-6xl mx-auto">
       {canSeeStatus && (
-        <div className="flex gap-1 mb-6 border-b border-slate-200 dark:border-gray-700">
+        <div className="flex gap-1 mb-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
           <button
             onClick={() => setTab('team')}
-            className={cn(
-              'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
-              tab === 'team'
-                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
-            )}
+            className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'team' ? 'border-indigo-500' : 'border-transparent')}
+            style={{ color: tab === 'team' ? 'var(--accent)' : 'var(--text-secondary)' }}
+            onMouseEnter={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-secondary)'; }}
           >
             Team
           </button>
           <button
             onClick={() => setTab('live')}
-            className={cn(
-              'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5',
-              tab === 'live'
-                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200',
-            )}
+            className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5', tab === 'live' ? 'border-indigo-500' : 'border-transparent')}
+            style={{ color: tab === 'live' ? 'var(--accent)' : 'var(--text-secondary)' }}
+            onMouseEnter={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-secondary)'; }}
           >
             <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
             Live Status

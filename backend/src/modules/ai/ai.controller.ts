@@ -6,6 +6,7 @@ import { AiCronService } from './ai.cron.service';
 import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { Roles } from '../../shared/decorators/roles.decorator';
+import { ROLES } from '../../shared/constants/roles';
 
 @ApiTags('AI Assistant')
 @ApiBearerAuth()
@@ -26,7 +27,7 @@ export class AiController {
 
   /** B) Summarise all open/in-progress tickets (Admin/Manager only) */
   @UseGuards(RolesGuard)
-  @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   @Post('summarize-tickets')
   summarizeTickets() {
     return this.aiService.summarizeTickets();
@@ -40,7 +41,7 @@ export class AiController {
 
   /** D) Manually trigger the daily digest (Admin only, for testing) */
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SUPER_ADMIN')
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   @Post('trigger-digest')
   triggerDigest() {
     return this.aiCronService.triggerDigestNow();

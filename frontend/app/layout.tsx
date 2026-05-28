@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
+import { StagingBanner } from '@/components/ui/staging-banner';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -26,6 +27,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className={inter.className}>
+        {/* Visible staging indicator — renders only when NEXT_PUBLIC_APP_ENV=staging */}
+        <StagingBanner />
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -125,6 +125,75 @@ export class SchedulerService {
   // 1. MIDNIGHT LEAVE STATUS SETTER — 00:01 every day
   @Cron('1 0 * * *')
   async setLeaveStatuses() {
+    // Auto-close yesterday's unclosed workday sessions
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(0, 0, 0, 0);
+    const logoutTime = new Date(yesterday);
+    logoutTime.setHours(23, 59, 59, 999);
+
+    try {
+      const openSessions = await this.prisma.workSession.findMany({
+        where: {
+          date: yesterday,
+          logoutAt: null,
+          status: { in: ['WORKING', 'ON_BREAK', 'IDLE'] },
+        },
+        include: {
+          breakLogs: true,
+        },
+      });
+
+      for (const session of openSessions) {
+        let totalBreakMinutes = 0;
+        for (const breakLog of session.breakLogs) {
+          if (breakLog.endAt) {
+            totalBreakMinutes += breakLog.durationMinutes ?? 0;
+          } else {
+            const duration = Math.max(0, Math.floor((logoutTime.getTime() - breakLog.startAt.getTime()) / 60000));
+            await this.prisma.breakLog.update({
+              where: { id: breakLog.id },
+              data: { endAt: logoutTime, durationMinutes: duration },
+            });
+            totalBreakMinutes += duration;
+          }
+        }
+
+        let totalWorkMinutes = 0;
+        if (session.startWorkAt) {
+          const elapsed = Math.floor((logoutTime.getTime() - session.startWorkAt.getTime()) / 60000);
+          totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
+        }
+
+        await this.prisma.workSession.update({
+          where: { id: session.id },
+          data: {
+            logoutAt: logoutTime,
+            status: 'LOGGED_OUT',
+            totalBreakMinutes,
+            totalWorkMinutes,
+          },
+        });
+
+        await this.prisma.attendanceEvent.create({
+          data: {
+            userId: session.userId,
+            workSessionId: session.id,
+            eventType: 'AUTO_CLOSE',
+            source: 'system',
+          },
+        });
+
+        await this.prisma.user.update({
+          where: { id: session.userId },
+          data: { currentStatus: 'LOGGED_OUT' },
+        });
+      }
+      this.logger.log(`[scheduler] Auto-closed ${openSessions.length} stale sessions from yesterday.`);
+    } catch (err) {
+      this.logger.error(`[scheduler] Auto-close stale sessions error: ${err}`);
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 

@@ -58,8 +58,8 @@
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/technoedge/nexus-app.git
-cd nexus-app
+git clone https://github.com/technoedge/apex-os.git
+cd apex-os
 
 # Backend
 cd backend && npm install
@@ -166,8 +166,8 @@ cd frontend && npm run dev
    - Start command: `node dist/main`
 4. Set all required environment variables (see table above)
    - Set `NODE_ENV=production`
-   - Set `FRONTEND_URL=https://nexus.technoedge.in`
-5. Deploy → Railway auto-assigns a URL like `https://nexus-api.up.railway.app`
+   - Set `FRONTEND_URL=https://apex.technoedge.in`
+5. Deploy → Railway auto-assigns a URL like `https://apex-api.up.railway.app`
 6. Run the seed once via Railway CLI:
    ```bash
    railway run npx prisma migrate deploy
@@ -180,10 +180,10 @@ cd frontend && npm run dev
 2. Set **Root Directory** to `frontend`
 3. Framework Preset: **Next.js** (auto-detected)
 4. Add environment variables:
-   - `NEXT_PUBLIC_API_URL` = `https://nexus-api.up.railway.app/api`
-   - `NEXT_PUBLIC_WS_URL` = `https://nexus-api.up.railway.app`
-5. Deploy → Vercel assigns `https://nexus.vercel.app`
-6. Add a custom domain `nexus.technoedge.in` in Vercel project settings
+   - `NEXT_PUBLIC_API_URL` = `https://apex-api.up.railway.app/api`
+   - `NEXT_PUBLIC_WS_URL` = `https://apex-api.up.railway.app`
+5. Deploy → Vercel assigns `https://apex-os.vercel.app`
+6. Add a custom domain `apex.technoedge.in` in Vercel project settings
 
 ### Post-Deploy Checklist
 
@@ -199,7 +199,7 @@ cd frontend && npm run dev
 ## Project Structure
 
 ```
-nexus-app/
+apex-os/
 ├── backend/
 │   ├── prisma/
 │   │   ├── schema.prisma

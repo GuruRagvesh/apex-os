@@ -973,3 +973,104 @@ main#apex-main-content {
   width: 10px;
   height: 10px;
 }
+
+/* ═══════════════════════════════════════
+   DARK-THEME BADGE + PILL OVERRIDES
+   Applies to all dark themes. Overrides the light-mode Tailwind badge
+   classes (bg-*-100, text-*-700) used in status/priority/role chips
+   so they render correctly against dark surfaces.
+═══════════════════════════════════════ */
+html[data-theme="john-wick-dark"],
+html[data-theme="executive-midnight"],
+html[data-theme="neo-future"] {
+
+  /* Slate / gray — neutral, low-priority, closed */
+  .bg-slate-100  { background-color: rgba(71,85,105,0.22) !important; }
+  .text-slate-700 { color: #94a3b8 !important; }
+  .bg-slate-200  { background-color: rgba(71,85,105,0.30) !important; }
+  .text-slate-600 { color: #94a3b8 !important; }
+  .bg-gray-100   { background-color: rgba(75,85,99,0.22) !important; }
+  .text-gray-700  { color: #9ca3af !important; }
+  .bg-gray-200   { background-color: rgba(75,85,99,0.30) !important; }
+
+  /* Blue — medium priority, in-progress, team-lead role, completed project */
+  .bg-blue-100   { background-color: rgba(37,99,235,0.18) !important; }
+  .text-blue-700  { color: #60a5fa !important; }
+  .bg-blue-900   { background-color: rgba(30,58,138,0.35) !important; }
+  .text-blue-300  { color: #93c5fd !important; }
+
+  /* Indigo — IT category, indigo accent buttons */
+  .bg-indigo-100 { background-color: rgba(67,56,202,0.18) !important; }
+  .text-indigo-700 { color: #818cf8 !important; }
+  .bg-indigo-50  { background-color: rgba(67,56,202,0.12) !important; }
+  .text-indigo-600 { color: #818cf8 !important; }
+  .bg-indigo-900 { background-color: rgba(49,46,129,0.35) !important; }
+
+  /* Orange — high priority */
+  .bg-orange-100 { background-color: rgba(234,88,12,0.18) !important; }
+  .text-orange-700 { color: #fb923c !important; }
+
+  /* Red — urgent priority, cancelled, danger */
+  .bg-red-100    { background-color: rgba(220,38,38,0.18) !important; }
+  .text-red-700   { color: #f87171 !important; }
+  .bg-red-900    { background-color: rgba(127,29,29,0.35) !important; }
+  .text-red-300   { color: #fca5a5 !important; }
+
+  /* Yellow — open, on-hold, pending */
+  .bg-yellow-100 { background-color: rgba(202,138,4,0.18) !important; }
+  .text-yellow-700 { color: #fbbf24 !important; }
+  .bg-yellow-900 { background-color: rgba(113,63,18,0.35) !important; }
+  .text-yellow-300 { color: #fde68a !important; }
+
+  /* Amber — facilities, warnings */
+  .bg-amber-100  { background-color: rgba(217,119,6,0.18) !important; }
+  .text-amber-700 { color: #fcd34d !important; }
+
+  /* Green — done, active, approved */
+  .bg-green-100  { background-color: rgba(22,163,74,0.18) !important; }
+  .text-green-700 { color: #4ade80 !important; }
+  .bg-green-900  { background-color: rgba(20,83,45,0.35) !important; }
+  .text-green-300 { color: #86efac !important; }
+
+  /* Emerald — operations category, workday active */
+  .bg-emerald-100 { background-color: rgba(5,150,105,0.18) !important; }
+  .text-emerald-700 { color: #34d399 !important; }
+
+  /* Teal — intern role */
+  .bg-teal-100   { background-color: rgba(13,148,136,0.18) !important; }
+  .text-teal-700  { color: #2dd4bf !important; }
+
+  /* Cyan — project category */
+  .bg-cyan-100   { background-color: rgba(8,145,178,0.18) !important; }
+  .text-cyan-700  { color: #22d3ee !important; }
+
+  /* Purple — review status, super-admin role */
+  .bg-purple-100 { background-color: rgba(126,34,206,0.18) !important; }
+  .text-purple-700 { color: #c084fc !important; }
+  .bg-purple-900 { background-color: rgba(88,28,135,0.35) !important; }
+  .text-purple-300 { color: #d8b4fe !important; }
+
+  /* Pink — HR category */
+  .bg-pink-100   { background-color: rgba(219,39,119,0.18) !important; }
+  .text-pink-700  { color: #f472b6 !important; }
+
+  /* Manager badge (orange-*-900 in dark map) */
+  .bg-orange-900 { background-color: rgba(154,52,18,0.35) !important; }
+  .text-orange-300 { color: #fdba74 !important; }
+
+  /* Cyan-900 — team-lead dark badge */
+  .bg-cyan-900   { background-color: rgba(22,78,99,0.35) !important; }
+  .text-cyan-300  { color: #67e8f9 !important; }
+
+  /* Borders in dark mode */
+  .border-slate-100,
+  .border-slate-200 { border-color: var(--border-subtle) !important; }
+  .border-gray-100,
+  .border-gray-200  { border-color: var(--border-subtle) !important; }
+
+  /* Hover bg overrides used in tables and menus */
+  .hover\:bg-slate-50:hover  { background-color: var(--bg-tertiary) !important; }
+  .hover\:bg-gray-50:hover   { background-color: var(--bg-tertiary) !important; }
+  .hover\:bg-gray-100:hover  { background-color: var(--bg-tertiary) !important; }
+  .hover\:bg-slate-100:hover { background-color: var(--bg-tertiary) !important; }
+}

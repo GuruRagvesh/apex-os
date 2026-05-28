@@ -1,16 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, departmentsApi } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { TicketRow } from '@/components/tickets/ticket-row';
 import { SkeletonTicketRows } from '@/components/ui/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSocket } from '@/hooks/useSocket';
 import { cn, CATEGORY_COLORS, STATUS_LABELS } from '@/lib/utils';
-import { Plus, Search, RefreshCw, Download } from 'lucide-react';
+import { Plus, Search, RefreshCw, Download, AlertTriangle, UserCheck } from 'lucide-react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 const CATEGORIES = ['', 'IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
@@ -18,8 +20,26 @@ const PRIORITIES = ['', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
 
 export default function TicketsPage() {
   const qc = useQueryClient();
+  const currentUser = useAuthStore(s => s.user);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryString = searchParams.toString();
   const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState({ status: '', category: '', priority: '', departmentId: '' });
+  const [filters, setFilters] = useState({
+    status: '',
+    category: '',
+    priority: '',
+    departmentId: '',
+    assignedToId: '',
+    projectId: '',
+    dateFrom: '',
+    dateTo: '',
+    dueAfter: '',
+    dueBefore: '',
+  });
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [myTickets, setMyTickets] = useState(false);
   const [page, setPage] = useState(1);
 
   const debouncedSearch = useDebounce(search, 300);
@@ -30,9 +50,55 @@ export default function TicketsPage() {
     onTicketStatusChanged: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
   });
 
+  useEffect(() => {
+    const params = new URLSearchParams(queryString);
+    const quickFilter = params.get('filter') || params.get('risk') || '';
+    const dueToday = quickFilter === 'due-today';
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    end.setMilliseconds(-1);
+
+    setSearch(params.get('search') || '');
+    setFilters({
+      status: params.get('status') || '',
+      category: params.get('category') || '',
+      priority: params.get('priority') || '',
+      departmentId: params.get('departmentId') || params.get('department') || '',
+      assignedToId: params.get('assignedToId') || params.get('assignee') || '',
+      projectId: params.get('projectId') || '',
+      dateFrom: params.get('dateFrom') || '',
+      dateTo: params.get('dateTo') || '',
+      dueAfter: dueToday ? start.toISOString() : (params.get('dueAfter') || ''),
+      dueBefore: dueToday ? end.toISOString() : (params.get('dueBefore') || ''),
+    });
+    setOverdueOnly(params.get('overdue') === 'true' || quickFilter === 'overdue');
+    setMyTickets(params.get('mine') === 'true' || quickFilter === 'mine');
+    setPage(Math.max(1, Number(params.get('page')) || 1));
+  }, [queryString]);
+
+  const updateQuery = (updates: Record<string, string | number | null | undefined>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') params.delete(key);
+      else params.set(key, String(value));
+    });
+    const next = params.toString();
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  };
+
+  const extraFilters: Record<string, any> = {};
+  ['assignedToId', 'projectId', 'dateFrom', 'dateTo', 'dueAfter', 'dueBefore'].forEach((key) => {
+    const value = (filters as any)[key];
+    if (value) extraFilters[key] = value;
+  });
+  if (overdueOnly) extraFilters.overdue = 'true';
+  if (myTickets && currentUser?.id) extraFilters.assignedToId = currentUser.id;
+
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['tickets', { ...filters, search: debouncedSearch }, page],
-    queryFn: () => ticketsApi.getAll({ ...filters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
+    queryKey: ['tickets', { ...filters, ...extraFilters, search: debouncedSearch }, page],
+    queryFn: () => ticketsApi.getAll({ ...filters, ...extraFilters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
   });
 
   const { data: departments } = useQuery({
@@ -48,6 +114,7 @@ export default function TicketsPage() {
   const setFilter = (key: string, value: string) => {
     setFilters((f) => ({ ...f, [key]: value }));
     setPage(1);
+    updateQuery({ [key]: value || null, page: null, filter: null });
   };
 
   const tickets = data?.tickets || [];
@@ -58,14 +125,26 @@ export default function TicketsPage() {
     return acc;
   }, {});
 
-  const hasActiveFilters = search || Object.values(filters).some(Boolean);
+  const hasActiveFilters = search || Object.values(filters).some(Boolean) || overdueOnly || myTickets;
+
+  const roleName = (currentUser?.role as any)?.name ?? currentUser?.role ?? '';
+  const scopeText =
+    roleName === 'SUPER_ADMIN' || roleName === 'ADMIN' ? 'Showing company-wide tickets' :
+    roleName === 'MANAGER' ? 'Showing managed department tickets' :
+    roleName === 'TEAM_LEAD' ? 'Showing your team tickets' :
+    'Showing your assigned tickets';
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto">
+    <div className="space-y-4 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Tickets</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Tickets</h2>
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
+              {scopeText}
+            </span>
+          </div>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{total} tickets total</p>
         </div>
         <div className="flex items-center gap-2">
@@ -82,7 +161,7 @@ export default function TicketsPage() {
           <button
             onClick={async () => {
               try {
-                await ticketsApi.exportCsv({ ...filters, search });
+                await ticketsApi.exportCsv({ ...filters, ...extraFilters, search });
               } catch {
                 toast.error('Export failed');
               }
@@ -138,7 +217,7 @@ export default function TicketsPage() {
               type="text"
               placeholder="Search tickets..."
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); updateQuery({ search: e.target.value || null, page: null }); }}
               className="apex-input pl-9"
             />
           </div>
@@ -170,9 +249,62 @@ export default function TicketsPage() {
             ))}
           </select>
 
+          {/* Overdue toggle */}
+          <button
+            onClick={() => {
+              const next = !overdueOnly;
+              setOverdueOnly(next);
+              setPage(1);
+              updateQuery({ overdue: next ? 'true' : null, filter: null, page: null });
+            }}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all"
+            style={overdueOnly ? {
+              backgroundColor: 'var(--color-danger)',
+              color: 'white',
+              borderColor: 'var(--color-danger)',
+            } : {
+              backgroundColor: 'var(--surface-card)',
+              color: 'var(--text-secondary)',
+              borderColor: 'var(--border-primary)',
+            }}
+            title="Show overdue tickets only"
+          >
+            <AlertTriangle size={12} />Overdue
+          </button>
+
+          {/* My Tickets toggle */}
+          <button
+            onClick={() => {
+              const next = !myTickets;
+              setMyTickets(next);
+              setPage(1);
+              updateQuery({ mine: next ? 'true' : null, assignedToId: null, filter: null, page: null });
+            }}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all"
+            style={myTickets ? {
+              backgroundColor: 'var(--accent)',
+              color: 'white',
+              borderColor: 'var(--accent)',
+            } : {
+              backgroundColor: 'var(--surface-card)',
+              color: 'var(--text-secondary)',
+              borderColor: 'var(--border-primary)',
+            }}
+            title="Show tickets assigned to me"
+          >
+            <UserCheck size={12} />My Tickets
+          </button>
+
           {hasActiveFilters && (
             <button
-              onClick={() => { setSearch(''); setFilters({ status: '', category: '', priority: '', departmentId: '' }); setPage(1); }}
+              onClick={() => {
+                setSearch('');
+                setFilters({ status: '', category: '', priority: '', departmentId: '', assignedToId: '', projectId: '', dateFrom: '', dateTo: '', dueAfter: '', dueBefore: '' });
+                setOverdueOnly(false);
+                setMyTickets(false);
+                setPage(1);
+                router.replace(pathname, { scroll: false });
+              }}
               className="text-xs font-medium"
               style={{ color: 'var(--color-danger)' }}
             >
@@ -198,11 +330,11 @@ export default function TicketsPage() {
             color: 'var(--text-tertiary)',
           }}
         >
-          <div className="col-span-6">Ticket</div>
+          <div className="col-span-5">Ticket</div>
           <div className="col-span-2">Category</div>
           <div className="col-span-1">Priority</div>
           <div className="col-span-2">Status</div>
-          <div className="col-span-1">Assignee</div>
+          <div className="col-span-2">Assignee</div>
         </div>
 
         {isLoading ? (
@@ -234,14 +366,22 @@ export default function TicketsPage() {
             </p>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => {
+                  const next = Math.max(1, page - 1);
+                  setPage(next);
+                  updateQuery({ page: next > 1 ? next : null });
+                }}
                 disabled={page === 1}
                 className="apex-btn apex-btn-secondary text-xs disabled:opacity-40"
               >
                 Previous
               </button>
               <button
-                onClick={() => setPage((p) => p + 1)}
+                onClick={() => {
+                  const next = page + 1;
+                  setPage(next);
+                  updateQuery({ page: next });
+                }}
                 disabled={page * 25 >= total}
                 className="apex-btn apex-btn-secondary text-xs disabled:opacity-40"
               >

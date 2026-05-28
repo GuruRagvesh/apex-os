@@ -14,7 +14,7 @@ export class TeamService {
     const [requester, target] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: requesterId },
-        select: { name: true },
+        include: { department: true },
       }),
       this.prisma.user.findUnique({
         where: { id: targetUserId },
@@ -41,10 +41,11 @@ export class TeamService {
       ? ` Reason: ${reason.trim()}`
       : '';
 
+    const requesterDept = (requester as any)?.department?.name ?? 'their team';
     await this.notifications.create(
       manager.id,
       'Team Addition Request',
-      `${requester?.name ?? 'Someone'} has requested ${target.name} to be added to the AI & R&D team.${reasonText}`,
+      `${requester?.name ?? 'Someone'} has requested ${target.name} (${target.department?.name ?? 'No dept'}) to be added to ${requesterDept}.${reasonText}`,
       'INFO',
       '/team',
     );

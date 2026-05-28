@@ -1,8 +1,10 @@
 ﻿import { Controller, Get } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 @ApiTags('Health')
+@SkipThrottle()   // Health checks are called by uptime monitors — exempt from rate limiting
 @Controller('health')
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}

@@ -245,22 +245,27 @@ export default function NewTicketPage() {
     if (key === 'priority') setAiReason(''); // clear AI hint if user overrides
   };
 
-  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500';
-  const labelCls = 'block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5';
+  const inputCls = 'apex-input';
+  const labelCls = 'apex-label';
 
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={handleBack} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-          <ArrowLeft size={18} className="text-slate-500" />
+        <button
+          onClick={handleBack}
+          className="p-2 rounded-lg transition-colors"
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+        >
+          <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
         </button>
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Create New Ticket</h2>
-          <p className="text-sm text-slate-500">Report an issue, request, or task</p>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Create New Ticket</h2>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Report an issue, request, or task</p>
         </div>
       </div>
       {preselectedProjectName && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300 mb-2">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-2" style={{ backgroundColor: 'var(--color-info-bg)', border: '1px solid rgba(59,130,246,0.3)', color: 'var(--color-info)' }}>
           <span>Creating ticket for project: <strong>{preselectedProjectName}</strong></span>
           <button
             type="button"
@@ -272,7 +277,7 @@ export default function NewTicketPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-900 dark:border-gray-700 rounded-xl border border-slate-200 p-6 space-y-5">
+      <form onSubmit={handleSubmit} className="apex-card p-6 space-y-5">
         {/* Title */}
         <div>
           <label className={labelCls}>Title *</label>
@@ -305,14 +310,14 @@ export default function NewTicketPage() {
             <select value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls}>
               {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
-            <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Area of work (IT, HR, Facilities...)</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Area of work (IT, HR, Facilities...)</p>
           </div>
           <div>
             <label className={labelCls}>Type</label>
             <select value={form.type} onChange={(e) => { set('type', e.target.value); if (e.target.value !== 'CUSTOM') setCustomType(''); }} className={inputCls}>
               {TYPES.map((t) => <option key={t} value={t}>{t === 'CUSTOM' ? 'Custom…' : t}</option>)}
             </select>
-            <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Nature of work (Task, Bug, Feature...)</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Nature of work (Task, Bug, Feature...)</p>
             {form.type === 'CUSTOM' && (
               <input
                 type="text"
@@ -341,7 +346,7 @@ export default function NewTicketPage() {
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Department-specific classification</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Department-specific classification</p>
           </div>
           {taskTypeId && selectedTaskType?.subtypes?.length > 0 ? (
             <div>
@@ -357,7 +362,7 @@ export default function NewTicketPage() {
                 ))}
                 <option value="__custom__">Custom…</option>
               </select>
-              <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Specific subtype</p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Specific subtype</p>
               {taskSubtypeId === '__custom__' && (
                 <input
                   type="text"
@@ -379,7 +384,7 @@ export default function NewTicketPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium text-slate-700">Priority</label>
+              <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Priority</label>
               {aiDisabled ? (
                 <span
                   className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-400 bg-slate-50"
@@ -430,7 +435,7 @@ export default function NewTicketPage() {
               placeholder="e.g. 35 for 35 min, 90 for 1.5 hrs"
             />
             {form.estimatedMinutes && Number(form.estimatedMinutes) > 0 && (
-              <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
                 = {Number(form.estimatedMinutes) < 60
                     ? `${form.estimatedMinutes} minutes`
                     : `${Math.floor(Number(form.estimatedMinutes) / 60)}h${Number(form.estimatedMinutes) % 60 > 0 ? ` ${Number(form.estimatedMinutes) % 60}m` : ''}`}
@@ -454,7 +459,8 @@ export default function NewTicketPage() {
                 value={Array.isArray(departments)
                   ? (departments.find((d: any) => d.id === myDeptId)?.name ?? 'Your department')
                   : 'Your department'}
-                className={`${inputCls} bg-slate-50 dark:bg-gray-700 text-slate-500 dark:text-gray-400 cursor-not-allowed`}
+                className="apex-input cursor-not-allowed"
+                style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}
               />
             ) : (
               <select
@@ -526,9 +532,9 @@ export default function NewTicketPage() {
         </div>
 
         {/* Scheduling Section */}
-        <div className="border border-slate-200 dark:border-gray-700 rounded-xl p-4">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-gray-300 mb-3 flex items-center gap-1.5">
-            <Clock size={14} className="text-slate-400" />
+        <div className="apex-card p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+            <Clock size={14} style={{ color: 'var(--text-tertiary)' }} />
             Schedule (optional)
           </h3>
 
@@ -573,7 +579,7 @@ export default function NewTicketPage() {
                 className={inputCls}
                 min={new Date().toISOString().slice(0, 16)}
               />
-              <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">Assignees notified at this time</p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Assignees notified at this time</p>
             </div>
           ) : scheduleRecurring === 'custom_time' ? (
             <div>
@@ -585,7 +591,7 @@ export default function NewTicketPage() {
                 className={inputCls}
                 min={new Date().toISOString().slice(0, 16)}
               />
-              <p className="mt-1 text-xs text-slate-400 dark:text-gray-500">One-time schedule at this exact time</p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>One-time schedule at this exact time</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
@@ -620,20 +626,23 @@ export default function NewTicketPage() {
         </div>
 
         {/* Advanced Scheduling */}
-        <div className="border border-slate-200 dark:border-gray-700 rounded-xl overflow-hidden">
+        <div className="apex-card overflow-hidden">
           <button
             type="button"
             onClick={() => setShowAdvancedSchedule(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors"
+            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium transition-colors"
+            style={{ color: 'var(--text-primary)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
           >
             <span className="flex items-center gap-2">
-              <Clock size={14} className="text-slate-400" />
+              <Clock size={14} style={{ color: 'var(--text-tertiary)' }} />
               Advanced Scheduling
             </span>
-            <span className="text-slate-400">{showAdvancedSchedule ? '▲' : '▼'}</span>
+            <span style={{ color: 'var(--text-tertiary)' }}>{showAdvancedSchedule ? '▲' : '▼'}</span>
           </button>
           {showAdvancedSchedule && (
-            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-100 dark:border-gray-700">
+            <div className="px-4 pb-4 pt-2 space-y-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Scheduled Start</label>
@@ -664,7 +673,7 @@ export default function NewTicketPage() {
                     <p className="text-xs text-red-500">⚠ End time must be after start time</p>
                   );
                   return (
-                    <p className="text-xs text-slate-400 dark:text-gray-500">
+                    <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
                       Duration: {diffMin < 60 ? `${diffMin} min` : `${Math.floor(diffMin/60)}h${diffMin%60>0?` ${diffMin%60}m`:''}`.trim()}
                     </p>
                   );
@@ -688,7 +697,7 @@ export default function NewTicketPage() {
           <button
             type="submit"
             disabled={mutation.isPending}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            className="apex-btn-primary flex-1 font-semibold py-2.5 flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {mutation.isPending ? (
               <><Loader2 size={16} className="animate-spin" /> Creating…</>
@@ -699,7 +708,10 @@ export default function NewTicketPage() {
           <button
             type="button"
             onClick={handleBack}
-            className="flex-1 text-center border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-300 font-medium py-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors text-sm"
+            className="flex-1 text-center border font-medium py-2.5 rounded-lg transition-colors text-sm"
+            style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
           >
             Cancel
           </button>

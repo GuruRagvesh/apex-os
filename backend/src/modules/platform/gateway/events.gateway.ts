@@ -11,9 +11,8 @@ import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 
 const WS_ORIGINS = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  process.env.FRONTEND_URL,
+  'http://localhost:3000',    // local frontend dev server
+  process.env.FRONTEND_URL,  // production / staging frontend URL
 ].filter(Boolean) as string[];
 
 @WebSocketGateway({
@@ -44,8 +43,13 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
         return;
       }
 
+      // SECURITY: No fallback — same rule as auth.module.ts (Stage 1 fix).
+      // A missing JWT_SECRET means main.ts already exited; reaching here would
+      // be a serious bypass. Throw so the WS handshake fails safely.
+      const jwtSecret = this.configService.get<string>('JWT_SECRET');
+      if (!jwtSecret) throw new Error('JWT_SECRET not configured');
       const payload = this.jwtService.verify<{ sub: string; email: string }>(token, {
-        secret: this.configService.get<string>('JWT_SECRET', 'nexus-secret'),
+        secret: jwtSecret,
       });
 
       client.data.userId = payload.sub;

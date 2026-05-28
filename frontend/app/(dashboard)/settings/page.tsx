@@ -13,15 +13,10 @@ import {
 import { cn } from '@/lib/utils';
 import { useTheme, type ThemeId, type AccentId } from '@/hooks/useTheme';
 
-// ── Shared dark-mode-aware styles ─────────────────────────────────────────────
-const inputCls =
-  'w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-700 rounded-lg ' +
-  'focus:outline-none focus:ring-2 focus:ring-indigo-500 ' +
-  'bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-100 ' +
-  'placeholder:text-slate-400 dark:placeholder:text-gray-500';
-const labelCls = 'block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1.5';
-const cardCls =
-  'bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-6 space-y-4';
+// ── Shared CSS-variable-aware styles ──────────────────────────────────────────
+const inputCls  = 'apex-input';
+const labelCls  = 'apex-label';
+const cardCls   = 'apex-card p-6 space-y-4';
 
 const AVATAR_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#14b8a6'];
 
@@ -44,7 +39,8 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={cn('relative w-10 h-6 rounded-full transition-colors flex-shrink-0', checked ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-gray-700')}
+      className="relative w-10 h-6 rounded-full transition-colors flex-shrink-0"
+      style={{ backgroundColor: checked ? 'var(--accent)' : 'var(--bg-tertiary)' }}
     >
       <span className={cn('absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all', checked ? 'left-5' : 'left-1')} />
     </button>
@@ -55,10 +51,13 @@ function ToggleRow({ label, desc, checked, onChange }: {
   label: string; desc: string; checked: boolean; onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-gray-800 last:border-0">
+    <div
+      className="flex items-center justify-between py-3 border-b last:border-0"
+      style={{ borderColor: 'var(--border-subtle)' }}
+    >
       <div className="mr-4">
-        <p className="text-sm font-medium text-slate-800 dark:text-gray-200">{label}</p>
-        <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">{desc}</p>
+        <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{label}</p>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{desc}</p>
       </div>
       <Toggle checked={checked} onChange={onChange} />
     </div>
@@ -70,7 +69,7 @@ function SaveBtn({ loading, label = 'Save Changes' }: { loading: boolean; label?
     <button
       type="submit"
       disabled={loading}
-      className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+      className="apex-btn-primary px-6 py-2 text-sm font-medium"
     >
       {loading ? 'Saving…' : label}
     </button>
@@ -127,11 +126,11 @@ function ProfileSection({ user }: { user: any }) {
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Profile Information</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Profile Information</h3>
         <div className="flex items-center gap-6">
           <UserAvatar name={name} avatar={color} photoUrl={(user as any)?.photoUrl} size="lg" />
           <div>
-            <p className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-2">Avatar colour</p>
+            <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Avatar colour</p>
             <div className="flex gap-2">
               {AVATAR_COLORS.map((c) => (
                 <button key={c} type="button" onClick={() => setColor(c)}
@@ -145,7 +144,7 @@ function ProfileSection({ user }: { user: any }) {
 
         {/* Profile Photo Upload */}
         <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
             Profile Photo
           </label>
           <div className="flex items-center gap-4">
@@ -156,7 +155,16 @@ function ProfileSection({ user }: { user: any }) {
               size="lg"
             />
             <div>
-              <label className="cursor-pointer inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <label
+                className="cursor-pointer inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg border transition-colors"
+                style={{
+                  borderColor: 'var(--border-primary)',
+                  backgroundColor: 'var(--surface-card)',
+                  color: 'var(--text-secondary)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-card)')}
+              >
                 <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
                 Upload Photo
               </label>
@@ -169,7 +177,7 @@ function ProfileSection({ user }: { user: any }) {
                   Remove
                 </button>
               )}
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">JPG, PNG up to 2MB</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>JPG, PNG up to 2MB</p>
             </div>
           </div>
         </div>
@@ -180,17 +188,26 @@ function ProfileSection({ user }: { user: any }) {
         </div>
 
         <div>
-          <label className={labelCls}>Email <Lock size={11} className="inline text-slate-400 mb-0.5" /></label>
+          <label className={labelCls}>Email <Lock size={11} className="inline mb-0.5" style={{ color: 'var(--text-tertiary)' }} /></label>
           <input className={`${inputCls} opacity-60 cursor-not-allowed`} value={user?.email ?? ''} readOnly />
         </div>
 
         <div className="flex gap-2 flex-wrap">
           {roleName && <span className={cn('px-3 py-1 text-xs font-medium rounded-full', ROLE_BADGE[roleName] ?? 'bg-slate-100 text-slate-600')}>{roleName}</span>}
-          {deptName && <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full">{deptName}</span>}
+          {deptName && (
+            <span
+              className="px-3 py-1 text-xs font-medium rounded-full"
+              style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)' }}
+            >
+              {deptName}
+            </span>
+          )}
         </div>
 
         <div>
-          <label className={labelCls}>Bio <span className="text-slate-400 font-normal">({bio.length}/200)</span></label>
+          <label className={labelCls}>
+            Bio <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>({bio.length}/200)</span>
+          </label>
           <textarea value={bio} onChange={(e) => e.target.value.length <= 200 && setBio(e.target.value)}
             className={`${inputCls} resize-none`} rows={3} placeholder="Tell your team a little about yourself…" />
         </div>
@@ -239,7 +256,7 @@ function SecuritySection({ user }: { user: any }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Change Password</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Change Password</h3>
         {fields.map(({ label, val, set, key }) => (
           <div key={key}>
             <label className={labelCls}>{label}</label>
@@ -247,7 +264,11 @@ function SecuritySection({ user }: { user: any }) {
               <input type={show[key] ? 'text' : 'password'} value={val} onChange={(e) => set(e.target.value)}
                 className={`${inputCls} pr-10`} required autoComplete="new-password" />
               <button type="button" onClick={() => setShow((s) => ({ ...s, [key]: !s[key] }))}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-300">
+                className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+                style={{ color: 'var(--text-tertiary)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-tertiary)')}
+              >
                 {show[key] ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
@@ -258,7 +279,11 @@ function SecuritySection({ user }: { user: any }) {
           <div className="space-y-1">
             <div className="flex gap-1">
               {[1, 2, 3].map((i) => (
-                <div key={i} className={cn('h-1.5 flex-1 rounded-full transition-all', i <= strength ? strengthColor[strength] : 'bg-slate-200 dark:bg-gray-700')} />
+                <div
+                  key={i}
+                  className={cn('h-1.5 flex-1 rounded-full transition-all', i <= strength ? strengthColor[strength] : '')}
+                  style={i > strength ? { backgroundColor: 'var(--bg-tertiary)' } : undefined}
+                />
               ))}
             </div>
             <p className={cn('text-xs font-medium', strengthText[strength])}>{strengthLabel[strength]}</p>
@@ -268,18 +293,21 @@ function SecuritySection({ user }: { user: any }) {
       </div>
 
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Session Information</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Session Information</h3>
         <div className="space-y-3 text-sm">
-          <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-gray-800">
-            <span className="text-slate-500 dark:text-gray-400">Last sign in</span>
-            <span className="font-medium text-slate-700 dark:text-gray-300">
+          <div
+            className="flex items-center justify-between py-2 border-b"
+            style={{ borderColor: 'var(--border-subtle)' }}
+          >
+            <span style={{ color: 'var(--text-tertiary)' }}>Last sign in</span>
+            <span className="font-medium" style={{ color: 'var(--text-secondary)' }}>
               {user?.lastLoginAt
                 ? new Date(user.lastLoginAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
                 : 'This session'}
             </span>
           </div>
           <div className="flex items-center justify-between py-2">
-            <span className="text-slate-500 dark:text-gray-400">Account status</span>
+            <span style={{ color: 'var(--text-tertiary)' }}>Account status</span>
             <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium', user?.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600')}>
               {user?.isActive ? 'Active' : 'Inactive'}
             </span>
@@ -293,33 +321,66 @@ function SecuritySection({ user }: { user: any }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION: Notifications
 // ─────────────────────────────────────────────────────────────────────────────
+const NOTIF_DEFAULTS = {
+  assignedTicket: true,
+  statusChanged:  true,
+  commentAdded:   false,
+  overdueTicket:  true,
+  ticketResolved: true,
+  leaveApproved:  true,
+  leaveRejected:  true,
+  teamLeaveApply: true,
+  inApp:          true,
+  quietFrom:      '22:00',
+  quietTo:        '08:00',
+};
+
 function NotificationsSection({ isManager }: { isManager: boolean }) {
-  const stored = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('apexNotifPrefs') ?? '{}') : {};
-  const [prefs, setPrefs] = useState({
-    assignedTicket: stored.assignedTicket ?? true,
-    statusChanged:  stored.statusChanged  ?? true,
-    commentAdded:   stored.commentAdded   ?? false,
-    overdueTicket:  stored.overdueTicket  ?? true,
-    ticketResolved: stored.ticketResolved ?? true,
-    leaveApproved:  stored.leaveApproved  ?? true,
-    leaveRejected:  stored.leaveRejected  ?? true,
-    teamLeaveApply: stored.teamLeaveApply ?? true,
-    inApp:          stored.inApp          ?? true,
-    quietFrom:      stored.quietFrom      ?? '22:00',
-    quietTo:        stored.quietTo        ?? '08:00',
-  });
+  const [prefs, setPrefs] = useState(NOTIF_DEFAULTS);
+  const [saving, setSaving] = useState(false);
+
+  // Hydrate from server prefs (falling back to localStorage) after mount
+  useEffect(() => {
+    usersApi.getPreferences()
+      .then((remote: any) => {
+        const local = typeof window !== 'undefined'
+          ? JSON.parse(localStorage.getItem('apexNotifPrefs') ?? '{}')
+          : {};
+        // Server wins over localStorage for cross-device sync; local is the cache
+        const merged = { ...NOTIF_DEFAULTS, ...local, ...remote };
+        setPrefs((p) => ({ ...p, ...merged }));
+      })
+      .catch(() => {
+        // Offline fallback: use localStorage only
+        const local = typeof window !== 'undefined'
+          ? JSON.parse(localStorage.getItem('apexNotifPrefs') ?? '{}')
+          : {};
+        setPrefs((p) => ({ ...p, ...local }));
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggle = (k: keyof typeof prefs) => setPrefs((p) => ({ ...p, [k]: !p[k] }));
 
-  const handleSave = () => {
-    localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
-    toast.success('Notification preferences saved');
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await usersApi.updatePreferences(prefs);
+      localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
+      toast.success('Notification preferences saved');
+    } catch {
+      // API save failed — still persist locally so the UX isn't broken
+      localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
+      toast.success('Notification preferences saved');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Ticket Events</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Ticket Events</h3>
         <ToggleRow label="Ticket assigned to me"  desc="Notify when a ticket is assigned to you"        checked={prefs.assignedTicket} onChange={() => toggle('assignedTicket')} />
         <ToggleRow label="Status changed"          desc="Notify when a ticket's status is updated"       checked={prefs.statusChanged}  onChange={() => toggle('statusChanged')} />
         <ToggleRow label="Comment added"           desc="Notify when someone comments on your ticket"    checked={prefs.commentAdded}   onChange={() => toggle('commentAdded')} />
@@ -328,40 +389,40 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
       </div>
 
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Leave Events</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Leave Events</h3>
         <ToggleRow label="Leave approved"     desc="Notify when your leave request is approved" checked={prefs.leaveApproved} onChange={() => toggle('leaveApproved')} />
         <ToggleRow label="Leave rejected"     desc="Notify when your leave request is rejected" checked={prefs.leaveRejected} onChange={() => toggle('leaveRejected')} />
         {isManager && <ToggleRow label="Team member applied" desc="Notify when a team member applies for leave" checked={prefs.teamLeaveApply} onChange={() => toggle('teamLeaveApply')} />}
       </div>
 
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Delivery</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Delivery</h3>
         <ToggleRow label="In-app notifications" desc="Show bell notifications in the top bar" checked={prefs.inApp} onChange={() => toggle('inApp')} />
         <div className="pt-3">
-          <p className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-3">Quiet Hours</p>
+          <p className="text-sm font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>Quiet Hours</p>
           <div className="flex items-center gap-3">
             <div className="flex-1">
-              <label className="block text-xs text-slate-500 dark:text-gray-400 mb-1">From</label>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>From</label>
               <input type="time" value={prefs.quietFrom} onChange={(e) => setPrefs((p) => ({ ...p, quietFrom: e.target.value }))} className={inputCls} />
             </div>
             <div className="flex-1">
-              <label className="block text-xs text-slate-500 dark:text-gray-400 mb-1">To</label>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>To</label>
               <input type="time" value={prefs.quietTo}   onChange={(e) => setPrefs((p) => ({ ...p, quietTo: e.target.value }))}   className={inputCls} />
             </div>
           </div>
         </div>
       </div>
 
-      <button type="button" onClick={handleSave}
-        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
-        Save Preferences
+      <button type="button" onClick={handleSave} disabled={saving}
+        className="apex-btn-primary px-6 py-2 text-sm font-medium">
+        {saving ? 'Saving…' : 'Save Preferences'}
       </button>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECTION: Display & Theme
+// SECTION: Display & Theme (legacy — superseded by AppearanceSettings tab)
 // ─────────────────────────────────────────────────────────────────────────────
 function DisplaySection() {
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(() =>
@@ -385,31 +446,37 @@ function DisplaySection() {
     toast.success('Display settings saved');
   };
 
+  const optionBtnCls = (active: boolean) =>
+    cn('flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all');
+  const optionBtnStyle = (active: boolean): React.CSSProperties => active
+    ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+    : { borderColor: 'var(--border-primary)', backgroundColor: 'var(--surface-card)', color: 'var(--text-secondary)' };
+
   return (
     <div className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Theme</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Theme</h3>
         <div className="flex gap-3">
           {([['light', '☀️ Light'], ['dark', '🌙 Dark'], ['system', '💻 System']] as const).map(([key, label]) => (
             <button key={key} type="button" onClick={() => applyTheme(key)}
-              className={cn('flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all',
-                theme === key
-                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400'
-                  : 'border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800',
-              )}>
+              className={optionBtnCls(theme === key)}
+              style={optionBtnStyle(theme === key)}>
               {label}
             </button>
           ))}
         </div>
-        <p className="text-xs text-slate-400 dark:text-gray-500">Theme applies immediately and persists across sessions.</p>
+        <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Theme applies immediately and persists across sessions.</p>
       </div>
 
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Format & Density</h3>
-        <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-gray-800">
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Format & Density</h3>
+        <div
+          className="flex items-center justify-between py-3 border-b"
+          style={{ borderColor: 'var(--border-subtle)' }}
+        >
           <div>
-            <p className="text-sm font-medium text-slate-800 dark:text-gray-200">Compact mode</p>
-            <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">Reduce spacing for higher information density</p>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Compact mode</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Reduce spacing for higher information density</p>
           </div>
           <Toggle checked={compact} onChange={setCompact} />
         </div>
@@ -418,11 +485,8 @@ function DisplaySection() {
           <div className="flex gap-2">
             {(['DD/MM/YYYY', 'MM/DD/YYYY'] as const).map((f) => (
               <button key={f} type="button" onClick={() => setDateFormat(f)}
-                className={cn('flex-1 py-2 rounded-lg text-sm font-medium border transition-all',
-                  dateFormat === f
-                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400'
-                    : 'border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800',
-                )}>
+                className={optionBtnCls(dateFormat === f)}
+                style={optionBtnStyle(dateFormat === f)}>
                 {f}
               </button>
             ))}
@@ -433,18 +497,15 @@ function DisplaySection() {
           <div className="flex gap-2">
             {(['12h', '24h'] as const).map((f) => (
               <button key={f} type="button" onClick={() => setTimeFormat(f)}
-                className={cn('flex-1 py-2 rounded-lg text-sm font-medium border transition-all',
-                  timeFormat === f
-                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400'
-                    : 'border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800',
-                )}>
+                className={optionBtnCls(timeFormat === f)}
+                style={optionBtnStyle(timeFormat === f)}>
                 {f}
               </button>
             ))}
           </div>
         </div>
         <button type="button" onClick={handleSave}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
+          className="apex-btn-primary px-6 py-2 text-sm font-medium">
           Save Display Settings
         </button>
       </div>
@@ -456,23 +517,61 @@ function DisplaySection() {
 // SECTION: Preferences
 // ─────────────────────────────────────────────────────────────────────────────
 function PreferencesSection() {
-  const [autoAssign,      setAutoAssign]      = useState(() => typeof window !== 'undefined' && localStorage.getItem('apex-pref-autoassign') !== 'false');
-  const [defaultPriority, setDefaultPriority] = useState(() => typeof window !== 'undefined' ? (localStorage.getItem('apex-pref-priority') ?? 'MEDIUM') : 'MEDIUM');
+  const [autoAssign,      setAutoAssign]      = useState(true);
+  const [defaultPriority, setDefaultPriority] = useState('MEDIUM');
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    localStorage.setItem('apex-pref-autoassign', autoAssign.toString());
-    localStorage.setItem('apex-pref-priority', defaultPriority);
-    toast.success('Preferences saved');
+  // Hydrate from server after mount (server wins for cross-device sync)
+  useEffect(() => {
+    usersApi.getPreferences()
+      .then((remote: any) => {
+        // Read local first so we can merge
+        const localAA = typeof window !== 'undefined'
+          ? localStorage.getItem('apex-pref-autoassign')
+          : null;
+        const localPri = typeof window !== 'undefined'
+          ? localStorage.getItem('apex-pref-priority')
+          : null;
+        setAutoAssign(remote.autoAssign ?? (localAA !== null ? localAA !== 'false' : true));
+        setDefaultPriority(remote.defaultPriority ?? localPri ?? 'MEDIUM');
+      })
+      .catch(() => {
+        if (typeof window !== 'undefined') {
+          const aa = localStorage.getItem('apex-pref-autoassign');
+          setAutoAssign(aa !== null ? aa !== 'false' : true);
+          setDefaultPriority(localStorage.getItem('apex-pref-priority') ?? 'MEDIUM');
+        }
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await usersApi.updatePreferences({ autoAssign, defaultPriority });
+      localStorage.setItem('apex-pref-autoassign', autoAssign.toString());
+      localStorage.setItem('apex-pref-priority', defaultPriority);
+      toast.success('Preferences saved');
+    } catch {
+      localStorage.setItem('apex-pref-autoassign', autoAssign.toString());
+      localStorage.setItem('apex-pref-priority', defaultPriority);
+      toast.success('Preferences saved');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Ticket Preferences</h3>
-        <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-gray-800">
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Ticket Preferences</h3>
+        <div
+          className="flex items-center justify-between py-3 border-b"
+          style={{ borderColor: 'var(--border-subtle)' }}
+        >
           <div>
-            <p className="text-sm font-medium text-slate-800 dark:text-gray-200">Auto-assign tickets I create</p>
-            <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">Automatically assign new tickets to yourself</p>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Auto-assign tickets I create</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Automatically assign new tickets to yourself</p>
           </div>
           <Toggle checked={autoAssign} onChange={setAutoAssign} />
         </div>
@@ -482,22 +581,31 @@ function PreferencesSection() {
             {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
-        <button type="button" onClick={handleSave}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
-          Save Preferences
+        <button type="button" onClick={handleSave} disabled={saving}
+          className="apex-btn-primary px-6 py-2 text-sm font-medium">
+          {saving ? 'Saving…' : 'Save Preferences'}
         </button>
       </div>
 
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Onboarding</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Onboarding</h3>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-slate-800 dark:text-gray-200">Welcome screen</p>
-            <p className="text-xs text-slate-400 dark:text-gray-500 mt-0.5">Re-show the welcome walkthrough on your next login</p>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Welcome screen</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Re-show the welcome walkthrough on your next login</p>
           </div>
-          <button type="button"
+          <button
+            type="button"
             onClick={() => { localStorage.removeItem('apexWelcomeSeen'); toast.success('Welcome screen will show on next login'); }}
-            className="text-sm font-medium px-4 py-1.5 border border-slate-200 dark:border-gray-700 rounded-lg hover:bg-slate-50 dark:hover:bg-gray-800 text-slate-600 dark:text-gray-400 transition-colors">
+            className="text-sm font-medium px-4 py-1.5 rounded-lg transition-colors border"
+            style={{
+              borderColor: 'var(--border-primary)',
+              backgroundColor: 'var(--surface-card)',
+              color: 'var(--text-secondary)',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-card)')}
+          >
             Reset
           </button>
         </div>
@@ -515,7 +623,13 @@ function CompanySection() {
     queryKey: ['settings', 'company'],
     queryFn: () => settingsApi.getCompany() as Promise<any>,
   });
-  const [form, setForm] = useState({ companyName: 'TechnoEdge Learning Services', tagline: '', contactEmail: '' });
+  const [form, setForm] = useState({ 
+    companyName: 'TechnoEdge Learning Services', 
+    tagline: '', 
+    contactEmail: '', 
+    timezone: 'Asia/Kolkata', 
+    branding: 'Royal Blue' 
+  });
 
   // Sync from API once loaded
   useEffect(() => {
@@ -539,10 +653,33 @@ function CompanySection() {
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Company Information</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Company Information</h3>
         <div><label className={labelCls}>Company Name</label><input className={inputCls} value={form.companyName} onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))} /></div>
         <div><label className={labelCls}>Tagline</label><input className={inputCls} value={form.tagline} onChange={(e) => setForm((f) => ({ ...f, tagline: e.target.value }))} placeholder="e.g. AI-powered workplace operations" /></div>
         <div><label className={labelCls}>Contact Email</label><input type="email" className={inputCls} value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} placeholder="hr@company.com" /></div>
+        <div>
+          <label className={labelCls}>Company Timezone</label>
+          <select 
+            className={inputCls} 
+            value={form.timezone || 'Asia/Kolkata'} 
+            onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
+          >
+            <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+            <option value="UTC">Coordinated Universal Time (UTC)</option>
+            <option value="America/New_York">America/New_York (EST/EDT)</option>
+            <option value="Europe/London">Europe/London (GMT/BST)</option>
+            <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Company Branding</label>
+          <input 
+            className={inputCls} 
+            value={form.branding || 'Royal Blue'} 
+            onChange={(e) => setForm((f) => ({ ...f, branding: e.target.value }))} 
+            placeholder="e.g. Royal Blue, Emerald Green" 
+          />
+        </div>
         <SaveBtn loading={save.isPending} />
       </div>
     </form>
@@ -585,7 +722,9 @@ function LeavePolicySection({ canEdit = true }: { canEdit?: boolean }) {
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Leave Quotas <span className="text-xs font-normal text-slate-400">(days/year)</span></h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+          Leave Quotas <span className="text-xs font-normal" style={{ color: 'var(--text-tertiary)' }}>(days/year)</span>
+        </h3>
         <div className="grid grid-cols-2 gap-4">
           {(Object.entries(quotas) as [keyof typeof quotas, number][]).map(([role, days]) => (
             <div key={role}>
@@ -597,9 +736,9 @@ function LeavePolicySection({ canEdit = true }: { canEdit?: boolean }) {
         </div>
       </div>
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Working Schedule</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Working Schedule</h3>
         {!canEdit && (
-          <p className="text-xs text-slate-400 dark:text-gray-500 mb-2">Read-only — contact your admin to change the schedule.</p>
+          <p className="text-xs mb-2" style={{ color: 'var(--text-tertiary)' }}>Read-only — contact your admin to change the schedule.</p>
         )}
         <div>
           <label className={labelCls}>Working Days</label>
@@ -660,8 +799,8 @@ function SlaSection() {
   return (
     <form onSubmit={handleSave} className="space-y-4">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Execution SLA — Response Hours</h3>
-        <p className="text-xs text-slate-400 dark:text-gray-500">Max hours before a ticket is overdue (SLA age timer), by priority.</p>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Execution SLA — Response Hours</h3>
+        <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Max hours before a ticket is overdue (SLA age timer), by priority.</p>
         <div className="grid grid-cols-2 gap-4">
           {(Object.entries(sla) as [keyof typeof sla, number][]).map(([priority, hours]) => (
             <div key={priority}>
@@ -669,7 +808,7 @@ function SlaSection() {
               <div className="relative">
                 <input type="number" min={1} className={inputCls} value={hours}
                   onChange={(e) => setSla((s) => ({ ...s, [priority]: Number(e.target.value) }))} />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">hrs</span>
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs pointer-events-none" style={{ color: 'var(--text-tertiary)' }}>hrs</span>
               </div>
             </div>
           ))}
@@ -677,8 +816,8 @@ function SlaSection() {
       </div>
 
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">Review SLA — Reviewer Deadline</h3>
-        <p className="text-xs text-slate-400 dark:text-gray-500">Max hours a reviewer has to approve/reject after submission, by priority.</p>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Review SLA — Reviewer Deadline</h3>
+        <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Max hours a reviewer has to approve/reject after submission, by priority.</p>
         <div className="grid grid-cols-2 gap-4">
           {(Object.entries(reviewSla) as [keyof typeof reviewSla, number][]).map(([priority, hours]) => (
             <div key={priority}>
@@ -686,7 +825,7 @@ function SlaSection() {
               <div className="relative">
                 <input type="number" min={1} className={inputCls} value={hours}
                   onChange={(e) => setReviewSla((s) => ({ ...s, [priority]: Number(e.target.value) }))} />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">hrs</span>
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs pointer-events-none" style={{ color: 'var(--text-tertiary)' }}>hrs</span>
               </div>
             </div>
           ))}
@@ -708,8 +847,6 @@ function SmtpSection() {
   });
   const [form, setForm]       = useState({ host: '', port: '587', email: '', password: '' });
   const [showPass, setShowPass] = useState(false);
-  const [testing, setTesting]   = useState(false);
-
   useEffect(() => {
     if (remote) setForm((f) => ({ ...f, ...remote }));
   }, [remote]);
@@ -730,21 +867,16 @@ function SmtpSection() {
     save.mutate(form);
   };
 
-  const handleTest = async () => {
-    setTesting(true);
-    try {
-      // Future: call a /settings/smtp/test endpoint
-      await new Promise((res) => setTimeout(res, 800));
-      toast.success('Test email sent! (Check server logs — SMTP must be configured)');
-    } catch {
-      toast.error('Test email failed');
-    } finally { setTesting(false); }
-  };
+  const testEmail = useMutation({
+    mutationFn: () => settingsApi.testEmail(form.email),
+    onSuccess: (res: any) => toast.success(res?.message || 'Test email sent'),
+    onError: (err: any) => toast.error(err?.message || 'Test email failed'),
+  });
 
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold text-slate-800 dark:text-gray-100">SMTP Configuration</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>SMTP Configuration</h3>
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2"><label className={labelCls}>SMTP Host</label><input className={inputCls} value={form.host} onChange={(e) => set('host', e.target.value)} placeholder="smtp.gmail.com" /></div>
           <div><label className={labelCls}>Port</label><input type="number" className={inputCls} value={form.port} onChange={(e) => set('port', e.target.value)} /></div>
@@ -753,18 +885,26 @@ function SmtpSection() {
             <label className={labelCls}>Password</label>
             <div className="relative">
               <input type={showPass ? 'text' : 'password'} className={`${inputCls} pr-10`} value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="App password or SMTP secret" />
-              <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+              <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }}>
                 {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
           </div>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-4 flex-wrap">
           <SaveBtn loading={save.isPending} />
-          <button type="button" onClick={handleTest} disabled={testing}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-gray-700 rounded-lg text-sm font-medium text-slate-600 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors">
-            <Mail size={14} />{testing ? 'Sending…' : 'Send Test Email'}
+          <button
+            type="button"
+            onClick={() => testEmail.mutate()}
+            disabled={testEmail.isPending || !form.email}
+            className="apex-btn apex-btn-secondary text-sm disabled:opacity-50"
+          >
+            <Mail size={12} />
+            {testEmail.isPending ? 'Sending...' : 'Send Test Email'}
           </button>
+          <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+            Save SMTP changes before sending a test.
+          </p>
         </div>
       </div>
     </form>
@@ -856,62 +996,69 @@ function TaskTypesSettings() {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-gray-100">Task Types</h2>
-        <p className="text-sm text-slate-500 dark:text-gray-400 mt-0.5">
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Task Types</h2>
+        <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
           Task types help organise work by department. They appear in the ticket creation form based on the selected department.
         </p>
       </div>
       <div className="flex gap-6">
         {/* Department list sidebar */}
         <div className="w-48 flex-shrink-0">
-          <p className="text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase tracking-wide mb-2">Department</p>
+          <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-tertiary)' }}>Department</p>
           <ul className="space-y-0.5">
-            {deptList.map((d: any) => (
-              <li key={d.id ?? 'global'}>
-                <button
-                  onClick={() => setSelectedDeptId(d.id)}
-                  className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                    selectedDeptId === d.id
-                      ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-medium'
-                      : 'text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  {d.name}
-                </button>
-              </li>
-            ))}
+            {deptList.map((d: any) => {
+              const isActive = selectedDeptId === d.id;
+              return (
+                <li key={d.id ?? 'global'}>
+                  <button
+                    onClick={() => setSelectedDeptId(d.id)}
+                    className="w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors"
+                    style={{
+                      backgroundColor: isActive ? 'var(--accent-subtle)' : 'transparent',
+                      color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                      fontWeight: isActive ? 500 : 400,
+                    }}
+                    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                  >
+                    {d.name}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
 
         {/* Types list */}
         <div className="flex-1">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold text-slate-700 dark:text-gray-300">
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
               {selectedDeptId === null ? 'Global' : deptList.find((d: any) => d.id === selectedDeptId)?.name} Types
             </p>
             <button
               onClick={() => setAddTypeModal(true)}
-              className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs font-medium apex-btn-primary px-3 py-1.5"
             >
               + Add Type
             </button>
           </div>
 
           {deptTypes.length === 0 ? (
-            <p className="text-sm text-slate-400 dark:text-gray-500 py-4">No task types yet.</p>
+            <p className="text-sm py-4" style={{ color: 'var(--text-tertiary)' }}>No task types yet.</p>
           ) : (
             <div className="space-y-3">
               {deptTypes.map((type: any) => (
-                <div key={type.id} className="border border-slate-200 dark:border-gray-700 rounded-xl p-3 bg-white dark:bg-gray-900">
+                <div key={type.id} className="apex-card p-3">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm text-slate-800 dark:text-gray-200">{type.name}</span>
-                      <span className="text-xs text-slate-400 dark:text-gray-500">{type.subtypes?.length ?? 0} subtypes</span>
+                      <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{type.name}</span>
+                      <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{type.subtypes?.length ?? 0} subtypes</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => { setAddingSubtypeFor(type.id); setNewSubtypeName(''); }}
-                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                        className="text-xs hover:underline"
+                        style={{ color: 'var(--accent)' }}
                       >
                         + Subtype
                       </button>
@@ -928,11 +1075,16 @@ function TaskTypesSettings() {
                   {type.subtypes?.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {type.subtypes.map((sub: any) => (
-                        <span key={sub.id} className="flex items-center gap-1 bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">
+                        <span
+                          key={sub.id}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"
+                          style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+                        >
                           {sub.name}
                           <button
                             onClick={() => handleDeleteSubtype(type.id, sub.id)}
-                            className="text-slate-400 hover:text-red-500 ml-0.5"
+                            className="ml-0.5 hover:text-red-500"
+                            style={{ color: 'var(--text-tertiary)' }}
                           >
                             ×
                           </button>
@@ -951,10 +1103,11 @@ function TaskTypesSettings() {
                         onChange={(e) => setNewSubtypeName(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubtype(type.id); if (e.key === 'Escape') setAddingSubtypeFor(null); }}
                         placeholder="Subtype name..."
-                        className="flex-1 px-2 py-1 text-xs border border-slate-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                        className="flex-1 px-2 py-1 text-xs rounded apex-input"
+                        style={{ padding: '0.25rem 0.5rem' }}
                       />
-                      <button onClick={() => handleAddSubtype(type.id)} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded">Add</button>
-                      <button onClick={() => setAddingSubtypeFor(null)} className="text-xs text-slate-400">Cancel</button>
+                      <button onClick={() => handleAddSubtype(type.id)} className="text-xs apex-btn-primary px-2 py-1">Add</button>
+                      <button onClick={() => setAddingSubtypeFor(null)} className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Cancel</button>
                     </div>
                   )}
                 </div>
@@ -965,8 +1118,8 @@ function TaskTypesSettings() {
           {/* Add Type Modal */}
           {addTypeModal && (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-              <div className="bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-6 w-96 shadow-xl">
-                <h3 className="font-semibold text-slate-800 dark:text-gray-100 mb-4">Add Task Type</h3>
+              <div className="apex-card p-6 w-96 shadow-xl">
+                <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Add Task Type</h3>
                 <input
                   autoFocus
                   type="text"
@@ -974,11 +1127,23 @@ function TaskTypesSettings() {
                   onChange={(e) => setNewTypeName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleAddType(); }}
                   placeholder="Type name..."
-                  className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 mb-4"
+                  className="apex-input mb-4"
                 />
                 <div className="flex gap-2 justify-end">
-                  <button onClick={() => setAddTypeModal(false)} className="px-4 py-2 text-sm text-slate-600 dark:text-gray-400 border border-slate-200 dark:border-gray-600 rounded-lg">Cancel</button>
-                  <button onClick={handleAddType} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Add Type</button>
+                  <button
+                    onClick={() => setAddTypeModal(false)}
+                    className="px-4 py-2 text-sm rounded-lg border transition-colors"
+                    style={{
+                      borderColor: 'var(--border-primary)',
+                      color: 'var(--text-secondary)',
+                      backgroundColor: 'var(--surface-card)',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-card)')}
+                  >
+                    Cancel
+                  </button>
+                  <button onClick={handleAddType} className="px-4 py-2 text-sm apex-btn-primary">Add Type</button>
                 </div>
               </div>
             </div>
@@ -1000,6 +1165,7 @@ function AppearanceSettings() {
 
   const [companyTheme, setCompanyThemeState] = useState<ThemeId>('technoedge-light');
   const [companyAccent, setCompanyAccentState] = useState<AccentId>('royal-blue');
+  const [savingDefaults, setSavingDefaults] = useState(false);
 
   // Font size
   const [fontSize, setFontSizeState] = useState<'small' | 'medium' | 'large'>(() =>
@@ -1208,11 +1374,23 @@ function AppearanceSettings() {
           </div>
 
           <button
-            onClick={() => setCompanyDefaults(companyTheme, companyAccent)}
-            className="px-4 py-2 text-sm font-medium text-white rounded-xl"
+            disabled={savingDefaults}
+            onClick={async () => {
+              setSavingDefaults(true);
+              try {
+                await settingsApi.updateCompany({ defaultTheme: companyTheme, defaultAccent: companyAccent });
+                setCompanyDefaults(companyTheme, companyAccent);
+                toast.success('Company theme defaults saved');
+              } catch (err: any) {
+                toast.error(err?.message || 'Failed to save company defaults');
+              } finally {
+                setSavingDefaults(false);
+              }
+            }}
+            className="px-4 py-2 text-sm font-medium text-white rounded-xl disabled:opacity-50"
             style={{ backgroundColor: 'var(--accent)' }}
           >
-            Save Company Defaults
+            {savingDefaults ? 'Saving…' : 'Save Company Defaults'}
           </button>
         </div>
       )}
@@ -1252,20 +1430,23 @@ export default function SettingsPage() {
   function NavItem({ id, label, icon, badge }: {
     id: SectionId; label: string; icon: React.ReactNode; badge?: string;
   }) {
+    const isActive = active === id;
     return (
       <button
         onClick={() => setActive(id)}
-        className={cn(
-          'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all text-left',
-          active === id
-            ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium'
-            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white',
-        )}
+        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all text-left"
+        style={{
+          backgroundColor: isActive ? 'var(--accent-subtle)' : 'transparent',
+          color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+          fontWeight: isActive ? 500 : 400,
+        }}
+        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent'; }}
       >
         <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center">{icon}</span>
         <span className="flex-1">{label}</span>
         {badge && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400">
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold bg-amber-100 text-amber-700">
             {badge}
           </span>
         )}
@@ -1277,8 +1458,8 @@ export default function SettingsPage() {
     <div className="flex gap-6 max-w-5xl mx-auto">
       {/* ── LEFT SIDEBAR ─────────────────────────────────────────────────── */}
       <div className="w-52 flex-shrink-0">
-        <nav className="sticky top-6 space-y-0.5 bg-white dark:bg-gray-900 rounded-xl border border-slate-200 dark:border-gray-700 p-2">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2">
+        <nav className="sticky top-6 space-y-0.5 apex-card p-2">
+          <p className="text-xs font-medium uppercase tracking-wider px-3 py-2" style={{ color: 'var(--text-tertiary)' }}>
             My Account
           </p>
           <NavItem id="profile"    label="Profile"    icon={<User size={15} />} />
@@ -1287,8 +1468,8 @@ export default function SettingsPage() {
 
           {isAdmin && (
             <>
-              <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2">
+              <div className="my-2 border-t" style={{ borderColor: 'var(--border-subtle)' }} />
+              <p className="text-xs font-medium uppercase tracking-wider px-3 py-2" style={{ color: 'var(--text-tertiary)' }}>
                 Workspace
               </p>
               <NavItem id="company"    label="Company"    icon={<Building2 size={15} />}    badge="ADM" />

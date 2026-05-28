@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Request, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Request, UseGuards, Param } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { WorkdayService } from './workday.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -9,6 +9,11 @@ import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 @ApiBearerAuth()
 export class WorkdayController {
   constructor(private readonly workdayService: WorkdayService) {}
+
+  @Get('history/:userId')
+  getHistory(@Param('userId') userId: string, @Request() req: any) {
+    return this.workdayService.getHistory(userId, req.user);
+  }
 
   @Post('start')
   startWork(@Request() req: any) {

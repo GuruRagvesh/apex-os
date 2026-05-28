@@ -34,6 +34,12 @@ export function RecentActivityFeed() {
   const router = useRouter();
   const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
 
+  const roleName = (user?.role as any)?.name ?? user?.role ?? '';
+  const scopeLabel =
+    roleName === 'SUPER_ADMIN' || roleName === 'ADMIN' ? 'Company Scope (All Activity)' :
+    roleName === 'MANAGER' || roleName === 'TEAM_LEAD' ? 'Department Scope (Managed Members)' :
+    'Personal Scope (Own Activity)';
+
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['recent-activity'],
     queryFn: async () => {
@@ -64,14 +70,20 @@ export function RecentActivityFeed() {
 
   if (!events.length) {
     return (
-      <div className="apex-card" style={{ padding: 16, textAlign: 'center' }}>
-        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0 }}>No recent activity.</p>
+      <div className="apex-card" style={{ padding: 24, textAlign: 'center' }}>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>No recent activity</p>
+        <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, marginBottom: 0 }}>
+          No events were found within your <strong>{scopeLabel}</strong>.
+        </p>
       </div>
     );
   }
 
   return (
     <div className="apex-card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--border-subtle)', backgroundColor: 'rgba(0,0,0,0.02)' }} className="flex justify-between items-center">
+        <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-450 dark:text-slate-500">{scopeLabel}</span>
+      </div>
       {events.slice(0, 10).map((ev: any, i: number) => (
         <div
           key={i}
@@ -81,7 +93,7 @@ export function RecentActivityFeed() {
             borderBottom: i < Math.min(events.length, 10) - 1 ? '1px solid var(--border-subtle)' : 'none',
             cursor: ev.entityUrl ? 'pointer' : 'default',
           }}
-          className={ev.entityUrl ? 'hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors' : ''}
+          className={ev.entityUrl ? 'hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors' : ''}
         >
           <div style={{
             width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
@@ -94,6 +106,11 @@ export function RecentActivityFeed() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 11, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               <strong>{ev.actor?.name ?? 'Someone'}</strong> {ev.description ?? ACTION_LABELS[ev.action] ?? ev.action?.toLowerCase().replace(/_/g, ' ')}
+              {ev.entityType === 'Ticket' && ev.metadata?.ticketId && (
+                <span className="ml-1.5 text-blue-600 dark:text-blue-400 font-mono font-bold hover:underline">
+                  [{ev.metadata.ticketId}]
+                </span>
+              )}
             </p>
           </div>
           <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>{ev.timeAgo ?? timeAgo(ev.timestamp)}</span>

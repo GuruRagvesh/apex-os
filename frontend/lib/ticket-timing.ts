@@ -73,6 +73,28 @@ function urgencyFromMsLeft(msUntilDue: number): TicketTimingState['overdueSeveri
  */
 export function computeClientTimingState(ticket: Record<string, any>): TicketTimingState {
   const status: string = ticket.status ?? '';
+  const backendTiming = ticket.timing;
+  if (backendTiming) {
+    if (['completed', 'cancelled', 'none'].includes(backendTiming.timerType)) return DONE_STATE;
+    const dueAt = backendTiming.dueAt ? new Date(backendTiming.dueAt) : null;
+    if (!dueAt) return DONE_STATE;
+    const msUntilDue = dueAt.getTime() - Date.now();
+    const diffMinutes = Math.floor(-msUntilDue / 60_000);
+    const isOverdue = msUntilDue < 0;
+    const phase = backendTiming.timerType === 'review' ? 'review' : 'execution';
+    return {
+      phase,
+      dueAt,
+      msUntilDue,
+      isOverdue,
+      overdueMinutes: isOverdue ? diffMinutes : 0,
+      overdueDisplay: isOverdue ? `${formatDuration(diffMinutes)} overdue` : null,
+      overdueSeverity: isOverdue ? severityFromMinutes(diffMinutes) : urgencyFromMsLeft(msUntilDue),
+      countdownLabel: isOverdue
+        ? `${formatDuration(diffMinutes)} overdue`
+        : `${formatDuration(Math.floor(msUntilDue / 60_000))} left`,
+    };
+  }
 
   // ── Terminal ───────────────────────────────────────────────────────────────
   if (status === 'DONE' || status === 'CLOSED') return DONE_STATE;

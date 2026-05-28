@@ -11,9 +11,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     PassportModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
+      // SECURITY: No fallback default. main.ts exits if JWT_SECRET is absent.
+      // Removing the fallback eliminates any bypass path (e.g., test imports
+      // that skip main.ts) from silently signing tokens with a known weak key.
       useFactory: (config: ConfigService) => ({
-        secret: config.get('JWT_SECRET', 'nexus-secret-key-change-in-prod'),
-        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '24h') },
+        secret: config.get<string>('JWT_SECRET'),
+        signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN') ?? '24h' },
       }),
     }),
   ],

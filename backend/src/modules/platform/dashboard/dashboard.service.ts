@@ -1,31 +1,62 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketStatus, Priority, LeaveStatus } from '@prisma/client';
+import { TicketAccessService } from '../../../common/services/ticket-access.service';
+import { TicketTimingService } from '../../../common/services/ticket-timing.service';
+import { LeaveAccessService } from '../../../common/services/leave-access.service';
+import { AccessPolicyService } from '../../../common/services/access-policy.service';
 
 @Injectable()
 export class DashboardService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ticketAccess: TicketAccessService,
+    private ticketTiming: TicketTimingService,
+    private leaveAccess: LeaveAccessService,
+    private accessPolicy: AccessPolicyService,
+  ) {}
 
-  async getOverview(userId: string, userRole: string) {
-    const isManagerPlus = ['ADMIN', 'MANAGER', 'SUPER_ADMIN'].includes(userRole);
-    const isEmployeeRole = ['EMPLOYEE', 'INTERN'].includes(userRole);
+  private andWhere(...clauses: any[]): any {
+    const parts = clauses.filter((clause) => clause && Object.keys(clause).length > 0);
+    if (parts.length === 0) return {};
+    if (parts.length === 1) return parts[0];
+    return { AND: parts };
+  }
 
-    // Fetch managed department IDs for managers
-    let managedDeptIds: string[] = [];
-    let managerUser: any = null;
-    if (userRole === 'MANAGER') {
-      managerUser = await this.prisma.user.findUnique({ where: { id: userId } });
-      const access = await (this.prisma as any).managerDeptAccess.findMany({
-        where: { managerId: userId }, select: { departmentId: true },
-      });
-      managedDeptIds = access.map((a: any) => a.departmentId);
-      if (managerUser?.departmentId) managedDeptIds.push(managerUser.departmentId);
-      managedDeptIds = [...new Set(managedDeptIds)];
+  private async countOverdueTickets(scope: any): Promise<number> {
+    const tickets = await this.prisma.ticket.findMany({
+      where: this.andWhere(scope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
+      select: {
+        id: true, status: true, priority: true, dueDate: true, createdAt: true, updatedAt: true,
+        scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
+        submittedAt: true, reviewStartedAt: true, reviewDueAt: true, closedAt: true, cancelledAt: true,
+      },
+    });
+    const config = await this.ticketTiming.getSlaConfig();
+    return tickets.filter((ticket) => this.ticketTiming.getTimingState(ticket, config).isOverdue).length;
+  }
+
+  private async buildProjectScope(user: any): Promise<any> {
+    const roleName = this.accessPolicy.roleName(user);
+    if (!user || this.accessPolicy.isAdmin(user)) return {};
+    if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
+      return { members: { some: { userId: user.id } } };
     }
+    if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
+      const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+      const clauses: any[] = [{ members: { some: { userId: user.id } } }];
+      if (deptIds.length > 0) clauses.push({ departmentId: { in: deptIds } });
+      return { OR: clauses };
+    }
+    return { members: { some: { userId: user.id } } };
+  }
 
-    const ticketWhere = isManagerPlus
-      ? (managedDeptIds.length > 0 ? { departmentId: { in: managedDeptIds } } : {})
-      : { OR: [{ assignedToId: userId }, { createdById: userId }] };
+  async getOverview(user: any) {
+    const ticketWhere = await this.ticketAccess.buildTicketWhereForUser({}, user);
+    const activeTicketWhere = this.andWhere(ticketWhere, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } });
+    const projectWhere = await this.buildProjectScope(user);
+    const visibleUserIds = await this.ticketAccess.visibleUserIdsForWorkload(user);
+    const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
 
     const [
       totalTickets,
@@ -33,7 +64,6 @@ export class DashboardService {
       inProgressTickets,
       doneTickets,
       urgentTickets,
-      overdueTickets,
       totalProjects,
       activeProjects,
       pendingLeave,
@@ -42,26 +72,19 @@ export class DashboardService {
       recentTickets,
       myTickets,
     ] = await Promise.all([
-      this.prisma.ticket.count(),
-      this.prisma.ticket.count({ where: { status: TicketStatus.OPEN, ...ticketWhere } }),
-      this.prisma.ticket.count({ where: { status: TicketStatus.IN_PROGRESS, ...ticketWhere } }),
-      this.prisma.ticket.count({ where: { status: TicketStatus.DONE, ...ticketWhere } }),
-      this.prisma.ticket.count({ where: { priority: Priority.URGENT, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] }, ...ticketWhere } }),
-      this.prisma.ticket.count({
-        where: { dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] }, ...ticketWhere },
-      }),
-      this.prisma.project.count(),
-      this.prisma.project.count({ where: { status: 'ACTIVE' } }),
-      // Employees see only their own pending leave; managers see their dept; admins see all
-      isEmployeeRole
-        ? this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING, userId } })
-        : managedDeptIds.length > 0
-          ? this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING, user: { departmentId: { in: managedDeptIds } } } })
-          : this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING } }),
-      this.prisma.user.count({ where: { isActive: true } }),
-      // Team member count for managers
-      managedDeptIds.length > 0
-        ? this.prisma.user.count({ where: { isActive: true, departmentId: { in: managedDeptIds } } })
+      this.prisma.ticket.count({ where: ticketWhere }),
+      this.prisma.ticket.count({ where: this.andWhere(ticketWhere, { status: TicketStatus.OPEN }) }),
+      this.prisma.ticket.count({ where: this.andWhere(ticketWhere, { status: TicketStatus.IN_PROGRESS }) }),
+      this.prisma.ticket.count({ where: this.andWhere(ticketWhere, { status: TicketStatus.DONE }) }),
+      this.prisma.ticket.count({ where: this.andWhere(activeTicketWhere, { priority: Priority.URGENT }) }),
+      this.prisma.project.count({ where: projectWhere }),
+      this.prisma.project.count({ where: this.andWhere(projectWhere, { status: 'ACTIVE' }) }),
+      this.prisma.leaveRequest.count({ where: this.andWhere(leaveScope, { status: LeaveStatus.PENDING }) }),
+      visibleUserIds
+        ? this.prisma.user.count({ where: { isActive: true, id: { in: visibleUserIds } } })
+        : this.prisma.user.count({ where: { isActive: true } }),
+      visibleUserIds
+        ? this.prisma.user.count({ where: { isActive: true, id: { in: visibleUserIds } } })
         : this.prisma.user.count({ where: { isActive: true } }),
       this.prisma.ticket.findMany({
         where: ticketWhere,
@@ -74,7 +97,7 @@ export class DashboardService {
         },
       }),
       this.prisma.ticket.findMany({
-        where: isManagerPlus ? {} : { OR: [{ assignedToId: userId }, { createdById: userId }] },
+        where: ticketWhere,
         take: 5,
         orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
         include: {
@@ -83,6 +106,23 @@ export class DashboardService {
         },
       }),
     ]);
+    const overdueTickets = await this.countOverdueTickets(ticketWhere);
+
+    // Fetch real bottleneck tickets in user scope
+    const activeTickets = await this.prisma.ticket.findMany({
+      where: this.andWhere(ticketWhere, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
+      include: {
+        assignedTo: { select: { id: true, name: true, avatar: true } },
+        department: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const config = await this.ticketTiming.getSlaConfig();
+    const bottleneckTickets = activeTickets.filter((ticket) => {
+      const isOverdue = this.ticketTiming.getTimingState(ticket, config).isOverdue;
+      const isReview = ticket.status === TicketStatus.REVIEW;
+      return isOverdue || isReview;
+    }).slice(0, 10);
 
     return {
       stats: {
@@ -92,24 +132,32 @@ export class DashboardService {
       },
       recentTickets,
       myTickets,
+      bottleneckTickets,
     };
   }
 
-  async getTicketsByCategory() {
+  async getTicketsByCategory(user?: any) {
+    const where = await this.ticketAccess.buildTicketWhereForUser({}, user);
     const data = await this.prisma.ticket.groupBy({
       by: ['category'],
+      where,
       _count: { _all: true },
     });
     return data.map((d) => ({ category: d.category, count: d._count._all }));
   }
 
-  async getTicketsByDepartment() {
+  async getTicketsByDepartment(user?: any) {
+    const roleName = this.accessPolicy.roleName(user);
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
+
+    const deptWhere = isAdmin ? {} : { id: { in: await this.accessPolicy.managedDepartmentIds(user) } };
+    const ticketWhere = await this.ticketAccess.buildTicketWhereForUser({}, user);
+
     const departments = await this.prisma.department.findMany({
+      where: deptWhere,
       include: {
-        _count: {
-          select: { tickets: true },
-        },
         tickets: {
+          where: ticketWhere,
           select: { status: true },
         },
       },
@@ -119,107 +167,115 @@ export class DashboardService {
       id: dept.id,
       name: dept.name,
       color: dept.color,
-      total: dept._count.tickets,
+      total: dept.tickets.length,
       open: dept.tickets.filter((t) => t.status === TicketStatus.OPEN).length,
       inProgress: dept.tickets.filter((t) => t.status === TicketStatus.IN_PROGRESS).length,
       done: dept.tickets.filter((t) => t.status === TicketStatus.DONE).length,
     }));
   }
 
-  async getActivityFeed(limit = 20) {
+  async getActivityFeed(limit = 20, user?: any, userId?: string) {
+    const roleName = this.accessPolicy.roleName(user);
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
+
+    let whereClause: any = {};
+    if (!isAdmin && user) {
+      const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+      whereClause = {
+        OR: [
+          { userId: user.id },
+          { user: { departmentId: { in: deptIds } } },
+        ],
+      };
+    }
+
+    if (userId) {
+      if (!isAdmin && user) {
+        // Enforce access control: target user must be self or in managed department
+        if (userId !== user.id) {
+          const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+          const targetUser = await this.prisma.user.findUnique({ where: { id: userId } });
+          if (!targetUser || !targetUser.departmentId || !deptIds.includes(targetUser.departmentId)) {
+            return []; // forbidden
+          }
+        }
+      }
+      whereClause = {
+        ...whereClause,
+        userId: userId,
+      };
+    }
+
     return this.prisma.activityLog.findMany({
+      where: whereClause,
       take: limit,
       orderBy: { createdAt: 'desc' },
-      include: { user: { select: { id: true, name: true, avatar: true } } },
+      include: { user: { select: { id: true, name: true, avatar: true, departmentId: true } } },
     });
   }
 
-  async getWorkloadByUser() {
+  async getWorkloadByUser(user?: any) {
+    const visibleUserIds = user ? await this.ticketAccess.visibleUserIdsForWorkload(user) : null;
+    const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
+    const activeTicketScope = this.andWhere(ticketScope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } });
     const users = await this.prisma.user.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(visibleUserIds ? { id: { in: visibleUserIds } } : {}) },
       include: {
-        assignedTickets: {
-          where: { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } },
-          select: { status: true, priority: true },
-        },
         role: true,
         department: true,
       },
+      take: 100,
+      orderBy: { name: 'asc' },
     });
+    const userIds = users.map((u) => u.id);
+    const tickets = userIds.length > 0
+      ? await this.prisma.ticket.findMany({
+        where: this.andWhere(activeTicketScope, { assignedToId: { in: userIds } }),
+        select: { assignedToId: true, status: true, priority: true },
+      })
+      : [];
+    const ticketMap = new Map<string, Array<{ status: TicketStatus; priority: Priority }>>();
+    for (const ticket of tickets) {
+      if (!ticket.assignedToId) continue;
+      const bucket = ticketMap.get(ticket.assignedToId) ?? [];
+      bucket.push(ticket as any);
+      ticketMap.set(ticket.assignedToId, bucket);
+    }
 
     return users.map((user) => ({
       id: user.id,
       name: user.name,
       role: user.role.name,
       department: user.department?.name,
-      totalAssigned: user.assignedTickets.length,
-      urgent: user.assignedTickets.filter((t) => t.priority === Priority.URGENT).length,
-      high: user.assignedTickets.filter((t) => t.priority === Priority.HIGH).length,
-      inProgress: user.assignedTickets.filter((t) => t.status === TicketStatus.IN_PROGRESS).length,
+      totalAssigned: (ticketMap.get(user.id) ?? []).length,
+      urgent: (ticketMap.get(user.id) ?? []).filter((t) => t.priority === Priority.URGENT).length,
+      high: (ticketMap.get(user.id) ?? []).filter((t) => t.priority === Priority.HIGH).length,
+      inProgress: (ticketMap.get(user.id) ?? []).filter((t) => t.status === TicketStatus.IN_PROGRESS).length,
     }));
   }
 
   // ── Home Summary ─────────────────────────────────────────────────────────────
 
-  private async buildRoleScope(user: any): Promise<any> {
-    const roleName: string = user?.role?.name ?? user?.role ?? '';
-    if (['ADMIN', 'SUPER_ADMIN'].includes(roleName)) return {};
-    if (roleName === 'MANAGER') {
-      const access = await (this.prisma as any).managerDeptAccess.findMany({ where: { managerId: user.id } });
-      const deptIds: string[] = access.map((a: any) => a.departmentId as string);
-      if (user.departmentId) deptIds.push(user.departmentId);
-      const uniqueDeptIds: string[] = [...new Set(deptIds)];
-      if (uniqueDeptIds.length > 0) return { departmentId: { in: uniqueDeptIds } };
-      return {};
-    }
-    if (roleName === 'TEAM_LEAD') {
-      if (user.departmentId) {
-        return { OR: [{ departmentId: user.departmentId }, { createdById: user.id }, { assignedToId: user.id }] };
-      }
-    }
-    return { OR: [{ assignedToId: user.id }, { createdById: user.id }] };
-  }
-
-  private async buildLeaveScope(user: any): Promise<any> {
-    const roleName: string = user?.role?.name ?? user?.role ?? '';
-    if (['EMPLOYEE', 'INTERN'].includes(roleName)) return { userId: user.id };
-    if (roleName === 'TEAM_LEAD') {
-      if (!user.departmentId) return { userId: user.id };
-      return { user: { departmentId: user.departmentId } };
-    }
-    if (roleName === 'MANAGER') {
-      const access = await (this.prisma as any).managerDeptAccess.findMany({ where: { managerId: user.id } });
-      const deptIds: string[] = access.map((a: any) => a.departmentId as string);
-      if (user.departmentId && !deptIds.includes(user.departmentId)) deptIds.push(user.departmentId);
-      const unique = [...new Set(deptIds)];
-      if (unique.length === 0) return { userId: user.id };
-      return { user: { departmentId: { in: unique } } };
-    }
-    return {};
-  }
-
   private async getCriticalAlerts(user: any) {
     const roleName: string = user?.role?.name ?? user?.role ?? '';
-    const scope = await this.buildRoleScope(user);
+    const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
     const alerts: any[] = [];
 
-    const overdueCount = await this.prisma.ticket.count({
-      where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } },
-    });
+    const overdueCount = await this.countOverdueTickets(ticketScope);
     if (overdueCount > 0) {
-      alerts.push({ type: 'TICKET_OVERDUE', severity: 'red', title: `${overdueCount} overdue ticket${overdueCount > 1 ? 's' : ''}`, desc: 'Tickets past their due date need immediate attention', actionLabel: 'View', actionUrl: '/tickets?overdue=true' });
+      alerts.push({ type: 'TICKET_OVERDUE', severity: 'red', title: `${overdueCount} overdue ticket${overdueCount > 1 ? 's' : ''}`, desc: 'Tickets past their active SLA timer need immediate attention', actionLabel: 'View', actionUrl: '/tickets?overdue=true' });
     }
 
     const reviewCount = await this.prisma.ticket.count({
-      where: { ...scope, status: TicketStatus.REVIEW },
+      where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }),
     });
     if (reviewCount > 0 && ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'].includes(roleName)) {
       alerts.push({ type: 'REVIEW_PENDING', severity: 'purple', title: `${reviewCount} ticket${reviewCount > 1 ? 's' : ''} awaiting review`, desc: 'Review and approve or reject to unblock your team', actionLabel: 'Review', actionUrl: '/tickets?status=REVIEW' });
     }
 
     if (['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'].includes(roleName)) {
-      const leaveScope = await this.buildLeaveScope(user);
-      const pendingLeave = await this.prisma.leaveRequest.count({ where: { ...leaveScope, status: LeaveStatus.PENDING } });
+      const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
+      const pendingLeave = await this.prisma.leaveRequest.count({ where: this.andWhere(leaveScope, { status: LeaveStatus.PENDING }) });
       if (pendingLeave > 0) {
         alerts.push({ type: 'LEAVE_PENDING', severity: 'amber', title: `${pendingLeave} leave request${pendingLeave > 1 ? 's' : ''} pending`, desc: 'Approve or reject leave requests from your team', actionLabel: 'View', actionUrl: '/leave' });
       }
@@ -230,51 +286,64 @@ export class DashboardService {
 
   private async getMetrics(user: any) {
     const roleName: string = user?.role?.name ?? user?.role ?? '';
-    const scope = await this.buildRoleScope(user);
+    const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
+    const projectScope = await this.buildProjectScope(user);
 
     if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
       const weekStart = new Date();
       weekStart.setDate(weekStart.getDate() - 7);
-      const [open, inProgress, inReview, doneThisWeek] = await Promise.all([
-        this.prisma.ticket.count({ where: { ...scope, status: TicketStatus.OPEN } }),
-        this.prisma.ticket.count({ where: { ...scope, status: TicketStatus.IN_PROGRESS } }),
-        this.prisma.ticket.count({ where: { ...scope, status: TicketStatus.REVIEW } }),
-        this.prisma.ticket.count({ where: { ...scope, status: TicketStatus.DONE, updatedAt: { gte: weekStart } } }),
+      const [open, inProgress, inReview, doneThisWeek, activeProjects] = await Promise.all([
+        this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.OPEN }) }),
+        this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.IN_PROGRESS }) }),
+        this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }) }),
+        this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.DONE, updatedAt: { gte: weekStart } }) }),
+        this.prisma.project.count({ where: this.andWhere(projectScope, { status: 'ACTIVE' }) }),
       ]);
-      return { open, inProgress, inReview, doneThisWeek };
+      const overdue = await this.countOverdueTickets(ticketScope);
+      return { open, inProgress, inReview, doneThisWeek, activeProjects, overdue };
     }
 
     if (roleName === 'TEAM_LEAD') {
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const [total, overdue, inReview, teamOnline] = await Promise.all([
-        this.prisma.ticket.count({ where: scope }),
-        this.prisma.ticket.count({ where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } } }),
-        this.prisma.ticket.count({ where: { ...scope, status: TicketStatus.REVIEW } }),
-        this.prisma.user.count({ where: { departmentId: user.departmentId, currentStatus: { in: ['WORKING', 'ON_BREAK', 'LOGGED_IN'] } } }),
+      const visibleUserIds = await this.ticketAccess.visibleUserIdsForWorkload(user);
+      const [total, overdue, inReview, teamOnline, activeProjects] = await Promise.all([
+        this.prisma.ticket.count({ where: ticketScope }),
+        this.countOverdueTickets(ticketScope),
+        this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }) }),
+        this.prisma.user.count({
+          where: this.andWhere(
+            { currentStatus: { in: ['WORKING', 'ON_BREAK', 'LOGGED_IN'] } },
+            visibleUserIds ? { id: { in: visibleUserIds } } : {},
+          ),
+        }),
+        this.prisma.project.count({ where: this.andWhere(projectScope, { status: 'ACTIVE' }) }),
       ]);
-      return { total, overdue, inReview, teamOnline };
+      return { total, overdue, inReview, teamOnline, activeProjects };
     }
 
     if (roleName === 'MANAGER') {
-      const leaveScope = await this.buildLeaveScope(user);
-      const [total, overdue, pendingLeave, teamCount] = await Promise.all([
-        this.prisma.ticket.count({ where: scope }),
-        this.prisma.ticket.count({ where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } } }),
-        this.prisma.leaveRequest.count({ where: { ...leaveScope, status: LeaveStatus.PENDING } }),
-        this.prisma.user.count({ where: { isActive: true, ...(user.departmentId ? { departmentId: user.departmentId } : {}) } }),
+      const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
+      const visibleUserIds = await this.ticketAccess.visibleUserIdsForWorkload(user);
+      const [total, overdue, pendingLeave, teamCount, activeProjects] = await Promise.all([
+        this.prisma.ticket.count({ where: ticketScope }),
+        this.countOverdueTickets(ticketScope),
+        this.prisma.leaveRequest.count({ where: this.andWhere(leaveScope, { status: LeaveStatus.PENDING }) }),
+        this.prisma.user.count({ where: { isActive: true, ...(visibleUserIds ? { id: { in: visibleUserIds } } : {}) } }),
+        this.prisma.project.count({ where: this.andWhere(projectScope, { status: 'ACTIVE' }) }),
       ]);
-      return { total, overdue, pendingLeave, teamCount };
+      return { total, overdue, pendingLeave, teamCount, activeProjects };
     }
 
     // ADMIN / SUPER_ADMIN
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const [activeToday, totalTickets, overdue, pendingLeave] = await Promise.all([
+    const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
+    const [activeToday, totalTickets, openTickets, overdue, pendingLeave, activeProjects] = await Promise.all([
       this.prisma.user.count({ where: { currentStatus: { in: ['WORKING', 'ON_BREAK', 'LOGGED_IN'] } } }),
-      this.prisma.ticket.count({ where: { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } } }),
-      this.prisma.ticket.count({ where: { dueDate: { lt: new Date() }, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } } }),
-      this.prisma.leaveRequest.count({ where: { status: LeaveStatus.PENDING } }),
+      this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }) }),
+      this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.OPEN }) }),
+      this.countOverdueTickets(ticketScope),
+      this.prisma.leaveRequest.count({ where: this.andWhere(leaveScope, { status: LeaveStatus.PENDING }) }),
+      this.prisma.project.count({ where: this.andWhere(projectScope, { status: 'ACTIVE' }) }),
     ]);
-    return { activeToday, totalTickets, overdue, pendingLeave };
+    return { activeToday, totalTickets, openTickets, overdue, pendingLeave, activeProjects };
   }
 
   private async getWorkdayStatus(user: any) {
@@ -287,13 +356,13 @@ export class DashboardService {
   }
 
   private async getUpcomingEvents(user: any) {
-    const scope = await this.buildRoleScope(user);
+    const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
     const now = new Date();
     const in3Days = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
     const events: any[] = [];
 
     const tickets = await this.prisma.ticket.findMany({
-      where: { ...scope, status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] }, dueDate: { gte: now, lte: in3Days } },
+      where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] }, dueDate: { gte: now, lte: in3Days } }),
       select: { id: true, ticketId: true, title: true, dueDate: true, priority: true, status: true },
       orderBy: { dueDate: 'asc' },
       take: 10,
@@ -303,9 +372,9 @@ export class DashboardService {
       events.push({ title: `${t.ticketId}: ${t.title}`, time: t.dueDate, color: t.priority === 'URGENT' ? 'red' : 'blue', url: `/tickets/${t.id}` });
     }
 
-    const leaveScope = await this.buildLeaveScope(user);
+    const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
     const leaves = await this.prisma.leaveRequest.findMany({
-      where: { ...leaveScope, status: LeaveStatus.APPROVED, startDate: { gte: now, lte: in3Days } },
+      where: this.andWhere(leaveScope, { status: LeaveStatus.APPROVED, startDate: { gte: now, lte: in3Days } }),
       include: { user: { select: { id: true, name: true } } },
       take: 5,
     });
@@ -318,25 +387,114 @@ export class DashboardService {
     return events.slice(0, 10);
   }
 
+  private async getPreviews(user: any) {
+    const roleName: string = user?.role?.name ?? user?.role ?? '';
+    const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
+    const projectScope = await this.buildProjectScope(user);
+    const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
+
+    const [overdueTicketsList, activeProjectsList, pendingLeaveList, inReviewList] = await Promise.all([
+      // Overdue tickets
+      this.prisma.ticket.findMany({
+        where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
+        select: {
+          id: true, ticketId: true, title: true, dueDate: true, createdAt: true, updatedAt: true,
+          scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
+          submittedAt: true, reviewStartedAt: true, reviewDueAt: true, closedAt: true, cancelledAt: true,
+        },
+      }),
+      // Active projects
+      this.prisma.project.findMany({
+        where: this.andWhere(projectScope, { status: 'ACTIVE' }),
+        select: { projectId: true, name: true },
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+      }),
+      // Pending leave
+      ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'].includes(roleName)
+        ? this.prisma.leaveRequest.findMany({
+            where: this.andWhere(leaveScope, { status: LeaveStatus.PENDING }),
+            select: {
+              startDate: true, endDate: true, type: true, isHalfDay: true,
+              user: { select: { name: true } },
+            },
+            take: 5,
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      // In Review tickets
+      this.prisma.ticket.findMany({
+        where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }),
+        select: { ticketId: true, title: true },
+        take: 5,
+        orderBy: { updatedAt: 'desc' },
+      }),
+    ]);
+
+    const config = await this.ticketTiming.getSlaConfig();
+    const overdue = overdueTicketsList
+      .filter((ticket) => this.ticketTiming.getTimingState(ticket, config).isOverdue)
+      .slice(0, 5)
+      .map((t) => `${t.ticketId}: ${t.title}`);
+
+    const activeProjects = activeProjectsList.map((p) => `${p.projectId}: ${p.name}`);
+
+    const getLeaveDuration = (start: Date, end: Date, isHalfDay: boolean) => {
+      if (isHalfDay) return 0.5;
+      let days = 0;
+      const current = new Date(start);
+      while (current <= end) {
+        if (current.getDay() !== 0) days++; // Mon-Sat working schedule
+        current.setDate(current.getDate() + 1);
+      }
+      return days;
+    };
+
+    const pendingLeave = pendingLeaveList.map((l) => {
+      const dur = getLeaveDuration(l.startDate, l.endDate, l.isHalfDay);
+      return `${l.user.name}: ${l.type} (${dur}d)`;
+    });
+
+    const inReviewTickets = inReviewList.map((t) => `${t.ticketId}: ${t.title}`);
+
+    return {
+      overdueTickets: overdue,
+      activeProjects,
+      pendingLeave,
+      inReviewTickets,
+    };
+  }
+
   async getSummary(user: any) {
-    const [criticalAlerts, metrics, workdayStatus, upcomingEvents] = await Promise.all([
+    const [criticalAlerts, metrics, workdayStatus, upcomingEvents, previews] = await Promise.all([
       this.getCriticalAlerts(user),
       this.getMetrics(user),
       this.getWorkdayStatus(user),
       this.getUpcomingEvents(user),
+      this.getPreviews(user),
     ]);
 
-    return { criticalAlerts, metrics, workdayStatus, upcomingEvents };
+    return { criticalAlerts, metrics, workdayStatus, upcomingEvents, previews };
   }
 
-  async getTicketTrend(days = 14) {
+  async getTicketTrend(days = 14, user?: any) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
 
-    const tickets = await this.prisma.ticket.findMany({
-      where: { createdAt: { gte: startDate } },
-      select: { createdAt: true, status: true },
-    });
+    const [createdTickets, resolvedTickets] = await Promise.all([
+      this.prisma.ticket.findMany({
+        where: this.andWhere(ticketScope, { createdAt: { gte: startDate } }),
+        select: { createdAt: true },
+      }),
+      this.prisma.ticket.findMany({
+        where: this.andWhere(ticketScope, {
+          status: { in: [TicketStatus.DONE, TicketStatus.CLOSED] },
+          resolvedAt: { gte: startDate },
+        }),
+        select: { resolvedAt: true },
+      }),
+    ]);
 
     const trend: Record<string, { created: number; resolved: number }> = {};
     for (let i = 0; i < days; i++) {
@@ -346,12 +504,13 @@ export class DashboardService {
       trend[key] = { created: 0, resolved: 0 };
     }
 
-    tickets.forEach((t) => {
+    createdTickets.forEach((t) => {
       const key = t.createdAt.toISOString().split('T')[0];
       if (trend[key]) trend[key].created++;
-      if (t.status === TicketStatus.DONE || t.status === TicketStatus.CLOSED) {
-        if (trend[key]) trend[key].resolved++;
-      }
+    });
+    resolvedTickets.forEach((t) => {
+      const key = t.resolvedAt?.toISOString().split('T')[0];
+      if (key && trend[key]) trend[key].resolved++;
     });
 
     return Object.entries(trend)

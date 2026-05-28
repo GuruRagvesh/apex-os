@@ -9,16 +9,7 @@ import { cn, getInitials } from '@/lib/utils';
 import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const roleBadgeDark: Record<string, string> = {
-  SUPER_ADMIN: 'bg-purple-900 text-purple-300',
-  ADMIN: 'bg-red-900 text-red-300',
-  MANAGER: 'bg-blue-900 text-blue-300',
-  TEAM_LEAD: 'bg-cyan-900 text-cyan-300',
-  EMPLOYEE: 'bg-green-900 text-green-300',
-  INTERN: 'bg-yellow-900 text-yellow-300',
-};
-
-// Also keep light-mode badges for backward compat
+// Light-mode classes — dark themes handled via globals.css CSS-variable overrides
 const roleBadge: Record<string, string> = {
   SUPER_ADMIN: 'bg-purple-100 text-purple-700',
   ADMIN: 'bg-red-100 text-red-700',

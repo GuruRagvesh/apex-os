@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 
 // ── Default values ────────────────────────────────────────────────────────────
 const DEFAULTS: Record<string, any> = {
@@ -20,7 +21,10 @@ const DEFAULTS: Record<string, any> = {
 
 @Injectable()
 export class SettingsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private eventLogger: EventLoggerService,
+  ) {}
 
   async get(key: string): Promise<any> {
     const row = await this.prisma.appSetting.findUnique({ where: { key } });
@@ -33,6 +37,15 @@ export class SettingsService {
       create: { key, value, updatedBy },
       update: { value, updatedBy },
     });
+    if (updatedBy) {
+      this.eventLogger.log({
+        actorId: updatedBy,
+        entityType: 'Setting',
+        entityId: key,
+        action: OperationalAction.SETTINGS_UPDATED,
+        metadata: { key },
+      }).catch(() => {});
+    }
     return saved.value;
   }
 

@@ -90,6 +90,9 @@ model User {
   employeeDocuments  EmployeeDocument[]
   operationalEvents OperationalEvent[] @relation("EventActor")
 
+  @@index([departmentId])
+  @@index([roleId])
+  @@index([isActive])
   @@map("users")
 }
 
@@ -159,6 +162,9 @@ model Project {
   members    ProjectMember[]
   tickets    Ticket[]
 
+  @@index([departmentId])
+  @@index([status])
+  @@index([createdAt])
   @@map("projects")
 }
 
@@ -173,6 +179,7 @@ model ProjectMember {
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, userId])
+  @@index([userId])
   @@map("project_members")
 }
 
@@ -232,6 +239,10 @@ model Ticket {
   @@index([createdById])
   @@index([projectId])
   @@index([createdAt])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([status, assignedToId])
+  @@index([status, departmentId])
   @@map("tickets")
 }
 
@@ -245,6 +256,7 @@ model TicketAssignee {
   user   User   @relation(fields: [userId], references: [id])
 
   @@unique([ticketId, userId])
+  @@index([userId])
   @@map("ticket_assignees")
 }
 
@@ -259,6 +271,7 @@ model Comment {
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   author User   @relation(fields: [authorId], references: [id])
 
+  @@index([ticketId])
   @@map("comments")
 }
 
@@ -293,11 +306,16 @@ model LeaveRequest {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
+  isHalfDay   Boolean     @default(false)
+  halfDayType String?
+
   user User @relation(fields: [userId], references: [id])
   workSessions  WorkSession[]
 
   @@index([userId])
   @@index([status])
+  @@index([startDate])
+  @@index([userId, status])
   @@map("leave_requests")
 }
 
@@ -317,6 +335,8 @@ model Notification {
 
   @@index([userId])
   @@index([isRead])
+  @@index([userId, createdAt])
+  @@index([userId, isRead])
   @@map("notifications")
 }
 
@@ -331,6 +351,10 @@ model ActivityLog {
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
   @@map("activity_logs")
 }
 
@@ -346,6 +370,8 @@ model TicketHistory {
   ticket    Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   changedBy User   @relation(fields: [changedById], references: [id])
 
+  @@index([ticketId])
+  @@index([changedAt])
   @@map("ticket_history")
 }
 

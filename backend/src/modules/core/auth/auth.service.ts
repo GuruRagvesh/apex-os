@@ -1,4 +1,4 @@
-﻿import { Injectable, UnauthorizedException, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -18,11 +18,16 @@ export class AuthService {
     private eventLogger: EventLoggerService,
   ) {}
 
-  async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-      include: { role: true, department: true },
+  /** Case-insensitive email lookup — handles mixed-case addresses at login/OTP */
+  private async findUserByEmailCI(email: string, include?: Record<string, boolean>) {
+    return this.prisma.user.findFirst({
+      where: { email: { equals: email.trim().toLowerCase(), mode: 'insensitive' } },
+      ...(include ? { include } : {}),
     });
+  }
+
+  async login(dto: LoginDto) {
+    const user = await this.findUserByEmailCI(dto.email, { role: true, department: true });
 
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
 
@@ -37,23 +42,35 @@ export class AuthService {
     today.setHours(0, 0, 0, 0);
     const now = new Date();
 
+    let nextStatus = 'LOGGED_IN';
+
     try {
+      const existingSession = await this.prisma.workSession.findUnique({
+        where: { userId_date: { userId: user.id, date: today } },
+      });
+
+      if (existingSession && ['WORKING', 'ON_BREAK', 'IDLE'].includes(existingSession.status)) {
+        nextStatus = existingSession.status;
+      }
+
       await this.prisma.workSession.upsert({
         where: { userId_date: { userId: user.id, date: today } },
-        update: { loginAt: now, status: 'LOGGED_IN' },
-        create: { userId: user.id, date: today, loginAt: now, status: 'LOGGED_IN' },
+        update: { loginAt: now, status: nextStatus },
+        create: { userId: user.id, date: today, loginAt: now, status: nextStatus },
       });
       await this.prisma.attendanceEvent.create({
         data: { userId: user.id, eventType: 'LOGIN', source: 'manual' },
       });
       await this.prisma.user.update({
         where: { id: user.id },
-        data: { currentStatus: 'LOGGED_IN', lastActiveAt: now },
+        data: { currentStatus: nextStatus, lastActiveAt: now },
       });
     } catch (e) {
       // Non-critical — don't fail login if attendance tracking fails
       console.error('Attendance tracking error on login:', e);
     }
+
+    userWithoutPassword.currentStatus = nextStatus;
 
     this.eventLogger.log({ actorId: user.id, entityType: 'User', entityId: user.id, action: OperationalAction.USER_LOGIN }).catch(() => {});
 
@@ -61,13 +78,14 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const existing = await this.findUserByEmailCI(normalizedEmail);
     if (existing) throw new ConflictException('Email already registered');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email: normalizedEmail,
         name: dto.name,
         password: hashedPassword,
         roleId: dto.roleId,
@@ -113,7 +131,7 @@ export class AuthService {
   }
 
   async findByEmail(email: string) {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.findUserByEmailCI(email);
   }
 
   async updatePassword(userId: string, hashedPassword: string) {
@@ -124,14 +142,18 @@ export class AuthService {
   }
 
   async sendOtp(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.findUserByEmailCI(normalizedEmail);
     if (!user) throw new NotFoundException('User not found');
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    this.otpStore.set(email, { otp, expires: Date.now() + 10 * 60 * 1000 }); // 10-min TTL
-    // TODO: send via SMTP when configured
-    console.log(`[OTP] ${email}: ${otp}`);
-    return { message: `OTP sent to ${email}` };
+    this.otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000 }); // 10-min TTL
+    // TODO: send via SMTP when configured — email.service.ts is wired but optional
+    // SECURITY: OTP is never logged in production. Development-only trace.
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[OTP:DEV] Reset requested for: ${normalizedEmail} — check email or SMTP logs`);
+    }
+    return { message: `OTP sent to ${normalizedEmail}` };
   }
 
   async resetPasswordWithOtp(email: string, otp: string, newPassword: string) {
@@ -139,31 +161,36 @@ export class AuthService {
       throw new BadRequestException('New password must be at least 8 characters');
     }
 
-    const entry = this.otpStore.get(email);
+    const normalizedEmail = email.trim().toLowerCase();
+    const entry = this.otpStore.get(normalizedEmail);
     if (!entry) throw new BadRequestException('No OTP requested for this email');
     if (Date.now() > entry.expires) {
-      this.otpStore.delete(email);
+      this.otpStore.delete(normalizedEmail);
       throw new BadRequestException('OTP has expired — please request a new one');
     }
     if (entry.otp !== otp) throw new BadRequestException('Invalid OTP');
 
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.findUserByEmailCI(normalizedEmail);
     if (!user) throw new NotFoundException('User not found');
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await this.updatePassword(user.id, hashed);
-    this.otpStore.delete(email);
+    this.otpStore.delete(normalizedEmail);
 
     return { message: 'Password reset successfully' };
   }
 
   private async generateTokens(userId: string, email: string) {
     const payload = { sub: userId, email };
-    const secret = this.configService.get('JWT_SECRET', 'nexus-secret-key-change-in-prod');
+    // SECURITY: No fallback — main.ts already exits if JWT_SECRET is absent.
+    // If this line is reached without the secret set, throw immediately rather
+    // than silently signing with an undefined/weak key.
+    const secret = this.configService.get<string>('JWT_SECRET');
+    if (!secret) throw new Error('FATAL: JWT_SECRET is not configured');
 
     const accessToken = this.jwtService.sign(payload, {
       secret,
-      expiresIn: this.configService.get('JWT_EXPIRES_IN', '24h'),
+      expiresIn: this.configService.get<string>('JWT_EXPIRES_IN') ?? '24h',
     });
 
     return { accessToken };

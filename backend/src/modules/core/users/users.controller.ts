@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { ROLES } from '../../../shared/constants/roles';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -16,7 +17,7 @@ export class UsersController {
 
   @Get('me')
   getMe(@CurrentUser() user: any) {
-    return this.usersService.findOne(user.id);
+    return this.usersService.findOne(user.id, user);
   }
 
   @Get('my-team')
@@ -44,55 +45,60 @@ export class UsersController {
     return this.usersService.uploadPhoto(user.id, file);
   }
 
+  @Get('me/preferences')
+  getPreferences(@CurrentUser() user: any) {
+    return this.usersService.getPreferences(user.id ?? user.sub);
+  }
+
   @Patch('me/preferences')
-  updatePreferences(@CurrentUser() user: any, @Body() body: any) {
-    return { message: 'Preferences saved', preferences: body };
+  async updatePreferences(@CurrentUser() user: any, @Body() body: any) {
+    return this.usersService.savePreferences(user.id ?? user.sub, body);
   }
 
   @Get()
-  findAll(@Query() query: { search?: string; departmentId?: string; roleId?: string }) {
-    return this.usersService.findAll(query);
+  findAll(@Query() query: { search?: string; departmentId?: string; roleId?: string }, @CurrentUser() user: any) {
+    return this.usersService.findAll(query, user);
   }
 
   @Get('stats')
-  @UseGuards(RolesGuard) @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   getStats() {
     return this.usersService.getStats();
   }
 
   @Get('directory')
-  @UseGuards(RolesGuard) @Roles('MANAGER', 'ADMIN', 'SUPER_ADMIN')
-  getDirectory() {
-    return this.usersService.getDirectory();
+  @UseGuards(RolesGuard) @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  getDirectory(@CurrentUser() user: any) {
+    return this.usersService.getDirectory(user);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.usersService.findOne(id, user);
   }
 
   @Post()
-  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
-  create(@Body() body: { name: string; email: string; password: string; roleId: string; departmentId?: string }) {
-    return this.usersService.create(body);
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  create(@Body() body: { name: string; email: string; password: string; roleId: string; departmentId?: string }, @CurrentUser() actor: any) {
+    return this.usersService.create(body, actor?.id);
   }
 
   @Put(':id')
-  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.usersService.update(id, body);
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  update(@Param('id') id: string, @Body() body: any, @CurrentUser() actor: any) {
+    return this.usersService.update(id, body, actor?.id);
   }
 
   @Put(':id/reset-password')
-  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   resetPassword(@Param('id') id: string, @Body() body: { newPassword: string }) {
     return this.usersService.resetPassword(id, body.newPassword);
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard) @Roles('ADMIN', 'SUPER_ADMIN')
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  remove(@Param('id') id: string, @CurrentUser() actor: any) {
+    return this.usersService.remove(id, actor?.id);
   }
 
   @Get(':id/profile')

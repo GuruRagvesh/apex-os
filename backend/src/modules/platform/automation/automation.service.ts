@@ -2,20 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { NotificationType } from '@prisma/client';
-
-const SLA_HOURS: Record<string, number> = {
-  URGENT: 4,
-  HIGH:   8,
-  MEDIUM: 24,
-  LOW:    72,
-};
 
 @Injectable()
 export class AutomationService {
   private readonly logger = new Logger('AutomationService');
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ticketTiming: TicketTimingService,
+  ) {}
 
   // ── Ticket assigned ─────────────────────────────────────────────────────────
   @OnEvent('ticket.assigned', { async: true })
@@ -127,10 +124,13 @@ export class AutomationService {
       },
     });
 
+    // Fetch DB-configured SLA values so admin changes take effect in overdue detection
+    const { execution: slaConfig } = await this.ticketTiming.getSlaConfig();
+
     let notified = 0;
 
     for (const ticket of openTickets) {
-      const sla      = SLA_HOURS[ticket.priority] ?? 24;
+      const sla      = slaConfig[ticket.priority] ?? 24;
       const hoursOpen = (Date.now() - new Date(ticket.createdAt).getTime()) / 3_600_000;
 
       if (hoursOpen > sla && ticket.assignedToId) {

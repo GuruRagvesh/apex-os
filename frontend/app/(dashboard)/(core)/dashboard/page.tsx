@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
+import Link from 'next/link';
+import { cn } from '@/lib/utils';
+import { ticketsApi, dashboardApi } from '@/lib/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { CriticalActionPanel } from '@/components/home/CriticalActionPanel';
 import { UpcomingEvents } from '@/components/home/UpcomingEvents';
@@ -44,6 +47,24 @@ export default function HomePage() {
     refetchInterval: 60000,
     staleTime: 30000,
   });
+
+  const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
+
+  const { data: slaRisk } = useQuery({
+    queryKey: ['sla-risk'],
+    queryFn: () => ticketsApi.getSlaRisk() as Promise<any>,
+    enabled: isLeadOrAbove,
+    refetchInterval: 120000,
+    staleTime: 60000,
+  });
+
+  const { data: overview } = useQuery({
+    queryKey: ['dashboard-overview'],
+    queryFn: () => dashboardApi.getOverview() as Promise<any>,
+    staleTime: 30000,
+  });
+
+  const bottleneckTickets = overview?.bottleneckTickets ?? [];
 
   if (isLoading) return <HomeSkeleton />;
 
@@ -124,7 +145,7 @@ export default function HomePage() {
           subtext: 'need attention',
           statusType: 'red' as const,
           previewItems: [],
-          onClick: () => router.push('/tickets'),
+          onClick: () => router.push('/tickets?overdue=true'),
         },
         {
           label: 'Pending Reviews',
@@ -164,7 +185,7 @@ export default function HomePage() {
           subtext: 'SLA breaches',
           statusType: 'red' as const,
           previewItems: [],
-          onClick: () => router.push('/tickets'),
+          onClick: () => router.push('/tickets?overdue=true'),
         },
         {
           label: 'Pending Leave',
@@ -199,7 +220,7 @@ export default function HomePage() {
       },
       {
         label: 'Open Tickets',
-        value: metrics.totalTickets ?? metrics.open ?? 0,
+        value: metrics.openTickets ?? metrics.open ?? 0,
         icon: Ticket,
         subtext: 'needs attention',
         statusType: 'blue' as const,
@@ -213,7 +234,7 @@ export default function HomePage() {
         subtext: 'SLA exceeded',
         statusType: 'red' as const,
         previewItems: [],
-        onClick: () => router.push('/tickets'),
+        onClick: () => router.push('/tickets?overdue=true'),
       },
       {
         label: 'Pending Leave',
@@ -229,7 +250,8 @@ export default function HomePage() {
 
   // ── Announcement broadcast data ───────────────────────────────────────────
   const criticalAlerts: any[] = summary?.criticalAlerts ?? [];
-  const firstUrgentAlert = criticalAlerts.find((a: any) => a.type === 'urgent' || a.severity === 'urgent');
+  // Backend uses severity: 'red' | 'purple' | 'amber' — 'red' is the urgent/critical level
+  const firstUrgentAlert = criticalAlerts.find((a: any) => a.severity === 'red' || a.severity === 'urgent' || a.type === 'urgent');
   const broadcastTitle = firstUrgentAlert
     ? (firstUrgentAlert.title ?? firstUrgentAlert.message ?? 'Urgent alert requires your attention')
     : 'No active broadcasts today';
@@ -246,10 +268,18 @@ export default function HomePage() {
       >
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
-            <h1 className="text-3xl font-extrabold leading-tight text-slate-900 dark:text-white" style={{ letterSpacing: '-0.5px' }}>
-              Good {timeOfDay}, {firstName}
-            </h1>
-            <p className="text-sm mt-1 text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-extrabold leading-tight" style={{ letterSpacing: '-0.5px', color: 'var(--text-primary)' }}>
+                Good {timeOfDay}, {firstName}
+              </h1>
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-full mt-1.5">
+                {role === 'SUPER_ADMIN' || role === 'ADMIN' ? 'Company Administrator Scope' :
+                 role === 'MANAGER' ? 'Department Manager Scope' :
+                 role === 'TEAM_LEAD' ? 'Team Lead Scope' :
+                 'Personal Contributor Scope'}
+              </span>
+            </div>
+            <p className="text-sm mt-1.5" style={{ color: 'var(--text-secondary)' }}>
               {roleGuidance}
             </p>
           </div>
@@ -278,7 +308,7 @@ export default function HomePage() {
                 </span>
               </span>
             </button>
-            <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+            <span className="font-mono text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
               {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
             </span>
           </div>
@@ -313,6 +343,46 @@ export default function HomePage() {
         </motion.section>
       )}
 
+      {/* ── SLA RISK BANNER (managers/leads only, shown when there are at-risk tickets) ── */}
+      {isLeadOrAbove && slaRisk && (slaRisk.overdue > 0 || slaRisk.dueSoon > 0 || slaRisk.reviewAgeing > 0) && (
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.14 }}
+          className="mb-4"
+        >
+          <div
+            className="flex items-center gap-4 px-4 py-3 rounded-xl text-sm flex-wrap"
+            style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)' }}
+          >
+            <ShieldAlert size={16} style={{ color: 'var(--color-danger)', flexShrink: 0 }} />
+            <span className="font-semibold" style={{ color: 'var(--color-danger)' }}>SLA Risk</span>
+            {slaRisk.overdue > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 15%, transparent)', color: 'var(--color-danger)' }}>
+                {slaRisk.overdue} overdue
+              </span>
+            )}
+            {slaRisk.dueSoon > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 15%, transparent)', color: 'var(--color-warning)' }}>
+                {slaRisk.dueSoon} due soon
+              </span>
+            )}
+            {slaRisk.reviewAgeing > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 15%, transparent)', color: 'var(--color-warning)' }}>
+                {slaRisk.reviewAgeing} reviews ageing
+              </span>
+            )}
+            <button
+              onClick={() => router.push('/tickets')}
+              className="ml-auto text-xs font-medium flex items-center gap-1"
+              style={{ color: 'var(--color-danger)' }}
+            >
+              View tickets <ArrowRight size={12} />
+            </button>
+          </div>
+        </motion.section>
+      )}
+
       {/* ── CRITICAL ALERTS ── */}
       {criticalAlerts.length > 0 && (
         <motion.section
@@ -321,7 +391,7 @@ export default function HomePage() {
           transition={{ duration: 0.25, delay: 0.16 }}
           className="mb-6"
         >
-          <p className="font-mono text-[10px] uppercase tracking-widest mb-2 text-slate-400 dark:text-slate-500">
+          <p className="font-mono text-[10px] uppercase tracking-widest mb-2" style={{ color: 'var(--text-tertiary)' }}>
             Needs Attention
           </p>
           <CriticalActionPanel alerts={criticalAlerts} />
@@ -337,24 +407,24 @@ export default function HomePage() {
       >
         <CommandCard
           id="high-priority"
-          title="High Priority Tickets"
+          title="Overdue Tickets"
           count={metrics.overdue ?? 0}
-          summary="Tickets requiring immediate SLA attention"
+          summary={(metrics.overdue ?? 0) > 0 ? `${metrics.overdue} overdue ticket${metrics.overdue > 1 ? 's' : ''} need${metrics.overdue > 1 ? '' : 's'} attention` : 'No overdue tickets in your scope'}
           icon={ShieldAlert}
-          severity="urgent"
-          previewItems={[]}
-          onClick={() => router.push('/tickets?priority=HIGH')}
+          severity={(metrics.overdue ?? 0) > 0 ? 'urgent' : 'success'}
+          previewItems={summary?.previews?.overdueTickets ?? []}
+          onClick={() => router.push('/tickets?overdue=true')}
         />
 
         <CommandCard
           id="active-projects"
           title="Active Projects"
           count={metrics.activeProjects ?? 0}
-          summary="Current project portfolio in progress"
+          summary={(metrics.activeProjects ?? 0) > 0 ? `${metrics.activeProjects} active project${metrics.activeProjects > 1 ? 's' : ''} in progress` : 'No active projects'}
           icon={FolderKanban}
           severity="blue"
-          previewItems={[]}
-          onClick={() => router.push('/projects')}
+          previewItems={summary?.previews?.activeProjects ?? []}
+          onClick={() => router.push('/projects?status=ACTIVE')}
         />
 
         {(role === 'TEAM_LEAD' || role === 'MANAGER' || role === 'ADMIN' || role === 'SUPER_ADMIN') && (
@@ -362,11 +432,11 @@ export default function HomePage() {
             id="pending-leave"
             title="Leave Requests"
             count={metrics.pendingLeave ?? 0}
-            summary="Pending leave approvals for your team"
+            summary={(metrics.pendingLeave ?? 0) > 0 ? `${metrics.pendingLeave} leave request${metrics.pendingLeave > 1 ? 's' : ''} pending approval` : 'No pending leave requests'}
             icon={CalendarDays}
-            severity={metrics.pendingLeave > 0 ? 'warning' : 'success'}
-            previewItems={[]}
-            onClick={() => router.push('/leave')}
+            severity={(metrics.pendingLeave ?? 0) > 0 ? 'warning' : 'success'}
+            previewItems={summary?.previews?.pendingLeave ?? []}
+            onClick={() => router.push('/leave?tab=needs-action')}
           />
         )}
 
@@ -375,24 +445,72 @@ export default function HomePage() {
             id="in-review"
             title="In Review"
             count={metrics.inReview ?? 0}
-            summary="Tickets currently under code review"
+            summary={(metrics.inReview ?? 0) > 0 ? `${metrics.inReview} ticket${metrics.inReview > 1 ? 's' : ''} awaiting review` : 'No tickets awaiting review'}
             icon={AlertTriangle}
-            severity="warning"
-            previewItems={[]}
+            severity={(metrics.inReview ?? 0) > 0 ? 'warning' : 'success'}
+            previewItems={summary?.previews?.inReviewTickets ?? []}
             onClick={() => router.push('/tickets?status=REVIEW')}
           />
         )}
       </motion.div>
 
-      {/* ── BOTTOM SECTION: Events + Activity ── */}
+      {/* ── BOTTOM SECTION: Bottlenecks + Events + Activity ── */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, delay: 0.24 }}
-        className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        className="grid grid-cols-1 lg:grid-cols-3 gap-4"
       >
+        {/* Bottlenecks & SLA Risk */}
+        <div className="border overflow-hidden rounded-[22px] flex flex-col" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+          <div className="bg-[#0B1220] px-5 py-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-red-900/40 text-red-400">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">Bottlenecks & SLA Risk</h3>
+              <p className="text-[10px] text-slate-400 font-mono mt-0.5 font-bold">Urgent action required</p>
+            </div>
+          </div>
+          <div className="p-5 flex-1 flex flex-col justify-between" style={{ backgroundColor: 'var(--surface-card)' }}>
+            <div className="space-y-2.5">
+              {bottleneckTickets.length > 0 ? (
+                bottleneckTickets.slice(0, 4).map((t: any) => (
+                  <Link
+                    key={t.id}
+                    href={`/tickets/${t.id}`}
+                    className="block p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80 hover:border-red-500 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition-all"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-mono font-bold text-slate-400">{t.ticketId}</span>
+                      <span className={cn(
+                        'text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider',
+                        t.status === 'REVIEW' ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400' : 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400'
+                      )}>
+                        {t.status === 'REVIEW' ? 'In Review' : 'Overdue'}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-750 dark:text-gray-250 truncate">{t.title}</p>
+                  </Link>
+                ))
+              ) : (
+                <div className="text-center py-8 text-slate-400 text-xs">
+                  <p className="font-semibold text-slate-500 dark:text-slate-400">No critical bottlenecks!</p>
+                  <p className="text-[10px] text-slate-450 dark:text-slate-500 mt-1">All active tickets are within SLA.</p>
+                </div>
+              )}
+            </div>
+            <Link
+              href="/tickets"
+              className="mt-4 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 justify-end"
+            >
+              Go to Tickets <ArrowRight size={11} />
+            </Link>
+          </div>
+        </div>
+
         {/* Upcoming Events */}
-        <div className="bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 rounded-[22px] overflow-hidden">
+        <div className="border overflow-hidden rounded-[22px]" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
           <div className="bg-[#0B1220] px-5 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-900/40 text-blue-400">
               <CalendarDays className="w-4 h-4" />
@@ -402,13 +520,13 @@ export default function HomePage() {
               <p className="text-[10px] text-slate-400 font-mono mt-0.5">Scheduled items</p>
             </div>
           </div>
-          <div className="p-5 bg-white dark:bg-[#0F172A]">
+          <div className="p-5" style={{ backgroundColor: 'var(--surface-card)' }}>
             <UpcomingEvents events={summary?.upcomingEvents ?? []} />
           </div>
         </div>
 
         {/* Recent Activity */}
-        <div className="bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 rounded-[22px] overflow-hidden">
+        <div className="border overflow-hidden rounded-[22px]" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
           <div className="bg-[#0B1220] px-5 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-emerald-900/40 text-emerald-400">
               <Activity className="w-4 h-4" />
@@ -418,7 +536,7 @@ export default function HomePage() {
               <p className="text-[10px] text-slate-400 font-mono mt-0.5">Latest team actions</p>
             </div>
           </div>
-          <div className="p-5 bg-white dark:bg-[#0F172A]">
+          <div className="p-5" style={{ backgroundColor: 'var(--surface-card)' }}>
             <RecentActivityFeed />
           </div>
         </div>
@@ -440,44 +558,43 @@ export default function HomePage() {
         <div className="space-y-4">
           {criticalAlerts.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
                 No critical alerts at this time.
               </p>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
                 All systems are operating normally.
               </p>
             </div>
           ) : (
-            criticalAlerts.map((alert: any, i: number) => (
-              <div
-                key={alert.id ?? i}
-                className={`p-4 rounded-xl border ${
-                  alert.type === 'urgent' || alert.severity === 'urgent'
-                    ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/40'
-                    : alert.type === 'warning'
-                    ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'
-                    : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/40'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex-1">
-                    <p className={`text-[10px] font-black font-mono uppercase tracking-widest mb-1 ${
-                      alert.type === 'urgent' || alert.severity === 'urgent'
-                        ? 'text-red-600 dark:text-red-400'
-                        : alert.type === 'warning'
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-blue-600 dark:text-blue-400'
-                    }`}>
-                      {alert.type?.toUpperCase() ?? 'ALERT'}
-                    </p>
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{alert.title ?? 'Alert'}</h4>
-                    {alert.message && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{alert.message}</p>
-                    )}
+            criticalAlerts.map((alert: any, i: number) => {
+              const isUrgent = alert.type === 'urgent' || alert.severity === 'urgent';
+              const isWarning = alert.type === 'warning';
+              return (
+                <div
+                  key={alert.id ?? i}
+                  className="p-4 rounded-xl border"
+                  style={{
+                    backgroundColor: isUrgent ? 'var(--color-danger-bg)' : isWarning ? 'var(--color-warning-bg)' : 'var(--color-info-bg)',
+                    borderColor: isUrgent ? 'rgba(239,68,68,0.25)' : isWarning ? 'rgba(245,158,11,0.25)' : 'rgba(59,130,246,0.25)',
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1">
+                      <p
+                        className="text-[10px] font-black font-mono uppercase tracking-widest mb-1"
+                        style={{ color: isUrgent ? 'var(--color-danger)' : isWarning ? 'var(--color-warning)' : 'var(--color-info)' }}
+                      >
+                        {alert.type?.toUpperCase() ?? 'ALERT'}
+                      </p>
+                      <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{alert.title ?? 'Alert'}</h4>
+                      {alert.message && (
+                        <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{alert.message}</p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </CommandModal>
