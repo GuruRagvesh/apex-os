@@ -11,6 +11,7 @@ import { WorkdayHistoryStrip } from '@/components/workday/WorkdayHistoryStrip';
 import { CriticalActionPanel } from '@/components/home/CriticalActionPanel';
 import { UpcomingEvents } from '@/components/home/UpcomingEvents';
 import { RecentActivityFeed } from '@/components/home/RecentActivityFeed';
+import { TeamPressurePanel } from '@/components/home/TeamPressurePanel';
 import { HomeSkeleton } from '@/components/home/HomeSkeleton';
 import { KpiCapsuleStrip } from '@/components/ui/KpiCapsuleStrip';
 import { AnnouncementBroadcast } from '@/components/ui/AnnouncementBroadcast';
@@ -562,6 +563,18 @@ export default function HomePage() {
           />
         )}
       </motion.div>
+
+      {/* ── TEAM PRESSURE PANEL (MANAGER / TEAM_LEAD / ADMIN / SUPER_ADMIN only) ── */}
+      {isLeadOrAbove && (
+        <motion.section
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: 0.22 }}
+          className="mb-6"
+        >
+          <TeamPressurePanel />
+        </motion.section>
+      )}
 
       {/* ── BOTTOM SECTION: Bottlenecks + Events + Activity ── */}
       <motion.div
