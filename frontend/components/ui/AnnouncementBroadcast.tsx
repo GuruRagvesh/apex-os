@@ -11,18 +11,26 @@ interface AnnouncementBroadcastProps {
   // Legacy compat props
   items?: any[];
   emptyMessage?: string;
+  alertCount?: number;
 }
 
 export function AnnouncementBroadcast({
   onAddCalendar,
-  eventTitle = 'No active broadcasts today',
+  eventTitle = 'No active operational alerts',
   onOpenAnnouncement,
+  alertCount = 0,
 }: AnnouncementBroadcastProps) {
   const [added, setAdded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
+  const hasAlert = eventTitle !== 'No active operational alerts' && eventTitle !== 'No active broadcasts today';
+
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (hasAlert && onOpenAnnouncement) {
+      onOpenAnnouncement();
+      return;
+    }
     setAdded(true);
     onAddCalendar?.();
     setTimeout(() => {
@@ -56,17 +64,22 @@ export function AnnouncementBroadcast({
 
         <div className="space-y-1 text-left">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-mono uppercase tracking-wider leading-none">
-            <span className="font-bold text-blue-400">
-              Command Broadcast
+            <span className={`font-bold ${hasAlert ? 'text-red-400' : 'text-blue-400'}`}>
+              {hasAlert ? 'Operational Alert' : 'Latest Alert'}
             </span>
-            <span className="text-slate-400 font-semibold">• Date: {today}</span>
+            <span className="text-slate-400 font-semibold">• {today}</span>
+            {hasAlert && alertCount > 1 && (
+              <span className="bg-red-900/40 text-red-400 border border-red-800/40 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                {alertCount} active
+              </span>
+            )}
           </div>
           <h3 className="text-sm font-bold text-white tracking-tight flex flex-wrap items-center gap-1.5 leading-tight">
-            <span>{eventTitle}</span>
-            {eventTitle !== 'No active broadcasts today' && (
+            <span>{hasAlert ? eventTitle : 'No active operational alerts'}</span>
+            {hasAlert && (
               <>
                 <span className="text-slate-400 font-normal">|</span>
-                <span className="text-slate-400 font-medium text-xs">Update all tickets before evaluation bounds</span>
+                <span className="text-slate-400 font-medium text-xs">Click to view all alerts and take action</span>
               </>
             )}
           </h3>
@@ -77,24 +90,29 @@ export function AnnouncementBroadcast({
       <div className="flex items-center justify-end pr-2 shrink-0 select-none">
         <button
           onClick={handleAdd}
-          disabled={added || eventTitle === 'No active broadcasts today'}
+          disabled={added || !hasAlert}
           className={`px-4 py-2 rounded-xl font-bold text-[11px] font-sans tracking-wide transition-all uppercase flex items-center gap-1.5 cursor-pointer ${
             added
               ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50'
-              : eventTitle === 'No active broadcasts today'
+              : !hasAlert
               ? 'border border-slate-700/50 text-slate-600 cursor-not-allowed opacity-50'
-              : 'border border-blue-900/50 text-blue-400 hover:bg-blue-950/40'
+              : 'border border-red-900/50 text-red-400 hover:bg-red-950/40'
           }`}
         >
           {added ? (
             <>
               <CheckSquare className="w-3.5 h-3.5" />
-              <span>SAVED</span>
+              <span>OPENED</span>
+            </>
+          ) : hasAlert ? (
+            <>
+              <Info className="w-3.5 h-3.5" />
+              <span>View All</span>
             </>
           ) : (
             <>
               <Calendar className="w-3.5 h-3.5" />
-              <span>Add to Calendar</span>
+              <span>All Clear</span>
             </>
           )}
         </button>
@@ -120,11 +138,11 @@ export function AnnouncementBroadcast({
                 <Info className="w-3.5 h-3.5" />
               </div>
               <div className="space-y-1.5 font-sans">
-                <h4 className="text-xs font-bold text-white">Broadcast Transmission</h4>
+                <h4 className="text-xs font-bold text-white">{hasAlert ? 'Operational Alert Details' : 'Alert Status'}</h4>
                 <div className="space-y-1 font-semibold text-[10px] text-slate-400">
-                  <p><span className="text-blue-400">Activity:</span> Department Review & KPI Assessment</p>
-                  <p><span className="text-blue-400">Recipients:</span> All Team Roster & Duty Leaders</p>
-                  <p><span className="text-blue-400">Action:</span> Click to view full broadcast details</p>
+                  <p><span className={hasAlert ? 'text-red-400' : 'text-blue-400'}>Alert:</span> {hasAlert ? eventTitle : 'No active alerts at this time'}</p>
+                  <p><span className="text-blue-400">Scope:</span> All team members in your operational scope</p>
+                  <p><span className="text-blue-400">Action:</span> {hasAlert ? 'Click to view all alerts and take action' : 'You\'re all clear — no action required'}</p>
                 </div>
               </div>
             </div>

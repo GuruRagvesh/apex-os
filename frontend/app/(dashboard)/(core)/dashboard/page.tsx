@@ -32,8 +32,77 @@ export default function HomePage() {
 
   const [paletteOpen, setPaletteOpen]             = useState(false);
   const [alertsModalOpen, setAlertsModalOpen]     = useState(false);
+  const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
+  const isManagerOrAbove = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
 
-  const { data: summary, isLoading } = useQuery({
+  const dashboardPaletteActions = [
+    {
+      id: 'new-ticket',
+      label: 'Create New Ticket',
+      description: 'Open a new ticket in your scope',
+      icon: <Ticket size={15} />,
+      onClick: () => router.push('/tickets/new'),
+    },
+    {
+      id: 'due-today',
+      label: 'View Due Today',
+      description: 'Tickets due today in your scope',
+      icon: <CalendarDays size={15} />,
+      onClick: () => router.push('/tickets?filter=due-today'),
+    },
+    {
+      id: 'high-priority',
+      label: isLeadOrAbove ? 'High Priority Tickets' : 'My High Priority Tickets',
+      description: isLeadOrAbove ? 'View high priority items in your scope' : 'View your high priority work',
+      icon: <AlertTriangle size={15} />,
+      onClick: () => router.push('/tickets?priority=HIGH'),
+    },
+    isLeadOrAbove
+      ? {
+        id: 'leave-review',
+        label: 'Review Leave Requests',
+        description: 'Leave requests and approvals in your scope',
+        icon: <CalendarDays size={15} />,
+        onClick: () => router.push('/leave'),
+      }
+      : {
+        id: 'leave-self',
+        label: 'Apply or View Leave',
+        description: 'Open your own leave requests',
+        icon: <CalendarDays size={15} />,
+        onClick: () => router.push('/leave'),
+      },
+    {
+      id: 'projects',
+      label: 'Open Projects',
+      description: 'View projects available to your role',
+      icon: <FolderKanban size={15} />,
+      onClick: () => router.push('/projects'),
+    },
+    ...(isLeadOrAbove ? [{
+      id: 'team',
+      label: 'Check Team Availability',
+      description: 'Open roster and live team status',
+      icon: <Users size={15} />,
+      onClick: () => router.push('/team'),
+    }] : []),
+    ...(isLeadOrAbove ? [{
+      id: 'activity',
+      label: isManagerOrAbove ? 'Activity Log' : 'Team Activity Log',
+      description: 'View scoped operational activity',
+      icon: <Activity size={15} />,
+      onClick: () => router.push('/admin/activity'),
+    }] : []),
+    {
+      id: 'workday',
+      label: 'Start Workday',
+      description: 'Open your workday panel',
+      icon: <Zap size={15} />,
+      onClick: () => router.push('/dashboard'),
+    },
+  ];
+
+  const { data: summary, isLoading, isError: summaryError } = useQuery({
     queryKey: ['home-summary'],
     queryFn: async () => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
@@ -41,14 +110,12 @@ export default function HomePage() {
         `${process.env.NEXT_PUBLIC_API_URL}/home/summary`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      if (!res.ok) return null;
+      if (!res.ok) throw new Error('Failed to load dashboard');
       return res.json();
     },
     refetchInterval: 60000,
     staleTime: 30000,
   });
-
-  const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
 
   const { data: slaRisk } = useQuery({
     queryKey: ['sla-risk'],
@@ -69,6 +136,7 @@ export default function HomePage() {
   if (isLoading) return <HomeSkeleton />;
 
   const metrics = summary?.metrics ?? {};
+  const dataAvailable = !summaryError && !!summary;
   const firstName = user?.name?.split(' ')[0] ?? 'there';
   const hour = new Date().getHours();
   const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
@@ -91,34 +159,34 @@ export default function HomePage() {
       return [
         {
           label: 'Open Tickets',
-          value: metrics.open ?? 0,
+          value: summaryError ? '–' : (metrics.open ?? 0),
           icon: Ticket,
-          subtext: 'awaiting action',
+          subtext: 'assigned to you',
           statusType: 'blue' as const,
           previewItems: [],
           onClick: () => router.push('/tickets?status=OPEN'),
         },
         {
           label: 'In Progress',
-          value: metrics.inProgress ?? 0,
+          value: summaryError ? '–' : (metrics.inProgress ?? 0),
           icon: Clock,
-          subtext: 'being worked on',
+          subtext: 'currently working',
           statusType: 'orange' as const,
           previewItems: [],
           onClick: () => router.push('/tickets?status=IN_PROGRESS'),
         },
         {
           label: 'In Review',
-          value: metrics.inReview ?? 0,
+          value: summaryError ? '–' : (metrics.inReview ?? 0),
           icon: AlertTriangle,
-          subtext: 'pending review',
+          subtext: 'awaiting approval',
           statusType: 'orange' as const,
           previewItems: [],
           onClick: () => router.push('/tickets?status=REVIEW'),
         },
         {
           label: 'Done This Week',
-          value: metrics.doneThisWeek ?? 0,
+          value: summaryError ? '–' : (metrics.doneThisWeek ?? 0),
           icon: CheckCircle,
           subtext: 'completed',
           statusType: 'green' as const,
@@ -131,39 +199,39 @@ export default function HomePage() {
       return [
         {
           label: 'Team Tickets',
-          value: metrics.total ?? 0,
+          value: summaryError ? '–' : (metrics.total ?? 0),
           icon: Ticket,
-          subtext: 'total active',
+          subtext: 'total in team',
           statusType: 'blue' as const,
           previewItems: [],
           onClick: () => router.push('/tickets'),
         },
         {
           label: 'Overdue',
-          value: metrics.overdue ?? 0,
+          value: summaryError ? '–' : (metrics.overdue ?? 0),
           icon: AlertTriangle,
           subtext: 'need attention',
-          statusType: 'red' as const,
+          statusType: (metrics.overdue ?? 0) > 0 ? 'red' as const : 'green' as const,
           previewItems: [],
           onClick: () => router.push('/tickets?overdue=true'),
         },
         {
           label: 'Pending Reviews',
-          value: metrics.inReview ?? 0,
+          value: summaryError ? '–' : (metrics.inReview ?? 0),
           icon: Clock,
           subtext: 'awaiting review',
-          statusType: 'orange' as const,
+          statusType: (metrics.inReview ?? 0) > 0 ? 'orange' as const : 'green' as const,
           previewItems: [],
           onClick: () => router.push('/tickets?status=REVIEW'),
         },
         {
           label: 'Team Online',
-          value: metrics.teamOnline ?? 0,
+          value: summaryError ? '–' : (metrics.teamOnline ?? 0),
           icon: TrendingUp,
           subtext: 'currently active',
           statusType: 'green' as const,
           previewItems: [],
-          onClick: () => router.push('/team'),
+          onClick: () => router.push('/team?tab=live-status'),
         },
       ];
     }
@@ -171,7 +239,7 @@ export default function HomePage() {
       return [
         {
           label: 'Dept Tickets',
-          value: metrics.total ?? 0,
+          value: summaryError ? '–' : (metrics.total ?? 0),
           icon: Ticket,
           subtext: 'department total',
           statusType: 'blue' as const,
@@ -180,30 +248,30 @@ export default function HomePage() {
         },
         {
           label: 'Overdue',
-          value: metrics.overdue ?? 0,
+          value: summaryError ? '–' : (metrics.overdue ?? 0),
           icon: AlertTriangle,
           subtext: 'SLA breaches',
-          statusType: 'red' as const,
+          statusType: (metrics.overdue ?? 0) > 0 ? 'red' as const : 'green' as const,
           previewItems: [],
           onClick: () => router.push('/tickets?overdue=true'),
         },
         {
           label: 'Pending Leave',
-          value: metrics.pendingLeave ?? 0,
+          value: summaryError ? '–' : (metrics.pendingLeave ?? 0),
           icon: CalendarDays,
           subtext: 'awaiting approval',
-          statusType: 'orange' as const,
+          statusType: (metrics.pendingLeave ?? 0) > 0 ? 'orange' as const : 'green' as const,
           previewItems: [],
-          onClick: () => router.push('/leave'),
+          onClick: () => router.push('/leave?tab=needs-action'),
         },
         {
           label: 'Team Size',
-          value: metrics.teamCount ?? 0,
+          value: summaryError ? '–' : (metrics.teamCount ?? 0),
           icon: Users,
           subtext: 'total members',
           statusType: 'green' as const,
           previewItems: [],
-          onClick: () => router.push('/team'),
+          onClick: () => router.push('/team?tab=live-status'),
         },
       ];
     }
@@ -211,39 +279,39 @@ export default function HomePage() {
     return [
       {
         label: 'Active Today',
-        value: metrics.activeToday ?? 0,
+        value: summaryError ? '–' : (metrics.activeToday ?? 0),
         icon: TrendingUp,
-        subtext: 'staff online',
+        subtext: 'staff online now',
         statusType: 'green' as const,
         previewItems: [],
-        onClick: () => router.push('/team'),
+        onClick: () => router.push('/team?tab=live-status'),
       },
       {
         label: 'Open Tickets',
-        value: metrics.openTickets ?? metrics.open ?? 0,
+        value: summaryError ? '–' : (metrics.openTickets ?? metrics.open ?? 0),
         icon: Ticket,
-        subtext: 'needs attention',
+        subtext: 'company-wide',
         statusType: 'blue' as const,
         previewItems: [],
         onClick: () => router.push('/tickets'),
       },
       {
         label: 'Overdue',
-        value: metrics.overdue ?? 0,
+        value: summaryError ? '–' : (metrics.overdue ?? 0),
         icon: AlertTriangle,
         subtext: 'SLA exceeded',
-        statusType: 'red' as const,
+        statusType: (metrics.overdue ?? 0) > 0 ? 'red' as const : 'green' as const,
         previewItems: [],
         onClick: () => router.push('/tickets?overdue=true'),
       },
       {
         label: 'Pending Leave',
-        value: metrics.pendingLeave ?? 0,
+        value: summaryError ? '–' : (metrics.pendingLeave ?? 0),
         icon: CalendarDays,
         subtext: 'awaiting approval',
-        statusType: 'orange' as const,
+        statusType: (metrics.pendingLeave ?? 0) > 0 ? 'orange' as const : 'green' as const,
         previewItems: [],
-        onClick: () => router.push('/leave'),
+        onClick: () => router.push('/leave?tab=needs-action'),
       },
     ];
   })();
@@ -251,10 +319,10 @@ export default function HomePage() {
   // ── Announcement broadcast data ───────────────────────────────────────────
   const criticalAlerts: any[] = summary?.criticalAlerts ?? [];
   // Backend uses severity: 'red' | 'purple' | 'amber' — 'red' is the urgent/critical level
-  const firstUrgentAlert = criticalAlerts.find((a: any) => a.severity === 'red' || a.severity === 'urgent' || a.type === 'urgent');
+  const firstUrgentAlert = criticalAlerts.find((a: any) => a.severity === 'red' || a.severity === 'urgent' || a.type === 'urgent') ?? criticalAlerts[0];
   const broadcastTitle = firstUrgentAlert
-    ? (firstUrgentAlert.title ?? firstUrgentAlert.message ?? 'Urgent alert requires your attention')
-    : 'No active broadcasts today';
+    ? (firstUrgentAlert.title ?? firstUrgentAlert.message ?? 'Operational alert requires your attention')
+    : 'No active operational alerts';
 
   return (
     <div className="apex-fade-in" style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: 48 }}>
@@ -318,6 +386,17 @@ export default function HomePage() {
         <WorkdayBar />
       </motion.section>
 
+      {/* ── ERROR BANNER (shown when dashboard data fails to load) ── */}
+      {summaryError && (
+        <div className="mb-4 px-4 py-3 rounded-xl text-sm flex items-center gap-3"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--color-warning) 25%, transparent)' }}
+        >
+          <AlertTriangle size={15} style={{ color: 'var(--color-warning)', flexShrink: 0 }} />
+          <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>Dashboard data could not be loaded.</span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Metrics show — until data is available. Refresh to retry.</span>
+        </div>
+      )}
+
       {/* ── ANNOUNCEMENT BROADCAST ── */}
       <motion.div
         initial={{ opacity: 0, scale: 0.99 }}
@@ -326,6 +405,7 @@ export default function HomePage() {
       >
         <AnnouncementBroadcast
           eventTitle={broadcastTitle}
+          alertCount={criticalAlerts.length}
           onAddCalendar={() => {}}
           onOpenAnnouncement={() => setAlertsModalOpen(true)}
         />
@@ -408,8 +488,19 @@ export default function HomePage() {
         <CommandCard
           id="high-priority"
           title="Overdue Tickets"
-          count={metrics.overdue ?? 0}
-          summary={(metrics.overdue ?? 0) > 0 ? `${metrics.overdue} overdue ticket${metrics.overdue > 1 ? 's' : ''} need${metrics.overdue > 1 ? '' : 's'} attention` : 'No overdue tickets in your scope'}
+          count={summaryError ? '–' : (metrics.overdue ?? 0)}
+          summary={
+            summaryError ? 'Dashboard data unavailable — refresh to retry' :
+            (metrics.overdue ?? 0) > 0
+              ? `${metrics.overdue} overdue ticket${metrics.overdue > 1 ? 's' : ''} past SLA — action needed now`
+              : role === 'EMPLOYEE' || role === 'INTERN'
+                ? 'No overdue tickets — you\'re on track!'
+                : role === 'TEAM_LEAD'
+                ? 'No overdue tickets in your team'
+                : role === 'MANAGER'
+                ? 'No overdue tickets in your department'
+                : 'No overdue tickets across your scope'
+          }
           icon={ShieldAlert}
           severity={(metrics.overdue ?? 0) > 0 ? 'urgent' : 'success'}
           previewItems={summary?.previews?.overdueTickets ?? []}
@@ -419,10 +510,15 @@ export default function HomePage() {
         <CommandCard
           id="active-projects"
           title="Active Projects"
-          count={metrics.activeProjects ?? 0}
-          summary={(metrics.activeProjects ?? 0) > 0 ? `${metrics.activeProjects} active project${metrics.activeProjects > 1 ? 's' : ''} in progress` : 'No active projects'}
+          count={summaryError ? '–' : (metrics.activeProjects ?? 0)}
+          summary={
+            summaryError ? 'Dashboard data unavailable — refresh to retry' :
+            (metrics.activeProjects ?? 0) > 0
+              ? `${metrics.activeProjects} active project${metrics.activeProjects > 1 ? 's' : ''} currently in progress`
+              : 'No active projects in your scope'
+          }
           icon={FolderKanban}
-          severity="blue"
+          severity={(metrics.activeProjects ?? 0) > 0 ? 'blue' : 'success'}
           previewItems={summary?.previews?.activeProjects ?? []}
           onClick={() => router.push('/projects?status=ACTIVE')}
         />
@@ -431,8 +527,13 @@ export default function HomePage() {
           <CommandCard
             id="pending-leave"
             title="Leave Requests"
-            count={metrics.pendingLeave ?? 0}
-            summary={(metrics.pendingLeave ?? 0) > 0 ? `${metrics.pendingLeave} leave request${metrics.pendingLeave > 1 ? 's' : ''} pending approval` : 'No pending leave requests'}
+            count={summaryError ? '–' : (metrics.pendingLeave ?? 0)}
+            summary={
+              summaryError ? 'Dashboard data unavailable — refresh to retry' :
+              (metrics.pendingLeave ?? 0) > 0
+                ? `${metrics.pendingLeave} leave request${metrics.pendingLeave > 1 ? 's' : ''} awaiting your approval`
+                : 'No pending leave requests — all resolved'
+            }
             icon={CalendarDays}
             severity={(metrics.pendingLeave ?? 0) > 0 ? 'warning' : 'success'}
             previewItems={summary?.previews?.pendingLeave ?? []}
@@ -444,8 +545,13 @@ export default function HomePage() {
           <CommandCard
             id="in-review"
             title="In Review"
-            count={metrics.inReview ?? 0}
-            summary={(metrics.inReview ?? 0) > 0 ? `${metrics.inReview} ticket${metrics.inReview > 1 ? 's' : ''} awaiting review` : 'No tickets awaiting review'}
+            count={summaryError ? '–' : (metrics.inReview ?? 0)}
+            summary={
+              summaryError ? 'Dashboard data unavailable — refresh to retry' :
+              (metrics.inReview ?? 0) > 0
+                ? `${metrics.inReview} ticket${metrics.inReview > 1 ? 's' : ''} submitted and waiting for review`
+                : 'No tickets in review — submit completed work to move forward'
+            }
             icon={AlertTriangle}
             severity={(metrics.inReview ?? 0) > 0 ? 'warning' : 'success'}
             previewItems={summary?.previews?.inReviewTickets ?? []}
@@ -603,6 +709,7 @@ export default function HomePage() {
       <QuickActionPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
+        actions={dashboardPaletteActions}
         onSelectAction={(actionId) => {
           // Actions already navigate via href in the palette
           console.log('Action selected:', actionId);

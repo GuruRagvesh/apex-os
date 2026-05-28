@@ -35,10 +35,12 @@ export function RecentActivityFeed() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
 
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
+  // EventsController scopes: ADMIN/SUPER_ADMIN see all org events;
+  // everyone else (including MANAGER/TEAM_LEAD) sees only their own events.
   const scopeLabel =
-    roleName === 'SUPER_ADMIN' || roleName === 'ADMIN' ? 'Company Scope (All Activity)' :
-    roleName === 'MANAGER' || roleName === 'TEAM_LEAD' ? 'Department Scope (Managed Members)' :
-    'Personal Scope (Own Activity)';
+    roleName === 'SUPER_ADMIN' || roleName === 'ADMIN'
+      ? 'Company-wide Activity'
+      : 'Your Personal Activity';
 
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['recent-activity'],
@@ -71,9 +73,9 @@ export function RecentActivityFeed() {
   if (!events.length) {
     return (
       <div className="apex-card" style={{ padding: 24, textAlign: 'center' }}>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>No recent activity</p>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>No activity yet today</p>
         <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, marginBottom: 0 }}>
-          No events were found within your <strong>{scopeLabel}</strong>.
+          Activity appears here as you create tickets, start work, and take action.
         </p>
       </div>
     );
