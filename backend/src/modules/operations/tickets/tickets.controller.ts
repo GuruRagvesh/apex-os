@@ -1,6 +1,6 @@
-﻿import {
+import {
   Controller, Get, Post, Put, Patch, Delete, Body, Param, Query,
-  UseGuards, UseInterceptors, UploadedFile, Res, ParseUUIDPipe,
+  UseGuards, UseInterceptors, UploadedFile, Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -53,11 +53,31 @@ export class TicketsController {
     return csv;
   }
 
+  @Get(':id/attachments/:attachmentId/download')
+  async downloadAttachment(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+    @Query('mode') mode: string,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    const attachment = await this.ticketsService.getAttachmentForDownload(id, attachmentId, user);
+    const file = await this.uploadsService.readAttachment(attachment);
+    const filename = String(attachment.filename || 'attachment').replace(/[\r\n"]/g, '_');
+    const disposition = mode === 'download' ? 'attachment' : 'inline';
+
+    res.setHeader('Content-Type', file.contentType || attachment.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Length', file.buffer.length);
+    res.setHeader('Content-Disposition', `${disposition}; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(file.buffer);
+  }
+
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) { return this.ticketsService.findOne(id, user); }
+  findOne(@Param('id') id: string, @CurrentUser() user: any) { return this.ticketsService.findOne(id, user); }
 
   @Get(':id/history')
-  getHistory(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) { return this.ticketsService.getHistory(id, user); }
+  getHistory(@Param('id') id: string, @CurrentUser() user: any) { return this.ticketsService.getHistory(id, user); }
 
   @Post()
   create(@Body() body: any, @CurrentUser() user: any) {
@@ -87,7 +107,7 @@ export class TicketsController {
     },
   }))
   async uploadAttachment(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body() body: any,
     @CurrentUser() user: any,
@@ -103,41 +123,37 @@ export class TicketsController {
       action: OperationalAction.ATTACHMENT_UPLOADED,
       metadata: { ticketId: ticket.ticketId, filename: file.originalname, mimeType: file.mimetype, size: file.size },
     }).catch(() => {});
-    return attachment;
+    return this.ticketsService.sanitizeAttachmentForResponse(ticket.id, attachment);
   }
 
   @Put(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() body: any, @CurrentUser() user: any) {
+  update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
     return this.ticketsService.update(id, body, user.id, user);
   }
 
   @Patch(':id')
-  patch(@Param('id', ParseUUIDPipe) id: string, @Body() body: any, @CurrentUser() user: any) {
+  patch(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
     return this.ticketsService.update(id, body, user.id, user);
   }
 
   @Patch(':id/status')
-  updateStatus(@Param('id', ParseUUIDPipe) id: string, @Body() body: { status: any }, @CurrentUser() user: any) {
+  updateStatus(@Param('id') id: string, @Body() body: { status: any }, @CurrentUser() user: any) {
     return this.ticketsService.updateStatus(id, body.status, user.id, user);
   }
 
   @Patch(':id/assign')
-  assign(@Param('id', ParseUUIDPipe) id: string, @Body() body: { assignedToId: string }, @CurrentUser() user: any) {
+  assign(@Param('id') id: string, @Body() body: { assignedToId: string }, @CurrentUser() user: any) {
     return this.ticketsService.assign(id, body.assignedToId, user.id, user);
   }
 
-  @UseGuards(RolesGuard)
-  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   @Patch(':id/approve')
-  approve(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ticketsService.approve(id, user.id, user);
   }
 
-  @UseGuards(RolesGuard)
-  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   @Patch(':id/reject')
   reject(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body() body: { comment: string },
     @CurrentUser() user: any,
   ) {
@@ -145,7 +161,7 @@ export class TicketsController {
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ticketsService.remove(id, user?.id, user);
   }
 }

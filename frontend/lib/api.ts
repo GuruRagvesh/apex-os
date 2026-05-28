@@ -158,6 +158,20 @@ export const ticketsApi = {
     if (isPoc) form.append('isPoc', 'true');
     return r(api.post(`/tickets/${id}/attachments`, form, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
+  fetchAttachmentBlob: async (ticketId: string, attachmentId: string, mode: 'inline' | 'download' = 'inline') => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
+    const res = await fetch(
+      `${API_URL}/tickets/${ticketId}/attachments/${attachmentId}/download?mode=${mode}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!res.ok) {
+      const message = res.status === 403
+        ? 'You do not have permission to view this attachment.'
+        : 'Attachment could not be loaded.';
+      throw new Error(message);
+    }
+    return res.blob();
+  },
   exportCsv: async (params?: any) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -241,6 +255,7 @@ export const settingsApi = {
   updateSla:           (data: any) => r(api.patch('/settings/sla', data)),
   getSmtp:             ()         => r(api.get('/settings/smtp')),
   updateSmtp:          (data: any) => r(api.patch('/settings/smtp', data)),
+  testEmail:           (to?: string) => r(api.post('/settings/email/test', { to })),
 };
 
 // Task Types

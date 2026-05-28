@@ -1,12 +1,14 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
+import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 
 @Injectable()
 export class WorkdayService {
   constructor(
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
+    private eventLogger: EventLoggerService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -53,6 +55,13 @@ export class WorkdayService {
       data: { currentStatus: 'WORKING', lastActiveAt: now },
     });
 
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'WorkdaySession',
+      entityId: session.id,
+      action: OperationalAction.WORKDAY_STARTED,
+    }).catch(() => {});
+
     return { session, message: 'Workday started' };
   }
 
@@ -90,6 +99,13 @@ export class WorkdayService {
       where: { id: userId },
       data: { currentStatus: 'LOGGED_OUT' },
     });
+
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'WorkdaySession',
+      entityId: session.id,
+      action: OperationalAction.WORKDAY_ENDED,
+    }).catch(() => {});
 
     return {
       session: updated,
@@ -135,6 +151,14 @@ export class WorkdayService {
       data: { currentStatus: 'ON_BREAK' },
     });
 
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'WorkdaySession',
+      entityId: session.id,
+      action: OperationalAction.BREAK_STARTED,
+      metadata: { breakType: dto.breakType, estimatedMinutes: dto.estimatedMinutes },
+    }).catch(() => {});
+
     return { breakLog };
   }
 
@@ -178,6 +202,14 @@ export class WorkdayService {
       where: { id: userId },
       data: { currentStatus: 'WORKING', lastActiveAt: now },
     });
+
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'WorkdaySession',
+      entityId: session.id,
+      action: OperationalAction.BREAK_ENDED,
+      metadata: { durationMinutes },
+    }).catch(() => {});
 
     return { breakLog: updated, durationMinutes };
   }
@@ -306,12 +338,26 @@ export class WorkdayService {
       orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
     });
 
+    const now = new Date();
     return members.map((m) => {
       const session = m.workSessions[0] ?? null;
       const leave = m.leaveRequests[0] ?? null;
+      
       const breakMins = session?.breakLogs
         .filter((b) => b.durationMinutes)
         .reduce((s, b) => s + (b.durationMinutes ?? 0), 0) ?? 0;
+
+      let liveBreakMins = breakMins;
+      const openBreak = session?.breakLogs.find((b) => !b.endAt);
+      if (openBreak) {
+        liveBreakMins += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
+      }
+
+      let workMinutesToday = session?.totalWorkMinutes ?? 0;
+      if (session && session.startWorkAt && !session.logoutAt) {
+        const elapsed = Math.floor((now.getTime() - session.startWorkAt.getTime()) / 60000);
+        workMinutesToday = Math.max(0, elapsed - liveBreakMins);
+      }
 
       return {
         id: m.id,
@@ -324,8 +370,8 @@ export class WorkdayService {
         todaySession: session,
         onLeaveToday: !!leave,
         leaveType: leave?.type ?? null,
-        workMinutesToday: session?.totalWorkMinutes ?? 0,
-        breakMinutesToday: breakMins,
+        workMinutesToday,
+        breakMinutesToday: liveBreakMins,
         breakCount: session?.breakLogs.length ?? 0,
         lastActiveAt: m.lastActiveAt,
       };

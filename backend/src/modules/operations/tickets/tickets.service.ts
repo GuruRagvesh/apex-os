@@ -49,6 +49,11 @@ export class TicketsService {
     assignees: { include: { user: { select: { id: true, name: true, avatar: true } } } },
     taskType: true,
     taskSubtype: true,
+    comments: {
+      take: 1,
+      orderBy: { createdAt: 'desc' } as any,
+      select: { content: true, createdAt: true, author: { select: { id: true, name: true } } }
+    },
     _count: { select: { comments: true } },
   };
 
@@ -83,11 +88,32 @@ export class TicketsService {
   }
 
   private async addSla(ticket: any) {
-    return this.ticketTiming.decorateTicket(ticket);
+    return this.ticketTiming.decorateTicket(this.sanitizeTicketForResponse(ticket));
   }
 
   private async addSlaMany(tickets: any[]) {
-    return this.ticketTiming.decorateTickets(tickets);
+    return this.ticketTiming.decorateTickets(tickets.map((ticket) => this.sanitizeTicketForResponse(ticket)));
+  }
+
+  sanitizeAttachmentForResponse(ticketId: string, attachment: any) {
+    if (!attachment) return attachment;
+    const safe = { ...attachment };
+    delete safe.url;
+    return {
+      ...safe,
+      previewUrl: `/api/tickets/${ticketId}/attachments/${attachment.id}/download?mode=inline`,
+      downloadUrl: `/api/tickets/${ticketId}/attachments/${attachment.id}/download?mode=download`,
+    };
+  }
+
+  private sanitizeTicketForResponse(ticket: any) {
+    if (!ticket?.attachments) return ticket;
+    return {
+      ...ticket,
+      attachments: ticket.attachments.map((attachment: any) =>
+        this.sanitizeAttachmentForResponse(ticket.id, attachment),
+      ),
+    };
   }
 
   // Resolve a department filter that may be passed as either an ID or a name
@@ -110,6 +136,9 @@ export class TicketsService {
     projectId?: string;
     assignedToId?: string;
     createdById?: string;
+    overdue?: string | boolean;
+    risk?: string;
+    filter?: string;
     page?: number;
     limit?: number;
   }, user?: any) {
@@ -117,6 +146,24 @@ export class TicketsService {
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
     const where = await this.ticketAccess.buildTicketWhereForUser(query, user);
+    const needsTimingFilter = query.overdue === true || query.overdue === 'true' || query.risk === 'overdue' || query.filter === 'overdue';
+
+    if (needsTimingFilter) {
+      const candidates = await this.prisma.ticket.findMany({
+        where: this.andWhere(where, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
+        include: this.includeOptions,
+        orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+      });
+      const withSla = await this.addSlaMany(candidates);
+      const overdueTickets = withSla.filter((ticket: any) => ticket.timing?.isOverdue ?? ticket.isOverdue);
+      return {
+        tickets: overdueTickets.slice(skip, skip + limit),
+        total: overdueTickets.length,
+        page,
+        limit,
+        totalPages: Math.ceil(overdueTickets.length / limit),
+      };
+    }
 
     const [tickets, total] = await Promise.all([
       this.prisma.ticket.findMany({
@@ -156,6 +203,22 @@ export class TicketsService {
 
   async assertCanUploadAttachment(user: any, ticket: any) {
     return this.ticketAccess.assertCanUploadAttachment(user, ticket);
+  }
+
+  async getAttachmentForDownload(ticketId: string, attachmentId: string, user: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(ticketId, user, { attachments: true })
+      : await this.prisma.ticket.findFirst({
+        where: { OR: [{ id: ticketId }, { ticketId }] },
+        include: { attachments: true },
+      });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+
+    const attachment = await this.prisma.attachment.findFirst({
+      where: { id: attachmentId, ticketId: ticket.id },
+    });
+    if (!attachment) throw new NotFoundException('Attachment not found');
+    return attachment;
   }
 
   async create(data: any, userId: string, user?: any) {
@@ -529,6 +592,13 @@ export class TicketsService {
         assigneeId: data.assignedToId,
         assignedBy: userId,
       });
+      this.eventLogger.log({
+        actorId: userId,
+        entityType: 'Ticket',
+        entityId: ticket.id,
+        action: OperationalAction.TICKET_ASSIGNED,
+        metadata: { ticketId: ticket.ticketId, assigneeId: data.assignedToId, assigneeName: ticket.assignedTo.name },
+      }).catch(() => {});
       const updater = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
       try {
         await this.notificationEventService.sendNotification(

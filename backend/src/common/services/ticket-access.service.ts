@@ -112,19 +112,23 @@ export class TicketAccessService {
       throw new ForbiddenException(`Illegal ticket transition from ${fromStatus} to ${toStatus}`);
     }
 
+    const isSelfAssignedCreator = ticket.createdById === user.id && ticket.assignedToId === user.id;
+
     if (roleName === ROLES.INTERN && toStatus !== TicketStatus.IN_PROGRESS) {
-      throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS');
+      if (!(isSelfAssignedCreator && (toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED))) {
+        throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS');
+      }
     }
 
     if (toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED) {
-      if (!isScopedReviewer) {
+      if (!isScopedReviewer && !isSelfAssignedCreator) {
         throw new ForbiddenException('Only scoped reviewers, managers, or admins can complete or close tickets');
       }
       return;
     }
 
     if (fromStatus === TicketStatus.REVIEW && toStatus === TicketStatus.IN_PROGRESS) {
-      if (!isScopedReviewer) {
+      if (!isScopedReviewer && !isSelfAssignedCreator) {
         throw new ForbiddenException('Only scoped reviewers, managers, or admins can send tickets back for rework');
       }
       return;
@@ -132,7 +136,7 @@ export class TicketAccessService {
 
     const workerStatuses: TicketStatus[] = [TicketStatus.IN_PROGRESS, TicketStatus.REVIEW];
     if (workerStatuses.includes(toStatus)) {
-      if (isParticipant || isScopedReviewer) return;
+      if (isParticipant || isScopedReviewer || isSelfAssignedCreator) return;
     }
 
     throw new ForbiddenException('You do not have permission to change this ticket status');
@@ -217,7 +221,14 @@ export class TicketAccessService {
         { createdById: user.id },
         { assignees: { some: { userId: user.id } } },
       ];
-      if (deptIds.length > 0) scopedOr.unshift({ departmentId: { in: deptIds } });
+      if (deptIds.length > 0) {
+        scopedOr.push(
+          { departmentId: { in: deptIds } },
+          { assignedTo: { departmentId: { in: deptIds } } },
+          { createdBy: { departmentId: { in: deptIds } } },
+          { assignees: { some: { user: { departmentId: { in: deptIds } } } } },
+        );
+      }
       return { OR: scopedOr };
     }
 

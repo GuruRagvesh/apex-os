@@ -5,8 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import { cn, PROJECT_STATUS_COLORS, PRIORITY_COLORS, PROJECT_STATUS_LABELS, PRIORITY_LABELS, formatDate, getInitials } from '@/lib/utils';
-import { ArrowLeft, Ticket, Users, Edit3, Trash2 } from 'lucide-react';
+import { cn, PROJECT_STATUS_COLORS, PRIORITY_COLORS, PROJECT_STATUS_LABELS, PRIORITY_LABELS, formatDate, getInitials, formatRelativeTime } from '@/lib/utils';
+import { ArrowLeft, Ticket, Users, Edit3, Trash2, Activity } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { TicketRow } from '@/components/tickets/ticket-row';
@@ -27,6 +27,20 @@ export default function ProjectDetailPage() {
     queryKey: ['project', id],
     queryFn: () => projectsApi.getOne(id) as Promise<any>,
     refetchOnWindowFocus: true,
+  });
+
+  const { data: allEvents = [] } = useQuery({
+    queryKey: ['project-activity', id],
+    queryFn: async () => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/events?limit=250`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 30000,
   });
 
   const updateMutation = useMutation({
@@ -86,6 +100,41 @@ export default function ProjectDetailPage() {
                 project.tickets.length) * 100,
             )
           : 0));
+
+  const tickets = project.tickets || [];
+  const totalTickets = tickets.length;
+  const doneTickets = tickets.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length;
+  const activeCount = tickets.filter((t: any) => t.status === 'OPEN' || t.status === 'IN_PROGRESS').length;
+  const reviewCount = tickets.filter((t: any) => t.status === 'REVIEW').length;
+  const overdueCount = tickets.filter((t: any) => {
+    if (t.status === 'DONE' || t.status === 'CLOSED') return false;
+    const deadline = t.executionDueAt || t.dueDate;
+    return deadline && new Date(deadline) < new Date();
+  }).length;
+
+  let healthLabel = "Healthy";
+  let healthColor = "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-800";
+  if (overdueCount > 0) {
+    healthLabel = "At Risk";
+    healthColor = "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-800";
+  } else if (reviewCount > 0) {
+    healthLabel = "Needs Review";
+    healthColor = "bg-yellow-50 text-yellow-700 border-yellow-250 dark:bg-yellow-950/20 dark:text-yellow-400 dark:border-yellow-800";
+  } else if (totalTickets === 0) {
+    healthLabel = "No Work";
+    healthColor = "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800";
+  } else if (progress === 100) {
+    healthLabel = "Completed";
+    healthColor = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-800";
+  }
+
+  // Filter events for this project
+  const ticketIds = project.tickets?.map((t: any) => t.id) || [];
+  const projectEvents = allEvents.filter((ev: any) => {
+    if (ev.entityType === 'Project' && ev.entityId === project.id) return true;
+    if (ev.entityType === 'Ticket' && ticketIds.includes(ev.entityId)) return true;
+    return false;
+  });
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
@@ -181,16 +230,41 @@ export default function ProjectDetailPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-4">
-          {/* Progress */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-slate-700 text-sm">Progress</h3>
-              <span className="text-sm font-bold text-slate-800">{progress}%</span>
+          {/* Health & Progress Overview */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-slate-705 text-sm">Project Health</h3>
+                <span className={cn('text-xs px-2 py-0.5 rounded-full font-semibold border', healthColor)}>{healthLabel}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                <div className="bg-slate-50 dark:bg-slate-800/40 rounded-lg p-2">
+                  <div className="text-[10px] text-slate-400 font-medium">Active</div>
+                  <div className="text-sm font-bold text-slate-800 dark:text-gray-250">{activeCount}</div>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-800/40 rounded-lg p-2">
+                  <div className="text-[10px] text-slate-400 font-medium">In Review</div>
+                  <div className="text-sm font-bold text-purple-650 dark:text-purple-400">{reviewCount}</div>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-800/40 rounded-lg p-2">
+                  <div className="text-[10px] text-slate-400 font-medium">Overdue</div>
+                  <div className={cn('text-sm font-bold', overdueCount > 0 ? 'text-red-650' : 'text-slate-800 dark:text-gray-250')}>{overdueCount}</div>
+                </div>
+              </div>
             </div>
-            <div className="w-full bg-slate-100 rounded-full h-2.5">
-              <div className="bg-blue-600 h-2.5 rounded-full transition-all" style={{ width: `${progress}%` }} />
+            
+            <div className="flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-slate-700 text-sm">Completion Progress</h3>
+                  <span className="text-sm font-bold text-slate-800">{progress}%</span>
+                </div>
+                <div className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-blue-600 h-full rounded-full transition-all" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">{project.ticketStats?.done ?? project.tickets?.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length ?? 0} of {project.ticketStats?.total ?? project.tickets?.length ?? 0} tickets resolved</p>
             </div>
-            <p className="text-xs text-slate-400 mt-2">{project.ticketStats?.done ?? project.tickets?.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length ?? 0} of {project.ticketStats?.total ?? project.tickets?.length ?? 0} tickets resolved</p>
           </div>
 
           {/* Tickets */}
@@ -257,10 +331,42 @@ export default function ProjectDetailPage() {
             {project.endDate && (
               <div>
                 <p className="text-xs text-slate-400">End Date</p>
-                <p className={cn('text-sm font-medium mt-0.5', new Date(project.endDate) < new Date() ? 'text-red-600' : 'text-slate-700')}>
+                <p className={cn('text-sm font-medium mt-0.5', new Date(project.endDate) < new Date() ? 'text-red-650' : 'text-slate-700')}>
                   {formatDate(project.endDate)}
                 </p>
               </div>
+            )}
+          </div>
+
+          {/* Project Activity Feed */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="font-semibold text-slate-700 text-sm mb-3 flex items-center gap-2">
+              <Activity size={14} /> Project Activity
+            </h3>
+            {projectEvents.length > 0 ? (
+              <div className="space-y-3.5 max-h-[350px] overflow-y-auto pr-1">
+                {projectEvents.slice(0, 15).map((ev: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2.5 text-xs">
+                    <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: ev.actor?.avatar ?? 'var(--accent)', color: '#fff', fontSize: 10, fontWeight: 700 }}>
+                      {(ev.actor?.name ?? '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-slate-600 dark:text-gray-300 leading-relaxed">
+                        <strong className="text-slate-800 dark:text-gray-100 font-semibold">{ev.actor?.name ?? 'Someone'}</strong>{' '}
+                        {ev.description ?? ev.action.toLowerCase().replace(/_/g, ' ')}
+                        {ev.entityType === 'Ticket' && ev.metadata?.ticketId && (
+                          <Link href={`/tickets/${ev.entityId}`} className="ml-1 text-blue-600 dark:text-blue-400 hover:underline font-mono">
+                            [{ev.metadata.ticketId}]
+                          </Link>
+                        )}
+                      </p>
+                      <span className="text-[10px] text-slate-450 dark:text-gray-500">{formatRelativeTime(ev.timestamp)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 text-center py-4">No recent activity on this project</p>
             )}
           </div>
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, commentsApi, usersApi, aiApi } from '@/lib/api';
@@ -121,20 +121,56 @@ function humanValue(field: string, value: string | null) {
 }
 
 // ─── Attachment card ──────────────────────────────────────────────────────────
-function AttachmentCard({ att }: { att: any }) {
+function AttachmentCard({ att, ticketId }: { att: any; ticketId: string }) {
   const isImage = att.mimeType?.startsWith('image/');
   const isPdf = att.mimeType === 'application/pdf';
   const isDoc = att.mimeType?.includes('word') || att.filename?.endsWith('.doc') || att.filename?.endsWith('.docx');
-  const isRemote = att.url?.startsWith('http');
   const sizeKb = att.size ? Math.round(att.size / 1024) : null;
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
-  const handleView = () => window.open(att.url, '_blank');
-  const handleDownload = () => {
-    const a = document.createElement('a');
-    a.href = att.url;
-    a.download = att.filename;
-    a.click();
+  useEffect(() => {
+    if (!isImage) return;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    setLoadingPreview(true);
+    ticketsApi.fetchAttachmentBlob(ticketId, att.id, 'inline')
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewUrl(objectUrl);
+      })
+      .catch(() => setPreviewUrl(null))
+      .finally(() => {
+        if (!cancelled) setLoadingPreview(false);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [att.id, isImage, ticketId]);
+
+  const openBlob = async (mode: 'inline' | 'download') => {
+    try {
+      const blob = await ticketsApi.fetchAttachmentBlob(ticketId, att.id, mode);
+      const url = URL.createObjectURL(blob);
+      if (mode === 'download') {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = att.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Attachment could not be loaded');
+    }
   };
+
+  const handleView = () => openBlob('inline');
+  const handleDownload = () => openBlob('download');
 
   return (
     <div
@@ -148,8 +184,10 @@ function AttachmentCard({ att }: { att: any }) {
         className="w-10 h-10 rounded overflow-hidden flex-shrink-0 flex items-center justify-center"
         style={{ backgroundColor: 'var(--bg-tertiary)' }}
       >
-        {isImage && isRemote ? (
-          <img src={att.url} alt={att.filename} className="w-full h-full object-cover" />
+        {isImage && previewUrl ? (
+          <img src={previewUrl} alt={att.filename} className="w-full h-full object-cover" />
+        ) : isImage && loadingPreview ? (
+          <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
         ) : isPdf ? (
           <FileText size={18} className="text-red-400" />
         ) : isDoc ? (
@@ -469,6 +507,67 @@ export default function TicketDetailPage() {
     queryFn: () => ticketsApi.getHistory(id) as Promise<any[]>,
     enabled: activeTab === 'history',
   });
+
+  const resolveUserName = (userIdOrName: string | null) => {
+    if (!userIdOrName) return 'none';
+    const uList = Array.isArray(users) ? users : (users as any)?.users ?? [];
+    const found = uList.find((u: any) => u.id === userIdOrName);
+    return found ? found.name : userIdOrName;
+  };
+
+  const formatHistoryItem = (h: any) => {
+    const actor = h.changedBy?.name || 'Someone';
+    const field = h.field;
+    const oldVal = h.oldValue;
+    const newVal = h.newValue;
+
+    if (field === 'status') {
+      return (
+        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <span className="font-semibold text-slate-800 dark:text-gray-200">{actor}</span>
+          {' moved ticket to '}
+          <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{STATUS_DISPLAY[newVal] || newVal}</span>
+        </span>
+      );
+    }
+    if (field === 'assignedToId') {
+      const oldName = resolveUserName(oldVal);
+      const newName = resolveUserName(newVal);
+      return (
+        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <span className="font-semibold text-slate-800 dark:text-gray-200">{actor}</span>
+          {newVal ? (
+            <>
+              {' reassigned the ticket to '}
+              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{newName}</span>
+            </>
+          ) : (
+            ' unassigned the ticket'
+          )}
+        </span>
+      );
+    }
+    if (field === 'priority') {
+      return (
+        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <span className="font-semibold text-slate-800 dark:text-gray-200">{actor}</span>
+          {' changed priority to '}
+          <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{newVal}</span>
+        </span>
+      );
+    }
+    return (
+      <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        <span className="font-semibold text-slate-800 dark:text-gray-200">{actor}</span>
+        {' updated '}
+        <span className="font-medium">{FIELD_LABELS[field] || field}</span>
+        {' from '}
+        <span className="line-through" style={{ color: 'var(--text-tertiary)' }}>{humanValue(field, oldVal)}</span>
+        {' → '}
+        <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{humanValue(field, newVal)}</span>
+      </span>
+    );
+  };
 
   useSocket({
     onTicketStatusChanged: ({ ticketId: changedId, newStatus }) => {
@@ -1015,15 +1114,7 @@ export default function TicketDetailPage() {
                       <span className="text-[10px] font-bold" style={{ color: 'var(--text-secondary)' }}>{getInitials(h.changedBy?.name)}</span>
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                        <span className="font-medium">{h.changedBy?.name}</span>
-                        {' changed '}
-                        <span className="font-medium">{FIELD_LABELS[h.field] ?? h.field}</span>
-                        {' from '}
-                        <span className="line-through" style={{ color: 'var(--text-tertiary)' }}>{humanValue(h.field, h.oldValue)}</span>
-                        {' → '}
-                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{humanValue(h.field, h.newValue)}</span>
-                      </p>
+                      {formatHistoryItem(h)}
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{formatRelativeTime(h.changedAt)}</p>
                     </div>
                   </div>
@@ -1060,7 +1151,7 @@ export default function TicketDetailPage() {
                 {ticket.attachments?.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {ticket.attachments.map((att: any) => (
-                      <AttachmentCard key={att.id} att={att} />
+                      <AttachmentCard key={att.id} att={att} ticketId={ticket.id} />
                     ))}
                   </div>
                 ) : (
@@ -1357,6 +1448,30 @@ export default function TicketDetailPage() {
                       {vsEstimate && (
                         <span className={`ml-1.5 text-[10px] font-medium ${vsEstimate.color}`}>
                           ({vsEstimate.label} estimate)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              {ticket?.actualStartAt && !ticket?.actualCompletedAt && (() => {
+                const diffMs = Date.now() - new Date(ticket.actualStartAt).getTime();
+                if (diffMs <= 0) return null;
+                const totalMins = Math.floor(diffMs / 60000);
+                const hours = Math.floor(totalMins / 60);
+                const mins = totalMins % 60;
+                const display = hours > 0
+                  ? mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
+                  : `${mins}m`;
+                const isOverEst = ticket.estimatedMinutes && totalMins > ticket.estimatedMinutes;
+                return (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 rounded-lg">
+                    <Clock size={12} className="text-blue-500 flex-shrink-0" />
+                    <div>
+                      <span className="text-xs font-semibold text-blue-700">Spent so far: {display}</span>
+                      {ticket.estimatedMinutes && (
+                        <span className={`ml-1.5 text-[10px] font-medium ${isOverEst ? 'text-orange-500' : 'text-slate-500'}`}>
+                          (Est: {ticket.estimatedMinutes}m)
                         </span>
                       )}
                     </div>

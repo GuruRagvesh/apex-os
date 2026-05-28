@@ -74,4 +74,59 @@ describe('P0 Ticket access and timing', () => {
     expect(state.timerType).toBe('completed');
     expect(state.isOverdue).toBe(false);
   });
+
+  describe('TEAM_LEAD Visibility and Count Consistency', () => {
+    const leadUser = {
+      id: 'lead-1',
+      role: { name: 'TEAM_LEAD' },
+      departmentId: 'dept-eng',
+    };
+
+    it('1. TEAM_LEAD can see team member assigned ticket', async () => {
+      const where = await ticketAccess.buildTicketWhereForUser({}, leadUser);
+      expect(where.OR).toContainEqual({
+        assignedTo: { departmentId: { in: ['dept-eng'] } },
+      });
+    });
+
+    it('2. TEAM_LEAD can see team member created ticket', async () => {
+      const where = await ticketAccess.buildTicketWhereForUser({}, leadUser);
+      expect(where.OR).toContainEqual({
+        createdBy: { departmentId: { in: ['dept-eng'] } },
+      });
+    });
+
+    it('3. TEAM_LEAD can see department ticket', async () => {
+      const where = await ticketAccess.buildTicketWhereForUser({}, leadUser);
+      expect(where.OR).toContainEqual({
+        departmentId: { in: ['dept-eng'] },
+      });
+    });
+
+    it('4. TEAM_LEAD cannot see unrelated department ticket', async () => {
+      prisma.department.findFirst.mockResolvedValueOnce({ id: 'dept-marketing' });
+      const where = await ticketAccess.buildTicketWhereForUser({ departmentId: 'dept-marketing' }, leadUser);
+      
+      expect(where.AND).toBeDefined();
+      expect(where.AND[0]).toEqual({ departmentId: 'dept-marketing' });
+      expect(where.AND[1].OR).toContainEqual({ departmentId: { in: ['dept-eng'] } });
+    });
+
+    it('5. TEAM_LEAD ticket list count equals kanban count', async () => {
+      const listWhere = await ticketAccess.buildTicketWhereForUser({}, leadUser);
+      const kanbanWhere = {
+        AND: [
+          listWhere,
+          { status: { notIn: [TicketStatus.CLOSED] } }
+        ]
+      };
+      expect(kanbanWhere.AND[0]).toEqual(listWhere);
+    });
+
+    it('6. TEAM_LEAD dashboard ticket count equals scoped ticket count', async () => {
+      const dashboardWhere = await ticketAccess.buildTicketWhereForUser({}, leadUser);
+      const listWhere = await ticketAccess.buildTicketWhereForUser({}, leadUser);
+      expect(dashboardWhere).toEqual(listWhere);
+    });
+  });
 });

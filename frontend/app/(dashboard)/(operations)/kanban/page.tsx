@@ -32,35 +32,62 @@ const COLUMNS = [
 ];
 
 // ─── Static card UI (also used for DragOverlay) ───────────────────────────────
-function CardContent({ ticket, isPending }: { ticket: any; isPending?: boolean }) {
+function CardContent({ ticket, isPending, canMove = true }: { ticket: any; isPending?: boolean; canMove?: boolean }) {
   const deptColor = ticket.department?.color || DEPT_COLORS[ticket.department?.name] || '#e2e8f0';
   const vis = getTicketVisibility({
     status: ticket.status,
     isOverdue: ticket.isOverdue,
     overdueSeverity: ticket.overdueSeverity,
   });
+  const isDone = ticket.status === 'DONE' || ticket.status === 'CLOSED';
   return (
     <div
-      className={cn('relative rounded-2xl p-3 transition-shadow', vis.borderClass, vis.bgClass, isPending && 'opacity-70')}
+      className={cn(
+        'relative rounded-2xl p-3 transition-all',
+        vis.borderClass,
+        vis.bgClass,
+        isPending && 'opacity-70',
+        isDone && 'opacity-50 grayscale-[30%] bg-slate-50 dark:bg-slate-900/30'
+      )}
       style={{
-        backgroundColor: 'var(--surface-card)',
-        border: '1px solid var(--border-primary)',
+        backgroundColor: isDone ? 'var(--bg-secondary)' : 'var(--surface-card)',
+        border: ticket.isOverdue && !isDone
+          ? '2px solid var(--color-danger)'
+          : '1px solid var(--border-primary)',
         boxShadow: 'var(--shadow-sm)',
-        borderLeft: ticket.priority === 'URGENT' ? '3px solid #EF4444' :
+        borderLeft: isDone ? '1px solid var(--border-primary)' :
+                    ticket.priority === 'URGENT' ? '3px solid #EF4444' :
                     ticket.priority === 'HIGH' ? '3px solid #F97316' :
                     ticket.priority === 'MEDIUM' ? '3px solid #2563EB' :
                     '1px solid var(--border-primary)',
-        cursor: 'grab',
+        cursor: canMove ? 'grab' : 'not-allowed',
       }}
     >
       {/* Priority dot — absolute top-right */}
-      <span className={cn('absolute top-2 right-2 w-2.5 h-2.5 rounded-full', PRIORITY_DOT[ticket.priority] ?? 'bg-gray-400')} />
+      {!isDone && <span className={cn('absolute top-2 right-2 w-2.5 h-2.5 rounded-full', PRIORITY_DOT[ticket.priority] ?? 'bg-gray-400')} />}
 
       <div className="flex items-start justify-between gap-2 mb-2">
-        <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>{ticket.ticketId}</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>{ticket.ticketId}</span>
+          {!canMove && !isDone && (
+            <span className="flex items-center gap-0.5 text-[9px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400 px-1 py-0.5 rounded" title="Read-only context">
+              🔒 READ-ONLY
+            </span>
+          )}
+          {ticket.isOverdue && !isDone && (
+            <span className="flex items-center gap-0.5 text-[9px] font-bold text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-400 px-1 py-0.5 rounded">
+              ⚠️ OVERDUE
+            </span>
+          )}
+          {ticket.status === 'REVIEW' && (
+            <span className="flex items-center gap-0.5 text-[9px] font-bold text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-400 px-1.5 py-0.5 rounded">
+              🔍 WAITING FOR REVIEW
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 pr-4">
           {isPending && <Loader2 size={12} className="animate-spin text-indigo-500" />}
-          {ticket.priority === 'URGENT' && <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />}
+          {ticket.priority === 'URGENT' && !isDone && <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />}
         </div>
       </div>
 
@@ -147,7 +174,7 @@ function DraggableCard({ ticket, columnKey, isPending, canMove }: { ticket: any;
       {...attributes}
       className={cn('touch-none', isDragging && 'opacity-30 cursor-grabbing')}
     >
-      <CardContent ticket={ticket} isPending={isPending} />
+      <CardContent ticket={ticket} isPending={isPending} canMove={canMove} />
     </div>
   );
 }
@@ -372,13 +399,29 @@ export default function KanbanPage() {
     moveTicket(active.id as string, fromColumn, toColumn);
   };
 
+  const roleDisplay = (user?.role as any)?.name ?? user?.role ?? '';
+  const scopeText =
+    roleDisplay === 'SUPER_ADMIN' ? 'Showing company-wide operations' :
+    roleDisplay === 'ADMIN' ? 'Showing company-wide operations' :
+    roleDisplay === 'MANAGER' ? 'Showing managed departments' :
+    roleDisplay === 'TEAM_LEAD' ? 'Showing your team operations' :
+    roleDisplay === 'INTERN' ? 'Showing assigned operational items (Intern — Restricted)' :
+    'Showing your assigned work';
+
   return (
     <div className="space-y-5 h-full">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>Drag cards between columns to update status</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-650 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
+              {scopeText}
+            </span>
+          </div>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+            {roleDisplay === 'INTERN' ? 'Read-only context: you can only drag tickets where you are the reporter or assignee' : 'Drag cards between columns to update status'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <select

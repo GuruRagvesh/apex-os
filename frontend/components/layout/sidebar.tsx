@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
+import { workdayApi } from '@/lib/api';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
   Users, Building2, BarChart3, LogOut, Zap, Settings,
@@ -97,6 +99,22 @@ export function Sidebar() {
   const { user, logout, hasHydrated } = useAuthStore();
   const [apexMode, setApexMode]       = useState<string>('super_admin');
 
+  const { data: workdayData } = useQuery({
+    queryKey: ['workday-today'],
+    enabled: !!user,
+  });
+  const workStatus = (workdayData as any)?.session?.status ?? 'OFFLINE';
+
+  const handleLogout = () => {
+    if (['WORKING', 'ON_BREAK', 'IDLE'].includes(workStatus)) {
+      const confirmLogout = window.confirm(
+        "You have an active workday session running. Please remember to 'End Day' before logging out.\n\nAre you sure you want to log out anyway?"
+      );
+      if (!confirmLogout) return;
+    }
+    logout();
+  };
+
   useEffect(() => {
     setApexMode(localStorage.getItem('apexMode') ?? 'super_admin');
   }, [pathname]);
@@ -113,7 +131,7 @@ export function Sidebar() {
   // Nav items based on role / mode
   const mainNav = isSuperAdmin && apexMode === 'team_lead' ? TEAMLEAD_MODE_NAV : BASE_NAV;
   const showTeam      = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
-  const showReports   = isManager  && !(isSuperAdmin && apexMode === 'team_lead');
+  const showReports   = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
   const showAdminSect = isAdmin    && !(isSuperAdmin && apexMode === 'team_lead');
 
   const roleBadge = ROLE_BADGE_COLOR[role] ?? { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
@@ -292,7 +310,7 @@ export function Sidebar() {
             </div>
           </div>
           <button
-            onClick={(e) => { e.stopPropagation(); logout(); }}
+            onClick={(e) => { e.stopPropagation(); handleLogout(); }}
             className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0"
             title="Logout"
           >

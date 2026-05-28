@@ -39,7 +39,7 @@ export class LeaveService {
       this.prisma.leaveRequest.count({ where }),
       this.prisma.leaveRequest.findMany({
         where,
-        include: { user: { select: { id: true, name: true, email: true, department: true, role: true } } },
+        include: { user: { select: { id: true, name: true, email: true, department: true, role: true, reportingManager: true, teamLeadName: true } } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -49,7 +49,7 @@ export class LeaveService {
   }
 
   async findOne(id: string, user?: any) {
-    const include = { user: { select: { id: true, name: true, email: true, department: true, role: true } } };
+    const include = { user: { select: { id: true, name: true, email: true, department: true, role: true, reportingManager: true, teamLeadName: true } } };
     const leave = user
       ? await this.leaveAccess.findAccessibleLeave(id, user, include)
       : await this.prisma.leaveRequest.findUnique({

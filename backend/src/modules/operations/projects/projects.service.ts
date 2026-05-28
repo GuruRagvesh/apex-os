@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ForbiddenException } from '@nestjs/common';
 import { ProjectStatus, Priority } from '@prisma/client';
@@ -64,6 +64,9 @@ export class ProjectsService {
         include: {
           department: true,
           members: { include: { user: { select: { id: true, name: true, avatar: true } } } },
+          tickets: {
+            select: { id: true, status: true, dueDate: true, executionDueAt: true, reviewDueAt: true, submittedAt: true }
+          },
           _count: { select: { tickets: true, members: true } },
         },
         orderBy: { createdAt: 'desc' },

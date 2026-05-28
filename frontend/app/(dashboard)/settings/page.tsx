@@ -867,6 +867,12 @@ function SmtpSection() {
     save.mutate(form);
   };
 
+  const testEmail = useMutation({
+    mutationFn: () => settingsApi.testEmail(form.email),
+    onSuccess: (res: any) => toast.success(res?.message || 'Test email sent'),
+    onError: (err: any) => toast.error(err?.message || 'Test email failed'),
+  });
+
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
@@ -887,9 +893,17 @@ function SmtpSection() {
         </div>
         <div className="flex items-center gap-4 flex-wrap">
           <SaveBtn loading={save.isPending} />
-          <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-tertiary)' }}>
+          <button
+            type="button"
+            onClick={() => testEmail.mutate()}
+            disabled={testEmail.isPending || !form.email}
+            className="apex-btn apex-btn-secondary text-sm disabled:opacity-50"
+          >
             <Mail size={12} />
-            Test email delivery is not yet available in this version.
+            {testEmail.isPending ? 'Sending...' : 'Send Test Email'}
+          </button>
+          <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+            Save SMTP changes before sending a test.
           </p>
         </div>
       </div>

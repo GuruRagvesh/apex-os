@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
-import { ticketsApi } from '@/lib/api';
+import Link from 'next/link';
+import { cn } from '@/lib/utils';
+import { ticketsApi, dashboardApi } from '@/lib/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { CriticalActionPanel } from '@/components/home/CriticalActionPanel';
 import { UpcomingEvents } from '@/components/home/UpcomingEvents';
@@ -55,6 +57,14 @@ export default function HomePage() {
     refetchInterval: 120000,
     staleTime: 60000,
   });
+
+  const { data: overview } = useQuery({
+    queryKey: ['dashboard-overview'],
+    queryFn: () => dashboardApi.getOverview() as Promise<any>,
+    staleTime: 30000,
+  });
+
+  const bottleneckTickets = overview?.bottleneckTickets ?? [];
 
   if (isLoading) return <HomeSkeleton />;
 
@@ -135,7 +145,7 @@ export default function HomePage() {
           subtext: 'need attention',
           statusType: 'red' as const,
           previewItems: [],
-          onClick: () => router.push('/tickets'),
+          onClick: () => router.push('/tickets?overdue=true'),
         },
         {
           label: 'Pending Reviews',
@@ -175,7 +185,7 @@ export default function HomePage() {
           subtext: 'SLA breaches',
           statusType: 'red' as const,
           previewItems: [],
-          onClick: () => router.push('/tickets'),
+          onClick: () => router.push('/tickets?overdue=true'),
         },
         {
           label: 'Pending Leave',
@@ -210,7 +220,7 @@ export default function HomePage() {
       },
       {
         label: 'Open Tickets',
-        value: metrics.totalTickets ?? metrics.open ?? 0,
+        value: metrics.openTickets ?? metrics.open ?? 0,
         icon: Ticket,
         subtext: 'needs attention',
         statusType: 'blue' as const,
@@ -224,7 +234,7 @@ export default function HomePage() {
         subtext: 'SLA exceeded',
         statusType: 'red' as const,
         previewItems: [],
-        onClick: () => router.push('/tickets'),
+        onClick: () => router.push('/tickets?overdue=true'),
       },
       {
         label: 'Pending Leave',
@@ -258,10 +268,18 @@ export default function HomePage() {
       >
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
-            <h1 className="text-3xl font-extrabold leading-tight" style={{ letterSpacing: '-0.5px', color: 'var(--text-primary)' }}>
-              Good {timeOfDay}, {firstName}
-            </h1>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-extrabold leading-tight" style={{ letterSpacing: '-0.5px', color: 'var(--text-primary)' }}>
+                Good {timeOfDay}, {firstName}
+              </h1>
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-full mt-1.5">
+                {role === 'SUPER_ADMIN' || role === 'ADMIN' ? 'Company Administrator Scope' :
+                 role === 'MANAGER' ? 'Department Manager Scope' :
+                 role === 'TEAM_LEAD' ? 'Team Lead Scope' :
+                 'Personal Contributor Scope'}
+              </span>
+            </div>
+            <p className="text-sm mt-1.5" style={{ color: 'var(--text-secondary)' }}>
               {roleGuidance}
             </p>
           </div>
@@ -389,24 +407,24 @@ export default function HomePage() {
       >
         <CommandCard
           id="high-priority"
-          title={['EMPLOYEE', 'INTERN'].includes(role) ? 'In Review' : 'Overdue Tickets'}
-          count={['EMPLOYEE', 'INTERN'].includes(role) ? (metrics.inReview ?? 0) : (metrics.overdue ?? 0)}
-          summary={['EMPLOYEE', 'INTERN'].includes(role) ? 'Tickets awaiting review approval' : 'Tickets past their SLA deadline'}
+          title="Overdue Tickets"
+          count={metrics.overdue ?? 0}
+          summary={(metrics.overdue ?? 0) > 0 ? `${metrics.overdue} overdue ticket${metrics.overdue > 1 ? 's' : ''} need${metrics.overdue > 1 ? '' : 's'} attention` : 'No overdue tickets in your scope'}
           icon={ShieldAlert}
-          severity={['EMPLOYEE', 'INTERN'].includes(role) ? 'warning' : 'urgent'}
-          previewItems={[]}
-          onClick={() => ['EMPLOYEE', 'INTERN'].includes(role) ? router.push('/tickets?status=REVIEW') : router.push('/tickets?overdue=true')}
+          severity={(metrics.overdue ?? 0) > 0 ? 'urgent' : 'success'}
+          previewItems={summary?.previews?.overdueTickets ?? []}
+          onClick={() => router.push('/tickets?overdue=true')}
         />
 
         <CommandCard
           id="active-projects"
           title="Active Projects"
           count={metrics.activeProjects ?? 0}
-          summary="Current project portfolio in progress"
+          summary={(metrics.activeProjects ?? 0) > 0 ? `${metrics.activeProjects} active project${metrics.activeProjects > 1 ? 's' : ''} in progress` : 'No active projects'}
           icon={FolderKanban}
           severity="blue"
-          previewItems={[]}
-          onClick={() => router.push('/projects')}
+          previewItems={summary?.previews?.activeProjects ?? []}
+          onClick={() => router.push('/projects?status=ACTIVE')}
         />
 
         {(role === 'TEAM_LEAD' || role === 'MANAGER' || role === 'ADMIN' || role === 'SUPER_ADMIN') && (
@@ -414,11 +432,11 @@ export default function HomePage() {
             id="pending-leave"
             title="Leave Requests"
             count={metrics.pendingLeave ?? 0}
-            summary="Pending leave approvals for your team"
+            summary={(metrics.pendingLeave ?? 0) > 0 ? `${metrics.pendingLeave} leave request${metrics.pendingLeave > 1 ? 's' : ''} pending approval` : 'No pending leave requests'}
             icon={CalendarDays}
-            severity={metrics.pendingLeave > 0 ? 'warning' : 'success'}
-            previewItems={[]}
-            onClick={() => router.push('/leave')}
+            severity={(metrics.pendingLeave ?? 0) > 0 ? 'warning' : 'success'}
+            previewItems={summary?.previews?.pendingLeave ?? []}
+            onClick={() => router.push('/leave?tab=needs-action')}
           />
         )}
 
@@ -427,22 +445,70 @@ export default function HomePage() {
             id="in-review"
             title="In Review"
             count={metrics.inReview ?? 0}
-            summary="Tickets currently under code review"
+            summary={(metrics.inReview ?? 0) > 0 ? `${metrics.inReview} ticket${metrics.inReview > 1 ? 's' : ''} awaiting review` : 'No tickets awaiting review'}
             icon={AlertTriangle}
-            severity="warning"
-            previewItems={[]}
+            severity={(metrics.inReview ?? 0) > 0 ? 'warning' : 'success'}
+            previewItems={summary?.previews?.inReviewTickets ?? []}
             onClick={() => router.push('/tickets?status=REVIEW')}
           />
         )}
       </motion.div>
 
-      {/* ── BOTTOM SECTION: Events + Activity ── */}
+      {/* ── BOTTOM SECTION: Bottlenecks + Events + Activity ── */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, delay: 0.24 }}
-        className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        className="grid grid-cols-1 lg:grid-cols-3 gap-4"
       >
+        {/* Bottlenecks & SLA Risk */}
+        <div className="border overflow-hidden rounded-[22px] flex flex-col" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+          <div className="bg-[#0B1220] px-5 py-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-red-900/40 text-red-400">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">Bottlenecks & SLA Risk</h3>
+              <p className="text-[10px] text-slate-400 font-mono mt-0.5 font-bold">Urgent action required</p>
+            </div>
+          </div>
+          <div className="p-5 flex-1 flex flex-col justify-between" style={{ backgroundColor: 'var(--surface-card)' }}>
+            <div className="space-y-2.5">
+              {bottleneckTickets.length > 0 ? (
+                bottleneckTickets.slice(0, 4).map((t: any) => (
+                  <Link
+                    key={t.id}
+                    href={`/tickets/${t.id}`}
+                    className="block p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80 hover:border-red-500 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition-all"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-mono font-bold text-slate-400">{t.ticketId}</span>
+                      <span className={cn(
+                        'text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider',
+                        t.status === 'REVIEW' ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400' : 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400'
+                      )}>
+                        {t.status === 'REVIEW' ? 'In Review' : 'Overdue'}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-750 dark:text-gray-250 truncate">{t.title}</p>
+                  </Link>
+                ))
+              ) : (
+                <div className="text-center py-8 text-slate-400 text-xs">
+                  <p className="font-semibold text-slate-500 dark:text-slate-400">No critical bottlenecks!</p>
+                  <p className="text-[10px] text-slate-450 dark:text-slate-500 mt-1">All active tickets are within SLA.</p>
+                </div>
+              )}
+            </div>
+            <Link
+              href="/tickets"
+              className="mt-4 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 justify-end"
+            >
+              Go to Tickets <ArrowRight size={11} />
+            </Link>
+          </div>
+        </div>
+
         {/* Upcoming Events */}
         <div className="border overflow-hidden rounded-[22px]" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
           <div className="bg-[#0B1220] px-5 py-4 flex items-center gap-3">

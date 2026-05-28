@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { teamApi, usersApi, workdayApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { useSearchParams } from 'next/navigation';
 import {
   Users, Search, Building2, Ticket, UserPlus, Check,
   Mail, Clock, ChevronDown, ChevronRight, Loader2,
@@ -324,6 +325,22 @@ function MyTeamView({ me }: { me: any }) {
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (me?.id) {
+      const stored = localStorage.getItem(`requestedIds_${me.id}`);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setRequestedIds(new Set(parsed));
+          }
+        } catch (e) {
+          console.error('[Team] Failed to parse requestedIds from localStorage', e);
+        }
+      }
+    }
+  }, [me?.id]);
+
   const { data: directory = [], isLoading } = useQuery({
     queryKey: ['team-directory'],
     queryFn: () => teamApi.getDirectory() as Promise<any[]>,
@@ -368,7 +385,12 @@ function MyTeamView({ me }: { me: any }) {
         targetUser.id,
         `Requested ${targetUser.name} (${targetUser.department?.name}) to join ${myDeptName} team`,
       );
-      setRequestedIds((prev) => new Set(prev).add(targetUser.id));
+      const newSet = new Set(requestedIds);
+      newSet.add(targetUser.id);
+      setRequestedIds(newSet);
+      if (me?.id) {
+        localStorage.setItem(`requestedIds_${me.id}`, JSON.stringify(Array.from(newSet)));
+      }
       toast.success(res.message ?? 'Request sent!');
     } catch {
       toast.error('Failed to send request');
@@ -636,6 +658,19 @@ function LiveStatusView() {
 export default function TeamPage() {
   const { user: me } = useAuthStore();
   const [tab, setTab] = useState<'team' | 'live'>('team');
+
+  const searchParams = useSearchParams();
+  const queryString = searchParams.toString();
+
+  useEffect(() => {
+    const params = new URLSearchParams(queryString);
+    const qTab = params.get('tab');
+    if (qTab === 'live-status' || qTab === 'live') {
+      setTab('live');
+    } else if (qTab === 'team') {
+      setTab('team');
+    }
+  }, [queryString]);
 
   const role = (me?.role as any)?.name ?? me?.role ?? '';
   const isHR = (me as any)?.isHR;

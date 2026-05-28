@@ -1,19 +1,24 @@
-import { Controller, Get, Patch, Body, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { BadRequestException, Body, Controller, Get, Patch, Post, Request, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/decorators/roles.decorator';
 import { SettingsService } from './settings.service';
 import { ROLES } from '../../../shared/constants/roles';
+import { EmailService } from '../email/email.service';
+
+const SMTP_PASSWORD_MASK = '********';
+const LEGACY_SMTP_PASSWORD_MASKS = ['********', '••••••••', 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'];
 
 @ApiTags('Settings')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('settings')
 export class SettingsController {
-  constructor(private readonly settings: SettingsService) {}
-
-  // ── Company ────────────────────────────────────────────────────────────────
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly emailService: EmailService,
+  ) {}
 
   @Get('company')
   getCompany() {
@@ -31,8 +36,6 @@ export class SettingsController {
     return this.settings.set('company', rest, req.user?.sub);
   }
 
-  // ── Leave Policy ───────────────────────────────────────────────────────────
-
   @Get('leave-policy')
   getLeavePolicy() {
     return this.settings.get('leave_policy');
@@ -44,8 +47,6 @@ export class SettingsController {
   updateLeavePolicy(@Body() body: any, @Request() req: any) {
     return this.settings.set('leave_policy', body, req.user?.sub);
   }
-
-  // ── SLA ────────────────────────────────────────────────────────────────────
 
   @Get('sla')
   async getSla() {
@@ -67,28 +68,45 @@ export class SettingsController {
     return this.getSla();
   }
 
-  // ── SMTP ───────────────────────────────────────────────────────────────────
-
   @Get('smtp')
   @UseGuards(RolesGuard)
   @Roles(ROLES.SUPER_ADMIN)
   async getSmtp() {
     const data = await this.settings.get('smtp');
-    // Mask password in response
-    return { ...data, password: data?.password ? '••••••••' : '' };
+    return { ...data, password: data?.password ? SMTP_PASSWORD_MASK : '' };
   }
 
   @Patch('smtp')
   @UseGuards(RolesGuard)
   @Roles(ROLES.SUPER_ADMIN)
   async updateSmtp(@Body() body: any, @Request() req: any) {
-    // If password is the mask placeholder, preserve the existing password
     let value = { ...body };
-    if (body.password === '••••••••') {
+    if (LEGACY_SMTP_PASSWORD_MASKS.includes(value.password)) {
       const existing = await this.settings.get('smtp');
       value.password = existing?.password ?? '';
     }
+
+    value = {
+      host: String(value.host || '').trim(),
+      port: String(value.port || '587').trim(),
+      email: String(value.email || '').trim(),
+      password: String(value.password || ''),
+    };
+
+    const port = Number(value.port);
+    const hasAny = Boolean(value.host || value.email || value.password || value.port !== '587');
+    if (hasAny && (!value.host || !value.email || !value.password || !Number.isInteger(port) || port <= 0 || port > 65535)) {
+      throw new BadRequestException('SMTP host, port, from email, and password are required.');
+    }
+
     await this.settings.set('smtp', value, req.user?.sub);
-    return { ...value, password: value.password ? '••••••••' : '' };
+    return { ...value, password: value.password ? SMTP_PASSWORD_MASK : '' };
+  }
+
+  @Post('email/test')
+  @UseGuards(RolesGuard)
+  @Roles(ROLES.SUPER_ADMIN)
+  async testEmail(@Body() body: any) {
+    return this.emailService.sendTestEmail(body?.to);
   }
 }

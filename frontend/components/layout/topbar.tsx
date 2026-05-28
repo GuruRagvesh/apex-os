@@ -127,9 +127,18 @@ export function TopBar() {
   });
 
   const pageName = Object.entries(pageNames).find(([key]) => pathname.startsWith(key))?.[1] || 'Apex OS';
-  const count = (unreadCount as any)?.count ?? 0;
-
+  
   const { logout } = useAuthStore();
+
+  const handleLogout = () => {
+    if (['WORKING', 'ON_BREAK', 'IDLE'].includes(workStatus)) {
+      const confirmLogout = window.confirm(
+        "You have an active workday session running. Please remember to 'End Day' before logging out.\n\nAre you sure you want to log out anyway?"
+      );
+      if (!confirmLogout) return;
+    }
+    logout();
+  };
 
   const handleScreenshot = async () => {
     setScreenshotLoading(true);
@@ -159,6 +168,8 @@ export function TopBar() {
     workStatus === 'IDLE' ? 'Idle' :
     workStatus === 'ON_LEAVE' ? 'On Leave' :
     workStatus === 'LOGGED_OUT' ? 'Ended' : 'Offline';
+
+  const count = (unreadCount as any)?.count ?? 0;
 
   return (
     <>
@@ -464,7 +475,7 @@ export function TopBar() {
 
               <div className="p-1.5" style={{ borderTop: '1px solid var(--border-subtle)' }}>
                 <button
-                  onClick={() => { setShowUserMenu(false); logout(); }}
+                  onClick={() => { setShowUserMenu(false); handleLogout(); }}
                   className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left"
                   style={{ color: 'var(--text-secondary)' }}
                   onMouseEnter={(e) => {

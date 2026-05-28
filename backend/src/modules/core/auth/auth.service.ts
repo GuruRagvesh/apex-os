@@ -1,4 +1,4 @@
-﻿import { Injectable, UnauthorizedException, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -42,23 +42,35 @@ export class AuthService {
     today.setHours(0, 0, 0, 0);
     const now = new Date();
 
+    let nextStatus = 'LOGGED_IN';
+
     try {
+      const existingSession = await this.prisma.workSession.findUnique({
+        where: { userId_date: { userId: user.id, date: today } },
+      });
+
+      if (existingSession && ['WORKING', 'ON_BREAK', 'IDLE'].includes(existingSession.status)) {
+        nextStatus = existingSession.status;
+      }
+
       await this.prisma.workSession.upsert({
         where: { userId_date: { userId: user.id, date: today } },
-        update: { loginAt: now, status: 'LOGGED_IN' },
-        create: { userId: user.id, date: today, loginAt: now, status: 'LOGGED_IN' },
+        update: { loginAt: now, status: nextStatus },
+        create: { userId: user.id, date: today, loginAt: now, status: nextStatus },
       });
       await this.prisma.attendanceEvent.create({
         data: { userId: user.id, eventType: 'LOGIN', source: 'manual' },
       });
       await this.prisma.user.update({
         where: { id: user.id },
-        data: { currentStatus: 'LOGGED_IN', lastActiveAt: now },
+        data: { currentStatus: nextStatus, lastActiveAt: now },
       });
     } catch (e) {
       // Non-critical — don't fail login if attendance tracking fails
       console.error('Attendance tracking error on login:', e);
     }
+
+    userWithoutPassword.currentStatus = nextStatus;
 
     this.eventLogger.log({ actorId: user.id, entityType: 'User', entityId: user.id, action: OperationalAction.USER_LOGIN }).catch(() => {});
 
