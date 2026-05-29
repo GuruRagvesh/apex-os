@@ -121,7 +121,7 @@ function humanValue(field: string, value: string | null) {
 }
 
 // ─── Attachment card ──────────────────────────────────────────────────────────
-function AttachmentCard({ att, ticketId }: { att: any; ticketId: string }) {
+function AttachmentCard({ att, ticketId, canDelete, onDelete }: { att: any; ticketId: string; canDelete?: boolean; onDelete?: (id: string) => void }) {
   const isImage = att.mimeType?.startsWith('image/');
   const isPdf = att.mimeType === 'application/pdf';
   const isDoc = att.mimeType?.includes('word') || att.filename?.endsWith('.doc') || att.filename?.endsWith('.docx');
@@ -235,6 +235,19 @@ function AttachmentCard({ att, ticketId }: { att: any; ticketId: string }) {
         >
           <Download size={13} />
         </button>
+        {canDelete && (
+          <button
+            onClick={() => {
+              if (confirm('Delete this attachment?')) {
+                onDelete?.(att.id);
+              }
+            }}
+            title="Delete"
+            className="p-1 rounded transition-colors text-red-400 hover:text-red-500 hover:bg-red-50/10"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -683,6 +696,15 @@ export default function TicketDetailPage() {
       setActiveTab('attachments');
     },
     onError: () => toast.error('Upload failed'),
+  });
+
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: (attId: string) => ticketsApi.deleteAttachment(ticket.id, attId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      toast.success('Attachment deleted');
+    },
+    onError: () => toast.error('Failed to delete attachment'),
   });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1151,7 +1173,13 @@ export default function TicketDetailPage() {
                 {ticket.attachments?.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {ticket.attachments.map((att: any) => (
-                      <AttachmentCard key={att.id} att={att} ticketId={ticket.id} />
+                      <AttachmentCard
+                        key={att.id}
+                        att={att}
+                        ticketId={ticket.id}
+                        canDelete={canDelete || canEdit}
+                        onDelete={(attId) => deleteAttachmentMutation.mutate(attId)}
+                      />
                     ))}
                   </div>
                 ) : (

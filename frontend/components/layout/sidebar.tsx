@@ -108,7 +108,7 @@ export function Sidebar() {
   const handleLogout = () => {
     if (['WORKING', 'ON_BREAK', 'IDLE'].includes(workStatus)) {
       const confirmLogout = window.confirm(
-        "You have an active workday session running. Please remember to 'End Day' before logging out.\n\nAre you sure you want to log out anyway?"
+        "Logout closes your app session, but does not end your workday. Use 'End Day' to close attendance.\n\nAre you sure you want to log out anyway?"
       );
       if (!confirmLogout) return;
     }

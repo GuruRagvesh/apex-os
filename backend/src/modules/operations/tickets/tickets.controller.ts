@@ -126,6 +126,29 @@ export class TicketsController {
     return this.ticketsService.sanitizeAttachmentForResponse(ticket.id, attachment);
   }
 
+  @Delete(':id/attachments/:attachmentId')
+  async deleteAttachment(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+    @CurrentUser() user: any,
+  ) {
+    const ticket = await this.ticketsService.findOne(id, user);
+    await this.ticketsService.assertCanUploadAttachment(user, ticket);
+    const attachment = await this.ticketsService.getAttachmentForDownload(id, attachmentId, user);
+    
+    await this.uploadsService.deleteAttachment(attachment.id);
+    
+    this.eventLogger.log({
+      actorId: user.id,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action: OperationalAction.ATTACHMENT_DELETED,
+      metadata: { ticketId: ticket.ticketId, filename: attachment.filename },
+    }).catch(() => {});
+    
+    return { success: true };
+  }
+
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
     return this.ticketsService.update(id, body, user.id, user);

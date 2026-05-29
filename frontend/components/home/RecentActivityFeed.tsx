@@ -45,20 +45,11 @@ export function RecentActivityFeed() {
       ? 'Your Department Activity'
       : 'Your Activity';
 
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['recent-activity'],
     queryFn: async () => {
-      try {
-        const res: any = await eventsApi.getAll({ limit: 15 });
-        // The API returns the array directly, or { items } depending on pagination wrapper,
-        // but looking at the old code (`return res.json()`), it seems it expects an array directly.
-        // Wait, the API wrapper `api.interceptors.response.use` returns `response.data`.
-        // We can just return it.
-        return res;
-      } catch (err) {
-        console.error('Failed to load recent activity', err);
-        return [];
-      }
+      const res: any = await eventsApi.getAll({ limit: 15 });
+      return res;
     },
     staleTime: 30000,
   });
@@ -74,6 +65,20 @@ export function RecentActivityFeed() {
             </div>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="apex-card" style={{ padding: 24, textAlign: 'center' }}>
+        <p style={{ fontSize: 13, color: 'var(--color-danger)', fontWeight: 600, margin: 0 }}>Recent activity unavailable</p>
+        <button 
+          onClick={() => refetch()}
+          style={{ fontSize: 11, marginTop: 8, color: 'var(--accent-text)', cursor: 'pointer', background: 'transparent', border: 'none', fontWeight: 600 }}
+        >
+          Retry
+        </button>
       </div>
     );
   }

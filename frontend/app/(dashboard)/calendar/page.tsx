@@ -52,14 +52,12 @@ export default function CalendarPage() {
   const user = useAuthStore(s => s.user);
   const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
 
-  const { data: ticketsData } = useQuery({
+  const { data: ticketsData, isError: ticketsError } = useQuery({
     queryKey: ['calendar-tickets'],
     queryFn: async () => {
-      try {
-        return await ticketsApi.getAll({ limit: 200 });
-      } catch (err) {
-        return null;
-      }
+      const data = await ticketsApi.getAll({ limit: 200 });
+      if (!data) throw new Error('Tickets could not be loaded');
+      return data;
     },
   });
 
@@ -97,7 +95,7 @@ export default function CalendarPage() {
         result.push({
           id: 'due-' + t.id,
           title: `Due: ${t.ticketId}`,
-          start: t.dueDate,
+          start: t.dueDate.includes('T') ? t.dueDate.split('T')[0] : t.dueDate,
           allDay: true,
           backgroundColor: t.isOverdue ? '#ef4444' : '#f59e0b',
           borderColor: 'transparent',
@@ -107,11 +105,19 @@ export default function CalendarPage() {
     });
 
     approvedLeaves.forEach((l: any) => {
+      const startStr = l.startDate.includes('T') ? l.startDate.split('T')[0] : l.startDate;
+      let endStr = l.endDate.includes('T') ? l.endDate.split('T')[0] : l.endDate;
+
+      if (endStr) {
+        const [y, m, d] = endStr.split('-').map(Number);
+        endStr = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().split('T')[0];
+      }
+
       result.push({
         id: 'leave-' + l.id,
         title: `${l.user?.name ?? 'Leave'} · ${l.type}`,
-        start: l.startDate,
-        end: l.endDate,
+        start: startStr,
+        end: endStr,
         allDay: true,
         backgroundColor: l.userId === user?.id ? '#10b981' : '#6366f1',
         borderColor: 'transparent',
@@ -130,9 +136,9 @@ export default function CalendarPage() {
       </div>
 
       <div className="apex-card" style={{ padding: 16, overflow: 'hidden' }}>
-        {leaveError && (
+        {(leaveError || ticketsError) && (
           <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--color-warning)' }}>
-            Approved leave events could not be loaded. Ticket events are still shown.
+            Some calendar sources could not be loaded. Partial data is shown.
           </p>
         )}
         <CalendarView events={events} router={router} />

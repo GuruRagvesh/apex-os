@@ -49,31 +49,33 @@ export function WorkdayBar() {
   const onLeaveToday = (todayData as any)?.onLeaveToday;
   const leaveInfo = (todayData as any)?.leaveInfo;
 
-  // Live elapsed time (WORKING)
+  // Live elapsed time (WORKING) and live break timer (ON_BREAK)
   useEffect(() => {
-    if (status !== 'WORKING' || !startWorkAt) { setElapsed(0); return; }
+    if (!startWorkAt) { 
+      setElapsed(0); 
+      setBreakElapsed(0);
+      return; 
+    }
     const calc = () => {
-      const diffMs = Date.now() - new Date(startWorkAt).getTime();
-      const diffMin = Math.max(0, Math.floor(diffMs / 60000) - totalBreakMinutes);
+      const nowMs = Date.now();
+      let currentBreakMins = 0;
+      
+      const openBreak = breakLogs.find((b: any) => !b.endAt);
+      if (openBreak?.startAt) {
+        currentBreakMins = Math.max(0, Math.floor((nowMs - new Date(openBreak.startAt).getTime()) / 60000));
+        setBreakElapsed(currentBreakMins);
+      } else {
+        setBreakElapsed(0);
+      }
+
+      const diffMs = nowMs - new Date(startWorkAt).getTime();
+      const diffMin = Math.max(0, Math.floor(diffMs / 60000) - totalBreakMinutes - currentBreakMins);
       setElapsed(diffMin);
     };
     calc();
     const t = setInterval(calc, 10000);
     return () => clearInterval(t);
-  }, [status, startWorkAt, totalBreakMinutes]);
-
-  // Live break timer (ON_BREAK)
-  useEffect(() => {
-    if (status !== 'ON_BREAK') { setBreakElapsed(0); return; }
-    const openBreak = breakLogs.find((b: any) => !b.endAt);
-    if (!openBreak?.startAt) { setBreakElapsed(0); return; }
-    const calc = () => {
-      setBreakElapsed(Math.floor((Date.now() - new Date(openBreak.startAt).getTime()) / 60000));
-    };
-    calc();
-    const t = setInterval(calc, 10000);
-    return () => clearInterval(t);
-  }, [status, breakLogs]);
+  }, [status, startWorkAt, totalBreakMinutes, breakLogs]);
 
   // Stale session: session started on a previous calendar day and never closed
   const today = new Date().toDateString();
@@ -172,7 +174,9 @@ export function WorkdayBar() {
       <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4">
         <div className="flex items-center gap-2">
           <span className={dotCls} />
-          <span className="text-sm text-gray-600 dark:text-gray-400">Workday ended</span>
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            Workday ended {session?.logoutAt && `at ${new Date(session.logoutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+          </span>
           {session?.totalWorkMinutes > 0 && (
             <span className="text-xs text-gray-400 dark:text-gray-500">
               · {formatMinutes(session.totalWorkMinutes)} worked · {breakLogs.length} breaks

@@ -151,16 +151,11 @@ export default function ActivityLogPage() {
     return p;
   };
 
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['activity-log', dateRange, eventType],
     queryFn: async () => {
-      try {
-        const res: any = await eventsApi.getAll(buildParams());
-        return res;
-      } catch (err) {
-        console.error('Failed to load activity log', err);
-        return [];
-      }
+      const res: any = await eventsApi.getAll(buildParams());
+      return res;
     },
     staleTime: 30000,
   });
@@ -319,6 +314,23 @@ export default function ActivityLogPage() {
                 <div style={{ height: 10, width: 60, background: 'var(--border-subtle)', borderRadius: 4, flexShrink: 0 }} />
               </div>
             ))}
+          </div>
+
+        ) : isError ? (
+          /* Error state */
+          <div style={{ padding: '36px 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: 24, marginBottom: 8, opacity: 0.3, color: 'var(--color-danger)' }}>
+              <Activity size={28} style={{ display: 'inline' }} />
+            </div>
+            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 6px' }}>
+              Unable to load activity.
+            </p>
+            <button 
+              onClick={() => refetch()}
+              className="mt-2 text-xs font-semibold text-blue-600 hover:underline bg-transparent border-none cursor-pointer"
+            >
+              Please retry
+            </button>
           </div>
 
         ) : (events as any[]).length === 0 ? (

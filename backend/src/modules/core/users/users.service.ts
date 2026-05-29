@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
@@ -109,7 +109,24 @@ export class UsersService {
   async uploadPhoto(userId: string, file: Express.Multer.File): Promise<{ photoUrl: string }> {
     const photoUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     await this.prisma.user.update({ where: { id: userId }, data: { photoUrl } });
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'User',
+      entityId: userId,
+      action: OperationalAction.PHOTO_UPLOADED,
+    }).catch(() => {});
     return { photoUrl };
+  }
+
+  async removePhoto(userId: string) {
+    await this.prisma.user.update({ where: { id: userId }, data: { photoUrl: null } });
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'User',
+      entityId: userId,
+      action: OperationalAction.PHOTO_REMOVED,
+    }).catch(() => {});
+    return { success: true };
   }
 
   async resetPassword(id: string, newPassword: string) {
@@ -350,7 +367,43 @@ export class UsersService {
         verificationStatus: 'Pending',
       },
     });
+
+    this.eventLogger.log({
+      actorId: requesterId,
+      entityType: 'EmployeeDocument',
+      entityId: doc.id,
+      action: OperationalAction.DOCUMENT_UPLOADED,
+      metadata: { targetUserId, documentType, fileName: file.originalname },
+    }).catch(() => {});
+
     return { document: doc };
+  }
+
+  async deleteDocument(requesterId: string, targetUserId: string, docId: string) {
+    const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId }, include: { role: true, department: true } });
+    if (!target) throw new NotFoundException('User not found');
+    if (!requester) throw new ForbiddenException('Not authorized');
+
+    this.accessPolicy.assertAllowed(
+      this.accessPolicy.canUploadDocuments(requester, target), // Assuming same permission as upload
+      'Cannot delete documents for this user',
+    );
+
+    const doc = await (this.prisma as any).employeeDocument.findFirst({ where: { id: docId, userId: targetUserId } });
+    if (!doc) throw new NotFoundException('Document not found');
+
+    await (this.prisma as any).employeeDocument.delete({ where: { id: docId } });
+
+    this.eventLogger.log({
+      actorId: requesterId,
+      entityType: 'EmployeeDocument',
+      entityId: doc.id,
+      action: OperationalAction.DOCUMENT_DELETED,
+      metadata: { targetUserId, documentType: doc.documentType, fileName: doc.fileName },
+    }).catch(() => {});
+
+    return { success: true };
   }
 
   async verifyDocument(requesterId: string, userId: string, docId: string, status: string, rejectionReason?: string) {

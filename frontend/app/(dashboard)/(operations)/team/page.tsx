@@ -638,6 +638,10 @@ function LiveStatusView() {
               const cfg = STATUS_CONFIG[m.workStatus] ?? STATUS_CONFIG.OFFLINE;
               const stale = checkStale(m);
               const startedAt = m.todaySession?.startWorkAt;
+              const endedAt = m.todaySession?.logoutAt;
+              
+              const openBreak = m.todaySession?.breakLogs?.find((b: any) => !b.endAt);
+              const onBreakSince = openBreak?.startAt;
               return (
                 <tr
                   key={m.id}
@@ -662,6 +666,11 @@ function LiveStatusView() {
                     <span className="flex items-center gap-1.5 text-xs font-medium flex-wrap" style={{ color: cfg.color }}>
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
                       {cfg.label}
+                      {m.workStatus === 'ON_BREAK' && onBreakSince && (
+                        <span className="ml-1 text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded border border-orange-200">
+                          since {fmtTime(onBreakSince)}
+                        </span>
+                      )}
                       {m.onLeaveToday && (
                         <span className="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{m.leaveType ?? 'Leave'}</span>
                       )}
@@ -674,10 +683,13 @@ function LiveStatusView() {
                     </span>
                   </td>
                   <td className="px-5 py-3 text-xs font-mono" style={{ color: startedAt ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
-                    {fmtTime(startedAt)}
+                    {m.workStatus === 'LOGGED_OUT' && endedAt 
+                      ? `Ended at ${fmtTime(endedAt)}`
+                      : (startedAt ? fmtTime(startedAt) : 'Not started today')
+                    }
                   </td>
                   <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    {fmtMin(m.workMinutesToday)}
+                    {m.workStatus === 'OFFLINE' ? 'Not started today' : fmtMin(m.workMinutesToday)}
                   </td>
                   <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
                     {m.breakCount > 0 ? `${m.breakCount}x · ${fmtMin(m.breakMinutesToday)}` : '—'}

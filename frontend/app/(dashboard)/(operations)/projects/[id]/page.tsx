@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, departmentsApi } from '@/lib/api';
+import { projectsApi, departmentsApi, eventsApi, usersApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, PROJECT_STATUS_COLORS, PRIORITY_COLORS, PROJECT_STATUS_LABELS, PRIORITY_LABELS, formatDate, getInitials, formatRelativeTime } from '@/lib/utils';
-import { ArrowLeft, Ticket, Users, Edit3, Trash2, Activity } from 'lucide-react';
+import { ArrowLeft, Ticket, Users, Edit3, Trash2, Activity, UserPlus, X } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { TicketRow } from '@/components/tickets/ticket-row';
@@ -23,25 +23,28 @@ export default function ProjectDetailPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', status: '', priority: '', departmentId: '', endDate: '' });
 
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [memberRole, setMemberRole] = useState('MEMBER');
+
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
     queryFn: () => projectsApi.getOne(id) as Promise<any>,
     refetchOnWindowFocus: true,
   });
 
-  const { data: allEvents = [] } = useQuery({
+  const { data: allEvents = [], isError: isEventsError, refetch: refetchEvents } = useQuery({
     queryKey: ['project-activity', id],
-    queryFn: async () => {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/events?limit=250`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => eventsApi.getAll({ limit: 250 }) as Promise<any>,
     staleTime: 30000,
   });
+
+  const { data: allUsers } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => usersApi.getAll() as Promise<any>,
+    enabled: showAddMember,
+  });
+  const usersList = Array.isArray(allUsers) ? allUsers : (allUsers?.users || []);
 
   const updateMutation = useMutation({
     mutationFn: (data: any) => projectsApi.update(id, data),
@@ -62,6 +65,26 @@ export default function ProjectDetailPage() {
       router.push('/projects');
     },
     onError: (err: any) => toast.error(err?.message ?? 'Delete failed'),
+  });
+
+  const addMemberMutation = useMutation({
+    mutationFn: (data: { userId: string, role: string }) => projectsApi.addMember(id, data.userId, data.role),
+    onSuccess: () => {
+      toast.success('Member added');
+      qc.invalidateQueries({ queryKey: ['project', id] });
+      setShowAddMember(false);
+      setSelectedUserId('');
+    },
+    onError: (err: any) => toast.error(err?.message ?? 'Failed to add member'),
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => projectsApi.removeMember(id, userId),
+    onSuccess: () => {
+      toast.success('Member removed');
+      qc.invalidateQueries({ queryKey: ['project', id] });
+    },
+    onError: (err: any) => toast.error(err?.message ?? 'Failed to remove member'),
   });
 
   const { data: departments } = useQuery({
@@ -263,7 +286,12 @@ export default function ProjectDetailPage() {
                   <div className="bg-blue-600 h-full rounded-full transition-all" style={{ width: `${progress}%` }} />
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">{project.ticketStats?.done ?? project.tickets?.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length ?? 0} of {project.ticketStats?.total ?? project.tickets?.length ?? 0} tickets resolved</p>
+              <p className="text-xs text-slate-400 mt-2">
+                {totalTickets === 0 
+                  ? "No linked tickets yet." 
+                  : `${project.ticketStats?.done ?? project.tickets?.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length ?? 0} of ${project.ticketStats?.total ?? project.tickets?.length ?? 0} tickets resolved`
+                }
+              </p>
             </div>
           </div>
 
@@ -295,19 +323,62 @@ export default function ProjectDetailPage() {
         <div className="space-y-4">
           {/* Team */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <h3 className="font-semibold text-slate-700 text-sm mb-3 flex items-center gap-2">
-              <Users size={14} /> Team ({project.members?.length || 0})
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
+                <Users size={14} /> Team ({project.members?.length || 0})
+              </h3>
+              {canEdit && (
+                <button onClick={() => setShowAddMember(true)} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                  <UserPlus size={13} /> Add
+                </button>
+              )}
+            </div>
+            
+            {showAddMember && (
+              <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                <select className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded mb-2" value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}>
+                  <option value="">Select User...</option>
+                  {usersList.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                <select className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded mb-2" value={memberRole} onChange={e => setMemberRole(e.target.value)}>
+                  <option value="MEMBER">Member</option>
+                  <option value="OWNER">Owner</option>
+                  <option value="OBSERVER">Observer</option>
+                </select>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => selectedUserId && addMemberMutation.mutate({ userId: selectedUserId, role: memberRole })}
+                    disabled={!selectedUserId || addMemberMutation.isPending}
+                    className="text-[11px] font-semibold bg-blue-600 text-white px-3 py-1 rounded disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                  <button onClick={() => setShowAddMember(false)} className="text-[11px] text-slate-600 hover:bg-slate-200 px-3 py-1 rounded">Cancel</button>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2.5">
               {project.members?.map((m: any) => (
-                <div key={m.id} className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-white text-xs font-semibold">{getInitials(m.user?.name || '')}</span>
+                <div key={m.id} className="flex items-center justify-between group">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-white text-xs font-semibold">{getInitials(m.user?.name || '')}</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-800">{m.user?.name}</p>
+                      <p className="text-xs text-slate-400">{m.user?.role?.name} · {m.role}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">{m.user?.name}</p>
-                    <p className="text-xs text-slate-400">{m.user?.role?.name} · {m.role}</p>
-                  </div>
+                  {canEdit && (
+                    <button 
+                      onClick={() => { if(confirm('Remove this member?')) removeMemberMutation.mutate(m.userId); }}
+                      disabled={removeMemberMutation.isPending}
+                      className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -343,7 +414,12 @@ export default function ProjectDetailPage() {
             <h3 className="font-semibold text-slate-700 text-sm mb-3 flex items-center gap-2">
               <Activity size={14} /> Project Activity
             </h3>
-            {projectEvents.length > 0 ? (
+            {isEventsError ? (
+              <div className="text-center py-4">
+                <p className="text-xs text-red-500 mb-2 font-medium">Project activity unavailable</p>
+                <button onClick={() => refetchEvents()} className="text-[11px] text-blue-600 hover:underline font-semibold bg-transparent border-none cursor-pointer">Retry</button>
+              </div>
+            ) : projectEvents.length > 0 ? (
               <div className="space-y-3.5 max-h-[350px] overflow-y-auto pr-1">
                 {projectEvents.slice(0, 15).map((ev: any, i: number) => (
                   <div key={i} className="flex items-start gap-2.5 text-xs">
