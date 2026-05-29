@@ -24,12 +24,15 @@ export default defineConfig({
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+  timeout: 60000,  // 60 s per test — Next.js dev server first-compile can take 15+ s
   use: {
     /* Base URL to use in actions like `await page.goto('')`. */
     // baseURL: 'http://localhost:3000',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+    actionTimeout: 15000,   // default action timeout: 15 s
+    navigationTimeout: 20000, // default navigation timeout: 20 s
   },
 
   /* Configure projects for major browsers */

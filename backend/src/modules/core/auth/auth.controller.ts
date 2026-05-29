@@ -14,7 +14,8 @@ import { ROLES } from '../../../shared/constants/roles';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  @Throttle({ default: { limit: 5, ttl: 900000 } })
+  // Production: 5 attempts per 15 min. Development: 100 per minute (supports E2E test suites).
+  @Throttle({ default: { limit: process.env.NODE_ENV === 'production' ? 5 : 100, ttl: process.env.NODE_ENV === 'production' ? 900000 : 60000 } })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
