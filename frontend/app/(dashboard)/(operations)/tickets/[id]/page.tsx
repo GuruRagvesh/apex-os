@@ -19,7 +19,7 @@ import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
   Copy, Timer, CheckCircle, XCircle, History, Paperclip, Upload,
   FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, ChevronRight, Loader2,
-  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2,
+  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -121,7 +121,7 @@ function humanValue(field: string, value: string | null) {
 }
 
 // ─── Attachment card ──────────────────────────────────────────────────────────
-function AttachmentCard({ att, ticketId }: { att: any; ticketId: string }) {
+function AttachmentCard({ att, ticketId, canDelete, onDelete }: { att: any; ticketId: string; canDelete?: boolean; onDelete?: (id: string) => void }) {
   const isImage = att.mimeType?.startsWith('image/');
   const isPdf = att.mimeType === 'application/pdf';
   const isDoc = att.mimeType?.includes('word') || att.filename?.endsWith('.doc') || att.filename?.endsWith('.docx');
@@ -235,6 +235,19 @@ function AttachmentCard({ att, ticketId }: { att: any; ticketId: string }) {
         >
           <Download size={13} />
         </button>
+        {canDelete && (
+          <button
+            onClick={() => {
+              if (confirm('Delete this attachment?')) {
+                onDelete?.(att.id);
+              }
+            }}
+            title="Delete"
+            className="p-1 rounded transition-colors text-red-400 hover:text-red-500 hover:bg-red-50/10"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -491,6 +504,9 @@ export default function TicketDetailPage() {
   // Edit modal state
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
+  // Block modal state
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [blockReason, setBlockReason] = useState('');
 
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
@@ -685,6 +701,40 @@ export default function TicketDetailPage() {
     onError: () => toast.error('Upload failed'),
   });
 
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: (attId: string) => ticketsApi.deleteAttachment(ticket.id, attId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      toast.success('Attachment deleted');
+    },
+    onError: () => toast.error('Failed to delete attachment'),
+  });
+
+  const blockMutation = useMutation({
+    mutationFn: () => ticketsApi.blockTicket(ticket.id, blockReason.trim()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ['tickets'] });
+      toast.success('Ticket blocked');
+      setShowBlockModal(false);
+      setBlockReason('');
+    },
+    // Surface the backend authorization / validation message — never hide it
+    onError: (e: any) => toast.error(e?.message || 'Failed to block ticket'),
+  });
+
+  const unblockMutation = useMutation({
+    mutationFn: () => ticketsApi.unblockTicket(ticket.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ['tickets'] });
+      toast.success('Ticket unblocked');
+    },
+    onError: (e: any) => toast.error(e?.message || 'Failed to unblock ticket'),
+  });
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -733,6 +783,9 @@ export default function TicketDetailPage() {
   const isSelfAssigned = ticket.createdById === ticket.assignedToId && ticket.createdById === user?.id;
   const canApprove = (isTeamLeadPlus || isSelfAssigned) && ticket.status === 'REVIEW';
   const isDone = ticket.status === 'DONE' || ticket.status === 'CLOSED';
+  // Block/unblock: backend (TicketAccessService.assertCanBlockTicket) is the final authority.
+  // This is a client-side approximation so we don't show the action to users who clearly cannot use it.
+  const canToggleBlock = roleName !== 'INTERN' && (isTeamLeadPlus || isParticipant);
 
   const submitComment = () => { if (comment.trim()) addComment.mutate(); };
 
@@ -857,6 +910,55 @@ export default function TicketDetailPage() {
         </div>
       )}
 
+      {/* Block Modal */}
+      {showBlockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="apex-card rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Ban size={18} className="text-amber-600" />
+              <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Block Ticket</h3>
+            </div>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Blocking pauses work on this ticket. Add a clear reason so the assignee knows what to resolve.
+            </p>
+            <div>
+              <label className="apex-label">Blocker reason</label>
+              <textarea
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
+                className="apex-input resize-none"
+                rows={3}
+                placeholder="e.g. Waiting on vendor approval"
+                autoFocus
+              />
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Minimum 3 characters.</p>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => blockMutation.mutate()}
+                disabled={blockMutation.isPending || blockReason.trim().length < 3}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-medium py-2.5 rounded-lg text-sm disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {blockMutation.isPending ? <><Loader2 size={14} className="animate-spin" /> Blocking…</> : <><Ban size={14} /> Block ticket</>}
+              </button>
+              <button
+                onClick={() => { setShowBlockModal(false); setBlockReason(''); }}
+                className="flex-1 py-2.5 rounded-lg text-sm transition-colors border"
+                style={{
+                  borderColor: 'var(--border-primary)',
+                  color: 'var(--text-secondary)',
+                  backgroundColor: 'var(--surface-card)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-card)')}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1 text-sm mb-4 flex-wrap" style={{ color: 'var(--text-secondary)' }}>
         {breadcrumbs.map((crumb, i) => (
@@ -913,6 +1015,15 @@ export default function TicketDetailPage() {
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
         </div>
+        {canToggleBlock && !ticket.isBlocked && !isDone && (
+          <button
+            onClick={() => { setBlockReason(''); setShowBlockModal(true); }}
+            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+            title="Block ticket"
+          >
+            <Ban size={16} />
+          </button>
+        )}
         {canEdit && (
           <button
             onClick={() => {
@@ -944,6 +1055,39 @@ export default function TicketDetailPage() {
           </button>
         )}
       </div>
+
+      {/* Blocked Banner */}
+      {ticket.isBlocked && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="flex items-start gap-2.5">
+              <Ban size={18} className="text-red-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-800">This ticket is blocked</p>
+                {ticket.blockedReason && (
+                  <p className="text-sm text-red-700 mt-1 whitespace-pre-wrap">{ticket.blockedReason}</p>
+                )}
+                <p className="text-xs text-red-500 mt-1.5">
+                  {ticket.blockedById && <>Blocked by {resolveUserName(ticket.blockedById)}</>}
+                  {ticket.blockedById && ticket.blockedAt && ' · '}
+                  {ticket.blockedAt && <>{formatDate(ticket.blockedAt)}</>}
+                </p>
+              </div>
+            </div>
+            {canToggleBlock && (
+              <button
+                onClick={() => unblockMutation.mutate()}
+                disabled={unblockMutation.isPending}
+                className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-red-100 text-red-700 text-sm font-medium rounded-lg border border-red-200 transition-colors disabled:opacity-50"
+              >
+                {unblockMutation.isPending
+                  ? <><Loader2 size={14} className="animate-spin" /> Unblocking…</>
+                  : <><Unlock size={14} /> Unblock ticket</>}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Approvals Banner */}
       {canApprove && (
@@ -1151,7 +1295,13 @@ export default function TicketDetailPage() {
                 {ticket.attachments?.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {ticket.attachments.map((att: any) => (
-                      <AttachmentCard key={att.id} att={att} ticketId={ticket.id} />
+                      <AttachmentCard
+                        key={att.id}
+                        att={att}
+                        ticketId={ticket.id}
+                        canDelete={canDelete || canEdit}
+                        onDelete={(attId) => deleteAttachmentMutation.mutate(attId)}
+                      />
                     ))}
                   </div>
                 ) : (

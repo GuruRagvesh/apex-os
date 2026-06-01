@@ -117,7 +117,7 @@ function ProfileSection({ user }: { user: any }) {
 
   const handleRemovePhoto = async () => {
     try {
-      await usersApi.updateMe({ photoUrl: null } as any);
+      await (usersApi as any).removePhoto();
       useAuthStore.setState((s: any) => ({ user: { ...s.user, photoUrl: null } }));
       toast.success('Photo removed');
     } catch { toast.error('Failed to remove photo'); }
@@ -368,10 +368,10 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
       await usersApi.updatePreferences(prefs);
       localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
       toast.success('Notification preferences saved');
-    } catch {
+    } catch (err: any) {
       // API save failed — still persist locally so the UX isn't broken
       localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
-      toast.success('Notification preferences saved');
+      toast.error('Could not sync notification preferences. Saved on this browser only.');
     } finally {
       setSaving(false);
     }
@@ -443,7 +443,7 @@ function DisplaySection() {
     localStorage.setItem('apex-compact', compact.toString());
     localStorage.setItem('apex-date-format', dateFormat);
     localStorage.setItem('apex-time-format', timeFormat);
-    toast.success('Display settings saved');
+    toast.success('Applied locally');
   };
 
   const optionBtnCls = (active: boolean) =>
@@ -552,10 +552,10 @@ function PreferencesSection() {
       localStorage.setItem('apex-pref-autoassign', autoAssign.toString());
       localStorage.setItem('apex-pref-priority', defaultPriority);
       toast.success('Preferences saved');
-    } catch {
+    } catch (err: any) {
       localStorage.setItem('apex-pref-autoassign', autoAssign.toString());
       localStorage.setItem('apex-pref-priority', defaultPriority);
-      toast.success('Preferences saved');
+      toast.error('Could not sync ticket preferences. Saved on this browser only.');
     } finally {
       setSaving(false);
     }
@@ -592,11 +592,11 @@ function PreferencesSection() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Welcome screen</p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Re-show the welcome walkthrough on your next login</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Show welcome screen again on this device</p>
           </div>
           <button
             type="button"
-            onClick={() => { localStorage.removeItem('apexWelcomeSeen'); toast.success('Welcome screen will show on next login'); }}
+            onClick={() => { localStorage.removeItem('apexWelcomeSeen'); toast.success('Welcome screen will show on next login on this device'); }}
             className="text-sm font-medium px-4 py-1.5 rounded-lg transition-colors border"
             style={{
               borderColor: 'var(--border-primary)',
@@ -1216,6 +1216,9 @@ function AppearanceSettings() {
       <div>
         <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Appearance</h2>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Personalize your workspace look and feel</p>
+        <p className="text-xs mt-1 font-medium px-3 py-2 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', display: 'inline-block' }}>
+          These appearance preferences apply only to this browser/device.
+        </p>
       </div>
 
       {/* System Theme */}

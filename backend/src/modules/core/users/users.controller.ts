@@ -1,4 +1,4 @@
-﻿import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, Request } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -43,6 +43,11 @@ export class UsersController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.usersService.uploadPhoto(user.id, file);
+  }
+
+  @Delete('me/photo')
+  async removePhoto(@CurrentUser() user: any) {
+    return this.usersService.removePhoto(user.id);
   }
 
   @Get('me/preferences')
@@ -125,6 +130,15 @@ export class UsersController {
   @Get(':id/documents')
   getDocuments(@Param('id') id: string, @Request() req: any) {
     return this.usersService.getDocuments(req.user.id ?? req.user.sub, id);
+  }
+
+  @Delete(':id/documents/:docId')
+  deleteDocument(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Request() req: any,
+  ) {
+    return this.usersService.deleteDocument(req.user.id ?? req.user.sub, id, docId);
   }
 
   @Patch(':id/documents/:docId/verify')

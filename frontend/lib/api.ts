@@ -88,6 +88,7 @@ export const usersApi = {
     formData.append('photo', file);
     return r(api.post('/users/me/photo', formData, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
+  removePhoto: () => r(api.delete('/users/me/photo')),
   getProfile: (id: string) => r(api.get(`/users/${id}/profile`)),
   updateProfile: (id: string, data: any) => r(api.patch(`/users/${id}/profile`, data)),
   uploadDocument: async (id: string, file: File, documentType: string) => {
@@ -97,6 +98,7 @@ export const usersApi = {
     return r(api.post(`/users/${id}/documents`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
   getDocuments: (id: string) => r(api.get(`/users/${id}/documents`)),
+  deleteDocument: (userId: string, docId: string) => r(api.delete(`/users/${userId}/documents/${docId}`)),
   verifyDocument: (userId: string, docId: string, status: string, rejectionReason?: string) =>
     r(api.patch(`/users/${userId}/documents/${docId}/verify`, { status, rejectionReason })),
 };
@@ -162,6 +164,7 @@ export const ticketsApi = {
     }
     return res.blob();
   },
+  deleteAttachment: (ticketId: string, attachmentId: string) => r(api.delete(`/tickets/${ticketId}/attachments/${attachmentId}`)),
   exportCsv: async (params?: any) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -184,8 +187,8 @@ export const ticketsApi = {
   getStats: () => r(api.get('/tickets/stats')),
   getSlaRisk: () => r(api.get('/tickets/sla-risk')),
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
-  block: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
-  unblock: (id: string) => r(api.post(`/tickets/${id}/unblock`)),
+  blockTicket: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
+  unblockTicket: (id: string) => r(api.post(`/tickets/${id}/unblock`)),
 };
 
 // Comments

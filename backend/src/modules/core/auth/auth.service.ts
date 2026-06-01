@@ -1,10 +1,17 @@
-import { Injectable, UnauthorizedException, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { LoginDto, RegisterDto } from './dto/login.dto';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
+import { EmailService } from '../../platform/email/email.service';
+
+/** Generic response used for both known and unknown emails — prevents enumeration. */
+const OTP_GENERIC_RESPONSE = { message: 'If an account exists for that email, a reset code has been sent.' };
+
+/** Unified error for all reset-path failures — prevents enumeration at step 2. */
+const RESET_ERROR = 'Invalid or expired code';
 
 @Injectable()
 export class AuthService {
@@ -16,6 +23,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private eventLogger: EventLoggerService,
+    private emailService: EmailService,
   ) {}
 
   /** Case-insensitive email lookup — handles mixed-case addresses at login/OTP */
@@ -144,16 +152,22 @@ export class AuthService {
   async sendOtp(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.findUserByEmailCI(normalizedEmail);
-    if (!user) throw new NotFoundException('User not found');
+
+    // Unknown email: return generic response without revealing account existence.
+    // Do NOT store an OTP or call EmailService for unknown addresses.
+    if (!user) return OTP_GENERIC_RESPONSE;
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    this.otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000 }); // 10-min TTL
-    // TODO: send via SMTP when configured — email.service.ts is wired but optional
-    // SECURITY: OTP is never logged in production. Development-only trace.
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[OTP:DEV] Reset requested for: ${normalizedEmail} — check email or SMTP logs`);
-    }
-    return { message: `OTP sent to ${normalizedEmail}` };
+
+    // Attempt email delivery BEFORE storing the OTP.
+    // If the provider is unconfigured or fails, the exception propagates to
+    // the controller (400) and no OTP is left in memory with no delivery channel.
+    await this.emailService.sendOtpEmail(normalizedEmail, otp);
+
+    // Email confirmed dispatched — store OTP with 10-minute TTL.
+    this.otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000 });
+
+    return OTP_GENERIC_RESPONSE;
   }
 
   async resetPasswordWithOtp(email: string, otp: string, newPassword: string) {
@@ -162,16 +176,19 @@ export class AuthService {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+
+    // All failure cases (unknown email, no OTP requested, wrong code, expired)
+    // return the same message to prevent enumeration at step 2.
     const entry = this.otpStore.get(normalizedEmail);
-    if (!entry) throw new BadRequestException('No OTP requested for this email');
+    if (!entry) throw new BadRequestException(RESET_ERROR);
     if (Date.now() > entry.expires) {
       this.otpStore.delete(normalizedEmail);
-      throw new BadRequestException('OTP has expired — please request a new one');
+      throw new BadRequestException(RESET_ERROR);
     }
-    if (entry.otp !== otp) throw new BadRequestException('Invalid OTP');
+    if (entry.otp !== otp) throw new BadRequestException(RESET_ERROR);
 
     const user = await this.findUserByEmailCI(normalizedEmail);
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new BadRequestException(RESET_ERROR);
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await this.updatePassword(user.id, hashed);

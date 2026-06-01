@@ -76,9 +76,20 @@ export class WorkdayService {
 
     if (!session) return { message: 'No session found' };
 
-    const totalBreakMinutes = session.breakLogs
+    let totalBreakMinutes = session.breakLogs
       .filter((b) => b.durationMinutes)
       .reduce((sum, b) => sum + (b.durationMinutes ?? 0), 0);
+
+    // Close any open break
+    const openBreak = session.breakLogs.find((b) => !b.endAt);
+    if (openBreak) {
+      const openDuration = Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
+      await this.prisma.breakLog.update({
+        where: { id: openBreak.id },
+        data: { endAt: now, durationMinutes: openDuration },
+      });
+      totalBreakMinutes += openDuration;
+    }
 
     let totalWorkMinutes = 0;
     if (session.startWorkAt) {
@@ -283,12 +294,20 @@ export class WorkdayService {
       },
     });
 
+    let liveBreakMins = session?.totalBreakMinutes ?? 0;
+    if (session) {
+      const openBreak = session.breakLogs.find((b) => !b.endAt);
+      if (openBreak) {
+        liveBreakMins += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
+      }
+    }
+
     let elapsedWorkMinutes = 0;
     if (session?.startWorkAt && !session.logoutAt) {
       const elapsed = Math.floor(
         (now.getTime() - session.startWorkAt.getTime()) / 60000,
       );
-      elapsedWorkMinutes = Math.max(0, elapsed - (session.totalBreakMinutes ?? 0));
+      elapsedWorkMinutes = Math.max(0, elapsed - liveBreakMins);
     }
 
     return {
@@ -309,6 +328,9 @@ export class WorkdayService {
     let userFilter: any = { isActive: true, id: { not: requestingUser.id } };
 
     if (!isHR && !isAdminLevel) {
+      if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
+        return [];
+      }
       const access = await this.prisma.managerDeptAccess.findMany({
         where: { managerId: requestingUser.id },
       });

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { LeaveService } from './leave.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -23,7 +23,7 @@ export class LeaveController {
   }
 
   @Get('balance/:userId')
-  getUserBalance(@Param('userId', ParseUUIDPipe) userId: string, @CurrentUser() user: any) {
+  getUserBalance(@Param('userId') userId: string, @CurrentUser() user: any) {
     return this.leaveService.getUserBalance(userId, user);
   }
 
@@ -31,7 +31,7 @@ export class LeaveController {
   getStats(@CurrentUser() user: any) { return this.leaveService.getStats(user); }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) { return this.leaveService.findOne(id, user); }
+  findOne(@Param('id') id: string, @CurrentUser() user: any) { return this.leaveService.findOne(id, user); }
 
   @Post()
   create(@Body() body: any, @CurrentUser() user: any) {
@@ -41,19 +41,19 @@ export class LeaveController {
   @Patch(':id/approve')
   @UseGuards(RolesGuard)
   @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  approve(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.approve(id, user.id, user);
   }
 
   @Patch(':id/reject')
   @UseGuards(RolesGuard)
   @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  reject(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  reject(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.reject(id, user.id, user);
   }
 
   @Patch(':id/cancel')
-  cancel(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+  cancel(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.cancel(id, user.id);
   }
 }

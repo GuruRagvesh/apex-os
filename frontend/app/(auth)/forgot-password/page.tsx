@@ -22,16 +22,28 @@ export default function ForgotPasswordPage() {
 
   const inputCls = 'w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent';
 
+  // Generic, non-enumerating message shown whether or not the account exists.
+  const GENERIC_OTP_MESSAGE = 'If an account exists for that email, a one-time code has been sent.';
+
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
     setLoading(true);
     try {
       await authApi.forgotPassword(email.trim());
-      toast.success('OTP sent! Check your email (or console in dev mode).');
+      toast.success(GENERIC_OTP_MESSAGE);
       setStep('reset');
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to send OTP');
+      // Do not reveal whether the email exists: treat "user not found" exactly
+      // like success (generic message + advance). Surface only genuine failures
+      // (rate-limiting, network/server errors) so the user can retry.
+      const isNotFound = err?.statusCode === 404 || /not found/i.test(err?.message || '');
+      if (isNotFound) {
+        toast.success(GENERIC_OTP_MESSAGE);
+        setStep('reset');
+      } else {
+        toast.error(err?.message || 'Could not send the code right now. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

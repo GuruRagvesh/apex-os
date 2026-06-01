@@ -107,6 +107,15 @@ export default function EmployeeProfilePage() {
     } catch { toast.error('Failed'); }
   };
 
+  const handleDeleteDoc = async (docId: string) => {
+    if (!confirm('Delete this document?')) return;
+    try {
+      await (usersApi as any).deleteDocument(userId, docId);
+      toast.success('Document deleted');
+      refetchDocs();
+    } catch { toast.error('Failed to delete document'); }
+  };
+
   const breadcrumbs = useMemo(() => {
     if (fromContext === 'department' && deptId && deptName) {
       return [
@@ -547,6 +556,10 @@ export default function EmployeeProfilePage() {
                             {canEditAll && uploaded.verificationStatus !== 'REJECTED' && (
                               <button onClick={() => handleVerifyDoc(uploaded.id, 'REJECTED', 'Document unclear')}
                                 className="text-[10px] text-red-400 hover:underline">Reject</button>
+                            )}
+                            {canEditAll && (
+                              <button onClick={() => handleDeleteDoc(uploaded.id)}
+                                className="text-[10px] text-slate-400 hover:text-red-400 hover:underline ml-1">Delete</button>
                             )}
                           </div>
                         </>

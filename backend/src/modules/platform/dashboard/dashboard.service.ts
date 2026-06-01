@@ -189,13 +189,17 @@ export class DashboardService {
 
     let whereClause: any = {};
     if (!isAdmin && user) {
-      const deptIds = await this.accessPolicy.managedDepartmentIds(user);
-      whereClause = {
-        OR: [
-          { userId: user.id },
-          { user: { departmentId: { in: deptIds } } },
-        ],
-      };
+      if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
+        const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+        whereClause = {
+          OR: [
+            { userId: user.id },
+            { user: { departmentId: { in: deptIds } } },
+          ],
+        };
+      } else {
+        whereClause = { userId: user.id };
+      }
     }
 
     if (userId) {
