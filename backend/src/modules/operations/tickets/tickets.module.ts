@@ -1,15 +1,16 @@
-﻿import { Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TicketsService } from './tickets.service';
 import { TicketsController } from './tickets.controller';
 import { GatewayModule } from '../../platform/gateway/gateway.module';
 import { EmailModule } from '../../platform/email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { UploadsModule } from '../../platform/uploads/uploads.module';
+import { TicketLedgerService } from './ticket-ledger.service';
 
 @Module({
   imports: [GatewayModule, EmailModule, NotificationsModule, UploadsModule],
-  providers: [TicketsService],
+  providers: [TicketsService, TicketLedgerService],
   controllers: [TicketsController],
-  exports: [TicketsService],
+  exports: [TicketsService, TicketLedgerService],
 })
 export class TicketsModule {}
