@@ -1,6 +1,8 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 type SmtpConfig = {
   host: string;
@@ -10,22 +12,65 @@ type SmtpConfig = {
   secure: boolean;
 };
 
+/**
+ * EmailService — provider-agnostic email delivery.
+ *
+ * Provider priority (resolved per-send):
+ *   1. Resend  — if RESEND_API_KEY + RESEND_FROM_EMAIL env vars are set
+ *   2. SMTP    — if smtp key is configured in AppSetting (Settings UI)
+ *   3. Error   — "Email provider is not configured." (strict path only)
+ *
+ * Soft paths (sendEmail / notification helpers): return false if no provider.
+ * Strict paths (sendOtpEmail / sendTestEmail): throw BadRequestException.
+ *
+ * ConfigService is @Optional() so existing unit tests that instantiate
+ * EmailService directly with `new EmailService(prisma)` remain valid.
+ * Resend init falls back to process.env when ConfigService is absent.
+ */
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger('EmailService');
+
+  // ── Resend state ────────────────────────────────────────────────────────────
+  private resendClient: Resend | null = null;
+  private resendFrom = '';
+
+  // ── SMTP (nodemailer) state ──────────────────────────────────────────────────
   private transporter: nodemailer.Transporter | null = null;
-  private from = '';
+  private smtpFrom = '';
   private loadedFingerprint = '';
-  private activeConfig: SmtpConfig | null = null;
+  private activeSmtpConfig: SmtpConfig | null = null;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private configService?: ConfigService,
+  ) {
+    this.initResend();
+  }
 
-  private normalizeConfig(raw: any, strict = false): SmtpConfig | null {
-    const host = String(raw?.host || '').trim();
-    const email = String(raw?.email || '').trim();
+  // ── Provider initialisation ─────────────────────────────────────────────────
+
+  private initResend(): void {
+    // ConfigService available through NestJS DI; falls back to process.env when
+    // the service is instantiated directly (e.g. unit tests via `new EmailService(prisma)`).
+    const apiKey  = this.configService?.get<string>('RESEND_API_KEY')    ?? process.env['RESEND_API_KEY'];
+    const fromAddr = this.configService?.get<string>('RESEND_FROM_EMAIL') ?? process.env['RESEND_FROM_EMAIL'];
+
+    if (apiKey && fromAddr) {
+      this.resendClient = new Resend(apiKey);
+      this.resendFrom   = fromAddr;
+      this.logger.log('Resend email provider initialized');
+    }
+  }
+
+  // ── SMTP helpers (unchanged logic, renamed private field) ───────────────────
+
+  private normalizeSmtpConfig(raw: any, strict = false): SmtpConfig | null {
+    const host     = String(raw?.host     || '').trim();
+    const email    = String(raw?.email    || '').trim();
     const password = String(raw?.password || '');
-    const port = Number(raw?.port || 587);
-    const hasAny = Boolean(host || email || password || raw?.port);
+    const port     = Number(raw?.port     || 587);
+    const hasAny   = Boolean(host || email || password || raw?.port);
 
     if (!hasAny) return null;
     if (!host || !email || !password || !Number.isInteger(port) || port <= 0 || port > 65535) {
@@ -33,78 +78,179 @@ export class EmailService {
       return null;
     }
 
-    return {
-      host,
-      port,
-      email,
-      password,
-      secure: raw?.secure === true || port === 465,
-    };
+    return { host, port, email, password, secure: raw?.secure === true || port === 465 };
   }
 
-  private async ensureTransporter(strict = false) {
-    const setting = await this.prisma.appSetting.findUnique({ where: { key: 'smtp' } });
-    const raw = (setting?.value as any) ?? {};
+  private async ensureSmtpTransporter(strict = false): Promise<boolean> {
+    const setting    = await this.prisma.appSetting.findUnique({ where: { key: 'smtp' } });
+    const raw        = (setting?.value as any) ?? {};
     const fingerprint = JSON.stringify(raw);
+
     if (fingerprint === this.loadedFingerprint) {
       if (strict && !this.transporter) throw new BadRequestException('SMTP is not configured.');
       return Boolean(this.transporter);
     }
 
-    const config = this.normalizeConfig(raw, strict);
-    this.loadedFingerprint = fingerprint;
-    this.activeConfig = config;
+    const config = this.normalizeSmtpConfig(raw, strict);
+    this.loadedFingerprint   = fingerprint;
+    this.activeSmtpConfig    = config;
 
     if (!config) {
       this.transporter = null;
-      this.from = '';
+      this.smtpFrom    = '';
       this.logger.warn('SMTP not configured in settings - emails will be skipped');
       if (strict) throw new BadRequestException('SMTP is not configured.');
       return false;
     }
 
     this.transporter = nodemailer.createTransport({
-      host: config.host,
-      port: config.port,
+      host:   config.host,
+      port:   config.port,
       secure: config.secure,
-      auth: { user: config.email, pass: config.password },
+      auth:   { user: config.email, pass: config.password },
     });
-    this.from = `"Apex OS - TechnoEdge" <${config.email}>`;
+    this.smtpFrom = `"Apex OS - TechnoEdge" <${config.email}>`;
     this.logger.log('SMTP transporter loaded from settings');
     return true;
   }
 
-  async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-    if (!(await this.ensureTransporter(false)) || !this.transporter) {
-      this.logger.debug(`[Email skipped] ${subject} -> ${to}`);
-      return false;
+  // ── OTP email — strict path (throws on any failure) ────────────────────────
+
+  /**
+   * Send a password-reset OTP to the given address.
+   * Throws BadRequestException if the provider fails or is not configured.
+   * Callers must NOT call this for unknown users (no side-channel via error timing).
+   */
+  async sendOtpEmail(to: string, otp: string): Promise<void> {
+    const html = this.buildHtml(
+      'Your Apex OS password reset code',
+      `<p>Hi,</p>
+       <p>You requested a password reset for your Apex OS account.</p>
+       <div style="text-align:center;margin:24px 0">
+         <div style="display:inline-block;background:#f1f5f9;border:2px dashed #cbd5e1;
+                     border-radius:12px;padding:16px 32px">
+           <p style="margin:0 0 4px;font-size:12px;color:#64748b;
+                     text-transform:uppercase;letter-spacing:.05em">One-time code</p>
+           <p style="margin:0;font-size:32px;font-weight:700;color:#0f172a;
+                     letter-spacing:.2em;font-family:monospace">${otp}</p>
+           <p style="margin:8px 0 0;font-size:11px;color:#94a3b8">
+             Expires in 10 minutes</p>
+         </div>
+       </div>
+       <p style="color:#64748b;font-size:13px">
+         If you did not request this, you can safely ignore this email.</p>`,
+    );
+
+    // 1. Try Resend
+    if (this.resendClient) {
+      const { error } = await this.resendClient.emails.send({
+        from:    this.resendFrom,
+        to:      [to],
+        subject: 'Apex OS — Password reset code',
+        html,
+      });
+      if (error) {
+        this.logger.error(`Resend OTP send failed: ${error.message}`);
+        throw new BadRequestException('Failed to send reset code. Please try again later.');
+      }
+      this.logger.log(`OTP email sent via Resend -> ${to}`);
+      return;
     }
 
+    // 2. Try SMTP fallback
+    const smtpReady = await this.ensureSmtpTransporter(false);
+    if (!smtpReady || !this.transporter) {
+      throw new BadRequestException('Email provider is not configured. Contact your administrator.');
+    }
     try {
-      await this.transporter.sendMail({ from: this.from, to, subject, html });
-      this.logger.log(`Email sent: ${subject} -> ${to}`);
+      await this.transporter.sendMail({
+        from:    this.smtpFrom,
+        to,
+        subject: 'Apex OS — Password reset code',
+        html,
+      });
+      this.logger.log(`OTP email sent via SMTP -> ${to}`);
+    } catch (err: any) {
+      this.logger.error(`SMTP OTP send failed: ${err.message}`);
+      throw new BadRequestException('Failed to send reset code. Please try again later.');
+    }
+  }
+
+  // ── General email — soft path (returns boolean, never throws) ───────────────
+
+  async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+    // 1. Try Resend
+    if (this.resendClient) {
+      try {
+        const { error } = await this.resendClient.emails.send({
+          from:    this.resendFrom,
+          to:      [to],
+          subject,
+          html,
+        });
+        if (error) {
+          this.logger.error(`Resend send failed: ${error.message}`);
+          return false;
+        }
+        this.logger.log(`Email sent via Resend: ${subject} -> ${to}`);
+        return true;
+      } catch (err: any) {
+        this.logger.error(`Resend unexpected error: ${err.message}`);
+        return false;
+      }
+    }
+
+    // 2. Try SMTP fallback
+    if (!(await this.ensureSmtpTransporter(false)) || !this.transporter) {
+      this.logger.debug(`[Email skipped — no provider] ${subject} -> ${to}`);
+      return false;
+    }
+    try {
+      await this.transporter.sendMail({ from: this.smtpFrom, to, subject, html });
+      this.logger.log(`Email sent via SMTP: ${subject} -> ${to}`);
       return true;
     } catch (err: any) {
-      this.logger.error(`Email failed: ${err.message}`);
+      this.logger.error(`SMTP send failed: ${err.message}`);
       return false;
     }
   }
 
-  async sendTestEmail(to?: string) {
-    await this.ensureTransporter(true);
-    if (!this.transporter || !this.activeConfig) throw new BadRequestException('SMTP is not configured.');
-    const recipient = String(to || this.activeConfig.email || '').trim();
-    if (!recipient) throw new BadRequestException('Test recipient is required.');
+  // ── Test email — strict path ─────────────────────────────────────────────────
 
+  async sendTestEmail(to?: string) {
+    // 1. Try Resend
+    if (this.resendClient) {
+      const recipient = String(to || this.resendFrom.match(/<(.+)>/)?.[1] || '').trim();
+      if (!recipient) throw new BadRequestException('Test recipient is required.');
+      const { error } = await this.resendClient.emails.send({
+        from:    this.resendFrom,
+        to:      [recipient],
+        subject: 'Apex OS Resend test',
+        html:    this.buildHtml('Resend test successful',
+          '<p>This test email confirms Apex OS can send notifications via Resend.</p>'),
+      });
+      if (error) {
+        this.logger.error(`Resend test failed: ${error.message}`);
+        throw new BadRequestException('Resend test failed. Check API key and from-address domain verification.');
+      }
+      this.logger.log(`Resend test email sent -> ${recipient}`);
+      return { ok: true, message: `Test email sent to ${recipient} via Resend` };
+    }
+
+    // 2. Try SMTP fallback
+    await this.ensureSmtpTransporter(true);
+    if (!this.transporter || !this.activeSmtpConfig) {
+      throw new BadRequestException('Email provider is not configured.');
+    }
+    const recipient = String(to || this.activeSmtpConfig.email || '').trim();
+    if (!recipient) throw new BadRequestException('Test recipient is required.');
     try {
       await this.transporter.sendMail({
-        from: this.from,
-        to: recipient,
+        from:    this.smtpFrom,
+        to:      recipient,
         subject: 'Apex OS SMTP test',
-        html: this.buildHtml(
-          'SMTP test successful',
-          '<p>This test email confirms Apex OS can send notifications using the saved SMTP settings.</p>',
-        ),
+        html:    this.buildHtml('SMTP test successful',
+          '<p>This test email confirms Apex OS can send notifications using the saved SMTP settings.</p>'),
       });
       this.logger.log(`SMTP test email sent -> ${recipient}`);
       return { ok: true, message: `Test email sent to ${recipient}` };
@@ -114,10 +260,13 @@ export class EmailService {
     }
   }
 
+  // ── HTML template builder ────────────────────────────────────────────────────
+
   private buildHtml(title: string, bodyHtml: string, btnText?: string, btnUrl?: string) {
     const btn = btnText && btnUrl
       ? `<div style="text-align:center;margin:32px 0">
-           <a href="${btnUrl}" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block">${btnText}</a>
+           <a href="${btnUrl}" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:8px;
+              text-decoration:none;font-weight:600;font-size:14px;display:inline-block">${btnText}</a>
          </div>`
       : '';
     return `<!DOCTYPE html>
@@ -146,6 +295,8 @@ export class EmailService {
 </table>
 </body></html>`;
   }
+
+  // ── Notification helpers (unchanged callers — soft path) ─────────────────────
 
   async sendTicketAssigned(to: string, ticketId: string, title: string, assignedByName: string, frontendUrl: string) {
     const html = this.buildHtml(
@@ -185,9 +336,9 @@ export class EmailService {
     frontendUrl: string,
   ) {
     const approved = status === 'APPROVED';
-    const color = approved ? '#16a34a' : '#dc2626';
-    const word = approved ? 'approved' : 'rejected';
-    const html = this.buildHtml(
+    const color    = approved ? '#16a34a' : '#dc2626';
+    const word     = approved ? 'approved' : 'rejected';
+    const html     = this.buildHtml(
       `Leave request ${approved ? 'Approved' : 'Rejected'}`,
       `<p>Hi,</p>
        <p>Your <strong>${leaveType}</strong> leave request

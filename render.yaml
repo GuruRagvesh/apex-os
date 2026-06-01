@@ -5,3 +5,22 @@ services:
     rootDir: backend
     buildCommand: npm install --include=dev && npm run build
     startCommand: npx prisma migrate deploy && node dist/main.js
+    # ── Required env vars (set manually in Render dashboard → Environment) ────
+    # DATABASE_URL          → Render PostgreSQL internal URL
+    # JWT_SECRET            → Long random string (min 64 chars) — NEVER commit
+    # FRONTEND_URL          → https://your-frontend.onrender.com
+    # NODE_ENV              → production
+    #
+    # ── Email delivery (set ONE of these blocks) ──────────────────────────────
+    # Option A — Resend (recommended):
+    # RESEND_API_KEY        → re_... from https://resend.com
+    # RESEND_FROM_EMAIL     → "Apex OS <noreply@your-verified-domain.com>"
+    #
+    # Option B — SMTP (configure via Settings UI after deploy):
+    # (no env vars needed — SMTP is configured through the app Settings page)
+    #
+    # ── Optional ──────────────────────────────────────────────────────────────
+    # CLOUDINARY_CLOUD_NAME → for file attachment storage
+    # CLOUDINARY_API_KEY    → for file attachment storage
+    # CLOUDINARY_API_SECRET → for file attachment storage
+    # OPENAI_API_KEY        → for AI features

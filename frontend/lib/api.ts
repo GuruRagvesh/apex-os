@@ -187,8 +187,8 @@ export const ticketsApi = {
   getStats: () => r(api.get('/tickets/stats')),
   getSlaRisk: () => r(api.get('/tickets/sla-risk')),
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
-  block: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
-  unblock: (id: string) => r(api.post(`/tickets/${id}/unblock`)),
+  blockTicket: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
+  unblockTicket: (id: string) => r(api.post(`/tickets/${id}/unblock`)),
 };
 
 // Comments
