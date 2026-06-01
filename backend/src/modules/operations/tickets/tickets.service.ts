@@ -426,6 +426,24 @@ export class TicketsService {
     if (!existing) throw new NotFoundException('Ticket not found');
     const ticketDbId = existing.id;
 
+    if (existing.status === TicketStatus.CLOSED) {
+      throw new BadRequestException('Cannot modify a closed ticket');
+    }
+
+    if (existing.status === TicketStatus.DONE && data.assignedToId !== undefined && data.assignedToId !== existing.assignedToId) {
+      const isReopening = data.status && ['OPEN', 'IN_PROGRESS'].includes(data.status);
+      if (!isReopening) {
+        throw new BadRequestException('Cannot reassign a DONE ticket unless it is reopened first');
+      }
+    }
+
+    if (data.status === TicketStatus.REVIEW || data.status === TicketStatus.DONE) {
+      const dbActor = await this.prisma.user.findUnique({ where: { id: userId }, select: { currentStatus: true } });
+      if (dbActor && (dbActor.currentStatus === 'ON_BREAK' || dbActor.currentStatus === 'LOGGED_OUT')) {
+        throw new BadRequestException('Resume work before submitting or completing a ticket.');
+      }
+    }
+
     if (user) {
       if (data.assignedToId !== undefined) {
         await this.ticketAccess.assertCanAssignTicket(user, existing, data.assignedToId);
@@ -739,6 +757,9 @@ export class TicketsService {
       : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: { assignees: true } });
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (!ticket.isBlocked) throw new BadRequestException('Ticket is not currently blocked');
+    if (ticket.status === TicketStatus.CLOSED) {
+      throw new BadRequestException('Cannot modify a closed ticket');
+    }
     if (user) await this.ticketAccess.assertCanBlockTicket(user, ticket);
 
     const updated = await this.prisma.ticket.update({
@@ -933,6 +954,9 @@ export class TicketsService {
       ? await this.ticketAccess.findAccessibleTicket(id, user)
       : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] } });
     if (!ticket) throw new NotFoundException('Ticket not found');
+    if (ticket.status === TicketStatus.CLOSED) {
+      throw new BadRequestException('Cannot delete a closed ticket');
+    }
     if (user) await this.ticketAccess.assertCanDeleteTicket(user, ticket);
     if (userId) {
       this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: OperationalAction.TICKET_DELETED }).catch(() => {});
