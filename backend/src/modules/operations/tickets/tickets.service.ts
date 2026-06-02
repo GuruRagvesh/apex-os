@@ -141,6 +141,7 @@ export class TicketsService {
     filter?: string;
     blocked?: string | boolean;
     isBlocked?: string | boolean;
+    projectStageId?: string;
     page?: number;
     limit?: number;
   }, user?: any) {
@@ -154,6 +155,11 @@ export class TicketsService {
       || query.isBlocked === true || query.isBlocked === 'true';
     if (blockedFilter) {
       (where as any).isBlocked = true;
+    }
+
+    // projectStageId filter — show tickets in a specific project stage (FP-14B)
+    if (query.projectStageId) {
+      (where as any).projectStageId = query.projectStageId === 'null' ? null : query.projectStageId;
     }
 
     const needsTimingFilter = query.overdue === true || query.overdue === 'true' || query.risk === 'overdue' || query.filter === 'overdue';
@@ -400,6 +406,14 @@ export class TicketsService {
     const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
     delete data.assigneeIds;
 
+    // FP-14B: Validate projectStageId assignment — stage must belong to same project as ticket
+    if (data.projectStageId !== undefined && data.projectStageId !== null) {
+      const stage = await this.prisma.projectStage.findUnique({ where: { id: data.projectStageId } });
+      if (!stage) throw new NotFoundException('Project stage not found');
+      // The ticket's projectId is resolved below; we pre-check here if already known
+      // Full cross-project check is enforced when we read the existing ticket
+    }
+
     // Handle custom subtype on update
     if (data.taskSubtypeId === '__custom__' || data.taskSubtypeId === 'custom') {
       data.taskSubtypeId = null;
@@ -425,6 +439,18 @@ export class TicketsService {
       : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: { assignees: true } });
     if (!existing) throw new NotFoundException('Ticket not found');
     const ticketDbId = existing.id;
+
+    // FP-14B: Cross-project stage validation — stage must belong to same project as ticket
+    if (data.projectStageId !== undefined && data.projectStageId !== null) {
+      const stage = await this.prisma.projectStage.findUnique({ where: { id: data.projectStageId } });
+      if (!stage) throw new NotFoundException('Project stage not found');
+      if (!existing.projectId) {
+        throw new BadRequestException('Cannot assign a stage to a ticket that is not linked to a project');
+      }
+      if (stage.projectId !== existing.projectId) {
+        throw new BadRequestException('Stage does not belong to the same project as this ticket');
+      }
+    }
 
     if (existing.status === TicketStatus.CLOSED) {
       throw new BadRequestException('Cannot modify a closed ticket');

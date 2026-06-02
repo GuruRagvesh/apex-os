@@ -161,14 +161,37 @@ model Project {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  department Department?     @relation(fields: [departmentId], references: [id])
+  department Department?      @relation(fields: [departmentId], references: [id])
   members    ProjectMember[]
   tickets    Ticket[]
+  stages     ProjectStage[]
 
   @@index([departmentId])
   @@index([status])
   @@index([createdAt])
   @@map("projects")
+}
+
+model ProjectStage {
+  id          String    @id @default(cuid())
+  projectId   String
+  name        String
+  description String?
+  order       Int       @default(0)
+  /// PLANNED | ACTIVE | COMPLETED | SKIPPED  (validated at service layer)
+  status      String    @default("PLANNED")
+  color       String?
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tickets Ticket[] @relation("TicketStage")
+
+  @@index([projectId])
+  @@index([projectId, order])
+  @@map("project_stages")
 }
 
 model ProjectMember {
@@ -231,18 +254,22 @@ model Ticket {
   blockedReason String?
   blockedById   String?
 
-  project     Project?        @relation(fields: [projectId], references: [id])
-  department  Department?     @relation(fields: [departmentId], references: [id])
-  assignedTo  User?           @relation("TicketAssignee", fields: [assignedToId], references: [id])
-  createdBy   User            @relation("TicketCreator", fields: [createdById], references: [id])
-  taskType    TaskType?       @relation(fields: [taskTypeId], references: [id])
-  taskSubtype TaskSubtype?    @relation(fields: [taskSubtypeId], references: [id])
-  comments    Comment[]
-  attachments Attachment[]
-  history     TicketHistory[]
-  assignees   TicketAssignee[]
-  reworkCount Int @default(0)
-  timeLogs    TicketTimeLog[]
+  // ── Project Stage assignment (FP-14B) ─────────────────────────────────────
+  projectStageId String?
+
+  project      Project?        @relation(fields: [projectId], references: [id])
+  projectStage ProjectStage?   @relation("TicketStage", fields: [projectStageId], references: [id], onDelete: SetNull)
+  department   Department?     @relation(fields: [departmentId], references: [id])
+  assignedTo   User?           @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  createdBy    User            @relation("TicketCreator", fields: [createdById], references: [id])
+  taskType     TaskType?       @relation(fields: [taskTypeId], references: [id])
+  taskSubtype  TaskSubtype?    @relation(fields: [taskSubtypeId], references: [id])
+  comments     Comment[]
+  attachments  Attachment[]
+  history      TicketHistory[]
+  assignees    TicketAssignee[]
+  reworkCount  Int              @default(0)
+  timeLogs     TicketTimeLog[]
   reviewCycles ReviewCycleLog[]
 
   @@index([departmentId])
@@ -250,6 +277,7 @@ model Ticket {
   @@index([status])
   @@index([createdById])
   @@index([projectId])
+  @@index([projectStageId])
   @@index([createdAt])
   @@index([priority])
   @@index([dueDate])
@@ -423,6 +451,7 @@ enum ProjectStatus {
   ON_HOLD
   COMPLETED
   CANCELLED
+  ARCHIVED
 }
 
 enum Priority {
