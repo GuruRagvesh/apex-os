@@ -128,11 +128,11 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
   });
 
   // DONE guards
-  it('7. DONE can still reopen if existing rule supports it', async () => {
+  it('7. DONE can still reopen if existing rule supports it (managers/admins)', async () => {
     const t = makeTicket({ status: 'DONE' });
     mockPrisma.ticket.findFirst.mockResolvedValue(t);
     mockPrisma.ticket.findUnique.mockResolvedValue(t);
-    await expect(service.updateStatus('tkt1', 'IN_PROGRESS' as any, 'emp1', user)).resolves.toBeDefined();
+    await expect(service.updateStatus('tkt1', 'IN_PROGRESS' as any, 'mgr1', manager)).resolves.toBeDefined();
   });
 
   it('8. DONE cannot be reassigned before reopen', async () => {

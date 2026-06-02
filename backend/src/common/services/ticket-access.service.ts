@@ -49,13 +49,49 @@ export class TicketAccessService {
     }
   }
 
-  async assertCanUpdateTicket(user: any, ticket: any): Promise<void> {
+  async assertCanUpdateTicket(user: any, ticket: any, updates?: any): Promise<void> {
     const roleName = this.access.roleName(user);
     if (this.access.isAdmin(user)) return;
+
     if (!(await this.isTicketInUserScope(user, ticket))) {
       throw new ForbiddenException('You do not have permission to update this ticket');
     }
-    if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) return;
+
+    if (ticket.status === TicketStatus.CLOSED) {
+      throw new ForbiddenException('Cannot modify a closed ticket');
+    }
+
+    const isEmployee = roleName === ROLES.EMPLOYEE || roleName === ROLES.INTERN;
+    const isTeamLead = roleName === ROLES.TEAM_LEAD;
+    const isManager = roleName === ROLES.MANAGER;
+
+    if (updates) {
+      const protectedFields = ['priority', 'sla', 'departmentId'];
+      const hasProtected = protectedFields.some((f) => updates[f] !== undefined && updates[f] !== ticket[f]);
+
+      if (isEmployee) {
+        if (hasProtected) {
+          throw new ForbiddenException('Employees cannot edit priority, SLA, or department');
+        }
+        if ([TicketStatus.REVIEW, TicketStatus.DONE].includes(ticket.status)) {
+          throw new ForbiddenException('Employees cannot edit tickets after submission');
+        }
+      }
+
+      if (isTeamLead) {
+        if (updates.departmentId !== undefined && updates.departmentId !== ticket.departmentId) {
+          throw new ForbiddenException('Team Leads cannot change ticket department');
+        }
+        if (updates.sla !== undefined && updates.sla !== ticket.sla) {
+          throw new ForbiddenException('Team Leads cannot override SLA');
+        }
+        if (updates.priority !== undefined && updates.priority !== ticket.priority) {
+          throw new ForbiddenException('Team Leads cannot override priorities');
+        }
+      }
+    }
+
+    if (isManager || isTeamLead) return;
     if (this.isTicketParticipant(user.id, ticket)) return;
     throw new ForbiddenException('Only the assignee, reporter, or scoped lead/manager can update this ticket');
   }
@@ -89,8 +125,9 @@ export class TicketAccessService {
     user: any,
     ticket: any,
     toStatus: TicketStatus,
+    updates?: any,
   ): Promise<void> {
-    await this.assertCanUpdateTicket(user, ticket);
+    await this.assertCanUpdateTicket(user, ticket, updates);
     const fromStatus = ticket.status as TicketStatus;
     if (fromStatus === toStatus) return;
 
@@ -108,18 +145,35 @@ export class TicketAccessService {
       [TicketStatus.CLOSED]: [],
     };
 
+    const workerStatuses: TicketStatus[] = [TicketStatus.IN_PROGRESS, TicketStatus.REVIEW];
+    const isIntern = roleName === ROLES.INTERN;
+    const isEmployee = roleName === ROLES.EMPLOYEE || isIntern;
+
     if (!allowed[fromStatus]?.includes(toStatus)) {
-      throw new ForbiddenException(`Illegal ticket transition from ${fromStatus} to ${toStatus}`);
+      // Allow managers/admins to bypass standard paths for things like OPEN -> CLOSED
+      if (isScopedReviewer && ([TicketStatus.DONE, TicketStatus.CLOSED] as TicketStatus[]).includes(toStatus)) {
+         // allow override to terminal state
+      } else {
+        throw new ForbiddenException(`Illegal ticket transition from ${fromStatus} to ${toStatus}`);
+      }
     }
 
     const isSelfAssignedCreator = ticket.createdById === user.id && ticket.assignedToId === user.id;
 
-    if (roleName === ROLES.INTERN && toStatus !== TicketStatus.IN_PROGRESS) {
+    if (isIntern && toStatus !== TicketStatus.IN_PROGRESS) {
       if (!(isSelfAssignedCreator && (toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED))) {
         throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS');
       }
     }
 
+    // Done -> Reopen logic
+    if (fromStatus === TicketStatus.DONE && ([TicketStatus.OPEN, TicketStatus.IN_PROGRESS] as TicketStatus[]).includes(toStatus)) {
+      if (!isScopedReviewer) {
+        throw new ForbiddenException('Only managers or admins can reopen DONE tickets');
+      }
+    }
+
+    // Terminal states logic
     if (toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED) {
       if (!isScopedReviewer && !isSelfAssignedCreator) {
         throw new ForbiddenException('Only scoped reviewers, managers, or admins can complete or close tickets');
@@ -127,6 +181,7 @@ export class TicketAccessService {
       return;
     }
 
+    // Rework logic
     if (fromStatus === TicketStatus.REVIEW && toStatus === TicketStatus.IN_PROGRESS) {
       if (!isScopedReviewer && !isSelfAssignedCreator) {
         throw new ForbiddenException('Only scoped reviewers, managers, or admins can send tickets back for rework');
@@ -134,7 +189,6 @@ export class TicketAccessService {
       return;
     }
 
-    const workerStatuses: TicketStatus[] = [TicketStatus.IN_PROGRESS, TicketStatus.REVIEW];
     if (workerStatuses.includes(toStatus)) {
       if (isParticipant || isScopedReviewer || isSelfAssignedCreator) return;
     }
