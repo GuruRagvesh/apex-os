@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, createContext, useContext } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
@@ -8,6 +8,8 @@ import { usersApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { ChevronRight, Edit2, Upload, Eye } from 'lucide-react';
+
+const ProfileFormContext = createContext<any>(null);
 
 const TABS = [
   { id: 'personal', label: 'Personal Details' },
@@ -35,6 +37,55 @@ const ROLE_COLORS: Record<string, string> = {
   TEAM_LEAD: 'bg-cyan-900 text-cyan-300',
   EMPLOYEE: 'bg-green-900 text-green-300',
   INTERN: 'bg-yellow-900 text-yellow-300',
+};
+
+const inputCls = 'w-full px-4 py-3 rounded-xl border border-slate-700 bg-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm';
+const labelCls = 'block text-sm font-bold text-slate-300 mb-2';
+const readCls = 'w-full px-4 py-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-200 text-sm';
+const sectionCls = 'bg-slate-800/50 rounded-xl p-6 border border-slate-700/50';
+
+const Field = ({ label, field, type = 'text', readOnly = false }: any) => {
+  const ctx = useContext(ProfileFormContext);
+  if (!ctx) return null;
+  const { editMode, formData, setFormData, profile } = ctx;
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      {editMode && !readOnly ? (
+        <input
+          type={type}
+          value={formData[field] ?? ''}
+          onChange={(e) => setFormData((f: any) => ({ ...f, [field]: e.target.value }))}
+          className={inputCls}
+        />
+      ) : (
+        <div className={readCls}>{profile?.[field] || <span className="text-slate-500">Not set</span>}</div>
+      )}
+    </div>
+  );
+};
+
+const SelectField = ({ label, field, options, readOnly = false }: any) => {
+  const ctx = useContext(ProfileFormContext);
+  if (!ctx) return null;
+  const { editMode, formData, setFormData, profile } = ctx;
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      {editMode && !readOnly ? (
+        <select
+          value={formData[field] ?? ''}
+          onChange={(e) => setFormData((f: any) => ({ ...f, [field]: e.target.value }))}
+          className={inputCls}
+        >
+          <option value="">Select...</option>
+          {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : (
+        <div className={readCls}>{profile?.[field] || <span className="text-slate-500">Not set</span>}</div>
+      )}
+    </div>
+  );
 };
 
 export default function EmployeeProfilePage() {
@@ -75,7 +126,8 @@ export default function EmployeeProfilePage() {
     mutationFn: (data: any) => (usersApi as any).updateProfile(userId, data),
     onSuccess: () => {
       toast.success('Profile updated!');
-      refetch();
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] });
+      qc.invalidateQueries({ queryKey: ['users'] });
       setEditMode(false);
     },
     onError: (e: any) => toast.error(e?.message || 'Update failed'),
@@ -130,45 +182,6 @@ export default function EmployeeProfilePage() {
     ];
   }, [fromContext, deptId, deptName, profile]);
 
-  const inputCls = 'w-full px-4 py-3 rounded-xl border border-slate-700 bg-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm';
-  const labelCls = 'block text-sm font-bold text-slate-300 mb-2';
-  const readCls = 'w-full px-4 py-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-200 text-sm';
-  const sectionCls = 'bg-slate-800/50 rounded-xl p-6 border border-slate-700/50';
-
-  const Field = ({ label, field, type = 'text', readOnly = false }: any) => (
-    <div>
-      <label className={labelCls}>{label}</label>
-      {editMode && !readOnly ? (
-        <input
-          type={type}
-          value={formData[field] ?? ''}
-          onChange={(e) => setFormData((f: any) => ({ ...f, [field]: e.target.value }))}
-          className={inputCls}
-        />
-      ) : (
-        <div className={readCls}>{profile?.[field] || <span className="text-slate-500">Not set</span>}</div>
-      )}
-    </div>
-  );
-
-  const SelectField = ({ label, field, options, readOnly = false }: any) => (
-    <div>
-      <label className={labelCls}>{label}</label>
-      {editMode && !readOnly ? (
-        <select
-          value={formData[field] ?? ''}
-          onChange={(e) => setFormData((f: any) => ({ ...f, [field]: e.target.value }))}
-          className={inputCls}
-        >
-          <option value="">Select...</option>
-          {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
-        </select>
-      ) : (
-        <div className={readCls}>{profile?.[field] || <span className="text-slate-500">Not set</span>}</div>
-      )}
-    </div>
-  );
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -181,10 +194,11 @@ export default function EmployeeProfilePage() {
   const initials = profile?.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        {/* Breadcrumb */}
-        <nav className="flex items-center gap-1 text-sm text-slate-400 mb-6 flex-wrap">
+    <ProfileFormContext.Provider value={{ editMode, formData, setFormData, profile }}>
+      <div className="min-h-screen bg-slate-950 text-white">
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          {/* Breadcrumb */}
+          <nav className="flex items-center gap-1 text-sm text-slate-400 mb-6 flex-wrap">
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1">
               {i > 0 && <ChevronRight className="w-3 h-3" />}
@@ -635,5 +649,6 @@ export default function EmployeeProfilePage() {
         </div>
       </div>
     </div>
+    </ProfileFormContext.Provider>
   );
 }

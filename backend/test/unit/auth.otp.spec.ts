@@ -85,6 +85,55 @@ describe('AuthService — OTP', () => {
     expect(entry.expires).toBeGreaterThan(Date.now());
   });
 
+  // ── sendOtp — resend cooldown ──────────────────────────────────────────────
+
+  it('prevents spamming OTP within 30 seconds cooldown', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'cooldown@apex.local', isActive: true });
+    mockEmailService.sendOtpEmail.mockResolvedValue(undefined);
+
+    // First send
+    await service.sendOtp('cooldown@apex.local');
+    expect(mockEmailService.sendOtpEmail).toHaveBeenCalledTimes(1);
+
+    // Reset calls list
+    mockEmailService.sendOtpEmail.mockClear();
+
+    // Second send immediately
+    const result = await service.sendOtp('cooldown@apex.local');
+    expect(result.message).toContain('If an account exists');
+    expect(mockEmailService.sendOtpEmail).not.toHaveBeenCalled(); // Blocked by cooldown
+  });
+
+  it('allows resend and replaces OTP after 30 seconds cooldown', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'cooldown@apex.local', isActive: true });
+    mockEmailService.sendOtpEmail.mockResolvedValue(undefined);
+
+    // First send
+    await service.sendOtp('cooldown@apex.local');
+    const otpStore: Map<string, any> = (service as any).otpStore;
+    const entry1 = otpStore.get('cooldown@apex.local');
+    const firstOtp = entry1.otp;
+
+    // Reset calls list
+    mockEmailService.sendOtpEmail.mockClear();
+
+    // Mock passage of 31 seconds
+    const origNow = Date.now;
+    Date.now = () => entry1.createdAt + 31000;
+
+    try {
+      // Second send after cooldown
+      const result = await service.sendOtp('cooldown@apex.local');
+      expect(result.message).toContain('If an account exists');
+      expect(mockEmailService.sendOtpEmail).toHaveBeenCalledTimes(1);
+
+      const entry2 = otpStore.get('cooldown@apex.local');
+      expect(entry2.otp).not.toBe(firstOtp); // Generated new OTP
+    } finally {
+      Date.now = origNow; // Restore original Date.now
+    }
+  });
+
   // ── sendOtp — unknown user (no enumeration) ─────────────────────────────────
 
   it('returns generic response for unknown user without throwing', async () => {

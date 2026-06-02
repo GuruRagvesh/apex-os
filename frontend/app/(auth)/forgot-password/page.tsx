@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
@@ -19,20 +19,30 @@ export default function ForgotPasswordPage() {
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((c) => c - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   const inputCls = 'w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent';
 
   // Generic, non-enumerating message shown whether or not the account exists.
   const GENERIC_OTP_MESSAGE = 'If an account exists for that email, a one-time code has been sent.';
 
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!email.trim()) return;
     setLoading(true);
     try {
       await authApi.forgotPassword(email.trim());
       toast.success(GENERIC_OTP_MESSAGE);
       setStep('reset');
+      setResendCooldown(30);
     } catch (err: any) {
       // Do not reveal whether the email exists: treat "user not found" exactly
       // like success (generic message + advance). Surface only genuine failures
@@ -41,6 +51,7 @@ export default function ForgotPasswordPage() {
       if (isNotFound) {
         toast.success(GENERIC_OTP_MESSAGE);
         setStep('reset');
+        setResendCooldown(30);
       } else {
         toast.error(err?.message || 'Could not send the code right now. Please try again.');
       }
@@ -146,6 +157,21 @@ export default function ForgotPasswordPage() {
                       required
                       autoFocus
                     />
+                  </div>
+                  <div className="mt-2 text-right">
+                    {resendCooldown > 0 ? (
+                      <span className="text-xs text-slate-400 font-medium">
+                        Resend code in {resendCooldown}s
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleSendOtp()}
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline bg-transparent border-none cursor-pointer"
+                      >
+                        Resend code
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div>

@@ -241,8 +241,8 @@ export default function ProjectDetailPage() {
               <button
                 onClick={() => updateMutation.mutate({
                   ...form,
-                  departmentId: form.departmentId || undefined,
-                  endDate: form.endDate ? new Date(form.endDate).toISOString() : undefined,
+                  departmentId: form.departmentId || null,
+                  endDate: form.endDate ? new Date(form.endDate).toISOString() : null,
                 })}
                 disabled={updateMutation.isPending}
                 className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded-lg disabled:opacity-50"

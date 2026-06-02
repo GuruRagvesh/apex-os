@@ -316,19 +316,44 @@ export class UsersService {
       'emergencyName','emergencyPhone','emergencyRelation','userLocation','bloodGroup',
       'gender','dateOfBirth'];
 
+    const ALLOWED_PROFILE_FIELDS = [
+      'name', 'phone', 'dateOfBirth', 'gender', 'bloodGroup',
+      'currentAddress', 'permanentAddress', 'emergencyName', 'emergencyPhone',
+      'emergencyRelation', 'userLocation', 'employeeId', 'designation',
+      'employmentType', 'workMode', 'joiningDate', 'probationPeriod',
+      'reportingManager', 'teamLeadName', 'workLocation', 'shiftTiming',
+      'ctcAnnual', 'basicSalary', 'salaryStructure', 'bankName',
+      'accountNumber', 'ifscCode', 'accountHolderName', 'paymentMode',
+      'panNumber', 'aadhaarNumber', 'uanNumber', 'pfApplicable',
+      'esicApplicable', 'professionalTax', 'taxRegime', 'verificationStatus',
+      'verifiedBy', 'verificationDate', 'hrNotes', 'isActive', 'roleId', 'departmentId'
+    ];
+
     let data: any = {};
 
     if (canEditAll) {
-      data = { ...dto };
-      delete data.password;
-      delete data.id;
+      for (const key of ALLOWED_PROFILE_FIELDS) {
+        if (key in dto) {
+          let value = dto[key];
+          if (['joiningDate', 'dateOfBirth', 'verificationDate'].includes(key)) {
+            value = value ? new Date(value) : null;
+          }
+          data[key] = value;
+        }
+      }
       const payrollChanged = PAYROLL_FIELDS.filter((f) => f in dto);
       if (payrollChanged.length > 0) {
         await this.logSensitiveAccess(requesterId, 'EDIT_PAYROLL_DATA', targetUserId, { fieldsChanged: payrollChanged });
       }
     } else if (isOwnProfile) {
       for (const key of PERSONAL_EDITABLE_BY_SELF) {
-        if (key in dto) data[key] = dto[key];
+        if (key in dto) {
+          let value = dto[key];
+          if (key === 'dateOfBirth') {
+            value = value ? new Date(value) : null;
+          }
+          data[key] = value;
+        }
       }
     } else {
       throw new ForbiddenException('Not authorized to edit this profile');

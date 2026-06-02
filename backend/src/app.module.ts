@@ -36,13 +36,15 @@ import { TaskTypesModule } from './modules/platform/task-types/task-types.module
 import { WorkdayModule } from './modules/platform/workday/workday.module';
 import { EventsModule } from './modules/platform/events/events.module';
 
+import { AppThrottlerGuard } from './shared/guards/app-throttler.guard';
+
 const isTest = process.env.NODE_ENV === 'test';
 
 @Module({
   providers: [
     // Apply rate limiting globally: 100 requests per 60 s per IP.
     // Individual controllers can override with @Throttle() or @SkipThrottle().
-    ...(isTest ? [] : [{ provide: APP_GUARD, useClass: ThrottlerGuard }]),
+    ...(isTest ? [] : [{ provide: APP_GUARD, useClass: AppThrottlerGuard }]),
   ],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),

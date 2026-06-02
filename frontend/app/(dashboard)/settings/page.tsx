@@ -94,8 +94,8 @@ function ProfileSection({ user }: { user: any }) {
     setSaving(true);
     try {
       await usersApi.updateMe({ name: name.trim(), avatar: color, bio });
-      updateUser({ name: name.trim(), avatar: color });
-      useAuthStore.setState((s: any) => ({ user: { ...s.user, avatar: color } }));
+      updateUser({ name: name.trim(), avatar: color, bio });
+      useAuthStore.setState((s: any) => ({ user: { ...s.user, avatar: color, bio } }));
       toast.success('Profile updated');
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to save profile');

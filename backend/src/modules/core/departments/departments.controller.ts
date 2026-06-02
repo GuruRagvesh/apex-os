@@ -14,15 +14,11 @@ export class DepartmentsController {
   constructor(private departmentsService: DepartmentsService) {}
 
   @Get()
-  @UseGuards(RolesGuard)
-  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   findAll() {
     return this.departmentsService.findAll();
   }
 
   @Get(':id')
-  @UseGuards(RolesGuard)
-  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   findOne(@Param('id') id: string) {
     return this.departmentsService.findOne(id);
   }

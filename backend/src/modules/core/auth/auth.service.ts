@@ -15,8 +15,8 @@ const RESET_ERROR = 'Invalid or expired code';
 
 @Injectable()
 export class AuthService {
-  /** In-memory OTP store: email → { otp, expires } */
-  private otpStore = new Map<string, { otp: string; expires: number }>();
+  /** In-memory OTP store: email → { otp, expires, createdAt } */
+  private otpStore = new Map<string, { otp: string; expires: number; createdAt: number }>();
 
   constructor(
     private prisma: PrismaService,
@@ -153,6 +153,14 @@ export class AuthService {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.findUserByEmailCI(normalizedEmail);
 
+    const entry = this.otpStore.get(normalizedEmail);
+    if (entry) {
+      const elapsed = Date.now() - entry.createdAt;
+      if (elapsed < 30 * 1000) {
+        return OTP_GENERIC_RESPONSE;
+      }
+    }
+
     // Unknown email: return generic response without revealing account existence.
     // Do NOT store an OTP or call EmailService for unknown addresses.
     if (!user) return OTP_GENERIC_RESPONSE;
@@ -164,8 +172,8 @@ export class AuthService {
     // the controller (400) and no OTP is left in memory with no delivery channel.
     await this.emailService.sendOtpEmail(normalizedEmail, otp);
 
-    // Email confirmed dispatched — store OTP with 10-minute TTL.
-    this.otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000 });
+    // Email confirmed dispatched — store OTP with 10-minute TTL and createdAt.
+    this.otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000, createdAt: Date.now() });
 
     return OTP_GENERIC_RESPONSE;
   }
