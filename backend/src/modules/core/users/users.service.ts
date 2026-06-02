@@ -335,6 +335,7 @@ export class UsersService {
       for (const key of ALLOWED_PROFILE_FIELDS) {
         if (key in dto) {
           let value = dto[key];
+          if (value === '') value = null; // Fix relation schema validation errors
           if (['joiningDate', 'dateOfBirth', 'verificationDate'].includes(key)) {
             value = value ? new Date(value) : null;
           }
@@ -349,6 +350,7 @@ export class UsersService {
       for (const key of PERSONAL_EDITABLE_BY_SELF) {
         if (key in dto) {
           let value = dto[key];
+          if (value === '') value = null; // Fix empty strings causing issues
           if (key === 'dateOfBirth') {
             value = value ? new Date(value) : null;
           }

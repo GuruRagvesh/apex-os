@@ -289,7 +289,7 @@ export default function UsersPage() {
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || undefined, departmentId: editForm.departmentId || undefined } })}
+                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || null, departmentId: editForm.departmentId || null } })}
                 disabled={editMutation.isPending || !editForm.name}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
@@ -338,7 +338,7 @@ export default function UsersPage() {
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => form.name && form.email && form.password && form.roleId && createMutation.mutate({ ...form, departmentId: form.departmentId || undefined })}
+                onClick={() => form.name && form.email && form.password && form.roleId && createMutation.mutate({ ...form, departmentId: form.departmentId || null })}
                 disabled={createMutation.isPending || !form.name || !form.email || !form.password || !form.roleId}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >

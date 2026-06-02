@@ -247,7 +247,7 @@ export default function ProjectsPage() {
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => form.name && createMutation.mutate({ ...form, departmentId: form.departmentId || undefined, endDate: form.endDate ? new Date(form.endDate).toISOString() : undefined })}
+                onClick={() => form.name && createMutation.mutate({ ...form, departmentId: form.departmentId || null, endDate: form.endDate ? new Date(form.endDate).toISOString() : null })}
                 disabled={createMutation.isPending || !form.name}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
