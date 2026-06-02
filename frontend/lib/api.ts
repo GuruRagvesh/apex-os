@@ -210,6 +210,22 @@ export const dashboardApi = {
   getHomeSummary: () => r(api.get('/home/summary')),
 };
 
+// Analytics — ledger-based evaluation engine (FP-13.3)
+export const analyticsApi = {
+  getCommandCenter: (period: 'today' | 'week' | 'month' = 'today') =>
+    r(api.get('/analytics/command-center', { params: { period } })),
+  getEmployeeMetrics: (userId?: string) =>
+    r(api.get(userId ? `/analytics/employee/${userId}` : '/analytics/employee')),
+  getReviewerMetrics: (userId?: string) =>
+    r(api.get(userId ? `/analytics/reviewer/${userId}` : '/analytics/reviewer')),
+  getManagerMetrics: () =>
+    r(api.get('/analytics/manager')),
+  getSlaAnalytics: () =>
+    r(api.get('/analytics/sla')),
+  getReworkAnalytics: () =>
+    r(api.get('/analytics/rework')),
+};
+
 // Events
 export const eventsApi = {
   getAll: (params?: any) => r(api.get('/events', { params })),
