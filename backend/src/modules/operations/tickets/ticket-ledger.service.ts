@@ -149,6 +149,35 @@ export class TicketLedgerService {
     return { count: logIds.length, logIds };
   }
 
+  async resumeLogsForBreak(breakLogId: string, userId: string) {
+    const pausedLogs = await this.prisma.ticketTimeLog.findMany({
+      where: { userId, breakLogId, pauseReason: 'BREAK' },
+      include: { ticket: true },
+    });
+
+    const resumedLogs = [];
+    for (const log of pausedLogs) {
+      if (
+        log.ticket &&
+        log.ticket.status === 'IN_PROGRESS' &&
+        log.ticket.isBlocked === false &&
+        log.ticket.assignedToId === userId
+      ) {
+        const newLog = await this.startWorkLog({
+          ticketId: log.ticketId,
+          userId: log.userId,
+          stage: log.stage,
+          ownerType: log.ownerType,
+          source: log.source,
+          workSessionId: log.workSessionId ?? undefined,
+          countsAsWork: log.countsAsWork,
+        });
+        resumedLogs.push(newLog);
+      }
+    }
+    return resumedLogs;
+  }
+
   async resumeWorkLog(input: {
     ticketId: string;
     userId: string;
@@ -191,6 +220,9 @@ export class TicketLedgerService {
     decision: string;
     feedback?: string;
     reviewEndedAt?: Date;
+    reworkStartedAt?: Date;
+    assigneeWorkSeconds?: number;
+    reviewerWorkSeconds?: number;
   }) {
     let cycle;
     if (input.cycleNo) {
@@ -204,16 +236,50 @@ export class TicketLedgerService {
       });
     }
 
-    // Explicitly return null or idempotent behavior if no cycle exists, per spec ("return null/idempotent result").
-    // Returning null is chosen as a safe non-throwing default.
     if (!cycle) return null;
+
+    const reviewEndedAt = input.reviewEndedAt ?? new Date();
+    let assigneeStartBound = new Date(0);
+
+    if (cycle.cycleNo > 1) {
+      const prevCycle = await this.prisma.reviewCycleLog.findUnique({
+        where: { ticketId_cycleNo: { ticketId: input.ticketId, cycleNo: cycle.cycleNo - 1 } },
+      });
+      if (prevCycle?.reworkStartedAt) {
+        assigneeStartBound = prevCycle.reworkStartedAt;
+      }
+    }
+
+    const assigneeLogs = await this.prisma.ticketTimeLog.aggregate({
+      where: {
+        ticketId: input.ticketId,
+        ownerType: 'ASSIGNEE',
+        startedAt: { gte: assigneeStartBound, lte: cycle.reviewStartedAt || new Date() },
+      },
+      _sum: { durationSeconds: true },
+    });
+
+    const reviewerLogs = await this.prisma.ticketTimeLog.aggregate({
+      where: {
+        ticketId: input.ticketId,
+        ownerType: 'REVIEWER',
+        startedAt: { gte: cycle.reviewStartedAt || new Date(0), lte: reviewEndedAt },
+      },
+      _sum: { durationSeconds: true },
+    });
+
+    const assigneeWorkSeconds = input.assigneeWorkSeconds ?? assigneeLogs._sum.durationSeconds ?? 0;
+    const reviewerWorkSeconds = input.reviewerWorkSeconds ?? reviewerLogs._sum.durationSeconds ?? 0;
 
     return this.prisma.reviewCycleLog.update({
       where: { id: cycle.id },
       data: {
         decision: input.decision,
         feedback: input.feedback,
-        reviewEndedAt: input.reviewEndedAt ?? new Date(),
+        reviewEndedAt,
+        reworkStartedAt: input.reworkStartedAt,
+        assigneeWorkSeconds,
+        reviewerWorkSeconds,
       },
     });
   }

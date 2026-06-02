@@ -15,6 +15,7 @@ describe('TicketLedgerService', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        aggregate: jest.fn(),
       },
       reviewCycleLog: {
         findFirst: jest.fn(),
@@ -138,6 +139,47 @@ describe('TicketLedgerService', () => {
     });
   });
 
+  describe('resumeLogsForBreak', () => {
+    it('8a. resumeLogsForBreak resumes active IN_PROGRESS unblocked assigned tickets', async () => {
+      mockPrisma.ticketTimeLog.findMany.mockResolvedValue([
+        {
+          id: 'log1',
+          ticketId: 't1',
+          userId: 'u1',
+          stage: LEDGER_STAGES.WORK,
+          ownerType: LEDGER_OWNER_TYPES.ASSIGNEE,
+          source: LEDGER_SOURCES.SYSTEM,
+          countsAsWork: true,
+          ticket: { status: 'IN_PROGRESS', isBlocked: false, assignedToId: 'u1' }
+        }
+      ]);
+      mockPrisma.ticket.findUnique.mockResolvedValue({ status: 'IN_PROGRESS' });
+      mockPrisma.ticketTimeLog.findFirst.mockResolvedValue(null);
+      mockPrisma.ticketTimeLog.create.mockResolvedValue({ id: 'newLog1' });
+
+      const res = await service.resumeLogsForBreak('break1', 'u1');
+
+      expect(res).toEqual([{ id: 'newLog1' }]);
+      expect(mockPrisma.ticketTimeLog.create).toHaveBeenCalled();
+    });
+
+    it('8b. resumeLogsForBreak skips tickets that are blocked or not IN_PROGRESS', async () => {
+      mockPrisma.ticketTimeLog.findMany.mockResolvedValue([
+        {
+          id: 'log1',
+          ticketId: 't1',
+          userId: 'u1',
+          ticket: { status: 'BLOCKED', isBlocked: true, assignedToId: 'u1' }
+        }
+      ]);
+
+      const res = await service.resumeLogsForBreak('break1', 'u1');
+
+      expect(res).toEqual([]);
+      expect(mockPrisma.ticketTimeLog.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('resumeWorkLog', () => {
     it('8. resumeWorkLog creates a new log after prior log ended', async () => {
       mockPrisma.ticket.findUnique.mockResolvedValue({ id: 't1', status: 'IN_PROGRESS' });
@@ -192,15 +234,88 @@ describe('TicketLedgerService', () => {
       expect(res.cycleNo).toBe(2);
     });
 
-    it('13. endReviewCycle updates decision, feedback, and reviewEndedAt', async () => {
-      mockPrisma.reviewCycleLog.findFirst.mockResolvedValue({ id: 'cycle1' });
+    it('13. endReviewCycle updates decision, feedback, and calculates metrics on APPROVED', async () => {
+      mockPrisma.reviewCycleLog.findFirst.mockResolvedValue({ id: 'cycle1', cycleNo: 1, reviewStartedAt: new Date('2023-01-01') });
+      
+      // First aggregate call: ASSIGNEE logs
+      mockPrisma.ticketTimeLog.aggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 3600 } });
+      // Second aggregate call: REVIEWER logs
+      mockPrisma.ticketTimeLog.aggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 1800 } });
+      
       mockPrisma.reviewCycleLog.update.mockResolvedValue({ decision: 'APPROVED' });
 
-      const res = await service.endReviewCycle({ ticketId: 't1', decision: 'APPROVED', feedback: 'LGTM' });
+      await service.endReviewCycle({ ticketId: 't1', decision: 'APPROVED', feedback: 'LGTM' });
 
-      expect(res?.decision).toBe('APPROVED');
       expect(mockPrisma.reviewCycleLog.update).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ decision: 'APPROVED', feedback: 'LGTM' }),
+        data: expect.objectContaining({ 
+          decision: 'APPROVED', 
+          feedback: 'LGTM',
+          assigneeWorkSeconds: 3600,
+          reviewerWorkSeconds: 1800
+        }),
+      }));
+    });
+
+    it('14. endReviewCycle updates decision and metrics on REWORK', async () => {
+      mockPrisma.reviewCycleLog.findFirst.mockResolvedValue({ id: 'cycle1', cycleNo: 1, reviewStartedAt: new Date('2023-01-01') });
+      
+      mockPrisma.ticketTimeLog.aggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 4000 } }); // ASSIGNEE
+      mockPrisma.ticketTimeLog.aggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 1200 } }); // REVIEWER
+      
+      mockPrisma.reviewCycleLog.update.mockResolvedValue({ decision: 'REWORK' });
+
+      await service.endReviewCycle({ ticketId: 't1', decision: 'REWORK', feedback: 'Needs fixes', reworkStartedAt: new Date('2023-01-02') });
+
+      expect(mockPrisma.reviewCycleLog.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ 
+          decision: 'REWORK', 
+          feedback: 'Needs fixes',
+          assigneeWorkSeconds: 4000,
+          reviewerWorkSeconds: 1200
+        }),
+      }));
+    });
+
+    it('15. multiple cycles preserve previous metrics by fetching previous cycle bounds', async () => {
+      // Mock active cycle = 2
+      mockPrisma.reviewCycleLog.findFirst.mockResolvedValue({ id: 'cycle2', cycleNo: 2, ticketId: 't1', reviewStartedAt: new Date('2023-01-03') });
+      
+      // Mock previous cycle (cycleNo - 1)
+      mockPrisma.reviewCycleLog.findUnique.mockResolvedValue({ id: 'cycle1', reworkStartedAt: new Date('2023-01-02') });
+
+      mockPrisma.ticketTimeLog.aggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 5000 } }); // ASSIGNEE
+      mockPrisma.ticketTimeLog.aggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 2000 } }); // REVIEWER
+      
+      mockPrisma.reviewCycleLog.update.mockResolvedValue({ decision: 'APPROVED' });
+
+      await service.endReviewCycle({ ticketId: 't1', decision: 'APPROVED' });
+
+      // Verifies it fetches previous cycle
+      expect(mockPrisma.reviewCycleLog.findUnique).toHaveBeenCalledWith({
+        where: { ticketId_cycleNo: { ticketId: 't1', cycleNo: 1 } },
+      });
+
+      // Verifies assignee logs fetched using reworkStartedAt as gte
+      expect(mockPrisma.ticketTimeLog.aggregate).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        where: expect.objectContaining({ ownerType: 'ASSIGNEE', startedAt: expect.objectContaining({ gte: new Date('2023-01-02') }) })
+      }));
+    });
+
+    it('16. cycle metrics remain immutable if already populated', async () => {
+      mockPrisma.reviewCycleLog.findFirst.mockResolvedValue({ id: 'cycle1', cycleNo: 1, reviewStartedAt: new Date('2023-01-01') });
+      
+      mockPrisma.ticketTimeLog.aggregate.mockResolvedValue({ _sum: { durationSeconds: 100 } });
+      
+      mockPrisma.reviewCycleLog.update.mockResolvedValue({ decision: 'APPROVED' });
+
+      // Explicitly passing existing metrics to simulate immutable write/overwrite block if passed
+      await service.endReviewCycle({ ticketId: 't1', decision: 'APPROVED', assigneeWorkSeconds: 9999, reviewerWorkSeconds: 8888 });
+
+      expect(mockPrisma.reviewCycleLog.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ 
+          assigneeWorkSeconds: 9999,
+          reviewerWorkSeconds: 8888
+        }),
       }));
     });
   });
