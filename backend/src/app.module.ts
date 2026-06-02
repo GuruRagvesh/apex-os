@@ -35,6 +35,7 @@ import { SchedulerModule } from './modules/platform/scheduler/scheduler.module';
 import { TaskTypesModule } from './modules/platform/task-types/task-types.module';
 import { WorkdayModule } from './modules/platform/workday/workday.module';
 import { EventsModule } from './modules/platform/events/events.module';
+import { AnalyticsModule } from './modules/platform/analytics/analytics.module';
 
 import { AppThrottlerGuard } from './shared/guards/app-throttler.guard';
 
@@ -78,6 +79,7 @@ const isTest = process.env.NODE_ENV === 'test';
     TaskTypesModule,
     WorkdayModule,
     EventsModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}
