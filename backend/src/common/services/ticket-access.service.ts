@@ -104,7 +104,7 @@ export class TicketAccessService {
       [TicketStatus.OPEN]: [TicketStatus.IN_PROGRESS, TicketStatus.CLOSED],
       [TicketStatus.IN_PROGRESS]: [TicketStatus.REVIEW, TicketStatus.DONE, TicketStatus.CLOSED],
       [TicketStatus.REVIEW]: [TicketStatus.IN_PROGRESS, TicketStatus.DONE, TicketStatus.CLOSED],
-      [TicketStatus.DONE]: [TicketStatus.CLOSED],
+      [TicketStatus.DONE]: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.CLOSED],
       [TicketStatus.CLOSED]: [],
     };
 

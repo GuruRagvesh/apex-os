@@ -27,7 +27,7 @@ export default function ProjectDetailPage() {
   const [selectedUserId, setSelectedUserId] = useState('');
   const [memberRole, setMemberRole] = useState('MEMBER');
 
-  const { data: project, isLoading } = useQuery({
+  const { data: project, isLoading, error, isError } = useQuery({
     queryKey: ['project', id],
     queryFn: () => projectsApi.getOne(id) as Promise<any>,
     refetchOnWindowFocus: true,
@@ -110,6 +110,10 @@ export default function ProjectDetailPage() {
   };
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>;
+  if (isError) {
+    const msg = (error as any)?.message || 'An error occurred loading this project';
+    return <div className="text-center py-12 text-red-500">{msg}</div>;
+  }
   if (!project) return <div className="text-center py-12 text-slate-500">This project could not be located</div>;
 
   // Use backend-computed progress (ticketStats.done / ticketStats.total).

@@ -75,10 +75,15 @@ export class SchedulerService {
       }
 
       // RECURRING: query tickets with a recurring type and active (not past scheduleEndDate)
+      // NOTE: scheduleRecurring is String? — Prisma's notIn does not accept null as an element.
+      // Use AND to separately exclude null and the sentinel string 'none'.
       const recurringTickets = await this.prisma.ticket.findMany({
         where: {
           status: { notIn: ['DONE', 'CLOSED'] },
-          scheduleRecurring: { notIn: [null as any, 'none'] },
+          AND: [
+            { scheduleRecurring: { not: null } },
+            { scheduleRecurring: { not: 'none' } },
+          ],
           OR: [
             { scheduleEndDate: null },
             { scheduleEndDate: { gte: now } },

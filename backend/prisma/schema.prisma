@@ -89,6 +89,9 @@ model User {
   managedDepts      ManagerDeptAccess[] @relation("ManagerAccess")
   employeeDocuments  EmployeeDocument[]
   operationalEvents OperationalEvent[] @relation("EventActor")
+  ticketTimeLogs    TicketTimeLog[]
+  assigneeCycles    ReviewCycleLog[] @relation("CycleAssignee")
+  reviewerCycles    ReviewCycleLog[] @relation("CycleReviewer")
 
   @@index([departmentId])
   @@index([roleId])
@@ -238,6 +241,9 @@ model Ticket {
   attachments Attachment[]
   history     TicketHistory[]
   assignees   TicketAssignee[]
+  reworkCount Int @default(0)
+  timeLogs    TicketTimeLog[]
+  reviewCycles ReviewCycleLog[]
 
   @@index([departmentId])
   @@index([assignedToId])
@@ -502,6 +508,7 @@ model WorkSession {
   leaveRequest       LeaveRequest?    @relation(fields: [leaveId], references: [id])
   breakLogs          BreakLog[]
   attendanceEvents   AttendanceEvent[]
+  ticketTimeLogs     TicketTimeLog[]
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -526,6 +533,7 @@ model BreakLog {
   autoDetected     Boolean     @default(false)
   note             String?
   createdAt        DateTime    @default(now())
+  ticketTimeLogs   TicketTimeLog[]
 
   @@index([userId])
   @@index([workSessionId])
@@ -583,4 +591,62 @@ model ManagerDeptAccess {
   @@unique([managerId, departmentId])
   @@index([managerId])
   @@map("manager_dept_access")
+}
+
+model TicketTimeLog {
+  id              String   @id @default(cuid())
+  ticketId        String
+  userId          String
+  stage           String
+  ownerType       String
+  source          String
+  startedAt       DateTime
+  endedAt         DateTime?
+  durationSeconds Int?
+  countsAsWork    Boolean  @default(true)
+  pauseReason     String?
+  workSessionId   String?
+  breakLogId      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id])
+  workSession WorkSession? @relation(fields: [workSessionId], references: [id])
+  breakLog    BreakLog?    @relation(fields: [breakLogId], references: [id])
+
+  @@index([ticketId])
+  @@index([userId])
+  @@index([startedAt])
+  @@index([workSessionId])
+  @@index([ticketId, endedAt])
+  @@index([userId, endedAt])
+  @@map("ticket_time_logs")
+}
+
+model ReviewCycleLog {
+  id                  String    @id @default(cuid())
+  ticketId            String
+  cycleNo             Int
+  assigneeId          String?
+  reviewerId          String?
+  reviewStartedAt     DateTime?
+  reviewEndedAt       DateTime?
+  decision            String?
+  feedback            String?
+  assigneeWorkSeconds Int?
+  reviewerWorkSeconds Int?
+  reworkStartedAt     DateTime?
+  reworkEndedAt       DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  assignee User?  @relation("CycleAssignee", fields: [assigneeId], references: [id])
+  reviewer User?  @relation("CycleReviewer", fields: [reviewerId], references: [id])
+
+  @@index([ticketId])
+  @@index([cycleNo])
+  @@unique([ticketId, cycleNo])
+  @@map("review_cycle_logs")
 }
