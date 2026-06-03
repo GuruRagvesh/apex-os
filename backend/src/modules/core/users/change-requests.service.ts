@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, forwardRef, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
@@ -11,6 +11,7 @@ export class ChangeRequestsService {
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
     private eventLogger: EventLoggerService,
+    @Inject(forwardRef(() => NotificationEventService))
     private notificationService: NotificationEventService,
   ) {}
 
