@@ -93,6 +93,10 @@ model User {
   assigneeCycles    ReviewCycleLog[] @relation("CycleAssignee")
   reviewerCycles    ReviewCycleLog[] @relation("CycleReviewer")
 
+  changeRequestsTarget  EmployeeProfileChangeRequest[] @relation("ChangeRequestTarget")
+  changeRequestsCreated EmployeeProfileChangeRequest[] @relation("ChangeRequestRequester")
+  changeRequestsApproving EmployeeProfileChangeRequest[] @relation("ChangeRequestCurrentApprover")
+
   @@index([departmentId])
   @@index([roleId])
   @@index([isActive])
@@ -678,4 +682,37 @@ model ReviewCycleLog {
   @@index([cycleNo])
   @@unique([ticketId, cycleNo])
   @@map("review_cycle_logs")
+}
+
+model EmployeeProfileChangeRequest {
+  id                 String    @id @default(cuid())
+  targetUserId       String
+  requestedById      String
+  requestType        String
+  status             String    @default("PENDING_TL_APPROVAL")
+  changes            Json
+  reason             String?
+  currentApproverId  String?
+  tlApproverId       String?
+  managerApproverId  String?
+  adminApproverId    String?
+  tlDecision         String?
+  managerDecision    String?
+  adminDecision      String?
+  rejectionReason    String?
+  approvedAt         DateTime?
+  rejectedAt         DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  targetUser      User  @relation("ChangeRequestTarget", fields: [targetUserId], references: [id])
+  requestedBy     User  @relation("ChangeRequestRequester", fields: [requestedById], references: [id])
+  currentApprover User? @relation("ChangeRequestCurrentApprover", fields: [currentApproverId], references: [id])
+
+  @@index([targetUserId])
+  @@index([requestedById])
+  @@index([status])
+  @@index([currentApproverId])
+  @@map("employee_profile_change_requests")
 }

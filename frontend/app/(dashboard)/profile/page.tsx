@@ -1,13 +1,15 @@
 'use client';
 
 import { useAuthStore } from '@/store/auth.store';
-import { useQuery } from '@tanstack/react-query';
-import { ticketsApi, dashboardApi, leaveApi, projectsApi } from '@/lib/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ticketsApi, dashboardApi, leaveApi, projectsApi, changeRequestsApi } from '@/lib/api';
 import Link from 'next/link';
-import { Settings, Ticket, Clock, CalendarOff, FolderKanban } from 'lucide-react';
+import { Settings, Ticket, Clock, CalendarOff, FolderKanban, Network, Edit3 } from 'lucide-react';
 import { TicketRow } from '@/components/tickets/ticket-row';
 import { ActivityItem } from '@/components/dashboard/activity-item';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useState } from 'react';
+
 
 function getInitials(name: string) {
   return name?.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2) ?? 'U';
@@ -22,8 +24,21 @@ const ROLE_COLORS: Record<string, string> = {
   INTERN: 'bg-teal-100 text-teal-700',
 };
 
+const REQUEST_TYPES = [
+  'DESIGNATION_CHANGE',
+  'DEPARTMENT_CHANGE',
+  'REPORTING_MANAGER_CHANGE',
+  'PRIMARY_MANAGER_CHANGE',
+  'ROLE_CHANGE',
+  'LEADERSHIP_RESPONSIBILITY_CHANGE',
+  'MULTI_FIELD_CHANGE'
+];
+
 export default function ProfilePage() {
   const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState({ requestType: '', field: '', newValue: '', reason: '' });
 
   const { data: myTickets, isLoading: ticketsLoading } = useQuery({
     queryKey: ['my-tickets'],
@@ -46,6 +61,39 @@ export default function ProfilePage() {
     queryKey: ['my-projects-profile'],
     queryFn: () => projectsApi.getAll({ limit: 100, page: 1 }) as Promise<any>,
     enabled: !!user?.id,
+  });
+
+  const { data: hierarchy, isLoading: hierarchyLoading } = useQuery({
+    queryKey: ['my-hierarchy'],
+    queryFn: () => changeRequestsApi.getHierarchySummary(user!.id) as Promise<any>,
+    enabled: !!user?.id,
+  });
+
+  const { data: changeRequests, isLoading: requestsLoading } = useQuery({
+    queryKey: ['my-change-requests'],
+    queryFn: () => changeRequestsApi.listMyRequests() as Promise<any[]>,
+    enabled: !!user?.id,
+  });
+
+  const submitRequest = useMutation({
+    mutationFn: async (data: any) => {
+      const changes = [{ field: data.field, newValue: data.newValue }];
+      return changeRequestsApi.create(user!.id, data.requestType, changes, data.reason);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-change-requests'] });
+      setIsModalOpen(false);
+      setFormData({ requestType: '', field: '', newValue: '', reason: '' });
+      alert('Request submitted successfully!');
+    },
+    onError: (err: any) => {
+      alert(err.message || 'Failed to submit request');
+    }
+  });
+
+  const cancelRequest = useMutation({
+    mutationFn: (id: string) => changeRequestsApi.cancel(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-change-requests'] })
   });
 
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
@@ -104,6 +152,66 @@ export default function ProfilePage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Current Approved Hierarchy */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+              <Network size={18} />
+              Current Approved Details
+            </h2>
+            <button className="px-3 py-1.5 text-sm bg-white border border-slate-300 rounded hover:bg-slate-50" onClick={() => setIsModalOpen(true)}>
+              <Edit3 size={14} className="inline mr-1" /> Request Change
+            </button>
+          </div>
+          {hierarchyLoading ? (
+             <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-6 w-full rounded" />)}</div>
+          ) : hierarchy ? (
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Role:</span> <span className="font-medium">{hierarchy.role}</span></div>
+              <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Designation:</span> <span className="font-medium">{hierarchy.designation || 'N/A'}</span></div>
+              <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Reports To:</span> <span className="font-medium">{hierarchy.reportsTo?.name || 'None'}</span></div>
+              <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Primary Manager:</span> <span className="font-medium">{hierarchy.primaryManager?.name || 'None'}</span></div>
+              <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Departments:</span> <span className="font-medium">{hierarchy.departmentsTiedTo?.map((d: any) => d.name).join(', ') || 'None'}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Reporting To Me:</span> <span className="font-medium">{hierarchy.peopleReportingToMe?.length || 0} person(s)</span></div>
+            </div>
+          ) : (
+            <div className="text-slate-400 text-sm">Unavailable</div>
+          )}
+        </div>
+
+        {/* Pending Change Requests */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <h2 className="font-semibold text-slate-800 mb-4">Change Requests</h2>
+          <div className="divide-y divide-slate-50 max-h-64 overflow-y-auto">
+            {requestsLoading ? (
+              <div className="space-y-2">{[1, 2].map((i) => <Skeleton key={i} className="h-10 w-full rounded" />)}</div>
+            ) : changeRequests && changeRequests.length > 0 ? (
+              changeRequests.map((req: any) => (
+                <div key={req.id} className="py-3 text-sm">
+                  <div className="flex justify-between font-medium">
+                    <span>{req.requestType.replace(/_/g, ' ')}</span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-slate-100">{req.status.replace(/_/g, ' ')}</span>
+                  </div>
+                  <div className="text-slate-500 mt-1">
+                    {req.changes.map((ch: any, idx: number) => (
+                      <div key={idx}>
+                        {ch.field}: {String(ch.oldValue)} &rarr; {String(ch.newValue)}
+                      </div>
+                    ))}
+                  </div>
+                  {req.status.startsWith('PENDING') && (
+                    <button onClick={() => cancelRequest.mutate(req.id)} className="text-red-500 text-xs mt-2 hover:underline">Cancel Request</button>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="text-center text-slate-400 text-sm py-4">No requests found</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* My Open Tickets */}
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -140,6 +248,67 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold">Request Hierarchy Change</h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">&times;</button>
+            </div>
+            <div className="bg-yellow-50 text-yellow-800 p-3 rounded-md text-sm mb-4">
+              Warning: Changes will apply only after approval by your Manager and/or Admin.
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium block mb-1">Request Type</label>
+                <select 
+                  className="w-full border border-slate-300 rounded p-2 text-sm"
+                  value={formData.requestType} 
+                  onChange={(e) => setFormData({ ...formData, requestType: e.target.value })}
+                >
+                  <option value="" disabled>Select type</option>
+                  {REQUEST_TYPES.map(rt => <option key={rt} value={rt}>{rt.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Field to Change</label>
+                <input 
+                  className="w-full border border-slate-300 rounded p-2 text-sm"
+                  value={formData.field} 
+                  onChange={(e) => setFormData({ ...formData, field: e.target.value })} 
+                  placeholder="e.g. designation, departmentId" 
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">New Value</label>
+                <input 
+                  className="w-full border border-slate-300 rounded p-2 text-sm"
+                  value={formData.newValue} 
+                  onChange={(e) => setFormData({ ...formData, newValue: e.target.value })} 
+                  placeholder="New value" 
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Reason</label>
+                <input 
+                  className="w-full border border-slate-300 rounded p-2 text-sm"
+                  value={formData.reason} 
+                  onChange={(e) => setFormData({ ...formData, reason: e.target.value })} 
+                  placeholder="Why are you requesting this?" 
+                />
+              </div>
+              <button 
+                className="w-full bg-indigo-600 text-white rounded p-2 font-medium hover:bg-indigo-700 disabled:opacity-50"
+                onClick={() => submitRequest.mutate(formData)} 
+                disabled={submitRequest.isPending}
+              >
+                {submitRequest.isPending ? 'Submitting...' : 'Submit Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
