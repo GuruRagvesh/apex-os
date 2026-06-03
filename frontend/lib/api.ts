@@ -154,7 +154,7 @@ export const ticketsApi = {
   update: (id: string, data: any) => r(api.put(`/tickets/${id}`, data)),
   updateStatus: (id: string, status: string) => r(api.patch(`/tickets/${id}/status`, { status })),
   assign: (id: string, assignedToId: string) => r(api.patch(`/tickets/${id}/assign`, { assignedToId })),
-  approve: (id: string) => r(api.patch(`/tickets/${id}/approve`)),
+  approve: (id: string, ratings?: any) => r(api.patch(`/tickets/${id}/approve`, ratings)),
   reject: (id: string, comment: string) => r(api.patch(`/tickets/${id}/reject`, { comment })),
   getHistory: (id: string) => r(api.get(`/tickets/${id}/history`)),
   uploadAttachment: (id: string, file: File, isPoc = false) => {

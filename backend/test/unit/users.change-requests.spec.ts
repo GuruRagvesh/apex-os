@@ -223,6 +223,26 @@ describe('ChangeRequestsService', () => {
     });
   });
 
+  describe('listPendingApprovals', () => {
+    it('only returns pending requests and excludes APPROVED, REJECTED, CANCELLED', async () => {
+      prisma.employeeProfileChangeRequest.findMany.mockResolvedValue([
+        { id: 'req1', status: 'PENDING_TL_APPROVAL' }
+      ]);
+      
+      const res = await service.listPendingApprovals('admin1', 'ADMIN');
+      expect(res.length).toBe(1);
+      
+      // Ensure the query includes the status filter correctly
+      const callArg = prisma.employeeProfileChangeRequest.findMany.mock.calls[0][0];
+      expect(callArg.where.status.in).toContain('PENDING_TL_APPROVAL');
+      expect(callArg.where.status.in).toContain('PENDING_MANAGER_APPROVAL');
+      expect(callArg.where.status.in).toContain('PENDING_ADMIN_APPROVAL');
+      expect(callArg.where.status.in).not.toContain('APPROVED');
+      expect(callArg.where.status.in).not.toContain('REJECTED');
+      expect(callArg.where.status.in).not.toContain('CANCELLED');
+    });
+  });
+
   describe('cancelChangeRequest', () => {
     it('cancel works only for requester while pending', async () => {
       const request = { id: 'req1', targetUserId: 'user1', requestedById: 'user1', status: 'PENDING_TL_APPROVAL' };

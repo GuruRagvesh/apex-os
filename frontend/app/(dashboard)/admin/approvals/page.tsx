@@ -2,8 +2,9 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { changeRequestsApi, departmentsApi, usersApi, rolesApi } from '@/lib/api';
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { ArrowRight, CheckCircle, XCircle } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 const REQUEST_TYPES = [
   { label: 'Designation', value: 'DESIGNATION_CHANGE' },
@@ -21,6 +22,7 @@ const MULTI_FIELDS = [
   { label: 'Team Lead', value: 'teamLeadName' },
   { label: 'Department Manager', value: 'reportingManager' },
   { label: 'Role', value: 'roleId' },
+  { label: 'Department Manager', value: 'primaryManager' },
 ];
 
 
@@ -54,9 +56,16 @@ export default function ApprovalsPage() {
     mutationFn: (id: string) => changeRequestsApi.approve(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
-      alert('Request approved');
+      toast.success('Request approved');
     },
-    onError: (err: any) => alert(err.message || 'Failed to approve'),
+    onError: (err: any) => {
+      if (err.message?.includes('APPROVED') || err.message?.includes('already been processed')) {
+        toast.error('This request has already been processed.');
+        queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
+      } else {
+        toast.error(err.message || 'Failed to approve');
+      }
+    },
   });
 
   const rejectMutation = useMutation({
@@ -65,9 +74,9 @@ export default function ApprovalsPage() {
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
       setIsRejectModalOpen(false);
       setReason('');
-      alert('Request rejected');
+      toast.success('Request rejected');
     },
-    onError: (err: any) => alert(err.message || 'Failed to reject'),
+    onError: (err: any) => toast.error(err.message || 'Failed to reject'),
   });
 
   return (
@@ -116,22 +125,33 @@ export default function ApprovalsPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <button 
-                    className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm" 
-                    onClick={() => approveMutation.mutate(req.id)}
-                    disabled={approveMutation.isPending}
-                  >
-                    <CheckCircle size={16} /> {approveMutation.isPending ? 'Processing...' : 'Approve Request'}
-                  </button>
-                  <button 
-                    className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 transition-colors shadow-sm" 
-                    onClick={() => {
-                      setSelectedReq(req.id);
-                      setIsRejectModalOpen(true);
-                    }}
-                  >
-                    <XCircle size={16} /> Reject
-                  </button>
+                  {!['APPROVED', 'REJECTED', 'CANCELLED'].includes(req.status) ? (
+                    <>
+                      <button 
+                        className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm" 
+                        onClick={() => approveMutation.mutate(req.id)}
+                        disabled={approveMutation.isPending && approveMutation.variables === req.id}
+                      >
+                        <CheckCircle size={16} /> {(approveMutation.isPending && approveMutation.variables === req.id) ? 'Processing...' : 'Approve Request'}
+                      </button>
+                      <button 
+                        className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 disabled:opacity-50 transition-colors shadow-sm" 
+                        onClick={() => {
+                          setSelectedReq(req.id);
+                          setIsRejectModalOpen(true);
+                        }}
+                        disabled={approveMutation.isPending}
+                      >
+                        <XCircle size={16} /> Reject
+                      </button>
+                    </>
+                  ) : (
+                    <span className={`px-3 py-1 rounded font-medium text-sm ${
+                      req.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {req.status === 'APPROVED' ? 'Approved' : 'Rejected'}
+                    </span>
+                  )}
                 </div>
               </div>
             ))
