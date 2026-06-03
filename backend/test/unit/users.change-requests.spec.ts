@@ -3,6 +3,7 @@ import { ChangeRequestsService } from '../../src/modules/core/users/change-reque
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
+import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 
 describe('ChangeRequestsService', () => {
@@ -10,6 +11,7 @@ describe('ChangeRequestsService', () => {
   let prisma: any;
   let accessPolicy: any;
   let eventLogger: any;
+  let notificationService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -36,12 +38,20 @@ describe('ChangeRequestsService', () => {
       log: jest.fn().mockResolvedValue(true),
     };
 
+    notificationService = {
+      sendNotification: jest.fn().mockResolvedValue(undefined),
+      notifyUser: jest.fn().mockResolvedValue(undefined),
+      createNotification: jest.fn().mockResolvedValue(undefined),
+      sendSystemAlert: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChangeRequestsService,
         { provide: PrismaService, useValue: prisma },
         { provide: AccessPolicyService, useValue: accessPolicy },
         { provide: EventLoggerService, useValue: eventLogger },
+        { provide: NotificationEventService, useValue: notificationService },
       ],
     }).compile();
 
@@ -173,7 +183,7 @@ describe('ChangeRequestsService', () => {
   describe('approveChangeRequest', () => {
     it('TL approval moves request to Manager approval', async () => {
       const tl = { id: 'tlId' };
-      const request = { id: 'req1', targetUserId: 'user1', status: 'PENDING_TL_APPROVAL', currentApproverId: 'tlId' };
+      const request = { id: 'req1', targetUserId: 'user1', status: 'PENDING_TL_APPROVAL', currentApproverId: 'tlId', changes: [{ field: 'role', newValue: 'manager' }] };
       prisma.employeeProfileChangeRequest.findUnique.mockResolvedValue(request);
       accessPolicy.roleName.mockReturnValue('TEAM_LEAD');
       prisma.user.findUnique.mockImplementation((args) => {

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
+import { TimezoneUtil, DEFAULT_COMPANY_TIMEZONE } from '../../../common/utils/timezone.util';
 
 @Injectable()
 export class WorkdayService {
@@ -31,9 +32,7 @@ export class WorkdayService {
   }
 
   private getTodayDate(): Date {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return today;
+    return TimezoneUtil.getCompanyTodayDate();
   }
 
   async startWork(userId: string) {
@@ -140,6 +139,8 @@ export class WorkdayService {
         breakType: dto.breakType,
         estimatedMinutes: dto.estimatedMinutes,
         startAt: now,
+        reason: dto.breakType,
+        source: 'MANUAL_BREAK',
       },
     });
 
@@ -340,6 +341,13 @@ export class WorkdayService {
       userFilter.departmentId = { in: [...new Set(deptIds)] };
     }
 
+    const globalPolicySetting = await this.prisma.appSetting.findUnique({ where: { key: 'workday_policy' } });
+    const globalPolicy = (globalPolicySetting?.value as any) ?? {
+      timezone: DEFAULT_COMPANY_TIMEZONE,
+      employee: { startTime: '09:30', endTime: '18:30', flexible: false },
+      teamLead: { entryWindowStart: '09:30', entryWindowEnd: '10:30', flexible: false },
+    };
+
     const members = await this.prisma.user.findMany({
       where: userFilter,
       include: {
@@ -356,6 +364,7 @@ export class WorkdayService {
             endDate: { gte: today },
           },
         },
+        workdayPolicyOverride: true,
       },
       orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
     });
@@ -381,6 +390,30 @@ export class WorkdayService {
         workMinutesToday = Math.max(0, elapsed - liveBreakMins);
       }
 
+      let isLate = false;
+      let policySource = 'ROLE_POLICY';
+      const userRole = m.role?.name?.toLowerCase() ?? '';
+      
+      let tz = globalPolicy.timezone ?? DEFAULT_COMPANY_TIMEZONE;
+      let expectedStart = globalPolicy.employee?.startTime ?? '09:30';
+      let isFlexible = false;
+
+      if (m.workdayPolicyOverride) {
+        policySource = 'USER_OVERRIDE';
+        tz = m.workdayPolicyOverride.timezone ?? tz;
+        expectedStart = m.workdayPolicyOverride.startTime ?? expectedStart;
+        isFlexible = m.workdayPolicyOverride.flexible;
+      } else if (userRole === 'team_lead') {
+        expectedStart = globalPolicy.teamLead?.entryWindowEnd ?? '10:30';
+        isFlexible = globalPolicy.teamLead?.flexible ?? false;
+      } else if (['manager', 'admin', 'super_admin'].includes(userRole)) {
+        isFlexible = true;
+      }
+
+      if (session?.startWorkAt && !isFlexible) {
+        isLate = TimezoneUtil.isLate(session.startWorkAt, expectedStart, tz);
+      }
+
       return {
         id: m.id,
         name: m.name,
@@ -396,6 +429,10 @@ export class WorkdayService {
         breakMinutesToday: liveBreakMins,
         breakCount: session?.breakLogs.length ?? 0,
         lastActiveAt: m.lastActiveAt,
+        isLate,
+        isFlexible,
+        policySource,
+        autoClosed: session?.autoClosed ?? false,
       };
     });
   }

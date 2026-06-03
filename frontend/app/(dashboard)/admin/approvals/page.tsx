@@ -8,8 +8,8 @@ import { ArrowRight, CheckCircle, XCircle } from 'lucide-react';
 const REQUEST_TYPES = [
   { label: 'Designation', value: 'DESIGNATION_CHANGE' },
   { label: 'Department', value: 'DEPARTMENT_CHANGE' },
-  { label: 'Reporting Manager', value: 'REPORTING_MANAGER_CHANGE' },
-  { label: 'Primary Manager', value: 'PRIMARY_MANAGER_CHANGE' },
+  { label: 'Team Lead', value: 'TEAM_LEAD_CHANGE' },
+  { label: 'Department Manager', value: 'REPORTING_MANAGER_CHANGE' },
   { label: 'Role', value: 'ROLE_CHANGE' },
   { label: 'Leadership Responsibility', value: 'LEADERSHIP_RESPONSIBILITY_CHANGE' },
   { label: 'Multiple Changes', value: 'MULTI_FIELD_CHANGE' },
@@ -18,8 +18,8 @@ const REQUEST_TYPES = [
 const MULTI_FIELDS = [
   { label: 'Designation', value: 'designation' },
   { label: 'Department', value: 'departmentId' },
-  { label: 'Reporting Manager', value: 'reportingManager' },
-  { label: 'Primary Manager', value: 'primaryManager' },
+  { label: 'Team Lead', value: 'teamLeadName' },
+  { label: 'Department Manager', value: 'reportingManager' },
   { label: 'Role', value: 'roleId' },
 ];
 
@@ -148,12 +148,12 @@ export default function ApprovalsPage() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-bold mb-4">Reject Change Request</h3>
             <div className="py-2">
-              <label className="text-sm font-medium mb-2 block">Reason for Rejection</label>
+              <label className="text-sm font-medium mb-2 block">Reason for Rejection (Optional)</label>
               <input 
                 className="w-full border border-slate-300 rounded p-2 text-sm"
                 value={reason} 
                 onChange={(e) => setReason(e.target.value)} 
-                placeholder="Provide a required reason..." 
+                placeholder="Provide a reason..." 
               />
             </div>
             <div className="flex justify-end gap-2 mt-4">
@@ -161,7 +161,7 @@ export default function ApprovalsPage() {
               <button 
                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50" 
                 onClick={() => rejectMutation.mutate({ id: selectedReq, reason })}
-                disabled={!reason.trim() || rejectMutation.isPending}
+                disabled={rejectMutation.isPending}
               >
                 Confirm Rejection
               </button>

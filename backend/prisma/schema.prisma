@@ -22,6 +22,7 @@ model User {
   isHR              Boolean  @default(false)
   currentStatus     String   @default("OFFLINE")
   lastActiveAt      DateTime?
+  workdayPolicyOverride UserWorkdayPolicyOverride?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -539,6 +540,9 @@ model WorkSession {
   totalWorkMinutes   Int              @default(0)
   leaveId            String?
   leaveRequest       LeaveRequest?    @relation(fields: [leaveId], references: [id])
+  closureReason      String?
+  autoClosed         Boolean          @default(false)
+  autoClosedAt       DateTime?
   breakLogs          BreakLog[]
   attendanceEvents   AttendanceEvent[]
   ticketTimeLogs     TicketTimeLog[]
@@ -565,12 +569,36 @@ model BreakLog {
   durationMinutes  Int?
   autoDetected     Boolean     @default(false)
   note             String?
+  reason           String?
+  source           String?
   createdAt        DateTime    @default(now())
   ticketTimeLogs   TicketTimeLog[]
 
   @@index([userId])
   @@index([workSessionId])
   @@map("break_logs")
+}
+
+model UserWorkdayPolicyOverride {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id])
+  timezone              String?
+  startTime             String?
+  endTime               String?
+  entryWindowStart      String?
+  entryWindowEnd        String?
+  exitWindowStart       String?
+  exitWindowEnd         String?
+  minimumWorkdayMinutes Int?
+  flexible              Boolean  @default(false)
+  reason                String?
+  createdById           String?
+  updatedById           String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("user_workday_policy_overrides")
 }
 
 model AttendanceEvent {

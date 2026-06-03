@@ -12,6 +12,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { SchedulerService } from '../../src/modules/platform/scheduler/scheduler.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
+import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
 
 // ── Minimal mocks ─────────────────────────────────────────────────────────────
 
@@ -49,6 +50,13 @@ const mockGateway = {
   server: { to: jest.fn().mockReturnValue({ emit: jest.fn() }) },
 };
 
+const mockTicketLedger = {
+  pauseActiveLogsForUser: jest.fn(),
+  endActiveLog: jest.fn(),
+  getActiveLogForUser: jest.fn(),
+  getActiveLogForTicket: jest.fn(),
+};
+
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 describe('SchedulerService — recurring ticket query', () => {
@@ -69,6 +77,7 @@ describe('SchedulerService — recurring ticket query', () => {
         SchedulerService,
         { provide: PrismaService,  useValue: mockPrisma  },
         { provide: EventsGateway,  useValue: mockGateway },
+        { provide: TicketLedgerService, useValue: mockTicketLedger },
       ],
     }).compile();
 

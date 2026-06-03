@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { ticketsApi, dashboardApi } from '@/lib/api';
+import { ticketsApi, dashboardApi, changeRequestsApi } from '@/lib/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { WorkdayHistoryStrip } from '@/components/workday/WorkdayHistoryStrip';
 import { CriticalActionPanel } from '@/components/home/CriticalActionPanel';
@@ -22,7 +22,7 @@ import { motion } from 'motion/react';
 import {
   Ticket, AlertTriangle, Clock, CheckCircle, CalendarDays,
   FolderKanban, TrendingUp, Users, Zap, Activity,
-  ShieldAlert, ArrowRight,
+  ShieldAlert, ArrowRight, UserCog,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -125,6 +125,12 @@ export default function HomePage() {
     queryKey: ['dashboard-overview'],
     queryFn: () => dashboardApi.getOverview() as Promise<any>,
     staleTime: 30000,
+  });
+
+  const { data: hierarchyApprovals } = useQuery({
+    queryKey: ['pending-approvals'],
+    queryFn: () => changeRequestsApi.listPendingApprovals() as Promise<any[]>,
+    enabled: isLeadOrAbove,
   });
 
   const bottleneckTickets = overview?.bottleneckTickets ?? [];
@@ -522,21 +528,39 @@ export default function HomePage() {
         />
 
         {(role === 'TEAM_LEAD' || role === 'MANAGER' || role === 'ADMIN' || role === 'SUPER_ADMIN') && (
-          <CommandCard
-            id="pending-leave"
-            title="Leave Requests"
-            count={summaryError ? '–' : (metrics.pendingLeave ?? 0)}
-            summary={
-              summaryError ? 'Dashboard data unavailable — refresh to retry' :
-              (metrics.pendingLeave ?? 0) > 0
-                ? `${metrics.pendingLeave} leave request${metrics.pendingLeave > 1 ? 's' : ''} awaiting your approval`
-                : 'No pending leave requests — all resolved'
-            }
-            icon={CalendarDays}
-            severity={(metrics.pendingLeave ?? 0) > 0 ? 'warning' : 'success'}
-            previewItems={summary?.previews?.pendingLeave ?? []}
-            onClick={() => router.push('/leave?tab=needs-action')}
-          />
+          <>
+            <CommandCard
+              id="pending-leave"
+              title="Leave Requests"
+              count={summaryError ? '–' : (metrics.pendingLeave ?? 0)}
+              summary={
+                summaryError ? 'Dashboard data unavailable — refresh to retry' :
+                (metrics.pendingLeave ?? 0) > 0
+                  ? `${metrics.pendingLeave} leave request${metrics.pendingLeave > 1 ? 's' : ''} awaiting your approval`
+                  : 'No pending leave requests — all resolved'
+              }
+              icon={CalendarDays}
+              severity={(metrics.pendingLeave ?? 0) > 0 ? 'warning' : 'success'}
+              previewItems={summary?.previews?.pendingLeave ?? []}
+              onClick={() => router.push('/leave?tab=needs-action')}
+            />
+            
+            <CommandCard
+              id="hierarchy-approvals"
+              title="Hierarchy Requests"
+              count={summaryError ? '–' : (hierarchyApprovals?.length ?? 0)}
+              summary={
+                summaryError ? 'Dashboard data unavailable — refresh to retry' :
+                (hierarchyApprovals?.length ?? 0) > 0
+                  ? `${hierarchyApprovals?.length} hierarchy change request${(hierarchyApprovals?.length ?? 0) > 1 ? 's' : ''} awaiting your approval`
+                  : 'No pending hierarchy requests in your queue'
+              }
+              icon={UserCog}
+              severity={(hierarchyApprovals?.length ?? 0) > 0 ? 'warning' : 'success'}
+              previewItems={[]}
+              onClick={() => router.push('/admin/approvals')}
+            />
+          </>
         )}
 
         {(role === 'EMPLOYEE' || role === 'INTERN') && (

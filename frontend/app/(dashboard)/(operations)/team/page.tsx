@@ -11,6 +11,7 @@ import {
   Users, Search, Building2, Ticket, UserPlus, Check,
   Mail, Clock, ChevronDown, ChevronRight, Loader2, AlertTriangle,
 } from 'lucide-react';
+import { formatInTimeZone } from 'date-fns-tz';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const ROLE_COLORS: Record<string, string> = {
@@ -554,9 +555,13 @@ function fmtMin(minutes: number) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function fmtTime(iso: string | null | undefined): string {
+function fmtTime(iso: string | null | undefined, tz = 'Asia/Kolkata'): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  try {
+    return formatInTimeZone(new Date(iso), tz, 'hh:mm a');
+  } catch (e) {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
 }
 
 // A session is stale if it's marked active but the startWorkAt is from a previous day
@@ -683,16 +688,34 @@ function LiveStatusView() {
                     </span>
                   </td>
                   <td className="px-5 py-3 text-xs font-mono" style={{ color: startedAt ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
-                    {m.workStatus === 'LOGGED_OUT' && endedAt 
-                      ? `Ended at ${fmtTime(endedAt)}`
-                      : (startedAt ? fmtTime(startedAt) : 'Not started today')
-                    }
+                    <div className="flex items-center flex-wrap gap-1">
+                      {m.workStatus === 'LOGGED_OUT' && endedAt 
+                        ? `Ended at ${fmtTime(endedAt)}`
+                        : (startedAt ? fmtTime(startedAt) : 'Not started today')
+                      }
+                      {m.isLate && <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-sans text-[10px] font-semibold">Late</span>}
+                      {m.autoClosed && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-sans text-[10px] font-semibold">Auto-closed</span>}
+                    </div>
                   </td>
                   <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
                     {m.workStatus === 'OFFLINE' ? 'Not started today' : fmtMin(m.workMinutesToday)}
                   </td>
                   <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    {m.breakCount > 0 ? `${m.breakCount}x · ${fmtMin(m.breakMinutesToday)}` : '—'}
+                    {m.breakCount > 0 ? (
+                      <div className="group relative inline-block cursor-help">
+                        <span className="underline decoration-dashed underline-offset-2">{`${m.breakCount}x · ${fmtMin(m.breakMinutesToday)}`}</span>
+                        <div className="hidden group-hover:block absolute z-50 left-0 bottom-full mb-2 w-64 p-2 bg-slate-800 dark:bg-slate-700 text-slate-100 text-[10px] rounded shadow-lg whitespace-pre-wrap">
+                          {m.todaySession?.breakLogs?.map((b: any, idx: number) => (
+                            <div key={b.id ?? idx} className="mb-1 border-b border-slate-700 pb-1 last:border-0 last:pb-0">
+                              <span className="font-semibold text-orange-300">{b.source === 'LOGOUT_AWAY' ? 'Logout/Away' : b.breakType}</span>
+                              <br/>
+                              {fmtTime(b.startAt)} to {b.endAt ? fmtTime(b.endAt) : 'Now'} — {fmtMin(b.durationMinutes ?? 0)}
+                              {b.reason && <><br/><span className="text-slate-400">Reason: {b.reason}</span></>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : '—'}
                   </td>
                   <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
                     {m.department?.name ?? '—'}

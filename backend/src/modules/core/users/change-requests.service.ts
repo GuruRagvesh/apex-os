@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, ConflictException, ForbiddenException, B
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
+import { NotificationEventService } from '../../operations/notifications/notification-event.service';
+import { NotificationType } from '@prisma/client';
 
 @Injectable()
 export class ChangeRequestsService {
@@ -9,6 +11,7 @@ export class ChangeRequestsService {
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
     private eventLogger: EventLoggerService,
+    private notificationService: NotificationEventService,
   ) {}
 
   async getHierarchySummary(targetUserId: string, requester: any) {
@@ -100,12 +103,13 @@ export class ChangeRequestsService {
     let nextStatus = 'PENDING_MANAGER_APPROVAL';
     let currentApproverId = null;
 
-    if (requesterRoleName === 'EMPLOYEE' && targetRoleName === 'EMPLOYEE') {
+    if (['EMPLOYEE', 'INTERN'].includes(requesterRoleName) || ['EMPLOYEE', 'INTERN'].includes(targetRoleName)) {
       if (targetUser.teamLeadName) {
         nextStatus = 'PENDING_TL_APPROVAL';
         const tl = await this.prisma.user.findUnique({ where: { employeeId: targetUser.teamLeadName } });
         if (tl) currentApproverId = tl.id;
       } else if (targetUser.reportingManager) {
+        nextStatus = 'PENDING_MANAGER_APPROVAL';
         const mgr = await this.prisma.user.findUnique({ where: { employeeId: targetUser.reportingManager } });
         if (mgr) currentApproverId = mgr.id;
         else nextStatus = 'PENDING_ADMIN_APPROVAL';
@@ -150,6 +154,16 @@ export class ChangeRequestsService {
       action: 'CHANGE_REQUEST_CREATED',
       metadata: { targetUserId, requestType: dto.requestType },
     }).catch(() => {});
+
+    if (currentApproverId) {
+      const summary = changesWithOld.map(ch => `${ch.field} from ${ch.oldValue || 'None'} to ${ch.newValue}`).join(', ');
+      await this.notificationService.sendNotification(currentApproverId, 'system', {
+        title: 'Pending Hierarchy Approval',
+        message: `${requester.name} requested changes to ${dto.requestType} for ${targetUser.name}. Changes: ${summary}`,
+        type: NotificationType.INFO,
+        link: `/dashboard?action=approve_hierarchy&id=${req.id}`,
+      }).catch(() => {});
+    }
 
     return req;
   }
@@ -246,6 +260,19 @@ export class ChangeRequestsService {
 
     if (nextStatus === 'APPROVED') {
       await this.applyApprovedChanges(updated);
+      await this.notificationService.sendNotification(req.requestedById, 'system', {
+        title: 'Hierarchy Request Approved',
+        message: `Your hierarchy change request for ${req.targetUser?.name || 'the employee'} has been approved.`,
+        type: NotificationType.INFO,
+      }).catch(() => {});
+    } else if (currentApproverId) {
+      const summary = (req.changes as any[]).map(ch => `${ch.field} to ${ch.newValue}`).join(', ');
+      await this.notificationService.sendNotification(currentApproverId, 'system', {
+        title: 'Pending Hierarchy Approval (Escalated)',
+        message: `A hierarchy change request for ${req.targetUser?.name || 'an employee'} requires your approval. Changes: ${summary}`,
+        type: NotificationType.INFO,
+        link: `/dashboard?action=approve_hierarchy&id=${req.id}`,
+      }).catch(() => {});
     }
 
     this.eventLogger.log({
@@ -297,6 +324,12 @@ export class ChangeRequestsService {
       entityId: requestId,
       action: 'CHANGE_REQUEST_REJECTED',
       metadata: { reason },
+    }).catch(() => {});
+
+    await this.notificationService.sendNotification(req.requestedById, 'system', {
+      title: 'Hierarchy Request Rejected',
+      message: `Your hierarchy change request for ${req.targetUser?.name || 'the employee'} was rejected. ${reason ? 'Reason: ' + reason : ''}`,
+      type: NotificationType.INFO,
     }).catch(() => {});
 
     return updated;

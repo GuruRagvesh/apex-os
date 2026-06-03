@@ -26,8 +26,8 @@ const ROLE_COLORS: Record<string, string> = {
 const REQUEST_TYPES = [
   { label: 'Designation', value: 'DESIGNATION_CHANGE', field: 'designation' },
   { label: 'Department', value: 'DEPARTMENT_CHANGE', field: 'departmentId' },
-  { label: 'Reporting Manager', value: 'REPORTING_MANAGER_CHANGE', field: 'reportingManager' },
-  { label: 'Primary Manager', value: 'PRIMARY_MANAGER_CHANGE', field: 'primaryManager' },
+  { label: 'Team Lead', value: 'TEAM_LEAD_CHANGE', field: 'teamLeadName' },
+  { label: 'Department Manager', value: 'REPORTING_MANAGER_CHANGE', field: 'reportingManager' },
   { label: 'Role', value: 'ROLE_CHANGE', field: 'roleId' },
   { label: 'Leadership Responsibility', value: 'LEADERSHIP_RESPONSIBILITY_CHANGE', field: 'leadershipResponsibility' },
   { label: 'Multiple Changes', value: 'MULTI_FIELD_CHANGE', field: 'multiple' },
@@ -36,8 +36,8 @@ const REQUEST_TYPES = [
 const MULTI_FIELDS = [
   { label: 'Designation', value: 'designation' },
   { label: 'Department', value: 'departmentId' },
-  { label: 'Reporting Manager', value: 'reportingManager' },
-  { label: 'Primary Manager', value: 'primaryManager' },
+  { label: 'Team Lead', value: 'teamLeadName' },
+  { label: 'Department Manager', value: 'reportingManager' },
   { label: 'Role', value: 'roleId' },
 ];
 
@@ -158,8 +158,8 @@ export default function ProfilePage() {
     if (!hierarchy) return 'Not assigned yet';
     if (field === 'designation') return hierarchy.designation || 'Not assigned yet';
     if (field === 'departmentId') return hierarchy.departmentsTiedTo?.[0]?.name || 'Not assigned yet';
-    if (field === 'reportingManager') return hierarchy.reportsTo?.name || 'Not assigned yet';
-    if (field === 'primaryManager') return hierarchy.primaryManager?.name || 'Not assigned yet';
+    if (field === 'teamLeadName') return hierarchy.reportsTo?.name || 'Not assigned yet';
+    if (field === 'reportingManager') return hierarchy.primaryManager?.name || 'Not assigned yet';
     if (field === 'roleId') return hierarchy.role || 'Not assigned yet';
     if (field === 'leadershipResponsibility') return hierarchy.reportsTo ? 'Has Reports' : 'None';
     return 'Not assigned yet';
@@ -168,7 +168,7 @@ export default function ProfilePage() {
   const getNewValueLabel = (field: string, val: string) => {
     if (!val) return '...';
     if (field === 'departmentId') return departments?.find((d:any) => d.id === val)?.name || val;
-    if (field === 'reportingManager' || field === 'primaryManager') {
+    if (field === 'reportingManager' || field === 'teamLeadName') {
       const u = (allUsers?.users || []).find((u:any) => u.employeeId === val);
       return u ? `${u.name} (${u.employeeId})` : val;
     }
@@ -196,19 +196,32 @@ export default function ProfilePage() {
         </select>
       );
     }
-    if (field === 'reportingManager' || field === 'primaryManager') {
+    if (field === 'teamLeadName') {
+      const tls = (allUsers?.users || []).filter((u: any) => u.role?.name === 'TEAM_LEAD');
       return (
         <select className="w-full border border-slate-300 rounded p-2 text-sm" value={val} onChange={(e) => onChange(e.target.value)}>
-          <option value="" disabled>Select Manager</option>
-          {(allUsers?.users || []).map((u: any) => <option key={u.id} value={u.employeeId}>{u.name} ({u.employeeId})</option>)}
+          <option value="" disabled>Select Team Lead</option>
+          {tls.map((u: any) => <option key={u.id} value={u.employeeId}>{u.name} ({u.employeeId})</option>)}
+        </select>
+      );
+    }
+    if (field === 'reportingManager') {
+      const mgrs = (allUsers?.users || []).filter((u: any) => ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(u.role?.name));
+      return (
+        <select className="w-full border border-slate-300 rounded p-2 text-sm" value={val} onChange={(e) => onChange(e.target.value)}>
+          <option value="" disabled>Select Department Manager</option>
+          {mgrs.map((u: any) => <option key={u.id} value={u.employeeId}>{u.name} ({u.employeeId})</option>)}
         </select>
       );
     }
     if (field === 'roleId') {
+      const filteredRoles = roles?.filter((r: any) => 
+        ['EMPLOYEE', 'INTERN'].includes(roleName) ? !['ADMIN', 'SUPER_ADMIN'].includes(r.name) : true
+      );
       return (
         <select className="w-full border border-slate-300 rounded p-2 text-sm" value={val} onChange={(e) => onChange(e.target.value)}>
           <option value="" disabled>Select Role</option>
-          {roles?.map((r: any) => <option key={r.id} value={r.id}>{r.name.replace(/_/g, ' ')}</option>)}
+          {filteredRoles?.map((r: any) => <option key={r.id} value={r.id}>{r.name.replace(/_/g, ' ')}</option>)}
         </select>
       );
     }
@@ -231,7 +244,7 @@ export default function ProfilePage() {
     const path = ['Employee'];
     if (hierarchy.reportsTo) path.push('Team Lead');
     if (hierarchy.primaryManager || (!hierarchy.reportsTo && hierarchy.primaryManager)) path.push('Manager');
-    if (path.length === 1) path.push('Admin');
+    if (path.length === 1 || (path.length === 2 && hierarchy.reportsTo)) path.push('Admin');
     return path.join(' → ');
   };
 
