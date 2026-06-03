@@ -1,8 +1,27 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { changeRequestsApi } from '@/lib/api';
-import { useState } from 'react';
+import { changeRequestsApi, departmentsApi, usersApi, rolesApi } from '@/lib/api';
+import { useState, useMemo } from 'react';
+import { ArrowRight, CheckCircle, XCircle } from 'lucide-react';
+
+const REQUEST_TYPES = [
+  { label: 'Designation', value: 'DESIGNATION_CHANGE' },
+  { label: 'Department', value: 'DEPARTMENT_CHANGE' },
+  { label: 'Reporting Manager', value: 'REPORTING_MANAGER_CHANGE' },
+  { label: 'Primary Manager', value: 'PRIMARY_MANAGER_CHANGE' },
+  { label: 'Role', value: 'ROLE_CHANGE' },
+  { label: 'Leadership Responsibility', value: 'LEADERSHIP_RESPONSIBILITY_CHANGE' },
+  { label: 'Multiple Changes', value: 'MULTI_FIELD_CHANGE' },
+];
+
+const MULTI_FIELDS = [
+  { label: 'Designation', value: 'designation' },
+  { label: 'Department', value: 'departmentId' },
+  { label: 'Reporting Manager', value: 'reportingManager' },
+  { label: 'Primary Manager', value: 'primaryManager' },
+  { label: 'Role', value: 'roleId' },
+];
 
 
 export default function ApprovalsPage() {
@@ -15,6 +34,21 @@ export default function ApprovalsPage() {
     queryKey: ['pending-approvals'],
     queryFn: () => changeRequestsApi.listPendingApprovals() as Promise<any[]>,
   });
+
+  const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any> });
+  const { data: allUsers } = useQuery({ queryKey: ['users-list'], queryFn: () => usersApi.getAll() as Promise<any> });
+  const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any> });
+
+  const getLabel = (field: string, val: string) => {
+    if (!val || val === 'None') return val || 'None';
+    if (field === 'departmentId') return departments?.find((d:any) => d.id === val)?.name || val;
+    if (field === 'reportingManager' || field === 'primaryManager') {
+      const u = (allUsers?.users || []).find((u:any) => u.employeeId === val);
+      return u ? `${u.name} (${u.employeeId})` : val;
+    }
+    if (field === 'roleId') return roles?.find((r:any) => r.id === val)?.name || val;
+    return val;
+  };
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => changeRequestsApi.approve(id),
@@ -52,42 +86,51 @@ export default function ApprovalsPage() {
               <div key={req.id} className="py-4">
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <h3 className="font-semibold">{req.requestType.replace(/_/g, ' ')}</h3>
-                    <p className="text-sm text-slate-500">
-                      Requested by: {req.requestedBy?.name} for {req.targetUser?.name} ({req.targetUser?.employeeId})
+                    <h3 className="font-semibold text-slate-800 text-lg">{REQUEST_TYPES.find(r => r.value === req.requestType)?.label || req.requestType}</h3>
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      Requested by <span className="font-medium text-slate-700">{req.requestedBy?.name}</span> for <span className="font-medium text-indigo-700">{req.targetUser?.name} ({req.targetUser?.employeeId})</span>
                     </p>
                   </div>
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 font-medium">
-                    {req.status.replace(/_/g, ' ')}
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 font-medium whitespace-nowrap">
+                    Pending Your Approval
                   </span>
                 </div>
 
-                <div className="bg-slate-50 rounded p-3 mb-3 text-sm">
-                  <div className="font-medium text-slate-700 mb-1">Requested Changes:</div>
-                  {req.changes.map((ch: any, idx: number) => (
-                    <div key={idx} className="text-slate-600">
-                      <span className="font-medium">{ch.field}:</span> {String(ch.oldValue || 'None')} &rarr; {String(ch.newValue)}
+                <div className="bg-slate-50 rounded-lg p-4 mb-4 border border-slate-100">
+                  <div className="font-medium text-slate-700 mb-2">Requested Changes:</div>
+                  <div className="space-y-2 mb-3">
+                    {req.changes.map((ch: any, idx: number) => (
+                      <div key={idx} className="flex items-center gap-3 text-sm">
+                        <span className="font-medium text-slate-600 w-32">{MULTI_FIELDS.find(f => f.value === ch.field)?.label || ch.field}:</span>
+                        <span className="px-2.5 py-1 bg-slate-200 text-slate-600 rounded text-xs line-through">{getLabel(ch.field, ch.oldValue) || 'None'}</span>
+                        <ArrowRight size={14} className="text-slate-400" />
+                        <span className="px-2.5 py-1 bg-indigo-100 text-indigo-700 font-medium rounded text-xs">{getLabel(ch.field, ch.newValue)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {req.reason && (
+                    <div className="mt-2 text-sm text-slate-600 bg-white p-3 rounded border border-slate-200">
+                      <span className="font-medium">Reason: </span>{req.reason}
                     </div>
-                  ))}
-                  {req.reason && <div className="mt-2 text-slate-500 italic">Reason: {req.reason}</div>}
+                  )}
                 </div>
 
                 <div className="flex gap-2">
                   <button 
-                    className="px-4 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 disabled:opacity-50" 
+                    className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm" 
                     onClick={() => approveMutation.mutate(req.id)}
                     disabled={approveMutation.isPending}
                   >
-                    {approveMutation.isPending ? 'Processing...' : 'Approve'}
+                    <CheckCircle size={16} /> {approveMutation.isPending ? 'Processing...' : 'Approve Request'}
                   </button>
                   <button 
-                    className="px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700" 
+                    className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 transition-colors shadow-sm" 
                     onClick={() => {
                       setSelectedReq(req.id);
                       setIsRejectModalOpen(true);
                     }}
                   >
-                    Reject
+                    <XCircle size={16} /> Reject
                   </button>
                 </div>
               </div>
