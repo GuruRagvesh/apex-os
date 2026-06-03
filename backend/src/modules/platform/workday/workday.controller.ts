@@ -45,6 +45,11 @@ export class WorkdayController {
     return this.workdayService.resumeWork(req.user.id ?? req.user.sub);
   }
 
+  @Post('resume-auto-closed')
+  resumeAutoClosedWork(@Request() req: any) {
+    return this.workdayService.resumeAutoClosedWork(req.user.id ?? req.user.sub);
+  }
+
   @Get('today')
   getToday(@Request() req: any) {
     return this.workdayService.getToday(req.user.id ?? req.user.sub);

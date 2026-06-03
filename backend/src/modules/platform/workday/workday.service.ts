@@ -39,11 +39,21 @@ export class WorkdayService {
     const today = this.getTodayDate();
     const now = new Date();
 
-    const session = await this.prisma.workSession.upsert({
-      where: { userId_date: { userId, date: today } },
-      update: { startWorkAt: now, status: 'WORKING', loginAt: now },
-      create: { userId, date: today, loginAt: now, startWorkAt: now, status: 'WORKING' },
+    let session = await this.prisma.workSession.findFirst({
+      where: { userId, date: today },
+      orderBy: { createdAt: 'desc' },
     });
+
+    if (session) {
+      session = await this.prisma.workSession.update({
+        where: { id: session.id },
+        data: { startWorkAt: now, status: 'WORKING', loginAt: now },
+      });
+    } else {
+      session = await this.prisma.workSession.create({
+        data: { userId, date: today, loginAt: now, startWorkAt: now, status: 'WORKING' },
+      });
+    }
 
     await this.prisma.attendanceEvent.create({
       data: { userId, workSessionId: session.id, eventType: 'START_WORK', source: 'manual' },
@@ -68,8 +78,9 @@ export class WorkdayService {
     const today = this.getTodayDate();
     const now = new Date();
 
-    const session = await this.prisma.workSession.findUnique({
-      where: { userId_date: { userId, date: today } },
+    const session = await this.prisma.workSession.findFirst({
+      where: { userId, date: today },
+      orderBy: { createdAt: 'desc' },
       include: { breakLogs: true },
     });
 
@@ -127,8 +138,9 @@ export class WorkdayService {
     const today = this.getTodayDate();
     const now = new Date();
 
-    const session = await this.prisma.workSession.findUnique({
-      where: { userId_date: { userId, date: today } },
+    const session = await this.prisma.workSession.findFirst({
+      where: { userId, date: today },
+      orderBy: { createdAt: 'desc' },
     });
     if (!session) throw new Error('No active session');
 
@@ -178,8 +190,9 @@ export class WorkdayService {
     const today = this.getTodayDate();
     const now = new Date();
 
-    const session = await this.prisma.workSession.findUnique({
-      where: { userId_date: { userId, date: today } },
+    const session = await this.prisma.workSession.findFirst({
+      where: { userId, date: today },
+      orderBy: { createdAt: 'desc' },
     });
     if (!session) throw new Error('No active session');
 
@@ -274,17 +287,69 @@ export class WorkdayService {
     return { message: 'Resumed', updated: session.count };
   }
 
+  async resumeAutoClosedWork(userId: string) {
+    const today = this.getTodayDate();
+    const now = new Date();
+
+    const oldSession = await this.prisma.workSession.findFirst({
+      where: { userId, date: today, autoClosed: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!oldSession) {
+      throw new Error('No auto-closed session found for today');
+    }
+
+    const newSession = await this.prisma.workSession.create({
+      data: {
+        userId,
+        date: today,
+        loginAt: now,
+        startWorkAt: now,
+        status: 'WORKING',
+        continuationOfSessionId: oldSession.id,
+      },
+    });
+
+    await this.prisma.attendanceEvent.create({
+      data: {
+        userId,
+        workSessionId: newSession.id,
+        eventType: 'START_WORK',
+        source: 'USER_RESUMED_AFTER_AUTO_CLOSE',
+      },
+    });
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { currentStatus: 'WORKING', lastActiveAt: now },
+    });
+
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'WorkdaySession',
+      entityId: newSession.id,
+      action: OperationalAction.WORKDAY_STARTED,
+    }).catch(() => {});
+
+    return { session: newSession, message: 'Workday resumed after auto-close' };
+  }
+
   async getToday(userId: string) {
     const today = this.getTodayDate();
     const now = new Date();
 
-    const session = await this.prisma.workSession.findUnique({
-      where: { userId_date: { userId, date: today } },
+    // Fetch all sessions for today to aggregate
+    const sessions = await this.prisma.workSession.findMany({
+      where: { userId, date: today },
+      orderBy: { createdAt: 'asc' },
       include: {
         breakLogs: { orderBy: { startAt: 'asc' } },
         attendanceEvents: { orderBy: { timestamp: 'asc' } },
       },
     });
+
+    const session = sessions.length > 0 ? sessions[sessions.length - 1] : null;
 
     const onLeave = await this.prisma.leaveRequest.findFirst({
       where: {
@@ -295,25 +360,54 @@ export class WorkdayService {
       },
     });
 
-    let liveBreakMins = session?.totalBreakMinutes ?? 0;
-    if (session) {
-      const openBreak = session.breakLogs.find((b) => !b.endAt);
-      if (openBreak) {
-        liveBreakMins += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
-      }
-    }
+    let totalBreakMins = 0;
+    let totalWorkMins = 0;
+    let firstStartTime = null;
+    let currentEndTime = null;
+    let autoClosedCount = 0;
+    let isResumed = false;
 
-    let elapsedWorkMinutes = 0;
-    if (session?.startWorkAt && !session.logoutAt) {
-      const elapsed = Math.floor(
-        (now.getTime() - session.startWorkAt.getTime()) / 60000,
-      );
-      elapsedWorkMinutes = Math.max(0, elapsed - liveBreakMins);
+    for (const s of sessions) {
+      if (!firstStartTime && s.startWorkAt) {
+        firstStartTime = s.startWorkAt;
+      }
+      if (s.logoutAt) {
+        currentEndTime = s.logoutAt;
+      } else {
+        currentEndTime = now; // Ongoing
+      }
+      if (s.autoClosed) {
+        autoClosedCount++;
+      }
+      if (s.continuationOfSessionId) {
+        isResumed = true;
+      }
+
+      let liveBreak = s.totalBreakMinutes;
+      const openBreak = s.breakLogs.find((b) => !b.endAt);
+      if (openBreak) {
+        liveBreak += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
+      }
+      totalBreakMins += liveBreak;
+
+      let sessionWork = s.totalWorkMinutes;
+      if (s.startWorkAt && !s.logoutAt) {
+        const elapsed = Math.floor((now.getTime() - s.startWorkAt.getTime()) / 60000);
+        sessionWork = Math.max(0, elapsed - liveBreak);
+      }
+      totalWorkMins += sessionWork;
     }
 
     return {
       session,
-      elapsedWorkMinutes,
+      allSessions: sessions,
+      elapsedWorkMinutes: totalWorkMins,
+      totalBreakMinutes: totalBreakMins,
+      firstStartTime,
+      currentEndTime,
+      autoClosedCount,
+      isResumed,
+      sessionCount: sessions.length,
       onLeaveToday: !!onLeave,
       leaveInfo: onLeave,
     };
@@ -374,20 +468,34 @@ export class WorkdayService {
       const session = m.workSessions[0] ?? null;
       const leave = m.leaveRequests[0] ?? null;
       
-      const breakMins = session?.breakLogs
-        .filter((b) => b.durationMinutes)
-        .reduce((s, b) => s + (b.durationMinutes ?? 0), 0) ?? 0;
+      let totalBreakMins = 0;
+      let totalWorkMins = 0;
+      let firstStartTime = null;
+      let currentEndTime = null;
 
-      let liveBreakMins = breakMins;
-      const openBreak = session?.breakLogs.find((b) => !b.endAt);
-      if (openBreak) {
-        liveBreakMins += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
-      }
+      for (const s of m.workSessions) {
+        if (!firstStartTime && s.startWorkAt) {
+          firstStartTime = s.startWorkAt;
+        }
+        if (s.logoutAt) {
+          currentEndTime = s.logoutAt;
+        } else {
+          currentEndTime = now; // Ongoing
+        }
 
-      let workMinutesToday = session?.totalWorkMinutes ?? 0;
-      if (session && session.startWorkAt && !session.logoutAt) {
-        const elapsed = Math.floor((now.getTime() - session.startWorkAt.getTime()) / 60000);
-        workMinutesToday = Math.max(0, elapsed - liveBreakMins);
+        let liveBreak = s.totalBreakMinutes;
+        const openBreak = s.breakLogs.find((b) => !b.endAt);
+        if (openBreak) {
+          liveBreak += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
+        }
+        totalBreakMins += liveBreak;
+
+        let sessionWork = s.totalWorkMinutes;
+        if (s.startWorkAt && !s.logoutAt) {
+          const elapsed = Math.floor((now.getTime() - s.startWorkAt.getTime()) / 60000);
+          sessionWork = Math.max(0, elapsed - liveBreak);
+        }
+        totalWorkMins += sessionWork;
       }
 
       let isLate = false;
@@ -410,8 +518,8 @@ export class WorkdayService {
         isFlexible = true;
       }
 
-      if (session?.startWorkAt && !isFlexible) {
-        isLate = TimezoneUtil.isLate(session.startWorkAt, expectedStart, tz);
+      if (firstStartTime && !isFlexible) {
+        isLate = TimezoneUtil.isLate(firstStartTime, expectedStart, tz);
       }
 
       return {
@@ -425,8 +533,8 @@ export class WorkdayService {
         todaySession: session,
         onLeaveToday: !!leave,
         leaveType: leave?.type ?? null,
-        workMinutesToday,
-        breakMinutesToday: liveBreakMins,
+        workMinutesToday: totalWorkMins,
+        breakMinutesToday: totalBreakMins,
         breakCount: session?.breakLogs.length ?? 0,
         lastActiveAt: m.lastActiveAt,
         isLate,

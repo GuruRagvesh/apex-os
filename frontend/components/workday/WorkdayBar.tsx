@@ -43,11 +43,14 @@ export function WorkdayBar() {
 
   const session = (todayData as any)?.session;
   const status = session?.status ?? 'OFFLINE';
-  const startWorkAt = session?.startWorkAt;
-  const totalBreakMinutes = session?.totalBreakMinutes ?? 0;
+  const startWorkAt = (todayData as any)?.firstStartTime ?? session?.startWorkAt;
+  const totalBreakMinutes = (todayData as any)?.totalBreakMinutes ?? session?.totalBreakMinutes ?? 0;
+  const elapsedWorkMinutes = (todayData as any)?.elapsedWorkMinutes ?? 0;
   const breakLogs = session?.breakLogs ?? [];
   const onLeaveToday = (todayData as any)?.onLeaveToday;
   const leaveInfo = (todayData as any)?.leaveInfo;
+  const isResumed = (todayData as any)?.isResumed;
+  const autoClosedCount = (todayData as any)?.autoClosedCount ?? 0;
 
   // Live elapsed time (WORKING) and live break timer (ON_BREAK)
   useEffect(() => {
@@ -70,7 +73,7 @@ export function WorkdayBar() {
 
       const diffMs = nowMs - new Date(startWorkAt).getTime();
       const diffMin = Math.max(0, Math.floor(diffMs / 60000) - totalBreakMinutes - currentBreakMins);
-      setElapsed(diffMin);
+      setElapsed(elapsedWorkMinutes + diffMin);
     };
     calc();
     const t = setInterval(calc, 10000);
@@ -99,7 +102,11 @@ export function WorkdayBar() {
   const handleResumeWork = async () => {
     setLoading('resume');
     try {
-      await workdayApi.resumeWork();
+      if (status === 'AUTO_CLOSED') {
+        await workdayApi.resumeAutoClosedWork();
+      } else {
+        await workdayApi.resumeWork();
+      }
       toast.success('Resumed!');
       refetch();
     } catch { toast.error('Failed to resume'); }
@@ -165,6 +172,31 @@ export function WorkdayBar() {
             <span className="text-xs text-blue-500 dark:text-blue-400">· {leaveInfo.type}</span>
           )}
         </div>
+      </div>
+    );
+  }
+
+  if (status === 'AUTO_CLOSED') {
+    return (
+      <div className="flex items-center justify-between bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 mb-4">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-red-500" />
+          <div>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+              Your workday was auto-closed.
+            </p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+              Resume workday to continue working today?
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={handleResumeWork}
+          disabled={loading === 'resume'}
+          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+        >
+          {loading === 'resume' ? 'Resuming...' : 'Resume Workday'}
+        </button>
       </div>
     );
   }
@@ -285,14 +317,18 @@ export function WorkdayBar() {
         <div className="flex items-center gap-3">
           <span className={dotCls} />
           <div>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-              Working · <span className="text-green-600 dark:text-green-400">{formatMinutes(elapsed)} active</span>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              Working <span className="text-gray-400 font-normal">·</span> 
+              <span className="text-green-600 dark:text-green-400">{formatMinutes(elapsed)} active</span>
+              {isResumed && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-md">Resumed</span>}
             </p>
             <p className="text-xs text-gray-400 dark:text-gray-500">
-              {completedBreaks.length > 0
-                ? `${completedBreaks.length} break${completedBreaks.length > 1 ? 's' : ''} · ${formatMinutes(totalBreakMinutes)}`
+              {todayData?.sessionCount > 1 && `${todayData.sessionCount} sessions · `}
+              {autoClosedCount > 0 && `${autoClosedCount} auto-closed · `}
+              {totalBreakMinutes > 0
+                ? `${formatMinutes(totalBreakMinutes)} breaks`
                 : 'No breaks yet'}
-              {startWorkAt && ` · Started ${new Date(startWorkAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+              {startWorkAt && ` · First start ${new Date(startWorkAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
             </p>
           </div>
         </div>

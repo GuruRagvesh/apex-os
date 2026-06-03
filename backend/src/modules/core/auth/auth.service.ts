@@ -53,19 +53,25 @@ export class AuthService {
     let nextStatus = 'LOGGED_IN';
 
     try {
-      const existingSession = await this.prisma.workSession.findUnique({
-        where: { userId_date: { userId: user.id, date: today } },
+      const existingSession = await this.prisma.workSession.findFirst({
+        where: { userId: user.id, date: today },
+        orderBy: { createdAt: 'desc' }
       });
 
       if (existingSession && ['WORKING', 'ON_BREAK', 'IDLE'].includes(existingSession.status)) {
         nextStatus = existingSession.status;
       }
 
-      await this.prisma.workSession.upsert({
-        where: { userId_date: { userId: user.id, date: today } },
-        update: { loginAt: now, status: nextStatus },
-        create: { userId: user.id, date: today, loginAt: now, status: nextStatus },
-      });
+      if (existingSession) {
+        await this.prisma.workSession.update({
+          where: { id: existingSession.id },
+          data: { loginAt: now, status: nextStatus },
+        });
+      } else {
+        await this.prisma.workSession.create({
+          data: { userId: user.id, date: today, loginAt: now, status: nextStatus },
+        });
+      }
       await this.prisma.attendanceEvent.create({
         data: { userId: user.id, eventType: 'LOGIN', source: 'manual' },
       });

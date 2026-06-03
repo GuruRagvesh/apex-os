@@ -17,6 +17,14 @@ const DEFAULTS: Record<string, any> = {
   sla: { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 },
   review_sla: { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 },
   smtp: { host: '', port: '587', email: '', password: '' },
+  workday_policy: {
+    timezone: 'Asia/Kolkata',
+    minimumWorkdayMinutes: 540,
+    employeeTiming: { start: '09:30', end: '18:30', flexible: false },
+    tlTiming: { entryStart: '09:30', entryEnd: '10:30', exitStart: '18:30', exitEnd: '19:30', minimumWorkdayMinutes: 540 },
+    managerTiming: { flexible: true },
+    autoClose: true,
+  }
 };
 
 @Injectable()
@@ -89,5 +97,13 @@ export class SettingsService {
   async getLeaveQuotas(): Promise<Record<string, number>> {
     const stored = await this.get('leave_policy');
     return { EMPLOYEE: 12, TEAM_LEAD: 12, MANAGER: 15, INTERN: 6, ...(stored?.quotas ?? {}) };
+  }
+
+  async getWorkdayPolicy(): Promise<any> {
+    return this.get('workday_policy');
+  }
+
+  async updateWorkdayPolicy(data: any, updatedBy?: string): Promise<any> {
+    return this.set('workday_policy', data, updatedBy);
   }
 }

@@ -5,6 +5,7 @@ import { EventsGateway } from '../gateway/events.gateway';
 import { TicketLedgerService } from '../../operations/tickets/ticket-ledger.service';
 import { NotificationType } from '@prisma/client';
 import { TimezoneUtil } from '../../../common/utils/timezone.util';
+import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
 
 @Injectable()
 export class SchedulerService {
@@ -145,11 +146,21 @@ export class SchedulerService {
     });
 
     for (const leave of approvedLeaves) {
-      await this.prisma.workSession.upsert({
-        where: { userId_date: { userId: leave.userId, date: today } },
-        update: { status: 'ON_LEAVE', leaveId: leave.id },
-        create: { userId: leave.userId, date: today, status: 'ON_LEAVE', leaveId: leave.id },
+      let existingSession = await this.prisma.workSession.findFirst({
+        where: { userId: leave.userId, date: today },
+        orderBy: { createdAt: 'desc' }
       });
+
+      if (existingSession) {
+        await this.prisma.workSession.update({
+          where: { id: existingSession.id },
+          data: { status: 'ON_LEAVE', leaveId: leave.id },
+        });
+      } else {
+        await this.prisma.workSession.create({
+          data: { userId: leave.userId, date: today, status: 'ON_LEAVE', leaveId: leave.id },
+        });
+      }
       await this.prisma.user.update({
         where: { id: leave.userId },
         data: { currentStatus: 'ON_LEAVE' },
@@ -172,20 +183,38 @@ export class SchedulerService {
   // 1b. AUTO-CLOSE MIDNIGHT SESSIONS — every 15 minutes
   @Cron('*/15 * * * *')
   async autoCloseMidnightSessions() {
-    const companyToday = TimezoneUtil.getCompanyTodayDate();
+    const timezone = 'Asia/Kolkata'; // Default company timezone
     try {
       const openSessions = await this.prisma.workSession.findMany({
-        where: {
-          logoutAt: null,
-          date: { lt: companyToday },
-        },
-        include: {
-          breakLogs: true,
-        },
+        where: { logoutAt: null },
+        include: { breakLogs: true },
       });
 
+      const currentCompanyDateStr = formatInTimeZone(new Date(), timezone, 'yyyy-MM-dd');
+
+      let closedCount = 0;
       for (const session of openSessions) {
-        const now = new Date();
+        // We compare the date string of the session to current date string
+        // The session's DB 'date' represents midnight UTC of the created date. 
+        // A better anchor is loginAt or createdAt.
+        const sessionAnchor = session.loginAt || session.createdAt;
+        const sessionCompanyDateStr = formatInTimeZone(sessionAnchor, timezone, 'yyyy-MM-dd');
+
+        if (sessionCompanyDateStr >= currentCompanyDateStr) {
+          // It's from today (or the future), skip auto-close
+          continue;
+        }
+
+        // Calculate the exact midnight moment AFTER the session's date in company timezone
+        // The session belongs to `sessionCompanyDateStr`. We want 00:00 AM of the NEXT day.
+        const nextDayDateStr = formatInTimeZone(new Date(sessionAnchor.getTime() + 24 * 60 * 60 * 1000), timezone, 'yyyy-MM-dd');
+        const nextMidnightIso = `${nextDayDateStr}T00:00:00.000`;
+        const offsetString = formatInTimeZone(sessionAnchor, timezone, 'xxx');
+        const autoCloseTime = new Date(`${nextMidnightIso}${offsetString}`);
+        
+        // We use autoCloseTime (the midnight boundary) as the time the session logically ended, unless now is earlier? 
+        // No, we are closing it retrospectively.
+        const now = autoCloseTime; 
         
         await this.ticketLedger.pauseActiveLogsForUser({
           userId: session.userId,
@@ -239,9 +268,11 @@ export class SchedulerService {
           where: { id: session.userId },
           data: { currentStatus: 'LOGGED_OUT' },
         });
+        
+        closedCount++;
       }
-      if (openSessions.length > 0) {
-        this.logger.log(`[scheduler] Auto-closed ${openSessions.length} midnight stale sessions.`);
+      if (closedCount > 0) {
+        this.logger.log(`[scheduler] Auto-closed ${closedCount} midnight stale sessions.`);
       }
     } catch (err) {
       this.logger.error(`[scheduler] Auto-close stale sessions error: ${err}`);

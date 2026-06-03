@@ -837,6 +837,138 @@ function SlaSection() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SECTION: Workday Policy (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
+  const qc = useQueryClient();
+  const { data: remote } = useQuery({
+    queryKey: ['settings', 'workday-policy'],
+    queryFn: () => settingsApi.getWorkdayPolicy() as Promise<any>,
+  });
+  
+  const [form, setForm] = useState({
+    timezone: 'Asia/Kolkata',
+    minimumWorkdayMinutes: 540,
+    employeeTiming: { start: '09:30', end: '18:30', flexible: false },
+    tlTiming: { entryStart: '09:30', entryEnd: '10:30', exitStart: '18:30', exitEnd: '19:30', minimumWorkdayMinutes: 540 },
+    managerTiming: { flexible: true },
+    autoClose: true,
+  });
+
+  useEffect(() => {
+    if (remote) setForm((f) => ({ ...f, ...remote }));
+  }, [remote]);
+
+  const save = useMutation({
+    mutationFn: (data: any) => settingsApi.updateWorkdayPolicy(data),
+    onSuccess: () => {
+      toast.success('Workday policy saved');
+      qc.invalidateQueries({ queryKey: ['settings', 'workday-policy'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to save'),
+  });
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit) return;
+    if (form.minimumWorkdayMinutes <= 0) return toast.error('Minimum workday must be > 0');
+    save.mutate(form);
+  };
+
+  const update = (key: keyof typeof form, val: any) => setForm((f) => ({ ...f, [key]: val }));
+  const updateNested = (parent: 'employeeTiming' | 'tlTiming', key: string, val: any) => 
+    setForm((f) => ({ ...f, [parent]: { ...(f[parent] as any), [key]: val } }));
+
+  return (
+    <form onSubmit={handleSave} className="space-y-4">
+      <div className={cardCls}>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Workday Policy</h3>
+        {!canEdit && (
+          <p className="text-xs mb-2" style={{ color: 'var(--text-tertiary)' }}>Read-only — contact your admin to change workday policies.</p>
+        )}
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Company Timezone</label>
+            <select className={inputCls} value={form.timezone} onChange={(e) => canEdit && update('timezone', e.target.value)} disabled={!canEdit}>
+              <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+              <option value="UTC">Coordinated Universal Time (UTC)</option>
+              <option value="America/New_York">America/New_York (EST/EDT)</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Minimum Workday (minutes)</label>
+            <input type="number" min={1} className={inputCls} value={form.minimumWorkdayMinutes} onChange={(e) => canEdit && update('minimumWorkdayMinutes', Number(e.target.value))} disabled={!canEdit} />
+          </div>
+        </div>
+
+        <div className="pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+          <h4 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Employee / Intern Timing</h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Expected Start</label>
+              <input type="time" className={inputCls} value={form.employeeTiming.start} onChange={(e) => canEdit && updateNested('employeeTiming', 'start', e.target.value)} disabled={!canEdit} required />
+            </div>
+            <div>
+              <label className={labelCls}>Expected End</label>
+              <input type="time" className={inputCls} value={form.employeeTiming.end} onChange={(e) => canEdit && updateNested('employeeTiming', 'end', e.target.value)} disabled={!canEdit} required />
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+          <h4 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>Team Lead Timing</h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Entry Window Start</label>
+              <input type="time" className={inputCls} value={form.tlTiming.entryStart} onChange={(e) => canEdit && updateNested('tlTiming', 'entryStart', e.target.value)} disabled={!canEdit} required />
+            </div>
+            <div>
+              <label className={labelCls}>Entry Window End</label>
+              <input type="time" className={inputCls} value={form.tlTiming.entryEnd} onChange={(e) => canEdit && updateNested('tlTiming', 'entryEnd', e.target.value)} disabled={!canEdit} required />
+            </div>
+            <div>
+              <label className={labelCls}>Exit Window Start</label>
+              <input type="time" className={inputCls} value={form.tlTiming.exitStart} onChange={(e) => canEdit && updateNested('tlTiming', 'exitStart', e.target.value)} disabled={!canEdit} required />
+            </div>
+            <div>
+              <label className={labelCls}>Exit Window End</label>
+              <input type="time" className={inputCls} value={form.tlTiming.exitEnd} onChange={(e) => canEdit && updateNested('tlTiming', 'exitEnd', e.target.value)} disabled={!canEdit} required />
+            </div>
+            <div>
+              <label className={labelCls}>TL Minimum Workday (minutes)</label>
+              <input type="number" min={1} className={inputCls} value={form.tlTiming.minimumWorkdayMinutes} onChange={(e) => canEdit && updateNested('tlTiming', 'minimumWorkdayMinutes', Number(e.target.value))} disabled={!canEdit} />
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+          <h4 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Manager / Admin / SuperAdmin Timing</h4>
+          <span className="px-3 py-1 bg-blue-100 text-blue-700 font-medium text-xs rounded-full">Flexible timing enabled</span>
+        </div>
+
+        <div className="pt-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Auto Close</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>If users forget to end their day, Apex OS auto-closes open workdays at midnight in the company timezone.</p>
+          </div>
+          <Toggle checked={form.autoClose} onChange={(v) => canEdit && update('autoClose', v)} />
+        </div>
+
+        <div className="pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+          <h4 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Individual User Timing Overrides</h4>
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 text-sm italic text-center">
+            Coming next: assign custom office timings for specific users.
+          </div>
+        </div>
+
+        {canEdit && <SaveBtn loading={save.isPending} />}
+      </div>
+    </form>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SECTION: SMTP (super admin only)
 // ─────────────────────────────────────────────────────────────────────────────
 function SmtpSection() {
@@ -1514,6 +1646,9 @@ export default function SettingsPage() {
               <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>SLA Settings</h3>
               <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>Response time targets for execution and review phases</p>
               <SlaSection />
+            </div>
+            <div className="border-t pt-6" style={{ borderColor: 'var(--border-subtle)' }}>
+              <WorkdayPolicySection canEdit={isAdmin} />
             </div>
           </div>
         )}

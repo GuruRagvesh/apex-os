@@ -361,8 +361,9 @@ export class DashboardService {
 
   private async getWorkdayStatus(user: any) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const session = await this.prisma.workSession.findUnique({
-      where: { userId_date: { userId: user.id, date: today } },
+    const session = await this.prisma.workSession.findFirst({
+      where: { userId: user.id, date: today },
+      orderBy: { createdAt: 'desc' },
       include: { breakLogs: { orderBy: { startAt: 'desc' }, take: 1 } },
     });
     return session;

@@ -67,6 +67,18 @@ export class SettingsController {
     return this.getSla();
   }
 
+  @Get('workday-policy')
+  getWorkdayPolicy() {
+    return this.settings.getWorkdayPolicy();
+  }
+
+  @Patch('workday-policy')
+  @UseGuards(RolesGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  updateWorkdayPolicy(@Body() body: any, @Request() req: any) {
+    return this.settings.updateWorkdayPolicy(body, req.user?.sub);
+  }
+
   @Get('smtp')
   @UseGuards(RolesGuard)
   @Roles(ROLES.SUPER_ADMIN)

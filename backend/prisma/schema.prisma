@@ -543,13 +543,13 @@ model WorkSession {
   closureReason      String?
   autoClosed         Boolean          @default(false)
   autoClosedAt       DateTime?
+  continuationOfSessionId String?
   breakLogs          BreakLog[]
   attendanceEvents   AttendanceEvent[]
   ticketTimeLogs     TicketTimeLog[]
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
-  @@unique([userId, date])
   @@index([userId])
   @@index([date])
   @@index([status])

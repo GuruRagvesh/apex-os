@@ -286,6 +286,8 @@ export const settingsApi = {
   getSmtp:             ()         => r(api.get('/settings/smtp')),
   updateSmtp:          (data: any) => r(api.patch('/settings/smtp', data)),
   testEmail:           (to?: string) => r(api.post('/settings/email/test', { to })),
+  getWorkdayPolicy:    ()         => r(api.get('/settings/workday-policy')),
+  updateWorkdayPolicy: (data: any) => r(api.patch('/settings/workday-policy', data)),
 };
 
 // Task Types
@@ -316,6 +318,7 @@ export const workdayApi = {
   resumeWork: () => r(api.post('/workday/resume', {})),
   reportIdle: (idleDuration: number) =>
     r(api.post('/workday/idle', { idleDuration })),
+  resumeAutoClosedWork: () => r(api.post('/workday/resume-auto-closed', {})),
   getToday: () => r(api.get('/workday/today')),
   getTeam: () => r(api.get('/workday/team')),
   getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
