@@ -43,6 +43,48 @@ export class TicketLedgerService {
     });
   }
 
+  async getTicketTimers(ticket: any) {
+    const totalTicketSeconds = ticket.createdAt 
+      ? Math.floor(((ticket.resolvedAt || ticket.closedAt || ticket.cancelledAt || new Date()).getTime() - ticket.createdAt.getTime()) / 1000)
+      : 0;
+
+    const [assigneeLogs, reviewerLogs, activeLogs] = await Promise.all([
+      this.prisma.ticketTimeLog.aggregate({
+        where: { ticketId: ticket.id, ownerType: LEDGER_OWNER_TYPES.ASSIGNEE },
+        _sum: { durationSeconds: true },
+      }),
+      this.prisma.ticketTimeLog.aggregate({
+        where: { ticketId: ticket.id, ownerType: LEDGER_OWNER_TYPES.REVIEWER },
+        _sum: { durationSeconds: true },
+      }),
+      this.prisma.ticketTimeLog.findMany({
+        where: { ticketId: ticket.id, endedAt: null },
+      })
+    ]);
+
+    let employeeWorkSeconds = assigneeLogs._sum.durationSeconds ?? 0;
+    let reviewerApprovalSeconds = reviewerLogs._sum.durationSeconds ?? 0;
+    let activeClock = 'NONE';
+
+    for (const log of activeLogs) {
+      const liveSeconds = Math.floor((new Date().getTime() - log.startedAt.getTime()) / 1000);
+      if (log.ownerType === LEDGER_OWNER_TYPES.ASSIGNEE) {
+        employeeWorkSeconds += liveSeconds;
+        activeClock = 'EMPLOYEE_WORK';
+      } else if (log.ownerType === LEDGER_OWNER_TYPES.REVIEWER) {
+        reviewerApprovalSeconds += liveSeconds;
+        activeClock = 'REVIEWER_APPROVAL';
+      }
+    }
+
+    return {
+      totalTicketSeconds,
+      employeeWorkSeconds,
+      reviewerApprovalSeconds,
+      activeClock
+    };
+  }
+
   async getActiveLogForTicket(ticketId: string) {
     return this.prisma.ticketTimeLog.findFirst({
       where: { ticketId, endedAt: null },
@@ -223,6 +265,10 @@ export class TicketLedgerService {
     reworkStartedAt?: Date;
     assigneeWorkSeconds?: number;
     reviewerWorkSeconds?: number;
+    taskEfficiencyRating?: number;
+    employeePerformanceRating?: number;
+    employeeAttitudeRating?: number;
+    ratingComment?: string;
   }) {
     let cycle;
     if (input.cycleNo) {
@@ -280,6 +326,10 @@ export class TicketLedgerService {
         reworkStartedAt: input.reworkStartedAt,
         assigneeWorkSeconds,
         reviewerWorkSeconds,
+        taskEfficiencyRating: input.taskEfficiencyRating,
+        employeePerformanceRating: input.employeePerformanceRating,
+        employeeAttitudeRating: input.employeeAttitudeRating,
+        ratingComment: input.ratingComment,
       },
     });
   }

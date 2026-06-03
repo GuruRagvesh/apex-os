@@ -7,11 +7,12 @@ import { EmailService } from '../../src/modules/platform/email/email.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { TicketStatus } from '@prisma/client';
+import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { TicketStatus } from '@prisma/client';
 
 const mockPrisma = {
   ticket: {
@@ -75,6 +76,7 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
         { provide: EventLoggerService, useValue: mockLogger },
         { provide: ConfigService, useValue: mockConfig },
         { provide: EventEmitter2, useValue: mockEventEmitter },
+        { provide: TicketLedgerService, useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } },
       ],
     }).compile();
 
@@ -171,7 +173,7 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
     mockPrisma.ticket.findFirst.mockResolvedValue(t);
     mockPrisma.ticket.findUnique.mockResolvedValue(t);
     mockPrisma.user.findUnique.mockResolvedValue({ currentStatus: 'WORKING' });
-    await expect(service.approve('tkt1', 'mgr1', manager)).resolves.toBeDefined();
+    await expect(service.approve('tkt1', { taskEfficiencyRating: 5, employeePerformanceRating: 4, employeeAttitudeRating: 5 }, 'mgr1', manager)).resolves.toBeDefined();
   });
 
   it('13. CLOSED ticket deletion rejected', async () => {

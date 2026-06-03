@@ -9,6 +9,7 @@ import { NotificationEventService } from '../notifications/notification-event.se
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
+import { TicketLedgerService } from './ticket-ledger.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -28,6 +29,7 @@ export class TicketsService {
     private eventLogger: EventLoggerService,
     private ticketAccess: TicketAccessService,
     private ticketTiming: TicketTimingService,
+    private ticketLedger: TicketLedgerService,
   ) {}
 
   private get frontendUrl() {
@@ -209,12 +211,19 @@ export class TicketsService {
         orderBy: { createdAt: 'asc' },
       },
       attachments: { orderBy: { createdAt: 'desc' } },
+      reviewCycles: {
+        include: { assignee: { select: { name: true } }, reviewer: { select: { name: true } } },
+        orderBy: { cycleNo: 'desc' },
+      },
     };
     const ticket = user
       ? await this.ticketAccess.findAccessibleTicket(id, user, include)
       : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include });
     if (!ticket) throw new NotFoundException('Ticket not found');
-    return this.addSla(ticket);
+    const enriched = await this.addSla(ticket);
+    const timers = await this.ticketLedger.getTicketTimers(ticket);
+    const reworkLabel = enriched.reworkCount > 0 ? `Rework ${enriched.reworkCount}` : null;
+    return { ...enriched, timers, reworkLabel };
   }
 
   async assertCanUploadAttachment(user: any, ticket: any) {
@@ -526,6 +535,13 @@ export class TicketsService {
       data.reviewStartedAt = now;
       const reviewHours = await this.getReviewSlaHoursForPriority(existing.priority);
       data.reviewDueAt = new Date(now.getTime() + reviewHours * 3_600_000);
+      
+      // Start the review cycle in the ledger
+      await this.ticketLedger.startReviewCycle({
+        ticketId: existing.id,
+        assigneeId: existing.assignedToId,
+        reviewStartedAt: now,
+      });
     }
 
     // ── Completion stamps ────────────────────────────────────────────────────
@@ -842,7 +858,7 @@ export class TicketsService {
     return this.update(id, { assignedToId }, userId, user);
   }
 
-  async approve(id: string, userId: string, user?: any) {
+  async approve(id: string, ratings: { taskEfficiencyRating: number, employeePerformanceRating: number, employeeAttitudeRating: number, ratingComment?: string }, userId: string, user?: any) {
     const ticket = user
       ? await this.ticketAccess.findAccessibleTicket(id, user, { createdBy: { select: { id: true, name: true } }, assignees: true })
       : await this.prisma.ticket.findFirst({
@@ -853,13 +869,29 @@ export class TicketsService {
     if (ticket.status !== TicketStatus.REVIEW) {
       throw new ForbiddenException('Only tickets in REVIEW status can be approved');
     }
+    
+    if (!ratings.taskEfficiencyRating || !ratings.employeePerformanceRating || !ratings.employeeAttitudeRating) {
+      throw new BadRequestException('All three ratings (Task Efficiency, Employee Performance, Employee Attitude) are required to approve.');
+    }
+    for (const r of [ratings.taskEfficiencyRating, ratings.employeePerformanceRating, ratings.employeeAttitudeRating]) {
+      if (typeof r !== 'number' || r < 1 || r > 5) {
+        throw new BadRequestException('Ratings must be integers between 1 and 5.');
+      }
+    }
+    
     if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.DONE);
 
-    // suppressCompletionNotification=true: update() skips its generic "Ticket resolved"
-    // notification so we can send a more specific "Ticket approved" message here instead.
     const updated = await this.update(ticket.id, { status: TicketStatus.DONE }, userId, user, { suppressCompletionNotification: true });
+    
+    await this.ticketLedger.endReviewCycle({
+      ticketId: ticket.id,
+      decision: 'APPROVED',
+      taskEfficiencyRating: ratings.taskEfficiencyRating,
+      employeePerformanceRating: ratings.employeePerformanceRating,
+      employeeAttitudeRating: ratings.employeeAttitudeRating,
+      ratingComment: ratings.ratingComment,
+    });
 
-    // Single targeted notification to reporter — "Ticket approved" (not generic "resolved")
     try {
       await this.notificationEventService.sendNotification(
         ticket.createdById,
@@ -889,16 +921,26 @@ export class TicketsService {
     if (ticket.status !== TicketStatus.REVIEW) {
       throw new ForbiddenException('Only tickets in REVIEW status can be rejected');
     }
-    if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.IN_PROGRESS);
+    if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.OPEN);
 
     const [updated] = await Promise.all([
-      this.update(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user),
+      this.update(ticket.id, { status: TicketStatus.OPEN }, userId, user),
+      this.prisma.ticket.update({
+        where: { id: ticket.id },
+        data: { reworkCount: { increment: 1 } },
+      }),
       this.prisma.comment.create({
         data: {
           ticketId: ticket.id,
           authorId: userId,
           content: `[REJECTED] ${comment}`,
         },
+      }),
+      this.ticketLedger.endReviewCycle({
+        ticketId: ticket.id,
+        decision: 'REWORK',
+        feedback: comment,
+        reworkStartedAt: new Date(),
       }),
     ]);
 

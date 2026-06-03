@@ -14,6 +14,7 @@ import { EventLoggerService } from '../../src/common/services/event-logger.servi
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
+import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ForbiddenException } from '@nestjs/common';
@@ -108,6 +109,7 @@ describe('TicketsService — status transitions', () => {
         { provide: EventLoggerService,    useValue: mockLogger       },
         { provide: ConfigService,         useValue: mockConfig       },
         { provide: EventEmitter2,         useValue: mockEventEmitter },
+        { provide: TicketLedgerService,   useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } },
       ],
     }).compile();
 

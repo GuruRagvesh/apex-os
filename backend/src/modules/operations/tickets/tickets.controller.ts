@@ -184,8 +184,12 @@ export class TicketsController {
   }
 
   @Patch(':id/approve')
-  approve(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.ticketsService.approve(id, user.id, user);
+  approve(
+    @Param('id') id: string,
+    @Body() body: { taskEfficiencyRating: number, employeePerformanceRating: number, employeeAttitudeRating: number, ratingComment?: string },
+    @CurrentUser() user: any
+  ) {
+    return this.ticketsService.approve(id, body, user.id, user);
   }
 
   @Patch(':id/reject')

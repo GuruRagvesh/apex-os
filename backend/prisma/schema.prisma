@@ -699,6 +699,10 @@ model ReviewCycleLog {
   reviewerWorkSeconds Int?
   reworkStartedAt     DateTime?
   reworkEndedAt       DateTime?
+  taskEfficiencyRating      Int?
+  employeePerformanceRating Int?
+  employeeAttitudeRating    Int?
+  ratingComment             String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 

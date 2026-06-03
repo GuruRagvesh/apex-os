@@ -35,6 +35,7 @@ describe('P1-D ticket attachment security', () => {
       { log: jest.fn().mockResolvedValue(undefined) } as any,
       ticketAccess,
       new TicketTimingService(prisma),
+      { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any,
     );
   });
 

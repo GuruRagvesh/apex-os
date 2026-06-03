@@ -19,7 +19,7 @@ import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
   Copy, Timer, CheckCircle, XCircle, History, Paperclip, Upload,
   FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, ChevronRight, Loader2,
-  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock,
+  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock, Star,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -479,7 +479,7 @@ function PocUploadModal({
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-type Tab = 'comments' | 'history' | 'attachments';
+type Tab = 'comments' | 'history' | 'attachments' | 'reviews';
 
 export default function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -497,6 +497,11 @@ export default function TicketDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>('comments');
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
+  const [taskEfficiencyRating, setTaskEfficiencyRating] = useState(0);
+  const [employeePerformanceRating, setEmployeePerformanceRating] = useState(0);
+  const [employeeAttitudeRating, setEmployeeAttitudeRating] = useState(0);
+  const [ratingComment, setRatingComment] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   // POC upload modal state
   const [showPocModal, setShowPocModal] = useState(false);
@@ -659,13 +664,18 @@ export default function TicketDetailPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: () => ticketsApi.approve(ticket.id),
+    mutationFn: () => ticketsApi.approve(ticket.id, {
+      taskEfficiencyRating,
+      employeePerformanceRating,
+      employeeAttitudeRating,
+      ratingComment
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ticket', id] });
       qc.invalidateQueries({ queryKey: ['ticket-history', id] });
       toast.success('Ticket approved ✓');
     },
-    onError: () => toast.error('Failed to approve ticket'),
+    onError: (e: any) => toast.error(e?.message || 'Failed to approve ticket'),
   });
 
   const rejectMutation = useMutation({
@@ -791,6 +801,7 @@ export default function TicketDetailPage() {
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: 'comments', label: 'Comments', count: ticket.comments?.length ?? 0 },
+    { key: 'reviews', label: 'Reviews', count: ticket.reviewCycles?.length ?? 0 },
     { key: 'history', label: 'History' },
     { key: 'attachments', label: 'Attachments', count: ticket.attachments?.length ?? 0 },
   ];
@@ -1008,12 +1019,24 @@ export default function TicketDetailPage() {
                 <AlertTriangle size={9} /> OVERDUE
               </span>
             )}
+            {ticket.reworkLabel && (
+              <span className="text-xs px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">
+                {ticket.reworkLabel}
+              </span>
+            )}
           </div>
           <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{ticket.title}</h2>
           <TimingTicker ticket={ticket} showLabel className="text-sm mt-1" />
           <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
+          {ticket.timers && (
+            <div className="flex gap-4 mt-3 text-xs font-medium text-slate-600">
+              <span className="flex items-center gap-1"><Clock size={12} /> Total Ticket Time: {Math.floor(ticket.timers.totalTicketSeconds / 3600)}h {Math.floor((ticket.timers.totalTicketSeconds % 3600) / 60)}m</span>
+              <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'EMPLOYEE_WORK' && 'text-blue-600')}><User size={12} /> Employee Work Time: {Math.floor(ticket.timers.employeeWorkSeconds / 3600)}h {Math.floor((ticket.timers.employeeWorkSeconds % 3600) / 60)}m</span>
+              <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'REVIEWER_APPROVAL' && 'text-purple-600')}><CheckCircle size={12} /> Approval Time: {Math.floor(ticket.timers.reviewerApprovalSeconds / 3600)}h {Math.floor((ticket.timers.reviewerApprovalSeconds % 3600) / 60)}m</span>
+            </div>
+          )}
         </div>
         {canToggleBlock && !ticket.isBlocked && !isDone && (
           <button
@@ -1123,20 +1146,62 @@ export default function TicketDetailPage() {
               </div>
             </div>
           ) : (
-            <div className="flex gap-2">
-              <button
-                onClick={() => approveMutation.mutate()}
-                disabled={approveMutation.isPending}
-                className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
-              >
-                <CheckCircle size={14} /> Approve
-              </button>
-              <button
-                onClick={() => setRejectMode(true)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-medium rounded-lg border border-red-200 transition-colors"
-              >
-                <XCircle size={14} /> Reject
-              </button>
+            <div className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">Task Efficiency</label>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <button key={s} onClick={() => setTaskEfficiencyRating(s)} className={s <= taskEfficiencyRating ? 'text-amber-500' : 'text-slate-300'}>
+                        <Star size={20} fill={s <= taskEfficiencyRating ? 'currentColor' : 'none'} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">Employee Performance</label>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <button key={s} onClick={() => setEmployeePerformanceRating(s)} className={s <= employeePerformanceRating ? 'text-amber-500' : 'text-slate-300'}>
+                        <Star size={20} fill={s <= employeePerformanceRating ? 'currentColor' : 'none'} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">Employee Attitude</label>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <button key={s} onClick={() => setEmployeeAttitudeRating(s)} className={s <= employeeAttitudeRating ? 'text-amber-500' : 'text-slate-300'}>
+                        <Star size={20} fill={s <= employeeAttitudeRating ? 'currentColor' : 'none'} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <input
+                type="text"
+                value={ratingComment}
+                onChange={(e) => setRatingComment(e.target.value)}
+                placeholder="Optional comment on approval..."
+                className="apex-input"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => approveMutation.mutate()}
+                  disabled={approveMutation.isPending || !taskEfficiencyRating || !employeePerformanceRating || !employeeAttitudeRating}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
+                >
+                  <CheckCircle size={14} /> Approve Task
+                </button>
+                <button
+                  onClick={() => setRejectMode(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-medium rounded-lg border border-red-200 transition-colors"
+                >
+                  <XCircle size={14} /> Send Back for Rework
+                </button>
+              </div>
+              <p className="text-xs text-slate-500">Rejected work returns to Open. The employee must start it again. The same ticket ID is retained.</p>
             </div>
           )}
         </div>
@@ -1170,6 +1235,7 @@ export default function TicketDetailPage() {
                   style={activeTab !== t.key ? { color: 'var(--text-secondary)' } : undefined}
                 >
                   {t.key === 'history' && <History size={13} />}
+                  {t.key === 'reviews' && <CheckCircle size={13} />}
                   {t.key === 'attachments' && <Paperclip size={13} />}
                   {t.label}
                   {typeof t.count === 'number' && (
@@ -1260,6 +1326,55 @@ export default function TicketDetailPage() {
                     <div className="flex-1">
                       {formatHistoryItem(h)}
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{formatRelativeTime(h.changedAt)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Reviews Tab */}
+            {activeTab === 'reviews' && (
+              <div>
+                {(!ticket.reviewCycles || ticket.reviewCycles.length === 0) ? (
+                  <div className="px-5 py-6 text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>No review cycles yet</div>
+                ) : ticket.reviewCycles.map((cycle: any, idx: number) => (
+                  <div key={cycle.id} className="px-5 py-4 border-b last:border-0 space-y-3" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm">Cycle {cycle.cycleNo}</span>
+                      <span className={cn('text-xs px-2 py-0.5 rounded font-medium', 
+                        cycle.decision === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                        cycle.decision === 'REWORK' ? 'bg-red-100 text-red-700' :
+                        'bg-slate-100 text-slate-700'
+                      )}>
+                        {cycle.decision || 'PENDING'}
+                      </span>
+                    </div>
+                    
+                    <div className="text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+                      <span>Started: {formatDate(cycle.reviewStartedAt)}</span>
+                      {cycle.reviewEndedAt && <span>Ended: {formatDate(cycle.reviewEndedAt)}</span>}
+                    </div>
+
+                    <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-2">
+                      {cycle.decision === 'APPROVED' && (
+                        <div className="flex gap-4">
+                          <span className="flex items-center gap-1">Efficiency: <Star size={12} className="text-amber-500" fill="currentColor"/> {cycle.taskEfficiencyRating}</span>
+                          <span className="flex items-center gap-1">Performance: <Star size={12} className="text-amber-500" fill="currentColor"/> {cycle.employeePerformanceRating}</span>
+                          <span className="flex items-center gap-1">Attitude: <Star size={12} className="text-amber-500" fill="currentColor"/> {cycle.employeeAttitudeRating}</span>
+                        </div>
+                      )}
+                      {cycle.feedback && (
+                        <div className="mt-1">
+                          <span className="font-semibold text-slate-700">Feedback: </span>
+                          <span className="text-slate-600 whitespace-pre-wrap">{cycle.feedback}</span>
+                        </div>
+                      )}
+                      {cycle.ratingComment && (
+                        <div className="mt-1">
+                          <span className="font-semibold text-slate-700">Approval Comment: </span>
+                          <span className="text-slate-600 whitespace-pre-wrap">{cycle.ratingComment}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
