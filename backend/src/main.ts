@@ -69,7 +69,7 @@ async function bootstrap() {
     console.error(`\n❌ FATAL: Missing required env vars: ${missing.join(', ')}\n`);
     process.exit(1);
   }
-  ['OPENAI_API_KEY', 'SMTP_USER', 'CLOUDINARY_CLOUD_NAME']
+  ['OPENAI_API_KEY', 'CLOUDINARY_CLOUD_NAME']
     .filter((k) => !process.env[k])
     .forEach((k) => console.warn(`⚠️  WARN: ${k} not set — related features disabled`));
 

@@ -1420,7 +1420,6 @@ export default function SettingsPage() {
     'security',
     'appearance',
     ...(isAdmin ? (['company', 'policies', 'task-types'] as SectionId[]) : []),
-    ...(isSuperAdmin ? (['smtp'] as SectionId[]) : []),
   ];
   // Legacy tab aliases (deep-links from other pages still work)
   const tabAliases: Record<string, SectionId> = {
@@ -1484,9 +1483,6 @@ export default function SettingsPage() {
               <NavItem id="company"    label="Company"    icon={<Building2 size={15} />}    badge="ADM" />
               <NavItem id="policies"   label="Policies"   icon={<CalendarDays size={15} />} badge="ADM" />
               <NavItem id="task-types" label="Task Types" icon={<Tags size={15} />}          badge="ADM" />
-              {isSuperAdmin && (
-                <NavItem id="smtp" label="Email" icon={<Mail size={15} />} badge="SA" />
-              )}
             </>
           )}
         </nav>
@@ -1522,7 +1518,6 @@ export default function SettingsPage() {
           </div>
         )}
         {active === 'task-types'  && isAdmin      && <TaskTypesSettings />}
-        {active === 'smtp'        && isSuperAdmin && <SmtpSection />}
       </div>
     </div>
   );

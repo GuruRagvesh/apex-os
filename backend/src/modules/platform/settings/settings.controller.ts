@@ -7,8 +7,7 @@ import { SettingsService } from './settings.service';
 import { ROLES } from '../../../shared/constants/roles';
 import { EmailService } from '../email/email.service';
 
-const SMTP_PASSWORD_MASK = '********';
-const LEGACY_SMTP_PASSWORD_MASKS = ['********', '••••••••', 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'];
+
 
 @ApiTags('Settings')
 @ApiBearerAuth()
@@ -72,35 +71,14 @@ export class SettingsController {
   @UseGuards(RolesGuard)
   @Roles(ROLES.SUPER_ADMIN)
   async getSmtp() {
-    const data = await this.settings.get('smtp');
-    return { ...data, password: data?.password ? SMTP_PASSWORD_MASK : '' };
+    return { host: '', port: '587', email: '', password: '' };
   }
 
   @Patch('smtp')
   @UseGuards(RolesGuard)
   @Roles(ROLES.SUPER_ADMIN)
-  async updateSmtp(@Body() body: any, @Request() req: any) {
-    let value = { ...body };
-    if (LEGACY_SMTP_PASSWORD_MASKS.includes(value.password)) {
-      const existing = await this.settings.get('smtp');
-      value.password = existing?.password ?? '';
-    }
-
-    value = {
-      host: String(value.host || '').trim(),
-      port: String(value.port || '587').trim(),
-      email: String(value.email || '').trim(),
-      password: String(value.password || ''),
-    };
-
-    const port = Number(value.port);
-    const hasAny = Boolean(value.host || value.email || value.password || value.port !== '587');
-    if (hasAny && (!value.host || !value.email || !value.password || !Number.isInteger(port) || port <= 0 || port > 65535)) {
-      throw new BadRequestException('SMTP host, port, from email, and password are required.');
-    }
-
-    await this.settings.set('smtp', value, req.user?.sub);
-    return { ...value, password: value.password ? SMTP_PASSWORD_MASK : '' };
+  async updateSmtp() {
+    throw new BadRequestException('SMTP configuration is deprecated. Only Resend is supported.');
   }
 
   @Post('email/test')
