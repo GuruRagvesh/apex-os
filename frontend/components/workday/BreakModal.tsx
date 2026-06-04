@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { Coffee } from 'lucide-react';
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function BreakModal({ onClose, onBreakStarted }: Props) {
+  const queryClient = useQueryClient();
   const [breakType, setBreakType] = useState('');
   const [duration, setDuration] = useState<number | null>(null);
   const [customDuration, setCustomDuration] = useState('');
@@ -45,7 +47,10 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
       await workdayApi.startBreak({ breakType, estimatedMinutes: effectiveDuration ?? undefined });
       toast.success('Break started');
       onBreakStarted();
-    } catch { toast.error('Failed to start break'); }
+    } catch (err: any) { 
+      toast.error(err?.message || 'Failed to start break'); 
+      queryClient.invalidateQueries({ queryKey: ['workday-today'] });
+    }
     finally { setLoading(false); }
   };
 

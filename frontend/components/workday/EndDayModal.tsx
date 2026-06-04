@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { CheckCircle, Clock } from 'lucide-react';
@@ -18,6 +19,7 @@ function fmt(minutes: number) {
 }
 
 export function EndDayModal({ session, onClose, onEnded }: Props) {
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
 
   const elapsed = session?.startWorkAt
@@ -30,7 +32,10 @@ export function EndDayModal({ session, onClose, onEnded }: Props) {
       await workdayApi.endWork();
       toast.success('Workday ended. Great work today!');
       onEnded();
-    } catch { toast.error('Failed to end workday'); }
+    } catch (err: any) { 
+      toast.error(err?.message || 'Failed to end workday'); 
+      queryClient.invalidateQueries({ queryKey: ['workday-today'] });
+    }
     finally { setLoading(false); }
   };
 

@@ -95,7 +95,10 @@ export function WorkdayBar() {
       await workdayApi.startWork();
       toast.success('Workday started!');
       refetch();
-    } catch { toast.error('Failed to start workday'); }
+    } catch (err: any) { 
+      toast.error(err?.message || 'Failed to start workday');
+      refetch();
+    }
     finally { setLoading(null); }
   };
 
@@ -109,7 +112,10 @@ export function WorkdayBar() {
       }
       toast.success('Resumed!');
       refetch();
-    } catch { toast.error('Failed to resume'); }
+    } catch (err: any) { 
+      toast.error(err?.message || 'Failed to resume');
+      refetch();
+    }
     finally { setLoading(null); }
   };
 
@@ -119,7 +125,10 @@ export function WorkdayBar() {
       const result = await workdayApi.endBreak() as any;
       toast.success(`Break ended — ${result?.durationMinutes ?? 0} min`);
       refetch();
-    } catch { toast.error('Failed to end break'); }
+    } catch (err: any) { 
+      toast.error(err?.message || 'Failed to end break');
+      refetch();
+    }
     finally { setLoading(null); }
   };
 
@@ -202,6 +211,7 @@ export function WorkdayBar() {
   }
 
   if (status === 'LOGGED_OUT') {
+    const isImpossible = session?.totalWorkMinutes != null && session.totalWorkMinutes > 16 * 60;
     return (
       <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4">
         <div className="flex items-center gap-2">
@@ -209,9 +219,19 @@ export function WorkdayBar() {
           <span className="text-sm text-gray-600 dark:text-gray-400">
             Workday ended {session?.logoutAt && `at ${new Date(session.logoutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
           </span>
-          {session?.totalWorkMinutes > 0 && (
+          {session?.totalWorkMinutes != null && !isImpossible && session.totalWorkMinutes > 0 && (
             <span className="text-xs text-gray-400 dark:text-gray-500">
               · {formatMinutes(session.totalWorkMinutes)} worked · {breakLogs.length} breaks
+            </span>
+          )}
+          {isImpossible && (
+            <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-md font-medium" title="Session may not have been closed correctly">
+              Needs review
+            </span>
+          )}
+          {session?.totalWorkMinutes == null && (
+            <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-md font-medium">
+              Not calculated
             </span>
           )}
         </div>
@@ -301,9 +321,9 @@ export function WorkdayBar() {
           <span className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Idle</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleResumeWork} className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700">Resume</button>
-          <button onClick={() => setShowBreakModal(true)} className="px-3 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600">Take Break</button>
-          <button onClick={() => setShowEndModal(true)} className="px-3 py-1.5 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600">End Day</button>
+          <button onClick={handleResumeWork} disabled={!!loading} className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50">Resume</button>
+          <button onClick={() => setShowBreakModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50">Take Break</button>
+          <button onClick={() => setShowEndModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 disabled:opacity-50">End Day</button>
         </div>
       </div>
     );
@@ -335,13 +355,15 @@ export function WorkdayBar() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowBreakModal(true)}
-            className="px-3 py-1.5 text-sm font-medium border border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
+            disabled={!!loading}
+            className="px-3 py-1.5 text-sm font-medium border border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors disabled:opacity-50"
           >
             Break
           </button>
           <button
             onClick={() => setShowEndModal(true)}
-            className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            disabled={!!loading}
+            className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
           >
             End Day
           </button>

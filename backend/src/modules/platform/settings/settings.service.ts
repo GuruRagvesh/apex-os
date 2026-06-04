@@ -24,6 +24,7 @@ const DEFAULTS: Record<string, any> = {
     tlTiming: { entryStart: '09:30', entryEnd: '10:30', exitStart: '18:30', exitEnd: '19:30', minimumWorkdayMinutes: 540 },
     managerTiming: { flexible: true },
     autoClose: true,
+    autoCloseTime: '23:59',
   }
 };
 
@@ -36,7 +37,12 @@ export class SettingsService {
 
   async get(key: string): Promise<any> {
     const row = await this.prisma.appSetting.findUnique({ where: { key } });
-    return row ? (row.value as any) : DEFAULTS[key] ?? {};
+    if (!row) return DEFAULTS[key] ?? {};
+    
+    if (key === 'workday_policy') {
+      return { ...DEFAULTS[key], ...(row.value as any) };
+    }
+    return row.value as any;
   }
 
   async set(key: string, value: any, updatedBy?: string): Promise<any> {

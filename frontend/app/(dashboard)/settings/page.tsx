@@ -853,6 +853,7 @@ function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
     tlTiming: { entryStart: '09:30', entryEnd: '10:30', exitStart: '18:30', exitEnd: '19:30', minimumWorkdayMinutes: 540 },
     managerTiming: { flexible: true },
     autoClose: true,
+    autoCloseTime: '23:59',
   });
 
   useEffect(() => {
@@ -950,10 +951,18 @@ function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
         <div className="pt-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--border-subtle)' }}>
           <div>
             <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Auto Close</p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>If users forget to end their day, Apex OS auto-closes open workdays at midnight in the company timezone.</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>If users forget to end their day, Apex OS auto-closes open workdays at the configured company time.</p>
           </div>
           <Toggle checked={form.autoClose} onChange={(v) => canEdit && update('autoClose', v)} />
         </div>
+
+        {form.autoClose && (
+          <div className="pt-3 pb-1">
+            <label className={labelCls}>Auto Close Time</label>
+            <input type="time" className={inputCls} value={form.autoCloseTime} onChange={(e) => canEdit && update('autoCloseTime', e.target.value)} disabled={!canEdit} required />
+          </div>
+        )}
+
 
         <div className="pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
           <h4 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Individual User Timing Overrides</h4>

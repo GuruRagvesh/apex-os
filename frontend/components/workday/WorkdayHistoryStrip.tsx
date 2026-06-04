@@ -58,7 +58,9 @@ export function WorkdayHistoryStrip() {
         const startIso = s.startWorkAt ?? s.loginAt;
         if (!startIso) return null;
         const { short, date, isToday } = sessionDay(startIso);
+        const isNullDuration = s.totalWorkMinutes == null;
         const workMins: number = s.totalWorkMinutes ?? 0;
+        const isImpossible = !isNullDuration && workMins > 16 * 60;
         const breakMins: number = s.totalBreakMinutes ?? 0;
         const breakCount: number = (s.breakLogs ?? []).filter((b: any) => b.endAt).length;
         const isComplete = s.status === 'LOGGED_OUT';
@@ -93,12 +95,25 @@ export function WorkdayHistoryStrip() {
 
             {/* Duration */}
             <div className="flex-1 flex items-center gap-3 flex-wrap min-w-0">
-              <span
-                className="text-xs font-semibold"
-                style={{ color: workMins > 0 ? 'var(--text-primary)' : 'var(--text-tertiary)' }}
-              >
-                {fmtMins(workMins)} worked
-              </span>
+              {isImpossible ? (
+                <span
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                  title="Session may not have been closed correctly"
+                >
+                  Needs review
+                </span>
+              ) : isNullDuration ? (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400">
+                  Not calculated
+                </span>
+              ) : (
+                <span
+                  className="text-xs font-semibold"
+                  style={{ color: workMins > 0 ? 'var(--text-primary)' : 'var(--text-tertiary)' }}
+                >
+                  {fmtMins(workMins)} worked
+                </span>
+              )}
               {breakMins > 0 && (
                 <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                   {breakCount} break{breakCount !== 1 ? 's' : ''} · {fmtMins(breakMins)}

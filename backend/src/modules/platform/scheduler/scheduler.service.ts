@@ -190,7 +190,11 @@ export class SchedulerService {
   async autoCloseMidnightSessions() {
     try {
       const policy = await this.settingsService.getWorkdayPolicy();
+      if (policy?.autoClose === false) {
+        return; // Skip all automatic workday closing behavior if general autoClose is disabled
+      }
       const timezone = policy?.timezone || 'Asia/Kolkata';
+      const autoCloseTimeConfig = policy?.autoCloseTime || '23:59';
 
       const openSessions = await this.prisma.workSession.findMany({
         where: { logoutAt: null },
@@ -280,12 +284,10 @@ export class SchedulerService {
           continue; // Skip midnight stale-close for current/future day
         }
 
-        // Calculate the exact midnight moment AFTER the session's date in company timezone
-        // The session belongs to `sessionCompanyDateStr`. We want 00:00 AM of the NEXT day.
-        const nextDayDateStr = formatInTimeZone(new Date(sessionAnchor.getTime() + 24 * 60 * 60 * 1000), timezone, 'yyyy-MM-dd');
-        const nextMidnightIso = `${nextDayDateStr}T00:00:00.000`;
+        // The session belongs to `sessionCompanyDateStr`. We want the configured autoCloseTime on THAT same day.
+        const cutoffIso = `${sessionCompanyDateStr}T${autoCloseTimeConfig}:00.000`;
         const offsetString = formatInTimeZone(sessionAnchor, timezone, 'xxx');
-        const autoCloseTime = new Date(`${nextMidnightIso}${offsetString}`);
+        const autoCloseTime = new Date(`${cutoffIso}${offsetString}`);
         
         // We use autoCloseTime (the midnight boundary) as the time the session logically ended, unless now is earlier? 
         // No, we are closing it retrospectively.
@@ -323,8 +325,8 @@ export class SchedulerService {
             logoutAt: now,
             status: 'AUTO_CLOSED',
             autoClosed: true,
-            autoClosedAt: now,
-            closureReason: 'AUTO_MIDNIGHT_CLOSE',
+            autoClosedAt: nowGlobal,
+            closureReason: 'AUTO_CLOSE',
             totalBreakMinutes,
             totalWorkMinutes,
           },
