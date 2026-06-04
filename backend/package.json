@@ -19,6 +19,8 @@
     "test:integration": "jest --config jest.config.js --testPathPatterns='test/integration' --runInBand",
     "test:smoke": "jest --config jest.config.js --testPathPatterns='test/integration/smoke'",
     "test:coverage": "jest --config jest.config.js --coverage",
+    "workday:audit": "ts-node scripts/audit-workday-sessions.ts --dry-run",
+    "workday:repair": "ts-node scripts/audit-workday-sessions.ts --apply",
     "prisma:generate": "npx prisma generate",
     "prisma:migrate": "npx prisma migrate dev",
     "prisma:studio": "npx prisma studio",

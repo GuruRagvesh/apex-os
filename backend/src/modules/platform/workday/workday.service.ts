@@ -7,6 +7,7 @@ import { calculateWorkdayRuntime } from './workday.calculation';
 import { TicketLedgerService } from '../../operations/tickets/ticket-ledger.service';
 import { NotificationEventService } from '../../operations/notifications/notification-event.service';
 import { NotificationType } from '@prisma/client';
+import { formatInTimeZone } from 'date-fns-tz';
 
 @Injectable()
 export class WorkdayService {
@@ -27,14 +28,97 @@ export class WorkdayService {
     const canView = await this.accessPolicy.canViewUser(requester, targetUser);
     if (!canView) throw new ForbiddenException('You do not have permission to view this user\'s work history');
 
-    return this.prisma.workSession.findMany({
+    const sessions = await this.prisma.workSession.findMany({
       where: { userId },
-      orderBy: { date: 'desc' },
-      take: 30,
+      orderBy: { createdAt: 'desc' },
+      take: 60,
       include: {
         breakLogs: { orderBy: { startAt: 'asc' } },
       },
     });
+
+    const grouped = new Map<string, any>();
+    const currentCompanyDateStr = formatInTimeZone(new Date(), DEFAULT_COMPANY_TIMEZONE, 'yyyy-MM-dd');
+
+    for (const session of sessions) {
+      const dateStr = session.date instanceof Date
+        ? formatInTimeZone(session.date, 'UTC', 'yyyy-MM-dd')
+        : String(session.date).split('T')[0];
+      
+      if (!grouped.has(dateStr)) {
+        grouped.set(dateStr, {
+          companyDate: dateStr,
+          firstStartTime: session.startWorkAt || session.loginAt,
+          lastEndTime: session.logoutAt,
+          sessionCount: 0,
+          autoClosedCount: 0,
+          totalWorkMinutes: 0,
+          totalBreakMinutes: 0,
+          netWorkMinutes: 0,
+          status: 'NOT_STARTED',
+          closureReasons: new Set<string>(),
+          hasOpenSession: false,
+          hasSuspiciousDuration: false,
+          needsReview: false,
+          sessions: [],
+        });
+      }
+
+      const summary = grouped.get(dateStr)!;
+      summary.sessionCount += 1;
+      if (session.autoClosed) summary.autoClosedCount += 1;
+      
+      const workMins = session.totalWorkMinutes || 0;
+      const breakMins = session.totalBreakMinutes || 0;
+      summary.totalWorkMinutes += workMins;
+      summary.totalBreakMinutes += breakMins;
+      summary.netWorkMinutes += workMins;
+      
+      if (session.closureReason) summary.closureReasons.add(session.closureReason);
+      
+      if (!session.logoutAt) summary.hasOpenSession = true;
+      
+      if ((session.startWorkAt || session.loginAt) < summary.firstStartTime) {
+        summary.firstStartTime = session.startWorkAt || session.loginAt;
+      }
+      if (session.logoutAt && (!summary.lastEndTime || session.logoutAt > summary.lastEndTime)) {
+        summary.lastEndTime = session.logoutAt;
+      }
+
+      summary.sessions.push(session);
+    }
+
+    const result = Array.from(grouped.values()).map(summary => {
+      summary.closureReasons = Array.from(summary.closureReasons);
+      if (summary.netWorkMinutes > 960) summary.hasSuspiciousDuration = true;
+      
+      const isToday = summary.companyDate === currentCompanyDateStr;
+      
+      if (summary.hasSuspiciousDuration) {
+        summary.status = 'NEEDS_REVIEW';
+        summary.needsReview = true;
+      } else if (summary.hasOpenSession) {
+        if (isToday) {
+          const openSession = summary.sessions.find((s: any) => !s.logoutAt);
+          summary.status = openSession?.status || 'WORKING';
+        } else {
+          summary.status = 'NEEDS_REVIEW';
+          summary.needsReview = true;
+        }
+      } else {
+        if (summary.autoClosedCount > 0) {
+          summary.status = 'AUTO_CLOSED';
+        } else {
+          summary.status = 'ENDED';
+        }
+      }
+
+      summary.isToday = isToday;
+
+      return summary;
+    });
+
+    return result.sort((a, b) => b.companyDate.localeCompare(a.companyDate)).slice(0, 7);
   }
 
   private getTodayDate(): Date {
