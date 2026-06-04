@@ -3,6 +3,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TimezoneUtil, DEFAULT_COMPANY_TIMEZONE } from '../../../common/utils/timezone.util';
+import { calculateWorkdayRuntime } from './workday.calculation';
+import { TicketLedgerService } from '../../operations/tickets/ticket-ledger.service';
+import { NotificationEventService } from '../../operations/notifications/notification-event.service';
+import { NotificationType } from '@prisma/client';
 
 @Injectable()
 export class WorkdayService {
@@ -10,6 +14,8 @@ export class WorkdayService {
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
     private eventLogger: EventLoggerService,
+    private ticketLedger: TicketLedgerService,
+    private notificationEventService: NotificationEventService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -45,10 +51,24 @@ export class WorkdayService {
     });
 
     if (session) {
+      const wasAutoClosed = session.status === 'AUTO_CLOSED' || session.autoClosed;
       session = await this.prisma.workSession.update({
         where: { id: session.id },
         data: { startWorkAt: now, status: 'WORKING', loginAt: now },
       });
+
+      if (wasAutoClosed) {
+        try {
+          await this.notificationEventService.sendNotification(userId, 'system', {
+            title: 'Workday resumed',
+            message: 'Your workday has been resumed and will be counted with your previous session for today.',
+            type: NotificationType.SUCCESS,
+            link: '/dashboard',
+            entityType: 'WORKDAY',
+            entityId: session.id,
+          });
+        } catch (_e) {}
+      }
     } else {
       session = await this.prisma.workSession.create({
         data: { userId, date: today, loginAt: now, startWorkAt: now, status: 'WORKING' },
@@ -121,6 +141,12 @@ export class WorkdayService {
       data: { currentStatus: 'LOGGED_OUT' },
     });
 
+    await this.ticketLedger.pauseActiveLogsForUser({
+      userId,
+      pauseReason: 'LOGOUT',
+      endedAt: now,
+    });
+
     this.eventLogger.log({
       actorId: userId,
       entityType: 'WorkdaySession',
@@ -175,6 +201,13 @@ export class WorkdayService {
       data: { currentStatus: 'ON_BREAK' },
     });
 
+    await this.ticketLedger.pauseActiveLogsForUser({
+      userId,
+      pauseReason: 'BREAK',
+      breakLogId: breakLog.id,
+      endedAt: now,
+    });
+
     this.eventLogger.log({
       actorId: userId,
       entityType: 'WorkdaySession',
@@ -227,6 +260,8 @@ export class WorkdayService {
       where: { id: userId },
       data: { currentStatus: 'WORKING', lastActiveAt: now },
     });
+
+    await this.ticketLedger.resumeLogsForBreak(openBreak.id, userId);
 
     this.eventLogger.log({
       actorId: userId,
@@ -360,54 +395,18 @@ export class WorkdayService {
       },
     });
 
-    let totalBreakMins = 0;
-    let totalWorkMins = 0;
-    let firstStartTime = null;
-    let currentEndTime = null;
-    let autoClosedCount = 0;
-    let isResumed = false;
-
-    for (const s of sessions) {
-      if (!firstStartTime && s.startWorkAt) {
-        firstStartTime = s.startWorkAt;
-      }
-      if (s.logoutAt) {
-        currentEndTime = s.logoutAt;
-      } else {
-        currentEndTime = now; // Ongoing
-      }
-      if (s.autoClosed) {
-        autoClosedCount++;
-      }
-      if (s.continuationOfSessionId) {
-        isResumed = true;
-      }
-
-      let liveBreak = s.totalBreakMinutes;
-      const openBreak = s.breakLogs.find((b) => !b.endAt);
-      if (openBreak) {
-        liveBreak += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
-      }
-      totalBreakMins += liveBreak;
-
-      let sessionWork = s.totalWorkMinutes;
-      if (s.startWorkAt && !s.logoutAt) {
-        const elapsed = Math.floor((now.getTime() - s.startWorkAt.getTime()) / 60000);
-        sessionWork = Math.max(0, elapsed - liveBreak);
-      }
-      totalWorkMins += sessionWork;
-    }
+    const rt = calculateWorkdayRuntime(sessions as any, now);
 
     return {
       session,
       allSessions: sessions,
-      elapsedWorkMinutes: totalWorkMins,
-      totalBreakMinutes: totalBreakMins,
-      firstStartTime,
-      currentEndTime,
-      autoClosedCount,
-      isResumed,
-      sessionCount: sessions.length,
+      elapsedWorkMinutes: rt.elapsedWorkMinutes,
+      totalBreakMinutes: rt.totalBreakMinutes,
+      firstStartTime: rt.firstStartTime,
+      currentEndTime: rt.currentEndTime,
+      autoClosedCount: rt.autoClosedCount,
+      isResumed: rt.isResumed,
+      sessionCount: rt.sessionCount,
       onLeaveToday: !!onLeave,
       leaveInfo: onLeave,
     };
@@ -468,35 +467,10 @@ export class WorkdayService {
       const session = m.workSessions[0] ?? null;
       const leave = m.leaveRequests[0] ?? null;
       
-      let totalBreakMins = 0;
-      let totalWorkMins = 0;
-      let firstStartTime = null;
-      let currentEndTime = null;
-
-      for (const s of m.workSessions) {
-        if (!firstStartTime && s.startWorkAt) {
-          firstStartTime = s.startWorkAt;
-        }
-        if (s.logoutAt) {
-          currentEndTime = s.logoutAt;
-        } else {
-          currentEndTime = now; // Ongoing
-        }
-
-        let liveBreak = s.totalBreakMinutes;
-        const openBreak = s.breakLogs.find((b) => !b.endAt);
-        if (openBreak) {
-          liveBreak += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
-        }
-        totalBreakMins += liveBreak;
-
-        let sessionWork = s.totalWorkMinutes;
-        if (s.startWorkAt && !s.logoutAt) {
-          const elapsed = Math.floor((now.getTime() - s.startWorkAt.getTime()) / 60000);
-          sessionWork = Math.max(0, elapsed - liveBreak);
-        }
-        totalWorkMins += sessionWork;
-      }
+      const rt = calculateWorkdayRuntime(m.workSessions as any, now);
+      const firstStartTime = rt.firstStartTime;
+      const totalWorkMins = rt.elapsedWorkMinutes;
+      const totalBreakMins = rt.totalBreakMinutes;
 
       let isLate = false;
       let policySource = 'ROLE_POLICY';

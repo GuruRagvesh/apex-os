@@ -13,6 +13,8 @@ import { SchedulerService } from '../../src/modules/platform/scheduler/scheduler
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
+import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
+import { SettingsService } from '../../src/modules/platform/settings/settings.service';
 
 // ── Minimal mocks ─────────────────────────────────────────────────────────────
 
@@ -57,6 +59,14 @@ const mockTicketLedger = {
   getActiveLogForTicket: jest.fn(),
 };
 
+const mockNotificationEvent = {
+  sendNotification: jest.fn(),
+};
+
+const mockSettingsService = {
+  getWorkdayPolicy: jest.fn().mockResolvedValue({ timezone: 'Asia/Kolkata', autoClose: true }),
+};
+
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 describe('SchedulerService — recurring ticket query', () => {
@@ -78,6 +88,8 @@ describe('SchedulerService — recurring ticket query', () => {
         { provide: PrismaService,  useValue: mockPrisma  },
         { provide: EventsGateway,  useValue: mockGateway },
         { provide: TicketLedgerService, useValue: mockTicketLedger },
+        { provide: NotificationEventService, useValue: mockNotificationEvent },
+        { provide: SettingsService, useValue: mockSettingsService },
       ],
     }).compile();
 

@@ -86,19 +86,23 @@ describe('AnalyticsService', () => {
   describe('getReviewerMetrics', () => {
     it('calculates reviewer metrics and SLA breaches', async () => {
       prisma.reviewCycleLog.findMany.mockResolvedValue([
-        { decision: 'APPROVED', reviewerWorkSeconds: 3600, ticket: { priority: 'MEDIUM' } }, // 1h
-        { decision: 'REWORK', reviewerWorkSeconds: 90000, ticket: { priority: 'MEDIUM' } } // 25h (breach > 24h)
+        { decision: 'APPROVED', reviewerWorkSeconds: 3600, ticket: { priority: 'MEDIUM' }, reviewEndedAt: new Date() }, // 1h
+        { decision: 'REWORK', reviewerWorkSeconds: 90000, ticket: { priority: 'MEDIUM' }, reviewEndedAt: new Date() } // 25h (breach > 24h)
       ]);
       prisma.ticket.count.mockResolvedValue(4); // backlog
 
       const result = await service.getReviewerMetrics('user-1', { id: 'user-1' });
 
-      expect(result.reviewsCompleted).toBe(2);
+      expect(result.completedApprovalsCount).toBe(2);
       expect(result.approvalPercent).toBe(50);
       expect(result.rejectionPercent).toBe(50);
-      expect(result.averageReviewTimeSeconds).toBe((3600 + 90000) / 2);
-      expect(result.slaBreaches).toBe(1);
-      expect(result.reviewBacklog).toBe(4);
+      expect(result.averageApprovalSeconds).toBe((3600 + 90000) / 2);
+      expect(result.totalApprovalSeconds).toBe(3600 + 90000);
+      expect(result.approvalSlaBreaches).toBe(1);
+      expect(result.approvalSlaBreachRate).toBe(50);
+      expect(result.pendingApprovalsCount).toBe(4);
+      expect(result.approvalsToday).toBe(2);
+      expect(result.approvalsThisWeek).toBe(2);
     });
   });
 

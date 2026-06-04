@@ -76,7 +76,7 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
         { provide: EventLoggerService, useValue: mockLogger },
         { provide: ConfigService, useValue: mockConfig },
         { provide: EventEmitter2, useValue: mockEventEmitter },
-        { provide: TicketLedgerService, useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } },
+        { provide: TicketLedgerService, useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn(), startWorkLog: jest.fn(), endActiveLog: jest.fn(), getActiveLogForTicket: jest.fn() } },
       ],
     }).compile();
 

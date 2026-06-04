@@ -4,10 +4,19 @@ import { useState, useMemo, createContext, useContext } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
-import { usersApi } from '@/lib/api';
+import { usersApi, analyticsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import { ChevronRight, Edit2, Upload, Eye } from 'lucide-react';
+import { ChevronRight, Edit2, Upload, Eye, Clock, CheckCircle, AlertTriangle, RotateCcw } from 'lucide-react';
+
+const fmtSeconds = (sec: number | null | undefined) => {
+  if (sec == null) return '0h 0m';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return `${h}h ${m}m`;
+};
+
+const fmtPct = (pct: number | null | undefined) => (pct == null ? '0%' : `${pct}%`);
 
 const ProfileFormContext = createContext<any>(null);
 
@@ -17,6 +26,7 @@ const TABS = [
   { id: 'access', label: 'Account & Access' },
   { id: 'payroll', label: 'Payroll & Statutory' },
   { id: 'documents', label: 'Documents & Verification' },
+  { id: 'approvals', label: 'Approval Workload' },
 ];
 
 const DOCUMENT_TYPES = [
@@ -120,6 +130,12 @@ export default function EmployeeProfilePage() {
   const { data: documents, refetch: refetchDocs } = useQuery({
     queryKey: ['user-documents', userId],
     queryFn: () => (usersApi as any).getDocuments(userId) as Promise<any[]>,
+  });
+
+  const { data: reviewerMetrics, isLoading: reviewerMetricsLoading } = useQuery({
+    queryKey: ['reviewer-metrics', userId],
+    queryFn: () => analyticsApi.getReviewerMetrics(userId) as Promise<any>,
+    enabled: ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(profile?.role?.name ?? ''),
   });
 
   const updateMutation = useMutation({
@@ -272,6 +288,7 @@ export default function EmployeeProfilePage() {
             {TABS.filter((t) => {
               if (t.id === 'payroll') return canSeePayroll;
               if (t.id === 'access') return canSeeAccess || isOwnProfile;
+              if (t.id === 'approvals') return ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
               return true;
             }).map((tab) => (
               <button
@@ -641,6 +658,99 @@ export default function EmployeeProfilePage() {
                     >
                       Save Verification
                     </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 6: Approval Workload */}
+          {activeTab === 'approvals' && (
+            <div>
+              <h2 className="text-xl font-black text-white mb-6">Approval Workload</h2>
+              {reviewerMetricsLoading ? (
+                <div className="text-slate-400">Loading metrics...</div>
+              ) : !reviewerMetrics ? (
+                <div className="text-slate-400">No approval metrics available.</div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
+                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <Eye size={16} />
+                        <span className="text-sm font-medium">Pending Approvals</span>
+                      </div>
+                      <span className="text-3xl font-black text-white">
+                        {reviewerMetrics.pendingApprovalsCount ?? 0}
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
+                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <CheckCircle size={16} className="text-green-500" />
+                        <span className="text-sm font-medium">Completed Approvals</span>
+                      </div>
+                      <span className="text-3xl font-black text-white">
+                        {reviewerMetrics.completedApprovalsCount ?? 0}
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
+                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <Clock size={16} className="text-blue-500" />
+                        <span className="text-sm font-medium">Avg. Review Time</span>
+                      </div>
+                      <span className="text-3xl font-black text-white">
+                        {fmtSeconds(reviewerMetrics.averageApprovalSeconds)}
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
+                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <CheckCircle size={16} className="text-green-500" />
+                        <span className="text-sm font-medium">Approvals Today</span>
+                      </div>
+                      <span className="text-3xl font-black text-white">
+                        {reviewerMetrics.approvalsToday ?? 0}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
+                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <CheckCircle size={16} className="text-green-500" />
+                        <span className="text-sm font-medium">Approvals This Week</span>
+                      </div>
+                      <span className="text-3xl font-black text-white">
+                        {reviewerMetrics.approvalsThisWeek ?? 0}
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
+                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <CheckCircle size={16} className={reviewerMetrics.approvalPercent >= 60 ? 'text-green-500' : 'text-yellow-500'} />
+                        <span className="text-sm font-medium">Approval Rate</span>
+                      </div>
+                      <span className="text-3xl font-black text-white">
+                        {fmtPct(reviewerMetrics.approvalPercent)}
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
+                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <RotateCcw size={16} className={reviewerMetrics.rejectionPercent > 40 ? 'text-yellow-500' : 'text-slate-400'} />
+                        <span className="text-sm font-medium">Rework Rate</span>
+                      </div>
+                      <span className="text-3xl font-black text-white">
+                        {fmtPct(reviewerMetrics.rejectionPercent)}
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
+                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <AlertTriangle size={16} className={reviewerMetrics.approvalSlaBreaches > 0 ? 'text-red-500' : 'text-green-500'} />
+                        <span className="text-sm font-medium">SLA Breaches</span>
+                      </div>
+                      <span className="text-3xl font-black text-white">
+                        {reviewerMetrics.approvalSlaBreaches ?? 0}
+                        <span className="text-sm font-normal text-slate-500 ml-2">({fmtPct(reviewerMetrics.approvalSlaBreachRate)})</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}

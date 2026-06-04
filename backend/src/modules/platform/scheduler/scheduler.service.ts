@@ -3,9 +3,12 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EventsGateway } from '../gateway/events.gateway';
 import { TicketLedgerService } from '../../operations/tickets/ticket-ledger.service';
+import { NotificationEventService } from '../../operations/notifications/notification-event.service';
 import { NotificationType } from '@prisma/client';
 import { TimezoneUtil } from '../../../common/utils/timezone.util';
 import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
+import { SettingsService } from '../settings/settings.service';
+import { shouldPolicyAutoStop } from '../workday/workday.policy.helper';
 
 @Injectable()
 export class SchedulerService {
@@ -15,6 +18,8 @@ export class SchedulerService {
     private prisma: PrismaService,
     private gateway: EventsGateway,
     private ticketLedger: TicketLedgerService,
+    private notificationEventService: NotificationEventService,
+    private settingsService: SettingsService,
   ) {}
 
   private async sendScheduleNotification(ticket: any, prefix: string) {
@@ -180,29 +185,99 @@ export class SchedulerService {
     console.log(`[Scheduler] Leave statuses set. ${approvedLeaves.length} users on leave today.`);
   }
 
-  // 1b. AUTO-CLOSE MIDNIGHT SESSIONS — every 15 minutes
+  // 1b. AUTO-CLOSE MIDNIGHT SESSIONS & POLICY AUTO STOP — every 15 minutes
   @Cron('*/15 * * * *')
   async autoCloseMidnightSessions() {
-    const timezone = 'Asia/Kolkata'; // Default company timezone
     try {
+      const policy = await this.settingsService.getWorkdayPolicy();
+      const timezone = policy?.timezone || 'Asia/Kolkata';
+
       const openSessions = await this.prisma.workSession.findMany({
         where: { logoutAt: null },
-        include: { breakLogs: true },
+        include: { breakLogs: true, user: { include: { role: true } } },
       });
 
-      const currentCompanyDateStr = formatInTimeZone(new Date(), timezone, 'yyyy-MM-dd');
+      const nowGlobal = new Date();
+      const currentCompanyDateStr = formatInTimeZone(nowGlobal, timezone, 'yyyy-MM-dd');
 
       let closedCount = 0;
+      let policyStopCount = 0;
       for (const session of openSessions) {
-        // We compare the date string of the session to current date string
-        // The session's DB 'date' represents midnight UTC of the created date. 
-        // A better anchor is loginAt or createdAt.
         const sessionAnchor = session.loginAt || session.createdAt;
         const sessionCompanyDateStr = formatInTimeZone(sessionAnchor, timezone, 'yyyy-MM-dd');
 
         if (sessionCompanyDateStr >= currentCompanyDateStr) {
-          // It's from today (or the future), skip auto-close
-          continue;
+          // It's from today (or the future), check policy auto-stop
+          const { shouldStop, cutoffUtc } = shouldPolicyAutoStop(session, session.user, policy, nowGlobal, currentCompanyDateStr, sessionCompanyDateStr);
+          
+          if (shouldStop && cutoffUtc) {
+            await this.ticketLedger.pauseActiveLogsForUser({
+              userId: session.userId,
+              pauseReason: 'POLICY_AUTO_STOP',
+              endedAt: cutoffUtc,
+            });
+
+            let totalBreakMinutes = 0;
+            for (const breakLog of session.breakLogs) {
+              if (breakLog.endAt) {
+                totalBreakMinutes += breakLog.durationMinutes ?? 0;
+              } else {
+                const duration = Math.max(0, Math.floor((cutoffUtc.getTime() - breakLog.startAt.getTime()) / 60000));
+                await this.prisma.breakLog.update({
+                  where: { id: breakLog.id },
+                  data: { endAt: cutoffUtc, durationMinutes: duration, source: 'POLICY_AUTO_STOP' },
+                });
+                totalBreakMinutes += duration;
+              }
+            }
+
+            let totalWorkMinutes = 0;
+            if (session.startWorkAt) {
+              const elapsed = Math.floor((cutoffUtc.getTime() - session.startWorkAt.getTime()) / 60000);
+              totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
+            }
+
+            await this.prisma.workSession.update({
+              where: { id: session.id },
+              data: {
+                logoutAt: cutoffUtc,
+                status: 'AUTO_CLOSED',
+                autoClosed: true,
+                autoClosedAt: nowGlobal,
+                closureReason: 'POLICY_AUTO_STOP',
+                totalBreakMinutes,
+                totalWorkMinutes,
+              },
+            });
+
+            await this.prisma.attendanceEvent.create({
+              data: {
+                userId: session.userId,
+                workSessionId: session.id,
+                eventType: 'POLICY_AUTO_STOP',
+                source: 'system',
+              },
+            });
+
+            await this.prisma.user.update({
+              where: { id: session.userId },
+              data: { currentStatus: 'LOGGED_OUT' },
+            });
+
+            try {
+              await this.notificationEventService.sendNotification(session.userId, 'system', {
+                title: 'Workday auto-stopped',
+                message: 'Your workday was automatically stopped based on the company workday policy.',
+                type: NotificationType.WARNING,
+                link: '/dashboard',
+                entityType: 'WORKDAY',
+                entityId: session.id,
+              });
+            } catch (_e) {}
+
+            policyStopCount++;
+          }
+          continue; // Skip midnight stale-close for current/future day
         }
 
         // Calculate the exact midnight moment AFTER the session's date in company timezone
@@ -268,11 +343,23 @@ export class SchedulerService {
           where: { id: session.userId },
           data: { currentStatus: 'LOGGED_OUT' },
         });
+
+        // Notify user about auto-close
+        try {
+          await this.notificationEventService.sendNotification(session.userId, 'system', {
+            title: 'Workday auto-closed',
+            message: 'Your workday was automatically closed at the company day boundary.',
+            type: NotificationType.WARNING,
+            link: '/dashboard',
+            entityType: 'WORKDAY',
+            entityId: session.id,
+          });
+        } catch (_e) {}
         
         closedCount++;
       }
-      if (closedCount > 0) {
-        this.logger.log(`[scheduler] Auto-closed ${closedCount} midnight stale sessions.`);
+      if (closedCount > 0 || policyStopCount > 0) {
+        this.logger.log(`[scheduler] Auto-closed ${closedCount} stale sessions and ${policyStopCount} policy-stopped sessions.`);
       }
     } catch (err) {
       this.logger.error(`[scheduler] Auto-close stale sessions error: ${err}`);

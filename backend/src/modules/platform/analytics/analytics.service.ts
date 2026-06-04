@@ -77,42 +77,59 @@ export class AnalyticsService {
 
     const reviewCycles = await this.prisma.reviewCycleLog.findMany({
       where: { reviewerId: targetUserId, decision: { not: null } },
-      select: { decision: true, reviewerWorkSeconds: true, ticket: { select: { priority: true } } },
+      select: { decision: true, reviewerWorkSeconds: true, reviewEndedAt: true, ticket: { select: { priority: true } } },
     });
 
     const config = await this.ticketTiming.getSlaConfig();
-    let slaBreaches = 0;
+    let approvalSlaBreaches = 0;
 
-    const reviewsCompleted = reviewCycles.length;
+    const completedApprovalsCount = reviewCycles.length;
     const approvedCount = reviewCycles.filter(c => c.decision === 'APPROVED').length;
     const reworkCount = reviewCycles.filter(c => c.decision === 'REWORK').length;
+
+    let approvalsToday = 0;
+    let approvalsThisWeek = 0;
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - 7);
 
     reviewCycles.forEach(c => {
       const priority = c.ticket?.priority ?? 'MEDIUM';
       const limitHours = config.review[priority] ?? config.review['MEDIUM'] ?? 24;
       const limitSeconds = limitHours * 3600;
       if ((c.reviewerWorkSeconds || 0) > limitSeconds) {
-        slaBreaches++;
+        approvalSlaBreaches++;
+      }
+      if (c.reviewEndedAt) {
+        if (c.reviewEndedAt >= todayStart) approvalsToday++;
+        if (c.reviewEndedAt >= weekStart) approvalsThisWeek++;
       }
     });
 
-    const approvalPercent = reviewsCompleted > 0 ? Math.round((approvedCount / reviewsCompleted) * 100) : 0;
-    const rejectionPercent = reviewsCompleted > 0 ? Math.round((reworkCount / reviewsCompleted) * 100) : 0;
+    const approvalPercent = completedApprovalsCount > 0 ? Math.round((approvedCount / completedApprovalsCount) * 100) : 0;
+    const rejectionPercent = completedApprovalsCount > 0 ? Math.round((reworkCount / completedApprovalsCount) * 100) : 0;
+    const approvalSlaBreachRate = completedApprovalsCount > 0 ? Math.round((approvalSlaBreaches / completedApprovalsCount) * 100) : 0;
 
-    const totalReviewSeconds = reviewCycles.reduce((acc, c) => acc + (c.reviewerWorkSeconds || 0), 0);
-    const averageReviewTimeSeconds = reviewsCompleted > 0 ? totalReviewSeconds / reviewsCompleted : 0;
+    const totalApprovalSeconds = reviewCycles.reduce((acc, c) => acc + (c.reviewerWorkSeconds || 0), 0);
+    const averageApprovalSeconds = completedApprovalsCount > 0 ? totalApprovalSeconds / completedApprovalsCount : 0;
 
-    const reviewBacklog = await this.prisma.ticket.count({
+    const pendingApprovalsCount = await this.prisma.ticket.count({
       where: { status: 'REVIEW', reviewDueAt: { not: null } }, // Depending on assignment rules
     });
 
     return {
-      reviewsCompleted,
-      averageReviewTimeSeconds,
+      completedApprovalsCount,
+      averageApprovalSeconds,
+      totalApprovalSeconds,
       approvalPercent,
       rejectionPercent,
-      reviewBacklog,
-      slaBreaches,
+      pendingApprovalsCount,
+      approvalSlaBreaches,
+      approvalSlaBreachRate,
+      approvalsToday,
+      approvalsThisWeek,
     };
   }
 

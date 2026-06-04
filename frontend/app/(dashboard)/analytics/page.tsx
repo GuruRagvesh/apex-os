@@ -627,31 +627,45 @@ export default function AnalyticsPage() {
             <SectionEmpty message="No review data yet." />
           ) : (
             <>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
                   label="Reviews Completed"
-                  value={(reviewerMetrics as any).reviewsCompleted ?? 0}
+                  value={(reviewerMetrics as any).completedApprovalsCount ?? 0}
                   sub="Total review decisions made"
                   icon={<CheckCircle size={16} />}
                   color="green"
                 />
                 <MetricCard
                   label="Avg. Reviewer Time"
-                  value={fmtSeconds((reviewerMetrics as any).averageReviewTimeSeconds)}
+                  value={fmtSeconds((reviewerMetrics as any).averageApprovalSeconds)}
                   sub="Average active time per review cycle"
                   icon={<Clock size={16} />}
                   color="blue"
                 />
                 <MetricCard
                   label="Review Backlog"
-                  value={(reviewerMetrics as any).reviewBacklog ?? 0}
+                  value={(reviewerMetrics as any).pendingApprovalsCount ?? 0}
                   sub="Tickets currently waiting in REVIEW"
                   icon={<Eye size={16} />}
-                  color={(reviewerMetrics as any).reviewBacklog > 5 ? 'amber' : 'slate'}
+                  color={(reviewerMetrics as any).pendingApprovalsCount > 5 ? 'amber' : 'slate'}
+                />
+                <MetricCard
+                  label="Approvals Today"
+                  value={(reviewerMetrics as any).approvalsToday ?? 0}
+                  sub="Reviews completed today"
+                  icon={<CheckCircle size={16} />}
+                  color="green"
                 />
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricCard
+                  label="Approvals This Week"
+                  value={(reviewerMetrics as any).approvalsThisWeek ?? 0}
+                  sub="Reviews completed this week"
+                  icon={<CheckCircle size={16} />}
+                  color="green"
+                />
                 <MetricCard
                   label="Approval Rate"
                   value={fmtPct((reviewerMetrics as any).approvalPercent)}
@@ -668,14 +682,21 @@ export default function AnalyticsPage() {
                 />
                 <MetricCard
                   label="SLA Breaches"
-                  value={(reviewerMetrics as any).slaBreaches ?? 0}
+                  value={(reviewerMetrics as any).approvalSlaBreaches ?? 0}
                   sub="Reviews that exceeded the review SLA limit"
                   icon={<AlertTriangle size={16} />}
-                  color={(reviewerMetrics as any).slaBreaches > 0 ? 'red' : 'green'}
+                  color={(reviewerMetrics as any).approvalSlaBreaches > 0 ? 'red' : 'green'}
+                />
+                <MetricCard
+                  label="SLA Breach Rate"
+                  value={fmtPct((reviewerMetrics as any).approvalSlaBreachRate)}
+                  sub="% of reviews missing SLA"
+                  icon={<AlertTriangle size={16} />}
+                  color={(reviewerMetrics as any).approvalSlaBreachRate > 0 ? 'red' : 'green'}
                 />
               </div>
 
-              {(reviewerMetrics as any).reviewsCompleted === 0 && (
+              {(reviewerMetrics as any).completedApprovalsCount === 0 && (
                 <p className="text-xs text-center" style={{ color: 'var(--text-tertiary)' }}>
                   No reviews completed yet. Metrics will populate once review decisions are recorded.
                 </p>

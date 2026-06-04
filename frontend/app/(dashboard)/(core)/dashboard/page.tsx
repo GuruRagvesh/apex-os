@@ -560,6 +560,22 @@ export default function HomePage() {
               previewItems={[]}
               onClick={() => router.push('/admin/approvals')}
             />
+
+            <CommandCard
+              id="approval-workload"
+              title="Approval Workload"
+              count={summaryError ? '–' : (summary?.approvalWorkload?.pendingReviews ?? 0)}
+              summary={
+                summaryError ? 'Dashboard data unavailable — refresh to retry' :
+                (summary?.approvalWorkload?.pendingReviews ?? 0) > 0
+                  ? `${summary.approvalWorkload.pendingReviews} review${summary.approvalWorkload.pendingReviews > 1 ? 's' : ''} awaiting your action (${summary.approvalWorkload.slaBreaches} breached)`
+                  : 'No tickets waiting for your review'
+              }
+              icon={Clock}
+              severity={(summary?.approvalWorkload?.pendingReviews ?? 0) > 0 ? 'warning' : 'success'}
+              previewItems={[]}
+              onClick={() => router.push('/tickets?status=REVIEW')}
+            />
           </>
         )}
 

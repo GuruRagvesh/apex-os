@@ -616,6 +616,64 @@ export class TicketsService {
       if (mappedAction) {
         this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: mappedAction, fromState: existing.status, toState: data.status, metadata: { ticketId: ticket.ticketId } }).catch(() => {});
       }
+
+      // --- TICKET TIMER HOOKS ---
+      if (data.status === TicketStatus.IN_PROGRESS && existing.status !== TicketStatus.IN_PROGRESS) {
+        await this.ticketLedger.startWorkLog({
+          ticketId: ticket.id,
+          userId: ticket.assignedToId || userId,
+          stage: 'IN_PROGRESS',
+          ownerType: 'ASSIGNEE',
+          source: 'TICKET_STATUS',
+        });
+      } else if (data.status === TicketStatus.REVIEW && existing.status === TicketStatus.IN_PROGRESS) {
+        if (ticket.assignedToId) {
+          await this.ticketLedger.endActiveLog({ ticketId: ticket.id, userId: ticket.assignedToId });
+        }
+        await this.ticketLedger.startWorkLog({
+          ticketId: ticket.id,
+          userId: userId,
+          stage: 'REVIEW',
+          ownerType: 'REVIEWER',
+          source: 'TICKET_STATUS',
+        });
+
+        // NOTIFY REVIEWER
+        try {
+          let reviewerId = null;
+          const creator = await this.prisma.user.findUnique({ where: { id: existing.createdById } });
+          if (creator?.teamLeadName) {
+            const tl = await this.prisma.user.findUnique({ where: { employeeId: creator.teamLeadName } });
+            if (tl && tl.id !== userId) reviewerId = tl.id;
+          }
+          if (!reviewerId && creator?.reportingManager) {
+            const mgr = await this.prisma.user.findUnique({ where: { employeeId: creator.reportingManager } });
+            if (mgr && mgr.id !== userId) reviewerId = mgr.id;
+          }
+          
+          if (reviewerId) {
+            await this.notificationEventService.sendNotification(
+              reviewerId,
+              'statusChanged',
+              {
+                title: 'Ticket ready for review',
+                message: `${ticket.ticketId} - ${ticket.title} has been submitted for your review.`,
+                type: NotificationType.INFO,
+                link: `/tickets/${ticket.id}`,
+                entityId: ticket.id,
+                entityType: 'TICKET',
+              }
+            );
+          }
+        } catch (_e) { /* ignore */ }
+      } else if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED || data.status === TicketStatus.OPEN) {
+        const activeLog = await this.ticketLedger.getActiveLogForTicket(ticket.id);
+        if (activeLog) {
+          await this.ticketLedger.endActiveLog({ logId: activeLog.id, pauseReason: data.status });
+        }
+      }
+      // --------------------------
+
       this.eventEmitter.emit('ticket.status_changed', {
         ticket,
         oldStatus: existing.status,
@@ -671,18 +729,34 @@ export class TicketsService {
       }).catch(() => {});
       const updater = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
       try {
-        await this.notificationEventService.sendNotification(
-          ticket.assignedTo.id,
-          'assignedTicket',
-          {
-            title: `Ticket assigned to you: ${ticket.ticketId}`,
-            message: ticket.title,
-            type: NotificationType.INFO,
-            link: `/tickets/${ticket.id}`,
-            entityId: ticket.id,
-            entityType: 'TICKET',
-          }
-        );
+        if (ticket.assignedTo.id !== userId) {
+          await this.notificationEventService.sendNotification(
+            ticket.assignedTo.id,
+            'assignedTicket',
+            {
+              title: 'Ticket assigned to you',
+              message: `${ticket.ticketId} - ${ticket.title} has been assigned to you.`,
+              type: NotificationType.INFO,
+              link: `/tickets/${ticket.id}`,
+              entityId: ticket.id,
+              entityType: 'TICKET',
+            }
+          );
+        }
+        if (existing.assignedToId && existing.assignedToId !== ticket.assignedTo.id && existing.assignedToId !== userId) {
+          await this.notificationEventService.sendNotification(
+            existing.assignedToId,
+            'assignedTicket',
+            {
+              title: 'Ticket reassigned',
+              message: `${ticket.ticketId} - ${ticket.title} has been reassigned from you.`,
+              type: NotificationType.INFO,
+              link: `/tickets/${ticket.id}`,
+              entityId: ticket.id,
+              entityType: 'TICKET',
+            }
+          );
+        }
       } catch (_e) { /* never crash main op */ }
       try {
         await this.emailService.sendTicketAssigned(

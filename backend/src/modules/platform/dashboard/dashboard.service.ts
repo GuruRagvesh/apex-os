@@ -5,6 +5,8 @@ import { TicketAccessService } from '../../../common/services/ticket-access.serv
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
+import { calculateWorkdayRuntime } from '../workday/workday.calculation';
+import { TimezoneUtil } from '../../../common/utils/timezone.util';
 
 @Injectable()
 export class DashboardService {
@@ -360,13 +362,26 @@ export class DashboardService {
   }
 
   private async getWorkdayStatus(user: any) {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const session = await this.prisma.workSession.findFirst({
+    const today = TimezoneUtil.getCompanyTodayDate();
+    const now = new Date();
+    
+    const sessions = await this.prisma.workSession.findMany({
       where: { userId: user.id, date: today },
-      orderBy: { createdAt: 'desc' },
-      include: { breakLogs: { orderBy: { startAt: 'desc' }, take: 1 } },
+      orderBy: { createdAt: 'asc' },
+      include: { breakLogs: { orderBy: { startAt: 'asc' } } },
     });
-    return session;
+
+    const latestSession = sessions.length > 0 ? sessions[sessions.length - 1] : null;
+    if (!latestSession) return null;
+
+    const rt = calculateWorkdayRuntime(sessions as any, now);
+    
+    return {
+      ...latestSession,
+      totalBreakMinutes: rt.totalBreakMinutes,
+      totalWorkMinutes: rt.elapsedWorkMinutes,
+      startWorkAt: rt.firstStartTime,
+    };
   }
 
   private async getUpcomingEvents(user: any) {
@@ -479,16 +494,49 @@ export class DashboardService {
     };
   }
 
+  private async getApprovalWorkload(user: any) {
+    const roleName: string = user?.role?.name ?? user?.role ?? '';
+    if (!['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)) return null;
+
+    const reviewCycles = await this.prisma.reviewCycleLog.findMany({
+      where: { reviewerId: user.id, decision: { not: null } },
+      select: { reviewerWorkSeconds: true, ticket: { select: { priority: true } } },
+    });
+
+    const config = await this.ticketTiming.getSlaConfig();
+    let slaBreaches = 0;
+
+    reviewCycles.forEach(c => {
+      const priority = c.ticket?.priority ?? 'MEDIUM';
+      const limitHours = config.review[priority] ?? config.review['MEDIUM'] ?? 24;
+      const limitSeconds = limitHours * 3600;
+      if ((c.reviewerWorkSeconds || 0) > limitSeconds) {
+        slaBreaches++;
+      }
+    });
+
+    const completedReviews = reviewCycles.length;
+    const totalApprovalSeconds = reviewCycles.reduce((acc, c) => acc + (c.reviewerWorkSeconds || 0), 0);
+    const avgApprovalTime = completedReviews > 0 ? totalApprovalSeconds / completedReviews : 0;
+
+    const pendingReviews = await this.prisma.ticket.count({
+      where: { status: 'REVIEW', reviewDueAt: { not: null } },
+    });
+
+    return { pendingReviews, completedReviews, avgApprovalTime, slaBreaches };
+  }
+
   async getSummary(user: any) {
-    const [criticalAlerts, metrics, workdayStatus, upcomingEvents, previews] = await Promise.all([
+    const [criticalAlerts, metrics, workdayStatus, upcomingEvents, previews, approvalWorkload] = await Promise.all([
       this.getCriticalAlerts(user),
       this.getMetrics(user),
       this.getWorkdayStatus(user),
       this.getUpcomingEvents(user),
       this.getPreviews(user),
+      this.getApprovalWorkload(user),
     ]);
 
-    return { criticalAlerts, metrics, workdayStatus, upcomingEvents, previews };
+    return { criticalAlerts, metrics, workdayStatus, upcomingEvents, previews, approvalWorkload };
   }
 
   async getTicketTrend(days = 14, user?: any) {

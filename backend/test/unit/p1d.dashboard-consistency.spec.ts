@@ -33,8 +33,9 @@ const prisma: any = {
   },
   user: { count: jest.fn() },
   project: { count: jest.fn(), findMany: jest.fn() },
-  workSession: { findUnique: jest.fn(), findFirst: jest.fn() },
+  workSession: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
   managerDeptAccess: { findMany: jest.fn() },
+  reviewCycleLog: { findMany: jest.fn() },
 };
 
 describe('P1-D dashboard count convergence', () => {
@@ -49,7 +50,9 @@ describe('P1-D dashboard count convergence', () => {
     prisma.project.findMany.mockResolvedValue([]);
     prisma.workSession.findUnique.mockResolvedValue(null);
     prisma.workSession.findFirst.mockResolvedValue(null);
+    prisma.workSession.findMany.mockResolvedValue([]);
     prisma.managerDeptAccess.findMany.mockResolvedValue([{ departmentId: 'dept1' }]);
+    prisma.reviewCycleLog.findMany.mockResolvedValue([]);
   });
 
   it('uses TicketTimingService instead of dueDate-only counts for dashboard overdue metrics', async () => {
