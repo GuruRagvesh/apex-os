@@ -39,7 +39,7 @@ This release focused purely on fortifying the existing production foundation bef
 - The Historical Workday Repair script is prepared but remains a separate manual execution step (outside typical daily app use).
 
 ## 10. Delivery Readiness Rating
-**READY.** The system demonstrates high runtime resilience, passes all strict unit constraints, and provides reliable end-to-end user workflows.
+**READY FOR CONTROLLED ROLLOUT / DELIVERY RELEASE CANDIDATE.** No automated P0/P1 blockers were found. Manual live acceptance is still required before broad handover. The system demonstrates high runtime resilience, passes all strict unit constraints, and provides reliable end-to-end user workflows.
 
 ---
 
@@ -50,14 +50,14 @@ This release focused purely on fortifying the existing production foundation bef
 | **Auth/session** | STABLE | Session persistence and 401 redirection verified. |
 | **Users/roles** | STABLE | Role scopes rigorously enforced during API requests. |
 | **Hierarchy approvals** | STABLE | Routing and escalations operational. |
-| **Workday** | STABLE | Accurate timekeeping; automated closure prevents UI drift. |
+| **Workday** | STABLE, HISTORICAL RECORD REVIEW STILL PENDING | Accurate timekeeping; automated closure prevents UI drift. |
 | **Tickets** | STABLE | Lifecycle flows cleanly. Guardrails prevent illegal transitions. |
 | **Attachments** | STABLE | Payload transmission and backend parsing strictly functional. |
 | **Rework/ratings** | STABLE | Ratings trigger only for Manager reviews, self-ratings bypassed. |
-| **Notifications** | STABLE | Target-based routing is clean. |
+| **Notifications** | CORE STABLE, ADVANCED SLA ALERTS DEFERRED | Target-based routing is clean. |
 | **Leave** | STABLE | End-to-end quota mapping and manager approvals work. |
-| **Dashboard** | STABLE | Aggregations load successfully without NaNs. |
+| **Dashboard** | STABLE WITH MONITORING | Aggregations load successfully without NaNs. |
 | **Analytics** | STABLE | Reliable metric generation across roles. |
-| **Projects** | STABLE | Membership and status layers functional. |
+| **Projects** | BASELINE STABLE / MONITOR | Membership and status layers functional. |
 | **Settings** | STABLE | Safely handles configuration persistence. |
 | **Calendar** | STABLE | Layout optimized for dense schedules. |
