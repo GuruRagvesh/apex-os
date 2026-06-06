@@ -14,6 +14,8 @@ export class TaskTypesController {
   constructor(private readonly taskTypesService: TaskTypesService) {}
 
   @Get()
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   getByDepartment(@Query('departmentId') departmentId?: string) {
     return this.taskTypesService.getByDepartment(departmentId);
   }
