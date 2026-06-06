@@ -137,9 +137,20 @@ describe('TicketsService — status transitions', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('blocks INTERN from moving ticket to REVIEW', async () => {
+  it('allows assigned INTERN to move IN_PROGRESS ticket to REVIEW', async () => {
     mockPrisma.ticket.findUnique.mockResolvedValue(
       makeTicket({ assignedToId: 'int1', createdById: 'int1', status: 'IN_PROGRESS' }),
+    );
+    const user = { id: 'int1', role: { name: 'INTERN' } };
+
+    await expect(
+      service.updateStatus('tkt1', 'REVIEW' as any, 'int1', user),
+    ).resolves.toBeDefined();
+  });
+
+  it('blocks unassigned INTERN from moving IN_PROGRESS ticket to REVIEW', async () => {
+    mockPrisma.ticket.findUnique.mockResolvedValue(
+      makeTicket({ assignedToId: 'emp2', createdById: 'emp2', status: 'IN_PROGRESS' }),
     );
     const user = { id: 'int1', role: { name: 'INTERN' } };
 

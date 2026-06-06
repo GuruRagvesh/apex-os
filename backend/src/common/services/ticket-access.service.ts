@@ -142,7 +142,7 @@ export class TicketAccessService {
     const allowed: Record<string, TicketStatus[]> = {
       [TicketStatus.OPEN]: [TicketStatus.IN_PROGRESS, TicketStatus.CLOSED],
       [TicketStatus.IN_PROGRESS]: [TicketStatus.OPEN, TicketStatus.REVIEW, TicketStatus.DONE, TicketStatus.CLOSED],
-      [TicketStatus.REVIEW]: [TicketStatus.OPEN, TicketStatus.DONE, TicketStatus.CLOSED],
+      [TicketStatus.REVIEW]: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.DONE, TicketStatus.CLOSED],
       [TicketStatus.DONE]: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.CLOSED],
       [TicketStatus.CLOSED]: [],
     };
@@ -162,9 +162,9 @@ export class TicketAccessService {
 
     const isSelfAssignedCreator = ticket.createdById === user.id && ticket.assignedToId === user.id;
 
-    if (isIntern && toStatus !== TicketStatus.IN_PROGRESS) {
+    if (isIntern && toStatus !== TicketStatus.IN_PROGRESS && toStatus !== TicketStatus.REVIEW) {
       if (!(isSelfAssignedCreator && (toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED))) {
-        throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS');
+        throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS or REVIEW');
       }
     }
 

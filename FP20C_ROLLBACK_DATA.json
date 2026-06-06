@@ -1,0 +1,978 @@
+[
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0es67v001ffhq9wre8dwai",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0e2dvo0001fhq9v9d5f8gr",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0es9zx001lfhq9az9p3dzk",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0fjs2p007ufhq9ith08fb4",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0gb46g00acfhq93rikrgpf",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0gciu900cjfhq96z972qhe",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0jjwha00tyfhq9jvxq73pn",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0ew70t003dfhq9t7rnwq5g",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0fgwss007ifhq9fd0xn6o6",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0estcw001xfhq9877k7upd",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0g1ame008qfhq99zk3hfoe",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0f0us6004rfhq9py2u62tr",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-05T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0t2k8i008tjzxxfmjzwelv",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0g15pr008kfhq9exl68xze",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0eymlk0045fhq9sb5vwx70",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1tfoji000bpkvnfjelaq5y",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0f0okp004lfhq92gdz3abx",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq0espq4001rfhq9lqygzksc",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1tmb47000vpkvnev72zqru",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1u25hm0035pkvnh9rcvrhp",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1unhdw003jpkvn2ppm7fjg",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1v5obt0052pkvn88d6xa6m",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1ypz3e001cljfg4dfm1rbc",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1vkmr7008opkvn4egfx8iu",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq24fo8w002feamfsmj5gbhd",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1v5fb2004spkvnub50v86i",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1tf0ax0001pkvnev5exb46",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "WorkSession",
+    "primaryKey": "cmq1tfslv000hpkvn06okagjs",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "WS_03/04: Set to End of Day",
+    "before": {
+      "logoutAt": null,
+      "status": "WORKING",
+      "totalWorkMinutes": 0,
+      "autoClosed": false
+    },
+    "after": {
+      "logoutAt": "2026-06-06T23:59:59.999Z",
+      "status": "AUTO_CLOSED",
+      "autoClosed": true
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpe2oe6x001cskiz6rtegsh8",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_01: Close break at parent logout",
+    "before": {
+      "endAt": null
+    },
+    "after": {
+      "endAt": "2026-05-20T13:48:59.140Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnl25ag004b113rufsczpo4",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_01: Close break at parent logout",
+    "before": {
+      "endAt": null
+    },
+    "after": {
+      "endAt": "2026-05-27T10:40:45.285Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpe2oe6x001cskiz6rtegsh8",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-20T13:03:12.341Z",
+      "endAt": null
+    },
+    "after": {
+      "startAt": "2026-05-20T13:34:45.664Z",
+      "endAt": null
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpe2vkip001oskiz157m79gh",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-20T13:08:47.136Z",
+      "endAt": "2026-05-20T13:33:42.713Z"
+    },
+    "after": {
+      "startAt": "2026-05-20T13:34:45.664Z",
+      "endAt": "2026-05-20T13:33:42.713Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpf3a62e00dh3edajk5puamu",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-21T06:07:54.420Z",
+      "endAt": "2026-05-21T06:07:55.037Z"
+    },
+    "after": {
+      "startAt": "2026-05-21T11:43:40.025Z",
+      "endAt": "2026-05-21T06:07:55.037Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpf5t2gf0001u3zjcvvcxo3o",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-21T07:18:35.434Z",
+      "endAt": "2026-05-21T07:18:36.226Z"
+    },
+    "after": {
+      "startAt": "2026-05-21T11:43:40.025Z",
+      "endAt": "2026-05-21T07:18:36.226Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpgjm0ja005grja7y52uh23e",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-22T06:32:47.156Z",
+      "endAt": "2026-05-22T06:33:53.782Z"
+    },
+    "after": {
+      "startAt": "2026-05-22T12:47:26.827Z",
+      "endAt": "2026-05-22T06:33:53.782Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpglv1ew000bjf5be3qra3rn",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-22T07:35:47.431Z",
+      "endAt": "2026-05-22T07:35:47.936Z"
+    },
+    "after": {
+      "startAt": "2026-05-22T12:47:26.827Z",
+      "endAt": "2026-05-22T07:35:47.936Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpgqi0iw000m5maxy7gqn9oz",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-22T09:45:37.830Z",
+      "endAt": "2026-05-22T09:45:45.100Z"
+    },
+    "after": {
+      "startAt": "2026-05-22T12:47:26.827Z",
+      "endAt": "2026-05-22T09:45:45.100Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpkrqbn2006pqko3cnkplyph",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T05:31:09.802Z",
+      "endAt": "2026-05-25T05:31:10.321Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T13:04:41.901Z",
+      "endAt": "2026-05-25T05:31:10.321Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpkt0uiw008yqko399ngjq70",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T06:07:20.454Z",
+      "endAt": "2026-05-25T06:07:23.868Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T11:28:50.688Z",
+      "endAt": "2026-05-25T06:07:23.868Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpku7x97009hqko3btgsnz3n",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T06:40:50.202Z",
+      "endAt": "2026-05-25T06:40:58.200Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T11:28:50.688Z",
+      "endAt": "2026-05-25T06:40:58.200Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpkucxew00a8qko37wzim7q6",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T06:44:43.686Z",
+      "endAt": "2026-05-25T06:44:46.205Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T13:04:41.901Z",
+      "endAt": "2026-05-25T06:44:46.205Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpku87uq009nqko3y32h1lom",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T06:41:03.936Z",
+      "endAt": "2026-05-25T06:50:43.712Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T11:28:50.688Z",
+      "endAt": "2026-05-25T06:50:43.712Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpkvhlbq00ezqko3lwzsafs2",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T07:16:20.917Z",
+      "endAt": "2026-05-25T07:21:37.623Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T12:53:52.024Z",
+      "endAt": "2026-05-25T07:21:37.623Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpkvtkz500fnqko3yb7a1w4g",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T07:25:40.334Z",
+      "endAt": "2026-05-25T07:25:40.882Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T13:35:32.054Z",
+      "endAt": "2026-05-25T07:25:40.882Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpkw33py00gbqko3hd9owmom",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T07:33:04.532Z",
+      "endAt": "2026-05-25T08:28:23.345Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T13:35:32.054Z",
+      "endAt": "2026-05-25T08:28:23.345Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpkw2ujs00g7qko3bjale19e",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T07:32:52.645Z",
+      "endAt": "2026-05-25T08:33:19.514Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T12:53:52.024Z",
+      "endAt": "2026-05-25T08:33:19.514Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpkw2sxw00g3qko3iih2t88y",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T07:32:50.562Z",
+      "endAt": "2026-05-25T08:39:18.594Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T11:28:50.688Z",
+      "endAt": "2026-05-25T08:39:18.594Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpl0abo8006oge806kk4g3n2",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-25T09:30:39.822Z",
+      "endAt": "2026-05-25T09:30:47.080Z"
+    },
+    "after": {
+      "startAt": "2026-05-25T13:02:15.465Z",
+      "endAt": "2026-05-25T09:30:47.080Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpm6wo4y005412orfz1hyohh",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-26T05:23:46.350Z",
+      "endAt": "2026-05-26T05:37:23.930Z"
+    },
+    "after": {
+      "startAt": "2026-05-26T07:13:34.978Z",
+      "endAt": "2026-05-26T05:37:23.930Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpmapsj900a03um4nnc6bevs",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-26T07:10:23.921Z",
+      "endAt": "2026-05-26T07:10:32.330Z"
+    },
+    "after": {
+      "startAt": "2026-05-26T07:13:34.978Z",
+      "endAt": "2026-05-26T07:10:32.330Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpmblua800d43um41j093xqh",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-26T07:35:19.183Z",
+      "endAt": "2026-05-26T08:29:36.274Z"
+    },
+    "after": {
+      "startAt": "2026-05-26T07:35:19.183Z",
+      "endAt": "2026-05-26T07:12:37.677Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnl25ag004b113rufsczpo4",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T04:47:42.663Z",
+      "endAt": null
+    },
+    "after": {
+      "startAt": "2026-05-27T12:45:10.082Z",
+      "endAt": null
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnl519t004p113rvp9msmof",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T04:49:57.424Z",
+      "endAt": "2026-05-27T04:50:08.914Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:45:10.082Z",
+      "endAt": "2026-05-27T04:50:08.914Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnl5hx0004v113rfcff909j",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T04:50:18.993Z",
+      "endAt": "2026-05-27T04:50:24.114Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:45:10.082Z",
+      "endAt": "2026-05-27T04:50:24.114Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnl5q3d0051113rdfzlpg29",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T04:50:29.592Z",
+      "endAt": "2026-05-27T04:51:52.481Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:45:10.082Z",
+      "endAt": "2026-05-27T04:51:52.481Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnl7ogh0057113r8lopy85n",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T04:52:00.782Z",
+      "endAt": "2026-05-27T04:54:33.877Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:45:10.082Z",
+      "endAt": "2026-05-27T04:54:33.877Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnljgas006y113r9dsgrxtf",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T05:01:10.083Z",
+      "endAt": "2026-05-27T05:15:24.253Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:56:20.709Z",
+      "endAt": "2026-05-27T05:15:24.253Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnmoomc00e4113rcqxkonv8",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T05:33:13.762Z",
+      "endAt": "2026-05-27T05:33:47.355Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:56:20.709Z",
+      "endAt": "2026-05-27T05:33:47.355Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnqcy0p00m9113rl0c4cvka",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T07:16:04.536Z",
+      "endAt": "2026-05-27T08:10:28.226Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:56:20.709Z",
+      "endAt": "2026-05-27T08:10:28.226Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnr6tuh00np113rygx89uek",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T07:39:18.808Z",
+      "endAt": "2026-05-27T08:24:27.066Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T08:47:21.988Z",
+      "endAt": "2026-05-27T08:24:27.066Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnqo4y400n1113ryxc68njc",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T07:24:46.730Z",
+      "endAt": "2026-05-27T08:40:30.815Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:59:44.893Z",
+      "endAt": "2026-05-27T08:40:30.815Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpnxnymn003384nbio1stecz",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-27T10:40:35.849Z",
+      "endAt": "2026-05-27T10:40:40.131Z"
+    },
+    "after": {
+      "startAt": "2026-05-27T12:45:10.082Z",
+      "endAt": "2026-05-27T10:40:40.131Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpqgt7cm00f78q83x8gdywrj",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-05-29T05:12:05.491Z",
+      "endAt": "2026-05-29T05:12:13.025Z"
+    },
+    "after": {
+      "startAt": "2026-05-29T06:11:01.648Z",
+      "endAt": "2026-05-29T05:12:13.025Z"
+    }
+  },
+  {
+    "table": "BreakLog",
+    "primaryKey": "cmpzc8d1b008dsws7q3s8abk8",
+    "timestamp": "2026-06-06T10:03:31.135Z",
+    "repairRuleApplied": "BL_04: Clamp break to parent session bounds",
+    "before": {
+      "startAt": "2026-06-04T10:13:50.202Z",
+      "endAt": "2026-06-04T10:37:25.191Z"
+    },
+    "after": {
+      "startAt": "2026-06-04T10:13:50.202Z",
+      "endAt": "2026-06-03T18:29:00.000Z"
+    }
+  }
+]
