@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Patch, Delete, Body, Param, Query,
-  UseGuards, UseInterceptors, UploadedFile, Res,
+  UseGuards, UseInterceptors, UploadedFile, Res, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -102,7 +102,7 @@ export class TicketsController {
       if (ALLOWED_MIME.includes(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error(`File type "${file.mimetype}" is not allowed`), false);
+        cb(new BadRequestException(`File type "${file.mimetype}" is not allowed`), false);
       }
     },
   }))

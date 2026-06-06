@@ -99,4 +99,27 @@ describe('P1-D ticket attachment security', () => {
     expect(safe.previewUrl).toContain('/api/tickets/ticket1/attachments/att1/download');
     expect(safe.downloadUrl).toContain('mode=download');
   });
+
+  describe('Upload attachment permissions', () => {
+    it('allows assigned employee to upload attachment', async () => {
+      const ticket = { assignedToId: 'emp1', createdById: 'mgr1' };
+      const user = { id: 'emp1', role: { name: 'EMPLOYEE' } };
+
+      await expect(service.assertCanUploadAttachment(user, ticket)).resolves.toBeUndefined();
+    });
+
+    it('allows self-assigned employee to upload attachment', async () => {
+      const ticket = { assignedToId: 'emp2', createdById: 'emp2' };
+      const user = { id: 'emp2', role: { name: 'EMPLOYEE' } };
+
+      await expect(service.assertCanUploadAttachment(user, ticket)).resolves.toBeUndefined();
+    });
+
+    it('blocks unauthorized employee from uploading attachment', async () => {
+      const ticket = { assignedToId: 'emp1', createdById: 'mgr1' };
+      const user = { id: 'emp3', role: { name: 'EMPLOYEE' } };
+
+      await expect(service.assertCanUploadAttachment(user, ticket)).rejects.toThrow(ForbiddenException);
+    });
+  });
 });

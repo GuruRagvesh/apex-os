@@ -193,4 +193,48 @@ describe('TicketsService — status transitions', () => {
       service.updateStatus('tkt1', 'IN_PROGRESS' as any, 'emp2', user),
     ).rejects.toThrow(ForbiddenException);
   });
+
+  it('allows assigned employee to submit IN_PROGRESS ticket to REVIEW', async () => {
+    mockPrisma.ticket.findUnique.mockResolvedValue(
+      makeTicket({ assignedToId: 'emp1', status: 'IN_PROGRESS' }),
+    );
+    const user = { id: 'emp1', role: { name: 'EMPLOYEE' } };
+
+    await expect(
+      service.updateStatus('tkt1', 'REVIEW' as any, 'emp1', user),
+    ).resolves.toBeDefined();
+  });
+
+  it('blocks unauthorized employee from submitting unrelated ticket to REVIEW', async () => {
+    mockPrisma.ticket.findUnique.mockResolvedValue(
+      makeTicket({ assignedToId: 'emp1', createdById: 'emp1', status: 'IN_PROGRESS' }),
+    );
+    const user = { id: 'emp2', role: { name: 'EMPLOYEE' } };
+
+    await expect(
+      service.updateStatus('tkt1', 'REVIEW' as any, 'emp2', user),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('submit-to-review from OPEN fails cleanly', async () => {
+    mockPrisma.ticket.findUnique.mockResolvedValue(
+      makeTicket({ assignedToId: 'emp1', status: 'OPEN' }),
+    );
+    const user = { id: 'emp1', role: { name: 'EMPLOYEE' } };
+
+    await expect(
+      service.updateStatus('tkt1', 'REVIEW' as any, 'emp1', user),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('submit-to-review from DONE fails cleanly', async () => {
+    mockPrisma.ticket.findUnique.mockResolvedValue(
+      makeTicket({ assignedToId: 'emp1', status: 'DONE' }),
+    );
+    const user = { id: 'emp1', role: { name: 'EMPLOYEE' } };
+
+    await expect(
+      service.updateStatus('tkt1', 'REVIEW' as any, 'emp1', user),
+    ).rejects.toThrow(ForbiddenException);
+  });
 });
