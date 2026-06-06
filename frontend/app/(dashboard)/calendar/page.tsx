@@ -43,6 +43,7 @@ function CalendarView({ events, router }: { events: any[]; router: any }) {
       }}
       height="auto"
       eventDisplay="block"
+      dayMaxEvents={true}
     />
   );
 }

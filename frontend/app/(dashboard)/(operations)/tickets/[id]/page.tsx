@@ -606,6 +606,7 @@ export default function TicketDetailPage() {
       qc.invalidateQueries({ queryKey: ['ticket-history', id] });
       toast.success('Status updated');
     },
+    onError: (e: any) => toast.error(e?.message || 'Failed to update status'),
   });
 
   // Intercept REVIEW click to show POC modal
@@ -626,8 +627,8 @@ export default function TicketDetailPage() {
       qc.invalidateQueries({ queryKey: ['ticket-history', id] });
       toast.success('POC uploaded and ticket moved to Review');
       setShowPocModal(false);
-    } catch {
-      toast.error('Failed to upload POC or update status');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to upload POC or update status');
     } finally {
       setPocUploading(false);
     }
@@ -708,7 +709,7 @@ export default function TicketDetailPage() {
       toast.success('File uploaded');
       setActiveTab('attachments');
     },
-    onError: () => toast.error('Upload failed'),
+    onError: (e: any) => toast.error(e?.message || 'Upload failed'),
   });
 
   const deleteAttachmentMutation = useMutation({

@@ -10,6 +10,7 @@ export interface WorkSessionData {
   totalBreakMinutes: number;
   totalWorkMinutes: number;
   autoClosed: boolean;
+  autoClosedAt?: Date | null;
   closureReason?: string | null;
   continuationOfSessionId: string | null;
   breakLogs: BreakLogData[];
@@ -37,13 +38,18 @@ export function calculateWorkdayRuntime(
   let isResumed = false;
 
   for (const s of sessions) {
+    let effectiveNow = now;
+    if (s.autoClosed && s.autoClosedAt && (!s.logoutAt || s.autoClosedAt < s.logoutAt)) {
+      effectiveNow = s.autoClosedAt;
+    }
+
     if (!firstStartTime && s.startWorkAt) {
       firstStartTime = s.startWorkAt;
     }
     if (s.logoutAt) {
       currentEndTime = s.logoutAt;
     } else {
-      currentEndTime = now; // Ongoing
+      currentEndTime = effectiveNow; // Ongoing
     }
     if (s.autoClosed) {
       autoClosedCount++;
@@ -55,13 +61,13 @@ export function calculateWorkdayRuntime(
     let liveBreak = s.totalBreakMinutes || 0;
     const openBreak = s.breakLogs?.find((b) => !b.endAt);
     if (openBreak) {
-      liveBreak += Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
+      liveBreak += Math.max(0, Math.floor((effectiveNow.getTime() - openBreak.startAt.getTime()) / 60000));
     }
     totalBreakMins += liveBreak;
 
     let sessionWork = s.totalWorkMinutes || 0;
     if (s.startWorkAt && !s.logoutAt) {
-      const elapsed = Math.floor((now.getTime() - s.startWorkAt.getTime()) / 60000);
+      const elapsed = Math.floor((effectiveNow.getTime() - s.startWorkAt.getTime()) / 60000);
       sessionWork = Math.max(0, elapsed - liveBreak);
     }
     totalWorkMins += sessionWork;

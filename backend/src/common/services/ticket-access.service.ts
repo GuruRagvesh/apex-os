@@ -98,10 +98,12 @@ export class TicketAccessService {
 
   async assertCanAssignTicket(user: any, ticket: any, assignedToId: string | null | undefined): Promise<void> {
     const roleName = this.access.roleName(user);
-    if (!this.access.isAdmin(user) && ![ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {
+    const isSelfAssigning = assignedToId === user.id && !ticket.assignedToId && ticket.status === TicketStatus.OPEN;
+
+    if (!this.access.isAdmin(user) && ![ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any) && !isSelfAssigning) {
       throw new ForbiddenException('You do not have permission to assign this ticket');
     }
-    if (!this.access.isAdmin(user) && !(await this.isTicketInUserScope(user, ticket))) {
+    if (!this.access.isAdmin(user) && !(await this.isTicketInUserScope(user, ticket)) && !isSelfAssigning) {
       throw new ForbiddenException('You do not have permission to assign this ticket');
     }
     if (!assignedToId) return;
@@ -139,8 +141,8 @@ export class TicketAccessService {
 
     const allowed: Record<string, TicketStatus[]> = {
       [TicketStatus.OPEN]: [TicketStatus.IN_PROGRESS, TicketStatus.CLOSED],
-      [TicketStatus.IN_PROGRESS]: [TicketStatus.REVIEW, TicketStatus.DONE, TicketStatus.CLOSED],
-      [TicketStatus.REVIEW]: [TicketStatus.IN_PROGRESS, TicketStatus.DONE, TicketStatus.CLOSED],
+      [TicketStatus.IN_PROGRESS]: [TicketStatus.OPEN, TicketStatus.REVIEW, TicketStatus.DONE, TicketStatus.CLOSED],
+      [TicketStatus.REVIEW]: [TicketStatus.OPEN, TicketStatus.DONE, TicketStatus.CLOSED],
       [TicketStatus.DONE]: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.CLOSED],
       [TicketStatus.CLOSED]: [],
     };
@@ -181,15 +183,15 @@ export class TicketAccessService {
       return;
     }
 
-    // Rework logic
-    if (fromStatus === TicketStatus.REVIEW && toStatus === TicketStatus.IN_PROGRESS) {
+    // Rework and Reject logic
+    if (fromStatus === TicketStatus.REVIEW && (toStatus === TicketStatus.IN_PROGRESS || toStatus === TicketStatus.OPEN)) {
       if (!isScopedReviewer && !isSelfAssignedCreator) {
-        throw new ForbiddenException('Only scoped reviewers, managers, or admins can send tickets back for rework');
+        throw new ForbiddenException('Only scoped reviewers, managers, or admins can reject or send tickets back for rework');
       }
       return;
     }
 
-    if (workerStatuses.includes(toStatus)) {
+    if (workerStatuses.includes(toStatus) || toStatus === TicketStatus.OPEN) {
       if (isParticipant || isScopedReviewer || isSelfAssignedCreator) return;
     }
 
@@ -308,6 +310,7 @@ export class TicketAccessService {
         { assignedToId: user.id },
         { createdById: user.id },
         { assignees: { some: { userId: user.id } } },
+        { assignedToId: null, departmentId: user.departmentId },
       ],
     };
   }

@@ -11,17 +11,11 @@ export class TimezoneUtil {
   static getCompanyTodayDate(timezone: string = DEFAULT_COMPANY_TIMEZONE): Date {
     const now = new Date();
     // Get the zoned time representing the current time in the timezone
-    const zonedNow = toZonedTime(now, timezone);
-    // Set it to midnight in that timezone
-    zonedNow.setHours(0, 0, 0, 0);
-    // Convert back to UTC Date
-    // Wait, date-fns-tz does this better with fromZonedTime or we can just parse the formatted string
+    // Prisma @db.Date extracts the YYYY-MM-DD from the UTC representation of the Date object.
+    // So we MUST return a Date object that has the correct YYYY-MM-DD in UTC.
     const dateString = formatInTimeZone(now, timezone, 'yyyy-MM-dd');
-    const midnightIso = `${dateString}T00:00:00.000`;
-    // We parse it as if it's in the target timezone
-    // e.g., Date.parse("2026-06-03T00:00:00.000+05:30")
-    const offsetString = formatInTimeZone(now, timezone, 'xxx'); // e.g. +05:30
-    return new Date(`${midnightIso}${offsetString}`);
+    const midnightIso = `${dateString}T00:00:00.000Z`;
+    return new Date(midnightIso);
   }
 
   static getCompanyTime(date: Date | string, timezone: string = DEFAULT_COMPANY_TIMEZONE): string {

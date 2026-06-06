@@ -265,10 +265,10 @@ export class TicketLedgerService {
     reworkStartedAt?: Date;
     assigneeWorkSeconds?: number;
     reviewerWorkSeconds?: number;
-    taskEfficiencyRating?: number;
-    employeePerformanceRating?: number;
-    employeeAttitudeRating?: number;
-    ratingComment?: string;
+    taskEfficiencyRating?: number | null;
+    employeePerformanceRating?: number | null;
+    employeeAttitudeRating?: number | null;
+    ratingComment?: string | null;
   }) {
     let cycle;
     if (input.cycleNo) {

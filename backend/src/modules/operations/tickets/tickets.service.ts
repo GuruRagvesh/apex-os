@@ -618,6 +618,12 @@ export class TicketsService {
       }
 
       // --- TICKET TIMER HOOKS ---
+      // --- TICKET TIMER HOOKS ---
+      const activeLog = await this.ticketLedger.getActiveLogForTicket(ticket.id);
+      if (activeLog) {
+        await this.ticketLedger.endActiveLog({ logId: activeLog.id, pauseReason: data.status });
+      }
+
       if (data.status === TicketStatus.IN_PROGRESS && existing.status !== TicketStatus.IN_PROGRESS) {
         await this.ticketLedger.startWorkLog({
           ticketId: ticket.id,
@@ -626,13 +632,21 @@ export class TicketsService {
           ownerType: 'ASSIGNEE',
           source: 'TICKET_STATUS',
         });
-      } else if (data.status === TicketStatus.REVIEW && existing.status === TicketStatus.IN_PROGRESS) {
-        if (ticket.assignedToId) {
-          await this.ticketLedger.endActiveLog({ ticketId: ticket.id, userId: ticket.assignedToId });
+      } else if (data.status === TicketStatus.REVIEW && existing.status !== TicketStatus.REVIEW) {
+        let reviewerId = null;
+        const creator = await this.prisma.user.findUnique({ where: { id: existing.createdById } });
+        if (creator?.teamLeadName) {
+          const tl = await this.prisma.user.findUnique({ where: { employeeId: creator.teamLeadName } });
+          if (tl && tl.id !== userId) reviewerId = tl.id;
         }
+        if (!reviewerId && creator?.reportingManager) {
+          const mgr = await this.prisma.user.findUnique({ where: { employeeId: creator.reportingManager } });
+          if (mgr && mgr.id !== userId) reviewerId = mgr.id;
+        }
+
         await this.ticketLedger.startWorkLog({
           ticketId: ticket.id,
-          userId: userId,
+          userId: reviewerId || userId,
           stage: 'REVIEW',
           ownerType: 'REVIEWER',
           source: 'TICKET_STATUS',
@@ -640,17 +654,6 @@ export class TicketsService {
 
         // NOTIFY REVIEWER
         try {
-          let reviewerId = null;
-          const creator = await this.prisma.user.findUnique({ where: { id: existing.createdById } });
-          if (creator?.teamLeadName) {
-            const tl = await this.prisma.user.findUnique({ where: { employeeId: creator.teamLeadName } });
-            if (tl && tl.id !== userId) reviewerId = tl.id;
-          }
-          if (!reviewerId && creator?.reportingManager) {
-            const mgr = await this.prisma.user.findUnique({ where: { employeeId: creator.reportingManager } });
-            if (mgr && mgr.id !== userId) reviewerId = mgr.id;
-          }
-          
           if (reviewerId) {
             await this.notificationEventService.sendNotification(
               reviewerId,
@@ -666,11 +669,6 @@ export class TicketsService {
             );
           }
         } catch (_e) { /* ignore */ }
-      } else if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED || data.status === TicketStatus.OPEN) {
-        const activeLog = await this.ticketLedger.getActiveLogForTicket(ticket.id);
-        if (activeLog) {
-          await this.ticketLedger.endActiveLog({ logId: activeLog.id, pauseReason: data.status });
-        }
       }
       // --------------------------
 
@@ -944,12 +942,16 @@ export class TicketsService {
       throw new ForbiddenException('Only tickets in REVIEW status can be approved');
     }
     
-    if (!ratings.taskEfficiencyRating || !ratings.employeePerformanceRating || !ratings.employeeAttitudeRating) {
-      throw new BadRequestException('All three ratings (Task Efficiency, Employee Performance, Employee Attitude) are required to approve.');
-    }
-    for (const r of [ratings.taskEfficiencyRating, ratings.employeePerformanceRating, ratings.employeeAttitudeRating]) {
-      if (typeof r !== 'number' || r < 1 || r > 5) {
-        throw new BadRequestException('Ratings must be integers between 1 and 5.');
+    const isSelfReview = ticket.assignedToId === userId;
+    
+    if (!isSelfReview) {
+      if (!ratings.taskEfficiencyRating || !ratings.employeePerformanceRating || !ratings.employeeAttitudeRating) {
+        throw new BadRequestException('All three ratings (Task Efficiency, Employee Performance, Employee Attitude) are required to approve.');
+      }
+      for (const r of [ratings.taskEfficiencyRating, ratings.employeePerformanceRating, ratings.employeeAttitudeRating]) {
+        if (typeof r !== 'number' || r < 1 || r > 5) {
+          throw new BadRequestException('Ratings must be integers between 1 and 5.');
+        }
       }
     }
     
@@ -960,10 +962,10 @@ export class TicketsService {
     await this.ticketLedger.endReviewCycle({
       ticketId: ticket.id,
       decision: 'APPROVED',
-      taskEfficiencyRating: ratings.taskEfficiencyRating,
-      employeePerformanceRating: ratings.employeePerformanceRating,
-      employeeAttitudeRating: ratings.employeeAttitudeRating,
-      ratingComment: ratings.ratingComment,
+      taskEfficiencyRating: isSelfReview ? null : ratings.taskEfficiencyRating,
+      employeePerformanceRating: isSelfReview ? null : ratings.employeePerformanceRating,
+      employeeAttitudeRating: isSelfReview ? null : ratings.employeeAttitudeRating,
+      ratingComment: isSelfReview ? null : ratings.ratingComment,
     });
 
     try {
