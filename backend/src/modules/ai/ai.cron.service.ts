@@ -1,9 +1,11 @@
-﻿import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../platform/email/email.service';
 import { TicketTimingService } from '../../common/services/ticket-timing.service';
 import { ConfigService } from '@nestjs/config';
+
+import { CompanyDateService } from '../../common/services/company-date.service';
 
 @Injectable()
 export class AiCronService {
@@ -14,14 +16,14 @@ export class AiCronService {
     private emailService: EmailService,
     private ticketTiming: TicketTimingService,
     private configService: ConfigService,
+    private companyDate: CompanyDateService,
   ) {}
 
   // Run every day at 18:00 (6 PM) server time
   @Cron('0 18 * * *', { name: 'daily-digest' })
   async sendDailyDigest() {
     this.logger.log('Running daily digest cron jobâ€¦');
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = this.companyDate.getTodayStart();
 
     // â”€â”€ Gather data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const [resolvedToday, allOpen, newToday, pendingLeave, managers] = await Promise.all([
@@ -69,12 +71,10 @@ export class AiCronService {
       return;
     }
 
-    // Use DB-configured SLA values so admin changes are respected
-    const { execution: slaConfig } = await this.ticketTiming.getSlaConfig();
+    const config = await this.ticketTiming.getSlaConfig();
     const overdueTickets = allOpen.filter((t) => {
       if (['DONE', 'CLOSED'].includes(t.status)) return false;
-      const elapsed = (Date.now() - t.createdAt.getTime()) / 3_600_000;
-      return elapsed > (slaConfig[t.priority] ?? 24);
+      return this.ticketTiming.getTimingState(t, config).isOverdue;
     });
 
     // â”€â”€ Build email HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

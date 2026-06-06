@@ -1693,9 +1693,9 @@ export default function TicketDetailPage() {
                 </div>
               )}
               {ticket?.actualStartAt && ticket?.actualCompletedAt && (() => {
-                const diffMs = new Date(ticket.actualCompletedAt).getTime() - new Date(ticket.actualStartAt).getTime();
-                if (diffMs <= 0) return null;
-                const totalMins = Math.floor(diffMs / 60000);
+                // TVA-008: Only use backend authoritative time from Ledger
+                const totalMins = ticket.timers ? Math.floor(ticket.timers.employeeWorkSeconds / 60) : 0;
+                if (totalMins <= 0) return null;
                 const hours = Math.floor(totalMins / 60);
                 const mins = totalMins % 60;
                 const display = hours > 0
@@ -1721,9 +1721,9 @@ export default function TicketDetailPage() {
                 );
               })()}
               {ticket?.actualStartAt && !ticket?.actualCompletedAt && (() => {
-                const diffMs = Date.now() - new Date(ticket.actualStartAt).getTime();
-                if (diffMs <= 0) return null;
-                const totalMins = Math.floor(diffMs / 60000);
+                // TVA-008: Only use backend authoritative time from Ledger
+                const totalMins = ticket.timers ? Math.floor(ticket.timers.employeeWorkSeconds / 60) : 0;
+                if (totalMins <= 0) return null;
                 const hours = Math.floor(totalMins / 60);
                 const mins = totalMins % 60;
                 const display = hours > 0

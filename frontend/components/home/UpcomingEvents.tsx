@@ -1,6 +1,8 @@
 'use client';
 import { useRouter } from 'next/navigation';
 
+import { getCompanyTodayStart, getCompanyStartOfDay } from '@/lib/company-date';
+
 const COLOR_DOTS: Record<string, string> = {
   red: 'var(--color-danger)', green: 'var(--color-success)',
   blue: 'var(--accent)', amber: 'var(--color-warning)',
@@ -8,9 +10,9 @@ const COLOR_DOTS: Record<string, string> = {
 
 function fmtTime(iso: string) {
   const d = new Date(iso);
-  const today = new Date(); today.setHours(0,0,0,0);
+  const today = getCompanyTodayStart();
   const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-  const day = new Date(d); day.setHours(0,0,0,0);
+  const day = getCompanyStartOfDay(d);
   if (day.getTime() === today.getTime()) return 'Today';
   if (day.getTime() === tomorrow.getTime()) return 'Tomorrow';
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });

@@ -9,6 +9,8 @@ import { TimezoneUtil } from '../../../common/utils/timezone.util';
 import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
 import { SettingsService } from '../settings/settings.service';
 import { shouldPolicyAutoStop } from '../workday/workday.policy.helper';
+import { CompanyDateService } from '../../../common/services/company-date.service';
+import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 
 @Injectable()
 export class SchedulerService {
@@ -20,6 +22,8 @@ export class SchedulerService {
     private ticketLedger: TicketLedgerService,
     private notificationEventService: NotificationEventService,
     private settingsService: SettingsService,
+    private companyDate: CompanyDateService,
+    private attendanceAuthority: AttendanceAuthorityService,
   ) {}
 
   private async sendScheduleNotification(ticket: any, prefix: string) {
@@ -139,8 +143,7 @@ export class SchedulerService {
   // 1. MIDNIGHT LEAVE STATUS SETTER — 00:01 every day
   @Cron('1 0 * * *')
   async setLeaveStatuses() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = this.companyDate.getTodayStart();
 
     const approvedLeaves = await this.prisma.leaveRequest.findMany({
       where: {
@@ -157,30 +160,27 @@ export class SchedulerService {
       });
 
       if (existingSession) {
-        await this.prisma.workSession.update({
-          where: { id: existingSession.id },
-          data: { status: 'ON_LEAVE', leaveId: leave.id },
+        await this.attendanceAuthority.updateWorkSession(existingSession.id, {
+          status: 'ON_LEAVE',
+          leaveId: leave.id,
         });
       } else {
-        await this.prisma.workSession.create({
-          data: { userId: leave.userId, date: today, status: 'ON_LEAVE', leaveId: leave.id },
+        await this.attendanceAuthority.createWorkSession({
+          userId: leave.userId,
+          date: today,
+          status: 'ON_LEAVE',
+          leaveId: leave.id,
         });
       }
-      await this.prisma.user.update({
-        where: { id: leave.userId },
-        data: { currentStatus: 'ON_LEAVE' },
-      });
+      await this.attendanceAuthority.setUserStatus(leave.userId, 'ON_LEAVE');
     }
 
     // Reset all non-leave users to OFFLINE
     const leaveUserIds = approvedLeaves.map((l) => l.userId);
-    await this.prisma.user.updateMany({
-      where: {
-        isActive: true,
-        id: { notIn: leaveUserIds.length > 0 ? leaveUserIds : ['__none__'] },
-      },
-      data: { currentStatus: 'OFFLINE' },
-    });
+    await this.attendanceAuthority.updateManyUserStatus(
+      leaveUserIds.length > 0 ? leaveUserIds : ['__none__'],
+      'OFFLINE'
+    );
 
     console.log(`[Scheduler] Leave statuses set. ${approvedLeaves.length} users on leave today.`);
   }
@@ -241,17 +241,14 @@ export class SchedulerService {
               totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
             }
 
-            await this.prisma.workSession.update({
-              where: { id: session.id },
-              data: {
-                logoutAt: cutoffUtc,
-                status: 'AUTO_CLOSED',
-                autoClosed: true,
-                autoClosedAt: nowGlobal,
-                closureReason: 'POLICY_AUTO_STOP',
-                totalBreakMinutes,
-                totalWorkMinutes,
-              },
+            await this.attendanceAuthority.updateWorkSession(session.id, {
+              logoutAt: cutoffUtc,
+              status: 'AUTO_CLOSED',
+              autoClosed: true,
+              autoClosedAt: nowGlobal,
+              closureReason: 'POLICY_AUTO_STOP',
+              totalBreakMinutes,
+              totalWorkMinutes,
             });
 
             await this.prisma.attendanceEvent.create({
@@ -263,10 +260,7 @@ export class SchedulerService {
               },
             });
 
-            await this.prisma.user.update({
-              where: { id: session.userId },
-              data: { currentStatus: 'LOGGED_OUT' },
-            });
+            await this.attendanceAuthority.setUserStatus(session.userId, 'LOGGED_OUT');
 
             try {
               await this.notificationEventService.sendNotification(session.userId, 'system', {
@@ -319,17 +313,14 @@ export class SchedulerService {
           totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
         }
 
-        await this.prisma.workSession.update({
-          where: { id: session.id },
-          data: {
-            logoutAt: now,
-            status: 'AUTO_CLOSED',
-            autoClosed: true,
-            autoClosedAt: nowGlobal,
-            closureReason: 'AUTO_CLOSE',
-            totalBreakMinutes,
-            totalWorkMinutes,
-          },
+        await this.attendanceAuthority.updateWorkSession(session.id, {
+          logoutAt: now,
+          status: 'AUTO_CLOSED',
+          autoClosed: true,
+          autoClosedAt: nowGlobal,
+          closureReason: 'AUTO_CLOSE',
+          totalBreakMinutes,
+          totalWorkMinutes,
         });
 
         await this.prisma.attendanceEvent.create({
@@ -341,10 +332,7 @@ export class SchedulerService {
           },
         });
 
-        await this.prisma.user.update({
-          where: { id: session.userId },
-          data: { currentStatus: 'LOGGED_OUT' },
-        });
+        await this.attendanceAuthority.setUserStatus(session.userId, 'LOGGED_OUT');
 
         // Notify user about auto-close
         try {
@@ -401,22 +389,18 @@ export class SchedulerService {
     if (hour < 9 || hour > 20) return;
 
     const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = this.companyDate.getTodayStart();
 
     const idleUsers = await this.prisma.user.findMany({
       where: { currentStatus: 'IDLE', lastActiveAt: { lte: cutoff }, isActive: true },
     });
 
     for (const user of idleUsers) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { currentStatus: 'OFFLINE' },
-      });
-      await this.prisma.workSession.updateMany({
-        where: { userId: user.id, date: today, status: 'IDLE' },
-        data: { status: 'LOGGED_OUT', logoutAt: new Date() },
-      });
+      await this.attendanceAuthority.setUserStatus(user.id, 'OFFLINE');
+      await this.attendanceAuthority.updateManyWorkSessions(
+        { userId: user.id, date: today, status: 'IDLE' },
+        { status: 'LOGGED_OUT', logoutAt: new Date() }
+      );
       await this.prisma.attendanceEvent.create({
         data: {
           userId: user.id,

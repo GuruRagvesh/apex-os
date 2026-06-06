@@ -35,7 +35,7 @@ export class LeaveService {
     const limit = Math.min(200, Math.max(1, Number(query.limit) || 50));
     const skip  = (page - 1) * limit;
 
-    const [total, items] = await Promise.all([
+    const [total, dbItems] = await Promise.all([
       this.prisma.leaveRequest.count({ where }),
       this.prisma.leaveRequest.findMany({
         where,
@@ -45,6 +45,12 @@ export class LeaveService {
         take: limit,
       }),
     ]);
+
+    const items = await Promise.all(dbItems.map(async (item) => {
+      const duration = await this.leaveBalance.getDurationForRequest(item.startDate, item.endDate, item.isHalfDay);
+      return { ...item, duration };
+    }));
+
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
@@ -57,7 +63,12 @@ export class LeaveService {
       include,
     });
     if (!leave) throw new NotFoundException('Leave request not found');
-    return leave;
+    const duration = await this.leaveBalance.getDurationForRequest(leave.startDate, leave.endDate, leave.isHalfDay);
+    return { ...leave, duration };
+  }
+
+  async getDurationForRequest(startDate: string, endDate: string, isHalfDay: boolean) {
+    return this.leaveBalance.getDurationForRequest(startDate, endDate, isHalfDay);
   }
 
   async create(data: any, userId: string) {

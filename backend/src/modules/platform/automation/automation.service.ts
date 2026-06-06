@@ -119,22 +119,34 @@ export class AutomationService {
         ticketId:    true,
         title:       true,
         priority:    true,
+        status:      true,
         createdAt:   true,
+        updatedAt:   true,
+        cancelledAt: true,
+        isBlocked:   true,
+        blockedAt:   true,
+        actualStartAt: true,
+        executionDueAt: true,
+        reviewDueAt: true,
+        reviewStartedAt: true,
+        submittedAt: true,
+        estimatedMinutes: true,
+        dueDate:     true,
+        scheduledStartAt: true,
         assignedToId: true,
       },
     });
 
-    // Fetch DB-configured SLA values so admin changes take effect in overdue detection
-    const { execution: slaConfig } = await this.ticketTiming.getSlaConfig();
+    const config = await this.ticketTiming.getSlaConfig();
 
     let notified = 0;
 
     for (const ticket of openTickets) {
-      const sla      = slaConfig[ticket.priority] ?? 24;
-      const hoursOpen = (Date.now() - new Date(ticket.createdAt).getTime()) / 3_600_000;
+      const timing = this.ticketTiming.getTimingState(ticket, config);
 
-      if (hoursOpen > sla && ticket.assignedToId) {
-        const overduBy = Math.round(hoursOpen - sla);
+      if (timing.isOverdue && ticket.assignedToId) {
+        const overduByHours = Math.round(timing.overdueMs / 3_600_000);
+        const overduBy = overduByHours > 0 ? overduByHours : 1; // at least 1 hr for message
 
         try {
           // Avoid duplicate: skip if an overdue notification was sent in the last 24 h

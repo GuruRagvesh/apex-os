@@ -7,6 +7,7 @@ import { LeaveAccessService } from '../../../common/services/leave-access.servic
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { calculateWorkdayRuntime } from '../workday/workday.calculation';
 import { TimezoneUtil } from '../../../common/utils/timezone.util';
+import { LeaveBalanceService } from '../../operations/leave/leave-balance.service';
 
 @Injectable()
 export class DashboardService {
@@ -16,6 +17,7 @@ export class DashboardService {
     private ticketTiming: TicketTimingService,
     private leaveAccess: LeaveAccessService,
     private accessPolicy: AccessPolicyService,
+    private leaveBalance: LeaveBalanceService,
   ) {}
 
   private andWhere(...clauses: any[]): any {
@@ -468,21 +470,10 @@ export class DashboardService {
 
     const activeProjects = activeProjectsList.map((p) => `${p.projectId}: ${p.name}`);
 
-    const getLeaveDuration = (start: Date, end: Date, isHalfDay: boolean) => {
-      if (isHalfDay) return 0.5;
-      let days = 0;
-      const current = new Date(start);
-      while (current <= end) {
-        if (current.getDay() !== 0) days++; // Mon-Sat working schedule
-        current.setDate(current.getDate() + 1);
-      }
-      return days;
-    };
-
-    const pendingLeave = pendingLeaveList.map((l) => {
-      const dur = getLeaveDuration(l.startDate, l.endDate, l.isHalfDay);
+    const pendingLeave = await Promise.all(pendingLeaveList.map(async (l) => {
+      const dur = await this.leaveBalance.getDurationForRequest(l.startDate, l.endDate, l.isHalfDay);
       return `${l.user.name}: ${l.type} (${dur}d)`;
-    });
+    }));
 
     const inReviewTickets = inReviewList.map((t) => `${t.ticketId}: ${t.title}`);
 

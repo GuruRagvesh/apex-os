@@ -6,6 +6,8 @@ import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket
 import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { SettingsService } from '../../src/modules/platform/settings/settings.service';
 import { formatInTimeZone } from 'date-fns-tz';
+import { CompanyDateService } from '../../src/common/services/company-date.service';
+import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
 
 describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   let service: SchedulerService;
@@ -13,6 +15,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   let settingsService: any;
   let ticketLedger: any;
   let notificationEventService: any;
+  let attendanceAuthorityMock: any;
 
   beforeEach(async () => {
     prisma = {
@@ -55,10 +58,13 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
         { provide: TicketLedgerService, useValue: ticketLedger },
         { provide: NotificationEventService, useValue: notificationEventService },
         { provide: EventsGateway, useValue: gateway },
+        { provide: CompanyDateService, useValue: {} },
+        { provide: AttendanceAuthorityService, useValue: { updateWorkSession: jest.fn(), setUserStatus: jest.fn() } },
       ],
     }).compile();
 
     service = module.get<SchedulerService>(SchedulerService);
+    attendanceAuthorityMock = module.get<AttendanceAuthorityService>(AttendanceAuthorityService) as any;
   });
 
   it('5. autoClose false skips stale-session auto-close', async () => {
@@ -70,7 +76,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   it('6. autoClose false skips policy auto-stop', async () => {
     settingsService.getWorkdayPolicy.mockResolvedValue({ autoClose: false });
     await service.autoCloseMidnightSessions();
-    expect(prisma.workSession.update).not.toHaveBeenCalled();
+    expect(attendanceAuthorityMock.updateWorkSession).not.toHaveBeenCalled();
   });
 
   it('7. stale session closes at configured autoCloseTime, not midnight', async () => {
@@ -90,12 +96,12 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    expect(prisma.workSession.update).toHaveBeenCalled();
-    const updateCall = prisma.workSession.update.mock.calls[0][0];
+    expect(attendanceAuthorityMock.updateWorkSession).toHaveBeenCalled();
+    const updateCall = attendanceAuthorityMock.updateWorkSession.mock.calls[0][1];
     
     // Check that logoutAt was set based on the configured autoCloseTime '22:00'
     const expectedCutoff = `${formatInTimeZone(oldSessionDate, 'UTC', 'yyyy-MM-dd')}T22:00:00.000Z`;
-    expect(updateCall.data.logoutAt.toISOString()).toBe(expectedCutoff);
+    expect(updateCall.logoutAt.toISOString()).toBe(expectedCutoff);
   });
 
   it('8. logoutAt equals configured autoCloseTime converted to UTC', async () => {
@@ -114,12 +120,12 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    const updateCall = prisma.workSession.update.mock.calls[0][0];
+    const updateCall = attendanceAuthorityMock.updateWorkSession.mock.calls[0][1];
     
     // The session anchor is 2026-06-01T10:00:00Z, which is 2026-06-01 15:30 IST.
     // Cutoff time in IST is 2026-06-01 23:59. UTC = 2026-06-01 18:29:00Z
     const expectedUtc = new Date('2026-06-01T18:29:00.000Z');
-    expect(updateCall.data.logoutAt.getTime()).toBe(expectedUtc.getTime());
+    expect(updateCall.logoutAt.getTime()).toBe(expectedUtc.getTime());
   });
 
   it('9. current-day before configured autoCloseTime remains active', async () => {
@@ -140,7 +146,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     await service.autoCloseMidnightSessions();
     // It should not close since it's today and before cutoff (assuming current time is before 23:59)
     // Actually, shouldPolicyAutoStop will handle it, but it might return false unless we're past the time.
-    expect(prisma.workSession.update).not.toHaveBeenCalled();
+    expect(attendanceAuthorityMock.updateWorkSession).not.toHaveBeenCalled();
   });
 
   it('10. repeated scheduler run does not duplicate notification', async () => {
@@ -173,6 +179,6 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    expect(prisma.workSession.update).not.toHaveBeenCalled();
+    expect(attendanceAuthorityMock.updateWorkSession).not.toHaveBeenCalled();
   });
 });

@@ -30,6 +30,11 @@ export class LeaveController {
   @Get('stats')
   getStats(@CurrentUser() user: any) { return this.leaveService.getStats(user); }
 
+  @Get('duration')
+  getDuration(@Query('startDate') startDate: string, @Query('endDate') endDate: string, @Query('isHalfDay') isHalfDay: string) {
+    return this.leaveService.getDurationForRequest(startDate, endDate, isHalfDay === 'true');
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) { return this.leaveService.findOne(id, user); }
 

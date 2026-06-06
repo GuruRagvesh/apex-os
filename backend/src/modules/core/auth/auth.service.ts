@@ -6,6 +6,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { LoginDto, RegisterDto } from './dto/login.dto';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { EmailService } from '../../platform/email/email.service';
+import { CompanyDateService } from '../../../common/services/company-date.service';
+import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 
 /** Generic response used for both known and unknown emails — prevents enumeration. */
 const OTP_GENERIC_RESPONSE = { message: 'If an account exists for that email, a reset code has been sent.' };
@@ -24,6 +26,8 @@ export class AuthService {
     private configService: ConfigService,
     private eventLogger: EventLoggerService,
     private emailService: EmailService,
+    private companyDate: CompanyDateService,
+    private attendanceAuthority: AttendanceAuthorityService,
   ) {}
 
   /** Case-insensitive email lookup — handles mixed-case addresses at login/OTP */
@@ -46,9 +50,8 @@ export class AuthService {
     const { password, ...userWithoutPassword } = user;
 
     // Create login attendance event
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const now = new Date();
+    const today = this.companyDate.getTodayStart();
+    const now = this.companyDate.getNow();
 
     let nextStatus = 'LOGGED_IN';
 
@@ -63,22 +66,22 @@ export class AuthService {
       }
 
       if (existingSession) {
-        await this.prisma.workSession.update({
-          where: { id: existingSession.id },
-          data: { loginAt: now, status: nextStatus },
+        await this.attendanceAuthority.updateWorkSession(existingSession.id, {
+          loginAt: now,
+          status: nextStatus,
         });
       } else {
-        await this.prisma.workSession.create({
-          data: { userId: user.id, date: today, loginAt: now, status: nextStatus },
+        await this.attendanceAuthority.createWorkSession({
+          userId: user.id,
+          date: today,
+          loginAt: now,
+          status: nextStatus,
         });
       }
       await this.prisma.attendanceEvent.create({
         data: { userId: user.id, eventType: 'LOGIN', source: 'manual' },
       });
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { currentStatus: nextStatus, lastActiveAt: now },
-      });
+      await this.attendanceAuthority.setUserStatus(user.id, nextStatus, now);
     } catch (e) {
       // Non-critical — don't fail login if attendance tracking fails
       console.error('Attendance tracking error on login:', e);

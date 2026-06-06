@@ -32,7 +32,7 @@ export function WorkdayBar() {
   const [breakElapsed, setBreakElapsed] = useState(0);
   const [loading, setLoading] = useState<string | null>(null);
 
-  const { data: todayData, refetch } = useQuery({
+  const { data: todayData, dataUpdatedAt, refetch } = useQuery({
     queryKey: ['workday-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
     refetchInterval: 60000,
@@ -60,25 +60,30 @@ export function WorkdayBar() {
       return; 
     }
     const calc = () => {
-      const nowMs = Date.now();
-      let currentBreakMins = 0;
+      // TVA-001: Only use backend authoritative elapsed time + local diff since fetch
+      const localDiffMins = dataUpdatedAt ? Math.floor((Date.now() - dataUpdatedAt) / 60000) : 0;
       
       const openBreak = breakLogs.find((b: any) => !b.endAt);
       if (openBreak?.startAt) {
-        currentBreakMins = Math.max(0, Math.floor((nowMs - new Date(openBreak.startAt).getTime()) / 60000));
+        const currentBreakMins = Math.max(0, Math.floor((Date.now() - new Date(openBreak.startAt).getTime()) / 60000));
         setBreakElapsed(currentBreakMins);
       } else {
         setBreakElapsed(0);
       }
 
-      const diffMs = nowMs - new Date(startWorkAt).getTime();
-      const diffMin = Math.max(0, Math.floor(diffMs / 60000) - totalBreakMinutes - currentBreakMins);
-      setElapsed(elapsedWorkMinutes + diffMin);
+      if (status === 'WORKING') {
+        setElapsed(elapsedWorkMinutes + Math.max(0, localDiffMins));
+      } else {
+        setElapsed(elapsedWorkMinutes);
+      }
     };
     calc();
     const t = setInterval(calc, 10000);
     return () => clearInterval(t);
-  }, [status, startWorkAt, totalBreakMinutes, breakLogs]);
+  }, [status, startWorkAt, elapsedWorkMinutes, breakLogs, dataUpdatedAt]);
+
+  const localDiffMins = dataUpdatedAt ? Math.floor((Date.now() - dataUpdatedAt) / 60000) : 0;
+  const liveTotalBreakMinutes = status === 'ON_BREAK' ? totalBreakMinutes + Math.max(0, localDiffMins) : totalBreakMinutes;
 
   // Stale session: session started on a previous calendar day and never closed
   const today = new Date().toDateString();
@@ -161,6 +166,8 @@ export function WorkdayBar() {
         {showEndModal && (
           <EndDayModal
             session={session}
+            elapsedWorkMinutes={elapsed}
+            totalBreakMinutes={liveTotalBreakMinutes}
             onClose={() => setShowEndModal(false)}
             onEnded={() => { setShowEndModal(false); refetch(); }}
           />
@@ -379,6 +386,8 @@ export function WorkdayBar() {
       {showEndModal && (
         <EndDayModal
           session={session}
+          elapsedWorkMinutes={elapsed}
+          totalBreakMinutes={liveTotalBreakMinutes}
           onClose={() => setShowEndModal(false)}
           onEnded={() => { setShowEndModal(false); refetch(); }}
         />

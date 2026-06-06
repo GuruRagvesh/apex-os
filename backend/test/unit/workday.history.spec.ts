@@ -8,6 +8,8 @@ import { NotificationEventService } from '../../src/modules/operations/notificat
 import { formatInTimeZone } from 'date-fns-tz';
 import { DEFAULT_COMPANY_TIMEZONE } from '../../src/common/utils/timezone.util';
 
+import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
+
 describe('WorkdayService — FP-19B Daily Summary', () => {
   let service: WorkdayService;
   let prisma: PrismaService;
@@ -27,6 +29,7 @@ describe('WorkdayService — FP-19B Daily Summary', () => {
         { provide: EventLoggerService, useValue: { log: jest.fn() } },
         { provide: TicketLedgerService, useValue: {} },
         { provide: NotificationEventService, useValue: {} },
+        { provide: AttendanceAuthorityService, useValue: {} },
       ],
     }).compile();
 

@@ -13,6 +13,7 @@ import { cn, CATEGORY_COLORS, STATUS_LABELS } from '@/lib/utils';
 import { Plus, Search, RefreshCw, Download, AlertTriangle, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { getCompanyTodayStart, getCompanyTodayEnd } from '@/lib/company-date';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 const CATEGORIES = ['', 'IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
@@ -54,11 +55,8 @@ export default function TicketsPage() {
     const params = new URLSearchParams(queryString);
     const quickFilter = params.get('filter') || params.get('risk') || '';
     const dueToday = quickFilter === 'due-today';
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    end.setMilliseconds(-1);
+    const start = getCompanyTodayStart();
+    const end = getCompanyTodayEnd();
 
     setSearch(params.get('search') || '');
     setFilters({

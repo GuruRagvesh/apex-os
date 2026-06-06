@@ -9,6 +9,8 @@ import { NotificationEventService } from '../../operations/notifications/notific
 import { NotificationType } from '@prisma/client';
 import { formatInTimeZone } from 'date-fns-tz';
 
+import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
+
 @Injectable()
 export class WorkdayService {
   constructor(
@@ -17,6 +19,7 @@ export class WorkdayService {
     private eventLogger: EventLoggerService,
     private ticketLedger: TicketLedgerService,
     private notificationEventService: NotificationEventService,
+    private attendanceAuthority: AttendanceAuthorityService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -136,9 +139,10 @@ export class WorkdayService {
 
     if (session) {
       const wasAutoClosed = session.status === 'AUTO_CLOSED' || session.autoClosed;
-      session = await this.prisma.workSession.update({
-        where: { id: session.id },
-        data: { startWorkAt: now, status: 'WORKING', loginAt: now },
+      session = await this.attendanceAuthority.updateWorkSession(session.id, {
+        status: 'WORKING',
+        startWorkAt: now,
+        loginAt: now,
       });
 
       if (wasAutoClosed) {
@@ -154,8 +158,12 @@ export class WorkdayService {
         } catch (_e) {}
       }
     } else {
-      session = await this.prisma.workSession.create({
-        data: { userId, date: today, loginAt: now, startWorkAt: now, status: 'WORKING' },
+      session = await this.attendanceAuthority.createWorkSession({
+        userId,
+        date: today,
+        loginAt: now,
+        startWorkAt: now,
+        status: 'WORKING',
       });
     }
 
@@ -163,10 +171,7 @@ export class WorkdayService {
       data: { userId, workSessionId: session.id, eventType: 'START_WORK', source: 'manual' },
     });
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { currentStatus: 'WORKING', lastActiveAt: now },
-    });
+    await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now);
 
     this.eventLogger.log({
       actorId: userId,
@@ -211,19 +216,18 @@ export class WorkdayService {
       totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
     }
 
-    const updated = await this.prisma.workSession.update({
-      where: { id: session.id },
-      data: { logoutAt: now, status: 'LOGGED_OUT', totalBreakMinutes, totalWorkMinutes },
+    const updated = await this.attendanceAuthority.updateWorkSession(session.id, {
+      status: 'LOGGED_OUT',
+      logoutAt: now,
+      totalBreakMinutes,
+      totalWorkMinutes,
     });
 
     await this.prisma.attendanceEvent.create({
       data: { userId, workSessionId: session.id, eventType: 'LOGOUT', source: 'manual' },
     });
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { currentStatus: 'LOGGED_OUT' },
-    });
+    await this.attendanceAuthority.setUserStatus(userId, 'LOGGED_OUT');
 
     await this.ticketLedger.pauseActiveLogsForUser({
       userId,
@@ -266,9 +270,8 @@ export class WorkdayService {
       },
     });
 
-    await this.prisma.workSession.update({
-      where: { id: session.id },
-      data: { status: 'ON_BREAK' },
+    await this.attendanceAuthority.updateWorkSession(session.id, {
+      status: 'ON_BREAK',
     });
 
     await this.prisma.attendanceEvent.create({
@@ -280,10 +283,7 @@ export class WorkdayService {
       },
     });
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { currentStatus: 'ON_BREAK' },
-    });
+    await this.attendanceAuthority.setUserStatus(userId, 'ON_BREAK');
 
     await this.ticketLedger.pauseActiveLogsForUser({
       userId,
@@ -328,22 +328,19 @@ export class WorkdayService {
       data: { endAt: now, durationMinutes },
     });
 
-    await this.prisma.workSession.update({
-      where: { id: session.id },
-      data: {
-        status: 'WORKING',
-        totalBreakMinutes: { increment: durationMinutes },
-      },
+    // Note: To increment totalBreakMinutes safely without direct Prisma, we can read current and add,
+    // or we can just fetch session.totalBreakMinutes and add durationMinutes.
+    // Let's assume AttendanceAuthority requires raw values.
+    await this.attendanceAuthority.updateWorkSession(session.id, {
+      status: 'WORKING',
+      totalBreakMinutes: (session.totalBreakMinutes ?? 0) + durationMinutes,
     });
 
     await this.prisma.attendanceEvent.create({
       data: { userId, workSessionId: session.id, eventType: 'BREAK_END' },
     });
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { currentStatus: 'WORKING', lastActiveAt: now },
-    });
+    await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now);
 
     await this.ticketLedger.resumeLogsForBreak(openBreak.id, userId);
 
@@ -363,14 +360,11 @@ export class WorkdayService {
     const now = new Date();
 
     if (idleDuration >= 20) {
-      await this.prisma.workSession.updateMany({
-        where: { userId, date: today, status: 'WORKING' },
-        data: { status: 'IDLE' },
-      });
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { currentStatus: 'IDLE' },
-      });
+      await this.attendanceAuthority.updateManyWorkSessions(
+        { userId, date: today, status: 'WORKING' },
+        { status: 'IDLE' }
+      );
+      await this.attendanceAuthority.setUserStatus(userId, 'IDLE');
     }
 
     await this.prisma.attendanceEvent.create({
@@ -389,19 +383,16 @@ export class WorkdayService {
     const today = this.getTodayDate();
     const now = new Date();
 
-    const session = await this.prisma.workSession.updateMany({
-      where: { userId, date: today, status: { in: ['IDLE', 'ON_BREAK', 'LOGGED_IN'] } },
-      data: { status: 'WORKING' },
-    });
+    const session = await this.attendanceAuthority.updateManyWorkSessions(
+      { userId, date: today, status: { in: ['IDLE', 'ON_BREAK', 'LOGGED_IN'] } },
+      { status: 'WORKING' }
+    );
 
     await this.prisma.attendanceEvent.create({
       data: { userId, eventType: 'RESUME_WORK', source: 'manual' },
     });
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { currentStatus: 'WORKING', lastActiveAt: now },
-    });
+    await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now);
 
     return { message: 'Resumed', updated: session.count };
   }
@@ -419,15 +410,13 @@ export class WorkdayService {
       throw new Error('No auto-closed session found for today');
     }
 
-    const newSession = await this.prisma.workSession.create({
-      data: {
-        userId,
-        date: today,
-        loginAt: now,
-        startWorkAt: now,
-        status: 'WORKING',
-        continuationOfSessionId: oldSession.id,
-      },
+    const newSession = await this.attendanceAuthority.createWorkSession({
+      userId,
+      date: today,
+      loginAt: now,
+      startWorkAt: now,
+      status: 'WORKING',
+      continuationOfSessionId: oldSession.id,
     });
 
     await this.prisma.attendanceEvent.create({

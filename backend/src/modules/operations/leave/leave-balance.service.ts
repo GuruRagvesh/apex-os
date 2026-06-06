@@ -2,12 +2,14 @@ import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../../platform/settings/settings.service';
 import { LeaveStatus } from '@prisma/client';
+import { CompanyDateService } from '../../../common/services/company-date.service';
 
 @Injectable()
 export class LeaveBalanceService {
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
+    private companyDate: CompanyDateService,
   ) {}
 
   // Standard public holidays for 2026 (YYYY-MM-DD)
@@ -43,12 +45,9 @@ export class LeaveBalanceService {
     if (isHalfDay) return 0.5;
 
     let duration = 0;
-    const current = new Date(startDate);
-    const end = new Date(endDate);
-
-    // Normalize times to compare dates
-    current.setHours(0, 0, 0, 0);
-    end.setHours(0, 0, 0, 0);
+    // Normalize times to start of day in company timezone
+    const current = this.companyDate.getStartOfDay(new Date(startDate));
+    const end = this.companyDate.getStartOfDay(new Date(endDate));
 
     while (current <= end) {
       const dayOfWeek = current.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
@@ -73,6 +72,12 @@ export class LeaveBalanceService {
     }
 
     return duration;
+  }
+
+  async getDurationForRequest(startDate: Date | string, endDate: Date | string, isHalfDay = false): Promise<number> {
+    const policy = await this.settings.get('leave_policy');
+    const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
+    return this.calculateLeaveDuration(startDate, endDate, isHalfDay, workingDaysSetting);
   }
 
   async getLeaveBalance(userId: string, year = 2026): Promise<{ allocation: number; approved: number; pending: number; balance: number }> {

@@ -15,6 +15,8 @@ import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
 import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { SettingsService } from '../../src/modules/platform/settings/settings.service';
+import { CompanyDateService } from '../../src/common/services/company-date.service';
+import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
 
 // ── Minimal mocks ─────────────────────────────────────────────────────────────
 
@@ -90,6 +92,8 @@ describe('SchedulerService — recurring ticket query', () => {
         { provide: TicketLedgerService, useValue: mockTicketLedger },
         { provide: NotificationEventService, useValue: mockNotificationEvent },
         { provide: SettingsService, useValue: mockSettingsService },
+        { provide: CompanyDateService, useValue: { getTodayStart: jest.fn() } },
+        { provide: AttendanceAuthorityService, useValue: { setUserStatus: jest.fn(), updateManyWorkSessions: jest.fn() } },
       ],
     }).compile();
 

@@ -4,6 +4,7 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { SettingsService } from '../../src/modules/platform/settings/settings.service';
 import { LeaveStatus } from '@prisma/client';
 import { ForbiddenException } from '@nestjs/common';
+import { CompanyDateService } from '../../src/common/services/company-date.service';
 
 const mockPrisma = {
   user: {
@@ -30,6 +31,12 @@ describe('LeaveBalanceService', () => {
         LeaveBalanceService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SettingsService, useValue: mockSettings },
+        { 
+          provide: CompanyDateService, 
+          useValue: { 
+            getStartOfDay: jest.fn().mockImplementation(d => new Date(new Date(d).setUTCHours(0,0,0,0))) 
+          } 
+        },
       ],
     }).compile();
 

@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
+import { CompanyDateService } from '../../../common/services/company-date.service';
 import { TicketStatus } from '@prisma/client';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class AnalyticsService {
     private ticketAccess: TicketAccessService,
     private ticketTiming: TicketTimingService,
     private accessPolicy: AccessPolicyService,
+    private companyDate: CompanyDateService,
   ) {}
 
   private async assertCanViewUser(targetUserId: string, currentUser: any) {
@@ -89,9 +91,8 @@ export class AnalyticsService {
 
     let approvalsToday = 0;
     let approvalsThisWeek = 0;
-    const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
+    const now = this.companyDate.getNow();
+    const todayStart = this.companyDate.getTodayStart();
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - 7);
 
@@ -157,10 +158,16 @@ export class AnalyticsService {
 
     const overdueTickets = await this.prisma.ticket.findMany({
       where: { departmentId: { in: deptIds }, status: { notIn: ['DONE', 'CLOSED'] } },
-      select: { executionDueAt: true, isBlocked: true },
+      select: {
+        id: true, status: true, priority: true, dueDate: true, createdAt: true, updatedAt: true,
+        scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
+        submittedAt: true, reviewStartedAt: true, reviewDueAt: true, closedAt: true, cancelledAt: true,
+        isBlocked: true, blockedAt: true, blockedReason: true,
+      },
     });
 
-    const overdueCount = overdueTickets.filter(t => !t.isBlocked && t.executionDueAt && t.executionDueAt < new Date()).length;
+    const config = await this.ticketTiming.getSlaConfig();
+    const overdueCount = overdueTickets.filter(t => this.ticketTiming.getTimingState(t, config).isOverdue).length;
 
     const blockedCount = await this.prisma.ticket.count({
       where: { departmentId: { in: deptIds }, isBlocked: true, status: { notIn: ['DONE', 'CLOSED'] } },
@@ -246,9 +253,9 @@ export class AnalyticsService {
   // ── PHASE 6: COMMAND CENTER ─────────────────────────────────────────────────
   async getCommandCenter(currentUser: any, period: 'today' | 'week' | 'month') {
     const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, currentUser);
-    const now = new Date();
-    const periodStart = new Date();
-    if (period === 'today') periodStart.setHours(0, 0, 0, 0);
+    const now = this.companyDate.getNow();
+    let periodStart = new Date(now);
+    if (period === 'today') periodStart = this.companyDate.getTodayStart();
     if (period === 'week') periodStart.setDate(periodStart.getDate() - 7);
     if (period === 'month') periodStart.setMonth(periodStart.getMonth() - 1);
 

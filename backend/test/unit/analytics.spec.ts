@@ -4,6 +4,7 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
+import { CompanyDateService } from '../../src/common/services/company-date.service';
 import { ForbiddenException } from '@nestjs/common';
 
 describe('AnalyticsService', () => {
@@ -32,6 +33,7 @@ describe('AnalyticsService', () => {
         execution: { MEDIUM: 24, HIGH: 8 },
         review: { MEDIUM: 24, HIGH: 4 },
       }),
+      getTimingState: jest.fn().mockReturnValue({ isOverdue: true }),
     };
 
     accessPolicy = {
@@ -46,6 +48,13 @@ describe('AnalyticsService', () => {
         { provide: TicketAccessService, useValue: ticketAccess },
         { provide: TicketTimingService, useValue: ticketTiming },
         { provide: AccessPolicyService, useValue: accessPolicy },
+        { 
+          provide: CompanyDateService, 
+          useValue: { 
+            getNow: jest.fn().mockReturnValue(new Date('2026-06-06T12:00:00Z')),
+            getTodayStart: jest.fn().mockReturnValue(new Date('2026-06-06T00:00:00Z'))
+          } 
+        },
       ],
     }).compile();
 

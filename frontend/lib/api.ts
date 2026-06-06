@@ -254,6 +254,8 @@ export const leaveApi = {
   cancel: (id: string) => r(api.patch(`/leave/${id}/cancel`)),
   getStats: () => r(api.get('/leave/stats')),
   getBalance: (userId?: string) => r(api.get(userId ? `/leave/balance/${userId}` : '/leave/balance')),
+  getDuration: (startDate: string, endDate: string, isHalfDay: boolean) =>
+    r(api.get('/leave/duration', { params: { startDate, endDate, isHalfDay } })),
 };
 
 // AI Assistant

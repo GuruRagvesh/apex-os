@@ -76,6 +76,7 @@ describe('P1-D dashboard count convergence', () => {
       ticketTiming,
       leaveAccess,
       new AccessPolicyService(prisma),
+      {} as any // Mock LeaveBalanceService
     );
 
     const summary = await service.getSummary({

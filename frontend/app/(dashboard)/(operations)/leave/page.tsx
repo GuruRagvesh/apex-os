@@ -78,24 +78,18 @@ export default function LeavePage() {
     }
   };
 
-  const getLeaveDuration = (startStr: string, endStr: string, isHalfDay: boolean) => {
-    if (isHalfDay) return 0.5;
-    const start = new Date(startStr);
-    const end = new Date(endStr);
-    start.setHours(0, 0, 0, 0);
-    end.setHours(0, 0, 0, 0);
+  // Form duration fetched from authoritative backend
+  const [formDuration, setFormDuration] = useState(0);
 
-    let days = 0;
-    const current = new Date(start);
-    while (current <= end) {
-      const dayOfWeek = current.getDay();
-      if (dayOfWeek !== 0) { // Mon-Sat working schedule
-        days++;
-      }
-      current.setDate(current.getDate() + 1);
+  useEffect(() => {
+    if (form.startDate && form.endDate) {
+      leaveApi.getDuration(form.startDate, form.endDate, isHalfDay)
+        .then((res: any) => setFormDuration(Number(res)))
+        .catch(() => setFormDuration(0));
+    } else {
+      setFormDuration(0);
     }
-    return days;
-  };
+  }, [form.startDate, form.endDate, isHalfDay]);
 
   const getConflicts = (currentLeave: any) => {
     if (currentLeave.status === 'REJECTED' || currentLeave.status === 'CANCELLED') return [];
@@ -217,9 +211,6 @@ export default function LeavePage() {
   };
 
   // Form: computed duration + balance check
-  const formDuration = form.startDate && form.endDate
-    ? getLeaveDuration(form.startDate, form.endDate, isHalfDay)
-    : 0;
   const exceedsBalance = myBalance != null && formDuration > 0 && formDuration > (myBalance.balance ?? 0);
 
   return (
@@ -351,7 +342,7 @@ export default function LeavePage() {
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {leaves.map((leave: any) => {
               const conflicts = getConflicts(leave);
-              const duration = getLeaveDuration(leave.startDate, leave.endDate, leave.isHalfDay);
+              const duration = leave.duration ?? 0;
               const balanceData = balances[leave.userId];
               const isLoadingBalance = loadingBalances[leave.userId];
               const approvalState = checkApprovalAllowed(leave);

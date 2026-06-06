@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowUpRight, Activity } from 'lucide-react';
 import Link from 'next/link';
 import { eventsApi } from '@/lib/api';
+import { getCompanyNow, getCompanyTodayStart, getCompanyStartOfDay } from '@/lib/company-date';
 
 // ── Timestamp helpers ─────────────────────────────────────────────────────────
 
@@ -19,9 +20,9 @@ function formatTimestamp(iso: string): string {
   if (diffMin < 1) return 'just now';
   if (diffMin < 60) return `${diffMin}m ago`;
 
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = getCompanyTodayStart();
   const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-  const tsDay = new Date(ts); tsDay.setHours(0, 0, 0, 0);
+  const tsDay = getCompanyStartOfDay(ts);
 
   const timeStr = ts.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 
@@ -132,16 +133,15 @@ export default function ActivityLogPage() {
   const buildParams = () => {
     const p: any = { limit: 100 };
     if (eventType) p.action = eventType;
-    const now = new Date();
+    const now = getCompanyNow();
     if (dateRange === 'today') {
-      const start = new Date(now); start.setHours(0, 0, 0, 0);
+      const start = getCompanyTodayStart();
       p.from = start.toISOString();
     } else if (dateRange === 'week') {
-      const start = new Date(now);
+      const start = getCompanyStartOfDay(new Date(now));
       const day = start.getDay();
       const diff = day === 0 ? -6 : 1 - day;
       start.setDate(start.getDate() + diff);
-      start.setHours(0, 0, 0, 0);
       p.from = start.toISOString();
     } else if (dateRange === 'last7') {
       const start = new Date(now); start.setDate(start.getDate() - 7);

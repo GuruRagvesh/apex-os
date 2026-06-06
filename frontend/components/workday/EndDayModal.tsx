@@ -8,6 +8,8 @@ import { CheckCircle, Clock } from 'lucide-react';
 
 interface Props {
   session: any;
+  elapsedWorkMinutes?: number;
+  totalBreakMinutes?: number;
   onClose: () => void;
   onEnded: () => void;
 }
@@ -18,13 +20,13 @@ function fmt(minutes: number) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export function EndDayModal({ session, onClose, onEnded }: Props) {
+export function EndDayModal({ session, elapsedWorkMinutes, totalBreakMinutes, onClose, onEnded }: Props) {
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
 
-  const elapsed = session?.startWorkAt
-    ? Math.max(0, Math.floor((Date.now() - new Date(session.startWorkAt).getTime()) / 60000) - (session.totalBreakMinutes ?? 0))
-    : 0;
+  // TVA-002: Only use backend-authoritative values
+  const elapsed = elapsedWorkMinutes ?? session?.totalWorkMinutes ?? 0;
+  const breakMins = totalBreakMinutes ?? session?.totalBreakMinutes ?? 0;
 
   const handleEnd = async () => {
     setLoading(true);
@@ -100,7 +102,7 @@ export function EndDayModal({ session, onClose, onEnded }: Props) {
                 </span>
                 <span className="text-sm text-slate-500">Break time</span>
               </div>
-              <span className="text-sm font-bold font-mono text-slate-800">{fmt(session?.totalBreakMinutes ?? 0)}</span>
+              <span className="text-sm font-bold font-mono text-slate-800">{fmt(breakMins)}</span>
             </div>
             <div className="px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">

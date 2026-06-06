@@ -12,7 +12,9 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
+import { CompanyDateService } from '../../src/common/services/company-date.service';
 import { EmailService } from '../../src/modules/platform/email/email.service';
+import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
 import * as bcrypt from 'bcryptjs';
 
 const mockPrisma = {
@@ -48,6 +50,8 @@ describe('AuthService — OTP', () => {
         { provide: ConfigService,      useValue: mockConfig       },
         { provide: EventLoggerService, useValue: mockEventLogger  },
         { provide: EmailService,       useValue: mockEmailService },
+        { provide: AttendanceAuthorityService, useValue: {} },
+        { provide: CompanyDateService, useValue: {} },
       ],
     }).compile();
 
@@ -269,6 +273,8 @@ describe('AuthService — login', () => {
         { provide: ConfigService,      useValue: mockConfig       },
         { provide: EventLoggerService, useValue: mockEventLogger  },
         { provide: EmailService,       useValue: mockEmailService },
+        { provide: AttendanceAuthorityService, useValue: {} },
+        { provide: CompanyDateService, useValue: {} },
       ],
     }).compile();
 

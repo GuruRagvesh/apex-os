@@ -73,92 +73,36 @@ function urgencyFromMsLeft(msUntilDue: number): TicketTimingState['overdueSeveri
  * `ticket` should have the shape returned by the API (all timing fields present).
  */
 export function computeClientTimingState(ticket: Record<string, any>): TicketTimingState {
-  const status: string = ticket.status ?? '';
   const backendTiming = ticket.timing;
-  if (backendTiming) {
-    if (['completed', 'cancelled', 'none'].includes(backendTiming.timerType)) return DONE_STATE;
+  if (!backendTiming) return DONE_STATE;
 
-    // Blocked — SLA paused, show amber "Blocked" indicator instead of timer
-    if (backendTiming.timerType === 'blocked') {
-      return {
-        phase: 'blocked',
-        dueAt: null,
-        msUntilDue: null,
-        isOverdue: false,
-        overdueMinutes: 0,
-        overdueDisplay: null,
-        overdueSeverity: 'orange',
-        countdownLabel: '🚫 Blocked',
-      };
-    }
+  if (['completed', 'cancelled', 'none'].includes(backendTiming.timerType)) return DONE_STATE;
 
-    const dueAt = backendTiming.dueAt ? new Date(backendTiming.dueAt) : null;
-    if (!dueAt) return DONE_STATE;
-    const msUntilDue = dueAt.getTime() - Date.now();
-    const diffMinutes = Math.floor(-msUntilDue / 60_000);
-    const isOverdue = msUntilDue < 0;
-    const phase = backendTiming.timerType === 'review' ? 'review' : 'execution';
+  // Blocked — SLA paused, show amber "Blocked" indicator instead of timer
+  if (backendTiming.timerType === 'blocked') {
     return {
-      phase,
-      dueAt,
-      msUntilDue,
-      isOverdue,
-      overdueMinutes: isOverdue ? diffMinutes : 0,
-      overdueDisplay: isOverdue ? `${formatDuration(diffMinutes)} overdue` : null,
-      overdueSeverity: isOverdue ? severityFromMinutes(diffMinutes) : urgencyFromMsLeft(msUntilDue),
-      countdownLabel: isOverdue
-        ? `${formatDuration(diffMinutes)} overdue`
-        : `${formatDuration(Math.floor(msUntilDue / 60_000))} left`,
+      phase: 'blocked',
+      dueAt: null,
+      msUntilDue: null,
+      isOverdue: false,
+      overdueMinutes: 0,
+      overdueDisplay: null,
+      overdueSeverity: 'orange',
+      countdownLabel: '🚫 Blocked',
     };
   }
 
-  // ── Terminal ───────────────────────────────────────────────────────────────
-  if (status === 'DONE' || status === 'CLOSED') return DONE_STATE;
+  const dueAt = backendTiming.dueAt ? new Date(backendTiming.dueAt) : null;
+  if (!dueAt) return DONE_STATE;
 
-  const now = Date.now();
-
-  // ── REVIEW phase ───────────────────────────────────────────────────────────
-  if (status === 'REVIEW') {
-    const reviewDueAt = ticket.reviewDueAt ? new Date(ticket.reviewDueAt) : null;
-    if (!reviewDueAt) return { ...DONE_STATE, phase: 'review' };
-
-    const msUntilDue = reviewDueAt.getTime() - now;
-    const diffMinutes = Math.floor(-msUntilDue / 60_000);
-    const isOverdue = msUntilDue < 0;
-
-    return {
-      phase: 'review',
-      dueAt: reviewDueAt,
-      msUntilDue,
-      isOverdue,
-      overdueMinutes: isOverdue ? diffMinutes : 0,
-      overdueDisplay: isOverdue ? `${formatDuration(diffMinutes)} overdue` : null,
-      overdueSeverity: isOverdue ? severityFromMinutes(diffMinutes) : urgencyFromMsLeft(msUntilDue),
-      countdownLabel: isOverdue
-        ? `${formatDuration(diffMinutes)} overdue`
-        : `${formatDuration(Math.floor(msUntilDue / 60_000))} left`,
-    };
-  }
-
-  // ── Execution phase (OPEN / IN_PROGRESS) ───────────────────────────────────
-  // Once submittedAt is set the execution timer is permanently stopped, even if
-  // the ticket bounced back from REVIEW to IN_PROGRESS.
-  if (ticket.submittedAt) {
-    return { ...DONE_STATE, phase: 'execution' };
-  }
-
-  const executionDueAt = ticket.executionDueAt ? new Date(ticket.executionDueAt) : null;
-  if (!executionDueAt) {
-    return { ...DONE_STATE, phase: 'execution' };
-  }
-
-  const msUntilDue = executionDueAt.getTime() - now;
-  const diffMinutes = Math.floor(-msUntilDue / 60_000);
-  const isOverdue = msUntilDue < 0;
+  const phase = backendTiming.timerType === 'review' ? 'review' : 'execution';
+  const msUntilDue = backendTiming.remainingMs ? backendTiming.remainingMs : (backendTiming.overdueMs ? -backendTiming.overdueMs : 0);
+  const diffMinutes = Math.max(0, Math.floor((backendTiming.overdueMs ?? 0) / 60_000));
+  const isOverdue = !!backendTiming.isOverdue;
 
   return {
-    phase: 'execution',
-    dueAt: executionDueAt,
+    phase,
+    dueAt,
     msUntilDue,
     isOverdue,
     overdueMinutes: isOverdue ? diffMinutes : 0,
