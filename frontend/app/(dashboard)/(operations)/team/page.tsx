@@ -685,17 +685,10 @@ function LiveStatusView() {
                     </span>
                   </td>
                   <td className="px-5 py-3 text-xs font-mono" style={{ color: startedAt ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
-<<<<<<< Updated upstream
-                    {m.workStatus === 'LOGGED_OUT' && endedAt 
-                      ? `Ended at ${fmtTime(endedAt)}`
-                      : (startedAt ? fmtTime(startedAt) : 'Not started today')
-                    }
-=======
-                    <div className="flex items-center flex-wrap gap-1">
+<<<div className="flex items-center flex-wrap gap-1">
                       {startedAt ? fmtTime(startedAt) : 'Not started today'}
                       {m.isLate && <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-sans text-[10px] font-semibold">Late</span>}
                     </div>
->>>>>>> Stashed changes
                   </td>
                   {/* End Time — authoritative WorkSession.logoutAt (via API endTime). Never computed client-side. */}
                   <td className="px-5 py-3 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
@@ -855,3 +848,4 @@ export default function TeamPage() {
     </div>
   );
 }
+
