@@ -628,6 +628,7 @@ function LiveStatusView() {
               <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Member</th>
               <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Status</th>
               <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Started</th>
+              <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>End Time</th>
               <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Work Time</th>
               <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Breaks</th>
               <th className="text-left text-xs font-semibold uppercase px-5 py-3" style={{ color: 'var(--text-secondary)' }}>Department</th>
@@ -637,8 +638,9 @@ function LiveStatusView() {
             {members.map((m: any) => {
               const cfg = STATUS_CONFIG[m.workStatus] ?? STATUS_CONFIG.OFFLINE;
               const stale = checkStale(m);
-              const startedAt = m.todaySession?.startWorkAt;
-              const endedAt = m.todaySession?.logoutAt;
+              const startedAt = m.startTime ?? m.todaySession?.startWorkAt;
+              // Authoritative end timestamp from the API (WorkSession.logoutAt). Never client-computed.
+              const endedAt = m.endTime ?? m.todaySession?.logoutAt ?? null;
               
               const openBreak = m.todaySession?.breakLogs?.find((b: any) => !b.endAt);
               const onBreakSince = openBreak?.startAt;
@@ -683,10 +685,38 @@ function LiveStatusView() {
                     </span>
                   </td>
                   <td className="px-5 py-3 text-xs font-mono" style={{ color: startedAt ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+<<<<<<< Updated upstream
                     {m.workStatus === 'LOGGED_OUT' && endedAt 
                       ? `Ended at ${fmtTime(endedAt)}`
                       : (startedAt ? fmtTime(startedAt) : 'Not started today')
                     }
+=======
+                    <div className="flex items-center flex-wrap gap-1">
+                      {startedAt ? fmtTime(startedAt) : 'Not started today'}
+                      {m.isLate && <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-sans text-[10px] font-semibold">Late</span>}
+                    </div>
+>>>>>>> Stashed changes
+                  </td>
+                  {/* End Time — authoritative WorkSession.logoutAt (via API endTime). Never computed client-side. */}
+                  <td className="px-5 py-3 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
+                    {(() => {
+                      const active = ['WORKING', 'ON_BREAK', 'IDLE'].includes(m.workStatus);
+                      // CASE 1/2 — active session: no end yet
+                      if (active) return <span style={{ color: 'var(--text-tertiary)' }}>Active</span>;
+                      // CASE 3/4 — ended or auto-closed: show authoritative end timestamp
+                      if (endedAt) {
+                        return (
+                          <div className="flex items-center flex-wrap gap-1">
+                            {fmtTime(endedAt)}
+                            {m.autoClosed && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-sans text-[10px] font-semibold">Auto Closed</span>}
+                          </div>
+                        );
+                      }
+                      // CASE 5 — never started work today
+                      if (!startedAt) return <span style={{ color: 'var(--text-tertiary)' }}>—</span>;
+                      // CASE 6 — work started but no end recorded and not active: surface the anomaly
+                      return <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-sans text-[10px] font-semibold">Needs Review</span>;
+                    })()}
                   </td>
                   <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
                     {m.workStatus === 'OFFLINE' ? 'Not started today' : fmtMin(m.workMinutesToday)}
