@@ -24,7 +24,7 @@ describe('P0 Ticket access and timing', () => {
     jest.clearAllMocks();
     accessPolicy = new AccessPolicyService(prisma);
     ticketAccess = new TicketAccessService(prisma, accessPolicy);
-    timing = new TicketTimingService(prisma);
+    timing = new TicketTimingService(prisma, { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } as any);
   });
 
   it('returns 403 when a direct ticket ID exists but is outside user scope', async () => {

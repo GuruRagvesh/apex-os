@@ -5,7 +5,7 @@ import { EmailService } from '../platform/email/email.service';
 import { TicketTimingService } from '../../common/services/ticket-timing.service';
 import { ConfigService } from '@nestjs/config';
 
-import { CompanyDateService } from '../../common/services/company-date.service';
+import { TVAService } from '../../common/services/tva.service';
 
 @Injectable()
 export class AiCronService {
@@ -16,16 +16,16 @@ export class AiCronService {
     private emailService: EmailService,
     private ticketTiming: TicketTimingService,
     private configService: ConfigService,
-    private companyDate: CompanyDateService,
+    private tva: TVAService,
   ) {}
 
   // Run every day at 18:00 (6 PM) server time
   @Cron('0 18 * * *', { name: 'daily-digest' })
   async sendDailyDigest() {
-    this.logger.log('Running daily digest cron jobâ€¦');
-    const today = this.companyDate.getTodayStart();
+    this.logger.log('Running daily digest cron job…');
+    const today = this.tva.companyDayStart();
 
-    // â”€â”€ Gather data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Gather data ─────────────────────────────────────────────────────────────
     const [resolvedToday, allOpen, newToday, pendingLeave, managers] = await Promise.all([
       this.prisma.ticket.findMany({
         where: {
@@ -67,7 +67,7 @@ export class AiCronService {
     ]);
 
     if (managers.length === 0) {
-      this.logger.warn('No Admin/Manager users found â€” skipping digest');
+      this.logger.warn('No Admin/Manager users found — skipping digest');
       return;
     }
 
@@ -77,15 +77,15 @@ export class AiCronService {
       return this.ticketTiming.getTimingState(t, config).isOverdue;
     });
 
-    // â”€â”€ Build email HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const dateStr = new Date().toLocaleDateString('en-GB', {
+    // ── Build email HTML ────────────────────────────────────────────────────────
+    const dateStr = this.tva.now().toLocaleDateString('en-GB', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
 
     const html = this.buildDigestHtml(dateStr, resolvedToday, overdueTickets, newToday, pendingLeave);
-    const subject = `APEX OS Daily Digest â€” ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    const subject = `APEX OS Daily Digest — ${this.tva.now().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
-    // â”€â”€ Send to each manager / admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Send to each manager / admin ────────────────────────────────────────────
     let sent = 0;
     for (const manager of managers) {
       await this.emailService.sendEmail(manager.email, subject, html);
@@ -98,7 +98,7 @@ export class AiCronService {
     );
   }
 
-  // â”€â”€ Manually trigger (for testing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Manually trigger (for testing) ──────────────────────────────────────────
   async triggerDigestNow() {
     const aiDisabled = !process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY;
     if (aiDisabled) {
@@ -108,7 +108,7 @@ export class AiCronService {
     return { message: 'Daily digest triggered' };
   }
 
-  // â”€â”€ HTML builder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── HTML builder ────────────────────────────────────────────────────────────
   private buildDigestHtml(
     dateStr: string,
     resolved: any[],
@@ -128,7 +128,7 @@ export class AiCronService {
       `<tr style="border-bottom:1px solid #f1f5f9">
          <td style="padding:8px 0;font-size:13px;color:#475569;font-family:monospace">${t.ticketId}</td>
          <td style="padding:8px 12px;font-size:13px;color:#0f172a">${t.title}</td>
-         <td style="padding:8px 0;font-size:12px;color:#64748b">${t.department?.name ?? 'â€”'}</td>
+         <td style="padding:8px 0;font-size:12px;color:#64748b">${t.department?.name ?? '—'}</td>
        </tr>`;
 
     const section = (title: string, color: string, icon: string, rows: string, emptyMsg: string) =>
@@ -181,14 +181,14 @@ export class AiCronService {
 
     ${section(
       'Resolved Today',
-      '#16a34a', 'âœ…',
+      '#16a34a', '✅',
       resolved.map(ticketRow).join(''),
       'No tickets were resolved today.',
     )}
 
     ${overdue.length > 0 ? section(
       `Overdue Tickets (${overdue.length})`,
-      '#dc2626', 'âš ï¸',
+      '#dc2626', '⚠️',
       overdue.map((t) =>
         `<tr style="border-bottom:1px solid #fef2f2;background:#fff5f5">
            <td style="padding:8px 0;font-size:13px;color:#dc2626;font-family:monospace;font-weight:600">${t.ticketId}</td>
@@ -203,12 +203,12 @@ export class AiCronService {
 
     ${section(
       'New Tickets Today',
-      '#2563eb', 'ðŸ†•',
+      '#2563eb', '🆕',
       newTickets.map((t) =>
         `<tr style="border-bottom:1px solid #f1f5f9">
            <td style="padding:8px 0;font-size:13px;color:#475569;font-family:monospace">${t.ticketId}</td>
            <td style="padding:8px 12px;font-size:13px;color:#0f172a">${t.title}</td>
-           <td style="padding:8px 0;font-size:12px;color:#64748b">${t.createdBy?.name ?? 'â€”'}</td>
+           <td style="padding:8px 0;font-size:12px;color:#64748b">${t.createdBy?.name ?? '—'}</td>
          </tr>`
       ).join(''),
       'No new tickets were opened today.',
@@ -216,13 +216,13 @@ export class AiCronService {
 
     ${pendingLeave.length > 0 ? section(
       `Pending Leave Requests (${pendingLeave.length})`,
-      '#d97706', 'ðŸ“…',
+      '#d97706', '📅',
       pendingLeave.map((l) =>
         `<tr style="border-bottom:1px solid #f1f5f9">
            <td style="padding:8px 0;font-size:13px;color:#0f172a;font-weight:500">${l.user?.name}</td>
            <td style="padding:8px 12px;font-size:13px;color:#64748b">${l.type}</td>
            <td style="padding:8px 0;font-size:12px;color:#64748b">
-             ${new Date(l.startDate).toLocaleDateString('en-GB')} â†’ ${new Date(l.endDate).toLocaleDateString('en-GB')}
+             ${new Date(l.startDate).toLocaleDateString('en-GB')} → ${new Date(l.endDate).toLocaleDateString('en-GB')}
            </td>
          </tr>`
       ).join(''),
@@ -235,7 +235,7 @@ export class AiCronService {
          style="background:linear-gradient(135deg,#1e40af,#4f46e5);color:#fff;padding:12px 32px;
                 border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;
                 display:inline-block">
-        Open Dashboard â†’
+        Open Dashboard →
       </a>
     </div>
   </td></tr>
@@ -243,7 +243,7 @@ export class AiCronService {
   <!-- Footer -->
   <tr><td style="background:#f1f5f9;padding:16px 32px;text-align:center">
     <p style="margin:0;font-size:12px;color:#94a3b8">
-      Â© ${new Date().getFullYear()} TechnoEdge Learning Services Â· Apex OS<br>
+      © ${this.tva.now().getFullYear()} TechnoEdge Learning Services · Apex OS<br>
       This is an automated daily digest sent to managers and admins.
     </p>
   </td></tr>

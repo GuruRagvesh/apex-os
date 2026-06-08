@@ -5,6 +5,7 @@ import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { EventLoggerService } from '../../../common/services/event-logger.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { TVAService } from '../../../common/services/tva.service';
 
 const ACTION_DESCRIPTIONS: Record<string, string> = {
   TICKET_CREATED: 'created a ticket',
@@ -59,14 +60,13 @@ function getEntityUrl(entityType: string, entityId: string, metadata?: any): str
   }
 }
 
-function enrichEvent(event: any): any {
+function enrichEvent(event: any, nowMs: number): any {
   const actionKey = event.action as string;
   const description = ACTION_DESCRIPTIONS[actionKey] ?? actionKey.toLowerCase().replace(/_/g, ' ');
   const entityUrl = getEntityUrl(event.entityType, event.entityId, event.metadata);
 
-  const now = Date.now();
   const ts = new Date(event.timestamp).getTime();
-  const diffMs = now - ts;
+  const diffMs = nowMs - ts;
   const diffMin = Math.floor(diffMs / 60000);
   let timeAgo: string;
   if (diffMin < 1) timeAgo = 'just now';
@@ -92,6 +92,7 @@ export class EventsController {
     private eventLogger: EventLoggerService,
     private accessPolicy: AccessPolicyService,
     private prisma: PrismaService,
+    private tva: TVAService,
   ) {}
 
   @Get()
@@ -224,7 +225,8 @@ export class EventsController {
       orderBy: { timestamp: 'desc' },
       take: limit,
     });
-    const enriched = events.map(enrichEvent);
+    const nowMs = this.tva.now().getTime();
+    const enriched = events.map((e) => enrichEvent(e, nowMs));
     return this.enrichWithTitles(enriched);
   }
 

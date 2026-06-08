@@ -6,7 +6,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { LoginDto, RegisterDto } from './dto/login.dto';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { EmailService } from '../../platform/email/email.service';
-import { CompanyDateService } from '../../../common/services/company-date.service';
+import { TVAService } from '../../../common/services/tva.service';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 
 /** Generic response used for both known and unknown emails — prevents enumeration. */
@@ -26,7 +26,7 @@ export class AuthService {
     private configService: ConfigService,
     private eventLogger: EventLoggerService,
     private emailService: EmailService,
-    private companyDate: CompanyDateService,
+    private tva: TVAService,
     private attendanceAuthority: AttendanceAuthorityService,
   ) {}
 
@@ -50,8 +50,8 @@ export class AuthService {
     const { password, ...userWithoutPassword } = user;
 
     // Create login attendance event
-    const today = this.companyDate.getTodayStart();
-    const now = this.companyDate.getNow();
+    const today = this.tva.companyDayStart();
+    const now = this.tva.now();
 
     let nextStatus = 'LOGGED_IN';
 
@@ -164,7 +164,7 @@ export class AuthService {
 
     const entry = this.otpStore.get(normalizedEmail);
     if (entry) {
-      const elapsed = Date.now() - entry.createdAt;
+      const elapsed = this.tva.now().getTime() - entry.createdAt;
       if (elapsed < 30 * 1000) {
         return OTP_GENERIC_RESPONSE;
       }
@@ -182,7 +182,7 @@ export class AuthService {
     await this.emailService.sendOtpEmail(normalizedEmail, otp);
 
     // Email confirmed dispatched — store OTP with 10-minute TTL and createdAt.
-    this.otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000, createdAt: Date.now() });
+    this.otpStore.set(normalizedEmail, { otp, expires: this.tva.now().getTime() + 10 * 60 * 1000, createdAt: this.tva.now().getTime() });
 
     return OTP_GENERIC_RESPONSE;
   }
@@ -198,7 +198,7 @@ export class AuthService {
     // return the same message to prevent enumeration at step 2.
     const entry = this.otpStore.get(normalizedEmail);
     if (!entry) throw new BadRequestException(RESET_ERROR);
-    if (Date.now() > entry.expires) {
+    if (this.tva.now().getTime() > entry.expires) {
       this.otpStore.delete(normalizedEmail);
       throw new BadRequestException(RESET_ERROR);
     }

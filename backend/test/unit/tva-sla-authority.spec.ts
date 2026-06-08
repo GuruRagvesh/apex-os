@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AutomationService } from '../../src/modules/platform/automation/automation.service';
 import { AiCronService } from '../../src/modules/ai/ai.cron.service';
@@ -55,6 +56,7 @@ describe('TVA-005, 006, 007: SLA Authority Consolidation', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         AutomationService,
         AiCronService,
         AnalyticsService,

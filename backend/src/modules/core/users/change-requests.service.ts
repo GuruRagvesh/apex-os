@@ -4,6 +4,7 @@ import { AccessPolicyService } from '../../../common/services/access-policy.serv
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { NotificationEventService } from '../../operations/notifications/notification-event.service';
 import { NotificationType } from '@prisma/client';
+import { TVAService } from '../../../common/services/tva.service';
 
 @Injectable()
 export class ChangeRequestsService {
@@ -13,6 +14,7 @@ export class ChangeRequestsService {
     private eventLogger: EventLoggerService,
     @Inject(forwardRef(() => NotificationEventService))
     private notificationService: NotificationEventService,
+    private tva: TVAService,
   ) {}
 
   async getHierarchySummary(targetUserId: string, requester: any) {
@@ -240,13 +242,13 @@ export class ChangeRequestsService {
       updateData.managerApproverId = requester.id;
       updateData.managerDecision = 'APPROVED';
       nextStatus = 'APPROVED';
-      updateData.approvedAt = new Date();
+      updateData.approvedAt = this.tva.now();
     } else if (req.status === 'PENDING_ADMIN_APPROVAL') {
       if (!['ADMIN', 'SUPER_ADMIN'].includes(roleName)) throw new ForbiddenException('Admin approval required');
       updateData.adminApproverId = requester.id;
       updateData.adminDecision = 'APPROVED';
       nextStatus = 'APPROVED';
-      updateData.approvedAt = new Date();
+      updateData.approvedAt = this.tva.now();
     } else {
       throw new BadRequestException(`Cannot approve request in status ${req.status}`);
     }
@@ -299,7 +301,7 @@ export class ChangeRequestsService {
     const updateData: any = {
       status: 'REJECTED',
       rejectionReason: reason,
-      rejectedAt: new Date(),
+      rejectedAt: this.tva.now(),
       currentApproverId: null,
     };
 
@@ -352,7 +354,7 @@ export class ChangeRequestsService {
       where: { id: requestId },
       data: {
         status: 'CANCELLED',
-        cancelledAt: new Date(),
+        cancelledAt: this.tva.now(),
         currentApproverId: null,
       },
     });

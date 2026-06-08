@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AnalyticsService } from '../../src/modules/platform/analytics/analytics.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -43,6 +44,7 @@ describe('AnalyticsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         AnalyticsService,
         { provide: PrismaService, useValue: prisma },
         { provide: TicketAccessService, useValue: ticketAccess },

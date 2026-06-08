@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 /**
  * Unit tests — Blocked Ticket Workflow
  *
@@ -93,7 +94,7 @@ const SLA_CONFIG = {
 describe('Blocked Ticket — TicketTimingService', () => {
   let timing: TicketTimingService;
   beforeEach(() => {
-    timing = new TicketTimingService(mockPrisma as any);
+    timing = new TicketTimingService(mockPrisma as any, { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } as any);
   });
 
   it('returns timerType=blocked and isOverdue=false when isBlocked=true', () => {
@@ -150,6 +151,7 @@ describe('Blocked Ticket — TicketsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         TicketsService,
         AccessPolicyService,
         TicketAccessService,

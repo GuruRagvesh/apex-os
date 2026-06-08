@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CompanyDateService } from '../../src/common/services/company-date.service';
 import { AuthService } from '../../src/modules/core/auth/auth.service';
@@ -12,6 +13,7 @@ describe('TVA Date Authority', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         CompanyDateService,
         {
           provide: ConfigService,

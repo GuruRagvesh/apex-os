@@ -6,11 +6,14 @@ import { TicketAccessService } from './services/ticket-access.service';
 import { AccessPolicyService } from './services/access-policy.service';
 import { CompanyDateService } from './services/company-date.service';
 import { AttendanceAuthorityService } from './services/attendance-authority.service';
+import { TVAService } from './services/tva.service';
+import { TvaController } from './controllers/tva.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Global()
 @Module({
   imports: [PrismaModule],
+  controllers: [TvaController],
   providers: [
     EventLoggerService,
     AccessPolicyService,
@@ -19,6 +22,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     LeaveAccessService,
     CompanyDateService,
     AttendanceAuthorityService,
+    TVAService,
   ],
   exports: [
     EventLoggerService,
@@ -28,6 +32,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     LeaveAccessService,
     CompanyDateService,
     AttendanceAuthorityService,
+    TVAService,
   ],
 })
 export class CommonModule {}

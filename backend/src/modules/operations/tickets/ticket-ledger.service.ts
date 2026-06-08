@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { TVAService } from '../../../common/services/tva.service';
 
 export const LEDGER_STAGES = {
   WORK: 'WORK',
@@ -34,7 +35,10 @@ export const LEDGER_PAUSE_REASONS = {
 
 @Injectable()
 export class TicketLedgerService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private tva: TVAService,
+  ) {}
 
   async getActiveLogForUser(userId: string) {
     return this.prisma.ticketTimeLog.findFirst({
@@ -45,7 +49,7 @@ export class TicketLedgerService {
 
   async getTicketTimers(ticket: any) {
     const totalTicketSeconds = ticket.createdAt 
-      ? Math.floor(((ticket.resolvedAt || ticket.closedAt || ticket.cancelledAt || new Date()).getTime() - ticket.createdAt.getTime()) / 1000)
+      ? this.tva.elapsedSeconds(ticket.createdAt, ticket.resolvedAt || ticket.closedAt || ticket.cancelledAt || this.tva.now())
       : 0;
 
     const [assigneeLogs, reviewerLogs, activeLogs] = await Promise.all([
@@ -67,7 +71,7 @@ export class TicketLedgerService {
     let activeClock = 'NONE';
 
     for (const log of activeLogs) {
-      const liveSeconds = Math.floor((new Date().getTime() - log.startedAt.getTime()) / 1000);
+      const liveSeconds = this.tva.elapsedSeconds(log.startedAt);
       if (log.ownerType === LEDGER_OWNER_TYPES.ASSIGNEE) {
         employeeWorkSeconds += liveSeconds;
         activeClock = 'EMPLOYEE_WORK';
@@ -120,7 +124,7 @@ export class TicketLedgerService {
         source: input.source,
         workSessionId: input.workSessionId,
         countsAsWork: input.countsAsWork ?? true,
-        startedAt: new Date(),
+        startedAt: this.tva.now(),
       },
     });
   }
@@ -145,8 +149,8 @@ export class TicketLedgerService {
 
     if (!log || log.endedAt) return log;
 
-    const endedAt = input.endedAt ?? new Date();
-    const durationSeconds = Math.max(0, Math.floor((endedAt.getTime() - log.startedAt.getTime()) / 1000));
+    const endedAt = input.endedAt ?? this.tva.now();
+    const durationSeconds = this.tva.elapsedSeconds(log.startedAt, endedAt);
 
     return this.prisma.ticketTimeLog.update({
       where: { id: log.id },
@@ -171,11 +175,11 @@ export class TicketLedgerService {
 
     if (activeLogs.length === 0) return { count: 0, logIds: [] };
 
-    const endedAt = input.endedAt ?? new Date();
+    const endedAt = input.endedAt ?? this.tva.now();
     const logIds = [];
 
     for (const log of activeLogs) {
-      const durationSeconds = Math.max(0, Math.floor((endedAt.getTime() - log.startedAt.getTime()) / 1000));
+      const durationSeconds = this.tva.elapsedSeconds(log.startedAt, endedAt);
       await this.prisma.ticketTimeLog.update({
         where: { id: log.id },
         data: {
@@ -284,7 +288,7 @@ export class TicketLedgerService {
 
     if (!cycle) return null;
 
-    const reviewEndedAt = input.reviewEndedAt ?? new Date();
+    const reviewEndedAt = input.reviewEndedAt ?? this.tva.now();
     let assigneeStartBound = new Date(0);
 
     if (cycle.cycleNo > 1) {
@@ -300,7 +304,7 @@ export class TicketLedgerService {
       where: {
         ticketId: input.ticketId,
         ownerType: 'ASSIGNEE',
-        startedAt: { gte: assigneeStartBound, lte: cycle.reviewStartedAt || new Date() },
+        startedAt: { gte: assigneeStartBound, lte: cycle.reviewStartedAt || this.tva.now() },
       },
       _sum: { durationSeconds: true },
     });

@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 /**
  * Unit tests — SchedulerService recurring-ticket query
  *
@@ -86,6 +87,7 @@ describe('SchedulerService — recurring ticket query', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         SchedulerService,
         { provide: PrismaService,  useValue: mockPrisma  },
         { provide: EventsGateway,  useValue: mockGateway },

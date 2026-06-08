@@ -66,12 +66,12 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   /** Broadcast to every connected client */
   emitTicketCreated(ticket: any) {
-    this.server.emit('ticket:created', { ticket });
+    this.server?.emit('ticket:created', { ticket });
   }
 
   /** Broadcast status change to everyone (kanban/list pages update live) */
   emitTicketStatusChanged(ticketId: string, newStatus: string, updatedBy: string) {
-    this.server.emit('ticket:status_changed', { ticketId, newStatus, updatedBy });
+    this.server?.emit('ticket:status_changed', { ticketId, newStatus, updatedBy });
   }
 
   /** Send a notification only to the target user's room */

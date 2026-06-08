@@ -9,6 +9,7 @@ import { EventLoggerService, OperationalAction } from '../../../common/services/
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
 import { LeaveBalanceService } from './leave-balance.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
+import { TVAService } from '../../../common/services/tva.service';
 
 @Injectable()
 export class LeaveService {
@@ -22,6 +23,7 @@ export class LeaveService {
     private leaveAccess: LeaveAccessService,
     private leaveBalance: LeaveBalanceService,
     private accessPolicy: AccessPolicyService,
+    private tva: TVAService,
   ) {}
 
   private get frontendUrl() {
@@ -160,7 +162,7 @@ export class LeaveService {
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },
-      data: { status: LeaveStatus.APPROVED, approvedBy: approverId, approvedAt: new Date() },
+      data: { status: LeaveStatus.APPROVED, approvedBy: approverId, approvedAt: this.tva.now() },
     });
 
     this.eventLogger.log({ actorId: approverId, entityType: 'LeaveRequest', entityId: id, action: OperationalAction.LEAVE_APPROVED, fromState: 'PENDING', toState: 'APPROVED' }).catch(() => {});
@@ -212,7 +214,7 @@ export class LeaveService {
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },
-      data: { status: LeaveStatus.REJECTED, rejectedBy: rejectorId, rejectedAt: new Date() },
+      data: { status: LeaveStatus.REJECTED, rejectedBy: rejectorId, rejectedAt: this.tva.now() },
     });
 
     this.eventLogger.log({ actorId: rejectorId, entityType: 'LeaveRequest', entityId: id, action: OperationalAction.LEAVE_REJECTED, fromState: 'PENDING', toState: 'REJECTED' }).catch(() => {});

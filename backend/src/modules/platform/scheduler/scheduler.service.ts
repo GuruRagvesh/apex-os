@@ -9,7 +9,7 @@ import { TimezoneUtil } from '../../../common/utils/timezone.util';
 import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
 import { SettingsService } from '../settings/settings.service';
 import { shouldPolicyAutoStop } from '../workday/workday.policy.helper';
-import { CompanyDateService } from '../../../common/services/company-date.service';
+import { TVAService } from '../../../common/services/tva.service';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 
 @Injectable()
@@ -22,7 +22,7 @@ export class SchedulerService {
     private ticketLedger: TicketLedgerService,
     private notificationEventService: NotificationEventService,
     private settingsService: SettingsService,
-    private companyDate: CompanyDateService,
+    private tva: TVAService,
     private attendanceAuthority: AttendanceAuthorityService,
   ) {}
 
@@ -59,7 +59,7 @@ export class SchedulerService {
   /** Runs every hour — handles both one-time and recurring scheduled tickets */
   @Cron('0 * * * *', { name: 'scheduled-ticket-reminders' })
   async checkScheduledTickets() {
-    const now = new Date();
+    const now = this.tva.now();
     const hour = now.getHours();
     const dayOfWeek = now.getDay(); // 0=Sun..6=Sat
     const dayOfMonth = now.getDate();
@@ -143,7 +143,7 @@ export class SchedulerService {
   // 1. MIDNIGHT LEAVE STATUS SETTER — 00:01 every day
   @Cron('1 0 * * *')
   async setLeaveStatuses() {
-    const today = this.companyDate.getTodayStart();
+    const today = this.tva.companyDayStart();
 
     const approvedLeaves = await this.prisma.leaveRequest.findMany({
       where: {
@@ -193,7 +193,7 @@ export class SchedulerService {
       if (policy?.autoClose === false) {
         return; // Skip all automatic workday closing behavior if general autoClose is disabled
       }
-      const timezone = policy?.timezone || 'Asia/Kolkata';
+      const timezone = this.tva.companyTimezone();
       const autoCloseTimeConfig = policy?.autoCloseTime || '23:59';
 
       const openSessions = await this.prisma.workSession.findMany({
@@ -201,7 +201,7 @@ export class SchedulerService {
         include: { breakLogs: true, user: { include: { role: true } } },
       });
 
-      const nowGlobal = new Date();
+      const nowGlobal = this.tva.now();
       const currentCompanyDateStr = formatInTimeZone(nowGlobal, timezone, 'yyyy-MM-dd');
 
       let closedCount = 0;
@@ -385,11 +385,11 @@ export class SchedulerService {
   // 3. AUTO LOGOUT — every hour
   @Cron('0 * * * *')
   async autoLogoutInactive() {
-    const hour = new Date().getHours();
+    const hour = this.tva.now().getHours();
     if (hour < 9 || hour > 20) return;
 
-    const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const today = this.companyDate.getTodayStart();
+    const cutoff = new Date(this.tva.now().getTime() - 2 * 60 * 60 * 1000);
+    const today = this.tva.companyDayStart();
 
     const idleUsers = await this.prisma.user.findMany({
       where: { currentStatus: 'IDLE', lastActiveAt: { lte: cutoff }, isActive: true },
@@ -399,7 +399,7 @@ export class SchedulerService {
       await this.attendanceAuthority.setUserStatus(user.id, 'OFFLINE');
       await this.attendanceAuthority.updateManyWorkSessions(
         { userId: user.id, date: today, status: 'IDLE' },
-        { status: 'LOGGED_OUT', logoutAt: new Date() }
+        { status: 'LOGGED_OUT', logoutAt: this.tva.now() }
       );
       await this.prisma.attendanceEvent.create({
         data: {

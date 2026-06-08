@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 /**
  * Unit tests — Leave approval business rules
  *
@@ -74,6 +75,7 @@ describe('LeaveService — approval rules', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         LeaveService,
         AccessPolicyService,
         LeaveAccessService,

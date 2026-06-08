@@ -10,6 +10,7 @@ import { NotificationType } from '@prisma/client';
 import { formatInTimeZone } from 'date-fns-tz';
 
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
+import { TVAService } from '../../../common/services/tva.service';
 
 @Injectable()
 export class WorkdayService {
@@ -20,6 +21,7 @@ export class WorkdayService {
     private ticketLedger: TicketLedgerService,
     private notificationEventService: NotificationEventService,
     private attendanceAuthority: AttendanceAuthorityService,
+    private tva: TVAService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -41,7 +43,7 @@ export class WorkdayService {
     });
 
     const grouped = new Map<string, any>();
-    const currentCompanyDateStr = formatInTimeZone(new Date(), DEFAULT_COMPANY_TIMEZONE, 'yyyy-MM-dd');
+    const currentCompanyDateStr = formatInTimeZone(this.tva.now(), DEFAULT_COMPANY_TIMEZONE, 'yyyy-MM-dd');
 
     for (const session of sessions) {
       const dateStr = session.date instanceof Date
@@ -125,12 +127,12 @@ export class WorkdayService {
   }
 
   private getTodayDate(): Date {
-    return TimezoneUtil.getCompanyTodayDate();
+    return this.tva.companyDayStart();
   }
 
   async startWork(userId: string) {
     const today = this.getTodayDate();
-    const now = new Date();
+    const now = this.tva.now();
 
     let session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
@@ -185,7 +187,7 @@ export class WorkdayService {
 
   async endWork(userId: string) {
     const today = this.getTodayDate();
-    const now = new Date();
+    const now = this.tva.now();
 
     const session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
@@ -250,7 +252,7 @@ export class WorkdayService {
 
   async startBreak(userId: string, dto: { breakType: string; estimatedMinutes?: number }) {
     const today = this.getTodayDate();
-    const now = new Date();
+    const now = this.tva.now();
 
     const session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
@@ -305,7 +307,7 @@ export class WorkdayService {
 
   async endBreak(userId: string) {
     const today = this.getTodayDate();
-    const now = new Date();
+    const now = this.tva.now();
 
     const session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
@@ -357,7 +359,7 @@ export class WorkdayService {
 
   async reportIdle(userId: string, idleDuration: number) {
     const today = this.getTodayDate();
-    const now = new Date();
+    const now = this.tva.now();
 
     if (idleDuration >= 20) {
       await this.attendanceAuthority.updateManyWorkSessions(
@@ -381,7 +383,7 @@ export class WorkdayService {
 
   async resumeWork(userId: string) {
     const today = this.getTodayDate();
-    const now = new Date();
+    const now = this.tva.now();
 
     const session = await this.attendanceAuthority.updateManyWorkSessions(
       { userId, date: today, status: { in: ['IDLE', 'ON_BREAK', 'LOGGED_IN'] } },
@@ -399,7 +401,7 @@ export class WorkdayService {
 
   async resumeAutoClosedWork(userId: string) {
     const today = this.getTodayDate();
-    const now = new Date();
+    const now = this.tva.now();
 
     const oldSession = await this.prisma.workSession.findFirst({
       where: { userId, date: today, autoClosed: true },
@@ -445,7 +447,7 @@ export class WorkdayService {
 
   async getToday(userId: string) {
     const today = this.getTodayDate();
-    const now = new Date();
+    const now = this.tva.now();
 
     // Fetch all sessions for today to aggregate
     const sessions = await this.prisma.workSession.findMany({
@@ -535,7 +537,7 @@ export class WorkdayService {
       orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
     });
 
-    const now = new Date();
+    const now = this.tva.now();
     return members.map((m) => {
       const session = m.workSessions[0] ?? null;
       const leave = m.leaveRequests[0] ?? null;
@@ -578,6 +580,12 @@ export class WorkdayService {
         department: m.department,
         workStatus: m.currentStatus,
         todaySession: session,
+        // Authoritative workday end timestamp — sourced directly from the
+        // WorkSession record (set by endWork() and the auto-close scheduler).
+        // The frontend MUST display this; it must never compute End Time itself.
+        startTime: rt.firstStartTime,
+        endTime: session?.logoutAt ?? null,
+        hasOpenSession: !!session && !session.logoutAt,
         onLeaveToday: !!leave,
         leaveType: leave?.type ?? null,
         workMinutesToday: totalWorkMins,

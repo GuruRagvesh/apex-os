@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 /**
  * Unit tests — AuthService OTP logic
  *
@@ -44,6 +45,7 @@ describe('AuthService — OTP', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         AuthService,
         { provide: PrismaService,      useValue: mockPrisma       },
         { provide: JwtService,         useValue: mockJwt          },

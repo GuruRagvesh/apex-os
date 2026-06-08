@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TicketLedgerService, LEDGER_STAGES, LEDGER_OWNER_TYPES, LEDGER_SOURCES, LEDGER_PAUSE_REASONS } from '../../src/modules/operations/tickets/ticket-ledger.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -30,6 +31,7 @@ describe('TicketLedgerService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         TicketLedgerService,
         { provide: PrismaService, useValue: mockPrisma },
       ],

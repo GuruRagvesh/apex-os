@@ -6,8 +6,8 @@ import { TicketTimingService } from '../../../common/services/ticket-timing.serv
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { calculateWorkdayRuntime } from '../workday/workday.calculation';
-import { TimezoneUtil } from '../../../common/utils/timezone.util';
 import { LeaveBalanceService } from '../../operations/leave/leave-balance.service';
+import { TVAService } from '../../../common/services/tva.service';
 
 @Injectable()
 export class DashboardService {
@@ -18,6 +18,7 @@ export class DashboardService {
     private leaveAccess: LeaveAccessService,
     private accessPolicy: AccessPolicyService,
     private leaveBalance: LeaveBalanceService,
+    private tva: TVAService,
   ) {}
 
   private andWhere(...clauses: any[]): any {
@@ -307,7 +308,7 @@ export class DashboardService {
     const projectScope = await this.buildProjectScope(user);
 
     if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
-      const weekStart = new Date();
+      const weekStart = this.tva.now();
       weekStart.setDate(weekStart.getDate() - 7);
       const [open, inProgress, inReview, doneThisWeek, activeProjects] = await Promise.all([
         this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.OPEN }) }),
@@ -364,8 +365,8 @@ export class DashboardService {
   }
 
   private async getWorkdayStatus(user: any) {
-    const today = TimezoneUtil.getCompanyTodayDate();
-    const now = new Date();
+    const today = this.tva.companyDayStart();
+    const now = this.tva.now();
     
     const sessions = await this.prisma.workSession.findMany({
       where: { userId: user.id, date: today },
@@ -388,7 +389,7 @@ export class DashboardService {
 
   private async getUpcomingEvents(user: any) {
     const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
-    const now = new Date();
+    const now = this.tva.now();
     const in3Days = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
     const events: any[] = [];
 
@@ -531,7 +532,7 @@ export class DashboardService {
   }
 
   async getTicketTrend(days = 14, user?: any) {
-    const startDate = new Date();
+    const startDate = this.tva.now();
     startDate.setDate(startDate.getDate() - days);
     const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
 
@@ -551,7 +552,7 @@ export class DashboardService {
 
     const trend: Record<string, { created: number; resolved: number }> = {};
     for (let i = 0; i < days; i++) {
-      const d = new Date();
+      const d = this.tva.now();
       d.setDate(d.getDate() - i);
       const key = d.toISOString().split('T')[0];
       trend[key] = { created: 0, resolved: 0 };

@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
 import { SchedulerService } from '../../src/modules/platform/scheduler/scheduler.service';
@@ -48,6 +49,7 @@ describe('FP-18D Notification Monitoring Engine', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         { provide: TicketsService, useValue: { update: jest.fn() } }, // We'll mock behavior or use real one
         { provide: SchedulerService, useValue: { autoCloseMidnightSessions: jest.fn() } },
         { provide: WorkdayService, useValue: { startWork: jest.fn() } },

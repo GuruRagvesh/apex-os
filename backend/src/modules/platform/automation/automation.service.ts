@@ -4,6 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { NotificationType } from '@prisma/client';
+import { TVAService } from '../../../common/services/tva.service';
 
 @Injectable()
 export class AutomationService {
@@ -12,6 +13,7 @@ export class AutomationService {
   constructor(
     private prisma: PrismaService,
     private ticketTiming: TicketTimingService,
+    private tva: TVAService,
   ) {}
 
   // ── Ticket assigned ─────────────────────────────────────────────────────────
@@ -155,7 +157,7 @@ export class AutomationService {
               userId:    ticket.assignedToId,
               link:      `/tickets/${ticket.id}`,
               title:     { contains: 'overdue' },
-              createdAt: { gte: new Date(Date.now() - 24 * 3_600_000) },
+              createdAt: { gte: new Date(this.tva.now().getTime() - 24 * 3_600_000) },
             },
           });
 

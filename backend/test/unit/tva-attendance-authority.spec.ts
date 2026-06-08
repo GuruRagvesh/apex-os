@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { WorkdayService } from '../../src/modules/platform/workday/workday.service';
 import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
@@ -36,6 +37,7 @@ describe('TVA Attendance Authority (Unit)', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         WorkdayService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AccessPolicyService, useValue: { checkAccess: jest.fn() } },

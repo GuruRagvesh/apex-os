@@ -2,14 +2,14 @@ import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../../platform/settings/settings.service';
 import { LeaveStatus } from '@prisma/client';
-import { CompanyDateService } from '../../../common/services/company-date.service';
+import { TVAService } from '../../../common/services/tva.service';
 
 @Injectable()
 export class LeaveBalanceService {
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
-    private companyDate: CompanyDateService,
+    private tva: TVAService,
   ) {}
 
   // Standard public holidays for 2026 (YYYY-MM-DD)
@@ -46,8 +46,8 @@ export class LeaveBalanceService {
 
     let duration = 0;
     // Normalize times to start of day in company timezone
-    const current = this.companyDate.getStartOfDay(new Date(startDate));
-    const end = this.companyDate.getStartOfDay(new Date(endDate));
+    const current = this.tva.companyDayStart(new Date(startDate));
+    const end = this.tva.companyDayStart(new Date(endDate));
 
     while (current <= end) {
       const dayOfWeek = current.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
@@ -84,8 +84,8 @@ export class LeaveBalanceService {
     const allocation = await this.getYearlyAllocation(userId, year);
 
     // Fetch approved/pending leaves in this year
-    const startOfYear = new Date(year, 0, 1);
-    const endOfYear = new Date(year, 11, 31, 23, 59, 59, 999);
+    const startOfYear = this.tva.companyDayStart(new Date(year, 0, 1));
+    const endOfYear = this.tva.companyDayEnd(new Date(year, 11, 31));
 
     const leaves = await this.prisma.leaveRequest.findMany({
       where: {

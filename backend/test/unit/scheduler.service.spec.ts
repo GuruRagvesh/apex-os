@@ -1,3 +1,4 @@
+import { TVAService } from '../../src/common/services/tva.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { SchedulerService } from '../../src/modules/platform/scheduler/scheduler.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -52,6 +53,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         SchedulerService,
         { provide: PrismaService, useValue: prisma },
         { provide: SettingsService, useValue: settingsService },

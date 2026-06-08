@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import * as bcrypt from 'bcryptjs';
+import { TVAService } from '../../../common/services/tva.service';
 
 @Injectable()
 export class UsersService {
@@ -10,6 +11,7 @@ export class UsersService {
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
     private eventLogger: EventLoggerService,
+    private tva: TVAService,
   ) {}
 
   async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
@@ -452,7 +454,7 @@ export class UsersService {
       data: {
         verificationStatus: status,
         verifiedBy: requester?.name,
-        verifiedAt: new Date(),
+        verifiedAt: this.tva.now(),
         rejectionReason: status === 'REJECTED' ? rejectionReason : null,
       },
     });

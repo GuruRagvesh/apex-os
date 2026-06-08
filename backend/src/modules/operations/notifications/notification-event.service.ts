@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { UsersService } from '../../core/users/users.service';
 import { NotificationType } from '@prisma/client';
+import { TVAService } from '../../../common/services/tva.service';
 
 const NOTIF_DEFAULTS = {
   assignedTicket: true,
@@ -27,6 +28,7 @@ export class NotificationEventService {
     private gateway: EventsGateway,
     @Inject(forwardRef(() => UsersService))
     private usersService: UsersService,
+    private tva: TVAService,
   ) {}
 
   async sendNotification(
@@ -73,7 +75,7 @@ export class NotificationEventService {
     const quietTo = resolvedPrefs.quietTo || '08:00';
     const userTimezone = resolvedPrefs.timezone || 'Asia/Kolkata';
 
-    const inQuietHours = this.isInQuietHours(quietFrom, quietTo, userTimezone);
+    const inQuietHours = this.isInQuietHours(quietFrom, quietTo, userTimezone, this.tva.now());
 
     if (!inQuietHours && resolvedPrefs.inApp !== false) {
       // 5. Deliver real-time socket notification
@@ -83,7 +85,7 @@ export class NotificationEventService {
     return notification;
   }
 
-  isInQuietHours(from: string, to: string, timezone: string, now = new Date()): boolean {
+  isInQuietHours(from: string, to: string, timezone: string, now: Date): boolean {
     if (!from || !to) return false;
 
     let localTime: Date;

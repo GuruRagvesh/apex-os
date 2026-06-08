@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TicketTimingService } from '../../common/services/ticket-timing.service';
+import { TVAService } from '../../common/services/tva.service';
 import OpenAI from 'openai';
 
 const MODEL = 'gpt-4o-mini';
@@ -15,6 +16,7 @@ export class AiService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private ticketTiming: TicketTimingService,
+    private tva: TVAService,
   ) {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (apiKey && apiKey.trim()) {
@@ -34,7 +36,7 @@ export class AiService {
   // Checks overdue using DB-configured SLA hours (not hardcoded constants).
   private ticketIsOverdue(ticket: { createdAt: Date; priority: string; status: string }, slaHours: Record<string, number>): boolean {
     if (['DONE', 'CLOSED'].includes(ticket.status)) return false;
-    const elapsed = (Date.now() - ticket.createdAt.getTime()) / 3_600_000;
+    const elapsed = (this.tva.now().getTime() - ticket.createdAt.getTime()) / 3_600_000;
     return elapsed > (slaHours[ticket.priority] ?? 24);
   }
 

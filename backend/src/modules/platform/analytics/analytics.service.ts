@@ -3,7 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
-import { CompanyDateService } from '../../../common/services/company-date.service';
+import { TVAService } from '../../../common/services/tva.service';
 import { TicketStatus } from '@prisma/client';
 
 @Injectable()
@@ -13,7 +13,7 @@ export class AnalyticsService {
     private ticketAccess: TicketAccessService,
     private ticketTiming: TicketTimingService,
     private accessPolicy: AccessPolicyService,
-    private companyDate: CompanyDateService,
+    private tva: TVAService,
   ) {}
 
   private async assertCanViewUser(targetUserId: string, currentUser: any) {
@@ -91,8 +91,8 @@ export class AnalyticsService {
 
     let approvalsToday = 0;
     let approvalsThisWeek = 0;
-    const now = this.companyDate.getNow();
-    const todayStart = this.companyDate.getTodayStart();
+    const now = this.tva.now();
+    const todayStart = this.tva.companyDayStart();
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - 7);
 
@@ -253,9 +253,9 @@ export class AnalyticsService {
   // ── PHASE 6: COMMAND CENTER ─────────────────────────────────────────────────
   async getCommandCenter(currentUser: any, period: 'today' | 'week' | 'month') {
     const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, currentUser);
-    const now = this.companyDate.getNow();
+    const now = this.tva.now();
     let periodStart = new Date(now);
-    if (period === 'today') periodStart = this.companyDate.getTodayStart();
+    if (period === 'today') periodStart = this.tva.companyDayStart();
     if (period === 'week') periodStart.setDate(periodStart.getDate() - 7);
     if (period === 'month') periodStart.setMonth(periodStart.getMonth() - 1);
 

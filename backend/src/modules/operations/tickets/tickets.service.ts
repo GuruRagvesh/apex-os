@@ -10,6 +10,7 @@ import { EventLoggerService, OperationalAction } from '../../../common/services/
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { TicketLedgerService } from './ticket-ledger.service';
+import { TVAService } from '../../../common/services/tva.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -30,6 +31,7 @@ export class TicketsService {
     private ticketAccess: TicketAccessService,
     private ticketTiming: TicketTimingService,
     private ticketLedger: TicketLedgerService,
+    private tva: TVAService,
   ) {}
 
   private get frontendUrl() {
@@ -303,14 +305,14 @@ export class TicketsService {
     // Only set executionDueAt if scheduledStartAt is in the future (not past midnight UTC edge cases)
     const scheduledBase = data.scheduledStartAt ? new Date(data.scheduledStartAt) : null;
     const actualBase = data.actualStartAt ? new Date(data.actualStartAt) : null;
-    const baseForExec = scheduledBase && scheduledBase.getTime() > Date.now() ? scheduledBase : null;
+    const baseForExec = scheduledBase && scheduledBase.getTime() > this.tva.now().getTime() ? scheduledBase : null;
     const executionDueAt = this.calcExecutionDueAt(
       baseForExec,
       actualBase,
       data.estimatedMinutes,
     );
     // Never store an executionDueAt that is already in the past
-    if (executionDueAt && executionDueAt.getTime() > Date.now()) {
+    if (executionDueAt && executionDueAt.getTime() > this.tva.now().getTime()) {
       data.executionDueAt = executionDueAt;
     }
 
@@ -500,18 +502,18 @@ export class TicketsService {
       data.submittedAt = null;
       data.reviewStartedAt = null;
       data.reviewDueAt = null;
-      data.actualStartAt = existing.actualStartAt ?? new Date();
+      data.actualStartAt = existing.actualStartAt ?? this.tva.now();
       if (existing.estimatedMinutes) {
-        data.executionDueAt = new Date(Date.now() + existing.estimatedMinutes * 60_000);
+        data.executionDueAt = new Date(this.tva.now().getTime() + existing.estimatedMinutes * 60_000);
       }
     }
 
     // ── Execution timer: stamp actualStartAt + executionDueAt ────────────────
     if (data.status === TicketStatus.IN_PROGRESS && !existing.actualStartAt && !data.actualStartAt) {
-      data.actualStartAt = new Date();
+      data.actualStartAt = this.tva.now();
     }
     if (data.status === TicketStatus.IN_PROGRESS && !existing.executionDueAt) {
-      const base: Date = existing.scheduledStartAt ?? data.actualStartAt ?? new Date();
+      const base: Date = existing.scheduledStartAt ?? data.actualStartAt ?? this.tva.now();
       const mins: number | null | undefined = existing.estimatedMinutes;
       const due = this.calcExecutionDueAt(base, null, mins);
       if (due) data.executionDueAt = due;
@@ -530,7 +532,7 @@ export class TicketsService {
 
     // ── Review timer: stamp submittedAt + reviewStartedAt + reviewDueAt ──────
     if (data.status === TicketStatus.REVIEW && !existing.submittedAt) {
-      const now = new Date();
+      const now = this.tva.now();
       data.submittedAt = now;
       data.reviewStartedAt = now;
       const reviewHours = await this.getReviewSlaHoursForPriority(existing.priority);
@@ -546,16 +548,16 @@ export class TicketsService {
 
     // ── Completion stamps ────────────────────────────────────────────────────
     if (data.status === TicketStatus.DONE) {
-      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = new Date();
-      if (!existing.closedAt) data.closedAt = new Date();
-      data.resolvedAt = new Date();
+      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = this.tva.now();
+      if (!existing.closedAt) data.closedAt = this.tva.now();
+      data.resolvedAt = this.tva.now();
     }
 
     if (data.status === TicketStatus.CLOSED) {
-      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = new Date();
-      if (!existing.closedAt) data.closedAt = new Date();
-      if (!existing.cancelledAt) data.cancelledAt = new Date();
-      data.resolvedAt = new Date();
+      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = this.tva.now();
+      if (!existing.closedAt) data.closedAt = this.tva.now();
+      if (!existing.cancelledAt) data.cancelledAt = this.tva.now();
+      data.resolvedAt = this.tva.now();
     }
 
     // Track history for changed fields
@@ -801,7 +803,7 @@ export class TicketsService {
 
     const updated = await this.prisma.ticket.update({
       where: { id: ticket.id },
-      data: { isBlocked: true, blockedAt: new Date(), blockedReason: reason.trim(), blockedById: userId },
+      data: { isBlocked: true, blockedAt: this.tva.now(), blockedReason: reason.trim(), blockedById: userId },
       include: this.includeOptions,
     });
 
@@ -1016,7 +1018,7 @@ export class TicketsService {
         ticketId: ticket.id,
         decision: 'REWORK',
         feedback: comment,
-        reworkStartedAt: new Date(),
+        reworkStartedAt: this.tva.now(),
       }),
     ]);
 

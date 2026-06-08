@@ -1,25 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { toZonedTime, formatInTimeZone } from 'date-fns-tz';
-import { startOfDay, endOfDay } from 'date-fns';
+import { TVAService } from './tva.service';
+import { formatInTimeZone } from 'date-fns-tz';
 
 @Injectable()
 export class CompanyDateService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly tva: TVAService,
+  ) {}
 
   /**
    * Get the company's official timezone.
    * Defaults to 'Asia/Kolkata' as per TVA-011.
    */
   getTimezone(): string {
-    return this.config.get<string>('COMPANY_TIMEZONE') || 'Asia/Kolkata';
+    return this.tva.companyTimezone();
   }
 
   /**
    * Get the current date and time.
    */
   getNow(): Date {
-    return new Date();
+    return this.tva.now();
   }
 
   /**
@@ -27,7 +30,7 @@ export class CompanyDateService {
    * returned as a UTC Date object.
    */
   getTodayStart(): Date {
-    return this.getStartOfDay(new Date());
+    return this.tva.companyDayStart();
   }
 
   /**
@@ -35,7 +38,7 @@ export class CompanyDateService {
    * returned as a UTC Date object.
    */
   getTodayEnd(): Date {
-    return this.getEndOfDay(new Date());
+    return this.tva.companyDayEnd();
   }
 
   /**
@@ -43,16 +46,7 @@ export class CompanyDateService {
    * in the company timezone, as a UTC Date object.
    */
   getStartOfDay(date: Date): Date {
-    const tz = this.getTimezone();
-    // 1. Interpret the point in time in the target timezone
-    const zonedTime = toZonedTime(date, tz);
-    // 2. Find the start of the day in that timezone's calendar
-    const startOfZonedDay = startOfDay(zonedTime);
-    // 3. To get the precise moment in UTC, we can format it to ISO and parse it
-    // formatInTimeZone takes the original date, but we actually want the exact 
-    // midnight of that day in that timezone.
-    const isoString = formatInTimeZone(date, tz, "yyyy-MM-dd'T'00:00:00.000XXX");
-    return new Date(isoString);
+    return this.tva.companyDayStart(date);
   }
 
   /**
@@ -60,9 +54,7 @@ export class CompanyDateService {
    * in the company timezone, as a UTC Date object.
    */
   getEndOfDay(date: Date): Date {
-    const tz = this.getTimezone();
-    const isoString = formatInTimeZone(date, tz, "yyyy-MM-dd'T'23:59:59.999XXX");
-    return new Date(isoString);
+    return this.tva.companyDayEnd(date);
   }
 
   /**

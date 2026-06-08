@@ -8,95 +8,85 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
-  password     String
-  avatar       String?
-  photoUrl     String?
-  bio          String?
-  isActive             Boolean  @default(true)
-  mustChangePassword   Boolean  @default(true)
-  roleId       String
-  departmentId String?
-  isHR              Boolean  @default(false)
-  currentStatus     String   @default("OFFLINE")
-  lastActiveAt      DateTime?
-  workdayPolicyOverride UserWorkdayPolicyOverride?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  // Personal Details
-  phone              String?
-  dateOfBirth        DateTime?
-  gender             String?
-  bloodGroup         String?
-  currentAddress     String?
-  permanentAddress   String?
-  emergencyName      String?
-  emergencyPhone     String?
-  emergencyRelation  String?
-  userLocation       String?   @default("Pune HQ")
-
-  // Employment Details
-  employeeId         String?   @unique
-  designation        String?
-  employmentType     String?   @default("Full-time")
-  workMode           String?   @default("Office")
-  joiningDate        DateTime?
-  probationPeriod    String?
-  reportingManager   String?
-  teamLeadName       String?
-  workLocation       String?   @default("Pune HQ")
-  shiftTiming        String?   @default("9:30 AM - 6:30 PM")
-
-  // Payroll & Statutory (sensitive)
-  ctcAnnual          String?
-  basicSalary        String?
-  salaryStructure    String?
-  bankName           String?
-  accountNumber      String?
-  ifscCode           String?
-  accountHolderName  String?
-  paymentMode        String?
-  panNumber          String?
-  aadhaarNumber      String?
-  uanNumber          String?
-  pfApplicable       Boolean?  @default(true)
-  esicApplicable     Boolean?  @default(false)
-  professionalTax    Boolean?  @default(true)
-  taxRegime          String?
-
-  // Verification
-  verificationStatus String?   @default("Pending")
-  verifiedBy         String?
-  verificationDate   DateTime?
-  hrNotes            String?
-
-  role            Role              @relation(fields: [roleId], references: [id])
-  department      Department?       @relation(fields: [departmentId], references: [id])
-  assignedTickets    Ticket[]          @relation("TicketAssignee")
-  createdTickets     Ticket[]          @relation("TicketCreator")
-  comments           Comment[]
-  projectMembers     ProjectMember[]
-  leaveRequests      LeaveRequest[]
-  activityLogs       ActivityLog[]
-  notifications      Notification[]
-  ticketHistory      TicketHistory[]
-  ticketAssignments  TicketAssignee[]
-  workSessions      WorkSession[]
-  breakLogs         BreakLog[]
-  attendanceEvents  AttendanceEvent[]
-  managedDepts      ManagerDeptAccess[] @relation("ManagerAccess")
-  employeeDocuments  EmployeeDocument[]
-  operationalEvents OperationalEvent[] @relation("EventActor")
-  ticketTimeLogs    TicketTimeLog[]
-  assigneeCycles    ReviewCycleLog[] @relation("CycleAssignee")
-  reviewerCycles    ReviewCycleLog[] @relation("CycleReviewer")
-
-  changeRequestsTarget  EmployeeProfileChangeRequest[] @relation("ChangeRequestTarget")
-  changeRequestsCreated EmployeeProfileChangeRequest[] @relation("ChangeRequestRequester")
+  id                      String                         @id @default(cuid())
+  email                   String                         @unique
+  name                    String
+  password                String
+  avatar                  String?
+  isActive                Boolean                        @default(true)
+  roleId                  String
+  departmentId            String?
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+  mustChangePassword      Boolean                        @default(true)
+  photoUrl                String?
+  isHR                    Boolean                        @default(false)
+  currentStatus           String                         @default("OFFLINE")
+  lastActiveAt            DateTime?
+  phone                   String?
+  dateOfBirth             DateTime?
+  gender                  String?
+  bloodGroup              String?
+  currentAddress          String?
+  permanentAddress        String?
+  emergencyName           String?
+  emergencyPhone          String?
+  emergencyRelation       String?
+  userLocation            String?                        @default("Pune HQ")
+  employeeId              String?                        @unique
+  designation             String?
+  employmentType          String?                        @default("Full-time")
+  workMode                String?                        @default("Office")
+  joiningDate             DateTime?
+  probationPeriod         String?
+  reportingManager        String?
+  teamLeadName            String?
+  workLocation            String?                        @default("Pune HQ")
+  shiftTiming             String?                        @default("9:30 AM - 6:30 PM")
+  ctcAnnual               String?
+  basicSalary             String?
+  salaryStructure         String?
+  bankName                String?
+  accountNumber           String?
+  ifscCode                String?
+  accountHolderName       String?
+  paymentMode             String?
+  panNumber               String?
+  aadhaarNumber           String?
+  uanNumber               String?
+  pfApplicable            Boolean?                       @default(true)
+  esicApplicable          Boolean?                       @default(false)
+  professionalTax         Boolean?                       @default(true)
+  taxRegime               String?
+  verificationStatus      String?                        @default("Pending")
+  verifiedBy              String?
+  verificationDate        DateTime?
+  hrNotes                 String?
+  bio                     String?
+  activityLogs            ActivityLog[]
+  attendanceEvents        AttendanceEvent[]
+  breakLogs               BreakLog[]
+  comments                Comment[]
+  employeeDocuments       EmployeeDocument[]
   changeRequestsApproving EmployeeProfileChangeRequest[] @relation("ChangeRequestCurrentApprover")
+  changeRequestsCreated   EmployeeProfileChangeRequest[] @relation("ChangeRequestRequester")
+  changeRequestsTarget    EmployeeProfileChangeRequest[] @relation("ChangeRequestTarget")
+  leaveRequests           LeaveRequest[]
+  managedDepts            ManagerDeptAccess[]            @relation("ManagerAccess")
+  notifications           Notification[]
+  operationalEvents       OperationalEvent[]             @relation("EventActor")
+  projectMembers          ProjectMember[]
+  assigneeCycles          ReviewCycleLog[]               @relation("CycleAssignee")
+  reviewerCycles          ReviewCycleLog[]               @relation("CycleReviewer")
+  ticketAssignments       TicketAssignee[]
+  ticketHistory           TicketHistory[]
+  ticketTimeLogs          TicketTimeLog[]
+  assignedTickets         Ticket[]                       @relation("TicketAssignee")
+  createdTickets          Ticket[]                       @relation("TicketCreator")
+  workdayPolicyOverride   UserWorkdayPolicyOverride?
+  department              Department?                    @relation(fields: [departmentId], references: [id])
+  role                    Role                           @relation(fields: [roleId], references: [id])
+  workSessions            WorkSession[]
 
   @@index([departmentId])
   @@index([roleId])
@@ -105,20 +95,20 @@ model User {
 }
 
 model EmployeeDocument {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   userId             String
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   documentType       String
   fileName           String
   fileUrl            String
   fileSize           Int?
   mimeType           String?
-  verificationStatus String   @default("Pending")
+  verificationStatus String    @default("Pending")
   verifiedBy         String?
   verifiedAt         DateTime?
   rejectionReason    String?
-  uploadedAt         DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  uploadedAt         DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([documentType])
@@ -131,45 +121,42 @@ model Role {
   level       Int
   description String?
   createdAt   DateTime @default(now())
-
-  users User[]
+  users       User[]
 
   @@map("roles")
 }
 
 model Department {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  color       String   @default("#6366f1")
-  createdAt   DateTime @default(now())
-
-  users         User[]
-  projects      Project[]
-  tickets       Ticket[]
-  taskTypes     TaskType[]
+  id            String              @id @default(cuid())
+  name          String              @unique
+  description   String?
+  color         String              @default("#6366f1")
+  createdAt     DateTime            @default(now())
   managerAccess ManagerDeptAccess[]
+  projects      Project[]
+  taskTypes     TaskType[]
+  tickets       Ticket[]
+  users         User[]
 
   @@map("departments")
 }
 
 model Project {
-  id           String        @id @default(cuid())
-  projectId    String        @unique
+  id           String          @id @default(cuid())
+  projectId    String          @unique
   name         String
   description  String?
-  status       ProjectStatus @default(ACTIVE)
-  priority     Priority      @default(MEDIUM)
+  status       ProjectStatus   @default(ACTIVE)
+  priority     Priority        @default(MEDIUM)
   startDate    DateTime?
   endDate      DateTime?
   departmentId String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  department Department?      @relation(fields: [departmentId], references: [id])
-  members    ProjectMember[]
-  tickets    Ticket[]
-  stages     ProjectStage[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  members      ProjectMember[]
+  stages       ProjectStage[]
+  department   Department?     @relation(fields: [departmentId], references: [id])
+  tickets      Ticket[]
 
   @@index([departmentId])
   @@index([status])
@@ -190,9 +177,8 @@ model ProjectStage {
   endDate     DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-
-  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tickets Ticket[] @relation("TicketStage")
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tickets     Ticket[]  @relation("TicketStage")
 
   @@index([projectId])
   @@index([projectId, order])
@@ -205,9 +191,8 @@ model ProjectMember {
   userId    String
   role      String   @default("MEMBER")
   joinedAt  DateTime @default(now())
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, userId])
   @@index([userId])
@@ -215,67 +200,61 @@ model ProjectMember {
 }
 
 model Ticket {
-  id            String         @id @default(cuid())
-  ticketId      String         @unique
-  title         String
-  description   String?
-  category      TicketCategory
-  type          TicketType     @default(TASK)
-  status        TicketStatus   @default(OPEN)
-  priority      Priority       @default(MEDIUM)
+  id                String           @id @default(cuid())
+  ticketId          String           @unique
+  title             String
+  description       String?
+  category          TicketCategory
+  type              TicketType       @default(TASK)
+  status            TicketStatus     @default(OPEN)
+  priority          Priority         @default(MEDIUM)
   estimatedTime     Float?
   actualTime        Float?
+  projectId         String?
+  departmentId      String?
+  assignedToId      String?
+  createdById       String
+  dueDate           DateTime?
+  resolvedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  scheduledFor      DateTime?
+  scheduledNote     String?
+  scheduleRecurring String?
+  scheduleEndDate   DateTime?
+  taskTypeId        String?
+  taskSubtypeId     String?
   estimatedMinutes  Int?
   scheduledStartAt  DateTime?
   scheduledEndAt    DateTime?
   actualStartAt     DateTime?
   actualCompletedAt DateTime?
-  projectId     String?
-  departmentId  String?
-  assignedToId  String?
-  createdById   String
-  dueDate           DateTime?
-  scheduledFor      DateTime?
-  scheduledNote     String?
-  scheduleRecurring String?
-  scheduleEndDate   DateTime?
-  resolvedAt        DateTime?
   executionDueAt    DateTime?
   submittedAt       DateTime?
   reviewStartedAt   DateTime?
   reviewDueAt       DateTime?
   closedAt          DateTime?
   cancelledAt       DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-
-  taskTypeId         String?
-  taskSubtypeId      String?
-  customSubtypeText  String?
-
-  // ── Blocked overlay (Option B) ───────────────────────────────────────────
-  isBlocked     Boolean   @default(false)
-  blockedAt     DateTime?
-  blockedReason String?
-  blockedById   String?
-
-  // ── Project Stage assignment (FP-14B) ─────────────────────────────────────
-  projectStageId String?
-
-  project      Project?        @relation(fields: [projectId], references: [id])
-  projectStage ProjectStage?   @relation("TicketStage", fields: [projectStageId], references: [id], onDelete: SetNull)
-  department   Department?     @relation(fields: [departmentId], references: [id])
-  assignedTo   User?           @relation("TicketAssignee", fields: [assignedToId], references: [id])
-  createdBy    User            @relation("TicketCreator", fields: [createdById], references: [id])
-  taskType     TaskType?       @relation(fields: [taskTypeId], references: [id])
-  taskSubtype  TaskSubtype?    @relation(fields: [taskSubtypeId], references: [id])
-  comments     Comment[]
-  attachments  Attachment[]
-  history      TicketHistory[]
-  assignees    TicketAssignee[]
-  reworkCount  Int              @default(0)
-  timeLogs     TicketTimeLog[]
-  reviewCycles ReviewCycleLog[]
+  customSubtypeText String?
+  isBlocked         Boolean          @default(false)
+  blockedAt         DateTime?
+  blockedReason     String?
+  blockedById       String?
+  reworkCount       Int              @default(0)
+  projectStageId    String?
+  attachments       Attachment[]
+  comments          Comment[]
+  reviewCycles      ReviewCycleLog[]
+  assignees         TicketAssignee[]
+  history           TicketHistory[]
+  timeLogs          TicketTimeLog[]
+  assignedTo        User?            @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  createdBy         User             @relation("TicketCreator", fields: [createdById], references: [id])
+  department        Department?      @relation(fields: [departmentId], references: [id])
+  project           Project?         @relation(fields: [projectId], references: [id])
+  projectStage      ProjectStage?    @relation("TicketStage", fields: [projectStageId], references: [id])
+  taskSubtype       TaskSubtype?     @relation(fields: [taskSubtypeId], references: [id])
+  taskType          TaskType?        @relation(fields: [taskTypeId], references: [id])
 
   @@index([departmentId])
   @@index([assignedToId])
@@ -298,9 +277,8 @@ model TicketAssignee {
   ticketId   String
   userId     String
   assignedAt DateTime @default(now())
-
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id])
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id])
 
   @@unique([ticketId, userId])
   @@index([userId])
@@ -314,9 +292,8 @@ model Comment {
   authorId  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  author User   @relation(fields: [authorId], references: [id])
+  author    User     @relation(fields: [authorId], references: [id])
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([ticketId])
   @@map("comments")
@@ -328,36 +305,33 @@ model Attachment {
   url       String
   size      Int?
   mimeType  String?
-  isPoc     Boolean  @default(false)
-  pocFor    String?
   ticketId  String
   createdAt DateTime @default(now())
-
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  isPoc     Boolean  @default(false)
+  pocFor    String?
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@map("attachments")
 }
 
 model LeaveRequest {
-  id          String      @id @default(cuid())
-  userId      String
-  type        LeaveType
-  startDate   DateTime
-  endDate     DateTime
-  reason      String
-  status      LeaveStatus @default(PENDING)
-  approvedBy  String?
-  approvedAt  DateTime?
-  rejectedBy  String?
-  rejectedAt  DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  isHalfDay   Boolean     @default(false)
-  halfDayType String?
-
-  user User @relation(fields: [userId], references: [id])
-  workSessions  WorkSession[]
+  id           String        @id @default(cuid())
+  userId       String
+  type         LeaveType
+  startDate    DateTime
+  endDate      DateTime
+  reason       String
+  status       LeaveStatus   @default(PENDING)
+  approvedBy   String?
+  approvedAt   DateTime?
+  rejectedBy   String?
+  rejectedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  isHalfDay    Boolean       @default(false)
+  halfDayType  String?
+  user         User          @relation(fields: [userId], references: [id])
+  workSessions WorkSession[]
 
   @@index([userId])
   @@index([status])
@@ -374,11 +348,10 @@ model Notification {
   type       NotificationType @default(INFO)
   isRead     Boolean          @default(false)
   link       String?
+  createdAt  DateTime         @default(now())
   entityId   String?
   entityType String?
-  createdAt  DateTime         @default(now())
-
-  user User @relation(fields: [userId], references: [id])
+  user       User             @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([isRead])
@@ -395,8 +368,7 @@ model ActivityLog {
   entityId   String?
   details    Json?
   createdAt  DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([entityType, entityId])
@@ -413,9 +385,8 @@ model TicketHistory {
   newValue    String?
   changedById String
   changedAt   DateTime @default(now())
-
-  ticket    Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  changedBy User   @relation(fields: [changedById], references: [id])
+  changedBy   User     @relation(fields: [changedById], references: [id])
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([ticketId])
   @@index([changedAt])
@@ -426,12 +397,12 @@ model TaskType {
   id           String        @id @default(cuid())
   name         String
   departmentId String?
-  department   Department?   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  subtypes     TaskSubtype[]
-  tickets      Ticket[]
   isGlobal     Boolean       @default(false)
   order        Int           @default(0)
   createdAt    DateTime      @default(now())
+  subtypes     TaskSubtype[]
+  department   Department?   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  tickets      Ticket[]
 
   @@unique([name, departmentId])
   @@index([departmentId])
@@ -439,16 +410,246 @@ model TaskType {
 }
 
 model TaskSubtype {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   name       String
   taskTypeId String
-  taskType   TaskType  @relation(fields: [taskTypeId], references: [id], onDelete: Cascade)
+  order      Int      @default(0)
+  taskType   TaskType @relation(fields: [taskTypeId], references: [id], onDelete: Cascade)
   tickets    Ticket[]
-  order      Int       @default(0)
 
   @@unique([name, taskTypeId])
   @@index([taskTypeId])
   @@map("task_subtypes")
+}
+
+model AppSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("app_settings")
+}
+
+model WorkSession {
+  id                      String            @id @default(cuid())
+  userId                  String
+  date                    DateTime          @db.Date
+  loginAt                 DateTime?
+  startWorkAt             DateTime?
+  logoutAt                DateTime?
+  status                  String            @default("LOGGED_IN")
+  totalLoggedMinutes      Int               @default(0)
+  totalBreakMinutes       Int               @default(0)
+  totalIdleMinutes        Int               @default(0)
+  totalWorkMinutes        Int               @default(0)
+  leaveId                 String?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  autoClosed              Boolean           @default(false)
+  autoClosedAt            DateTime?
+  closureReason           String?
+  continuationOfSessionId String?
+  attendanceEvents        AttendanceEvent[]
+  breakLogs               BreakLog[]
+  ticketTimeLogs          TicketTimeLog[]
+  leaveRequest            LeaveRequest?     @relation(fields: [leaveId], references: [id])
+  user                    User              @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([date])
+  @@index([status])
+  @@map("work_sessions")
+}
+
+model BreakLog {
+  id               String          @id @default(cuid())
+  userId           String
+  workSessionId    String
+  breakType        String
+  estimatedMinutes Int?
+  startAt          DateTime
+  endAt            DateTime?
+  durationMinutes  Int?
+  autoDetected     Boolean         @default(false)
+  note             String?
+  createdAt        DateTime        @default(now())
+  reason           String?
+  source           String?
+  user             User            @relation(fields: [userId], references: [id])
+  workSession      WorkSession     @relation(fields: [workSessionId], references: [id])
+  ticketTimeLogs   TicketTimeLog[]
+
+  @@index([userId])
+  @@index([workSessionId])
+  @@map("break_logs")
+}
+
+model UserWorkdayPolicyOverride {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  timezone              String?
+  startTime             String?
+  endTime               String?
+  entryWindowStart      String?
+  entryWindowEnd        String?
+  exitWindowStart       String?
+  exitWindowEnd         String?
+  minimumWorkdayMinutes Int?
+  flexible              Boolean  @default(false)
+  reason                String?
+  createdById           String?
+  updatedById           String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id])
+
+  @@map("user_workday_policy_overrides")
+}
+
+model AttendanceEvent {
+  id            String       @id @default(cuid())
+  userId        String
+  workSessionId String?
+  eventType     String
+  timestamp     DateTime     @default(now())
+  source        String       @default("manual")
+  metadata      Json?
+  user          User         @relation(fields: [userId], references: [id])
+  workSession   WorkSession? @relation(fields: [workSessionId], references: [id])
+
+  @@index([userId])
+  @@index([timestamp])
+  @@index([eventType])
+  @@map("attendance_events")
+}
+
+model OperationalEvent {
+  id         String   @id @default(cuid())
+  actorId    String
+  entityType String
+  entityId   String
+  action     String
+  fromState  String?
+  toState    String?
+  metadata   Json?
+  ip         String?
+  device     String?
+  timestamp  DateTime @default(now())
+  actor      User     @relation("EventActor", fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([timestamp])
+  @@map("operational_events")
+}
+
+model ManagerDeptAccess {
+  id           String     @id @default(cuid())
+  managerId    String
+  departmentId String
+  accessLevel  String     @default("READ")
+  createdAt    DateTime   @default(now())
+  department   Department @relation(fields: [departmentId], references: [id])
+  manager      User       @relation("ManagerAccess", fields: [managerId], references: [id])
+
+  @@unique([managerId, departmentId])
+  @@index([managerId])
+  @@map("manager_dept_access")
+}
+
+model TicketTimeLog {
+  id              String       @id @default(cuid())
+  ticketId        String
+  userId          String
+  stage           String
+  ownerType       String
+  source          String
+  startedAt       DateTime
+  endedAt         DateTime?
+  durationSeconds Int?
+  countsAsWork    Boolean      @default(true)
+  pauseReason     String?
+  workSessionId   String?
+  breakLogId      String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  breakLog        BreakLog?    @relation(fields: [breakLogId], references: [id])
+  ticket          Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id])
+  workSession     WorkSession? @relation(fields: [workSessionId], references: [id])
+
+  @@index([ticketId])
+  @@index([userId])
+  @@index([startedAt])
+  @@index([workSessionId])
+  @@index([ticketId, endedAt])
+  @@index([userId, endedAt])
+  @@map("ticket_time_logs")
+}
+
+model ReviewCycleLog {
+  id                        String    @id @default(cuid())
+  ticketId                  String
+  cycleNo                   Int
+  assigneeId                String?
+  reviewerId                String?
+  reviewStartedAt           DateTime?
+  reviewEndedAt             DateTime?
+  decision                  String?
+  feedback                  String?
+  assigneeWorkSeconds       Int?
+  reviewerWorkSeconds       Int?
+  reworkStartedAt           DateTime?
+  reworkEndedAt             DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  employeeAttitudeRating    Int?
+  employeePerformanceRating Int?
+  ratingComment             String?
+  taskEfficiencyRating      Int?
+  assignee                  User?     @relation("CycleAssignee", fields: [assigneeId], references: [id])
+  reviewer                  User?     @relation("CycleReviewer", fields: [reviewerId], references: [id])
+  ticket                    Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, cycleNo])
+  @@index([ticketId])
+  @@index([cycleNo])
+  @@map("review_cycle_logs")
+}
+
+model EmployeeProfileChangeRequest {
+  id                String    @id @default(cuid())
+  targetUserId      String
+  requestedById     String
+  requestType       String
+  status            String    @default("PENDING_TL_APPROVAL")
+  changes           Json
+  reason            String?
+  currentApproverId String?
+  tlApproverId      String?
+  managerApproverId String?
+  adminApproverId   String?
+  tlDecision        String?
+  managerDecision   String?
+  adminDecision     String?
+  rejectionReason   String?
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  currentApprover   User?     @relation("ChangeRequestCurrentApprover", fields: [currentApproverId], references: [id])
+  requestedBy       User      @relation("ChangeRequestRequester", fields: [requestedById], references: [id])
+  targetUser        User      @relation("ChangeRequestTarget", fields: [targetUserId], references: [id])
+
+  @@index([targetUserId])
+  @@index([requestedById])
+  @@index([status])
+  @@index([currentApproverId])
+  @@map("employee_profile_change_requests")
 }
 
 enum ProjectStatus {
@@ -513,238 +714,4 @@ enum NotificationType {
   SUCCESS
   WARNING
   ERROR
-}
-
-model AppSetting {
-  id        String   @id @default(cuid())
-  key       String   @unique
-  value     Json
-  updatedAt DateTime @updatedAt
-  updatedBy String?
-
-  @@map("app_settings")
-}
-
-model WorkSession {
-  id                 String           @id @default(cuid())
-  userId             String
-  user               User             @relation(fields: [userId], references: [id])
-  date               DateTime         @db.Date
-  loginAt            DateTime?
-  startWorkAt        DateTime?
-  logoutAt           DateTime?
-  status             String           @default("LOGGED_IN")
-  totalLoggedMinutes Int              @default(0)
-  totalBreakMinutes  Int              @default(0)
-  totalIdleMinutes   Int              @default(0)
-  totalWorkMinutes   Int              @default(0)
-  leaveId            String?
-  leaveRequest       LeaveRequest?    @relation(fields: [leaveId], references: [id])
-  closureReason      String?
-  autoClosed         Boolean          @default(false)
-  autoClosedAt       DateTime?
-  continuationOfSessionId String?
-  breakLogs          BreakLog[]
-  attendanceEvents   AttendanceEvent[]
-  ticketTimeLogs     TicketTimeLog[]
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-
-  @@index([userId])
-  @@index([date])
-  @@index([status])
-  @@map("work_sessions")
-}
-
-model BreakLog {
-  id               String      @id @default(cuid())
-  userId           String
-  user             User        @relation(fields: [userId], references: [id])
-  workSessionId    String
-  workSession      WorkSession @relation(fields: [workSessionId], references: [id])
-  breakType        String
-  estimatedMinutes Int?
-  startAt          DateTime
-  endAt            DateTime?
-  durationMinutes  Int?
-  autoDetected     Boolean     @default(false)
-  note             String?
-  reason           String?
-  source           String?
-  createdAt        DateTime    @default(now())
-  ticketTimeLogs   TicketTimeLog[]
-
-  @@index([userId])
-  @@index([workSessionId])
-  @@map("break_logs")
-}
-
-model UserWorkdayPolicyOverride {
-  id                    String   @id @default(cuid())
-  userId                String   @unique
-  user                  User     @relation(fields: [userId], references: [id])
-  timezone              String?
-  startTime             String?
-  endTime               String?
-  entryWindowStart      String?
-  entryWindowEnd        String?
-  exitWindowStart       String?
-  exitWindowEnd         String?
-  minimumWorkdayMinutes Int?
-  flexible              Boolean  @default(false)
-  reason                String?
-  createdById           String?
-  updatedById           String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  @@map("user_workday_policy_overrides")
-}
-
-model AttendanceEvent {
-  id            String       @id @default(cuid())
-  userId        String
-  user          User         @relation(fields: [userId], references: [id])
-  workSessionId String?
-  workSession   WorkSession? @relation(fields: [workSessionId], references: [id])
-  eventType     String
-  timestamp     DateTime     @default(now())
-  source        String       @default("manual")
-  metadata      Json?
-
-  @@index([userId])
-  @@index([timestamp])
-  @@index([eventType])
-  @@map("attendance_events")
-}
-
-model OperationalEvent {
-  id          String   @id @default(cuid())
-  actorId     String
-  actor       User     @relation("EventActor", fields: [actorId], references: [id])
-  entityType  String
-  entityId    String
-  action      String
-  fromState   String?
-  toState     String?
-  metadata    Json?
-  ip          String?
-  device      String?
-  timestamp   DateTime @default(now())
-
-  @@index([actorId])
-  @@index([entityType, entityId])
-  @@index([action])
-  @@index([timestamp])
-
-  @@map("operational_events")
-}
-
-model ManagerDeptAccess {
-  id           String     @id @default(cuid())
-  managerId    String
-  manager      User       @relation("ManagerAccess", fields: [managerId], references: [id])
-  departmentId String
-  department   Department @relation(fields: [departmentId], references: [id])
-  accessLevel  String     @default("READ")
-  createdAt    DateTime   @default(now())
-
-  @@unique([managerId, departmentId])
-  @@index([managerId])
-  @@map("manager_dept_access")
-}
-
-model TicketTimeLog {
-  id              String   @id @default(cuid())
-  ticketId        String
-  userId          String
-  stage           String
-  ownerType       String
-  source          String
-  startedAt       DateTime
-  endedAt         DateTime?
-  durationSeconds Int?
-  countsAsWork    Boolean  @default(true)
-  pauseReason     String?
-  workSessionId   String?
-  breakLogId      String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  user        User         @relation(fields: [userId], references: [id])
-  workSession WorkSession? @relation(fields: [workSessionId], references: [id])
-  breakLog    BreakLog?    @relation(fields: [breakLogId], references: [id])
-
-  @@index([ticketId])
-  @@index([userId])
-  @@index([startedAt])
-  @@index([workSessionId])
-  @@index([ticketId, endedAt])
-  @@index([userId, endedAt])
-  @@map("ticket_time_logs")
-}
-
-model ReviewCycleLog {
-  id                  String    @id @default(cuid())
-  ticketId            String
-  cycleNo             Int
-  assigneeId          String?
-  reviewerId          String?
-  reviewStartedAt     DateTime?
-  reviewEndedAt       DateTime?
-  decision            String?
-  feedback            String?
-  assigneeWorkSeconds Int?
-  reviewerWorkSeconds Int?
-  reworkStartedAt     DateTime?
-  reworkEndedAt       DateTime?
-  taskEfficiencyRating      Int?
-  employeePerformanceRating Int?
-  employeeAttitudeRating    Int?
-  ratingComment             String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-
-  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  assignee User?  @relation("CycleAssignee", fields: [assigneeId], references: [id])
-  reviewer User?  @relation("CycleReviewer", fields: [reviewerId], references: [id])
-
-  @@index([ticketId])
-  @@index([cycleNo])
-  @@unique([ticketId, cycleNo])
-  @@map("review_cycle_logs")
-}
-
-model EmployeeProfileChangeRequest {
-  id                 String    @id @default(cuid())
-  targetUserId       String
-  requestedById      String
-  requestType        String
-  status             String    @default("PENDING_TL_APPROVAL")
-  changes            Json
-  reason             String?
-  currentApproverId  String?
-  tlApproverId       String?
-  managerApproverId  String?
-  adminApproverId    String?
-  tlDecision         String?
-  managerDecision    String?
-  adminDecision      String?
-  rejectionReason    String?
-  approvedAt         DateTime?
-  rejectedAt         DateTime?
-  cancelledAt        DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-
-  targetUser      User  @relation("ChangeRequestTarget", fields: [targetUserId], references: [id])
-  requestedBy     User  @relation("ChangeRequestRequester", fields: [requestedById], references: [id])
-  currentApprover User? @relation("ChangeRequestCurrentApprover", fields: [currentApproverId], references: [id])
-
-  @@index([targetUserId])
-  @@index([requestedById])
-  @@index([status])
-  @@index([currentApproverId])
-  @@map("employee_profile_change_requests")
 }

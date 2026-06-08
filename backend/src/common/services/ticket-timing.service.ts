@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TVAService } from './tva.service';
 
 type SlaMap = Record<string, number>;
 
@@ -22,7 +23,10 @@ const DEFAULT_REVIEW_SLA: SlaMap = { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 };
 
 @Injectable()
 export class TicketTimingService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private tva: TVAService,
+  ) {}
 
   async getSlaConfig(): Promise<{ execution: SlaMap; review: SlaMap }> {
     const [execution, review] = await Promise.all([
@@ -45,7 +49,7 @@ export class TicketTimingService {
   decorateTicketWithConfig<T extends Record<string, any>>(
     ticket: T,
     config: { execution: SlaMap; review: SlaMap },
-    now = new Date(),
+    now = this.tva.now(),
   ): T & Record<string, any> {
     const timing = this.getTimingState(ticket, config, now);
     const overdueMinutes = Math.max(0, Math.floor(timing.overdueMs / 60_000));
@@ -68,7 +72,7 @@ export class TicketTimingService {
   getTimingState(
     ticket: Record<string, any>,
     config: { execution: SlaMap; review: SlaMap },
-    now = new Date(),
+    now = this.tva.now(),
   ): TicketTimingState {
     const status = ticket.status as TicketStatus;
     const priority = String(ticket.priority ?? 'MEDIUM');

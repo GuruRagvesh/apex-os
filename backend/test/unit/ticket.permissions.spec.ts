@@ -57,7 +57,7 @@ describe('TicketsService — FP-13.2 Permissions', () => {
       mockLogger as any,
       access,
       mockTiming as any,
-      { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any,
+      { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } as any, { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any,
     );
   });
 

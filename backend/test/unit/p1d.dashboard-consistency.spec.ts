@@ -76,7 +76,7 @@ describe('P1-D dashboard count convergence', () => {
       ticketTiming,
       leaveAccess,
       new AccessPolicyService(prisma),
-      {} as any // Mock LeaveBalanceService
+      {} as any, { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } as any
     );
 
     const summary = await service.getSummary({
