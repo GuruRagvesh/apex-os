@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client'
-const prisma = new PrismaClient({ datasources: { db: { url: 'postgresql://apex_db_dugl_user:fuS4u9yKddhK1qo2yMESGvpLdUB4gERg@dpg-d8259omk1jcs73e37fbg-a.oregon-postgres.render.com/apex_db_dugl' } } })
+const prisma = new PrismaClient()
 
 async function main() {
   const managers = await prisma.user.findMany({
