@@ -20,6 +20,8 @@ function isUUID(str: string): boolean {
 
 @Injectable()
 export class TicketsService {
+  private readonly logger = new Logger(TicketsService.name);
+
   constructor(
     private prisma: PrismaService,
     private gateway: EventsGateway,
@@ -316,12 +318,35 @@ export class TicketsService {
       data.executionDueAt = executionDueAt;
     }
 
-    // Generate a collision-safe ticket ID by retrying on unique-constraint violations (P2002)
+    // Generate a collision-safe, deletion-safe ticket ID.
+    //
+    // Display IDs are TKT-<n>. The next <n> is derived from the MAX existing
+    // numeric suffix (high-water mark) — NOT from row count. Count-based IDs
+    // break after deletions: count() drops below the highest suffix still in
+    // use, so count+1 lands on an ID that already exists and every collision
+    // re-derives the same doomed base. The high-water mark is unaffected by
+    // deletions, and we still retry on unique-constraint (P2002) violations to
+    // stay correct when concurrent inserts race for the same number.
     let ticket: any;
-    let attempts = 0;
-    while (attempts < 10) {
-      const count = await this.prisma.ticket.count();
-      const ticketId = `TKT-${String(count + 1 + attempts).padStart(3, '0')}`;
+    const maxAttempts = 25;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // Re-read the high-water mark each attempt so concurrent inserts already
+      // committed by other requests are taken into account. The regex guard
+      // ignores any malformed/legacy IDs so the CAST never errors, and the
+      // numeric CAST keeps ordering correct beyond TKT-999 (lexical sort would
+      // place "TKT-1000" before "TKT-999").
+      const rows = await this.prisma.$queryRaw<Array<{ max: number }>>`
+        SELECT COALESCE(MAX(CAST(SUBSTRING("ticketId" FROM 5) AS INTEGER)), 0)::int AS max
+        FROM "tickets"
+        WHERE "ticketId" ~ '^TKT-[0-9]+$'
+      `;
+      const highWaterMark = Number(rows?.[0]?.max ?? 0);
+      // Deterministic forward step guarantees progress; jitter after the first
+      // attempt spreads simultaneous creators apart to avoid thundering-herd
+      // collisions under heavy concurrency.
+      const jitter = attempt === 0 ? 0 : Math.floor(Math.random() * (attempt + 1));
+      const nextNumber = highWaterMark + 1 + attempt + jitter;
+      const ticketId = `TKT-${String(nextNumber).padStart(3, '0')}`;
       try {
         ticket = await this.prisma.ticket.create({
           data: { ...data, ticketId, createdById: userId },
@@ -331,7 +356,10 @@ export class TicketsService {
       } catch (err: any) {
         // P2002 = unique constraint violation — ID was taken by a concurrent insert, retry
         if (err?.code === 'P2002' && err?.meta?.target?.includes('ticketId')) {
-          attempts++;
+          // Log the collision (ID + attempt only — no ticket payload/secrets).
+          this.logger.warn(
+            `Ticket ID collision on ${ticketId} (attempt ${attempt + 1}/${maxAttempts}); retrying`,
+          );
           continue;
         }
         console.error('TICKET CREATE ERROR:', { message: err?.message, code: err?.code, meta: err?.meta });
@@ -339,6 +367,9 @@ export class TicketsService {
       }
     }
     if (!ticket) {
+      this.logger.error(
+        `Failed to generate a unique ticket ID after ${maxAttempts} attempts (createdById=${userId})`,
+      );
       throw new BadRequestException('Failed to generate a unique ticket ID — please try again');
     }
 

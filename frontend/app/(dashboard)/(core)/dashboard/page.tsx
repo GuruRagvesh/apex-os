@@ -18,6 +18,7 @@ import { AnnouncementBroadcast } from '@/components/ui/AnnouncementBroadcast';
 import { CommandModal } from '@/components/ui/CommandModal';
 import { QuickActionPalette } from '@/components/ui/QuickActionPalette';
 import CommandCard from '@/components/ui/CommandCard';
+import TVAClockWidget from '@/components/TVAClockWidget';
 import { motion } from 'motion/react';
 import {
   Ticket, AlertTriangle, Clock, CheckCircle, CalendarDays,
@@ -388,6 +389,9 @@ export default function HomePage() {
         <WorkdayBar />
         {/* Recent session history — last 7 sessions, compact strip */}
         <WorkdayHistoryStrip />
+        <div className="mt-4">
+          <TVAClockWidget />
+        </div>
       </motion.section>
 
       {/* ── ERROR BANNER (shown when dashboard data fails to load) ── */}
