@@ -247,102 +247,83 @@ describe('AuthService — login', () => {
     ).rejects.toThrow('Invalid credentials');
   });
 
-  // ── Release A.2 — login must never auto-start / revive a workday ────────────
+  // ── Release A.3 — login must be fully decoupled from WorkSession ────────────
 
   const PASSWORD = 'correct-password';
 
-  async function arrangeValidUser() {
+  // A valid, authenticatable user whose currentStatus mirrors whatever the last
+  // workday action persisted. Login must return this unchanged and must never
+  // read or write any WorkSession row.
+  async function arrangeValidUser(currentStatus: string) {
     const hash = await bcrypt.hash(PASSWORD, 10);
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'u-login', email: 'worker@apex.local', isActive: true, password: hash,
-      role: { name: 'EMPLOYEE' }, department: null,
+      currentStatus, role: { name: 'EMPLOYEE' }, department: null,
     });
-    mockPrisma.workSession.update.mockResolvedValue({ id: 'ws1' });
-    mockPrisma.workSession.create.mockResolvedValue({ id: 'ws-new' });
     mockPrisma.attendanceEvent.create.mockResolvedValue({});
     mockPrisma.user.update.mockResolvedValue({});
   }
 
-  function lastUpdateArg(): any {
-    const calls = mockPrisma.workSession.update.mock.calls;
-    return calls[calls.length - 1][0];
-  }
-  function lastCreateArg(): any {
-    const calls = mockPrisma.workSession.create.mock.calls;
-    return calls[calls.length - 1][0];
-  }
-
-  it('Scenario 1 — does NOT revive an ended (LOGGED_OUT) session; stays ended, no auto-start', async () => {
-    await arrangeValidUser();
-    mockPrisma.workSession.findFirst.mockResolvedValue({
-      id: 'ws1', status: 'LOGGED_OUT', startWorkAt: new Date(), logoutAt: new Date(),
-    });
-
-    const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
-
-    // Today's session is located by (userId, date) — NOT a userId_date unique key
-    // — so the logic is safe when multiple same-day sessions exist.
-    expect(mockPrisma.workSession.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: 'u-login', date: expect.any(Date) } }),
-    );
-    // Ended state preserved — login did not flip it to LOGGED_IN / WORKING.
-    expect(result.user.currentStatus).toBe('LOGGED_OUT');
-    expect(mockPrisma.user.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ currentStatus: 'LOGGED_OUT' }) }),
-    );
-    // Existing session is updated by id; status / startWorkAt are never touched.
-    const update = lastUpdateArg();
-    expect(update.where).toEqual({ id: 'ws1' });
-    expect(update.data).not.toHaveProperty('status');
-    expect(update.data).not.toHaveProperty('startWorkAt');
-    // No NEW session is created when one already exists for today.
-    expect(mockPrisma.workSession.create).not.toHaveBeenCalled();
-  });
-
-  it('Scenario 3 — fresh user with no session is created as LOGGED_IN, never WORKING', async () => {
-    await arrangeValidUser();
-    mockPrisma.workSession.findFirst.mockResolvedValue(null);
-
-    const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
-
-    expect(result.user.currentStatus).toBe('LOGGED_IN');
-    // New session is created idle-ready, never auto-started.
-    const create = lastCreateArg();
-    expect(create.data.status).toBe('LOGGED_IN');
-    expect(create.data).not.toHaveProperty('startWorkAt');
-    // The existing-session update path must not run.
+  function expectNoWorkSessionWrites() {
+    expect(mockPrisma.workSession.findFirst).not.toHaveBeenCalled();
     expect(mockPrisma.workSession.update).not.toHaveBeenCalled();
-  });
+    expect(mockPrisma.workSession.create).not.toHaveBeenCalled();
+  }
 
-  it('Scenario 4 — preserves an active WORKING session on login (refresh/restore), no auto-change', async () => {
-    await arrangeValidUser();
-    mockPrisma.workSession.findFirst.mockResolvedValue({
-      id: 'ws1', status: 'WORKING', startWorkAt: new Date(),
-    });
+  it('Test 1 — login with NO WorkSession today does not create a WorkSession', async () => {
+    await arrangeValidUser('OFFLINE');
 
     const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
 
+    // Start Work is the only creator — login never makes a row.
+    expectNoWorkSessionWrites();
+    // User keeps its real (non-working) status; login does not invent LOGGED_IN.
+    expect(result.user.currentStatus).toBe('OFFLINE');
+    // Only auth metadata is written — never WorkSession-derived fields.
+    const userUpdate = mockPrisma.user.update.mock.calls[0]?.[0];
+    expect(userUpdate.data).toEqual({ lastActiveAt: expect.any(Date) });
+    expect(userUpdate.data).not.toHaveProperty('currentStatus');
+  });
+
+  it('Test 2 — login with a LOGGED_OUT (ended) session does not update or create a WorkSession', async () => {
+    await arrangeValidUser('LOGGED_OUT');
+
+    const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
+
+    expectNoWorkSessionWrites();
+    // Ended stays ended — no revive, no new LOGGED_IN row in history.
+    expect(result.user.currentStatus).toBe('LOGGED_OUT');
+  });
+
+  it('Test 3 — login with a WORKING session does not update or create a WorkSession', async () => {
+    await arrangeValidUser('WORKING');
+
+    const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
+
+    expectNoWorkSessionWrites();
     expect(result.user.currentStatus).toBe('WORKING');
-    const update = lastUpdateArg();
-    // Status / startWorkAt untouched — login only stamps the latest loginAt by id.
-    expect(update.where).toEqual({ id: 'ws1' });
-    expect(update.data).not.toHaveProperty('status');
-    expect(update.data).not.toHaveProperty('startWorkAt');
-    expect(update.data).toHaveProperty('loginAt');
-    expect(mockPrisma.workSession.create).not.toHaveBeenCalled();
   });
 
-  it('Scenario 5 — preserves an ON_BREAK session on login (refresh/restore)', async () => {
-    await arrangeValidUser();
-    mockPrisma.workSession.findFirst.mockResolvedValue({
-      id: 'ws1', status: 'ON_BREAK', startWorkAt: new Date(),
-    });
+  it('Test 4 — login with an ON_BREAK session does not update or create a WorkSession', async () => {
+    await arrangeValidUser('ON_BREAK');
 
     const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
 
+    expectNoWorkSessionWrites();
     expect(result.user.currentStatus).toBe('ON_BREAK');
-    const update = lastUpdateArg();
-    expect(update.data).not.toHaveProperty('status');
-    expect(mockPrisma.workSession.create).not.toHaveBeenCalled();
+  });
+
+  it('records a LOGIN audit event and refreshes lastActiveAt without touching WorkSession', async () => {
+    await arrangeValidUser('WORKING');
+
+    await service.login({ email: 'worker@apex.local', password: PASSWORD });
+
+    expect(mockPrisma.attendanceEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ eventType: 'LOGIN' }) }),
+    );
+    expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'u-login' }, data: { lastActiveAt: expect.any(Date) } }),
+    );
+    expectNoWorkSessionWrites();
   });
 });

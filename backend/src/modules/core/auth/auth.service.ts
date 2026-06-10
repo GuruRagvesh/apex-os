@@ -45,52 +45,26 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email);
     const { password, ...userWithoutPassword } = user;
 
-    // Create login attendance event
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // ── Login audit only — authentication is fully decoupled from the workday.
+    // A login must NEVER create, revive, or mutate a WorkSession (Release A.3):
+    // work sessions are owned exclusively by explicit workday actions (Start
+    // Work / break / End Day). Here we only record the login event and refresh
+    // the user's last-active timestamp — both live OUTSIDE the WorkSession table
+    // and never touch workday status, startWorkAt, or break logs. The returned
+    // user keeps whatever currentStatus the last workday action persisted.
     const now = new Date();
-
-    let nextStatus = 'LOGGED_IN';
-
     try {
-      // Find today's latest session for this user WITHOUT relying on a
-      // (userId, date) unique key — multiple same-day sessions are supported,
-      // so we use findFirst (most-recent first) instead of findUnique/upsert.
-      const existingSession = await this.prisma.workSession.findFirst({
-        where: { userId: user.id, date: today },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      if (existingSession) {
-        // A login must NEVER auto-start or revive a workday (Release A.2).
-        // Preserve the existing session's status exactly — WORKING/ON_BREAK/IDLE
-        // (refresh/restore), LOGGED_OUT (already ended), or ON_LEAVE. Only stamp
-        // the latest loginAt by id; never touch status or startWorkAt.
-        nextStatus = existingSession.status;
-        await this.prisma.workSession.update({
-          where: { id: existingSession.id },
-          data: { loginAt: now },
-        });
-      } else {
-        // No session yet today: create a fresh LOGGED_IN session. This does NOT
-        // start work — startWork remains the only explicit path to WORKING.
-        await this.prisma.workSession.create({
-          data: { userId: user.id, date: today, loginAt: now, status: nextStatus },
-        });
-      }
       await this.prisma.attendanceEvent.create({
         data: { userId: user.id, eventType: 'LOGIN', source: 'manual' },
       });
       await this.prisma.user.update({
         where: { id: user.id },
-        data: { currentStatus: nextStatus, lastActiveAt: now },
+        data: { lastActiveAt: now },
       });
     } catch (e) {
-      // Non-critical — don't fail login if attendance tracking fails
-      console.error('Attendance tracking error on login:', e);
+      // Non-critical — never fail login if audit tracking fails.
+      console.error('Login audit tracking error:', e);
     }
-
-    userWithoutPassword.currentStatus = nextStatus;
 
     this.eventLogger.log({ actorId: user.id, entityType: 'User', entityId: user.id, action: OperationalAction.USER_LOGIN }).catch(() => {});
 
