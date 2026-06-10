@@ -130,43 +130,61 @@ export class WorkdayService {
     return this.tva.companyDayStart();
   }
 
+  private isClosedSession(session: any): boolean {
+    return !!session?.logoutAt || ['LOGGED_OUT', 'AUTO_CLOSED'].includes(session?.status);
+  }
+
+  private isOpenSession(session: any): boolean {
+    return !!session && !this.isClosedSession(session);
+  }
+
+  private isOpenWorkSession(session: any): boolean {
+    return this.isOpenSession(session) && ['WORKING', 'ON_BREAK', 'IDLE', 'LOGGED_IN'].includes(session.status);
+  }
+
   async startWork(userId: string) {
     const today = this.getTodayDate();
     const now = this.tva.now();
 
-    let session = await this.prisma.workSession.findFirst({
+    const latestSession = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
       orderBy: { createdAt: 'desc' },
     });
 
-    if (session) {
-      const wasAutoClosed = session.status === 'AUTO_CLOSED' || session.autoClosed;
-      session = await this.attendanceAuthority.updateWorkSession(session.id, {
-        status: 'WORKING',
-        startWorkAt: now,
-        loginAt: now,
-      });
+    let session = latestSession;
+    const shouldCreateSession = !session || this.isClosedSession(session);
+    const wasAutoClosed = !!session && (session.status === 'AUTO_CLOSED' || session.autoClosed);
 
-      if (wasAutoClosed) {
-        try {
-          await this.notificationEventService.sendNotification(userId, 'system', {
-            title: 'Workday resumed',
-            message: 'Your workday has been resumed and will be counted with your previous session for today.',
-            type: NotificationType.SUCCESS,
-            link: '/dashboard',
-            entityType: 'WORKDAY',
-            entityId: session.id,
-          });
-        } catch (_e) {}
-      }
-    } else {
+    if (shouldCreateSession) {
       session = await this.attendanceAuthority.createWorkSession({
         userId,
         date: today,
         loginAt: now,
         startWorkAt: now,
         status: 'WORKING',
+        ...(latestSession ? { continuationOfSessionId: latestSession.id } : {}),
       });
+    } else if (session.status === 'LOGGED_IN') {
+      session = await this.attendanceAuthority.updateWorkSession(session.id, {
+        status: 'WORKING',
+        startWorkAt: session.startWorkAt ?? now,
+        loginAt: session.loginAt ?? now,
+      });
+    } else if (!this.isOpenWorkSession(session)) {
+      throw new Error('No active session');
+    }
+
+    if (wasAutoClosed) {
+      try {
+        await this.notificationEventService.sendNotification(userId, 'system', {
+          title: 'Workday resumed',
+          message: 'Your workday has been resumed and will be counted with your previous session for today.',
+          type: NotificationType.SUCCESS,
+          link: '/dashboard',
+          entityType: 'WORKDAY',
+          entityId: session.id,
+        });
+      } catch (_e) {}
     }
 
     await this.prisma.attendanceEvent.create({
@@ -196,6 +214,16 @@ export class WorkdayService {
     });
 
     if (!session) return { message: 'No session found' };
+
+    if (this.isClosedSession(session)) {
+      return {
+        session,
+        summary: {
+          totalWorkMinutes: session.totalWorkMinutes ?? 0,
+          totalBreakMinutes: session.totalBreakMinutes ?? 0,
+        },
+      };
+    }
 
     let totalBreakMinutes = session.breakLogs
       .filter((b) => b.durationMinutes)
@@ -257,8 +285,21 @@ export class WorkdayService {
     const session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
       orderBy: { createdAt: 'desc' },
+      include: {
+        breakLogs: {
+          where: { endAt: null },
+          orderBy: { startAt: 'asc' },
+        },
+      },
     });
-    if (!session) throw new Error('No active session');
+    if (!session || !this.isOpenSession(session) || session.status !== 'WORKING') {
+      throw new Error('No active working session');
+    }
+
+    const openBreaks = session.breakLogs ?? [];
+    if (openBreaks.length > 0) {
+      throw new Error('Break already in progress');
+    }
 
     const breakLog = await this.prisma.breakLog.create({
       data: {
@@ -312,14 +353,21 @@ export class WorkdayService {
     const session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
       orderBy: { createdAt: 'desc' },
+      include: {
+        breakLogs: {
+          where: { endAt: null },
+          orderBy: { startAt: 'asc' },
+        },
+      },
     });
-    if (!session) throw new Error('No active session');
+    if (!session || !this.isOpenSession(session) || session.status !== 'ON_BREAK') {
+      throw new Error('No active break session');
+    }
 
-    const openBreak = await this.prisma.breakLog.findFirst({
-      where: { userId, workSessionId: session.id, endAt: null },
-      orderBy: { startAt: 'desc' },
-    });
-    if (!openBreak) throw new Error('No open break found');
+    const openBreaks = session.breakLogs ?? [];
+    if (openBreaks.length === 0) throw new Error('No open break found');
+    if (openBreaks.length > 1) throw new Error('Multiple open breaks found');
+    const openBreak = openBreaks[0];
 
     const durationMinutes = Math.floor(
       (now.getTime() - openBreak.startAt.getTime()) / 60000,

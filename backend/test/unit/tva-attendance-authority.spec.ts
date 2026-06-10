@@ -87,7 +87,12 @@ describe('TVA Attendance Authority (Unit)', () => {
   });
 
   it('4. break writes through authority', async () => {
-    mockPrisma.workSession.findFirst.mockResolvedValue({ id: 'session-1' });
+    mockPrisma.workSession.findFirst.mockResolvedValue({
+      id: 'session-1',
+      status: 'WORKING',
+      logoutAt: null,
+      breakLogs: [],
+    });
     mockPrisma.breakLog.create.mockResolvedValue({ id: 'break-1' });
 
     await workdayService.startBreak('user-1', { breakType: 'LUNCH' });
@@ -97,8 +102,13 @@ describe('TVA Attendance Authority (Unit)', () => {
   });
 
   it('5. resume writes through authority (end break)', async () => {
-    mockPrisma.workSession.findFirst.mockResolvedValue({ id: 'session-1', totalBreakMinutes: 10 });
-    mockPrisma.breakLog.findFirst.mockResolvedValue({ id: 'break-1', startAt: new Date(Date.now() - 15 * 60000) });
+    mockPrisma.workSession.findFirst.mockResolvedValue({
+      id: 'session-1',
+      status: 'ON_BREAK',
+      logoutAt: null,
+      totalBreakMinutes: 10,
+      breakLogs: [{ id: 'break-1', startAt: new Date(Date.now() - 15 * 60000) }],
+    });
 
     await workdayService.endBreak('user-1');
 
@@ -112,6 +122,8 @@ describe('TVA Attendance Authority (Unit)', () => {
   it('6. end day writes through authority', async () => {
     mockPrisma.workSession.findFirst.mockResolvedValue({
       id: 'session-1',
+      status: 'WORKING',
+      logoutAt: null,
       startWorkAt: new Date(Date.now() - 60 * 60000),
       breakLogs: [],
     });
