@@ -34,9 +34,16 @@ export class WorkdayService {
     if (!canView) throw new ForbiddenException('You do not have permission to view this user\'s work history');
 
     const sessions = await this.prisma.workSession.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 60,
+      where: {
+        userId,
+        NOT: {
+          status: 'LOGGED_IN',
+          startWorkAt: null,
+          totalWorkMinutes: 0,
+        },
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      take: 90,
       include: {
         breakLogs: { orderBy: { startAt: 'asc' } },
       },
@@ -46,14 +53,23 @@ export class WorkdayService {
     const currentCompanyDateStr = formatInTimeZone(this.tva.now(), DEFAULT_COMPANY_TIMEZONE, 'yyyy-MM-dd');
 
     for (const session of sessions) {
+      const isLoginOnlyArtifact =
+        session.status === 'LOGGED_IN' &&
+        !session.startWorkAt &&
+        (session.totalWorkMinutes || 0) === 0;
+
+      if (isLoginOnlyArtifact) continue;
+
+      const sessionStart = session.startWorkAt;
+
       const dateStr = session.date instanceof Date
         ? formatInTimeZone(session.date, 'UTC', 'yyyy-MM-dd')
         : String(session.date).split('T')[0];
-      
+
       if (!grouped.has(dateStr)) {
         grouped.set(dateStr, {
           companyDate: dateStr,
-          firstStartTime: session.startWorkAt || session.loginAt,
+          firstStartTime: sessionStart ?? null,
           lastEndTime: session.logoutAt,
           sessionCount: 0,
           autoClosedCount: 0,
@@ -72,20 +88,21 @@ export class WorkdayService {
       const summary = grouped.get(dateStr)!;
       summary.sessionCount += 1;
       if (session.autoClosed) summary.autoClosedCount += 1;
-      
+
       const workMins = session.totalWorkMinutes || 0;
       const breakMins = session.totalBreakMinutes || 0;
       summary.totalWorkMinutes += workMins;
       summary.totalBreakMinutes += breakMins;
       summary.netWorkMinutes += workMins;
-      
+
       if (session.closureReason) summary.closureReasons.add(session.closureReason);
-      
-      if (!session.logoutAt) summary.hasOpenSession = true;
-      
-      if ((session.startWorkAt || session.loginAt) < summary.firstStartTime) {
-        summary.firstStartTime = session.startWorkAt || session.loginAt;
+
+      if (!session.logoutAt && session.startWorkAt) summary.hasOpenSession = true;
+
+      if (sessionStart && (!summary.firstStartTime || sessionStart < summary.firstStartTime)) {
+        summary.firstStartTime = sessionStart;
       }
+
       if (session.logoutAt && (!summary.lastEndTime || session.logoutAt > summary.lastEndTime)) {
         summary.lastEndTime = session.logoutAt;
       }
@@ -96,15 +113,15 @@ export class WorkdayService {
     const result = Array.from(grouped.values()).map(summary => {
       summary.closureReasons = Array.from(summary.closureReasons);
       if (summary.netWorkMinutes > 960) summary.hasSuspiciousDuration = true;
-      
+
       const isToday = summary.companyDate === currentCompanyDateStr;
-      
+
       if (summary.hasSuspiciousDuration) {
         summary.status = 'NEEDS_REVIEW';
         summary.needsReview = true;
       } else if (summary.hasOpenSession) {
         if (isToday) {
-          const openSession = summary.sessions.find((s: any) => !s.logoutAt);
+          const openSession = summary.sessions.find((s: any) => !s.logoutAt && s.startWorkAt);
           summary.status = openSession?.status || 'WORKING';
         } else {
           summary.status = 'NEEDS_REVIEW';
@@ -648,3 +665,4 @@ export class WorkdayService {
     });
   }
 }
+
