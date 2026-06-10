@@ -53,28 +53,31 @@ export class AuthService {
     let nextStatus = 'LOGGED_IN';
 
     try {
-      const existingSession = await this.prisma.workSession.findUnique({
-        where: { userId_date: { userId: user.id, date: today } },
+      // Find today's latest session for this user WITHOUT relying on a
+      // (userId, date) unique key — multiple same-day sessions are supported,
+      // so we use findFirst (most-recent first) instead of findUnique/upsert.
+      const existingSession = await this.prisma.workSession.findFirst({
+        where: { userId: user.id, date: today },
+        orderBy: { createdAt: 'desc' },
       });
 
-      // A login must NEVER auto-start or revive a workday (Release A.2).
-      // If today's session already exists, preserve its status exactly —
-      // whether the user is still WORKING/ON_BREAK/IDLE (refresh/restore) or has
-      // already ended the day (LOGGED_OUT) or is ON_LEAVE. Only a brand-new
-      // first-login-of-day session is created, as LOGGED_IN, which still
-      // requires an explicit Start Work click before any time is tracked.
       if (existingSession) {
+        // A login must NEVER auto-start or revive a workday (Release A.2).
+        // Preserve the existing session's status exactly — WORKING/ON_BREAK/IDLE
+        // (refresh/restore), LOGGED_OUT (already ended), or ON_LEAVE. Only stamp
+        // the latest loginAt by id; never touch status or startWorkAt.
         nextStatus = existingSession.status;
+        await this.prisma.workSession.update({
+          where: { id: existingSession.id },
+          data: { loginAt: now },
+        });
+      } else {
+        // No session yet today: create a fresh LOGGED_IN session. This does NOT
+        // start work — startWork remains the only explicit path to WORKING.
+        await this.prisma.workSession.create({
+          data: { userId: user.id, date: today, loginAt: now, status: nextStatus },
+        });
       }
-
-      await this.prisma.workSession.upsert({
-        where: { userId_date: { userId: user.id, date: today } },
-        // Only stamp the latest loginAt on an existing session — never touch its
-        // status. This is the guard that stops an ended (LOGGED_OUT) session
-        // from being auto-restarted when the user logs back in the same day.
-        update: { loginAt: now },
-        create: { userId: user.id, date: today, loginAt: now, status: nextStatus },
-      });
       await this.prisma.attendanceEvent.create({
         data: { userId: user.id, eventType: 'LOGIN', source: 'manual' },
       });
