@@ -3,7 +3,13 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import * as bcrypt from 'bcryptjs';
-import { TVAService } from '../../../common/services/tva.service';
+
+// documentType value the Documents & Verification UI sends for a profile photo.
+// Only this document type is allowed to update the user's avatar/photo.
+const PROFILE_PHOTO_DOCUMENT_TYPE = 'PROFILE_PHOTO';
+function isProfilePhotoType(documentType?: string): boolean {
+  return (documentType ?? '').toUpperCase().replace(/[\s-]+/g, '_') === PROFILE_PHOTO_DOCUMENT_TYPE;
+}
 
 @Injectable()
 export class UsersService {
@@ -11,7 +17,6 @@ export class UsersService {
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
     private eventLogger: EventLoggerService,
-    private tva: TVAService,
   ) {}
 
   async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
@@ -318,46 +323,19 @@ export class UsersService {
       'emergencyName','emergencyPhone','emergencyRelation','userLocation','bloodGroup',
       'gender','dateOfBirth'];
 
-    const ALLOWED_PROFILE_FIELDS = [
-      'name', 'phone', 'dateOfBirth', 'gender', 'bloodGroup',
-      'currentAddress', 'permanentAddress', 'emergencyName', 'emergencyPhone',
-      'emergencyRelation', 'userLocation', 'employeeId', 'designation',
-      'employmentType', 'workMode', 'joiningDate', 'probationPeriod',
-      'reportingManager', 'teamLeadName', 'workLocation', 'shiftTiming',
-      'ctcAnnual', 'basicSalary', 'salaryStructure', 'bankName',
-      'accountNumber', 'ifscCode', 'accountHolderName', 'paymentMode',
-      'panNumber', 'aadhaarNumber', 'uanNumber', 'pfApplicable',
-      'esicApplicable', 'professionalTax', 'taxRegime', 'verificationStatus',
-      'verifiedBy', 'verificationDate', 'hrNotes', 'isActive', 'roleId', 'departmentId'
-    ];
-
     let data: any = {};
 
     if (canEditAll) {
-      for (const key of ALLOWED_PROFILE_FIELDS) {
-        if (key in dto) {
-          let value = dto[key];
-          if (value === '') value = null; // Fix relation schema validation errors
-          if (['joiningDate', 'dateOfBirth', 'verificationDate'].includes(key)) {
-            value = value ? new Date(value) : null;
-          }
-          data[key] = value;
-        }
-      }
+      data = { ...dto };
+      delete data.password;
+      delete data.id;
       const payrollChanged = PAYROLL_FIELDS.filter((f) => f in dto);
       if (payrollChanged.length > 0) {
         await this.logSensitiveAccess(requesterId, 'EDIT_PAYROLL_DATA', targetUserId, { fieldsChanged: payrollChanged });
       }
     } else if (isOwnProfile) {
       for (const key of PERSONAL_EDITABLE_BY_SELF) {
-        if (key in dto) {
-          let value = dto[key];
-          if (value === '') value = null; // Fix empty strings causing issues
-          if (key === 'dateOfBirth') {
-            value = value ? new Date(value) : null;
-          }
-          data[key] = value;
-        }
+        if (key in dto) data[key] = dto[key];
       }
     } else {
       throw new ForbiddenException('Not authorized to edit this profile');
@@ -404,6 +382,24 @@ export class UsersService {
       action: OperationalAction.DOCUMENT_UPLOADED,
       metadata: { targetUserId, documentType, fileName: file.originalname },
     }).catch(() => {});
+
+    // Sync the user's avatar/photo when (and only when) the uploaded document is
+    // their Profile Photo. photoUrl is the canonical avatar field — the shared
+    // UserAvatar, team page, profile page and navbar all render it — so writing
+    // it here makes the admin-uploaded photo appear everywhere. All other
+    // document types (Aadhaar, PAN, …) never touch the avatar.
+    if (isProfilePhotoType(documentType)) {
+      await this.prisma.user.update({
+        where: { id: targetUserId },
+        data: { photoUrl: fileUrl },
+      });
+      this.eventLogger.log({
+        actorId: requesterId,
+        entityType: 'User',
+        entityId: targetUserId,
+        action: OperationalAction.PHOTO_UPLOADED,
+      }).catch(() => {});
+    }
 
     return { document: doc };
   }
@@ -454,7 +450,7 @@ export class UsersService {
       data: {
         verificationStatus: status,
         verifiedBy: requester?.name,
-        verifiedAt: this.tva.now(),
+        verifiedAt: new Date(),
         rejectionReason: status === 'REJECTED' ? rejectionReason : null,
       },
     });

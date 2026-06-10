@@ -9,8 +9,6 @@ import { NotificationEventService } from '../notifications/notification-event.se
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
-import { TicketLedgerService } from './ticket-ledger.service';
-import { TVAService } from '../../../common/services/tva.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -32,8 +30,6 @@ export class TicketsService {
     private eventLogger: EventLoggerService,
     private ticketAccess: TicketAccessService,
     private ticketTiming: TicketTimingService,
-    private ticketLedger: TicketLedgerService,
-    private tva: TVAService,
   ) {}
 
   private get frontendUrl() {
@@ -48,11 +44,11 @@ export class TicketsService {
   }
 
   private includeOptions = {
-    assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
-    createdBy: { select: { id: true, name: true, email: true, avatar: true } },
+    assignedTo: { select: { id: true, name: true, email: true, avatar: true, photoUrl: true } },
+    createdBy: { select: { id: true, name: true, email: true, avatar: true, photoUrl: true } },
     department: true,
     project: { select: { id: true, projectId: true, name: true } },
-    assignees: { include: { user: { select: { id: true, name: true, avatar: true } } } },
+    assignees: { include: { user: { select: { id: true, name: true, avatar: true, photoUrl: true } } } },
     taskType: true,
     taskSubtype: true,
     comments: {
@@ -147,7 +143,6 @@ export class TicketsService {
     filter?: string;
     blocked?: string | boolean;
     isBlocked?: string | boolean;
-    projectStageId?: string;
     page?: number;
     limit?: number;
   }, user?: any) {
@@ -161,11 +156,6 @@ export class TicketsService {
       || query.isBlocked === true || query.isBlocked === 'true';
     if (blockedFilter) {
       (where as any).isBlocked = true;
-    }
-
-    // projectStageId filter — show tickets in a specific project stage (FP-14B)
-    if (query.projectStageId) {
-      (where as any).projectStageId = query.projectStageId === 'null' ? null : query.projectStageId;
     }
 
     const needsTimingFilter = query.overdue === true || query.overdue === 'true' || query.risk === 'overdue' || query.filter === 'overdue';
@@ -215,19 +205,12 @@ export class TicketsService {
         orderBy: { createdAt: 'asc' },
       },
       attachments: { orderBy: { createdAt: 'desc' } },
-      reviewCycles: {
-        include: { assignee: { select: { name: true } }, reviewer: { select: { name: true } } },
-        orderBy: { cycleNo: 'desc' },
-      },
     };
     const ticket = user
       ? await this.ticketAccess.findAccessibleTicket(id, user, include)
       : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include });
     if (!ticket) throw new NotFoundException('Ticket not found');
-    const enriched = await this.addSla(ticket);
-    const timers = await this.ticketLedger.getTicketTimers(ticket);
-    const reworkLabel = enriched.reworkCount > 0 ? `Rework ${enriched.reworkCount}` : null;
-    return { ...enriched, timers, reworkLabel };
+    return this.addSla(ticket);
   }
 
   async assertCanUploadAttachment(user: any, ticket: any) {
@@ -307,14 +290,14 @@ export class TicketsService {
     // Only set executionDueAt if scheduledStartAt is in the future (not past midnight UTC edge cases)
     const scheduledBase = data.scheduledStartAt ? new Date(data.scheduledStartAt) : null;
     const actualBase = data.actualStartAt ? new Date(data.actualStartAt) : null;
-    const baseForExec = scheduledBase && scheduledBase.getTime() > this.tva.now().getTime() ? scheduledBase : null;
+    const baseForExec = scheduledBase && scheduledBase.getTime() > Date.now() ? scheduledBase : null;
     const executionDueAt = this.calcExecutionDueAt(
       baseForExec,
       actualBase,
       data.estimatedMinutes,
     );
     // Never store an executionDueAt that is already in the past
-    if (executionDueAt && executionDueAt.getTime() > this.tva.now().getTime()) {
+    if (executionDueAt && executionDueAt.getTime() > Date.now()) {
       data.executionDueAt = executionDueAt;
     }
 
@@ -448,14 +431,6 @@ export class TicketsService {
     const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
     delete data.assigneeIds;
 
-    // FP-14B: Validate projectStageId assignment — stage must belong to same project as ticket
-    if (data.projectStageId !== undefined && data.projectStageId !== null) {
-      const stage = await this.prisma.projectStage.findUnique({ where: { id: data.projectStageId } });
-      if (!stage) throw new NotFoundException('Project stage not found');
-      // The ticket's projectId is resolved below; we pre-check here if already known
-      // Full cross-project check is enforced when we read the existing ticket
-    }
-
     // Handle custom subtype on update
     if (data.taskSubtypeId === '__custom__' || data.taskSubtypeId === 'custom') {
       data.taskSubtypeId = null;
@@ -481,18 +456,6 @@ export class TicketsService {
       : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: { assignees: true } });
     if (!existing) throw new NotFoundException('Ticket not found');
     const ticketDbId = existing.id;
-
-    // FP-14B: Cross-project stage validation — stage must belong to same project as ticket
-    if (data.projectStageId !== undefined && data.projectStageId !== null) {
-      const stage = await this.prisma.projectStage.findUnique({ where: { id: data.projectStageId } });
-      if (!stage) throw new NotFoundException('Project stage not found');
-      if (!existing.projectId) {
-        throw new BadRequestException('Cannot assign a stage to a ticket that is not linked to a project');
-      }
-      if (stage.projectId !== existing.projectId) {
-        throw new BadRequestException('Stage does not belong to the same project as this ticket');
-      }
-    }
 
     if (existing.status === TicketStatus.CLOSED) {
       throw new BadRequestException('Cannot modify a closed ticket');
@@ -522,9 +485,9 @@ export class TicketsService {
         }
       }
       if (data.status) {
-        await this.ticketAccess.assertCanTransitionTicket(user, existing, data.status, data);
+        await this.ticketAccess.assertCanTransitionTicket(user, existing, data.status);
       } else {
-        await this.ticketAccess.assertCanUpdateTicket(user, existing, data);
+        await this.ticketAccess.assertCanUpdateTicket(user, existing);
       }
     }
 
@@ -533,18 +496,18 @@ export class TicketsService {
       data.submittedAt = null;
       data.reviewStartedAt = null;
       data.reviewDueAt = null;
-      data.actualStartAt = existing.actualStartAt ?? this.tva.now();
+      data.actualStartAt = existing.actualStartAt ?? new Date();
       if (existing.estimatedMinutes) {
-        data.executionDueAt = new Date(this.tva.now().getTime() + existing.estimatedMinutes * 60_000);
+        data.executionDueAt = new Date(Date.now() + existing.estimatedMinutes * 60_000);
       }
     }
 
     // ── Execution timer: stamp actualStartAt + executionDueAt ────────────────
     if (data.status === TicketStatus.IN_PROGRESS && !existing.actualStartAt && !data.actualStartAt) {
-      data.actualStartAt = this.tva.now();
+      data.actualStartAt = new Date();
     }
     if (data.status === TicketStatus.IN_PROGRESS && !existing.executionDueAt) {
-      const base: Date = existing.scheduledStartAt ?? data.actualStartAt ?? this.tva.now();
+      const base: Date = existing.scheduledStartAt ?? data.actualStartAt ?? new Date();
       const mins: number | null | undefined = existing.estimatedMinutes;
       const due = this.calcExecutionDueAt(base, null, mins);
       if (due) data.executionDueAt = due;
@@ -563,32 +526,25 @@ export class TicketsService {
 
     // ── Review timer: stamp submittedAt + reviewStartedAt + reviewDueAt ──────
     if (data.status === TicketStatus.REVIEW && !existing.submittedAt) {
-      const now = this.tva.now();
+      const now = new Date();
       data.submittedAt = now;
       data.reviewStartedAt = now;
       const reviewHours = await this.getReviewSlaHoursForPriority(existing.priority);
       data.reviewDueAt = new Date(now.getTime() + reviewHours * 3_600_000);
-      
-      // Start the review cycle in the ledger
-      await this.ticketLedger.startReviewCycle({
-        ticketId: existing.id,
-        assigneeId: existing.assignedToId,
-        reviewStartedAt: now,
-      });
     }
 
     // ── Completion stamps ────────────────────────────────────────────────────
     if (data.status === TicketStatus.DONE) {
-      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = this.tva.now();
-      if (!existing.closedAt) data.closedAt = this.tva.now();
-      data.resolvedAt = this.tva.now();
+      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = new Date();
+      if (!existing.closedAt) data.closedAt = new Date();
+      data.resolvedAt = new Date();
     }
 
     if (data.status === TicketStatus.CLOSED) {
-      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = this.tva.now();
-      if (!existing.closedAt) data.closedAt = this.tva.now();
-      if (!existing.cancelledAt) data.cancelledAt = this.tva.now();
-      data.resolvedAt = this.tva.now();
+      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = new Date();
+      if (!existing.closedAt) data.closedAt = new Date();
+      if (!existing.cancelledAt) data.cancelledAt = new Date();
+      data.resolvedAt = new Date();
     }
 
     // Track history for changed fields
@@ -649,62 +605,6 @@ export class TicketsService {
       if (mappedAction) {
         this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: mappedAction, fromState: existing.status, toState: data.status, metadata: { ticketId: ticket.ticketId } }).catch(() => {});
       }
-
-      // --- TICKET TIMER HOOKS ---
-      // --- TICKET TIMER HOOKS ---
-      const activeLog = await this.ticketLedger.getActiveLogForTicket(ticket.id);
-      if (activeLog) {
-        await this.ticketLedger.endActiveLog({ logId: activeLog.id, pauseReason: data.status });
-      }
-
-      if (data.status === TicketStatus.IN_PROGRESS && existing.status !== TicketStatus.IN_PROGRESS) {
-        await this.ticketLedger.startWorkLog({
-          ticketId: ticket.id,
-          userId: ticket.assignedToId || userId,
-          stage: 'IN_PROGRESS',
-          ownerType: 'ASSIGNEE',
-          source: 'TICKET_STATUS',
-        });
-      } else if (data.status === TicketStatus.REVIEW && existing.status !== TicketStatus.REVIEW) {
-        let reviewerId = null;
-        const creator = await this.prisma.user.findUnique({ where: { id: existing.createdById } });
-        if (creator?.teamLeadName) {
-          const tl = await this.prisma.user.findUnique({ where: { employeeId: creator.teamLeadName } });
-          if (tl && tl.id !== userId) reviewerId = tl.id;
-        }
-        if (!reviewerId && creator?.reportingManager) {
-          const mgr = await this.prisma.user.findUnique({ where: { employeeId: creator.reportingManager } });
-          if (mgr && mgr.id !== userId) reviewerId = mgr.id;
-        }
-
-        await this.ticketLedger.startWorkLog({
-          ticketId: ticket.id,
-          userId: reviewerId || userId,
-          stage: 'REVIEW',
-          ownerType: 'REVIEWER',
-          source: 'TICKET_STATUS',
-        });
-
-        // NOTIFY REVIEWER
-        try {
-          if (reviewerId) {
-            await this.notificationEventService.sendNotification(
-              reviewerId,
-              'statusChanged',
-              {
-                title: 'Ticket ready for review',
-                message: `${ticket.ticketId} - ${ticket.title} has been submitted for your review.`,
-                type: NotificationType.INFO,
-                link: `/tickets/${ticket.id}`,
-                entityId: ticket.id,
-                entityType: 'TICKET',
-              }
-            );
-          }
-        } catch (_e) { /* ignore */ }
-      }
-      // --------------------------
-
       this.eventEmitter.emit('ticket.status_changed', {
         ticket,
         oldStatus: existing.status,
@@ -760,34 +660,18 @@ export class TicketsService {
       }).catch(() => {});
       const updater = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
       try {
-        if (ticket.assignedTo.id !== userId) {
-          await this.notificationEventService.sendNotification(
-            ticket.assignedTo.id,
-            'assignedTicket',
-            {
-              title: 'Ticket assigned to you',
-              message: `${ticket.ticketId} - ${ticket.title} has been assigned to you.`,
-              type: NotificationType.INFO,
-              link: `/tickets/${ticket.id}`,
-              entityId: ticket.id,
-              entityType: 'TICKET',
-            }
-          );
-        }
-        if (existing.assignedToId && existing.assignedToId !== ticket.assignedTo.id && existing.assignedToId !== userId) {
-          await this.notificationEventService.sendNotification(
-            existing.assignedToId,
-            'assignedTicket',
-            {
-              title: 'Ticket reassigned',
-              message: `${ticket.ticketId} - ${ticket.title} has been reassigned from you.`,
-              type: NotificationType.INFO,
-              link: `/tickets/${ticket.id}`,
-              entityId: ticket.id,
-              entityType: 'TICKET',
-            }
-          );
-        }
+        await this.notificationEventService.sendNotification(
+          ticket.assignedTo.id,
+          'assignedTicket',
+          {
+            title: `Ticket assigned to you: ${ticket.ticketId}`,
+            message: ticket.title,
+            type: NotificationType.INFO,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          }
+        );
       } catch (_e) { /* never crash main op */ }
       try {
         await this.emailService.sendTicketAssigned(
@@ -834,7 +718,7 @@ export class TicketsService {
 
     const updated = await this.prisma.ticket.update({
       where: { id: ticket.id },
-      data: { isBlocked: true, blockedAt: this.tva.now(), blockedReason: reason.trim(), blockedById: userId },
+      data: { isBlocked: true, blockedAt: new Date(), blockedReason: reason.trim(), blockedById: userId },
       include: this.includeOptions,
     });
 
@@ -963,7 +847,7 @@ export class TicketsService {
     return this.update(id, { assignedToId }, userId, user);
   }
 
-  async approve(id: string, ratings: { taskEfficiencyRating: number, employeePerformanceRating: number, employeeAttitudeRating: number, ratingComment?: string }, userId: string, user?: any) {
+  async approve(id: string, userId: string, user?: any) {
     const ticket = user
       ? await this.ticketAccess.findAccessibleTicket(id, user, { createdBy: { select: { id: true, name: true } }, assignees: true })
       : await this.prisma.ticket.findFirst({
@@ -974,33 +858,13 @@ export class TicketsService {
     if (ticket.status !== TicketStatus.REVIEW) {
       throw new ForbiddenException('Only tickets in REVIEW status can be approved');
     }
-    
-    const isSelfReview = ticket.assignedToId === userId;
-    
-    if (!isSelfReview) {
-      if (!ratings.taskEfficiencyRating || !ratings.employeePerformanceRating || !ratings.employeeAttitudeRating) {
-        throw new BadRequestException('All three ratings (Task Efficiency, Employee Performance, Employee Attitude) are required to approve.');
-      }
-      for (const r of [ratings.taskEfficiencyRating, ratings.employeePerformanceRating, ratings.employeeAttitudeRating]) {
-        if (typeof r !== 'number' || r < 1 || r > 5) {
-          throw new BadRequestException('Ratings must be integers between 1 and 5.');
-        }
-      }
-    }
-    
     if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.DONE);
 
+    // suppressCompletionNotification=true: update() skips its generic "Ticket resolved"
+    // notification so we can send a more specific "Ticket approved" message here instead.
     const updated = await this.update(ticket.id, { status: TicketStatus.DONE }, userId, user, { suppressCompletionNotification: true });
-    
-    await this.ticketLedger.endReviewCycle({
-      ticketId: ticket.id,
-      decision: 'APPROVED',
-      taskEfficiencyRating: isSelfReview ? null : ratings.taskEfficiencyRating,
-      employeePerformanceRating: isSelfReview ? null : ratings.employeePerformanceRating,
-      employeeAttitudeRating: isSelfReview ? null : ratings.employeeAttitudeRating,
-      ratingComment: isSelfReview ? null : ratings.ratingComment,
-    });
 
+    // Single targeted notification to reporter — "Ticket approved" (not generic "resolved")
     try {
       await this.notificationEventService.sendNotification(
         ticket.createdById,
@@ -1030,26 +894,16 @@ export class TicketsService {
     if (ticket.status !== TicketStatus.REVIEW) {
       throw new ForbiddenException('Only tickets in REVIEW status can be rejected');
     }
-    if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.OPEN);
+    if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.IN_PROGRESS);
 
     const [updated] = await Promise.all([
-      this.update(ticket.id, { status: TicketStatus.OPEN }, userId, user),
-      this.prisma.ticket.update({
-        where: { id: ticket.id },
-        data: { reworkCount: { increment: 1 } },
-      }),
+      this.update(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user),
       this.prisma.comment.create({
         data: {
           ticketId: ticket.id,
           authorId: userId,
           content: `[REJECTED] ${comment}`,
         },
-      }),
-      this.ticketLedger.endReviewCycle({
-        ticketId: ticket.id,
-        decision: 'REWORK',
-        feedback: comment,
-        reworkStartedAt: this.tva.now(),
       }),
     ]);
 
