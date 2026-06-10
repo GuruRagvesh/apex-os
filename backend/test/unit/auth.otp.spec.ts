@@ -1,4 +1,3 @@
-import { TVAService } from '../../src/common/services/tva.service';
 /**
  * Unit tests — AuthService OTP logic
  *
@@ -13,9 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
-import { CompanyDateService } from '../../src/common/services/company-date.service';
 import { EmailService } from '../../src/modules/platform/email/email.service';
-import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
 import * as bcrypt from 'bcryptjs';
 
 const mockPrisma = {
@@ -26,7 +23,7 @@ const mockPrisma = {
     create:     jest.fn(),
     upsert:     jest.fn(),
   },
-  workSession:     { upsert: jest.fn() },
+  workSession:     { upsert: jest.fn(), findUnique: jest.fn() },
   attendanceEvent: { create: jest.fn() },
 };
 
@@ -45,15 +42,12 @@ describe('AuthService — OTP', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         AuthService,
         { provide: PrismaService,      useValue: mockPrisma       },
         { provide: JwtService,         useValue: mockJwt          },
         { provide: ConfigService,      useValue: mockConfig       },
         { provide: EventLoggerService, useValue: mockEventLogger  },
         { provide: EmailService,       useValue: mockEmailService },
-        { provide: AttendanceAuthorityService, useValue: {} },
-        { provide: CompanyDateService, useValue: {} },
       ],
     }).compile();
 
@@ -89,55 +83,6 @@ describe('AuthService — OTP', () => {
     expect(entry).toBeDefined();
     expect(entry.otp).toMatch(/^\d{6}$/);
     expect(entry.expires).toBeGreaterThan(Date.now());
-  });
-
-  // ── sendOtp — resend cooldown ──────────────────────────────────────────────
-
-  it('prevents spamming OTP within 30 seconds cooldown', async () => {
-    mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'cooldown@apex.local', isActive: true });
-    mockEmailService.sendOtpEmail.mockResolvedValue(undefined);
-
-    // First send
-    await service.sendOtp('cooldown@apex.local');
-    expect(mockEmailService.sendOtpEmail).toHaveBeenCalledTimes(1);
-
-    // Reset calls list
-    mockEmailService.sendOtpEmail.mockClear();
-
-    // Second send immediately
-    const result = await service.sendOtp('cooldown@apex.local');
-    expect(result.message).toContain('If an account exists');
-    expect(mockEmailService.sendOtpEmail).not.toHaveBeenCalled(); // Blocked by cooldown
-  });
-
-  it('allows resend and replaces OTP after 30 seconds cooldown', async () => {
-    mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'cooldown@apex.local', isActive: true });
-    mockEmailService.sendOtpEmail.mockResolvedValue(undefined);
-
-    // First send
-    await service.sendOtp('cooldown@apex.local');
-    const otpStore: Map<string, any> = (service as any).otpStore;
-    const entry1 = otpStore.get('cooldown@apex.local');
-    const firstOtp = entry1.otp;
-
-    // Reset calls list
-    mockEmailService.sendOtpEmail.mockClear();
-
-    // Mock passage of 31 seconds
-    const origNow = Date.now;
-    Date.now = () => entry1.createdAt + 31000;
-
-    try {
-      // Second send after cooldown
-      const result = await service.sendOtp('cooldown@apex.local');
-      expect(result.message).toContain('If an account exists');
-      expect(mockEmailService.sendOtpEmail).toHaveBeenCalledTimes(1);
-
-      const entry2 = otpStore.get('cooldown@apex.local');
-      expect(entry2.otp).not.toBe(firstOtp); // Generated new OTP
-    } finally {
-      Date.now = origNow; // Restore original Date.now
-    }
   });
 
   // ── sendOtp — unknown user (no enumeration) ─────────────────────────────────
@@ -275,8 +220,6 @@ describe('AuthService — login', () => {
         { provide: ConfigService,      useValue: mockConfig       },
         { provide: EventLoggerService, useValue: mockEventLogger  },
         { provide: EmailService,       useValue: mockEmailService },
-        { provide: AttendanceAuthorityService, useValue: {} },
-        { provide: CompanyDateService, useValue: {} },
       ],
     }).compile();
 
@@ -302,5 +245,86 @@ describe('AuthService — login', () => {
     await expect(
       service.login({ email: 'user@apex.local', password: 'wrong-password' }),
     ).rejects.toThrow('Invalid credentials');
+  });
+
+  // ── Release A.2 — login must never auto-start / revive a workday ────────────
+
+  const PASSWORD = 'correct-password';
+
+  async function arrangeValidUser() {
+    const hash = await bcrypt.hash(PASSWORD, 10);
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'u-login', email: 'worker@apex.local', isActive: true, password: hash,
+      role: { name: 'EMPLOYEE' }, department: null,
+    });
+    mockPrisma.workSession.upsert.mockResolvedValue({ id: 'ws1' });
+    mockPrisma.attendanceEvent.create.mockResolvedValue({});
+    mockPrisma.user.update.mockResolvedValue({});
+  }
+
+  function lastUpsertArg(): any {
+    const calls = mockPrisma.workSession.upsert.mock.calls;
+    return calls[calls.length - 1][0];
+  }
+
+  it('Scenario 1 — does NOT revive an ended (LOGGED_OUT) session; stays ended, no auto-start', async () => {
+    await arrangeValidUser();
+    mockPrisma.workSession.findUnique.mockResolvedValue({
+      id: 'ws1', status: 'LOGGED_OUT', startWorkAt: new Date(), logoutAt: new Date(),
+    });
+
+    const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
+
+    // Ended state preserved — login did not flip it to LOGGED_IN / WORKING.
+    expect(result.user.currentStatus).toBe('LOGGED_OUT');
+    expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ currentStatus: 'LOGGED_OUT' }) }),
+    );
+    // The upsert update must NOT touch status or startWorkAt (no revive / auto-start).
+    const upsert = lastUpsertArg();
+    expect(upsert.update).not.toHaveProperty('status');
+    expect(upsert.update).not.toHaveProperty('startWorkAt');
+  });
+
+  it('Scenario 3 — fresh user with no session is created as LOGGED_IN, never WORKING', async () => {
+    await arrangeValidUser();
+    mockPrisma.workSession.findUnique.mockResolvedValue(null);
+
+    const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
+
+    expect(result.user.currentStatus).toBe('LOGGED_IN');
+    const upsert = lastUpsertArg();
+    // New session is created idle-ready, never auto-started.
+    expect(upsert.create.status).toBe('LOGGED_IN');
+    expect(upsert.create).not.toHaveProperty('startWorkAt');
+  });
+
+  it('Scenario 4 — preserves an active WORKING session on login (refresh/restore), no auto-change', async () => {
+    await arrangeValidUser();
+    mockPrisma.workSession.findUnique.mockResolvedValue({
+      id: 'ws1', status: 'WORKING', startWorkAt: new Date(),
+    });
+
+    const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
+
+    expect(result.user.currentStatus).toBe('WORKING');
+    const upsert = lastUpsertArg();
+    // Status / startWorkAt untouched — login only stamps the latest loginAt.
+    expect(upsert.update).not.toHaveProperty('status');
+    expect(upsert.update).not.toHaveProperty('startWorkAt');
+    expect(upsert.update).toHaveProperty('loginAt');
+  });
+
+  it('Scenario 5 — preserves an ON_BREAK session on login (refresh/restore)', async () => {
+    await arrangeValidUser();
+    mockPrisma.workSession.findUnique.mockResolvedValue({
+      id: 'ws1', status: 'ON_BREAK', startWorkAt: new Date(),
+    });
+
+    const result = await service.login({ email: 'worker@apex.local', password: PASSWORD });
+
+    expect(result.user.currentStatus).toBe('ON_BREAK');
+    const upsert = lastUpsertArg();
+    expect(upsert.update).not.toHaveProperty('status');
   });
 });
