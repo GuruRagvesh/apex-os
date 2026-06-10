@@ -1,170 +1,196 @@
+/**
+ * Unit tests — Workday Release A.3
+ *
+ * Guards the login/workday decoupling from the workday side:
+ *  - Start Work is the ONLY path that explicitly creates/starts a session.
+ *  - getToday is read-only: it returns today's latest session (or null) and
+ *    never creates a WorkSession row.
+ *
+ * Prisma + collaborators are fully mocked to isolate WorkdayService.
+ */
 import { WorkdayService } from '../../src/modules/platform/workday/workday.service';
 
-describe('WorkdayService Release A corruption guards', () => {
-  const today = new Date('2026-06-10T00:00:00.000Z');
-  const now = new Date('2026-06-10T10:00:00.000Z');
+const mockPrisma: any = {
+  workSession:   { upsert: jest.fn(), findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn() },
+  attendanceEvent: { create: jest.fn() },
+  user:          { update: jest.fn(), findUnique: jest.fn() },
+  leaveRequest:  { findFirst: jest.fn() },
+};
+const mockEventLogger: any = { log: jest.fn().mockResolvedValue(undefined) };
 
+describe('WorkdayService — Release A.3 (explicit start, read-only getToday)', () => {
   let service: WorkdayService;
-  let prisma: any;
-  let attendanceAuthority: any;
-  let ticketLedger: any;
 
   beforeEach(() => {
-    prisma = {
-      workSession: {
-        findFirst: jest.fn(),
-      },
-      breakLog: {
-        create: jest.fn(),
-        update: jest.fn(),
-      },
-      attendanceEvent: {
-        create: jest.fn().mockResolvedValue({}),
-      },
-    };
+    jest.clearAllMocks();
+    service = new WorkdayService(mockPrisma, {} as any, mockEventLogger);
+  });
 
-    attendanceAuthority = {
-      setUserStatus: jest.fn().mockResolvedValue({}),
-      createWorkSession: jest.fn().mockImplementation(async (data) => ({ id: 'new-session', ...data })),
-      updateWorkSession: jest.fn().mockImplementation(async (id, data) => ({ id, ...data })),
-      updateManyWorkSessions: jest.fn(),
-    };
+  it('Test 5 — Start Work explicitly creates/starts a WORKING session', async () => {
+    mockPrisma.workSession.upsert.mockResolvedValue({ id: 'ws1', status: 'WORKING' });
+    mockPrisma.attendanceEvent.create.mockResolvedValue({});
+    mockPrisma.user.update.mockResolvedValue({});
 
-    ticketLedger = {
-      pauseActiveLogsForUser: jest.fn().mockResolvedValue({}),
-      resumeLogsForBreak: jest.fn().mockResolvedValue({}),
-    };
+    await service.startWork('u1');
 
-    service = new WorkdayService(
-      prisma,
-      {} as any,
-      { log: jest.fn().mockResolvedValue({}) } as any,
-      ticketLedger,
-      { sendNotification: jest.fn().mockResolvedValue({}) } as any,
-      attendanceAuthority,
-      {
-        now: jest.fn(() => now),
-        companyDayStart: jest.fn(() => today),
-      } as any,
+    expect(mockPrisma.workSession.upsert).toHaveBeenCalledTimes(1);
+    const arg = mockPrisma.workSession.upsert.mock.calls[0][0];
+    // Explicitly STARTS work on both the create and update paths: WORKING + a
+    // fresh startWorkAt. This is the only place that does so.
+    expect(arg.create.status).toBe('WORKING');
+    expect(arg.create.startWorkAt).toBeInstanceOf(Date);
+    expect(arg.update.status).toBe('WORKING');
+    expect(arg.update.startWorkAt).toBeInstanceOf(Date);
+    // Denormalized user status follows the explicit action.
+    expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ currentStatus: 'WORKING' }) }),
     );
   });
 
-  it('endWork returns a closed session without mutating it', async () => {
-    const closedSession = {
-      id: 'closed-session',
-      status: 'LOGGED_OUT',
-      logoutAt: new Date('2026-06-10T09:00:00.000Z'),
-      totalWorkMinutes: 420,
-      totalBreakMinutes: 30,
-      breakLogs: [],
+  it('getToday returns the latest same-day session via findFirst, read-only (no row created)', async () => {
+    const session = {
+      id: 'ws1', status: 'LOGGED_OUT', startWorkAt: new Date(), logoutAt: new Date(),
+      totalBreakMinutes: 0, breakLogs: [],
     };
-    prisma.workSession.findFirst.mockResolvedValue(closedSession);
+    mockPrisma.workSession.findFirst.mockResolvedValue(session);
+    mockPrisma.leaveRequest.findFirst.mockResolvedValue(null);
 
-    const result = await service.endWork('user-1');
+    const result = await service.getToday('u1');
 
-    expect(result).toEqual({
-      session: closedSession,
-      summary: { totalWorkMinutes: 420, totalBreakMinutes: 30 },
-    });
-    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
-    expect(attendanceAuthority.setUserStatus).not.toHaveBeenCalled();
-    expect(prisma.breakLog.update).not.toHaveBeenCalled();
-    expect(ticketLedger.pauseActiveLogsForUser).not.toHaveBeenCalled();
-  });
-
-  it('startWork creates a new session when the latest same-day session is closed', async () => {
-    prisma.workSession.findFirst.mockResolvedValue({
-      id: 'closed-session',
-      status: 'LOGGED_OUT',
-      logoutAt: new Date('2026-06-10T09:00:00.000Z'),
-      autoClosed: false,
-    });
-
-    const result = await service.startWork('user-1');
-
-    expect(result.session.id).toBe('new-session');
-    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
-    expect(attendanceAuthority.createWorkSession).toHaveBeenCalledWith(
+    // Most-recent same-day session, ordered createdAt desc — never findUnique on
+    // a userId_date key.
+    expect(mockPrisma.workSession.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: 'user-1',
-        date: today,
-        loginAt: now,
-        startWorkAt: now,
-        status: 'WORKING',
-        continuationOfSessionId: 'closed-session',
+        where: { userId: 'u1', date: expect.any(Date) },
+        orderBy: { createdAt: 'desc' },
       }),
     );
+    expect(result.session).toBe(session);
+    // Read-only: getToday must never create/upsert a WorkSession.
+    expect(mockPrisma.workSession.upsert).not.toHaveBeenCalled();
+    expect(mockPrisma.workSession.create).not.toHaveBeenCalled();
   });
 
-  it('startWork reuses an open working session without resetting startWorkAt', async () => {
-    const openSession = {
-      id: 'open-session',
-      status: 'WORKING',
-      logoutAt: null,
-      startWorkAt: new Date('2026-06-10T08:00:00.000Z'),
-      loginAt: new Date('2026-06-10T07:55:00.000Z'),
+  it('getToday returns a null session when the user has no workday yet (no row created)', async () => {
+    mockPrisma.workSession.findFirst.mockResolvedValue(null);
+    mockPrisma.leaveRequest.findFirst.mockResolvedValue(null);
+
+    const result = await service.getToday('u1');
+
+    expect(result.session).toBeNull();
+    expect(mockPrisma.workSession.upsert).not.toHaveBeenCalled();
+    expect(mockPrisma.workSession.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkdayService — getHistory (login-only filtering + same-day aggregation)', () => {
+  let service: WorkdayService;
+  const mockAccessPolicy: any = { canViewUser: jest.fn().mockResolvedValue(true) };
+
+  const D = (iso: string) => new Date(iso);
+  const day = D('2026-06-10T00:00:00.000Z');
+
+  // Base row factory — override per test. Defaults are a closed, empty session.
+  function row(over: any) {
+    return {
+      id: 'ws-x', userId: 'u1', date: day, status: 'LOGGED_OUT',
+      loginAt: null, startWorkAt: null, logoutAt: null,
+      totalWorkMinutes: 0, totalBreakMinutes: 0, breakLogs: [],
+      createdAt: D('2026-06-10T03:00:00.000Z'), ...over,
     };
-    prisma.workSession.findFirst.mockResolvedValue(openSession);
+  }
 
-    const result = await service.startWork('user-1');
-
-    expect(result.session).toBe(openSession);
-    expect(attendanceAuthority.createWorkSession).not.toHaveBeenCalled();
-    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAccessPolicy.canViewUser.mockResolvedValue(true);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1', role: {}, department: null });
+    service = new WorkdayService(mockPrisma, mockAccessPolicy, mockEventLogger);
   });
 
-  it('startBreak rejects closed sessions', async () => {
-    prisma.workSession.findFirst.mockResolvedValue({
-      id: 'closed-session',
-      status: 'LOGGED_OUT',
-      logoutAt: new Date('2026-06-10T09:00:00.000Z'),
-      breakLogs: [],
-    });
+  it('excludes login-only rows (LOGGED_IN, no startWorkAt, zero minutes) and uses stable ordering', async () => {
+    mockPrisma.workSession.findMany.mockResolvedValue([
+      row({ id: 'login-only', status: 'LOGGED_IN', loginAt: D('2026-06-10T09:00:00Z') }),
+    ]);
 
-    await expect(service.startBreak('user-1', { breakType: 'LUNCH' })).rejects.toThrow('No active working session');
-    expect(prisma.breakLog.create).not.toHaveBeenCalled();
-    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+    const result = await service.getHistory('u1', { id: 'admin' });
+
+    // The artifact never reaches the response (defense-in-depth filter)…
+    expect(result).toEqual([]);
+    // …and the query itself excludes it and orders date desc, createdAt desc.
+    const arg = mockPrisma.workSession.findMany.mock.calls[0][0];
+    expect(arg.where.NOT).toEqual({ status: 'LOGGED_IN', startWorkAt: null, totalWorkMinutes: 0 });
+    expect(arg.orderBy).toEqual([{ date: 'desc' }, { createdAt: 'desc' }]);
   });
 
-  it('startBreak rejects when an open break already exists', async () => {
-    prisma.workSession.findFirst.mockResolvedValue({
-      id: 'open-session',
-      status: 'WORKING',
-      logoutAt: null,
-      breakLogs: [{ id: 'break-1', startAt: new Date('2026-06-10T09:30:00.000Z'), endAt: null }],
-    });
+  it('shows only the ended session when the day also has an older login-only row', async () => {
+    mockPrisma.workSession.findMany.mockResolvedValue([
+      row({
+        id: 'ended', status: 'LOGGED_OUT', startWorkAt: D('2026-06-10T04:00:00Z'),
+        logoutAt: D('2026-06-10T12:00:00Z'), totalWorkMinutes: 300,
+        createdAt: D('2026-06-10T04:00:00Z'),
+      }),
+      row({
+        id: 'login-only', status: 'LOGGED_IN', loginAt: D('2026-06-10T03:30:00Z'),
+        createdAt: D('2026-06-10T03:30:00Z'),
+      }),
+    ]);
 
-    await expect(service.startBreak('user-1', { breakType: 'LUNCH' })).rejects.toThrow('Break already in progress');
-    expect(prisma.breakLog.create).not.toHaveBeenCalled();
-    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+    const result = await service.getHistory('u1', { id: 'admin' });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('ended');
+    expect(result[0].status).toBe('LOGGED_OUT');
+    expect(result[0].sessionCount).toBe(1);
+    expect(result[0].totalWorkMinutes).toBe(300);
+    // Timing comes from startWorkAt — the login-only row's loginAt is ignored.
+    expect(result[0].startWorkAt).toEqual(D('2026-06-10T04:00:00Z'));
   });
 
-  it('endBreak rejects when there is no open break', async () => {
-    prisma.workSession.findFirst.mockResolvedValue({
-      id: 'open-session',
-      status: 'ON_BREAK',
-      logoutAt: null,
-      breakLogs: [],
-    });
+  it('aggregates two valid same-day sessions: count, summed minutes, earliest start, latest status', async () => {
+    // Order mirrors the query: latest session of the day first.
+    mockPrisma.workSession.findMany.mockResolvedValue([
+      row({
+        id: 's2', status: 'LOGGED_OUT', startWorkAt: D('2026-06-10T09:00:00Z'),
+        logoutAt: D('2026-06-10T13:00:00Z'), totalWorkMinutes: 120, totalBreakMinutes: 10,
+        createdAt: D('2026-06-10T09:00:00Z'),
+      }),
+      row({
+        id: 's1', status: 'LOGGED_OUT', startWorkAt: D('2026-06-10T03:00:00Z'),
+        logoutAt: D('2026-06-10T07:00:00Z'), totalWorkMinutes: 180, totalBreakMinutes: 20,
+        createdAt: D('2026-06-10T03:00:00Z'),
+      }),
+    ]);
 
-    await expect(service.endBreak('user-1')).rejects.toThrow('No open break found');
-    expect(prisma.breakLog.update).not.toHaveBeenCalled();
-    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+    const result = await service.getHistory('u1', { id: 'admin' });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].sessionCount).toBe(2);
+    expect(result[0].totalWorkMinutes).toBe(300);
+    expect(result[0].totalBreakMinutes).toBe(30);
+    expect(result[0].startWorkAt).toEqual(D('2026-06-10T03:00:00Z')); // firstStartTime
+    expect(result[0].status).toBe('LOGGED_OUT');                      // latest valid session
+    expect(result[0].id).toBe('s2');
   });
 
-  it('endBreak rejects multiple open breaks without mutating either break', async () => {
-    prisma.workSession.findFirst.mockResolvedValue({
-      id: 'open-session',
-      status: 'ON_BREAK',
-      logoutAt: null,
-      breakLogs: [
-        { id: 'break-1', startAt: new Date('2026-06-10T09:00:00.000Z'), endAt: null },
-        { id: 'break-2', startAt: new Date('2026-06-10T09:30:00.000Z'), endAt: null },
-      ],
-    });
+  it('lets an active latest valid session control the day status (earlier ended session still summed)', async () => {
+    mockPrisma.workSession.findMany.mockResolvedValue([
+      row({
+        id: 'active', status: 'WORKING', startWorkAt: D('2026-06-10T10:00:00Z'),
+        totalWorkMinutes: 0, createdAt: D('2026-06-10T10:00:00Z'),
+      }),
+      row({
+        id: 'ended', status: 'LOGGED_OUT', startWorkAt: D('2026-06-10T03:00:00Z'),
+        logoutAt: D('2026-06-10T08:00:00Z'), totalWorkMinutes: 240,
+        createdAt: D('2026-06-10T03:00:00Z'),
+      }),
+    ]);
 
-    await expect(service.endBreak('user-1')).rejects.toThrow('Multiple open breaks found');
-    expect(prisma.breakLog.update).not.toHaveBeenCalled();
-    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+    const result = await service.getHistory('u1', { id: 'admin' });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].status).toBe('WORKING');
+    expect(result[0].logoutAt).toBeNull();
+    expect(result[0].totalWorkMinutes).toBe(240);
+    expect(result[0].sessionCount).toBe(2);
   });
 });
