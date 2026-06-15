@@ -243,7 +243,7 @@ export class WorkdayService {
     }
 
     let totalBreakMinutes = session.breakLogs
-      .filter((b) => b.durationMinutes)
+      .filter((b) => b.durationMinutes && b.breakType !== 'MEETING')
       .reduce((sum, b) => sum + (b.durationMinutes ?? 0), 0);
 
     // Close any open break
@@ -254,7 +254,9 @@ export class WorkdayService {
         where: { id: openBreak.id },
         data: { endAt: now, durationMinutes: openDuration },
       });
-      totalBreakMinutes += openDuration;
+      if (openBreak.breakType !== 'MEETING') {
+        totalBreakMinutes += openDuration;
+      }
     }
 
     let totalWorkMinutes = 0;
@@ -400,7 +402,7 @@ export class WorkdayService {
     // Let's assume AttendanceAuthority requires raw values.
     await this.attendanceAuthority.updateWorkSession(session.id, {
       status: 'WORKING',
-      totalBreakMinutes: (session.totalBreakMinutes ?? 0) + durationMinutes,
+      totalBreakMinutes: (session.totalBreakMinutes ?? 0) + (openBreak.breakType !== 'MEETING' ? durationMinutes : 0),
     });
 
     await this.prisma.attendanceEvent.create({
@@ -535,7 +537,11 @@ export class WorkdayService {
       },
     });
 
-    const rt = calculateWorkdayRuntime(sessions as any, now);
+    const sessionsForRuntime = sessions.map((s) => ({
+      ...s,
+      breakLogs: s.breakLogs.filter((b: any) => b.breakType !== 'MEETING'),
+    }));
+    const rt = calculateWorkdayRuntime(sessionsForRuntime as any, now);
 
     return {
       session,
@@ -607,7 +613,11 @@ export class WorkdayService {
       const session = m.workSessions[0] ?? null;
       const leave = m.leaveRequests[0] ?? null;
       
-      const rt = calculateWorkdayRuntime(m.workSessions as any, now);
+      const workSessionsForRuntime = m.workSessions.map((s: any) => ({
+        ...s,
+        breakLogs: s.breakLogs.filter((b: any) => b.breakType !== 'MEETING'),
+      }));
+      const rt = calculateWorkdayRuntime(workSessionsForRuntime as any, now);
       const firstStartTime = rt.firstStartTime;
       const totalWorkMins = rt.elapsedWorkMinutes;
       const totalBreakMins = rt.totalBreakMinutes;
