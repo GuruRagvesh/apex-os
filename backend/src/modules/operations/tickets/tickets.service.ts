@@ -502,6 +502,19 @@ export class TicketsService {
       }
     }
 
+    // ── DONE/CLOSED → OPEN/IN_PROGRESS (reopen): clear stale completion and review stamps ──
+    if (['DONE', 'CLOSED'].includes(existing.status) && ['OPEN', 'IN_PROGRESS'].includes(data.status)) {
+      data.actualCompletedAt = null;
+      data.closedAt = null;
+      data.resolvedAt = null;
+      data.submittedAt = null;
+      data.reviewStartedAt = null;
+      data.reviewDueAt = null;
+      if (data.status === TicketStatus.IN_PROGRESS && existing.estimatedMinutes) {
+        data.executionDueAt = new Date(Date.now() + existing.estimatedMinutes * 60_000);
+      }
+    }
+
     // ── Execution timer: stamp actualStartAt + executionDueAt ────────────────
     if (data.status === TicketStatus.IN_PROGRESS && !existing.actualStartAt && !data.actualStartAt) {
       data.actualStartAt = new Date();

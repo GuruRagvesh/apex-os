@@ -305,4 +305,95 @@ describe('TicketsService — status transitions', () => {
       expect(mockNotif.sendNotification).not.toHaveBeenCalled();
     });
   });
+
+  // ── reopen — stale completion/review timestamp clearing ───────────────────
+
+  describe('reopen — stale completion/review timestamp clearing', () => {
+    function makeDoneTicket(overrides: any = {}) {
+      return makeTicket({
+        status: 'DONE',
+        actualCompletedAt: new Date('2026-06-01T10:00:00.000Z'),
+        closedAt: new Date('2026-06-01T10:00:00.000Z'),
+        resolvedAt: new Date('2026-06-01T10:00:00.000Z'),
+        submittedAt: new Date('2026-06-01T09:00:00.000Z'),
+        reviewStartedAt: new Date('2026-06-01T09:30:00.000Z'),
+        reviewDueAt: new Date('2026-06-02T09:00:00.000Z'),
+        ...overrides,
+      });
+    }
+
+    it('DONE → IN_PROGRESS clears all 6 stale completion and review timestamps', async () => {
+      mockPrisma.ticket.findUnique.mockResolvedValue(
+        makeDoneTicket({ assignedToId: 'emp1', createdById: 'emp2' }),
+      );
+      mockPrisma.ticket.update.mockImplementation(async ({ data }) => ({
+        ...makeDoneTicket(), ...data,
+      }));
+      const user = { id: 'mgr1', role: { name: 'MANAGER' } };
+
+      await service.updateStatus('tkt1', 'IN_PROGRESS' as any, 'mgr1', user);
+
+      const written = mockPrisma.ticket.update.mock.calls[0][0].data;
+      expect(written.actualCompletedAt).toBeNull();
+      expect(written.closedAt).toBeNull();
+      expect(written.resolvedAt).toBeNull();
+      expect(written.submittedAt).toBeNull();
+      expect(written.reviewStartedAt).toBeNull();
+      expect(written.reviewDueAt).toBeNull();
+    });
+
+    it('DONE → OPEN clears all 6 stale completion and review timestamps', async () => {
+      mockPrisma.ticket.findUnique.mockResolvedValue(
+        makeDoneTicket({ assignedToId: 'emp1', createdById: 'emp2' }),
+      );
+      mockPrisma.ticket.update.mockImplementation(async ({ data }) => ({
+        ...makeDoneTicket(), ...data,
+      }));
+      const user = { id: 'mgr1', role: { name: 'MANAGER' } };
+
+      await service.updateStatus('tkt1', 'OPEN' as any, 'mgr1', user);
+
+      const written = mockPrisma.ticket.update.mock.calls[0][0].data;
+      expect(written.actualCompletedAt).toBeNull();
+      expect(written.closedAt).toBeNull();
+      expect(written.resolvedAt).toBeNull();
+      expect(written.submittedAt).toBeNull();
+      expect(written.reviewStartedAt).toBeNull();
+      expect(written.reviewDueAt).toBeNull();
+    });
+
+    it('normal IN_PROGRESS → DONE sets fresh completion timestamps', async () => {
+      mockPrisma.ticket.findUnique.mockResolvedValue(
+        makeTicket({ status: 'IN_PROGRESS', assignedToId: 'emp1', createdById: 'emp2' }),
+      );
+      mockPrisma.ticket.update.mockImplementation(async ({ data }) => ({
+        ...makeTicket({ status: 'IN_PROGRESS' }), ...data,
+      }));
+      const user = { id: 'mgr1', role: { name: 'MANAGER' } };
+
+      await service.updateStatus('tkt1', 'DONE' as any, 'mgr1', user);
+
+      const written = mockPrisma.ticket.update.mock.calls[0][0].data;
+      expect(written.actualCompletedAt).toBeInstanceOf(Date);
+      expect(written.closedAt).toBeInstanceOf(Date);
+      expect(written.resolvedAt).toBeInstanceOf(Date);
+    });
+
+    it('DONE → IN_PROGRESS recalculates executionDueAt when estimatedMinutes is set', async () => {
+      const before = Date.now();
+      mockPrisma.ticket.findUnique.mockResolvedValue(
+        makeDoneTicket({ assignedToId: 'emp1', createdById: 'emp2', estimatedMinutes: 60 }),
+      );
+      mockPrisma.ticket.update.mockImplementation(async ({ data }) => ({
+        ...makeDoneTicket(), ...data,
+      }));
+      const user = { id: 'mgr1', role: { name: 'MANAGER' } };
+
+      await service.updateStatus('tkt1', 'IN_PROGRESS' as any, 'mgr1', user);
+
+      const written = mockPrisma.ticket.update.mock.calls[0][0].data;
+      expect(written.executionDueAt).toBeInstanceOf(Date);
+      expect(written.executionDueAt.getTime()).toBeGreaterThanOrEqual(before + 60 * 60_000);
+    });
+  });
 });
