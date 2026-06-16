@@ -43,7 +43,7 @@ const mockPrisma = {
   notification: { create: jest.fn() },
   activityLog: { create: jest.fn() },
   appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
-  comment: { findMany: jest.fn().mockResolvedValue([]) },
+  comment: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn().mockResolvedValue({}) },
   department: { findFirst: jest.fn().mockResolvedValue(null) },
   managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },
   user: { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn() },
@@ -249,5 +249,60 @@ describe('TicketsService — status transitions', () => {
     await expect(
       service.updateStatus('tkt1', 'REVIEW' as any, 'emp1', user),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  // ── reject() — notification recipient ──────────────────────────────────────
+
+  describe('reject() notification recipient', () => {
+    const reviewTicket = makeTicket({
+      status: 'REVIEW',
+      assignedToId: 'assignee1',
+      createdById: 'creator1',
+    });
+    const inProgressResult = { ...reviewTicket, status: 'IN_PROGRESS', assignedTo: null };
+
+    beforeEach(() => {
+      mockPrisma.ticket.findFirst.mockResolvedValue(reviewTicket);
+      mockPrisma.ticket.findUnique.mockResolvedValue(reviewTicket);
+      mockPrisma.ticket.update.mockResolvedValue(inProgressResult);
+    });
+
+    it('sends rejection notification to assignedToId, not createdById', async () => {
+      await service.reject('tkt1', 'Needs rework', 'mgr1');
+
+      const recipients = mockNotif.sendNotification.mock.calls.map(([id]: [string]) => id);
+      expect(recipients).toContain('assignee1');
+      expect(recipients).not.toContain('creator1');
+    });
+
+    it('rejection notification payload contains "rejected" in the title', async () => {
+      await service.reject('tkt1', 'Needs rework', 'mgr1');
+
+      expect(mockNotif.sendNotification).toHaveBeenCalledWith(
+        'assignee1',
+        expect.any(String),
+        expect.objectContaining({ title: expect.stringContaining('rejected') }),
+      );
+    });
+
+    it('does not crash and sends no notification when assignedToId is null', async () => {
+      const unassigned = makeTicket({ status: 'REVIEW', assignedToId: null, createdById: 'creator1' });
+      mockPrisma.ticket.findFirst.mockResolvedValue(unassigned);
+      mockPrisma.ticket.findUnique.mockResolvedValue(unassigned);
+      mockPrisma.ticket.update.mockResolvedValue({ ...unassigned, status: 'IN_PROGRESS', assignedTo: null });
+
+      await expect(service.reject('tkt1', 'Needs rework', 'mgr1')).resolves.toBeDefined();
+      expect(mockNotif.sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('skips self-notification when the rejector is also the assignee', async () => {
+      const selfAssigned = makeTicket({ status: 'REVIEW', assignedToId: 'mgr1', createdById: 'creator1' });
+      mockPrisma.ticket.findFirst.mockResolvedValue(selfAssigned);
+      mockPrisma.ticket.findUnique.mockResolvedValue(selfAssigned);
+      mockPrisma.ticket.update.mockResolvedValue({ ...selfAssigned, status: 'IN_PROGRESS', assignedTo: null });
+
+      await expect(service.reject('tkt1', 'Needs rework', 'mgr1')).resolves.toBeDefined();
+      expect(mockNotif.sendNotification).not.toHaveBeenCalled();
+    });
   });
 });

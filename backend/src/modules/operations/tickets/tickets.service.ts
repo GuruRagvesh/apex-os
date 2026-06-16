@@ -908,18 +908,20 @@ export class TicketsService {
     ]);
 
     try {
-      await this.notificationEventService.sendNotification(
-        ticket.createdById,
-        'statusChanged',
-        {
-          title: `Ticket rejected: ${ticket.ticketId}`,
-          message: ticket.title,
-          type: NotificationType.WARNING,
-          link: `/tickets/${ticket.id}`,
-          entityId: ticket.id,
-          entityType: 'TICKET',
-        }
-      );
+      if (ticket.assignedToId && ticket.assignedToId !== userId) {
+        await this.notificationEventService.sendNotification(
+          ticket.assignedToId,
+          'statusChanged',
+          {
+            title: `Ticket rejected: ${ticket.ticketId}`,
+            message: ticket.title,
+            type: NotificationType.WARNING,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          }
+        );
+      }
     } catch (_e) { /* never crash main op */ }
 
     return updated;
