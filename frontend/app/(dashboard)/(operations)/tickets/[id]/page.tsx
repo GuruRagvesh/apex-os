@@ -1692,9 +1692,9 @@ export default function TicketDetailPage() {
                   </p>
                 </div>
               )}
-              {ticket?.actualStartAt && ticket?.actualCompletedAt && (() => {
-                // TVA-008: Only use backend authoritative time from Ledger
-                const totalMins = ticket.timers ? Math.floor(ticket.timers.employeeWorkSeconds / 60) : 0;
+              {ticket?.actualStartAt && ['DONE', 'CLOSED'].includes(ticket?.status) && ticket?.actualCompletedAt && (() => {
+                const ms = new Date(ticket.actualCompletedAt).getTime() - new Date(ticket.actualStartAt).getTime();
+                const totalMins = Math.max(0, Math.floor(ms / 60000));
                 if (totalMins <= 0) return null;
                 const hours = Math.floor(totalMins / 60);
                 const mins = totalMins % 60;
@@ -1720,9 +1720,25 @@ export default function TicketDetailPage() {
                   </div>
                 );
               })()}
-              {ticket?.actualStartAt && !ticket?.actualCompletedAt && (() => {
-                // TVA-008: Only use backend authoritative time from Ledger
-                const totalMins = ticket.timers ? Math.floor(ticket.timers.employeeWorkSeconds / 60) : 0;
+              {ticket?.actualStartAt && ticket?.status === 'REVIEW' && ticket?.submittedAt && (() => {
+                const ms = new Date(ticket.submittedAt).getTime() - new Date(ticket.actualStartAt).getTime();
+                const totalMins = Math.max(0, Math.floor(ms / 60000));
+                if (totalMins <= 0) return null;
+                const hours = Math.floor(totalMins / 60);
+                const mins = totalMins % 60;
+                const display = hours > 0
+                  ? mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
+                  : `${mins}m`;
+                return (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{ backgroundColor: 'rgba(168,85,247,0.08)' }}>
+                    <Clock size={12} className="text-purple-500 flex-shrink-0" />
+                    <span className="text-xs font-semibold text-purple-700">Execution time: {display}</span>
+                  </div>
+                );
+              })()}
+              {ticket?.actualStartAt && ticket?.status === 'IN_PROGRESS' && !ticket?.actualCompletedAt && (() => {
+                const ms = Date.now() - new Date(ticket.actualStartAt).getTime();
+                const totalMins = Math.max(0, Math.floor(ms / 60000));
                 if (totalMins <= 0) return null;
                 const hours = Math.floor(totalMins / 60);
                 const mins = totalMins % 60;
