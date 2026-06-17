@@ -1,12 +1,24 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AccessPolicyService } from '../../../common/services/access-policy.service';
 
 @Injectable()
 export class DepartmentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private access: AccessPolicyService,
+  ) {}
 
-  async findAll() {
+  async findAll(user?: any) {
+    let where: any = {};
+    if (!this.access.isAdmin(user)) {
+      const deptIds = await this.access.managedDepartmentIds(user);
+      if (deptIds.length === 0) return [];
+      where = { id: { in: deptIds } };
+    }
+
     const departments = await this.prisma.department.findMany({
+      where,
       include: {
         _count: {
           select: {

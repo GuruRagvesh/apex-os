@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { DepartmentsService } from './departments.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { Roles } from '../../../shared/decorators/roles.decorator';
 import { ROLES } from '../../../shared/constants/roles';
 
@@ -14,8 +15,8 @@ export class DepartmentsController {
   constructor(private departmentsService: DepartmentsService) {}
 
   @Get()
-  findAll() {
-    return this.departmentsService.findAll();
+  findAll(@CurrentUser() user: any) {
+    return this.departmentsService.findAll(user);
   }
 
   @Get(':id')
