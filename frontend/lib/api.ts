@@ -161,7 +161,7 @@ export const ticketsApi = {
     const form = new FormData();
     form.append('file', file);
     if (isPoc) form.append('isPoc', 'true');
-    return r(api.post(`/tickets/${id}/attachments`, form));
+    return r(api.post(`/tickets/${id}/attachments`, form, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
   fetchAttachmentBlob: async (ticketId: string, attachmentId: string, mode: 'inline' | 'download' = 'inline') => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
