@@ -37,6 +37,7 @@ export default function UsersPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<any | null>(null);
   const [permanentDeleteBlockers, setPermanentDeleteBlockers] = useState<Record<string, number> | null>(null);
+  const [permanentDeleteBlockedUser, setPermanentDeleteBlockedUser] = useState<any | null>(null);
 
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
@@ -82,14 +83,15 @@ export default function UsersPage() {
   });
 
   const permanentDeleteMutation = useMutation({
-    mutationFn: (id: string) => usersApi.permanentDelete(id),
+    mutationFn: (vars: { id: string; user: any }) => usersApi.permanentDelete(vars.id),
     onSuccess: () => {
       toast.success('User permanently deleted');
       qc.invalidateQueries({ queryKey: ['users'] });
       setPermanentDeleteTarget(null);
     },
-    onError: (err: any) => {
+    onError: (err: any, vars) => {
       if (err?.blockers) {
+        setPermanentDeleteBlockedUser(vars.user);
         setPermanentDeleteTarget(null);
         setPermanentDeleteBlockers(err.blockers);
       } else {
@@ -358,7 +360,7 @@ export default function UsersPage() {
 
       {/* Edit User Modal */}
       {editUser && (
-        <div className="apex-backdrop flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Edit User</h3>
             <div className="space-y-3">
@@ -399,7 +401,7 @@ export default function UsersPage() {
 
       {/* Deactivate Confirmation Modal */}
       {deactivateTarget && (
-        <div className="apex-backdrop flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Deactivate user?</h3>
             <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
@@ -430,7 +432,7 @@ export default function UsersPage() {
 
       {/* Permanent Delete Confirmation Modal */}
       {permanentDeleteTarget && (
-        <div className="apex-backdrop flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Permanently delete user?</h3>
             <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
@@ -441,7 +443,7 @@ export default function UsersPage() {
             </p>
             <div className="flex gap-3">
               <button
-                onClick={() => permanentDeleteMutation.mutate(permanentDeleteTarget.id)}
+                onClick={() => permanentDeleteMutation.mutate({ id: permanentDeleteTarget.id, user: permanentDeleteTarget })}
                 disabled={permanentDeleteMutation.isPending}
                 className="apex-btn flex-1 justify-center py-2.5 font-medium disabled:opacity-50 text-white"
                 style={{ backgroundColor: 'var(--color-danger)' }}
@@ -458,13 +460,13 @@ export default function UsersPage() {
 
       {/* Permanent Delete Blocker Modal */}
       {permanentDeleteBlockers && (
-        <div className="apex-backdrop flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Cannot delete — user has linked records</h3>
             <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
               This user has operational history that prevents permanent deletion:
             </p>
-            <ul className="mb-5 space-y-1.5">
+            <ul className="mb-4 space-y-1.5">
               {Object.entries(permanentDeleteBlockers).map(([key, count]) => (
                 <li key={key} className="flex justify-between text-sm px-1">
                   <span style={{ color: 'var(--text-secondary)' }}>{key}</span>
@@ -472,19 +474,50 @@ export default function UsersPage() {
                 </li>
               ))}
             </ul>
-            <button
-              onClick={() => setPermanentDeleteBlockers(null)}
-              className="apex-btn apex-btn-secondary w-full justify-center py-2.5"
-            >
-              OK
-            </button>
+            <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)' }}>
+              Download a full user backup before requesting permanent deletion.
+            </p>
+            <div className="flex gap-3">
+              {permanentDeleteBlockedUser && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setDownloadingId(permanentDeleteBlockedUser.id);
+                    const toastId = `backup-blocker-${permanentDeleteBlockedUser.id}`;
+                    toast.loading('Downloading backup...', { id: toastId });
+                    try {
+                      await usersApi.downloadBackup(permanentDeleteBlockedUser.id, permanentDeleteBlockedUser.name);
+                      toast.success('Backup downloaded', { id: toastId });
+                    } catch {
+                      toast.error('Backup download failed', { id: toastId });
+                    } finally {
+                      setDownloadingId(null);
+                    }
+                  }}
+                  disabled={downloadingId === permanentDeleteBlockedUser.id}
+                  className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5 gap-1.5 disabled:opacity-50"
+                >
+                  {downloadingId === permanentDeleteBlockedUser.id
+                    ? <><Loader2 size={14} className="animate-spin" /> Downloading...</>
+                    : <><Download size={14} /> Download Backup</>
+                  }
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { setPermanentDeleteBlockers(null); setPermanentDeleteBlockedUser(null); }}
+                className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* New User Modal */}
       {showNew && (
-        <div className="apex-backdrop flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Add New User</h3>
             <div className="space-y-3">
