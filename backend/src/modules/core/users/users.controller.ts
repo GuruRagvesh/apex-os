@@ -117,6 +117,12 @@ export class UsersController {
     return this.usersService.resetPassword(id, body.newPassword);
   }
 
+  @Delete(':id/permanent')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  async permanentDelete(@Param('id') id: string, @CurrentUser() actor: any) {
+    return this.usersService.permanentDelete(id, actor?.id);
+  }
+
   @Delete(':id')
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   remove(@Param('id') id: string, @CurrentUser() actor: any) {

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Workbook } from 'exceljs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
@@ -494,6 +494,99 @@ export class UsersService {
       update: { value: prefs, updatedBy: userId },
     });
     return saved.value;
+  }
+
+  async permanentDelete(userId: string, actorId: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (userId === actorId) throw new ForbiddenException('Cannot permanently delete your own account');
+    if (user.isActive) throw new BadRequestException('Deactivate user before permanent deletion');
+
+    const [
+      ticketsCreated,
+      ticketsAssigned,
+      ticketAssignees,
+      comments,
+      ticketHistory,
+      workSessions,
+      breakLogs,
+      attendanceEvents,
+      leaveRequests,
+      notifications,
+      activityLogs,
+      operationalEvents,
+      ticketTimeLogs,
+      managerAccess,
+      reviewCyclesAssignee,
+      reviewCyclesReviewer,
+      changeRequestsBy,
+      changeRequestsTarget,
+      changeRequestsApproving,
+      workdayOverride,
+    ] = await Promise.all([
+      this.prisma.ticket.count({ where: { createdById: userId } }),
+      this.prisma.ticket.count({ where: { assignedToId: userId } }),
+      this.prisma.ticketAssignee.count({ where: { userId } }),
+      this.prisma.comment.count({ where: { authorId: userId } }),
+      this.prisma.ticketHistory.count({ where: { changedById: userId } }),
+      this.prisma.workSession.count({ where: { userId } }),
+      this.prisma.breakLog.count({ where: { userId } }),
+      this.prisma.attendanceEvent.count({ where: { userId } }),
+      this.prisma.leaveRequest.count({ where: { userId } }),
+      this.prisma.notification.count({ where: { userId } }),
+      this.prisma.activityLog.count({ where: { userId } }),
+      (this.prisma as any).operationalEvent.count({ where: { actorId: userId } }),
+      this.prisma.ticketTimeLog.count({ where: { userId } }),
+      (this.prisma as any).managerDeptAccess.count({ where: { managerId: userId } }),
+      (this.prisma as any).reviewCycleLog.count({ where: { assigneeId: userId } }),
+      (this.prisma as any).reviewCycleLog.count({ where: { reviewerId: userId } }),
+      (this.prisma as any).employeeProfileChangeRequest.count({ where: { requestedById: userId } }),
+      (this.prisma as any).employeeProfileChangeRequest.count({ where: { targetUserId: userId } }),
+      (this.prisma as any).employeeProfileChangeRequest.count({ where: { currentApproverId: userId } }),
+      (this.prisma as any).userWorkdayPolicyOverride.count({ where: { userId } }),
+    ]);
+
+    const blockers: Record<string, number> = {};
+    if (ticketsCreated)          blockers['Tickets Created']             = ticketsCreated;
+    if (ticketsAssigned)         blockers['Tickets Assigned']            = ticketsAssigned;
+    if (ticketAssignees)         blockers['Ticket Assignees']            = ticketAssignees;
+    if (comments)                blockers['Comments']                    = comments;
+    if (ticketHistory)           blockers['Ticket History']              = ticketHistory;
+    if (workSessions)            blockers['Work Sessions']               = workSessions;
+    if (breakLogs)               blockers['Break Logs']                  = breakLogs;
+    if (attendanceEvents)        blockers['Attendance Events']           = attendanceEvents;
+    if (leaveRequests)           blockers['Leave Requests']              = leaveRequests;
+    if (notifications)           blockers['Notifications']               = notifications;
+    if (activityLogs)            blockers['Activity Logs']               = activityLogs;
+    if (operationalEvents)       blockers['Operational Events']          = operationalEvents;
+    if (ticketTimeLogs)          blockers['Ticket Time Logs']            = ticketTimeLogs;
+    if (managerAccess)           blockers['Manager Dept Access']         = managerAccess;
+    if (reviewCyclesAssignee)    blockers['Review Cycles (Assignee)']    = reviewCyclesAssignee;
+    if (reviewCyclesReviewer)    blockers['Review Cycles (Reviewer)']    = reviewCyclesReviewer;
+    if (changeRequestsBy)        blockers['Change Requests Created']     = changeRequestsBy;
+    if (changeRequestsTarget)    blockers['Change Requests (Target)']    = changeRequestsTarget;
+    if (changeRequestsApproving) blockers['Change Requests (Approver)']  = changeRequestsApproving;
+    if (workdayOverride)         blockers['Workday Policy Override']     = workdayOverride;
+
+    if (Object.keys(blockers).length > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        message: 'Cannot permanently delete user with linked records.',
+        blockers,
+      });
+    }
+
+    await this.prisma.user.delete({ where: { id: userId } });
+
+    this.eventLogger.log({
+      actorId,
+      entityType: 'User',
+      entityId: userId,
+      action: 'USER_PERMANENTLY_DELETED',
+      metadata: { name: user.name, email: user.email },
+    }).catch(() => {});
+
+    return { message: 'User permanently deleted' };
   }
 
   async generateBackup(userId: string, actorId: string): Promise<{ buffer: Buffer; filename: string }> {

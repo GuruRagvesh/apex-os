@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { usersApi, rolesApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, getInitials } from '@/lib/utils';
-import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert, Download, Loader2 } from 'lucide-react';
+import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert, Download, Loader2, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -35,6 +35,8 @@ export default function UsersPage() {
   const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true });
   const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<any | null>(null);
+  const [permanentDeleteBlockers, setPermanentDeleteBlockers] = useState<Record<string, number> | null>(null);
 
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
@@ -74,6 +76,24 @@ export default function UsersPage() {
       setDeactivateTarget(null);
     },
     onError: (err: any) => toast.error(err?.message || 'Failed to deactivate user'),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: string) => usersApi.permanentDelete(id),
+    onSuccess: () => {
+      toast.success('User permanently deleted');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setPermanentDeleteTarget(null);
+    },
+    onError: (err: any) => {
+      if (err?.blockers) {
+        setPermanentDeleteTarget(null);
+        setPermanentDeleteBlockers(err.blockers);
+      } else {
+        toast.error(err?.message || 'Permanent delete failed');
+        setPermanentDeleteTarget(null);
+      }
+    },
   });
 
   const editMutation = useMutation({
@@ -260,6 +280,19 @@ export default function UsersPage() {
                     >
                       {downloadingId === u.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     </button>
+                    {!u.isActive && (
+                      <button
+                        onClick={() => setPermanentDeleteTarget(u)}
+                        disabled={permanentDeleteMutation.isPending}
+                        className="p-1.5 rounded-lg transition-colors disabled:opacity-40"
+                        style={{ color: 'var(--text-tertiary)' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-danger)'; e.currentTarget.style.backgroundColor = 'var(--color-danger-bg)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                        title="Permanently delete user"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                     <button
                       onClick={() => u.isActive ? setDeactivateTarget(u) : toggleActive.mutate({ id: u.id, isActive: true })}
                       disabled={deactivateMutation.isPending || toggleActive.isPending}
@@ -368,6 +401,60 @@ export default function UsersPage() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Delete Confirmation Modal */}
+      {permanentDeleteTarget && (
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Permanently delete user?</h3>
+            <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
+              <strong>{permanentDeleteTarget.name}</strong> will be removed from the system forever. This cannot be undone.
+            </p>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>
+              Download backup first if you need a record of their history.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => permanentDeleteMutation.mutate(permanentDeleteTarget.id)}
+                disabled={permanentDeleteMutation.isPending}
+                className="apex-btn flex-1 justify-center py-2.5 font-medium disabled:opacity-50 text-white"
+                style={{ backgroundColor: 'var(--color-danger)' }}
+              >
+                {permanentDeleteMutation.isPending ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+              <button onClick={() => setPermanentDeleteTarget(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Delete Blocker Modal */}
+      {permanentDeleteBlockers && (
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Cannot delete — user has linked records</h3>
+            <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              This user has operational history that prevents permanent deletion:
+            </p>
+            <ul className="mb-5 space-y-1.5">
+              {Object.entries(permanentDeleteBlockers).map(([key, count]) => (
+                <li key={key} className="flex justify-between text-sm px-1">
+                  <span style={{ color: 'var(--text-secondary)' }}>{key}</span>
+                  <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{count}</span>
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={() => setPermanentDeleteBlockers(null)}
+              className="apex-btn apex-btn-secondary w-full justify-center py-2.5"
+            >
+              OK
+            </button>
           </div>
         </div>
       )}

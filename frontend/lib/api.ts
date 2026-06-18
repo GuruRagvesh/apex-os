@@ -119,6 +119,7 @@ export const usersApi = {
   deleteDocument: (userId: string, docId: string) => r(api.delete(`/users/${userId}/documents/${docId}`)),
   verifyDocument: (userId: string, docId: string, status: string, rejectionReason?: string) =>
     r(api.patch(`/users/${userId}/documents/${docId}/verify`, { status, rejectionReason })),
+  permanentDelete: (id: string) => r(api.delete(`/users/${id}/permanent`)),
 };
 
 // Change Requests
