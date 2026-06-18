@@ -33,6 +33,7 @@ export default function UsersPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '' });
   const [editUser, setEditUser] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true });
+  const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
 
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
@@ -57,7 +58,21 @@ export default function UsersPage() {
 
   const toggleActive = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => usersApi.update(id, { isActive }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); },
+    onSuccess: (_, vars) => {
+      if (vars.isActive) toast.success('User activated');
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: () => toast.error('Failed to activate user'),
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: (id: string) => usersApi.deactivate(id),
+    onSuccess: () => {
+      toast.success('User deactivated');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setDeactivateTarget(null);
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to deactivate user'),
   });
 
   const editMutation = useMutation({
@@ -222,15 +237,16 @@ export default function UsersPage() {
                       <Edit2 size={14} />
                     </button>
                     <button
-                      onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}
-                      className="p-1.5 rounded-lg transition-colors"
+                      onClick={() => u.isActive ? setDeactivateTarget(u) : toggleActive.mutate({ id: u.id, isActive: true })}
+                      disabled={deactivateMutation.isPending || toggleActive.isPending}
+                      className="p-1.5 rounded-lg transition-colors disabled:opacity-40"
                       style={{ color: 'var(--text-tertiary)' }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.color = u.isActive ? 'var(--color-danger)' : 'var(--color-success)';
                         e.currentTarget.style.backgroundColor = u.isActive ? 'var(--color-danger-bg)' : 'var(--color-success-bg)';
                       }}
                       onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-                      title={u.isActive ? 'Deactivate' : 'Activate'}
+                      title={u.isActive ? 'Deactivate user' : 'Activate user'}
                     >
                       {u.isActive ? <UserX size={14} /> : <UserCheck size={14} />}
                     </button>
@@ -296,6 +312,37 @@ export default function UsersPage() {
                 {editMutation.isPending ? 'Saving...' : 'Save Changes'}
               </button>
               <button onClick={() => setEditUser(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deactivate Confirmation Modal */}
+      {deactivateTarget && (
+        <div className="apex-backdrop flex items-center justify-center p-4">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Deactivate user?</h3>
+            <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
+              <strong>{deactivateTarget.name}</strong> will lose login access and be hidden from active workflows.
+            </p>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>
+              Historical tickets, comments, work sessions, leave records, and audit logs will be preserved.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => deactivateMutation.mutate(deactivateTarget.id)}
+                disabled={deactivateMutation.isPending}
+                className="apex-btn flex-1 justify-center py-2.5 font-medium disabled:opacity-50 text-white"
+                style={{ backgroundColor: 'var(--color-danger)' }}
+              >
+                {deactivateMutation.isPending ? 'Deactivating...' : 'Deactivate'}
+              </button>
+              <button
+                onClick={() => setDeactivateTarget(null)}
+                className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>
