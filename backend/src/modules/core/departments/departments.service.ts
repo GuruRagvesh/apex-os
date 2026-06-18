@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 
@@ -104,14 +104,38 @@ export class DepartmentsService {
   }
 
   async remove(id: string) {
-    const activeTickets = await this.prisma.ticket.count({
-      where: { departmentId: id, status: { notIn: ['DONE', 'CLOSED'] } },
-    });
-    if (activeTickets > 0) {
-      throw new BadRequestException(
-        `Cannot delete department with ${activeTickets} active ticket${activeTickets > 1 ? 's' : ''}. Resolve them first.`,
+    const dept = await this.prisma.department.findUnique({ where: { id }, select: { id: true, name: true } });
+    if (!dept) throw new NotFoundException('Department not found');
+
+    // ── Dependency checks — block delete if any FK relation is populated ──
+    const [managerLinks, activeUsers, allTickets, projects] = await Promise.all([
+      this.prisma.managerDeptAccess.count({ where: { departmentId: id } }),
+      this.prisma.user.count({ where: { departmentId: id, isActive: true } }),
+      this.prisma.ticket.count({ where: { departmentId: id } }),
+      this.prisma.project.count({ where: { departmentId: id } }),
+    ]);
+
+    if (managerLinks > 0) {
+      throw new ConflictException(
+        `"${dept.name}" has ${managerLinks} manager access assignment${managerLinks > 1 ? 's' : ''}. Remove them before deleting this department.`,
       );
     }
+    if (activeUsers > 0) {
+      throw new ConflictException(
+        `"${dept.name}" has ${activeUsers} active member${activeUsers > 1 ? 's' : ''}. Reassign them to another department first.`,
+      );
+    }
+    if (allTickets > 0) {
+      throw new ConflictException(
+        `"${dept.name}" has ${allTickets} ticket${allTickets > 1 ? 's' : ''} (including historical). Archive this department instead of deleting it, or reassign all tickets first.`,
+      );
+    }
+    if (projects > 0) {
+      throw new ConflictException(
+        `"${dept.name}" has ${projects} linked project${projects > 1 ? 's' : ''}. Reassign them before deleting this department.`,
+      );
+    }
+
     return this.prisma.department.delete({ where: { id } });
   }
 }
