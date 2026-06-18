@@ -82,6 +82,24 @@ export const usersApi = {
   update: (id: string, data: any) => r(api.put(`/users/${id}`, data)),
   resetPassword: (id: string, newPassword: string) => r(api.put(`/users/${id}/reset-password`, { newPassword })),
   deactivate: (id: string) => r(api.delete(`/users/${id}`)),
+  downloadBackup: async (id: string, userName?: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
+    const res = await fetch(`${API_URL}/users/${id}/backup`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Backup failed: ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // Prefer filename from backend Content-Disposition; fall back to local construction
+    const disposition = res.headers.get('Content-Disposition');
+    const serverName = disposition?.match(/filename="([^"]+)"/)?.[1];
+    const safe = (userName || id).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    a.download = serverName ?? `backup-${safe}-${new Date().toISOString().split('T')[0]}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
   getStats: () => r(api.get('/users/stats')),
   uploadPhoto: async (file: File) => {
     const formData = new FormData();

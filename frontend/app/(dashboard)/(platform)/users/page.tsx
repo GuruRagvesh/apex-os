@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { usersApi, rolesApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, getInitials } from '@/lib/utils';
-import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert } from 'lucide-react';
+import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -34,6 +34,7 @@ export default function UsersPage() {
   const [editUser, setEditUser] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true });
   const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
@@ -235,6 +236,29 @@ export default function UsersPage() {
                       title="Edit user"
                     >
                       <Edit2 size={14} />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setDownloadingId(u.id);
+                        const toastId = `backup-${u.id}`;
+                        toast.loading('Downloading backup...', { id: toastId });
+                        try {
+                          await usersApi.downloadBackup(u.id, u.name);
+                          toast.success('Backup downloaded', { id: toastId });
+                        } catch {
+                          toast.error('Backup download failed', { id: toastId });
+                        } finally {
+                          setDownloadingId(null);
+                        }
+                      }}
+                      disabled={downloadingId === u.id}
+                      className="p-1.5 rounded-lg transition-colors disabled:opacity-40"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      title="Download user backup (.xlsx)"
+                    >
+                      {downloadingId === u.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     </button>
                     <button
                       onClick={() => u.isActive ? setDeactivateTarget(u) : toggleActive.mutate({ id: u.id, isActive: true })}

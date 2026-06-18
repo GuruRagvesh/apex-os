@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Workbook } from 'exceljs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
@@ -493,5 +494,315 @@ export class UsersService {
       update: { value: prefs, updatedBy: userId },
     });
     return saved.value;
+  }
+
+  async generateBackup(userId: string, actorId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true, department: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const [
+      createdTickets,
+      assignedTickets,
+      comments,
+      workSessions,
+      breakLogs,
+      leaveRequests,
+      notifications,
+      activityLogs,
+      operationalEvents,
+      managedDepts,
+      projectMembers,
+      employeeDocuments,
+    ] = await Promise.all([
+      this.prisma.ticket.findMany({ where: { createdById: userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
+      this.prisma.ticket.findMany({ where: { assignedToId: userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
+      this.prisma.comment.findMany({ where: { authorId: userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
+      this.prisma.workSession.findMany({ where: { userId }, orderBy: { date: 'desc' }, take: 365 }),
+      this.prisma.breakLog.findMany({ where: { userId }, orderBy: { startAt: 'desc' }, take: 500 }),
+      this.prisma.leaveRequest.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.notification.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 200 }),
+      this.prisma.activityLog.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 200 }),
+      (this.prisma as any).operationalEvent.findMany({ where: { actorId: userId }, orderBy: { timestamp: 'desc' }, take: 200 }),
+      (this.prisma as any).managerDeptAccess.findMany({ where: { managerId: userId }, include: { department: { select: { name: true } } } }),
+      this.prisma.projectMember.findMany({ where: { userId }, include: { project: { select: { projectId: true, name: true, status: true } } } }),
+      (this.prisma as any).employeeDocument.findMany({ where: { userId }, orderBy: { uploadedAt: 'desc' } }),
+    ]);
+
+    const fmt = (v: any): string => {
+      if (v == null) return '';
+      if (v instanceof Date) return v.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+      return String(v);
+    };
+
+    const wb = new Workbook();
+    wb.creator = 'Apex OS';
+    wb.created = new Date();
+
+    // ── Sheet 1: Summary ────────────────────────────────────────────────────
+    const wsSummary = wb.addWorksheet('Summary');
+    wsSummary.columns = [
+      { header: 'Field', key: 'f', width: 30 },
+      { header: 'Value', key: 'v', width: 55 },
+    ];
+    wsSummary.getRow(1).font = { bold: true };
+    [
+      ['Name', user.name],
+      ['Email', user.email],
+      ['Role', (user.role as any)?.name ?? ''],
+      ['Department', (user.department as any)?.name ?? 'Unassigned'],
+      ['Status', user.isActive ? 'Active' : 'Inactive (Deactivated)'],
+      ['Employee ID', user.employeeId ?? ''],
+      ['Designation', user.designation ?? ''],
+      ['Employment Type', user.employmentType ?? ''],
+      ['Work Mode', user.workMode ?? ''],
+      ['Joining Date', fmt(user.joiningDate)],
+      ['Shift Timing', user.shiftTiming ?? ''],
+      ['Location', user.userLocation ?? ''],
+      ['Verification Status', user.verificationStatus ?? ''],
+      ['Backup Generated At', fmt(new Date())],
+    ].forEach(([f, v]) => wsSummary.addRow({ f, v }));
+
+    // ── Sheet 2: User Profile ────────────────────────────────────────────────
+    const wsProfile = wb.addWorksheet('User Profile');
+    wsProfile.columns = [
+      { header: 'Field', key: 'f', width: 35 },
+      { header: 'Value', key: 'v', width: 60 },
+    ];
+    wsProfile.getRow(1).font = { bold: true };
+    ([
+      ['ID', user.id], ['Name', user.name], ['Email', user.email],
+      ['Phone', user.phone], ['Date of Birth', fmt(user.dateOfBirth)],
+      ['Gender', user.gender], ['Blood Group', user.bloodGroup],
+      ['Current Address', user.currentAddress], ['Permanent Address', user.permanentAddress],
+      ['Emergency Name', user.emergencyName], ['Emergency Phone', user.emergencyPhone],
+      ['Emergency Relation', user.emergencyRelation], ['Employee ID', user.employeeId],
+      ['Designation', user.designation], ['Employment Type', user.employmentType],
+      ['Work Mode', user.workMode], ['Shift Timing', user.shiftTiming],
+      ['Work Location', user.workLocation], ['User Location', user.userLocation],
+      ['Reporting Manager', user.reportingManager], ['Team Lead', user.teamLeadName],
+      ['Joining Date', fmt(user.joiningDate)], ['Probation Period', user.probationPeriod],
+      ['CTC Annual', user.ctcAnnual], ['Basic Salary', user.basicSalary],
+      ['Salary Structure', user.salaryStructure], ['Bank Name', user.bankName],
+      ['Account Number', user.accountNumber], ['IFSC Code', user.ifscCode],
+      ['Account Holder', user.accountHolderName], ['Payment Mode', user.paymentMode],
+      ['PAN Number', user.panNumber], ['Aadhaar Number', user.aadhaarNumber],
+      ['UAN Number', user.uanNumber], ['PF Applicable', fmt(user.pfApplicable)],
+      ['ESIC Applicable', fmt(user.esicApplicable)], ['Professional Tax', fmt(user.professionalTax)],
+      ['Tax Regime', user.taxRegime], ['Bio', user.bio],
+      ['HR Notes', user.hrNotes], ['Verified By', user.verifiedBy],
+      ['Verification Date', fmt(user.verificationDate)],
+      ['Created At', fmt(user.createdAt)], ['Updated At', fmt(user.updatedAt)],
+    ] as [string, any][]).forEach(([f, v]) => wsProfile.addRow({ f, v: fmt(v) }));
+
+    // ── Sheet 3: Tickets Created ─────────────────────────────────────────────
+    const wsCreated = wb.addWorksheet('Tickets Created');
+    wsCreated.columns = [
+      { header: 'Ticket ID', key: 'ticketId', width: 15 },
+      { header: 'Title', key: 'title', width: 40 },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'Priority', key: 'priority', width: 12 },
+      { header: 'Category', key: 'category', width: 14 },
+      { header: 'Type', key: 'type', width: 14 },
+      { header: 'Due Date', key: 'dueDate', width: 22 },
+      { header: 'Created At', key: 'createdAt', width: 22 },
+    ];
+    wsCreated.getRow(1).font = { bold: true };
+    createdTickets.forEach((t: any) => wsCreated.addRow({
+      ticketId: t.ticketId, title: t.title, status: t.status,
+      priority: t.priority, category: t.category, type: t.type,
+      dueDate: fmt(t.dueDate), createdAt: fmt(t.createdAt),
+    }));
+
+    // ── Sheet 4: Tickets Assigned ────────────────────────────────────────────
+    const wsAssigned = wb.addWorksheet('Tickets Assigned');
+    wsAssigned.columns = wsCreated.columns.map((c) => ({ ...c }));
+    wsAssigned.getRow(1).font = { bold: true };
+    assignedTickets.forEach((t: any) => wsAssigned.addRow({
+      ticketId: t.ticketId, title: t.title, status: t.status,
+      priority: t.priority, category: t.category, type: t.type,
+      dueDate: fmt(t.dueDate), createdAt: fmt(t.createdAt),
+    }));
+
+    // ── Sheet 5: Comments ────────────────────────────────────────────────────
+    const wsComments = wb.addWorksheet('Comments');
+    wsComments.columns = [
+      { header: 'Ticket ID', key: 'ticketId', width: 30 },
+      { header: 'Comment', key: 'content', width: 60 },
+      { header: 'Created At', key: 'createdAt', width: 22 },
+    ];
+    wsComments.getRow(1).font = { bold: true };
+    comments.forEach((c: any) => wsComments.addRow({
+      ticketId: c.ticketId, content: c.content, createdAt: fmt(c.createdAt),
+    }));
+
+    // ── Sheet 6: Work Sessions ───────────────────────────────────────────────
+    const wsWork = wb.addWorksheet('Work Sessions');
+    wsWork.columns = [
+      { header: 'Date', key: 'date', width: 14 },
+      { header: 'Login At', key: 'loginAt', width: 22 },
+      { header: 'Work Start', key: 'startWorkAt', width: 22 },
+      { header: 'Logout At', key: 'logoutAt', width: 22 },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'Work (min)', key: 'totalWorkMinutes', width: 12 },
+      { header: 'Break (min)', key: 'totalBreakMinutes', width: 12 },
+      { header: 'Logged (min)', key: 'totalLoggedMinutes', width: 13 },
+      { header: 'Auto Closed', key: 'autoClosed', width: 12 },
+    ];
+    wsWork.getRow(1).font = { bold: true };
+    workSessions.forEach((s: any) => wsWork.addRow({
+      date: fmt(s.date), loginAt: fmt(s.loginAt), startWorkAt: fmt(s.startWorkAt),
+      logoutAt: fmt(s.logoutAt), status: s.status,
+      totalWorkMinutes: s.totalWorkMinutes, totalBreakMinutes: s.totalBreakMinutes,
+      totalLoggedMinutes: s.totalLoggedMinutes, autoClosed: s.autoClosed ? 'Yes' : 'No',
+    }));
+
+    // ── Sheet 7: Break Logs ──────────────────────────────────────────────────
+    const wsBreaks = wb.addWorksheet('Break Logs');
+    wsBreaks.columns = [
+      { header: 'Break Type', key: 'breakType', width: 20 },
+      { header: 'Start At', key: 'startAt', width: 22 },
+      { header: 'End At', key: 'endAt', width: 22 },
+      { header: 'Duration (min)', key: 'durationMinutes', width: 15 },
+      { header: 'Note', key: 'note', width: 40 },
+    ];
+    wsBreaks.getRow(1).font = { bold: true };
+    breakLogs.forEach((b: any) => wsBreaks.addRow({
+      breakType: b.breakType, startAt: fmt(b.startAt), endAt: fmt(b.endAt),
+      durationMinutes: b.durationMinutes ?? '', note: b.note ?? '',
+    }));
+
+    // ── Sheet 8: Leave Requests ──────────────────────────────────────────────
+    const wsLeave = wb.addWorksheet('Leave Requests');
+    wsLeave.columns = [
+      { header: 'Type', key: 'type', width: 14 },
+      { header: 'Start Date', key: 'startDate', width: 14 },
+      { header: 'End Date', key: 'endDate', width: 14 },
+      { header: 'Reason', key: 'reason', width: 40 },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'Approved By', key: 'approvedBy', width: 25 },
+      { header: 'Approved At', key: 'approvedAt', width: 22 },
+      { header: 'Created At', key: 'createdAt', width: 22 },
+    ];
+    wsLeave.getRow(1).font = { bold: true };
+    leaveRequests.forEach((l: any) => wsLeave.addRow({
+      type: l.type, startDate: fmt(l.startDate), endDate: fmt(l.endDate),
+      reason: l.reason, status: l.status, approvedBy: l.approvedBy ?? '',
+      approvedAt: fmt(l.approvedAt), createdAt: fmt(l.createdAt),
+    }));
+
+    // ── Sheet 9: Notifications ───────────────────────────────────────────────
+    const wsNotif = wb.addWorksheet('Notifications');
+    wsNotif.columns = [
+      { header: 'Title', key: 'title', width: 30 },
+      { header: 'Message', key: 'message', width: 50 },
+      { header: 'Type', key: 'type', width: 12 },
+      { header: 'Read', key: 'isRead', width: 8 },
+      { header: 'Created At', key: 'createdAt', width: 22 },
+    ];
+    wsNotif.getRow(1).font = { bold: true };
+    notifications.forEach((n: any) => wsNotif.addRow({
+      title: n.title, message: n.message, type: n.type,
+      isRead: n.isRead ? 'Yes' : 'No', createdAt: fmt(n.createdAt),
+    }));
+
+    // ── Sheet 10: Activity Logs ──────────────────────────────────────────────
+    const wsActivity = wb.addWorksheet('Activity Logs');
+    wsActivity.columns = [
+      { header: 'Action', key: 'action', width: 30 },
+      { header: 'Entity Type', key: 'entityType', width: 18 },
+      { header: 'Entity ID', key: 'entityId', width: 30 },
+      { header: 'Details', key: 'details', width: 50 },
+      { header: 'Created At', key: 'createdAt', width: 22 },
+    ];
+    wsActivity.getRow(1).font = { bold: true };
+    activityLogs.forEach((a: any) => wsActivity.addRow({
+      action: a.action, entityType: a.entityType, entityId: a.entityId ?? '',
+      details: a.details ? JSON.stringify(a.details) : '', createdAt: fmt(a.createdAt),
+    }));
+
+    // ── Sheet 11: Operational Events ─────────────────────────────────────────
+    const wsOps = wb.addWorksheet('Operational Events');
+    wsOps.columns = [
+      { header: 'Action', key: 'action', width: 30 },
+      { header: 'Entity Type', key: 'entityType', width: 18 },
+      { header: 'Entity ID', key: 'entityId', width: 30 },
+      { header: 'From State', key: 'fromState', width: 18 },
+      { header: 'To State', key: 'toState', width: 18 },
+      { header: 'Metadata', key: 'metadata', width: 50 },
+      { header: 'Timestamp', key: 'timestamp', width: 22 },
+    ];
+    wsOps.getRow(1).font = { bold: true };
+    operationalEvents.forEach((e: any) => wsOps.addRow({
+      action: e.action, entityType: e.entityType, entityId: e.entityId,
+      fromState: e.fromState ?? '', toState: e.toState ?? '',
+      metadata: e.metadata ? JSON.stringify(e.metadata) : '', timestamp: fmt(e.timestamp),
+    }));
+
+    // ── Sheet 12: Manager Dept Access ────────────────────────────────────────
+    const wsMgr = wb.addWorksheet('Manager Dept Access');
+    wsMgr.columns = [
+      { header: 'Department', key: 'dept', width: 30 },
+      { header: 'Access Level', key: 'accessLevel', width: 15 },
+      { header: 'Since', key: 'createdAt', width: 22 },
+    ];
+    wsMgr.getRow(1).font = { bold: true };
+    managedDepts.forEach((m: any) => wsMgr.addRow({
+      dept: m.department?.name ?? m.departmentId,
+      accessLevel: m.accessLevel, createdAt: fmt(m.createdAt),
+    }));
+
+    // ── Sheet 13: Project Memberships ────────────────────────────────────────
+    const wsProj = wb.addWorksheet('Project Memberships');
+    wsProj.columns = [
+      { header: 'Project ID', key: 'projectId', width: 20 },
+      { header: 'Project Name', key: 'name', width: 35 },
+      { header: 'Project Status', key: 'status', width: 15 },
+      { header: 'Member Role', key: 'role', width: 15 },
+      { header: 'Joined At', key: 'joinedAt', width: 22 },
+    ];
+    wsProj.getRow(1).font = { bold: true };
+    projectMembers.forEach((pm: any) => wsProj.addRow({
+      projectId: pm.project?.projectId ?? '', name: pm.project?.name ?? '',
+      status: pm.project?.status ?? '', role: pm.role, joinedAt: fmt(pm.joinedAt),
+    }));
+
+    // ── Sheet 14: Documents Metadata ─────────────────────────────────────────
+    const wsDocs = wb.addWorksheet('Documents Metadata');
+    wsDocs.columns = [
+      { header: 'Document Type', key: 'documentType', width: 25 },
+      { header: 'File Name', key: 'fileName', width: 35 },
+      { header: 'Size (bytes)', key: 'fileSize', width: 13 },
+      { header: 'MIME Type', key: 'mimeType', width: 25 },
+      { header: 'Verification', key: 'verificationStatus', width: 18 },
+      { header: 'Uploaded At', key: 'uploadedAt', width: 22 },
+    ];
+    wsDocs.getRow(1).font = { bold: true };
+    employeeDocuments.forEach((d: any) => wsDocs.addRow({
+      documentType: d.documentType, fileName: d.fileName,
+      fileSize: d.fileSize ?? '', mimeType: d.mimeType ?? '',
+      verificationStatus: d.verificationStatus, uploadedAt: fmt(d.uploadedAt),
+    }));
+
+    // Log export to audit trail
+    this.eventLogger.log({
+      actorId,
+      entityType: 'User',
+      entityId: userId,
+      action: OperationalAction.EXPORT_PERFORMED,
+      metadata: { exportType: 'user_backup_xlsx', targetUser: user.name, sheets: 14 },
+    }).catch(() => {});
+
+    // writeBuffer loads the full workbook into memory before sending.
+    // Acceptable at current ~50-user scale. For larger deployments, refactor
+    // to accept res: Response and stream via wb.xlsx.write(res) instead.
+    const raw = await wb.xlsx.writeBuffer();
+    const buffer = Buffer.from(raw);
+    const safeName = user.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const date = new Date().toISOString().split('T')[0];
+
+    return { buffer, filename: `backup-${safeName}-${date}.xlsx` };
   }
 }

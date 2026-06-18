@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, Request, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -75,6 +76,22 @@ export class UsersController {
   @UseGuards(RolesGuard) @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   getDirectory(@CurrentUser() user: any) {
     return this.usersService.getDirectory(user);
+  }
+
+  @Get(':id/backup')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  async downloadBackup(
+    @Param('id') id: string,
+    @CurrentUser() actor: any,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } = await this.usersService.generateBackup(id, actor?.id);
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': String(buffer.length),
+    });
+    res.end(buffer);
   }
 
   @Get(':id')
