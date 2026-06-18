@@ -75,7 +75,10 @@ export default function UsersPage() {
       qc.invalidateQueries({ queryKey: ['users'] });
       setDeactivateTarget(null);
     },
-    onError: (err: any) => toast.error(err?.message || 'Failed to deactivate user'),
+    onError: (err: any) => {
+      toast.error(err?.message || 'Failed to deactivate user');
+      setDeactivateTarget(null);
+    },
   });
 
   const permanentDeleteMutation = useMutation({
