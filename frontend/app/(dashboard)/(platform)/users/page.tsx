@@ -246,9 +246,12 @@ export default function UsersPage() {
                   </div>
                 </div>
                 {isAdmin && u.id !== me?.id && (
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="relative z-10 flex items-center gap-1 flex-shrink-0">
                     <button
-                      onClick={() => {
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         setEditUser(u);
                         setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive: u.isActive });
                       }}
@@ -261,7 +264,10 @@ export default function UsersPage() {
                       <Edit2 size={14} />
                     </button>
                     <button
-                      onClick={async () => {
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         setDownloadingId(u.id);
                         const toastId = `backup-${u.id}`;
                         toast.loading('Downloading backup...', { id: toastId });
@@ -285,7 +291,12 @@ export default function UsersPage() {
                     </button>
                     {!u.isActive && (
                       <button
-                        onClick={() => setPermanentDeleteTarget(u)}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPermanentDeleteTarget(u);
+                        }}
                         disabled={permanentDeleteMutation.isPending}
                         className="p-1.5 rounded-lg transition-colors disabled:opacity-40"
                         style={{ color: 'var(--text-tertiary)' }}
@@ -297,7 +308,16 @@ export default function UsersPage() {
                       </button>
                     )}
                     <button
-                      onClick={() => u.isActive ? setDeactivateTarget(u) : toggleActive.mutate({ id: u.id, isActive: true })}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (u.isActive) {
+                          setDeactivateTarget(u);
+                        } else {
+                          toggleActive.mutate({ id: u.id, isActive: true });
+                        }
+                      }}
                       disabled={deactivateMutation.isPending || toggleActive.isPending}
                       className="p-1.5 rounded-lg transition-colors disabled:opacity-40"
                       style={{ color: 'var(--text-tertiary)' }}
