@@ -107,19 +107,13 @@ export class DepartmentsService {
     const dept = await this.prisma.department.findUnique({ where: { id }, select: { id: true, name: true } });
     if (!dept) throw new NotFoundException('Department not found');
 
-    // ── Dependency checks — block delete if any FK relation is populated ──
-    const [managerLinks, activeUsers, allTickets, projects] = await Promise.all([
-      this.prisma.managerDeptAccess.count({ where: { departmentId: id } }),
+    // Block on operational/historical data — these must be preserved or reassigned
+    const [activeUsers, allTickets, projects] = await Promise.all([
       this.prisma.user.count({ where: { departmentId: id, isActive: true } }),
       this.prisma.ticket.count({ where: { departmentId: id } }),
       this.prisma.project.count({ where: { departmentId: id } }),
     ]);
 
-    if (managerLinks > 0) {
-      throw new ConflictException(
-        `"${dept.name}" has ${managerLinks} manager access assignment${managerLinks > 1 ? 's' : ''}. Remove them before deleting this department.`,
-      );
-    }
     if (activeUsers > 0) {
       throw new ConflictException(
         `"${dept.name}" has ${activeUsers} active member${activeUsers > 1 ? 's' : ''}. Reassign them to another department first.`,
@@ -136,6 +130,11 @@ export class DepartmentsService {
       );
     }
 
-    return this.prisma.department.delete({ where: { id } });
+    // ManagerDeptAccess rows are permission links, not operational data.
+    // Safe to remove automatically when no users, tickets, or projects remain.
+    await this.prisma.$transaction([
+      this.prisma.managerDeptAccess.deleteMany({ where: { departmentId: id } }),
+      this.prisma.department.delete({ where: { id } }),
+    ]);
   }
 }
