@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { LeaveStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
-import { EmailService } from '../../platform/email/email.service';
 import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
@@ -16,7 +15,6 @@ export class LeaveService {
   constructor(
     private prisma: PrismaService,
     private gateway: EventsGateway,
-    private emailService: EmailService,
     private notificationEventService: NotificationEventService,
     private configService: ConfigService,
     private eventLogger: EventLoggerService,
@@ -188,17 +186,6 @@ export class LeaveService {
       );
     } catch (_e) { /* never crash main op */ }
 
-    try {
-      await this.emailService.sendLeaveDecision(
-        leave.user.email,
-        'APPROVED',
-        leave.type,
-        startStr,
-        endStr,
-        this.frontendUrl,
-      );
-    } catch (_e) { /* never crash main op */ }
-
     return updated;
   }
 
@@ -236,17 +223,6 @@ export class LeaveService {
           entityId: leave.id,
           entityType: 'LEAVE',
         }
-      );
-    } catch (_e) { /* never crash main op */ }
-
-    try {
-      await this.emailService.sendLeaveDecision(
-        leave.user.email,
-        'REJECTED',
-        leave.type,
-        startStr,
-        endStr,
-        this.frontendUrl,
       );
     } catch (_e) { /* never crash main op */ }
 

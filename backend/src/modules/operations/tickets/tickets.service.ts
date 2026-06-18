@@ -4,7 +4,6 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TicketStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
-import { EmailService } from '../../platform/email/email.service';
 import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
@@ -23,7 +22,6 @@ export class TicketsService {
   constructor(
     private prisma: PrismaService,
     private gateway: EventsGateway,
-    private emailService: EmailService,
     private notificationEventService: NotificationEventService,
     private configService: ConfigService,
     private eventEmitter: EventEmitter2,
@@ -397,7 +395,6 @@ export class TicketsService {
     this.eventEmitter.emit('ticket.created', { ticket, userId });
 
     if (ticket.assignedTo) {
-      const creator = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
       try {
         await this.notificationEventService.sendNotification(
           ticket.assignedTo.id,
@@ -410,15 +407,6 @@ export class TicketsService {
             entityId: ticket.id,
             entityType: 'TICKET',
           }
-        );
-      } catch (_e) { /* never crash main op */ }
-      try {
-        await this.emailService.sendTicketAssigned(
-          ticket.assignedTo.email,
-          ticket.ticketId,
-          ticket.title,
-          creator?.name ?? 'Someone',
-          this.frontendUrl,
         );
       } catch (_e) { /* never crash main op */ }
     }
@@ -627,15 +615,6 @@ export class TicketsService {
       this.gateway.emitTicketStatusChanged(ticket.id, data.status, userId);
 
       if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) {
-        // Email resolved assignee
-        if (ticket.assignedTo) {
-          await this.emailService.sendTicketResolved(
-            ticket.assignedTo.email,
-            ticket.ticketId,
-            ticket.title,
-            this.frontendUrl,
-          );
-        }
         // Notify reporter (createdBy) that their ticket is done.
         // Suppressed when called from approve() which sends its own targeted notification
         // to prevent duplicate "Ticket resolved" + "Ticket approved" spam to the same user.
@@ -671,7 +650,6 @@ export class TicketsService {
         action: OperationalAction.TICKET_ASSIGNED,
         metadata: { ticketId: ticket.ticketId, assigneeId: data.assignedToId, assigneeName: ticket.assignedTo.name },
       }).catch(() => {});
-      const updater = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
       try {
         await this.notificationEventService.sendNotification(
           ticket.assignedTo.id,
@@ -684,15 +662,6 @@ export class TicketsService {
             entityId: ticket.id,
             entityType: 'TICKET',
           }
-        );
-      } catch (_e) { /* never crash main op */ }
-      try {
-        await this.emailService.sendTicketAssigned(
-          ticket.assignedTo.email,
-          ticket.ticketId,
-          ticket.title,
-          updater?.name ?? 'Someone',
-          this.frontendUrl,
         );
       } catch (_e) { /* never crash main op */ }
     }

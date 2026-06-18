@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmailService } from '../platform/email/email.service';
 import { TicketTimingService } from '../../common/services/ticket-timing.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -13,7 +12,6 @@ export class AiCronService {
 
   constructor(
     private prisma: PrismaService,
-    private emailService: EmailService,
     private ticketTiming: TicketTimingService,
     private configService: ConfigService,
     private tva: TVAService,
@@ -77,23 +75,8 @@ export class AiCronService {
       return this.ticketTiming.getTimingState(t, config).isOverdue;
     });
 
-    // ── Build email HTML ────────────────────────────────────────────────────────
-    const dateStr = this.tva.now().toLocaleDateString('en-GB', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-    });
-
-    const html = this.buildDigestHtml(dateStr, resolvedToday, overdueTickets, newToday, pendingLeave);
-    const subject = `APEX OS Daily Digest — ${this.tva.now().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
-
-    // ── Send to each manager / admin ────────────────────────────────────────────
-    let sent = 0;
-    for (const manager of managers) {
-      await this.emailService.sendEmail(manager.email, subject, html);
-      sent++;
-    }
-
     this.logger.log(
-      `Daily digest sent to ${sent} manager(s). ` +
+      `Daily digest: ${managers.length} manager(s) found. Email send disabled — in-app only. ` +
       `Resolved: ${resolvedToday.length}, Overdue: ${overdueTickets.length}, New: ${newToday.length}, Pending leave: ${pendingLeave.length}`,
     );
   }
