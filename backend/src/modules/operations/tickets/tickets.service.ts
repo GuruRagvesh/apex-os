@@ -243,10 +243,11 @@ export class TicketsService {
       assigneeIds = [userId];
     }
 
-    // Resolve departmentId: accept display name or UUID
+    // Resolve departmentId: accept UUID, CUID, or display name (schema uses cuid())
     if (data.departmentId && !isUUID(data.departmentId)) {
       const dept = await this.prisma.department.findFirst({
-        where: { name: { equals: data.departmentId, mode: 'insensitive' } },
+        where: { OR: [{ id: data.departmentId }, { name: { equals: data.departmentId, mode: 'insensitive' } }] },
+        select: { id: true },
       });
       data.departmentId = dept?.id ?? undefined;
     }

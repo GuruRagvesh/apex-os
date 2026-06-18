@@ -335,8 +335,9 @@ export class TicketAccessService {
   private async resolveDeptFilter(value?: string): Promise<string | undefined> {
     if (!value) return undefined;
     if (isUUID(value)) return value;
+    // Schema uses cuid() — accept any non-UUID value as either a CUID id or a dept name.
     const dept = await this.prisma.department.findFirst({
-      where: { name: { equals: value, mode: 'insensitive' } },
+      where: { OR: [{ id: value }, { name: { equals: value, mode: 'insensitive' } }] },
       select: { id: true },
     });
     return dept?.id;
