@@ -10,8 +10,6 @@ import { ArrowLeft, Sparkles, Loader2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MultiSelect } from '@/components/ui/multi-select';
 
-
-
 // ─── Leave Warning ────────────────────────────────────────────────────────────
 function LeaveWarning({ assigneeIds, users }: { assigneeIds: string[]; users: any[] }) {
   const { data: teamStatus } = useQuery({
@@ -38,8 +36,6 @@ function LeaveWarning({ assigneeIds, users }: { assigneeIds: string[]; users: an
   );
 }
 
-const CATEGORIES = ['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
-const TYPES = ['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST', 'CUSTOM'];
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -68,11 +64,13 @@ export default function NewTicketPage() {
   const [form, setForm] = useState({
     title: '',
     description: '',
-    category: 'IT',
+    // category is a required DB enum — hidden from UI, always sent as OPERATIONS
+    category: 'OPERATIONS',
+    // type has DB default TASK — hidden from UI, always sent as TASK
     type: 'TASK',
     priority: 'MEDIUM',
     estimatedMinutes: '',
-    // Pre-fill department for TL / Employee
+    // Pre-fill dept for TL / Employee; manager/admin start empty (must choose)
     departmentId: (isTL || isEmployee) ? myDeptId : '',
     projectId: preselectedProjectId || '',
     // Pre-fill self for Employee/Intern
@@ -84,9 +82,9 @@ export default function NewTicketPage() {
     scheduledEndAt: '',
   });
 
+  // Advanced Scheduling collapsed by default
   const [showAdvancedSchedule, setShowAdvancedSchedule] = useState(false);
 
-  // Multiple assignees state
   const [assigneeIds, setAssigneeIds] = useState<string[]>(
     isEmployee && user?.id ? [user.id] : [],
   );
@@ -97,7 +95,6 @@ export default function NewTicketPage() {
 
   const [taskTypeId, setTaskTypeId] = useState('');
   const [taskSubtypeId, setTaskSubtypeId] = useState('');
-  const [customType, setCustomType] = useState('');
   const [customSubtype, setCustomSubtype] = useState('');
 
   const [scheduleRecurring, setScheduleRecurring] = useState('none');
@@ -105,14 +102,27 @@ export default function NewTicketPage() {
   const [scheduleEndPreset, setScheduleEndPreset] = useState('1_month');
   const [scheduleEndDate, setScheduleEndDate] = useState('');
 
-  const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
-  const { data: projectsRaw } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
-  const { data: usersData } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any> });
+  const { data: departments } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+  });
+  const { data: projectsRaw } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => projectsApi.getAll() as Promise<any>,
+  });
+  const { data: usersData } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => usersApi.getAll() as Promise<any>,
+  });
 
-  const deptIdForTypes = form.departmentId || myDeptId;
+  // Task types scoped strictly to the selected department.
+  // For TL/Employee, form.departmentId is pre-filled with myDeptId so this
+  // always resolves correctly without silently falling back to the user's own dept
+  // in cases where a manager hasn't chosen one yet.
   const { data: taskTypesRaw } = useQuery({
-    queryKey: ['task-types', deptIdForTypes],
-    queryFn: () => taskTypesApi.getByDepartment(deptIdForTypes),
+    queryKey: ['task-types', form.departmentId],
+    queryFn: () => taskTypesApi.getByDepartment(form.departmentId),
+    enabled: !!form.departmentId,
     staleTime: 5 * 60 * 1000,
   });
   const taskTypes: any[] = Array.isArray(taskTypesRaw) ? taskTypesRaw : [];
@@ -127,8 +137,7 @@ export default function NewTicketPage() {
 
   const userList: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
 
-  // For TEAM_LEAD: show only own-dept users
-  // For EMPLOYEE/INTERN: show only themselves + the TL of their dept
+  // For TL: show only own-dept users. For Employee/Intern: self + TL.
   const filteredUsers = (() => {
     const deptFiltered = form.departmentId
       ? userList.filter((u: any) => u.departmentId === form.departmentId)
@@ -177,22 +186,25 @@ export default function NewTicketPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.title.trim()) return toast.error('Title is required');
-    // CUSTOM type: use customType text or fall back to 'CUSTOM'
-    const resolvedType = form.type === 'CUSTOM' ? (customType.trim() || 'CUSTOM') : form.type;
+    if (!form.title.trim())   return toast.error('Title is required');
+    if (!form.departmentId)   return toast.error('Department is required');
+    if (!taskTypeId)          return toast.error('Task Type is required');
+    if (!isEmployee && assigneeIds.length === 0) return toast.error('At least one assignee is required');
+    if (!form.dueDate)        return toast.error('Due Date is required');
+
     const isCustomSubtype = taskSubtypeId === '__custom__';
     mutation.mutate({
       ...form,
-      type: resolvedType,
+      type: 'TASK',
+      category: form.category,
       description: form.description,
       estimatedTime: undefined,
       estimatedMinutes: form.estimatedMinutes ? parseInt(form.estimatedMinutes) : undefined,
       projectId: form.projectId || undefined,
-      // Primary assignee = first selected, or the single assignedToId
       assignedToId: assigneeIds[0] || form.assignedToId || undefined,
       assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
       departmentId: form.departmentId || undefined,
-      // Normalize date-only inputs to 18:30 IST (13:00 UTC) so they don't become midnight
+      // Normalize date-only inputs to 18:30 IST (13:00 UTC)
       dueDate: form.dueDate
         ? (form.dueDate.includes('T') ? form.dueDate : `${form.dueDate}T13:00:00.000Z`)
         : undefined,
@@ -226,7 +238,6 @@ export default function NewTicketPage() {
       if (result?.disabled) {
         setAiDisabled(true);
         setAiReason(result.reason ?? 'AI features coming soon.');
-        // Apply default priority but no success toast
         if (result.priority) setForm((f) => ({ ...f, priority: result.priority }));
       } else if (result?.priority) {
         setForm((f) => ({ ...f, priority: result.priority }));
@@ -234,7 +245,7 @@ export default function NewTicketPage() {
         toast.success(`AI suggests: ${result.priority}`, { icon: '✨' });
       }
     } catch {
-      // Silent — backend now always returns a payload. Real errors are rare.
+      // Silent — backend always returns a payload; real errors are rare.
     } finally {
       setAiSuggesting(false);
     }
@@ -242,14 +253,16 @@ export default function NewTicketPage() {
 
   const set = (key: string, value: string) => {
     setForm((f) => ({ ...f, [key]: value }));
-    if (key === 'priority') setAiReason(''); // clear AI hint if user overrides
+    if (key === 'priority') setAiReason('');
   };
 
   const inputCls = 'apex-input';
   const labelCls = 'apex-label';
+  const sectionCls = 'text-xs font-semibold uppercase tracking-wider pb-1.5 mb-3 border-b';
 
   return (
     <div className="max-w-2xl mx-auto">
+      {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={handleBack}
@@ -264,8 +277,10 @@ export default function NewTicketPage() {
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Report an issue, request, or task</p>
         </div>
       </div>
+
       {preselectedProjectName && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-2" style={{ backgroundColor: 'var(--color-info-bg)', border: '1px solid rgba(59,130,246,0.3)', color: 'var(--color-info)' }}>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-2"
+          style={{ backgroundColor: 'var(--color-info-bg)', border: '1px solid rgba(59,130,246,0.3)', color: 'var(--color-info)' }}>
           <span>Creating ticket for project: <strong>{preselectedProjectName}</strong></span>
           <button
             type="button"
@@ -277,355 +292,265 @@ export default function NewTicketPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="apex-card p-6 space-y-5">
-        {/* Title */}
-        <div>
-          <label className={labelCls}>Title *</label>
-          <input
-            type="text"
-            value={form.title}
-            onChange={(e) => set('title', e.target.value)}
-            className={inputCls}
-            placeholder="e.g., Replace light bulb in IT Room 3B"
-            required
-          />
-        </div>
+      <form onSubmit={handleSubmit} className="apex-card p-6 space-y-6">
 
-        {/* Description */}
+        {/* ── 1. BASIC DETAILS ─────────────────────────────────────────────── */}
         <div>
-          <label className={labelCls}>Description</label>
-          <textarea
-            value={form.description}
-            onChange={(e) => set('description', e.target.value)}
-            className={`${inputCls} resize-none`}
-            placeholder="Detailed description of the issue or request..."
-            rows={4}
-          />
-        </div>
-
-        {/* Row: Category + Type */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>Category *</label>
-            <select value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls}>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Area of work (IT, HR, Facilities...)</p>
-          </div>
-          <div>
-            <label className={labelCls}>Type</label>
-            <select value={form.type} onChange={(e) => { set('type', e.target.value); if (e.target.value !== 'CUSTOM') setCustomType(''); }} className={inputCls}>
-              {TYPES.map((t) => <option key={t} value={t}>{t === 'CUSTOM' ? 'Custom…' : t}</option>)}
-            </select>
-            <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Nature of work (Task, Bug, Feature...)</p>
-            {form.type === 'CUSTOM' && (
+          <p className={sectionCls} style={{ color: 'var(--text-tertiary)', borderColor: 'var(--border-subtle)' }}>
+            Basic Details
+          </p>
+          <div className="space-y-4">
+            <div>
+              <label className={labelCls}>Title *</label>
               <input
                 type="text"
-                value={customType}
-                onChange={(e) => setCustomType(e.target.value)}
-                className={`${inputCls} mt-2`}
-                placeholder="Describe the type…"
-                autoFocus
-                maxLength={50}
+                value={form.title}
+                onChange={(e) => set('title', e.target.value)}
+                className={inputCls}
+                placeholder="e.g., Replace light bulb in IT Room 3B"
+                required
               />
-            )}
-          </div>
-        </div>
-
-        {/* Row: Task Type + Task Subtype */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>Task Type</label>
-            <select
-              value={taskTypeId}
-              onChange={(e) => { setTaskTypeId(e.target.value); setTaskSubtypeId(''); }}
-              className={inputCls}
-            >
-              <option value="">Select task type...</option>
-              {taskTypes.map((t: any) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Department-specific classification</p>
-          </div>
-          {taskTypeId && selectedTaskType?.subtypes?.length > 0 ? (
+            </div>
             <div>
-              <label className={labelCls}>Subtype</label>
-              <select
-                value={taskSubtypeId}
-                onChange={(e) => { setTaskSubtypeId(e.target.value); if (e.target.value !== '__custom__') setCustomSubtype(''); }}
-                className={inputCls}
-              >
-                <option value="">Select subtype...</option>
-                {selectedTaskType.subtypes.map((s: any) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-                <option value="__custom__">Custom…</option>
-              </select>
-              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Specific subtype</p>
-              {taskSubtypeId === '__custom__' && (
-                <input
-                  type="text"
-                  value={customSubtype}
-                  onChange={(e) => setCustomSubtype(e.target.value)}
-                  className={`${inputCls} mt-2`}
-                  placeholder="Describe the subtype…"
-                  autoFocus
-                  maxLength={80}
-                />
-              )}
-            </div>
-          ) : (
-            <div />
-          )}
-        </div>
-
-        {/* Row: Priority + Est Time */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Priority</label>
-              {aiDisabled ? (
-                <span
-                  className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-400 bg-slate-50"
-                  title="AI features will be enabled once configured"
-                >
-                  <Sparkles size={11} /> AI coming soon
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleSuggestPriority}
-                  disabled={aiSuggesting || !form.title.trim()}
-                  className={cn(
-                    'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors',
-                    'border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed',
-                  )}
-                  title="Let AI suggest a priority based on your title and description"
-                >
-                  {aiSuggesting
-                    ? <><Loader2 size={11} className="animate-spin" /> Thinking…</>
-                    : <><Sparkles size={11} /> Suggest</>}
-                </button>
-              )}
-            </div>
-            <select
-              value={form.priority}
-              onChange={(e) => set('priority', e.target.value)}
-              className={cn(inputCls, 'font-medium', PRIORITY_COLORS[form.priority])}
-            >
-              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            {aiReason && (
-              <p className="mt-1.5 text-xs text-slate-400 flex items-start gap-1">
-                <Sparkles size={10} className="text-indigo-400 mt-0.5 flex-shrink-0" />
-                <span>{aiReason}</span>
-              </p>
-            )}
-          </div>
-          <div>
-            <label className={labelCls}>Estimated Duration (minutes)</label>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={form.estimatedMinutes ?? ''}
-              onChange={(e) => set('estimatedMinutes', e.target.value)}
-              className={inputCls}
-              placeholder="e.g. 35 for 35 min, 90 for 1.5 hrs"
-            />
-            {form.estimatedMinutes && Number(form.estimatedMinutes) > 0 && (
-              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                = {Number(form.estimatedMinutes) < 60
-                    ? `${form.estimatedMinutes} minutes`
-                    : `${Math.floor(Number(form.estimatedMinutes) / 60)}h${Number(form.estimatedMinutes) % 60 > 0 ? ` ${Number(form.estimatedMinutes) % 60}m` : ''}`}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Row: Department + Project */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>
-              Department
-              {(isTL || isEmployee) && (
-                <span className="ml-1.5 text-xs text-slate-400 font-normal">(your dept)</span>
-              )}
-            </label>
-            {(isTL || isEmployee) ? (
-              <input
-                readOnly
-                value={Array.isArray(departments)
-                  ? (departments.find((d: any) => d.id === myDeptId)?.name ?? 'Your department')
-                  : 'Your department'}
-                className="apex-input cursor-not-allowed"
-                style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}
+              <label className={labelCls}>Description</label>
+              <textarea
+                value={form.description}
+                onChange={(e) => set('description', e.target.value)}
+                className={`${inputCls} resize-none`}
+                placeholder="Detailed description of the issue or request..."
+                rows={4}
               />
-            ) : (
-              <select
-                value={form.departmentId}
-                onChange={(e) => {
-                  setForm((f) => ({ ...f, departmentId: e.target.value, assignedToId: '' }));
-                  setTaskTypeId('');
-                  setTaskSubtypeId('');
-                }}
-                className={inputCls}
-              >
-                <option value="">Select department</option>
-                {Array.isArray(departments) && departments.map((d: any) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div>
-            <label className={labelCls}>Link to Project</label>
-            <select value={form.projectId} onChange={(e) => set('projectId', e.target.value)} className={inputCls}>
-              <option value="">No project</option>
-              {projectList.map((p: any) => (
-                <option key={p.id} value={p.id}>{p.projectId} — {p.name}</option>
-              ))}
-            </select>
+            </div>
           </div>
         </div>
 
-        {/* Row: Assignees + Due Date */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>Assign To</label>
-            {isEmployee ? (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm"
-                style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
-                <span className="text-base">👤</span>
-                <span>This ticket will be assigned to you</span>
-              </div>
-            ) : (
-              <>
-                <MultiSelect
-                  options={filteredUsers.map((u: any) => ({
-                    value: u.id,
-                    label: u.name,
-                    sublabel: u.role?.name ?? u.role,
-                    avatar: u.avatar,
-                  }))}
-                  value={assigneeIds}
-                  onChange={setAssigneeIds}
-                  placeholder="Select assignees..."
-                />
-                {assigneeIds.length > 0 && (
-                  <LeaveWarning assigneeIds={assigneeIds} users={userList} />
+        {/* ── 2. CLASSIFICATION ────────────────────────────────────────────── */}
+        <div>
+          <p className={sectionCls} style={{ color: 'var(--text-tertiary)', borderColor: 'var(--border-subtle)' }}>
+            Classification
+          </p>
+          <div className="space-y-4">
+
+            {/* Department */}
+            <div>
+              <label className={labelCls}>
+                Department *
+                {(isTL || isEmployee) && (
+                  <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--text-tertiary)' }}>(your dept)</span>
                 )}
-              </>
-            )}
-          </div>
-          <div>
-            <label className={labelCls}>Due Date</label>
-            <input
-              type="date"
-              value={form.dueDate}
-              onChange={(e) => set('dueDate', e.target.value)}
-              className={inputCls}
-              min={new Date().toISOString().split('T')[0]}
-            />
-          </div>
-        </div>
-
-        {/* Scheduling Section */}
-        <div className="apex-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
-            <Clock size={14} style={{ color: 'var(--text-tertiary)' }} />
-            Schedule (optional)
-          </h3>
-
-          {/* Recurrence */}
-          <div className="grid grid-cols-2 gap-4 mb-3">
-            <div>
-              <label className={labelCls}>Recurrence</label>
-              <select
-                value={scheduleRecurring}
-                onChange={(e) => setScheduleRecurring(e.target.value)}
-                className={inputCls}
-              >
-                <option value="none">One-time only</option>
-                <option value="custom_time">Custom date & time…</option>
-                <option value="daily_morning">Every day — Morning (9:00 AM)</option>
-                <option value="daily_evening">Every day — Evening (6:00 PM)</option>
-                <option value="weekly">Every week (same day)</option>
-                <option value="monthly">Every month (same date)</option>
-                <option value="1_month">For 1 month daily</option>
-                <option value="6_months">For 6 months daily</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Schedule Note</label>
-              <input
-                type="text"
-                value={form.scheduledNote}
-                onChange={(e) => set('scheduledNote', e.target.value)}
-                className={inputCls}
-                placeholder="e.g., Check before standup"
-              />
-            </div>
-          </div>
-
-          {scheduleRecurring === 'none' ? (
-            <div>
-              <label className={labelCls}>Date &amp; Time</label>
-              <input
-                type="datetime-local"
-                value={form.scheduledFor}
-                onChange={(e) => set('scheduledFor', e.target.value)}
-                className={inputCls}
-                min={new Date().toISOString().slice(0, 16)}
-              />
-              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Assignees notified at this time</p>
-            </div>
-          ) : scheduleRecurring === 'custom_time' ? (
-            <div>
-              <label className={labelCls}>Custom Date &amp; Time</label>
-              <input
-                type="datetime-local"
-                value={customScheduleAt}
-                onChange={(e) => setCustomScheduleAt(e.target.value)}
-                className={inputCls}
-                min={new Date().toISOString().slice(0, 16)}
-              />
-              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>One-time schedule at this exact time</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Remind until</label>
+              </label>
+              {(isTL || isEmployee) ? (
+                <input
+                  readOnly
+                  value={Array.isArray(departments)
+                    ? (departments.find((d: any) => d.id === myDeptId)?.name ?? 'Your department')
+                    : 'Your department'}
+                  className="apex-input cursor-not-allowed"
+                  style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}
+                />
+              ) : (
                 <select
-                  value={scheduleEndPreset}
-                  onChange={(e) => setScheduleEndPreset(e.target.value)}
+                  value={form.departmentId}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, departmentId: e.target.value, assignedToId: '' }));
+                    setTaskTypeId('');
+                    setTaskSubtypeId('');
+                  }}
                   className={inputCls}
                 >
-                  <option value="1_week">1 week from now</option>
-                  <option value="1_month">1 month from now</option>
-                  <option value="3_months">3 months from now</option>
-                  <option value="6_months">6 months from now</option>
-                  <option value="custom">Custom date</option>
+                  <option value="">Select department…</option>
+                  {Array.isArray(departments) && departments.map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
                 </select>
-              </div>
-              {scheduleEndPreset === 'custom' && (
-                <div>
-                  <label className={labelCls}>End Date</label>
-                  <input
-                    type="date"
-                    value={scheduleEndDate}
-                    onChange={(e) => setScheduleEndDate(e.target.value)}
-                    className={inputCls}
-                    min={new Date().toISOString().split('T')[0]}
-                  />
-                </div>
               )}
             </div>
-          )}
+
+            {/* Task Type + Subtype (subtype conditional) */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Task Type *</label>
+                <select
+                  value={taskTypeId}
+                  onChange={(e) => { setTaskTypeId(e.target.value); setTaskSubtypeId(''); setCustomSubtype(''); }}
+                  className={inputCls}
+                  disabled={!form.departmentId}
+                >
+                  <option value="">
+                    {form.departmentId ? 'Select task type…' : 'Select a department first'}
+                  </option>
+                  {taskTypes.map((t: any) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                {!form.departmentId && (
+                  <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                    Choose a department to load its task types
+                  </p>
+                )}
+              </div>
+              {taskTypeId && selectedTaskType?.subtypes?.length > 0 ? (
+                <div>
+                  <label className={labelCls}>Subtype</label>
+                  <select
+                    value={taskSubtypeId}
+                    onChange={(e) => { setTaskSubtypeId(e.target.value); if (e.target.value !== '__custom__') setCustomSubtype(''); }}
+                    className={inputCls}
+                  >
+                    <option value="">Select subtype…</option>
+                    {selectedTaskType.subtypes.map((s: any) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                    <option value="__custom__">Custom…</option>
+                  </select>
+                  {taskSubtypeId === '__custom__' && (
+                    <input
+                      type="text"
+                      value={customSubtype}
+                      onChange={(e) => setCustomSubtype(e.target.value)}
+                      className={`${inputCls} mt-2`}
+                      placeholder="Describe the subtype…"
+                      autoFocus
+                      maxLength={80}
+                    />
+                  )}
+                </div>
+              ) : <div />}
+            </div>
+
+            {/* Priority */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Priority *</label>
+                  {aiDisabled ? (
+                    <span
+                      className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-200 text-slate-400 bg-slate-50"
+                      title="AI features will be enabled once configured"
+                    >
+                      <Sparkles size={11} /> AI coming soon
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSuggestPriority}
+                      disabled={aiSuggesting || !form.title.trim()}
+                      className={cn(
+                        'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors',
+                        'border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed',
+                      )}
+                      title="Let AI suggest a priority based on your title and description"
+                    >
+                      {aiSuggesting
+                        ? <><Loader2 size={11} className="animate-spin" /> Thinking…</>
+                        : <><Sparkles size={11} /> Suggest</>}
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={form.priority}
+                  onChange={(e) => set('priority', e.target.value)}
+                  className={cn(inputCls, 'font-medium', PRIORITY_COLORS[form.priority])}
+                >
+                  {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+                {aiReason && (
+                  <p className="mt-1.5 text-xs text-slate-400 flex items-start gap-1">
+                    <Sparkles size={10} className="text-indigo-400 mt-0.5 flex-shrink-0" />
+                    <span>{aiReason}</span>
+                  </p>
+                )}
+              </div>
+              <div />
+            </div>
+          </div>
         </div>
 
-        {/* Advanced Scheduling */}
+        {/* ── 3. WORK PLANNING ─────────────────────────────────────────────── */}
+        <div>
+          <p className={sectionCls} style={{ color: 'var(--text-tertiary)', borderColor: 'var(--border-subtle)' }}>
+            Work Planning
+          </p>
+          <div className="space-y-4">
+
+            {/* Assign To + Due Date */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Assign To *</label>
+                {isEmployee ? (
+                  <div
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm"
+                    style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+                  >
+                    <span className="text-base">👤</span>
+                    <span>This ticket will be assigned to you</span>
+                  </div>
+                ) : (
+                  <>
+                    <MultiSelect
+                      options={filteredUsers.map((u: any) => ({
+                        value: u.id,
+                        label: u.name,
+                        sublabel: u.role?.name ?? u.role,
+                        avatar: u.avatar,
+                      }))}
+                      value={assigneeIds}
+                      onChange={setAssigneeIds}
+                      placeholder="Select assignees..."
+                    />
+                    {assigneeIds.length > 0 && (
+                      <LeaveWarning assigneeIds={assigneeIds} users={userList} />
+                    )}
+                  </>
+                )}
+              </div>
+              <div>
+                <label className={labelCls}>Due Date *</label>
+                <input
+                  type="date"
+                  value={form.dueDate}
+                  onChange={(e) => set('dueDate', e.target.value)}
+                  className={inputCls}
+                  min={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+            </div>
+
+            {/* Estimated Duration + Link to Project */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Estimated Duration (minutes)</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={form.estimatedMinutes ?? ''}
+                  onChange={(e) => set('estimatedMinutes', e.target.value)}
+                  className={inputCls}
+                  placeholder="e.g. 35 for 35 min, 90 for 1.5 hrs"
+                />
+                {form.estimatedMinutes && Number(form.estimatedMinutes) > 0 && (
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                    = {Number(form.estimatedMinutes) < 60
+                        ? `${form.estimatedMinutes} minutes`
+                        : `${Math.floor(Number(form.estimatedMinutes) / 60)}h${Number(form.estimatedMinutes) % 60 > 0 ? ` ${Number(form.estimatedMinutes) % 60}m` : ''}`}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className={labelCls}>Link to Project</label>
+                <select value={form.projectId} onChange={(e) => set('projectId', e.target.value)} className={inputCls}>
+                  <option value="">No project</option>
+                  {projectList.map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.projectId} — {p.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 4. ADVANCED SCHEDULING (collapsed by default) ────────────────── */}
         <div className="apex-card overflow-hidden">
           <button
             type="button"
@@ -641,8 +566,98 @@ export default function NewTicketPage() {
             </span>
             <span style={{ color: 'var(--text-tertiary)' }}>{showAdvancedSchedule ? '▲' : '▼'}</span>
           </button>
+
           {showAdvancedSchedule && (
-            <div className="px-4 pb-4 pt-2 space-y-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div className="px-4 pb-4 pt-2 space-y-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+
+              {/* Recurrence + Schedule Note */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Recurrence</label>
+                  <select
+                    value={scheduleRecurring}
+                    onChange={(e) => setScheduleRecurring(e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="none">One-time only</option>
+                    <option value="custom_time">Custom date &amp; time…</option>
+                    <option value="daily_morning">Every day — Morning (9:00 AM)</option>
+                    <option value="daily_evening">Every day — Evening (6:00 PM)</option>
+                    <option value="weekly">Every week (same day)</option>
+                    <option value="monthly">Every month (same date)</option>
+                    <option value="1_month">For 1 month daily</option>
+                    <option value="6_months">For 6 months daily</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Schedule Note</label>
+                  <input
+                    type="text"
+                    value={form.scheduledNote}
+                    onChange={(e) => set('scheduledNote', e.target.value)}
+                    className={inputCls}
+                    placeholder="e.g., Check before standup"
+                  />
+                </div>
+              </div>
+
+              {/* Schedule Date & Time — conditional on recurrence mode */}
+              {scheduleRecurring === 'none' ? (
+                <div>
+                  <label className={labelCls}>Schedule Date &amp; Time</label>
+                  <input
+                    type="datetime-local"
+                    value={form.scheduledFor}
+                    onChange={(e) => set('scheduledFor', e.target.value)}
+                    className={inputCls}
+                    min={new Date().toISOString().slice(0, 16)}
+                  />
+                  <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Assignees notified at this time</p>
+                </div>
+              ) : scheduleRecurring === 'custom_time' ? (
+                <div>
+                  <label className={labelCls}>Custom Date &amp; Time</label>
+                  <input
+                    type="datetime-local"
+                    value={customScheduleAt}
+                    onChange={(e) => setCustomScheduleAt(e.target.value)}
+                    className={inputCls}
+                    min={new Date().toISOString().slice(0, 16)}
+                  />
+                  <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>One-time schedule at this exact time</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Remind until</label>
+                    <select
+                      value={scheduleEndPreset}
+                      onChange={(e) => setScheduleEndPreset(e.target.value)}
+                      className={inputCls}
+                    >
+                      <option value="1_week">1 week from now</option>
+                      <option value="1_month">1 month from now</option>
+                      <option value="3_months">3 months from now</option>
+                      <option value="6_months">6 months from now</option>
+                      <option value="custom">Custom date</option>
+                    </select>
+                  </div>
+                  {scheduleEndPreset === 'custom' && (
+                    <div>
+                      <label className={labelCls}>End Date</label>
+                      <input
+                        type="date"
+                        value={scheduleEndDate}
+                        onChange={(e) => setScheduleEndDate(e.target.value)}
+                        className={inputCls}
+                        min={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Scheduled Start + End */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Scheduled Start</label>
@@ -674,25 +689,18 @@ export default function NewTicketPage() {
                   );
                   return (
                     <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                      Duration: {diffMin < 60 ? `${diffMin} min` : `${Math.floor(diffMin/60)}h${diffMin%60>0?` ${diffMin%60}m`:''}`.trim()}
+                      Duration: {diffMin < 60
+                        ? `${diffMin} min`
+                        : `${Math.floor(diffMin / 60)}h${diffMin % 60 > 0 ? ` ${diffMin % 60}m` : ''}`.trim()}
                     </p>
                   );
                 })()
               )}
-              <div>
-                <label className={labelCls}>Schedule Note</label>
-                <input
-                  type="text"
-                  value={form.scheduledNote ?? ''}
-                  onChange={(e) => set('scheduledNote', e.target.value)}
-                  className={inputCls}
-                  placeholder="e.g., Check before standup"
-                />
-              </div>
             </div>
           )}
         </div>
 
+        {/* ── Submit ───────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 pt-2">
           <button
             type="submit"
