@@ -537,33 +537,67 @@ export class UsersService {
       return String(v);
     };
 
+    // Appends a grey italic placeholder when a data sheet has zero records
+    const noRecords = (ws: any) => {
+      const r = ws.addRow(['No records found']);
+      r.getCell(1).font = { italic: true };
+    };
+
     const wb = new Workbook();
     wb.creator = 'Apex OS';
     wb.created = new Date();
 
-    // ── Sheet 1: Summary ────────────────────────────────────────────────────
-    const wsSummary = wb.addWorksheet('Summary');
-    wsSummary.columns = [
-      { header: 'Field', key: 'f', width: 30 },
-      { header: 'Value', key: 'v', width: 55 },
-    ];
-    wsSummary.getRow(1).font = { bold: true };
+    // ── Sheet 1: Backup Overview ─────────────────────────────────────────────
+    const wsSummary = wb.addWorksheet('Backup Overview');
+    wsSummary.getColumn(1).width = 36;
+    wsSummary.getColumn(2).width = 56;
+
+    // Section: User Information
+    const uiHdr = wsSummary.addRow(['USER INFORMATION', '']);
+    uiHdr.font = { bold: true };
+
     [
       ['Name', user.name],
       ['Email', user.email],
       ['Role', (user.role as any)?.name ?? ''],
       ['Department', (user.department as any)?.name ?? 'Unassigned'],
       ['Status', user.isActive ? 'Active' : 'Inactive (Deactivated)'],
-      ['Employee ID', user.employeeId ?? ''],
-      ['Designation', user.designation ?? ''],
-      ['Employment Type', user.employmentType ?? ''],
-      ['Work Mode', user.workMode ?? ''],
-      ['Joining Date', fmt(user.joiningDate)],
-      ['Shift Timing', user.shiftTiming ?? ''],
-      ['Location', user.userLocation ?? ''],
-      ['Verification Status', user.verificationStatus ?? ''],
+      ['Employee ID', user.employeeId ?? '—'],
       ['Backup Generated At', fmt(new Date())],
-    ].forEach(([f, v]) => wsSummary.addRow({ f, v }));
+    ].forEach(([label, value]) => wsSummary.addRow([label, value]));
+
+    wsSummary.addRow([]);
+
+    const noteRow = wsSummary.addRow([
+      'Note',
+      'This backup was generated before user deactivation/permanent deletion. Historical records are preserved for audit and compliance.',
+    ]);
+    noteRow.getCell(1).font = { bold: true };
+    noteRow.getCell(2).font = { italic: true };
+
+    wsSummary.addRow([]);
+
+    // Section: Record Counts
+    const rcHdr = wsSummary.addRow(['RECORD COUNTS', '']);
+    rcHdr.font = { bold: true };
+
+    const countColsHdr = wsSummary.addRow(['Sheet', 'Record Count']);
+    countColsHdr.font = { bold: true };
+
+    [
+      ['Tickets Created', createdTickets.length],
+      ['Tickets Assigned', assignedTickets.length],
+      ['Comments', comments.length],
+      ['Work Sessions', workSessions.length],
+      ['Break Logs', breakLogs.length],
+      ['Leave Requests', leaveRequests.length],
+      ['Notifications', notifications.length],
+      ['Activity Logs', activityLogs.length],
+      ['Operational Events', operationalEvents.length],
+      ['Manager Dept Access', managedDepts.length],
+      ['Project Memberships', projectMembers.length],
+      ['Documents Metadata', employeeDocuments.length],
+    ].forEach(([sheet, count]) => wsSummary.addRow([sheet, count]));
 
     // ── Sheet 2: User Profile ────────────────────────────────────────────────
     const wsProfile = wb.addWorksheet('User Profile');
@@ -572,6 +606,7 @@ export class UsersService {
       { header: 'Value', key: 'v', width: 60 },
     ];
     wsProfile.getRow(1).font = { bold: true };
+    wsProfile.views = [{ state: 'frozen', ySplit: 1 }];
     ([
       ['ID', user.id], ['Name', user.name], ['Email', user.email],
       ['Phone', user.phone], ['Date of Birth', fmt(user.dateOfBirth)],
@@ -597,9 +632,12 @@ export class UsersService {
       ['Created At', fmt(user.createdAt)], ['Updated At', fmt(user.updatedAt)],
     ] as [string, any][]).forEach(([f, v]) => wsProfile.addRow({ f, v: fmt(v) }));
 
-    // ── Sheet 3: Tickets Created ─────────────────────────────────────────────
-    const wsCreated = wb.addWorksheet('Tickets Created');
-    wsCreated.columns = [
+    // Shared plain-object column definitions for both ticket sheets.
+    // Using a separate const (not wsCreated.columns getter) avoids spreading
+    // ExcelJS Column class instances whose header/key/width live on the prototype
+    // and do not survive a plain-object spread — which caused Tickets Assigned to
+    // render with blank headers when there were zero assigned tickets.
+    const ticketCols = [
       { header: 'Ticket ID', key: 'ticketId', width: 15 },
       { header: 'Title', key: 'title', width: 40 },
       { header: 'Status', key: 'status', width: 14 },
@@ -609,22 +647,27 @@ export class UsersService {
       { header: 'Due Date', key: 'dueDate', width: 22 },
       { header: 'Created At', key: 'createdAt', width: 22 },
     ];
-    wsCreated.getRow(1).font = { bold: true };
-    createdTickets.forEach((t: any) => wsCreated.addRow({
+    const fmtTicket = (t: any) => ({
       ticketId: t.ticketId, title: t.title, status: t.status,
       priority: t.priority, category: t.category, type: t.type,
       dueDate: fmt(t.dueDate), createdAt: fmt(t.createdAt),
-    }));
+    });
+
+    // ── Sheet 3: Tickets Created ─────────────────────────────────────────────
+    const wsCreated = wb.addWorksheet('Tickets Created');
+    wsCreated.columns = ticketCols;
+    wsCreated.getRow(1).font = { bold: true };
+    wsCreated.views = [{ state: 'frozen', ySplit: 1 }];
+    if (createdTickets.length === 0) noRecords(wsCreated);
+    else createdTickets.forEach((t: any) => wsCreated.addRow(fmtTicket(t)));
 
     // ── Sheet 4: Tickets Assigned ────────────────────────────────────────────
     const wsAssigned = wb.addWorksheet('Tickets Assigned');
-    wsAssigned.columns = wsCreated.columns.map((c) => ({ ...c }));
+    wsAssigned.columns = ticketCols.map((c) => ({ ...c }));
     wsAssigned.getRow(1).font = { bold: true };
-    assignedTickets.forEach((t: any) => wsAssigned.addRow({
-      ticketId: t.ticketId, title: t.title, status: t.status,
-      priority: t.priority, category: t.category, type: t.type,
-      dueDate: fmt(t.dueDate), createdAt: fmt(t.createdAt),
-    }));
+    wsAssigned.views = [{ state: 'frozen', ySplit: 1 }];
+    if (assignedTickets.length === 0) noRecords(wsAssigned);
+    else assignedTickets.forEach((t: any) => wsAssigned.addRow(fmtTicket(t)));
 
     // ── Sheet 5: Comments ────────────────────────────────────────────────────
     const wsComments = wb.addWorksheet('Comments');
@@ -634,7 +677,9 @@ export class UsersService {
       { header: 'Created At', key: 'createdAt', width: 22 },
     ];
     wsComments.getRow(1).font = { bold: true };
-    comments.forEach((c: any) => wsComments.addRow({
+    wsComments.views = [{ state: 'frozen', ySplit: 1 }];
+    if (comments.length === 0) noRecords(wsComments);
+    else comments.forEach((c: any) => wsComments.addRow({
       ticketId: c.ticketId, content: c.content, createdAt: fmt(c.createdAt),
     }));
 
@@ -652,7 +697,9 @@ export class UsersService {
       { header: 'Auto Closed', key: 'autoClosed', width: 12 },
     ];
     wsWork.getRow(1).font = { bold: true };
-    workSessions.forEach((s: any) => wsWork.addRow({
+    wsWork.views = [{ state: 'frozen', ySplit: 1 }];
+    if (workSessions.length === 0) noRecords(wsWork);
+    else workSessions.forEach((s: any) => wsWork.addRow({
       date: fmt(s.date), loginAt: fmt(s.loginAt), startWorkAt: fmt(s.startWorkAt),
       logoutAt: fmt(s.logoutAt), status: s.status,
       totalWorkMinutes: s.totalWorkMinutes, totalBreakMinutes: s.totalBreakMinutes,
@@ -669,7 +716,9 @@ export class UsersService {
       { header: 'Note', key: 'note', width: 40 },
     ];
     wsBreaks.getRow(1).font = { bold: true };
-    breakLogs.forEach((b: any) => wsBreaks.addRow({
+    wsBreaks.views = [{ state: 'frozen', ySplit: 1 }];
+    if (breakLogs.length === 0) noRecords(wsBreaks);
+    else breakLogs.forEach((b: any) => wsBreaks.addRow({
       breakType: b.breakType, startAt: fmt(b.startAt), endAt: fmt(b.endAt),
       durationMinutes: b.durationMinutes ?? '', note: b.note ?? '',
     }));
@@ -687,7 +736,9 @@ export class UsersService {
       { header: 'Created At', key: 'createdAt', width: 22 },
     ];
     wsLeave.getRow(1).font = { bold: true };
-    leaveRequests.forEach((l: any) => wsLeave.addRow({
+    wsLeave.views = [{ state: 'frozen', ySplit: 1 }];
+    if (leaveRequests.length === 0) noRecords(wsLeave);
+    else leaveRequests.forEach((l: any) => wsLeave.addRow({
       type: l.type, startDate: fmt(l.startDate), endDate: fmt(l.endDate),
       reason: l.reason, status: l.status, approvedBy: l.approvedBy ?? '',
       approvedAt: fmt(l.approvedAt), createdAt: fmt(l.createdAt),
@@ -703,7 +754,9 @@ export class UsersService {
       { header: 'Created At', key: 'createdAt', width: 22 },
     ];
     wsNotif.getRow(1).font = { bold: true };
-    notifications.forEach((n: any) => wsNotif.addRow({
+    wsNotif.views = [{ state: 'frozen', ySplit: 1 }];
+    if (notifications.length === 0) noRecords(wsNotif);
+    else notifications.forEach((n: any) => wsNotif.addRow({
       title: n.title, message: n.message, type: n.type,
       isRead: n.isRead ? 'Yes' : 'No', createdAt: fmt(n.createdAt),
     }));
@@ -718,7 +771,9 @@ export class UsersService {
       { header: 'Created At', key: 'createdAt', width: 22 },
     ];
     wsActivity.getRow(1).font = { bold: true };
-    activityLogs.forEach((a: any) => wsActivity.addRow({
+    wsActivity.views = [{ state: 'frozen', ySplit: 1 }];
+    if (activityLogs.length === 0) noRecords(wsActivity);
+    else activityLogs.forEach((a: any) => wsActivity.addRow({
       action: a.action, entityType: a.entityType, entityId: a.entityId ?? '',
       details: a.details ? JSON.stringify(a.details) : '', createdAt: fmt(a.createdAt),
     }));
@@ -735,7 +790,9 @@ export class UsersService {
       { header: 'Timestamp', key: 'timestamp', width: 22 },
     ];
     wsOps.getRow(1).font = { bold: true };
-    operationalEvents.forEach((e: any) => wsOps.addRow({
+    wsOps.views = [{ state: 'frozen', ySplit: 1 }];
+    if (operationalEvents.length === 0) noRecords(wsOps);
+    else operationalEvents.forEach((e: any) => wsOps.addRow({
       action: e.action, entityType: e.entityType, entityId: e.entityId,
       fromState: e.fromState ?? '', toState: e.toState ?? '',
       metadata: e.metadata ? JSON.stringify(e.metadata) : '', timestamp: fmt(e.timestamp),
@@ -749,7 +806,9 @@ export class UsersService {
       { header: 'Since', key: 'createdAt', width: 22 },
     ];
     wsMgr.getRow(1).font = { bold: true };
-    managedDepts.forEach((m: any) => wsMgr.addRow({
+    wsMgr.views = [{ state: 'frozen', ySplit: 1 }];
+    if (managedDepts.length === 0) noRecords(wsMgr);
+    else managedDepts.forEach((m: any) => wsMgr.addRow({
       dept: m.department?.name ?? m.departmentId,
       accessLevel: m.accessLevel, createdAt: fmt(m.createdAt),
     }));
@@ -764,7 +823,9 @@ export class UsersService {
       { header: 'Joined At', key: 'joinedAt', width: 22 },
     ];
     wsProj.getRow(1).font = { bold: true };
-    projectMembers.forEach((pm: any) => wsProj.addRow({
+    wsProj.views = [{ state: 'frozen', ySplit: 1 }];
+    if (projectMembers.length === 0) noRecords(wsProj);
+    else projectMembers.forEach((pm: any) => wsProj.addRow({
       projectId: pm.project?.projectId ?? '', name: pm.project?.name ?? '',
       status: pm.project?.status ?? '', role: pm.role, joinedAt: fmt(pm.joinedAt),
     }));
@@ -780,7 +841,9 @@ export class UsersService {
       { header: 'Uploaded At', key: 'uploadedAt', width: 22 },
     ];
     wsDocs.getRow(1).font = { bold: true };
-    employeeDocuments.forEach((d: any) => wsDocs.addRow({
+    wsDocs.views = [{ state: 'frozen', ySplit: 1 }];
+    if (employeeDocuments.length === 0) noRecords(wsDocs);
+    else employeeDocuments.forEach((d: any) => wsDocs.addRow({
       documentType: d.documentType, fileName: d.fileName,
       fileSize: d.fileSize ?? '', mimeType: d.mimeType ?? '',
       verificationStatus: d.verificationStatus, uploadedAt: fmt(d.uploadedAt),
