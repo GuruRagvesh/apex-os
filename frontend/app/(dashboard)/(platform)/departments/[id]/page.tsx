@@ -78,8 +78,8 @@ export default function DepartmentDetailPage() {
   });
 
   const { data: usersData } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => usersApi.getAll() as Promise<any>,
+    queryKey: ['users', { limit: 100 }],
+    queryFn: () => usersApi.getAll({ limit: 100 }) as Promise<any>,
     enabled: hasHydrated && isAdmin && showAddMember,
   });
   const allUsers: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
@@ -90,12 +90,9 @@ export default function DepartmentDetailPage() {
     enabled: hasHydrated && isAdmin,
   });
 
-  // Users not already in this dept
+  // Users not already in this dept — search filtering handled by modal below
   const nonMembers = allUsers.filter(
-    (u: any) => u.departmentId !== id && memberSearch
-      ? u.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
-        u.email.toLowerCase().includes(memberSearch.toLowerCase())
-      : u.departmentId !== id,
+    (u: any) => u.departmentId !== id && u.isActive !== false,
   );
 
   const patchMutation = useMutation({
@@ -115,6 +112,7 @@ export default function DepartmentDetailPage() {
       toast.success('Member added');
       qc.invalidateQueries({ queryKey: ['department', id] });
       qc.invalidateQueries({ queryKey: ['departments'] });
+      qc.invalidateQueries({ queryKey: ['users'] });
       setShowAddMember(false);
       setSelectedUserId('');
       setMemberSearch('');
@@ -128,6 +126,7 @@ export default function DepartmentDetailPage() {
       toast.success('Member removed');
       qc.invalidateQueries({ queryKey: ['department', id] });
       qc.invalidateQueries({ queryKey: ['departments'] });
+      qc.invalidateQueries({ queryKey: ['users'] });
     },
     onError: () => toast.error('Failed to remove member'),
   });
