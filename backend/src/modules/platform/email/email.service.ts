@@ -183,6 +183,61 @@ export class EmailService {
 </body></html>`;
   }
 
+  // ── Archive backup delivery ──────────────────────────────────────────────────
+
+  async sendArchiveBackup(
+    recipients: string[],
+    originalName: string,
+    filename: string,
+    buffer: Buffer,
+  ): Promise<{ sent: string[]; skipped: string[] }> {
+    const sent: string[] = [];
+    const skipped: string[] = [...recipients];
+
+    if (!this.resendClient || recipients.length === 0) {
+      this.logger.debug(`[Archive backup email skipped — no provider or no recipients]`);
+      return { sent, skipped };
+    }
+
+    const subject = `Apex OS — User archive backup: ${originalName}`;
+    const html = this.buildHtml(
+      `User archived: ${originalName}`,
+      `<p>An Apex OS user has been archived by an administrator. The full data backup is attached.</p>
+       <p style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;margin:16px 0">
+         <strong>Archived user:</strong> ${originalName}
+       </p>
+       <p>All linked records (tickets, work sessions, comments, leave requests, and reports) are preserved.
+          Only personal identifiers have been anonymized on the user record.</p>
+       <p style="color:#64748b;font-size:13px">
+         Store this backup securely. The original name and email are recorded only in this file and audit logs.</p>`,
+    );
+
+    skipped.length = 0;
+    for (const to of recipients) {
+      try {
+        const { error } = await (this.resendClient as any).emails.send({
+          from: this.resendFrom,
+          to: [to],
+          subject,
+          html,
+          attachments: [{ filename, content: buffer }],
+        });
+        if (error) {
+          this.logger.error(`Archive backup email to ${to} failed: ${(error as any).message}`);
+          skipped.push(to);
+        } else {
+          this.logger.log(`Archive backup email sent to ${to}`);
+          sent.push(to);
+        }
+      } catch (err: any) {
+        this.logger.error(`Archive backup email to ${to} exception: ${err.message}`);
+        skipped.push(to);
+      }
+    }
+
+    return { sent, skipped };
+  }
+
   // ── Notification helpers (unchanged callers — soft path) ─────────────────────
 
   async sendTicketAssigned(to: string, ticketId: string, title: string, assignedByName: string, frontendUrl: string) {

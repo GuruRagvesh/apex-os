@@ -20,6 +20,10 @@ const roleBadge: Record<string, string> = {
   INTERN: 'bg-slate-100 text-slate-600',
 };
 
+const isArchivedUser = (u: any): boolean =>
+  !u.isActive && typeof u.email === 'string' &&
+  u.email.startsWith('archived-') && u.email.endsWith('@apex.local');
+
 export default function UsersPage() {
   const { user: me, hasHydrated } = useAuthStore();
   const qc = useQueryClient();
@@ -128,12 +132,19 @@ export default function UsersPage() {
 
   // Client-side filtering
   const filteredUsers = userList.filter((u: any) => {
+    const archived = isArchivedUser(u);
     const matchSearch = !search || u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase());
     const matchDept = !deptFilter || u.departmentId === deptFilter;
     const matchRole = !roleFilter || (u.role?.name ?? u.role) === roleFilter;
-    const matchStatus = !statusFilter || (statusFilter === 'active' ? u.isActive !== false : u.isActive === false);
+    let matchStatus: boolean;
+    if (statusFilter === 'archived') { matchStatus = archived; }
+    else if (statusFilter === 'all') { matchStatus = true; }
+    else if (statusFilter === 'active') { matchStatus = u.isActive !== false && !archived; }
+    else if (statusFilter === 'inactive') { matchStatus = u.isActive === false && !archived; }
+    else { matchStatus = !archived; }
     return matchSearch && matchDept && matchRole && matchStatus;
   });
+  const archivedCount = userList.filter(isArchivedUser).length;
 
   if (!hasHydrated) {
     return (
@@ -167,7 +178,14 @@ export default function UsersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Users</h2>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{filteredUsers.length} of {userList.length} team members</p>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+            {filteredUsers.length} of {userList.length} team members
+            {archivedCount > 0 && statusFilter !== 'archived' && statusFilter !== 'all' && (
+              <span className="ml-1.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                ({archivedCount} archived)
+              </span>
+            )}
+          </p>
         </div>
         {isAdmin && (
           <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
@@ -199,9 +217,11 @@ export default function UsersPage() {
           {['INTERN','EMPLOYEE','TEAM_LEAD','MANAGER','ADMIN','SUPER_ADMIN'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="apex-select">
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
+          <option value="">Active &amp; Inactive</option>
+          <option value="active">Active only</option>
+          <option value="inactive">Inactive only</option>
+          <option value="archived">Archived</option>
+          <option value="all">All users</option>
         </select>
         {(deptFilter || roleFilter || statusFilter) && (
           <button
@@ -260,9 +280,14 @@ export default function UsersPage() {
                         {u.department.name}
                       </span>
                     )}
+                    {isArchivedUser(u) && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: '#fef3c7', color: '#b45309' }}>
+                        ARCHIVED
+                      </span>
+                    )}
                   </div>
                 </div>
-                {isAdmin && u.id !== me?.id && (
+                {isAdmin && u.id !== me?.id && !isArchivedUser(u) && (
                   <div className="relative z-10 flex items-center gap-1 flex-shrink-0">
                     <button
                       type="button"

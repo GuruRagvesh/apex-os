@@ -3,6 +3,7 @@ import { Workbook } from 'exceljs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
+import { EmailService } from '../../platform/email/email.service';
 import * as bcrypt from 'bcryptjs';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
@@ -18,6 +19,7 @@ export class UsersService {
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
     private eventLogger: EventLoggerService,
+    private emailService: EmailService,
   ) {}
 
   async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
@@ -599,6 +601,52 @@ export class UsersService {
     if (userId === actorId) throw new ForbiddenException('Cannot archive your own account');
     if (user.isActive) throw new BadRequestException('Deactivate user before archival');
 
+    // ── Step 1: Generate backup BEFORE anonymising ─────────────────────────────
+    const { buffer, filename } = await this.generateBackup(userId, actorId);
+
+    // ── Step 2: Resolve backup delivery recipients ─────────────────────────────
+    const [actorRecord, superAdmins] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: actorId }, select: { email: true } }),
+      this.prisma.user.findMany({
+        where: { isActive: true, role: { name: 'SUPER_ADMIN' } },
+        select: { email: true },
+      }),
+    ]);
+
+    let deptManagerEmails: string[] = [];
+    if (user.departmentId) {
+      const deptAccess = await (this.prisma as any).managerDeptAccess.findMany({
+        where: { departmentId: user.departmentId },
+        select: { managerId: true },
+      });
+      const managerIds: string[] = deptAccess.map((a: any) => a.managerId as string);
+      if (managerIds.length > 0) {
+        const managers = await this.prisma.user.findMany({
+          where: { id: { in: managerIds }, isActive: true },
+          select: { email: true },
+        });
+        deptManagerEmails = managers.map((m) => m.email);
+      }
+    }
+
+    const recipientSet = new Set<string>();
+    if (actorRecord?.email && !actorRecord.email.includes('@apex.local')) recipientSet.add(actorRecord.email);
+    superAdmins.forEach((sa) => { if (!sa.email.includes('@apex.local')) recipientSet.add(sa.email); });
+    deptManagerEmails.forEach((e) => { if (!e.includes('@apex.local')) recipientSet.add(e); });
+    const recipients = [...recipientSet];
+
+    // ── Step 3: Deliver backup via email ───────────────────────────────────────
+    const deliveryResult = await this.emailService.sendArchiveBackup(recipients, user.name, filename, buffer);
+
+    this.eventLogger.log({
+      actorId,
+      entityType: 'User',
+      entityId: userId,
+      action: 'USER_BACKUP_DELIVERED' as any,
+      metadata: { filename, sentTo: deliveryResult.sent, skipped: deliveryResult.skipped, originalName: user.name },
+    }).catch(() => {});
+
+    // ── Step 4: Anonymise the user ─────────────────────────────────────────────
     const shortId = userId.slice(-6);
     const archiveData: any = {
       name: `Archived User ${shortId}`,
@@ -606,7 +654,6 @@ export class UsersService {
       isActive: false,
       photoUrl: null,
       bio: null,
-      // Personal identifiers
       phone: null,
       dateOfBirth: null,
       currentAddress: null,
@@ -614,7 +661,6 @@ export class UsersService {
       emergencyName: null,
       emergencyPhone: null,
       emergencyRelation: null,
-      // Financial / sensitive fields
       ctcAnnual: null,
       basicSalary: null,
       salaryStructure: null,
@@ -631,10 +677,12 @@ export class UsersService {
 
     await this.prisma.user.update({ where: { id: userId }, data: archiveData });
 
+    // ── Step 5: Audit logs ─────────────────────────────────────────────────────
     await this.logSensitiveAccess(actorId, 'USER_ARCHIVED', userId, {
       originalName: user.name,
       originalEmail: user.email,
       confirmBackupDownloaded: true,
+      backupDeliveredTo: deliveryResult.sent,
     });
 
     this.eventLogger.log({
@@ -645,11 +693,14 @@ export class UsersService {
       metadata: {
         archivedName: archiveData.name,
         originalEmail: user.email,
-        confirmBackupDownloaded: true,
+        backupDeliveredTo: deliveryResult.sent,
       },
     }).catch(() => {});
 
-    return { message: 'User archived. Personal data has been anonymized and all linked records are preserved.' };
+    const recipientCount = deliveryResult.sent.length;
+    return {
+      message: `User archived. Personal data anonymized, all linked records preserved. Backup delivered to ${recipientCount} recipient${recipientCount !== 1 ? 's' : ''}.`,
+    };
   }
 
   async generateBackup(userId: string, actorId: string): Promise<{ buffer: Buffer; filename: string }> {
