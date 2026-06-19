@@ -117,6 +117,16 @@ export class UsersController {
     return this.usersService.resetPassword(id, body.newPassword);
   }
 
+  @Post(':id/archive-after-backup')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  archiveAfterBackup(
+    @Param('id') id: string,
+    @Body() body: { confirmBackupDownloaded: boolean },
+    @CurrentUser() actor: any,
+  ) {
+    return this.usersService.archiveAfterBackup(id, actor?.id, body.confirmBackupDownloaded);
+  }
+
   @Delete(':id/permanent')
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   async permanentDelete(@Param('id') id: string, @CurrentUser() actor: any) {

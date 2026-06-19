@@ -38,6 +38,8 @@ export default function UsersPage() {
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<any | null>(null);
   const [permanentDeleteBlockers, setPermanentDeleteBlockers] = useState<Record<string, number> | null>(null);
   const [permanentDeleteBlockedUser, setPermanentDeleteBlockedUser] = useState<any | null>(null);
+  const [backupDownloadedForUserId, setBackupDownloadedForUserId] = useState<string | null>(null);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
 
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
@@ -99,6 +101,19 @@ export default function UsersPage() {
         setPermanentDeleteTarget(null);
       }
     },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: string) => usersApi.archiveAfterBackup(id, { confirmBackupDownloaded: true }),
+    onSuccess: () => {
+      toast.success('User archived. Personal data anonymized, linked records preserved.');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setPermanentDeleteBlockers(null);
+      setPermanentDeleteBlockedUser(null);
+      setBackupDownloadedForUserId(null);
+      setArchiveConfirmOpen(false);
+    },
+    onError: (err: any) => toast.error(err?.message || 'Archive failed'),
   });
 
   const editMutation = useMutation({
@@ -475,40 +490,87 @@ export default function UsersPage() {
               ))}
             </ul>
             <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)' }}>
-              Download a full user backup before requesting permanent deletion.
+              Download a backup, then archive this user to anonymize personal data while preserving all linked records.
             </p>
-            <div className="flex gap-3">
-              {permanentDeleteBlockedUser && (
+            <div className="space-y-2">
+              <div className="flex gap-3">
+                {permanentDeleteBlockedUser && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setDownloadingId(permanentDeleteBlockedUser.id);
+                      const toastId = `backup-blocker-${permanentDeleteBlockedUser.id}`;
+                      toast.loading('Downloading backup...', { id: toastId });
+                      try {
+                        await usersApi.downloadBackup(permanentDeleteBlockedUser.id, permanentDeleteBlockedUser.name);
+                        toast.success('Backup downloaded', { id: toastId });
+                        setBackupDownloadedForUserId(permanentDeleteBlockedUser.id);
+                      } catch {
+                        toast.error('Backup download failed', { id: toastId });
+                      } finally {
+                        setDownloadingId(null);
+                      }
+                    }}
+                    disabled={downloadingId === permanentDeleteBlockedUser.id}
+                    className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5 gap-1.5 disabled:opacity-50"
+                  >
+                    {downloadingId === permanentDeleteBlockedUser.id
+                      ? <><Loader2 size={14} className="animate-spin" /> Downloading...</>
+                      : <><Download size={14} /> {backupDownloadedForUserId === permanentDeleteBlockedUser.id ? 'Re-download Backup' : 'Download Backup'}</>
+                    }
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={async () => {
-                    setDownloadingId(permanentDeleteBlockedUser.id);
-                    const toastId = `backup-blocker-${permanentDeleteBlockedUser.id}`;
-                    toast.loading('Downloading backup...', { id: toastId });
-                    try {
-                      await usersApi.downloadBackup(permanentDeleteBlockedUser.id, permanentDeleteBlockedUser.name);
-                      toast.success('Backup downloaded', { id: toastId });
-                    } catch {
-                      toast.error('Backup download failed', { id: toastId });
-                    } finally {
-                      setDownloadingId(null);
-                    }
-                  }}
-                  disabled={downloadingId === permanentDeleteBlockedUser.id}
-                  className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5 gap-1.5 disabled:opacity-50"
+                  onClick={() => { setPermanentDeleteBlockers(null); setPermanentDeleteBlockedUser(null); setBackupDownloadedForUserId(null); }}
+                  className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5"
                 >
-                  {downloadingId === permanentDeleteBlockedUser.id
-                    ? <><Loader2 size={14} className="animate-spin" /> Downloading...</>
-                    : <><Download size={14} /> Download Backup</>
-                  }
+                  Close
+                </button>
+              </div>
+              {backupDownloadedForUserId === permanentDeleteBlockedUser?.id && permanentDeleteBlockedUser && (
+                <button
+                  type="button"
+                  onClick={() => setArchiveConfirmOpen(true)}
+                  disabled={archiveMutation.isPending}
+                  className="apex-btn w-full justify-center py-2.5 font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: '#d97706' }}
+                >
+                  Archive after backup
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Archive After Backup Confirmation Modal */}
+      {archiveConfirmOpen && permanentDeleteBlockedUser && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Archive user after backup?</h3>
+            <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
+              This will anonymize <strong>{permanentDeleteBlockedUser.name}</strong>&apos;s personal data. This cannot be undone.
+            </p>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>
+              Tickets, work sessions, comments, leave records, and all reports will remain intact. The user&apos;s name, email, phone, address, and financial details will be removed.
+            </p>
+            <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => { setPermanentDeleteBlockers(null); setPermanentDeleteBlockedUser(null); }}
+                onClick={() => archiveMutation.mutate(permanentDeleteBlockedUser.id)}
+                disabled={archiveMutation.isPending}
+                className="apex-btn flex-1 justify-center py-2.5 font-medium text-white disabled:opacity-50"
+                style={{ backgroundColor: '#d97706' }}
+              >
+                {archiveMutation.isPending ? 'Archiving...' : 'Confirm Archive'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setArchiveConfirmOpen(false)}
                 className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5"
               >
-                Close
+                Cancel
               </button>
             </div>
           </div>

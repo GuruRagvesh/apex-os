@@ -589,6 +589,69 @@ export class UsersService {
     return { message: 'User permanently deleted' };
   }
 
+  async archiveAfterBackup(userId: string, actorId: string, confirmBackupDownloaded: boolean): Promise<{ message: string }> {
+    if (!confirmBackupDownloaded) {
+      throw new BadRequestException('confirmBackupDownloaded must be true to proceed with archival.');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (userId === actorId) throw new ForbiddenException('Cannot archive your own account');
+    if (user.isActive) throw new BadRequestException('Deactivate user before archival');
+
+    const shortId = userId.slice(-6);
+    const archiveData: any = {
+      name: `Archived User ${shortId}`,
+      email: `archived-${userId}@apex.local`,
+      isActive: false,
+      photoUrl: null,
+      bio: null,
+      // Personal identifiers
+      phone: null,
+      dateOfBirth: null,
+      currentAddress: null,
+      permanentAddress: null,
+      emergencyName: null,
+      emergencyPhone: null,
+      emergencyRelation: null,
+      // Financial / sensitive fields
+      ctcAnnual: null,
+      basicSalary: null,
+      salaryStructure: null,
+      bankName: null,
+      accountNumber: null,
+      ifscCode: null,
+      accountHolderName: null,
+      paymentMode: null,
+      panNumber: null,
+      aadhaarNumber: null,
+      uanNumber: null,
+      hrNotes: null,
+    };
+
+    await this.prisma.user.update({ where: { id: userId }, data: archiveData });
+
+    await this.logSensitiveAccess(actorId, 'USER_ARCHIVED', userId, {
+      originalName: user.name,
+      originalEmail: user.email,
+      confirmBackupDownloaded: true,
+    });
+
+    this.eventLogger.log({
+      actorId,
+      entityType: 'User',
+      entityId: userId,
+      action: 'USER_ARCHIVED' as any,
+      metadata: {
+        archivedName: archiveData.name,
+        originalEmail: user.email,
+        confirmBackupDownloaded: true,
+      },
+    }).catch(() => {});
+
+    return { message: 'User archived. Personal data has been anonymized and all linked records are preserved.' };
+  }
+
   async generateBackup(userId: string, actorId: string): Promise<{ buffer: Buffer; filename: string }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
