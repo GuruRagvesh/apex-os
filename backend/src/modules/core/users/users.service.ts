@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { EmailService } from '../../platform/email/email.service';
+import { BackupVaultService } from '../../platform/backup-vault/backup-vault.service';
 import * as bcrypt from 'bcryptjs';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
@@ -20,6 +21,7 @@ export class UsersService {
     private accessPolicy: AccessPolicyService,
     private eventLogger: EventLoggerService,
     private emailService: EmailService,
+    private backupVaultService: BackupVaultService,
   ) {}
 
   async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
@@ -591,52 +593,47 @@ export class UsersService {
     return { message: 'User permanently deleted' };
   }
 
-  async archiveAfterBackup(userId: string, actorId: string, confirmBackupDownloaded: boolean): Promise<{ message: string }> {
+  async archiveAfterBackup(userId: string, actorId: string, confirmBackupDownloaded: boolean): Promise<{
+    message: string; vaulted: boolean; emailSentTo: number; skippedRecipients: number;
+  }> {
     if (!confirmBackupDownloaded) {
       throw new BadRequestException('confirmBackupDownloaded must be true to proceed with archival.');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
     if (!user) throw new NotFoundException('User not found');
     if (userId === actorId) throw new ForbiddenException('Cannot archive your own account');
     if (user.isActive) throw new BadRequestException('Deactivate user before archival');
 
-    // ── Step 1: Generate backup BEFORE anonymising ─────────────────────────────
+    // ── Step 1: Resolve mandatory recipients by role (throws if none valid) ───
+    const recipients = await this.resolveArchiveRecipients(userId, user);
+
+    // ── Step 2: Generate backup BEFORE anonymising ────────────────────────────
     const { buffer, filename } = await this.generateBackup(userId, actorId);
 
-    // ── Step 2: Resolve backup delivery recipients ─────────────────────────────
-    const [actorRecord, superAdmins] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: actorId }, select: { email: true } }),
-      this.prisma.user.findMany({
-        where: { isActive: true, role: { name: 'SUPER_ADMIN' } },
-        select: { email: true },
-      }),
-    ]);
+    // ── Step 3: Save to backup vault — throws if not configured or fails ──────
+    const vaultResult = await this.backupVaultService.save(buffer, filename);
 
-    let deptManagerEmails: string[] = [];
-    if (user.departmentId) {
-      const deptAccess = await (this.prisma as any).managerDeptAccess.findMany({
-        where: { departmentId: user.departmentId },
-        select: { managerId: true },
-      });
-      const managerIds: string[] = deptAccess.map((a: any) => a.managerId as string);
-      if (managerIds.length > 0) {
-        const managers = await this.prisma.user.findMany({
-          where: { id: { in: managerIds }, isActive: true },
-          select: { email: true },
-        });
-        deptManagerEmails = managers.map((m) => m.email);
-      }
-    }
+    this.eventLogger.log({
+      actorId,
+      entityType: 'User',
+      entityId: userId,
+      action: 'USER_BACKUP_VAULTED' as any,
+      metadata: { filename, provider: vaultResult.provider, fileRef: vaultResult.fileRef },
+    }).catch(() => {});
 
-    const recipientSet = new Set<string>();
-    if (actorRecord?.email && !actorRecord.email.includes('@apex.local')) recipientSet.add(actorRecord.email);
-    superAdmins.forEach((sa) => { if (!sa.email.includes('@apex.local')) recipientSet.add(sa.email); });
-    deptManagerEmails.forEach((e) => { if (!e.includes('@apex.local')) recipientSet.add(e); });
-    const recipients = [...recipientSet];
-
-    // ── Step 3: Deliver backup via email ───────────────────────────────────────
+    // ── Step 4: Email backup to mandatory recipients ───────────────────────────
     const deliveryResult = await this.emailService.sendArchiveBackup(recipients, user.name, filename, buffer);
+
+    if (deliveryResult.sent.length === 0) {
+      throw new BadRequestException(
+        `Backup email delivery failed for all ${deliveryResult.skipped.length} recipient(s). ` +
+        'Archive aborted. Check RESEND_API_KEY and RESEND_FROM_EMAIL configuration.',
+      );
+    }
 
     this.eventLogger.log({
       actorId,
@@ -646,7 +643,7 @@ export class UsersService {
       metadata: { filename, sentTo: deliveryResult.sent, skipped: deliveryResult.skipped, originalName: user.name },
     }).catch(() => {});
 
-    // ── Step 4: Anonymise the user ─────────────────────────────────────────────
+    // ── Step 5: Anonymise the user ────────────────────────────────────────────
     const shortId = userId.slice(-6);
     const archiveData: any = {
       name: `Archived User ${shortId}`,
@@ -677,11 +674,11 @@ export class UsersService {
 
     await this.prisma.user.update({ where: { id: userId }, data: archiveData });
 
-    // ── Step 5: Audit logs ─────────────────────────────────────────────────────
+    // ── Step 6: Audit logs ────────────────────────────────────────────────────
     await this.logSensitiveAccess(actorId, 'USER_ARCHIVED', userId, {
       originalName: user.name,
       originalEmail: user.email,
-      confirmBackupDownloaded: true,
+      backupVaultedTo: `${vaultResult.provider}:${vaultResult.fileRef}`,
       backupDeliveredTo: deliveryResult.sent,
     });
 
@@ -697,10 +694,105 @@ export class UsersService {
       },
     }).catch(() => {});
 
-    const recipientCount = deliveryResult.sent.length;
+    const sentCount = deliveryResult.sent.length;
     return {
-      message: `User archived. Personal data anonymized, all linked records preserved. Backup delivered to ${recipientCount} recipient${recipientCount !== 1 ? 's' : ''}.`,
+      message: `User archived. Backup saved to vault and emailed to ${sentCount} recipient${sentCount !== 1 ? 's' : ''}. Personal data anonymized, all linked records preserved.`,
+      vaulted: true,
+      emailSentTo: sentCount,
+      skippedRecipients: deliveryResult.skipped.length,
     };
+  }
+
+  private async resolveArchiveRecipients(userId: string, user: any): Promise<string[]> {
+    const roleName: string = (user.role as any)?.name ?? '';
+    const isValid = (e: string) =>
+      !!e &&
+      !e.includes('@apex.local') &&
+      !e.startsWith('archived-') &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+    let candidates: string[] = [];
+
+    if (['EMPLOYEE', 'INTERN', 'TEAM_LEAD'].includes(roleName)) {
+      // Managers with dept access for this user's department
+      if (user.departmentId) {
+        const access = await (this.prisma as any).managerDeptAccess.findMany({
+          where: { departmentId: user.departmentId },
+          select: { managerId: true },
+        });
+        const managerIds: string[] = access.map((a: any) => a.managerId as string);
+        if (managerIds.length > 0) {
+          const managers = await this.prisma.user.findMany({
+            where: { id: { in: managerIds }, isActive: true },
+            select: { email: true },
+          });
+          candidates.push(...managers.map((m) => m.email));
+        }
+      }
+
+      // EMPLOYEE / INTERN: also notify active Team Leads in the same department
+      if (['EMPLOYEE', 'INTERN'].includes(roleName) && user.departmentId) {
+        const tls = await this.prisma.user.findMany({
+          where: {
+            departmentId: user.departmentId,
+            isActive: true,
+            role: { name: 'TEAM_LEAD' },
+            id: { not: userId },
+          },
+          select: { email: true },
+        });
+        candidates.push(...tls.map((tl) => tl.email));
+      }
+
+      // Fallback: admins / super admins when no dept-level recipient found
+      if (candidates.filter(isValid).length === 0) {
+        const admins = await this.prisma.user.findMany({
+          where: { isActive: true, role: { name: { in: ['ADMIN', 'SUPER_ADMIN'] } } },
+          select: { email: true },
+        });
+        candidates.push(...admins.map((a) => a.email));
+      }
+    } else if (roleName === 'MANAGER') {
+      const admins = await this.prisma.user.findMany({
+        where: { isActive: true, role: { name: { in: ['ADMIN', 'SUPER_ADMIN'] } } },
+        select: { email: true },
+      });
+      candidates.push(...admins.map((a) => a.email));
+    } else if (roleName === 'ADMIN') {
+      const superAdmins = await this.prisma.user.findMany({
+        where: { isActive: true, role: { name: 'SUPER_ADMIN' } },
+        select: { email: true },
+      });
+      candidates.push(...superAdmins.map((sa) => sa.email));
+    } else if (roleName === 'SUPER_ADMIN') {
+      const others = await this.prisma.user.findMany({
+        where: { isActive: true, role: { name: 'SUPER_ADMIN' }, id: { not: userId } },
+        select: { email: true },
+      });
+      if (others.length === 0) {
+        throw new ForbiddenException(
+          'Cannot archive the only Super Admin. Add another Super Admin with a valid email before archiving this account.',
+        );
+      }
+      candidates.push(...others.map((sa) => sa.email));
+    } else {
+      // Unknown role — default to admins / super admins
+      const admins = await this.prisma.user.findMany({
+        where: { isActive: true, role: { name: { in: ['ADMIN', 'SUPER_ADMIN'] } } },
+        select: { email: true },
+      });
+      candidates.push(...admins.map((a) => a.email));
+    }
+
+    const recipients = [...new Set(candidates.filter(isValid))];
+
+    if (recipients.length === 0) {
+      throw new BadRequestException(
+        'No valid backup recipient found. Add a valid manager or admin email before archiving this user.',
+      );
+    }
+
+    return recipients;
   }
 
   async generateBackup(userId: string, actorId: string): Promise<{ buffer: Buffer; filename: string }> {

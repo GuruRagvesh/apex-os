@@ -109,8 +109,8 @@ export default function UsersPage() {
 
   const archiveMutation = useMutation({
     mutationFn: (id: string) => usersApi.archiveAfterBackup(id, { confirmBackupDownloaded: true }),
-    onSuccess: () => {
-      toast.success('User archived. Personal data anonymized, linked records preserved.');
+    onSuccess: (res: any) => {
+      toast.success(res?.message || 'User archived. Backup saved and emailed. Personal data anonymized.');
       qc.invalidateQueries({ queryKey: ['users'] });
       setPermanentDeleteBlockers(null);
       setPermanentDeleteBlockedUser(null);
@@ -514,9 +514,12 @@ export default function UsersPage() {
                 </li>
               ))}
             </ul>
-            <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)' }}>
-              Download a backup, then archive this user to anonymize personal data while preserving all linked records.
-            </p>
+            <div className="mb-4 rounded-lg p-3 space-y-1.5" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Required before archive:</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>✓ Backup will be emailed to responsible senior users</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>✓ Backup will be saved in backup vault</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Optional: Download a local copy below</p>
+            </div>
             <div className="space-y-2">
               <div className="flex gap-3">
                 {permanentDeleteBlockedUser && (
@@ -553,7 +556,7 @@ export default function UsersPage() {
                   Close
                 </button>
               </div>
-              {backupDownloadedForUserId === permanentDeleteBlockedUser?.id && permanentDeleteBlockedUser && (
+              {permanentDeleteBlockedUser && (
                 <button
                   type="button"
                   onClick={() => setArchiveConfirmOpen(true)}
@@ -573,12 +576,15 @@ export default function UsersPage() {
       {archiveConfirmOpen && permanentDeleteBlockedUser && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="apex-modal w-full max-w-md p-6 modal-enter">
-            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Archive user after backup?</h3>
+            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Archive user?</h3>
             <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
-              This will anonymize <strong>{permanentDeleteBlockedUser.name}</strong>&apos;s personal data. This cannot be undone.
+              Apex OS will email the backup to responsible senior users and save it in the backup vault <strong>before</strong> anonymizing <strong>{permanentDeleteBlockedUser.name}</strong>&apos;s personal data.
             </p>
-            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>
+            <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
               Tickets, work sessions, comments, leave records, and all reports will remain intact. The user&apos;s name, email, phone, address, and financial details will be removed.
+            </p>
+            <p className="text-xs mb-5" style={{ color: 'var(--text-tertiary)' }}>
+              Archive will be blocked if vault or email delivery is not configured. This cannot be undone.
             </p>
             <div className="flex gap-3">
               <button
