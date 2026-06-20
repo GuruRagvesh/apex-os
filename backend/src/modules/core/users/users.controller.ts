@@ -72,9 +72,7 @@ export class UsersController {
     return this.usersService.getStats();
   }
 
-  @Get('directory')
-  @UseGuards(RolesGuard) @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  getDirectory(@CurrentUser() user: any) {
+  @UseGuards(RolesGuard) @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.TEAM_LEAD, ROLES.EMPLOYEE, ROLES.INTERN)
     return this.usersService.getDirectory(user);
   }
 
