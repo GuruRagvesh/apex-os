@@ -81,6 +81,11 @@ model User {
   ticketAssignments       TicketAssignee[]
   ticketHistory           TicketHistory[]
   ticketTimeLogs          TicketTimeLog[]
+  departmentMemberships   UserDepartmentMembership[]
+  roleAssignments         UserRoleAssignment[]
+  teamMemberships         TeamMember[]
+  teamsLed                Team[]                         @relation("TeamLeadOf")
+  ticketWatching          TicketWatcher[]
   assignedTickets         Ticket[]                       @relation("TicketAssignee")
   createdTickets          Ticket[]                       @relation("TicketCreator")
   workdayPolicyOverride   UserWorkdayPolicyOverride?
@@ -116,27 +121,33 @@ model EmployeeDocument {
 }
 
 model Role {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  level       Int
-  description String?
-  createdAt   DateTime @default(now())
-  users       User[]
+  id              String               @id @default(cuid())
+  name            String               @unique
+  level           Int
+  description     String?
+  createdAt       DateTime             @default(now())
+  users           User[]
+  roleAssignments UserRoleAssignment[]
 
   @@map("roles")
 }
 
 model Department {
-  id            String              @id @default(cuid())
-  name          String              @unique
-  description   String?
-  color         String              @default("#6366f1")
-  createdAt     DateTime            @default(now())
-  managerAccess ManagerDeptAccess[]
-  projects      Project[]
-  taskTypes     TaskType[]
-  tickets       Ticket[]
-  users         User[]
+  id               String                     @id @default(cuid())
+  name             String                     @unique
+  description      String?
+  color            String                     @default("#6366f1")
+  createdAt        DateTime                   @default(now())
+  managerAccess    ManagerDeptAccess[]
+  projects         Project[]
+  taskTypes        TaskType[]
+  tickets          Ticket[]
+  users            User[]
+  userMemberships  UserDepartmentMembership[]
+  roleAssignments  UserRoleAssignment[]
+  teams            Team[]
+  requestedTickets Ticket[]                   @relation("TicketRequestingDepartment")
+  targetedTickets  Ticket[]                   @relation("TicketTargetDepartment")
 
   @@map("departments")
 }
@@ -200,61 +211,71 @@ model ProjectMember {
 }
 
 model Ticket {
-  id                String           @id @default(cuid())
-  ticketId          String           @unique
-  title             String
-  description       String?
-  category          TicketCategory
-  type              TicketType       @default(TASK)
-  status            TicketStatus     @default(OPEN)
-  priority          Priority         @default(MEDIUM)
-  estimatedTime     Float?
-  actualTime        Float?
-  projectId         String?
-  departmentId      String?
-  assignedToId      String?
-  createdById       String
-  dueDate           DateTime?
-  resolvedAt        DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  scheduledFor      DateTime?
-  scheduledNote     String?
-  scheduleRecurring String?
-  scheduleEndDate   DateTime?
-  taskTypeId        String?
-  taskSubtypeId     String?
-  estimatedMinutes  Int?
-  scheduledStartAt  DateTime?
-  scheduledEndAt    DateTime?
-  actualStartAt     DateTime?
-  actualCompletedAt DateTime?
-  executionDueAt    DateTime?
-  submittedAt       DateTime?
-  reviewStartedAt   DateTime?
-  reviewDueAt       DateTime?
-  closedAt          DateTime?
-  cancelledAt       DateTime?
-  customSubtypeText String?
-  isBlocked         Boolean          @default(false)
-  blockedAt         DateTime?
-  blockedReason     String?
-  blockedById       String?
-  reworkCount       Int              @default(0)
-  projectStageId    String?
-  attachments       Attachment[]
-  comments          Comment[]
-  reviewCycles      ReviewCycleLog[]
-  assignees         TicketAssignee[]
-  history           TicketHistory[]
-  timeLogs          TicketTimeLog[]
-  assignedTo        User?            @relation("TicketAssignee", fields: [assignedToId], references: [id])
-  createdBy         User             @relation("TicketCreator", fields: [createdById], references: [id])
-  department        Department?      @relation(fields: [departmentId], references: [id])
-  project           Project?         @relation(fields: [projectId], references: [id])
-  projectStage      ProjectStage?    @relation("TicketStage", fields: [projectStageId], references: [id])
-  taskSubtype       TaskSubtype?     @relation(fields: [taskSubtypeId], references: [id])
-  taskType          TaskType?        @relation(fields: [taskTypeId], references: [id])
+  id                     String           @id @default(cuid())
+  ticketId               String           @unique
+  title                  String
+  description            String?
+  category               TicketCategory
+  type                   TicketType       @default(TASK)
+  status                 TicketStatus     @default(OPEN)
+  priority               Priority         @default(MEDIUM)
+  estimatedTime          Float?
+  actualTime             Float?
+  projectId              String?
+  departmentId           String?
+  assignedToId           String?
+  createdById            String
+  dueDate                DateTime?
+  resolvedAt             DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  scheduledFor           DateTime?
+  scheduledNote          String?
+  scheduleRecurring      String?
+  scheduleEndDate        DateTime?
+  taskTypeId             String?
+  taskSubtypeId          String?
+  estimatedMinutes       Int?
+  scheduledStartAt       DateTime?
+  scheduledEndAt         DateTime?
+  actualStartAt          DateTime?
+  actualCompletedAt      DateTime?
+  executionDueAt         DateTime?
+  submittedAt            DateTime?
+  reviewStartedAt        DateTime?
+  reviewDueAt            DateTime?
+  closedAt               DateTime?
+  cancelledAt            DateTime?
+  customSubtypeText      String?
+  isBlocked              Boolean          @default(false)
+  blockedAt              DateTime?
+  blockedReason          String?
+  blockedById            String?
+  reworkCount            Int              @default(0)
+  projectStageId         String?
+  requestingDepartmentId String?
+  requestingTeamId       String?
+  targetDepartmentId     String?
+  targetTeamId           String?
+  isCrossDepartment      Boolean          @default(false)
+  attachments            Attachment[]
+  comments               Comment[]
+  reviewCycles           ReviewCycleLog[]
+  assignees              TicketAssignee[]
+  history                TicketHistory[]
+  timeLogs               TicketTimeLog[]
+  watchers               TicketWatcher[]
+  assignedTo             User?            @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  createdBy              User             @relation("TicketCreator", fields: [createdById], references: [id])
+  department             Department?      @relation(fields: [departmentId], references: [id])
+  requestingDepartment   Department?      @relation("TicketRequestingDepartment", fields: [requestingDepartmentId], references: [id])
+  targetDepartment       Department?      @relation("TicketTargetDepartment", fields: [targetDepartmentId], references: [id])
+  requestingTeam         Team?            @relation("TicketRequestingTeam", fields: [requestingTeamId], references: [id])
+  targetTeam             Team?            @relation("TicketTargetTeam", fields: [targetTeamId], references: [id])
+  project                Project?         @relation(fields: [projectId], references: [id])
+  projectStage           ProjectStage?    @relation("TicketStage", fields: [projectStageId], references: [id])
+  taskSubtype            TaskSubtype?     @relation(fields: [taskSubtypeId], references: [id])
+  taskType               TaskType?        @relation(fields: [taskTypeId], references: [id])
 
   @@index([departmentId])
   @@index([assignedToId])
@@ -269,6 +290,11 @@ model Ticket {
   @@index([status, departmentId])
   @@index([isBlocked])
   @@index([status, isBlocked])
+  @@index([requestingDepartmentId])
+  @@index([targetDepartmentId])
+  @@index([requestingTeamId])
+  @@index([targetTeamId])
+  @@index([isCrossDepartment])
   @@map("tickets")
 }
 
@@ -283,6 +309,19 @@ model TicketAssignee {
   @@unique([ticketId, userId])
   @@index([userId])
   @@map("ticket_assignees")
+}
+
+model TicketWatcher {
+  id       String   @id @default(cuid())
+  ticketId String
+  userId   String
+  addedAt  DateTime @default(now())
+  ticket   Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@unique([ticketId, userId])
+  @@index([userId])
+  @@map("ticket_watchers")
 }
 
 model Comment {
@@ -526,23 +565,28 @@ model AttendanceEvent {
 }
 
 model OperationalEvent {
-  id         String   @id @default(cuid())
-  actorId    String
-  entityType String
-  entityId   String
-  action     String
-  fromState  String?
-  toState    String?
-  metadata   Json?
-  ip         String?
-  device     String?
-  timestamp  DateTime @default(now())
-  actor      User     @relation("EventActor", fields: [actorId], references: [id])
+  id           String   @id @default(cuid())
+  actorId      String
+  entityType   String
+  entityId     String
+  action       String
+  fromState    String?
+  toState      String?
+  metadata     Json?
+  ip           String?
+  device       String?
+  timestamp    DateTime @default(now())
+  actorRoleId  String?
+  actorContext String?
+  beforeValue  Json?
+  afterValue   Json?
+  actor        User     @relation("EventActor", fields: [actorId], references: [id])
 
   @@index([actorId])
   @@index([entityType, entityId])
   @@index([action])
   @@index([timestamp])
+  @@index([actorRoleId])
   @@map("operational_events")
 }
 
@@ -558,6 +602,75 @@ model ManagerDeptAccess {
   @@unique([managerId, departmentId])
   @@index([managerId])
   @@map("manager_dept_access")
+}
+
+model UserDepartmentMembership {
+  id           String     @id @default(cuid())
+  userId       String
+  departmentId String
+  isPrimary    Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, departmentId])
+  @@index([userId])
+  @@index([departmentId])
+  @@map("user_department_memberships")
+}
+
+model UserRoleAssignment {
+  id           String      @id @default(cuid())
+  userId       String
+  roleId       String
+  departmentId String?
+  teamId       String?
+  isPrimary    Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role        @relation(fields: [roleId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+  team         Team?       @relation(fields: [teamId], references: [id])
+
+  @@index([userId])
+  @@index([roleId])
+  @@index([departmentId])
+  @@index([teamId])
+  @@map("user_role_assignments")
+}
+
+model Team {
+  id                String               @id @default(cuid())
+  name              String
+  departmentId      String
+  teamLeadId        String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  department        Department           @relation(fields: [departmentId], references: [id])
+  teamLead          User?                @relation("TeamLeadOf", fields: [teamLeadId], references: [id])
+  members           TeamMember[]
+  roleAssignments   UserRoleAssignment[]
+  requestingTickets Ticket[]             @relation("TicketRequestingTeam")
+  targetTickets     Ticket[]             @relation("TicketTargetTeam")
+
+  @@unique([departmentId, name])
+  @@index([departmentId])
+  @@index([teamLeadId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  userId   String
+  role     String   @default("MEMBER")
+  joinedAt DateTime @default(now())
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@map("team_members")
 }
 
 model TicketTimeLog {
@@ -692,6 +805,8 @@ enum TicketType {
   SUPPORT
   INCIDENT
   REQUEST
+  QUERY
+  HELP
 }
 
 enum LeaveType {
