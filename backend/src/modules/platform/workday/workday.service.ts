@@ -12,6 +12,10 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 import { TVAService } from '../../../common/services/tva.service';
 
+// Combined daily allowance for all break types (lunch + restroom + tea + other).
+// Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
+const DAILY_BREAK_ALLOWANCE_MINUTES = 60;
+
 @Injectable()
 export class WorkdayService {
   constructor(
@@ -543,6 +547,9 @@ export class WorkdayService {
     }));
     const rt = calculateWorkdayRuntime(sessionsForRuntime as any, now);
 
+    const remainingBreakMinutes = Math.max(0, DAILY_BREAK_ALLOWANCE_MINUTES - rt.totalBreakMinutes);
+    const exceededBreakMinutes = Math.max(0, rt.totalBreakMinutes - DAILY_BREAK_ALLOWANCE_MINUTES);
+
     return {
       session,
       allSessions: sessions,
@@ -555,6 +562,10 @@ export class WorkdayService {
       sessionCount: rt.sessionCount,
       onLeaveToday: !!onLeave,
       leaveInfo: onLeave,
+      allowedBreakMinutes: DAILY_BREAK_ALLOWANCE_MINUTES,
+      usedBreakMinutes: rt.totalBreakMinutes,
+      remainingBreakMinutes,
+      exceededBreakMinutes,
     };
   }
 
@@ -594,6 +605,7 @@ export class WorkdayService {
         department: true,
         workSessions: {
           where: { date: today },
+          orderBy: { createdAt: 'asc' },
           include: { breakLogs: true },
         },
         leaveRequests: {
@@ -610,7 +622,9 @@ export class WorkdayService {
 
     const now = this.tva.now();
     return members.map((m) => {
-      const session = m.workSessions[0] ?? null;
+      // Latest session of the day, not the first — a user can have multiple
+      // sessions per day, and the most recent one is what reflects current status.
+      const session = m.workSessions.length > 0 ? m.workSessions[m.workSessions.length - 1] : null;
       const leave = m.leaveRequests[0] ?? null;
       
       const workSessionsForRuntime = m.workSessions.map((s: any) => ({
@@ -646,6 +660,9 @@ export class WorkdayService {
         isLate = TimezoneUtil.isLate(firstStartTime, expectedStart, tz);
       }
 
+      const breakCount = m.workSessions.reduce((sum, s: any) => sum + s.breakLogs.length, 0);
+      const exceededBreakMinutes = Math.max(0, totalBreakMins - DAILY_BREAK_ALLOWANCE_MINUTES);
+
       return {
         id: m.id,
         name: m.name,
@@ -665,7 +682,9 @@ export class WorkdayService {
         leaveType: leave?.type ?? null,
         workMinutesToday: totalWorkMins,
         breakMinutesToday: totalBreakMins,
-        breakCount: session?.breakLogs.length ?? 0,
+        breakCount,
+        allowedBreakMinutes: DAILY_BREAK_ALLOWANCE_MINUTES,
+        exceededBreakMinutes,
         lastActiveAt: m.lastActiveAt,
         isLate,
         isFlexible,
