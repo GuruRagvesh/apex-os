@@ -81,7 +81,7 @@ export function QuickActionDock() {
       onClick: () => doAction(handleLunchBreak) },
     { label: 'Restroom', emoji: '🚻', color: '#6b7280', disabled: status !== 'WORKING',
       onClick: () => doAction(handleRestroomBreak) },
-    status === 'OFFLINE' || status === 'LOGGED_IN'
+    status === 'OFFLINE' || status === 'LOGGED_IN' || status === 'LOGGED_OUT'
       ? { label: 'Start Work', emoji: '🟢', color: '#10b981', onClick: () => doAction(handleStartWork) }
       : { label: 'End Day', emoji: '🔴', color: '#ef4444', onClick: () => doAction(handleEndWorkday) },
     ...(isEmployee || role === 'TEAM_LEAD' ? [{

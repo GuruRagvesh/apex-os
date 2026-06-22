@@ -242,6 +242,13 @@ export function WorkdayBar() {
             </span>
           )}
         </div>
+        <button
+          onClick={handleStartWork}
+          disabled={loading === 'start'}
+          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+        >
+          {loading === 'start' ? 'Starting...' : 'Start Work'}
+        </button>
       </div>
     );
   }
