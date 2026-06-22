@@ -21,6 +21,7 @@
     "test:coverage": "jest --config jest.config.js --coverage",
     "workday:audit": "ts-node scripts/audit-workday-sessions.ts --dry-run",
     "workday:repair": "ts-node scripts/audit-workday-sessions.ts --apply",
+    "backfill:d2": "ts-node scripts/backfill-d2-foundation.ts",
     "prisma:generate": "npx prisma generate",
     "prisma:migrate": "npx prisma migrate dev",
     "prisma:studio": "npx prisma studio",
