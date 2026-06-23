@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, usersApi, rolesApi } from '@/lib/api';
+import { departmentsApi, usersApi, rolesApi, teamsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import {
   ArrowLeft,
@@ -20,6 +20,8 @@ import {
   UserMinus,
   Crown,
   ShieldAlert,
+  UsersRound,
+  ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -89,6 +91,19 @@ export default function DepartmentDetailPage() {
     queryFn: () => rolesApi.getAll() as Promise<any[]>,
     enabled: hasHydrated && isAdmin,
   });
+
+  const { data: deptTeams } = useQuery({
+    queryKey: ['teams', { departmentId: id }],
+    queryFn: () => teamsApi.getAll(id) as Promise<any[]>,
+    enabled: hasHydrated && isAdmin && !!id,
+  });
+  const teamList: any[] = Array.isArray(deptTeams) ? deptTeams : [];
+
+  const teamLeadRoleName = dept?.teamLead?.role?.name;
+  const teamLeadLabel =
+    teamLeadRoleName === 'MANAGER' ? 'Department Manager' :
+    teamLeadRoleName === 'TEAM_LEAD' ? 'Department Lead' :
+    'Department Manager / Lead';
 
   // Users not already in this dept — search filtering handled by modal below
   const nonMembers = allUsers.filter(
@@ -263,9 +278,9 @@ export default function DepartmentDetailPage() {
         </div>
       </div>
 
-      {/* Team Lead */}
+      {/* Department Manager / Lead */}
       <div className="apex-card p-4 flex items-center gap-4">
-        <div className="text-sm font-medium w-28 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>Team Lead</div>
+        <div className="text-sm font-medium w-28 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{teamLeadLabel}</div>
         {dept.teamLead ? (
           <div className="flex items-center gap-3">
             <Avatar name={dept.teamLead.name} avatar={dept.teamLead.avatar} size="md" />
@@ -275,7 +290,7 @@ export default function DepartmentDetailPage() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-slate-400 italic">No team lead assigned</p>
+          <p className="text-sm text-slate-400 italic">No department manager or lead assigned</p>
         )}
       </div>
 
@@ -367,6 +382,43 @@ export default function DepartmentDetailPage() {
           ))}
         </div>
       </div>
+
+      {/* Teams in this department (read-only) */}
+      {teamList.length > 0 && (
+        <div className="apex-card overflow-hidden">
+          <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+              Teams
+              <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-tertiary)' }}>({teamList.length})</span>
+            </h2>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+            {teamList.map((t: any) => (
+              <div
+                key={t.id}
+                className="flex items-center gap-3 px-5 py-3 cursor-pointer transition-colors"
+                onClick={() => router.push(`/teams/${t.id}`)}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--accent-subtle)' }}>
+                  <UsersRound size={14} style={{ color: 'var(--accent)' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{t.name}</p>
+                  <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                    {t.teamLead ? `Lead: ${t.teamLead.name}` : 'No team lead assigned'}
+                  </p>
+                </div>
+                <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
+                  {t.memberCount ?? 0} member{(t.memberCount ?? 0) === 1 ? '' : 's'}
+                </span>
+                <ChevronRight size={15} style={{ color: 'var(--text-tertiary)' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Active Tickets */}
       {dept.tickets?.length > 0 && (

@@ -22,13 +22,13 @@ export class DepartmentsService {
       include: {
         _count: {
           select: {
-            users: true,
+            users: { where: { isActive: true } },
             tickets: { where: { status: { notIn: ['DONE', 'CLOSED'] } } },
             projects: true,
           },
         },
         users: {
-          where: { role: { name: { in: ['MANAGER', 'TEAM_LEAD'] } } },
+          where: { isActive: true, role: { name: { in: ['MANAGER', 'TEAM_LEAD'] } } },
           include: { role: true },
           orderBy: { role: { level: 'asc' } },
           take: 1,
@@ -49,6 +49,7 @@ export class DepartmentsService {
       where: { id },
       include: {
         users: {
+          where: { isActive: true },
           include: {
             role: true,
             _count: { select: { assignedTickets: true } },
@@ -66,7 +67,7 @@ export class DepartmentsService {
         },
         _count: {
           select: {
-            users: true,
+            users: { where: { isActive: true } },
             tickets: { where: { status: { notIn: ['DONE', 'CLOSED'] } } },
             projects: true,
           },
