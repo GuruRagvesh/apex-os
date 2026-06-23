@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
-  Users, Building2, BarChart3, LogOut, Zap, Settings,
+  Users, UsersRound, Building2, BarChart3, LogOut, Zap, Settings,
   Calendar, Activity, ArrowRight,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -60,6 +60,7 @@ const BASE_NAV = [
   { href: '/tickets',   label: 'Tickets',       icon: Ticket          },
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban          },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban    },
+  { href: '/teams',     label: 'Teams',          icon: UsersRound      },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff     },
   { href: '/calendar',  label: 'Calendar',       icon: Calendar        },
 ];
@@ -80,6 +81,7 @@ const TEAMLEAD_MODE_NAV = [
   { href: '/tickets',   label: 'My Team Tasks', icon: Ticket        },
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban        },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban  },
+  { href: '/teams',     label: 'Teams',          icon: UsersRound    },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff   },
 ];
 
