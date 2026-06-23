@@ -946,12 +946,15 @@ function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
         <div className="pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
           <h4 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Manager / Admin / SuperAdmin Timing</h4>
           <span className="px-3 py-1 bg-blue-100 text-blue-700 font-medium text-xs rounded-full">Flexible timing enabled</span>
+          <p className="text-xs mt-1.5" style={{ color: 'var(--text-tertiary)' }}>
+            Flexible timing means this role has no fixed expected start/end window — Auto Close below still applies to this role when enabled.
+          </p>
         </div>
 
         <div className="pt-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--border-subtle)' }}>
           <div>
             <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Auto Close</p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>If users forget to end their day, Apex OS auto-closes open workdays at the configured company time.</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>If enabled, Apex OS closes every open workday — including Manager, Admin, and SuperAdmin — at Auto Close Time below.</p>
           </div>
           <Toggle checked={form.autoClose} onChange={(v) => canEdit && update('autoClose', v)} />
         </div>

@@ -17,8 +17,11 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   let ticketLedger: any;
   let notificationEventService: any;
   let attendanceAuthorityMock: any;
+  let companyTimezoneMock: string;
 
   beforeEach(async () => {
+    companyTimezoneMock = 'Asia/Kolkata';
+
     prisma = {
       workSession: {
         findMany: jest.fn(),
@@ -53,7 +56,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => companyTimezoneMock, companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         SchedulerService,
         { provide: PrismaService, useValue: prisma },
         { provide: SettingsService, useValue: settingsService },
@@ -82,6 +85,9 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   });
 
   it('7. stale session closes at configured autoCloseTime, not midnight', async () => {
+    // Production reads the company timezone from tva.companyTimezone(), not policy.timezone,
+    // so the mock must be aligned to this test's intended (UTC) company timezone.
+    companyTimezoneMock = 'UTC';
     settingsService.getWorkdayPolicy.mockResolvedValue({ autoClose: true, autoCloseTime: '22:00', timezone: 'UTC' });
     const oldSessionDate = new Date();
     oldSessionDate.setDate(oldSessionDate.getDate() - 2); // 2 days ago
@@ -161,26 +167,28 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     expect(true).toBe(true);
   });
 
-  it('12. flexible manager/admin still bypasses policy auto-stop', async () => {
+  it('12. flexible manager/admin no longer bypasses global Auto Close once past autoCloseTime', async () => {
     settingsService.getWorkdayPolicy.mockResolvedValue({
       autoClose: true,
+      autoCloseTime: '00:01',
       managerTiming: { flexible: true },
       timezone: 'UTC',
     });
     const now = new Date();
-    
+
     prisma.workSession.findMany.mockResolvedValue([
       {
         id: 'session-manager',
         userId: 'user-m',
         loginAt: now,
         createdAt: now,
+        logoutAt: null,
         breakLogs: [],
         user: { role: { name: 'MANAGER' } },
       }
     ]);
 
     await service.autoCloseMidnightSessions();
-    expect(attendanceAuthorityMock.updateWorkSession).not.toHaveBeenCalled();
+    expect(attendanceAuthorityMock.updateWorkSession).toHaveBeenCalled();
   });
 });

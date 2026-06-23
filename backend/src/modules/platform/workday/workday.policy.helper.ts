@@ -37,20 +37,21 @@ export function buildCompanyDateTimeUtc(companyDateStr: string, hhmm: string, ti
 }
 
 export function shouldPolicyAutoStop(
-  session: any, 
-  user: any, 
-  policy: any, 
-  now: Date, 
-  currentCompanyDateStr: string, 
+  session: any,
+  user: any,
+  policy: any,
+  now: Date,
+  currentCompanyDateStr: string,
   sessionCompanyDateStr: string
 ): { shouldStop: boolean, cutoffUtc?: Date } {
   if (policy?.autoClose !== true) return { shouldStop: false };
   if (session.logoutAt !== null) return { shouldStop: false };
   if (sessionCompanyDateStr !== currentCompanyDateStr) return { shouldStop: false }; // midnight handles others
 
-  const hhmm = resolvePolicyCutoffForUser(user, policy);
-  if (!hhmm) return { shouldStop: false };
-
+  // Global Auto Close Time is the final company cutoff for every role today.
+  // Role timing windows (resolvePolicyCutoffForUser) remain available for other
+  // policy validation, but must not exempt anyone from this cutoff.
+  const hhmm = policy.autoCloseTime || '23:59';
   const timezone = policy.timezone || 'Asia/Kolkata';
   const cutoffUtc = buildCompanyDateTimeUtc(currentCompanyDateStr, hhmm, timezone);
 
