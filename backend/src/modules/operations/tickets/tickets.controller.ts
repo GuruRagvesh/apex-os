@@ -189,7 +189,7 @@ export class TicketsController {
     @Body() body: { taskEfficiencyRating: number, employeePerformanceRating: number, employeeAttitudeRating: number, ratingComment?: string },
     @CurrentUser() user: any
   ) {
-    return this.ticketsService.approve(id, user.id, user);
+    return this.ticketsService.approve(id, user.id, user, body);
   }
 
   @Patch(':id/reject')

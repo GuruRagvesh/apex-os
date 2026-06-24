@@ -32,6 +32,7 @@ describe('TicketsService.create — assignedToId resolution (cuid, not UUID)', (
       { log: jest.fn().mockReturnValue({ catch: jest.fn() }) } as any, // eventLogger
       {} as any, // ticketAccess (not used by create())
       { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
+      { startReviewCycle: jest.fn(), endReviewCycle: jest.fn() } as any, // ticketLedger (not used by create())
     );
   });
 

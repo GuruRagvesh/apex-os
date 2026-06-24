@@ -264,6 +264,7 @@ export class TicketLedgerService {
     ticketId: string;
     cycleNo?: number;
     decision: string;
+    reviewerId?: string;
     feedback?: string;
     reviewEndedAt?: Date;
     reworkStartedAt?: Date;
@@ -325,6 +326,7 @@ export class TicketLedgerService {
       where: { id: cycle.id },
       data: {
         decision: input.decision,
+        reviewerId: input.reviewerId,
         feedback: input.feedback,
         reviewEndedAt,
         reworkStartedAt: input.reworkStartedAt,

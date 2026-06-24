@@ -8,6 +8,7 @@ import { NotificationEventService } from '../notifications/notification-event.se
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
+import { TicketLedgerService } from './ticket-ledger.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -28,6 +29,7 @@ export class TicketsService {
     private eventLogger: EventLoggerService,
     private ticketAccess: TicketAccessService,
     private ticketTiming: TicketTimingService,
+    private ticketLedger: TicketLedgerService,
   ) {}
 
   private get frontendUrl() {
@@ -203,6 +205,7 @@ export class TicketsService {
         orderBy: { createdAt: 'asc' },
       },
       attachments: { orderBy: { createdAt: 'desc' } },
+      reviewCycles: { orderBy: { cycleNo: 'asc' } },
     };
     const ticket = user
       ? await this.ticketAccess.findAccessibleTicket(id, user, include)
@@ -833,7 +836,82 @@ export class TicketsService {
     return this.update(id, { assignedToId }, userId, user);
   }
 
-  async approve(id: string, userId: string, user?: any) {
+  // The rating applies to the ticket's primary worker. assignedToId (legacy single-assignee
+  // field) wins when present; multi-assignee tickets fall back to the first row in
+  // `assignees` so a rating still lands on someone rather than being silently dropped.
+  // This intentionally does not attempt per-assignee ratings for multi-assignee tickets.
+  private primaryAssigneeId(ticket: any): string | undefined {
+    return ticket.assignedToId ?? ticket.assignees?.[0]?.userId ?? undefined;
+  }
+
+  // Closes the ticket's current ReviewCycleLog with a decision + ratings/feedback.
+  // If no cycle was ever opened for this ticket (true for every ticket today, since
+  // nothing currently calls startReviewCycle when a ticket enters REVIEW), one is
+  // started retroactively using the ticket's own reviewStartedAt column, then closed
+  // immediately — so tickets already sitting in REVIEW before this fix shipped are
+  // still handled correctly.
+  private async persistReviewDecision(
+    ticket: any,
+    decision: 'APPROVED' | 'REWORK',
+    reviewerId: string,
+    ratings?: {
+      taskEfficiencyRating?: number | null;
+      employeePerformanceRating?: number | null;
+      employeeAttitudeRating?: number | null;
+      ratingComment?: string | null;
+      feedback?: string | null;
+    },
+  ) {
+    const closeArgs = {
+      ticketId: ticket.id,
+      decision,
+      reviewerId,
+      feedback: ratings?.feedback ?? undefined,
+      taskEfficiencyRating: ratings?.taskEfficiencyRating ?? null,
+      employeePerformanceRating: ratings?.employeePerformanceRating ?? null,
+      employeeAttitudeRating: ratings?.employeeAttitudeRating ?? null,
+      ratingComment: ratings?.ratingComment ?? null,
+    };
+
+    const actionLabel = decision === 'APPROVED' ? 'approved' : 'sent back for rework';
+    let cycle: any;
+    try {
+      cycle = await this.ticketLedger.endReviewCycle(closeArgs);
+      if (!cycle) {
+        await this.ticketLedger.startReviewCycle({
+          ticketId: ticket.id,
+          assigneeId: this.primaryAssigneeId(ticket),
+          reviewerId,
+          reviewStartedAt: ticket.reviewStartedAt ?? ticket.submittedAt ?? new Date(),
+        });
+        cycle = await this.ticketLedger.endReviewCycle(closeArgs);
+      }
+    } catch (err: any) {
+      this.logger.error(`Review cycle persistence failed for ticket ${ticket.ticketId}: ${err?.message}`);
+      throw new BadRequestException(
+        `Could not save the review decision for ${ticket.ticketId} — the ticket was not ${actionLabel}. Please try again.`,
+      );
+    }
+
+    // Defensive: endReviewCycle/startReviewCycle should always resolve to a row or throw.
+    // If it ever resolves to something falsy instead, treat that as failure too — the
+    // caller must never proceed to transition status believing the decision was saved.
+    if (!cycle) {
+      this.logger.error(`Review cycle persistence produced no row for ticket ${ticket.ticketId}`);
+      throw new BadRequestException(
+        `Could not save the review decision for ${ticket.ticketId} — the ticket was not ${actionLabel}. Please try again.`,
+      );
+    }
+
+    return cycle;
+  }
+
+  async approve(id: string, userId: string, user?: any, ratings?: {
+    taskEfficiencyRating?: number;
+    employeePerformanceRating?: number;
+    employeeAttitudeRating?: number;
+    ratingComment?: string;
+  }) {
     const ticket = user
       ? await this.ticketAccess.findAccessibleTicket(id, user, { createdBy: { select: { id: true, name: true } }, assignees: true })
       : await this.prisma.ticket.findFirst({
@@ -845,6 +923,11 @@ export class TicketsService {
       throw new ForbiddenException('Only tickets in REVIEW status can be approved');
     }
     if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.DONE);
+
+    // Persist the review decision BEFORE transitioning status. If this throws, the ticket
+    // must stay in REVIEW — it must never silently reach DONE with no record of the ratings
+    // that gated the Approve button on the frontend.
+    await this.persistReviewDecision(ticket, 'APPROVED', userId, ratings);
 
     // suppressCompletionNotification=true: update() skips its generic "Ticket resolved"
     // notification so we can send a more specific "Ticket approved" message here instead.
@@ -881,6 +964,11 @@ export class TicketsService {
       throw new ForbiddenException('Only tickets in REVIEW status can be rejected');
     }
     if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.IN_PROGRESS);
+
+    // Persist the rework decision/feedback BEFORE transitioning status — same ordering
+    // guarantee as approve(). If this throws, the ticket must stay in REVIEW rather than
+    // silently reopening with no record of why it was sent back.
+    await this.persistReviewDecision(ticket, 'REWORK', userId, { feedback: comment });
 
     const [updated] = await Promise.all([
       this.update(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user),

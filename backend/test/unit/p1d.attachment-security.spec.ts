@@ -27,15 +27,14 @@ describe('P1-D ticket attachment security', () => {
     const ticketAccess = new TicketAccessService(prisma, accessPolicy);
     service = new TicketsService(
       prisma,
-      {} as any,
-      {} as any,
-      {} as any,
-      { get: jest.fn() } as any,
-      {} as any,
-      { log: jest.fn().mockResolvedValue(undefined) } as any,
+      {} as any, // gateway
+      { sendNotification: jest.fn() } as any, // notificationEventService
+      { get: jest.fn() } as any, // configService
+      { emit: jest.fn() } as any, // eventEmitter
+      { log: jest.fn().mockResolvedValue(undefined) } as any, // eventLogger
       ticketAccess,
-      new TicketTimingService(prisma),
-      { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } as any, { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any,
+      new TicketTimingService(prisma, { now: () => new Date(), elapsedSeconds: () => 0 } as any),
+      { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any, // ticketLedger
     );
   });
 

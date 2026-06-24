@@ -33,7 +33,6 @@ describe('TicketsService — FP-13.2 Permissions', () => {
     },
   };
 
-  const mockEmail = { sendTicketResolved: jest.fn(), sendTicketAssigned: jest.fn() };
   const mockNotifications = { sendNotification: jest.fn() };
   const mockEventEmitter = { emit: jest.fn() } as unknown as EventEmitter2;
   const mockGateway = { emitTicketStatusChanged: jest.fn() };
@@ -50,14 +49,13 @@ describe('TicketsService — FP-13.2 Permissions', () => {
     service = new TicketsService(
       mockPrisma as any,
       mockGateway as any,
-      mockEmail as any,
       mockNotifications as any,
       mockConfig as any,
       mockEventEmitter,
       mockLogger as any,
       access,
       mockTiming as any,
-      { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } as any, { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any,
+      { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any, // ticketLedger
     );
   });
 

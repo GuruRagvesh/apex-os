@@ -11,7 +11,7 @@ import {
   formatDate, formatRelativeTime, getInitials,
 } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { formatDuration } from '@/lib/ticket-timing';
+import { formatDuration, computeClientTimingState } from '@/lib/ticket-timing';
 import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { SkeletonTicketDetail } from '@/components/ui/skeleton';
 import { useSocket } from '@/hooks/useSocket';
@@ -1538,7 +1538,7 @@ export default function TicketDetailPage() {
             {/* Assignee(s) */}
             <div>
               <p className="text-xs mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
-                <Users size={11} /> Assignees
+                <Users size={11} /> Assigned To
               </p>
               {canEdit ? (
                 <select
@@ -1582,11 +1582,11 @@ export default function TicketDetailPage() {
               </div>
             </div>
 
-            {/* Reporter */}
+            {/* Assigned By */}
             {ticket.createdBy && (
               <div>
                 <p className="text-xs mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
-                  <User size={11} /> Reporter
+                  <User size={11} /> Assigned By
                 </p>
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 bg-slate-400 rounded-full flex items-center justify-center flex-shrink-0">
@@ -1622,10 +1622,23 @@ export default function TicketDetailPage() {
                 <div className="flex items-center gap-2">
                   <Calendar size={13} className={new Date(ticket.dueDate) < new Date() ? 'text-red-400' : ''} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-tertiary)' } : undefined} />
                   <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500 font-medium' : '')} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-secondary)' } : undefined}>
-                    Due {formatDate(ticket.dueDate)}
+                    Due Date: {formatDate(ticket.dueDate)}
                   </span>
                 </div>
               )}
+              {/* Time Left — kept as its own row, separate from the Due Date row above */}
+              {(() => {
+                const timingState = computeClientTimingState(ticket);
+                if (!timingState.countdownLabel) return null;
+                return (
+                  <div className="flex items-center gap-2">
+                    <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      Time Left: {timingState.countdownLabel}
+                    </span>
+                  </div>
+                );
+              })()}
               {ticket.scheduleRecurring && ticket.scheduleRecurring !== 'none' ? (
                 <>
                   <div>
@@ -1667,7 +1680,7 @@ export default function TicketDetailPage() {
               )}
               {ticket?.estimatedMinutes && (
                 <div>
-                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Estimated</p>
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Estimated Time</p>
                   <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
                     ⏱ {ticket.estimatedMinutes < 60 ? `${ticket.estimatedMinutes} min` : `${Math.floor(ticket.estimatedMinutes / 60)}h${ticket.estimatedMinutes % 60 > 0 ? ` ${ticket.estimatedMinutes % 60}m` : ''}`}
                   </p>
@@ -1803,13 +1816,9 @@ export default function TicketDetailPage() {
             </div>
           </div>
 
-          {/* Type */}
-          {ticket.type && (
-            <div className="apex-card p-4">
-              <p className="text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>Type</p>
-              <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>{ticket.type}</span>
-            </div>
-          )}
+          {/* Type card intentionally hidden — every ticket is type TASK today (hardcoded at
+              creation, not a user choice), so showing it adds no information. Re-enable once
+              Ticket Type (Task/Query/Help) becomes a real user-selected field. */}
 
           {/* Task Type */}
           {ticket.taskType && (

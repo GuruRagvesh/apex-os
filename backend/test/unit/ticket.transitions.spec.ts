@@ -111,7 +111,14 @@ describe('TicketsService — status transitions', () => {
         { provide: EventLoggerService,    useValue: mockLogger       },
         { provide: ConfigService,         useValue: mockConfig       },
         { provide: EventEmitter2,         useValue: mockEventEmitter },
-        { provide: TicketLedgerService,   useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn(), startWorkLog: jest.fn(), endActiveLog: jest.fn(), getActiveLogForTicket: jest.fn() } },
+        { provide: TicketLedgerService,   useValue: {
+          startReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1' }),
+          // approve()/reject() now require persistReviewDecision to resolve to a truthy
+          // ReviewCycleLog row or they throw — this suite tests notification/transition
+          // behavior, not ledger persistence itself, so the mock just needs to succeed.
+          endReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1', decision: 'REWORK' }),
+          getTicketTimers: jest.fn(), startWorkLog: jest.fn(), endActiveLog: jest.fn(), getActiveLogForTicket: jest.fn(),
+        } },
       ],
     }).compile();
 
