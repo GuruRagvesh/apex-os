@@ -11,6 +11,7 @@ import {
   formatDate, formatRelativeTime, getInitials,
 } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
+import { formatDuration } from '@/lib/ticket-timing';
 import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { SkeletonTicketDetail } from '@/components/ui/skeleton';
 import { useSocket } from '@/hooks/useSocket';
@@ -50,9 +51,16 @@ function SlaTimer({ createdAt, slaHours, slaPercent, isOverdue, timing }: {
     ? `${hours}h ${mins}m open`
     : `${mins}m open`;
 
-  const label = timing?.label || fallbackLabel;
-  const pct = timing?.progressPercent ?? slaPercent ?? 0;
   const overdue = timing?.isOverdue ?? isOverdue;
+  // timing.label is a short backend category name (e.g. "Due date", "Execution SLA"),
+  // not a duration — pair it with a real countdown computed from the backend's raw ms
+  // fields instead of rendering the bare category name with no value.
+  const countdownMs = overdue ? timing?.overdueMs : timing?.remainingMs;
+  const countdown = typeof countdownMs === 'number'
+    ? `${formatDuration(Math.floor(countdownMs / 60_000))} ${overdue ? 'overdue' : 'left'}`
+    : null;
+  const label = countdown ? (timing?.label ? `${timing.label}: ${countdown}` : countdown) : fallbackLabel;
+  const pct = timing?.progressPercent ?? slaPercent ?? 0;
   const dueAt = timing?.dueAt ? new Date(timing.dueAt) : null;
   const barColor = overdue || pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-orange-400' : 'bg-emerald-400';
 
@@ -1006,9 +1014,22 @@ export default function TicketDetailPage() {
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <CopyableId ticketId={ticket.ticketId} />
-            <span className={cn('text-xs px-2 py-0.5 rounded font-medium', CATEGORY_COLORS[ticket.category])}>
-              {CATEGORY_LABELS[ticket.category] ?? ticket.category}
-            </span>
+            {/* Department is the real, user-chosen classification. category is a required
+                legacy enum the creation form hides and always sends as OPERATIONS, so showing
+                it here as the primary badge was misleading for every ticket. */}
+            {ticket.department ? (
+              <span
+                className="text-xs px-2 py-0.5 rounded font-medium flex items-center gap-1"
+                style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}
+              >
+                <Building2 size={11} />
+                {ticket.department.name}
+              </span>
+            ) : (
+              <span className={cn('text-xs px-2 py-0.5 rounded font-medium', CATEGORY_COLORS[ticket.category])}>
+                {CATEGORY_LABELS[ticket.category] ?? ticket.category}
+              </span>
+            )}
             <span className={cn('text-xs px-2 py-0.5 rounded font-medium', PRIORITY_COLORS[ticket.priority])}>
               {PRIORITY_LABELS[ticket.priority] ?? ticket.priority}
             </span>
@@ -1544,9 +1565,9 @@ export default function TicketDetailPage() {
                       style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}
                     >Primary</span>
                   </div>
-                ) : (
+                ) : (ticket.assignees ?? []).length === 0 ? (
                   <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Unassigned</span>
-                )}
+                ) : null}
                 {/* Additional assignees */}
                 {(ticket.assignees ?? [])
                   .filter((a: any) => a.user?.id !== ticket.assignedToId)

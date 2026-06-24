@@ -251,10 +251,13 @@ export class TicketsService {
       });
       data.departmentId = dept?.id ?? undefined;
     }
-    // Resolve assignedToId: accept display name or UUID
+    // Resolve assignedToId: accept display name or ID (schema uses cuid(), not UUID —
+    // isUUID() returns false for a real cuid, so the lookup must also match by id,
+    // mirroring the departmentId resolution above. Without the id branch, a valid
+    // assignedToId sent from the client was silently nulled out here.)
     if (data.assignedToId && !isUUID(data.assignedToId)) {
       const assignee = await this.prisma.user.findFirst({
-        where: { name: { equals: data.assignedToId, mode: 'insensitive' } },
+        where: { OR: [{ id: data.assignedToId }, { name: { equals: data.assignedToId, mode: 'insensitive' } }] },
       });
       data.assignedToId = assignee?.id ?? undefined;
     }

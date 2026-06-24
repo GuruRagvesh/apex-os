@@ -49,9 +49,14 @@ export function TimingTicker({ ticket, showLabel = false, className = '' }: Timi
     ? (state.overdueSeverity === 'red' ? '🔥' : '⏱')
     : '⏳';
 
+  // Prefer the backend's own label (e.g. "Due date", "Execution SLA", "Review SLA") —
+  // it correctly distinguishes "counting down to the due date" from "counting down an
+  // execution/review SLA", which the old hardcoded Exec/Review guess collapsed into one.
   const phaseLabel =
     showLabel
-      ? state.phase === 'review'
+      ? state.label
+        ? `${state.label}: `
+        : state.phase === 'review'
         ? 'Review: '
         : 'Exec: '
       : '';

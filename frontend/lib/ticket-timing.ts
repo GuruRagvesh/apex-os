@@ -29,6 +29,8 @@ export interface TicketTimingState {
   overdueSeverity: 'green' | 'yellow' | 'orange' | 'deep-orange' | 'red' | null;
   /** Human-readable countdown, e.g. "2h 14m left" or "3h 5m overdue" */
   countdownLabel: string | null;
+  /** Backend's own short label for the active timer, e.g. "Due date", "Execution SLA", "Review SLA". */
+  label: string | null;
 }
 
 const DONE_STATE: TicketTimingState = {
@@ -40,6 +42,7 @@ const DONE_STATE: TicketTimingState = {
   overdueDisplay: null,
   overdueSeverity: null,
   countdownLabel: null,
+  label: null,
 };
 
 function formatDuration(totalMinutes: number): string {
@@ -89,6 +92,7 @@ export function computeClientTimingState(ticket: Record<string, any>): TicketTim
       overdueDisplay: null,
       overdueSeverity: 'orange',
       countdownLabel: '🚫 Blocked',
+      label: backendTiming.label ?? null,
     };
   }
 
@@ -111,6 +115,7 @@ export function computeClientTimingState(ticket: Record<string, any>): TicketTim
     countdownLabel: isOverdue
       ? `${formatDuration(diffMinutes)} overdue`
       : `${formatDuration(Math.floor(msUntilDue / 60_000))} left`,
+    label: backendTiming.label ?? null,
   };
 }
 
