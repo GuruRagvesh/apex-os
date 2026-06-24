@@ -109,13 +109,20 @@ export default function DepartmentDetailPage() {
     queryFn: () => departmentsApi.getManagers(id) as Promise<any[]>,
     enabled: hasHydrated && isAdmin && !!id,
   });
+  // Backend now guarantees at most one entry — a department has exactly one Department Head.
   const managerList: any[] = Array.isArray(deptManagers) ? deptManagers : [];
+  const departmentHead = managerList[0] ?? null;
 
   const teamLeadRoleName = dept?.teamLead?.role?.name;
-  const teamLeadLabel =
+  const legacyHeadLabel =
     teamLeadRoleName === 'MANAGER' ? 'Department Manager' :
     teamLeadRoleName === 'TEAM_LEAD' ? 'Department Lead' :
     'Department Manager / Lead';
+  // Real ManagerDeptAccess assignment is the source of truth once one exists. Until then,
+  // fall back to the old membership/role heuristic, clearly flagged as provisional so the two
+  // cards never show contradictory heads.
+  const topCardLabel = departmentHead ? 'Department Head' : `Legacy ${legacyHeadLabel}`;
+  const topCardPerson = departmentHead ?? dept?.teamLead ?? null;
 
   // Users not already in this dept — search filtering handled by modal below
   const nonMembers = allUsers.filter(
@@ -183,7 +190,7 @@ export default function DepartmentDetailPage() {
   const addManagerMutation = useMutation({
     mutationFn: (userId: string) => departmentsApi.addManager(id, userId),
     onSuccess: () => {
-      toast.success('Department manager added');
+      toast.success('Department Head updated');
       qc.invalidateQueries({ queryKey: ['department', id] });
       qc.invalidateQueries({ queryKey: ['department-managers', id] });
       qc.invalidateQueries({ queryKey: ['departments'] });
@@ -191,18 +198,18 @@ export default function DepartmentDetailPage() {
       setSelectedManagerId('');
       setManagerSearch('');
     },
-    onError: (err: any) => toast.error(err?.message || 'Failed to add department manager'),
+    onError: (err: any) => toast.error(err?.message || 'Failed to update Department Head'),
   });
 
   const removeManagerMutation = useMutation({
     mutationFn: (userId: string) => departmentsApi.removeManager(id, userId),
     onSuccess: () => {
-      toast.success('Department manager removed');
+      toast.success('Department Head removed');
       qc.invalidateQueries({ queryKey: ['department', id] });
       qc.invalidateQueries({ queryKey: ['department-managers', id] });
       qc.invalidateQueries({ queryKey: ['departments'] });
     },
-    onError: (err: any) => toast.error(err?.message || 'Failed to remove department manager'),
+    onError: (err: any) => toast.error(err?.message || 'Failed to remove Department Head'),
   });
 
   if (!hasHydrated) {
@@ -323,15 +330,15 @@ export default function DepartmentDetailPage() {
         </div>
       </div>
 
-      {/* Department Manager / Lead */}
+      {/* Department Head (falls back to legacy heuristic only until a real head is assigned) */}
       <div className="apex-card p-4 flex items-center gap-4">
-        <div className="text-sm font-medium w-28 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{teamLeadLabel}</div>
-        {dept.teamLead ? (
+        <div className="text-sm font-medium w-28 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{topCardLabel}</div>
+        {topCardPerson ? (
           <div className="flex items-center gap-3">
-            <Avatar name={dept.teamLead.name} avatar={dept.teamLead.avatar} size="md" />
+            <Avatar name={topCardPerson.name} avatar={topCardPerson.avatar} size="md" />
             <div>
-              <p className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{dept.teamLead.name}</p>
-              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{dept.teamLead.role?.name}</p>
+              <p className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{topCardPerson.name}</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{topCardPerson.role?.name}</p>
             </div>
           </div>
         ) : (
@@ -339,14 +346,11 @@ export default function DepartmentDetailPage() {
         )}
       </div>
 
-      {/* Department Managers — real source of truth via ManagerDeptAccess */}
+      {/* Department Head — singular, real source of truth via ManagerDeptAccess */}
       <div className="apex-card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
           <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-            Department Managers
-            <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-tertiary)' }}>
-              ({managerList.length})
-            </span>
+            Department Head
           </h2>
           {isAdmin && (
             <button
@@ -354,43 +358,42 @@ export default function DepartmentDetailPage() {
               className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
             >
               <UserPlus size={15} />
-              Add Manager
+              {departmentHead ? 'Change Head' : 'Assign Head'}
             </button>
           )}
         </div>
         <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-          {managerList.length === 0 && (
-            <p className="text-sm text-center py-8" style={{ color: 'var(--text-tertiary)' }}>No department managers assigned</p>
+          {!departmentHead && (
+            <p className="text-sm text-center py-8" style={{ color: 'var(--text-tertiary)' }}>No department head assigned</p>
           )}
-          {managerList.map((m: any) => (
+          {departmentHead && (
             <div
-              key={m.id}
               className="flex items-center gap-3 px-5 py-3 transition-colors"
               onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
             >
-              <div className="cursor-pointer flex items-center gap-3 flex-1 min-w-0" onClick={() => router.push(`/users/${m.id}?from=department&deptId=${dept.id}&deptName=${encodeURIComponent(dept.name)}`)}>
-                <Avatar name={m.name} avatar={m.avatar} />
+              <div className="cursor-pointer flex items-center gap-3 flex-1 min-w-0" onClick={() => router.push(`/users/${departmentHead.id}?from=department&deptId=${dept.id}&deptName=${encodeURIComponent(dept.name)}`)}>
+                <Avatar name={departmentHead.name} avatar={departmentHead.avatar} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{m.name}</p>
-                  <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{m.email}</p>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{departmentHead.name}</p>
+                  <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{departmentHead.email}</p>
                 </div>
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)' }}>
-                {m.role?.name}
+                {departmentHead.role?.name}
               </span>
               {isAdmin && (
                 <button
-                  onClick={() => { if (confirm(`Remove ${m.name} as a manager of this department?`)) removeManagerMutation.mutate(m.id); }}
+                  onClick={() => { if (confirm(`Remove ${departmentHead.name} as Department Head?`)) removeManagerMutation.mutate(departmentHead.id); }}
                   disabled={removeManagerMutation.isPending}
                   className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0"
-                  title="Remove department manager"
+                  title="Remove Department Head"
                 >
                   <UserMinus size={13} />
                 </button>
               )}
             </div>
-          ))}
+          )}
         </div>
       </div>
 
@@ -638,7 +641,7 @@ export default function DepartmentDetailPage() {
       {showAddManager && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="apex-card rounded-xl w-full max-w-sm p-6 shadow-2xl">
-            <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text-primary)' }}>Add Department Manager</h3>
+            <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text-primary)' }}>{departmentHead ? 'Change Department Head' : 'Assign Department Head'}</h3>
             <input
               type="text"
               placeholder="Search by name or email..."
@@ -684,7 +687,7 @@ export default function DepartmentDetailPage() {
                 disabled={!selectedManagerId || addManagerMutation.isPending}
                 className="apex-btn-primary flex-1 font-medium py-2.5 disabled:opacity-50 text-sm"
               >
-                {addManagerMutation.isPending ? 'Adding...' : 'Add Manager'}
+                {addManagerMutation.isPending ? 'Saving...' : (departmentHead ? 'Change Head' : 'Assign Head')}
               </button>
               <button
                 onClick={() => {

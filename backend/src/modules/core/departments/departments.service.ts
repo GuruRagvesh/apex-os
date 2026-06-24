@@ -20,15 +20,21 @@ export class DepartmentsService {
     private access: AccessPolicyService,
   ) {}
 
-  // Real source of truth for "who manages this department" — ManagerDeptAccess,
-  // not a guess from department membership/role.
-  private async listActiveManagers(departmentId: string) {
+  // Product rule: a department has exactly one Department Head, sourced from ManagerDeptAccess —
+  // not a guess from department membership/role. Schema still allows multiple rows for a department
+  // (no DB-level uniqueness change yet), so this defensively picks one deterministic row instead of
+  // throwing if legacy/accidental duplicate data exists.
+  private async selectDepartmentHead(departmentId: string) {
     const rows = await this.prisma.managerDeptAccess.findMany({
-      where: { departmentId, manager: { isActive: true } },
+      where: {
+        departmentId,
+        manager: { isActive: true, role: { name: { in: MANAGER_ASSIGNABLE_ROLES } } },
+      },
       include: { manager: { select: MANAGER_SELECT } },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    return rows.map((row) => ({ ...row.manager, accessLevel: row.accessLevel }));
+    if (rows.length === 0) return null;
+    return { ...rows[0].manager, accessLevel: rows[0].accessLevel };
   }
 
   async findAll(user?: any) {
@@ -65,6 +71,7 @@ export class DepartmentsService {
       teamLead: d.users[0] ?? null,
       activeTickets: d._count.tickets,
       managerCount: d._count.managerAccess,
+      hasDepartmentHead: d._count.managerAccess > 0,
     }));
   }
 
@@ -108,12 +115,15 @@ export class DepartmentsService {
     const teamLead =
       dept.users.find((u) => ['MANAGER', 'TEAM_LEAD'].includes((u as any).role?.name)) ?? null;
 
-    const managers = await this.listActiveManagers(id);
+    const departmentHead = await this.selectDepartmentHead(id);
 
     return {
       ...dept,
       teamLead,
-      managers,
+      departmentHead,
+      // Compatibility shape for existing consumers — at most one entry now that a
+      // department head is singular.
+      managers: departmentHead ? [departmentHead] : [],
       stats: {
         totalMembers: dept._count.users,
         activeTickets: dept._count.tickets,
@@ -126,7 +136,8 @@ export class DepartmentsService {
   async getManagers(departmentId: string) {
     const dept = await this.prisma.department.findUnique({ where: { id: departmentId }, select: { id: true } });
     if (!dept) throw new NotFoundException('Department not found');
-    return this.listActiveManagers(departmentId);
+    const head = await this.selectDepartmentHead(departmentId);
+    return head ? [head] : [];
   }
 
   async addManager(departmentId: string, userId: string) {
@@ -148,13 +159,18 @@ export class DepartmentsService {
       where: { managerId_departmentId: { managerId: userId, departmentId } },
     });
     if (existing) {
-      // Already assigned — return the existing assignment instead of erroring.
+      // Already the department head — no-op, return clean success.
       return { ...user, accessLevel: existing.accessLevel };
     }
 
-    const created = await this.prisma.managerDeptAccess.create({
-      data: { managerId: userId, departmentId, accessLevel: 'FULL' },
-    });
+    // Department head is singular: assigning a new head replaces any existing one(s),
+    // including legacy duplicate rows from before this rule existed.
+    const [, created] = await this.prisma.$transaction([
+      this.prisma.managerDeptAccess.deleteMany({ where: { departmentId } }),
+      this.prisma.managerDeptAccess.create({
+        data: { managerId: userId, departmentId, accessLevel: 'FULL' },
+      }),
+    ]);
     return { ...user, accessLevel: created.accessLevel };
   }
 
