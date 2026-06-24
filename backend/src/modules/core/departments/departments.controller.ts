@@ -24,6 +24,25 @@ export class DepartmentsController {
     return this.departmentsService.findOne(id);
   }
 
+  @Get(':id/managers')
+  getManagers(@Param('id') id: string) {
+    return this.departmentsService.getManagers(id);
+  }
+
+  @Post(':id/managers')
+  @UseGuards(RolesGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  addManager(@Param('id') id: string, @Body() body: { userId: string }) {
+    return this.departmentsService.addManager(id, body.userId);
+  }
+
+  @Delete(':id/managers/:userId')
+  @UseGuards(RolesGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  removeManager(@Param('id') id: string, @Param('userId') userId: string) {
+    return this.departmentsService.removeManager(id, userId);
+  }
+
   @Post()
   @UseGuards(RolesGuard)
   @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)

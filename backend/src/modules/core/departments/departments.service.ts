@@ -2,12 +2,34 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException }
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 
+const MANAGER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  avatar: true,
+  isActive: true,
+  role: { select: { id: true, name: true } },
+};
+
+const MANAGER_ASSIGNABLE_ROLES = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+
 @Injectable()
 export class DepartmentsService {
   constructor(
     private prisma: PrismaService,
     private access: AccessPolicyService,
   ) {}
+
+  // Real source of truth for "who manages this department" — ManagerDeptAccess,
+  // not a guess from department membership/role.
+  private async listActiveManagers(departmentId: string) {
+    const rows = await this.prisma.managerDeptAccess.findMany({
+      where: { departmentId, manager: { isActive: true } },
+      include: { manager: { select: MANAGER_SELECT } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((row) => ({ ...row.manager, accessLevel: row.accessLevel }));
+  }
 
   async findAll(user?: any) {
     let where: any = {};
@@ -25,6 +47,7 @@ export class DepartmentsService {
             users: { where: { isActive: true } },
             tickets: { where: { status: { notIn: ['DONE', 'CLOSED'] } } },
             projects: true,
+            managerAccess: { where: { manager: { isActive: true } } },
           },
         },
         users: {
@@ -41,6 +64,7 @@ export class DepartmentsService {
       ...d,
       teamLead: d.users[0] ?? null,
       activeTickets: d._count.tickets,
+      managerCount: d._count.managerAccess,
     }));
   }
 
@@ -84,9 +108,12 @@ export class DepartmentsService {
     const teamLead =
       dept.users.find((u) => ['MANAGER', 'TEAM_LEAD'].includes((u as any).role?.name)) ?? null;
 
+    const managers = await this.listActiveManagers(id);
+
     return {
       ...dept,
       teamLead,
+      managers,
       stats: {
         totalMembers: dept._count.users,
         activeTickets: dept._count.tickets,
@@ -94,6 +121,52 @@ export class DepartmentsService {
         projects: dept._count.projects,
       },
     };
+  }
+
+  async getManagers(departmentId: string) {
+    const dept = await this.prisma.department.findUnique({ where: { id: departmentId }, select: { id: true } });
+    if (!dept) throw new NotFoundException('Department not found');
+    return this.listActiveManagers(departmentId);
+  }
+
+  async addManager(departmentId: string, userId: string) {
+    const dept = await this.prisma.department.findUnique({ where: { id: departmentId }, select: { id: true } });
+    if (!dept) throw new NotFoundException('Department not found');
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: MANAGER_SELECT });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.isActive) {
+      throw new BadRequestException('Cannot assign an inactive user as a department manager');
+    }
+    if (!MANAGER_ASSIGNABLE_ROLES.includes(user.role?.name ?? '')) {
+      throw new BadRequestException(
+        `${user.name} must have the MANAGER, ADMIN, or SUPER_ADMIN role to be assigned as a department manager`,
+      );
+    }
+
+    const existing = await this.prisma.managerDeptAccess.findUnique({
+      where: { managerId_departmentId: { managerId: userId, departmentId } },
+    });
+    if (existing) {
+      // Already assigned — return the existing assignment instead of erroring.
+      return { ...user, accessLevel: existing.accessLevel };
+    }
+
+    const created = await this.prisma.managerDeptAccess.create({
+      data: { managerId: userId, departmentId, accessLevel: 'FULL' },
+    });
+    return { ...user, accessLevel: created.accessLevel };
+  }
+
+  async removeManager(departmentId: string, userId: string) {
+    const existing = await this.prisma.managerDeptAccess.findUnique({
+      where: { managerId_departmentId: { managerId: userId, departmentId } },
+    });
+    if (!existing) {
+      throw new NotFoundException('This user is not assigned as a manager of this department');
+    }
+    await this.prisma.managerDeptAccess.delete({ where: { id: existing.id } });
+    return { success: true };
   }
 
   create(data: { name: string; description?: string; color?: string }) {

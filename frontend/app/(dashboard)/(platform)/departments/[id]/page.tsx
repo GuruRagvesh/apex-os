@@ -73,6 +73,11 @@ export default function DepartmentDetailPage() {
   const [memberSearch, setMemberSearch] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
 
+  // Add manager modal
+  const [showAddManager, setShowAddManager] = useState(false);
+  const [managerSearch, setManagerSearch] = useState('');
+  const [selectedManagerId, setSelectedManagerId] = useState('');
+
   const { data: dept, isLoading, isError } = useQuery({
     queryKey: ['department', id],
     queryFn: () => departmentsApi.getOne(id) as Promise<any>,
@@ -82,7 +87,7 @@ export default function DepartmentDetailPage() {
   const { data: usersData } = useQuery({
     queryKey: ['users', { limit: 100 }],
     queryFn: () => usersApi.getAll({ limit: 100 }) as Promise<any>,
-    enabled: hasHydrated && isAdmin && showAddMember,
+    enabled: hasHydrated && isAdmin && (showAddMember || showAddManager),
   });
   const allUsers: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
 
@@ -99,6 +104,13 @@ export default function DepartmentDetailPage() {
   });
   const teamList: any[] = Array.isArray(deptTeams) ? deptTeams : [];
 
+  const { data: deptManagers } = useQuery({
+    queryKey: ['department-managers', id],
+    queryFn: () => departmentsApi.getManagers(id) as Promise<any[]>,
+    enabled: hasHydrated && isAdmin && !!id,
+  });
+  const managerList: any[] = Array.isArray(deptManagers) ? deptManagers : [];
+
   const teamLeadRoleName = dept?.teamLead?.role?.name;
   const teamLeadLabel =
     teamLeadRoleName === 'MANAGER' ? 'Department Manager' :
@@ -108,6 +120,14 @@ export default function DepartmentDetailPage() {
   // Users not already in this dept — search filtering handled by modal below
   const nonMembers = allUsers.filter(
     (u: any) => u.departmentId !== id && u.isActive !== false,
+  );
+
+  // Candidates for Department Manager assignment — must match backend's MANAGER_ASSIGNABLE_ROLES
+  const managerCandidates = allUsers.filter(
+    (u: any) =>
+      u.isActive !== false &&
+      ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(u.role?.name) &&
+      !managerList.some((m: any) => m.id === u.id),
   );
 
   const patchMutation = useMutation({
@@ -158,6 +178,31 @@ export default function DepartmentDetailPage() {
       qc.invalidateQueries({ queryKey: ['department', id] });
     },
     onError: (err: any) => toast.error(err?.message || 'Failed to set team lead'),
+  });
+
+  const addManagerMutation = useMutation({
+    mutationFn: (userId: string) => departmentsApi.addManager(id, userId),
+    onSuccess: () => {
+      toast.success('Department manager added');
+      qc.invalidateQueries({ queryKey: ['department', id] });
+      qc.invalidateQueries({ queryKey: ['department-managers', id] });
+      qc.invalidateQueries({ queryKey: ['departments'] });
+      setShowAddManager(false);
+      setSelectedManagerId('');
+      setManagerSearch('');
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to add department manager'),
+  });
+
+  const removeManagerMutation = useMutation({
+    mutationFn: (userId: string) => departmentsApi.removeManager(id, userId),
+    onSuccess: () => {
+      toast.success('Department manager removed');
+      qc.invalidateQueries({ queryKey: ['department', id] });
+      qc.invalidateQueries({ queryKey: ['department-managers', id] });
+      qc.invalidateQueries({ queryKey: ['departments'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to remove department manager'),
   });
 
   if (!hasHydrated) {
@@ -292,6 +337,61 @@ export default function DepartmentDetailPage() {
         ) : (
           <p className="text-sm text-slate-400 italic">No department manager or lead assigned</p>
         )}
+      </div>
+
+      {/* Department Managers — real source of truth via ManagerDeptAccess */}
+      <div className="apex-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Department Managers
+            <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-tertiary)' }}>
+              ({managerList.length})
+            </span>
+          </h2>
+          {isAdmin && (
+            <button
+              onClick={() => setShowAddManager(true)}
+              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
+            >
+              <UserPlus size={15} />
+              Add Manager
+            </button>
+          )}
+        </div>
+        <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+          {managerList.length === 0 && (
+            <p className="text-sm text-center py-8" style={{ color: 'var(--text-tertiary)' }}>No department managers assigned</p>
+          )}
+          {managerList.map((m: any) => (
+            <div
+              key={m.id}
+              className="flex items-center gap-3 px-5 py-3 transition-colors"
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+            >
+              <div className="cursor-pointer flex items-center gap-3 flex-1 min-w-0" onClick={() => router.push(`/users/${m.id}?from=department&deptId=${dept.id}&deptName=${encodeURIComponent(dept.name)}`)}>
+                <Avatar name={m.name} avatar={m.avatar} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{m.name}</p>
+                  <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{m.email}</p>
+                </div>
+              </div>
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)' }}>
+                {m.role?.name}
+              </span>
+              {isAdmin && (
+                <button
+                  onClick={() => { if (confirm(`Remove ${m.name} as a manager of this department?`)) removeManagerMutation.mutate(m.id); }}
+                  disabled={removeManagerMutation.isPending}
+                  className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0"
+                  title="Remove department manager"
+                >
+                  <UserMinus size={13} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Stats Row */}
@@ -521,6 +621,76 @@ export default function DepartmentDetailPage() {
                   setShowAddMember(false);
                   setSelectedUserId('');
                   setMemberSearch('');
+                }}
+                className="flex-1 border font-medium py-2.5 rounded-lg transition-colors text-sm"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Manager Modal */}
+      {showAddManager && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="apex-card rounded-xl w-full max-w-sm p-6 shadow-2xl">
+            <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text-primary)' }}>Add Department Manager</h3>
+            <input
+              type="text"
+              placeholder="Search by name or email..."
+              value={managerSearch}
+              onChange={(e) => setManagerSearch(e.target.value)}
+              className="apex-input mb-3"
+              autoFocus
+            />
+            <div className="max-h-52 overflow-y-auto space-y-1">
+              {managerCandidates
+                .filter((u: any) =>
+                  !managerSearch ||
+                  u.name.toLowerCase().includes(managerSearch.toLowerCase()) ||
+                  u.email.toLowerCase().includes(managerSearch.toLowerCase()),
+                )
+                .slice(0, 20)
+                .map((u: any) => (
+                  <div
+                    key={u.id}
+                    onClick={() => setSelectedManagerId(u.id)}
+                    className="flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors"
+                    style={selectedManagerId === u.id
+                      ? { backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }
+                      : { border: '1px solid transparent' }}
+                    onMouseEnter={(e) => { if (selectedManagerId !== u.id) e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                    onMouseLeave={(e) => { if (selectedManagerId !== u.id) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                  >
+                    <Avatar name={u.name} avatar={u.avatar} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{u.name}</p>
+                      <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{u.email}</p>
+                    </div>
+                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{u.role?.name}</span>
+                  </div>
+                ))}
+              {managerCandidates.length === 0 && (
+                <p className="text-sm text-center py-4" style={{ color: 'var(--text-tertiary)' }}>No eligible users (MANAGER, ADMIN, or SUPER_ADMIN) available to assign</p>
+              )}
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => selectedManagerId && addManagerMutation.mutate(selectedManagerId)}
+                disabled={!selectedManagerId || addManagerMutation.isPending}
+                className="apex-btn-primary flex-1 font-medium py-2.5 disabled:opacity-50 text-sm"
+              >
+                {addManagerMutation.isPending ? 'Adding...' : 'Add Manager'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddManager(false);
+                  setSelectedManagerId('');
+                  setManagerSearch('');
                 }}
                 className="flex-1 border font-medium py-2.5 rounded-lg transition-colors text-sm"
                 style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}

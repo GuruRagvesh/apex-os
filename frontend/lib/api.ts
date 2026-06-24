@@ -153,6 +153,9 @@ export const departmentsApi = {
   update: (id: string, data: any) => r(api.put(`/departments/${id}`, data)),
   patch: (id: string, data: any) => r(api.patch(`/departments/${id}`, data)),
   remove: (id: string) => r(api.delete(`/departments/${id}`)),
+  getManagers: (id: string) => r(api.get(`/departments/${id}/managers`)),
+  addManager: (id: string, userId: string) => r(api.post(`/departments/${id}/managers`, { userId })),
+  removeManager: (id: string, userId: string) => r(api.delete(`/departments/${id}/managers/${userId}`)),
 };
 
 // Projects
