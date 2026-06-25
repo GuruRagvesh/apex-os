@@ -45,6 +45,28 @@ const PRIORITY_COLORS: Record<string, string> = {
   URGENT: 'text-red-600',
 };
 
+// A <input type="datetime-local"> value (e.g. "2026-06-25T14:15") is local
+// wall-clock time with no timezone info. New Date(component, component, ...)
+// reads each piece as the browser's local time, so this always converts using
+// the user's own timezone — unlike sending the raw string, which the backend
+// would parse using the server's timezone (UTC) instead of the user's.
+function localDateTimeInputToIso(value: string): string | undefined {
+  if (!value) return undefined;
+
+  const [datePart, timePart] = value.split('T');
+  if (!datePart || !timePart) return undefined;
+
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute] = timePart.split(':').map(Number);
+
+  if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) {
+    return undefined;
+  }
+
+  const localDate = new Date(year, month - 1, day, hour, minute, 0, 0);
+  return localDate.toISOString();
+}
+
 export default function NewTicketPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -191,6 +213,9 @@ export default function NewTicketPage() {
     if (!taskTypeId)          return toast.error('Task Type is required');
     if (!isEmployee && assigneeIds.length === 0) return toast.error('At least one assignee is required');
     if (!form.dueDate)        return toast.error('Due Date is required');
+    if (form.scheduledStartAt && form.scheduledEndAt && form.scheduledEndAt <= form.scheduledStartAt) {
+      return toast.error('Scheduled End must be after Scheduled Start');
+    }
 
     const isCustomSubtype = taskSubtypeId === '__custom__';
     mutation.mutate({
@@ -217,12 +242,8 @@ export default function NewTicketPage() {
       taskTypeId: taskTypeId || undefined,
       taskSubtypeId: (!isCustomSubtype && taskSubtypeId) ? taskSubtypeId : undefined,
       customSubtypeText: isCustomSubtype ? (customSubtype.trim() || undefined) : undefined,
-      scheduledStartAt: form.scheduledStartAt
-        ? (form.scheduledStartAt.includes('T') ? form.scheduledStartAt : `${form.scheduledStartAt}T13:00:00.000Z`)
-        : undefined,
-      scheduledEndAt: form.scheduledEndAt
-        ? (form.scheduledEndAt.includes('T') ? form.scheduledEndAt : `${form.scheduledEndAt}T13:00:00.000Z`)
-        : undefined,
+      scheduledStartAt: localDateTimeInputToIso(form.scheduledStartAt),
+      scheduledEndAt: localDateTimeInputToIso(form.scheduledEndAt),
     });
   };
 
@@ -476,7 +497,7 @@ export default function NewTicketPage() {
             {/* Assign To + Due Date */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Assign To *</label>
+                <label className={labelCls}>Assigned To *</label>
                 {isEmployee ? (
                   <div
                     className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm"
@@ -519,7 +540,7 @@ export default function NewTicketPage() {
             {/* Estimated Duration + Link to Project */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Estimated Duration (minutes)</label>
+                <label className={labelCls}>Estimated Time</label>
                 <input
                   type="number"
                   min="1"
