@@ -149,6 +149,16 @@ export class UsersController {
     return this.usersService.updateProfile(req.user.id ?? req.user.sub, id, dto);
   }
 
+  @Patch(':id/admin-correction')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  adminCorrection(
+    @Param('id') id: string,
+    @Body() body: { email: string; reason: string },
+    @CurrentUser() actor: any,
+  ) {
+    return this.usersService.adminCorrectEmail(actor.id, id, body.email, body.reason);
+  }
+
   @Post(':id/documents')
   @UseInterceptors(FileInterceptor('file'))
   uploadDocument(

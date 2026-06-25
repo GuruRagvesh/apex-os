@@ -109,6 +109,8 @@ export const usersApi = {
   removePhoto: () => r(api.delete('/users/me/photo')),
   getProfile: (id: string) => r(api.get(`/users/${id}/profile`)),
   updateProfile: (id: string, data: any) => r(api.patch(`/users/${id}/profile`, data)),
+  adminCorrectEmail: (id: string, email: string, reason: string) =>
+    r(api.patch(`/users/${id}/admin-correction`, { email, reason })),
   uploadDocument: async (id: string, file: File, documentType: string) => {
     const formData = new FormData();
     formData.append('file', file);

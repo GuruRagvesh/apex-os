@@ -149,6 +149,28 @@ export default function EmployeeProfilePage() {
     onError: (e: any) => toast.error(e?.message || 'Update failed'),
   });
 
+  // Admin Correction — separate from the Personal Details form above. Email there is
+  // read-only; this is the deliberate, audited path for fixing a login email/user id.
+  const [correctionEmail, setCorrectionEmail] = useState('');
+  const [correctionReason, setCorrectionReason] = useState('');
+
+  const adminCorrectionMutation = useMutation({
+    mutationFn: () => (usersApi as any).adminCorrectEmail(userId, correctionEmail.trim(), correctionReason.trim()),
+    onSuccess: () => {
+      toast.success('Login email corrected');
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] });
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setCorrectionEmail('');
+      setCorrectionReason('');
+    },
+    onError: (e: any) => toast.error(e?.message || 'Could not correct email'),
+  });
+
+  const handleSaveCorrection = () => {
+    if (!window.confirm('This will change the user’s login email. Internal user ID will not change.')) return;
+    adminCorrectionMutation.mutate();
+  };
+
   const handleEditToggle = () => {
     setFormData({ ...profile });
     setEditMode((v) => !v);
@@ -368,6 +390,53 @@ export default function EmployeeProfilePage() {
                   <Field label="Location" field="userLocation" />
                 </div>
               </div>
+
+              {/* Admin Correction — ADMIN/SUPER_ADMIN only (canSeeAccess, not canEditAll,
+                  since HR must not get this). Separate from the form above: the Email
+                  field there is read-only — this is the deliberate, audited path for
+                  fixing a login email. Internal user ID never changes. */}
+              {canSeeAccess && (
+                <div className={`${sectionCls} mt-5`} style={{ borderColor: 'rgba(217,119,6,0.4)' }}>
+                  <p className="text-amber-400 text-sm font-black mb-1">ADMIN CORRECTION</p>
+                  <p className="text-xs text-slate-400 mb-4">
+                    Correct login email/user id. Internal user ID will not change.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className={labelCls}>Current login email</label>
+                      <div className={readCls}>{profile?.email}</div>
+                    </div>
+                    <div>
+                      <label className={labelCls}>New login email</label>
+                      <input
+                        type="email"
+                        value={correctionEmail}
+                        onChange={(e) => setCorrectionEmail(e.target.value)}
+                        placeholder="new.email@company.com"
+                        className={inputCls}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className={labelCls}>Reason for correction *</label>
+                      <textarea
+                        value={correctionReason}
+                        onChange={(e) => setCorrectionReason(e.target.value)}
+                        placeholder="e.g. Typo in original email — should be mahendra@technoedgels.com"
+                        className={`${inputCls} min-h-[70px] resize-none`}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={handleSaveCorrection}
+                      disabled={adminCorrectionMutation.isPending || !correctionEmail.trim() || !correctionReason.trim()}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-xl disabled:opacity-50"
+                    >
+                      {adminCorrectionMutation.isPending ? 'Saving…' : 'Save Correction'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

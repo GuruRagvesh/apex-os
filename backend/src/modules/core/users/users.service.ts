@@ -334,6 +334,10 @@ export class UsersService {
       data = { ...dto };
       delete data.password;
       delete data.id;
+      // Login email is corrected only through the dedicated, audited
+      // adminCorrectEmail() path (validated, deduped, logged) — never through
+      // this general-purpose profile save.
+      delete data.email;
       const payrollChanged = PAYROLL_FIELDS.filter((f) => f in dto);
       if (payrollChanged.length > 0) {
         await this.logSensitiveAccess(requesterId, 'EDIT_PAYROLL_DATA', targetUserId, { fieldsChanged: payrollChanged });
@@ -353,6 +357,74 @@ export class UsersService {
     });
     const { password, ...result } = updated as any;
     return result;
+  }
+
+  // Admin/SuperAdmin-only correction of a user's login email — separate from
+  // updateProfile() because it needs its own validation, duplicate check, and a
+  // dedicated audit trail (old/new email + reason). Never changes id, password,
+  // or role. The route is already guarded to ADMIN/SUPER_ADMIN, but this is a
+  // sensitive identity-correcting action, so the role is re-checked here too.
+  async adminCorrectEmail(actorId: string, targetUserId: string, newEmail: string, reason: string) {
+    const actor = await this.prisma.user.findUnique({ where: { id: actorId }, include: { role: true } });
+    if (!actor) throw new ForbiddenException('Not authorized');
+    const actorRoleName = (actor.role as any)?.name ?? '';
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(actorRoleName)) {
+      throw new ForbiddenException('Only Admins or Super Admins can correct a user’s login email');
+    }
+
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!target) throw new NotFoundException('User not found');
+
+    if (!reason || !reason.trim()) {
+      throw new BadRequestException('A reason for this correction is required');
+    }
+    if (!newEmail || !newEmail.trim()) {
+      throw new BadRequestException('New login email is required');
+    }
+
+    const trimmedReason = reason.trim();
+    const trimmedEmail = newEmail.trim().toLowerCase();
+    const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!EMAIL_FORMAT.test(trimmedEmail)) {
+      throw new BadRequestException('New login email is not a valid email address');
+    }
+
+    const oldEmail = target.email;
+    if (trimmedEmail === oldEmail.toLowerCase()) {
+      throw new BadRequestException('New email must be different from the current login email');
+    }
+
+    const duplicate = await this.prisma.user.findFirst({
+      where: { email: { equals: trimmedEmail, mode: 'insensitive' }, id: { not: targetUserId } },
+    });
+    if (duplicate) {
+      throw new ConflictException('This email is already in use by another user');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { email: trimmedEmail },
+      include: { role: true, department: true },
+    });
+
+    this.eventLogger.log({
+      actorId,
+      entityType: 'User',
+      entityId: targetUserId,
+      action: OperationalAction.ADMIN_USER_EMAIL_CORRECTED,
+      metadata: { oldEmail, newEmail: trimmedEmail, reason: trimmedReason },
+    }).catch(() => {});
+
+    return {
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      avatar: updated.avatar,
+      role: updated.role,
+      department: updated.department,
+      isActive: updated.isActive,
+      employeeId: (updated as any).employeeId,
+    };
   }
 
   async uploadDocument(requesterId: string, targetUserId: string, file: Express.Multer.File, documentType: string) {
