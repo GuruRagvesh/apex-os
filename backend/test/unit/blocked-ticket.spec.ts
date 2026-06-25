@@ -20,6 +20,7 @@ import { TicketTimingService } from '../../src/common/services/ticket-timing.ser
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
+import { TicketImportService } from '../../src/modules/operations/tickets/ticket-import.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
@@ -164,6 +165,7 @@ describe('Blocked Ticket — TicketsService', () => {
         { provide: ConfigService,            useValue: mockConfig   },
         { provide: EventEmitter2,            useValue: mockEmitter  },
         { provide: TicketLedgerService,      useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } },
+        { provide: TicketImportService,      useValue: {} },
       ],
     }).compile();
 

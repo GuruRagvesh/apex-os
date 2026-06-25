@@ -33,6 +33,7 @@ describe('TicketsService.create — assignedToId resolution (cuid, not UUID)', (
       {} as any, // ticketAccess (not used by create())
       { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
       { startReviewCycle: jest.fn(), endReviewCycle: jest.fn() } as any, // ticketLedger (not used by create())
+      {} as any, // ticketImport (not used by create())
     );
   });
 

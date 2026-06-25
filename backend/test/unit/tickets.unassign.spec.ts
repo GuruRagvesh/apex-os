@@ -18,6 +18,7 @@ import { TicketTimingService } from '../../src/common/services/ticket-timing.ser
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
+import { TicketImportService } from '../../src/modules/operations/tickets/ticket-import.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
@@ -55,6 +56,7 @@ const mockLogger   = { log: jest.fn().mockResolvedValue(undefined) };
 const mockConfig   = { get: jest.fn().mockReturnValue('http://localhost:3000') };
 const mockEmitter  = { emit: jest.fn(), emitAsync: jest.fn() };
 const mockLedger   = { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), endActiveLog: jest.fn().mockResolvedValue({}) };
+const mockImport   = {};
 
 function makeTicket(overrides: any = {}) {
   return {
@@ -101,6 +103,7 @@ describe('TicketsService — unassignPrimary / removeSecondaryAssignee', () => {
         { provide: ConfigService,            useValue: mockConfig   },
         { provide: EventEmitter2,            useValue: mockEmitter  },
         { provide: TicketLedgerService,      useValue: mockLedger   },
+        { provide: TicketImportService,      useValue: mockImport   },
       ],
     }).compile();
 

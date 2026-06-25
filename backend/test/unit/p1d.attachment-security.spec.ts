@@ -35,6 +35,7 @@ describe('P1-D ticket attachment security', () => {
       ticketAccess,
       new TicketTimingService(prisma, { now: () => new Date(), elapsedSeconds: () => 0 } as any),
       { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any, // ticketLedger
+      {} as any, // ticketImport (not used by attachment download)
     );
   });
 

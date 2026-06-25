@@ -16,6 +16,7 @@ import { AccessPolicyService } from '../../src/common/services/access-policy.ser
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
+import { TicketImportService } from '../../src/modules/operations/tickets/ticket-import.service';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ForbiddenException } from '@nestjs/common';
@@ -119,6 +120,7 @@ describe('TicketsService — status transitions', () => {
           endReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1', decision: 'REWORK' }),
           getTicketTimers: jest.fn(), startWorkLog: jest.fn(), endActiveLog: jest.fn(), getActiveLogForTicket: jest.fn(),
         } },
+        { provide: TicketImportService, useValue: {} },
       ],
     }).compile();
 

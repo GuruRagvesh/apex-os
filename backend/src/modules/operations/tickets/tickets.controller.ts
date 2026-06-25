@@ -53,6 +53,16 @@ export class TicketsController {
     return csv;
   }
 
+  // Static GET route — must stay above @Get(':id') so it isn't captured as an id.
+  @Get('import-template')
+  async downloadImportTemplate(@Res() res: Response) {
+    const buffer = await this.ticketsService.generateImportTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="apex-ticket-import-template.xlsx"');
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
+  }
+
   @Get(':id/attachments/:attachmentId/download')
   async downloadAttachment(
     @Param('id') id: string,
@@ -82,6 +92,31 @@ export class TicketsController {
   @Post()
   create(@Body() body: any, @CurrentUser() user: any) {
     return this.ticketsService.create(body, user.id, user);
+  }
+
+  @Post('bulk')
+  createBulk(@Body() body: { tickets: any[] }, @CurrentUser() user: any) {
+    return this.ticketsService.createBulk(body?.tickets ?? [], user.id, user);
+  }
+
+  // Parse + validate an uploaded .xlsx and return a per-row preview. Creates nothing —
+  // the client reviews the preview, then submits the valid rows to POST /tickets/bulk.
+  @Post('import-preview')
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+    fileFilter: (_req, file, cb) => {
+      const ALLOWED_MIME = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.ms-excel', // .xls (legacy; exceljs can still read many)
+        'application/octet-stream', // some browsers send this for .xlsx
+      ];
+      if (ALLOWED_MIME.includes(file.mimetype)) cb(null, true);
+      else cb(new BadRequestException('Please upload an Excel (.xlsx) file'), false);
+    },
+  }))
+  async importPreview(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: any) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    return this.ticketsService.previewImport(file.buffer, user.id, user);
   }
 
   @Post(':id/attachments')

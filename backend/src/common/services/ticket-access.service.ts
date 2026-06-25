@@ -224,6 +224,18 @@ export class TicketAccessService {
     }
   }
 
+  // Bulk/import creation only — single-ticket create() has no department-access
+  // check today (pre-existing; left as-is to avoid changing that path's
+  // behavior). New rows created in bulk must stay inside the creator's own
+  // scope, same rule already enforced for reassignment via assertCanAssignTicket.
+  async assertCanCreateInDepartment(user: any, departmentId: string): Promise<void> {
+    if (this.access.isAdmin(user)) return;
+    const deptIds = await this.access.managedDepartmentIds(user);
+    if (!departmentId || !deptIds.includes(departmentId)) {
+      throw new ForbiddenException('You do not have permission to create tickets in this department');
+    }
+  }
+
   async assertCanCreateComment(user: any, ticketId: string): Promise<void> {
     await this.assertCanViewTicket(user, ticketId);
   }

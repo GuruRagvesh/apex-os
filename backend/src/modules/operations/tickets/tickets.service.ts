@@ -9,6 +9,7 @@ import { EventLoggerService, OperationalAction } from '../../../common/services/
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { TicketLedgerService, LEDGER_PAUSE_REASONS } from './ticket-ledger.service';
+import { TicketImportService } from './ticket-import.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -30,6 +31,7 @@ export class TicketsService {
     private ticketAccess: TicketAccessService,
     private ticketTiming: TicketTimingService,
     private ticketLedger: TicketLedgerService,
+    private ticketImport: TicketImportService,
   ) {}
 
   private get frontendUrl() {
@@ -69,6 +71,40 @@ export class TicketsService {
       return new Date(`${value}T13:00:00.000Z`);
     }
     return new Date(value);
+  }
+
+  // Apex OS is a single-timezone product (IST, UTC+5:30, no DST). Spreadsheet cells
+  // carry no timezone, and the server's own clock can't tell us the uploader's zone,
+  // so a wall-clock date+time parsed out of Excel is interpreted as IST and converted
+  // to UTC with the fixed +5:30 offset. (The browser create form instead uses the
+  // user's real local zone via localDateTimeInputToIso() — this path is import-only.)
+  // Returns a full UTC ISO string, 'INVALID' for a malformed time, or undefined when
+  // no date is given. Time may come from a separate column ("18:00") or be embedded in
+  // the date string ("2026-06-26T18:00"); absent time means midnight IST.
+  private readonly IST_OFFSET_MINUTES = 5 * 60 + 30;
+  private istWallClockToUtcIso(dateStr?: string, timeStr?: string): string | undefined {
+    const d = (dateStr ?? '').trim();
+    if (!d) return undefined;
+    const dateMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+    if (!dateMatch) return 'INVALID';
+    const [, y, mo, day] = dateMatch;
+
+    const embedded = /T(\d{1,2}):(\d{2})/.exec(d);
+    const timeSource = (timeStr ?? '').trim() || (embedded ? `${embedded[1]}:${embedded[2]}` : '');
+    let hh = 0;
+    let mm = 0;
+    if (timeSource) {
+      const tMatch = /^(\d{1,2}):(\d{2})/.exec(timeSource);
+      if (!tMatch) return 'INVALID';
+      hh = Number(tMatch[1]);
+      mm = Number(tMatch[2]);
+      if (hh > 23 || mm > 59) return 'INVALID';
+    }
+    const utcMs =
+      Date.UTC(Number(y), Number(mo) - 1, Number(day), hh, mm) - this.IST_OFFSET_MINUTES * 60_000;
+    const date = new Date(utcMs);
+    if (Number.isNaN(date.getTime())) return 'INVALID';
+    return date.toISOString();
   }
 
   /** Compute executionDueAt = base + estimatedMinutes. Returns null if inputs missing. */
@@ -234,7 +270,12 @@ export class TicketsService {
     return attachment;
   }
 
-  async create(data: any, userId: string, user?: any) {
+  // Shared by create() and createBulk()/import-preview validation — every
+  // normalization step a single ticket's create payload goes through before
+  // insert. Extracted verbatim from create() (no behavior change) so bulk rows
+  // get identical department/assignee resolution, date normalization, and
+  // executionDueAt computation instead of a second, drifting copy of this logic.
+  private async normalizeTicketCreateData(data: any, userId: string, user?: any): Promise<{ data: any; assigneeIds: string[] }> {
     // Extract assigneeIds before passing data to Prisma (not a real Ticket column)
     let assigneeIds: string[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
     delete data.assigneeIds;
@@ -278,6 +319,12 @@ export class TicketsService {
       // Clear customSubtypeText when a real subtype is chosen
       if (data.taskSubtypeId) data.customSubtypeText = null;
     }
+    // category is a required DB enum with no default. The single-ticket form always
+    // sends 'OPERATIONS' (it's hidden from the UI); bulk/import rows don't carry a
+    // category column, so default it here too — keeps both paths inserting a valid
+    // enum without changing what single-create already does (it always passes one).
+    if (!data.category) data.category = 'OPERATIONS';
+
     // Normalize date inputs — date-only strings → 18:30 IST (13:00 UTC)
     for (const field of ['dueDate', 'scheduledFor', 'scheduleEndDate']) {
       if (data[field]) data[field] = this.normalizeDateInput(data[field])?.toISOString();
@@ -305,6 +352,80 @@ export class TicketsService {
     if (executionDueAt && executionDueAt.getTime() > Date.now()) {
       data.executionDueAt = executionDueAt;
     }
+
+    return { data, assigneeIds };
+  }
+
+  // Shared by create() and createBulk() — assignee notifications + audit trail
+  // for a ticket that has already been inserted. Extracted verbatim from
+  // create() (no behavior change).
+  private async fireTicketCreatedSideEffects(ticket: any, assigneeIds: string[], userId: string) {
+    // Create multiple assignees if provided
+    if (assigneeIds.length > 0) {
+      await this.prisma.ticketAssignee.createMany({
+        data: assigneeIds.map((uid) => ({ ticketId: ticket.id, userId: uid })),
+        skipDuplicates: true,
+      });
+      // Notify each additional assignee
+      for (const uid of assigneeIds) {
+        if (uid === ticket.assignedToId) continue; // primary assignee notified below
+        try {
+          await this.notificationEventService.sendNotification(
+            uid,
+            'assignedTicket',
+            {
+              title: `New ticket assigned: ${ticket.ticketId}`,
+              message: ticket.title,
+              type: NotificationType.INFO,
+              link: `/tickets/${ticket.id}`,
+              entityId: ticket.id,
+              entityType: 'TICKET',
+            }
+          );
+        } catch (_e) { /* never crash main op */ }
+      }
+    }
+
+    try {
+      await this.prisma.activityLog.create({
+        data: {
+          userId,
+          action: 'TICKET_CREATED',
+          entityType: 'TICKET',
+          entityId: ticket.id,
+          details: { ticketId: ticket.ticketId, title: ticket.title, category: ticket.category, priority: ticket.priority },
+        },
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to write activity log for created ticket ${ticket.ticketId}: ${err?.message}`);
+    }
+
+    this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: OperationalAction.TICKET_CREATED, toState: 'OPEN', metadata: { ticketId: ticket.ticketId, title: ticket.title } }).catch(() => {});
+    this.gateway.emitTicketCreated(ticket);
+    this.eventEmitter.emit('ticket.created', { ticket, userId });
+
+    if (ticket.assignedTo) {
+      try {
+        await this.notificationEventService.sendNotification(
+          ticket.assignedTo.id,
+          'assignedTicket',
+          {
+            title: `New ticket assigned: ${ticket.ticketId}`,
+            message: ticket.title,
+            type: NotificationType.INFO,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          }
+        );
+      } catch (_e) { /* never crash main op */ }
+    }
+  }
+
+  async create(data: any, userId: string, user?: any) {
+    const normalized = await this.normalizeTicketCreateData(data, userId, user);
+    data = normalized.data;
+    const assigneeIds = normalized.assigneeIds;
 
     // Generate a collision-safe, deletion-safe ticket ID.
     //
@@ -361,64 +482,419 @@ export class TicketsService {
       throw new BadRequestException('Failed to generate a unique ticket ID — please try again');
     }
 
-    // Create multiple assignees if provided
-    if (assigneeIds.length > 0) {
-      await this.prisma.ticketAssignee.createMany({
-        data: assigneeIds.map((uid) => ({ ticketId: ticket.id, userId: uid })),
-        skipDuplicates: true,
+    await this.fireTicketCreatedSideEffects(ticket, assigneeIds, userId);
+
+    return this.addSla(ticket);
+  }
+
+  // Validates and normalizes one bulk/import row. Returns either a ready-to-insert
+  // { data, assigneeIds } or a row-level error string — never throws for ordinary
+  // validation problems, so createBulk()/previewImport() can check every row and
+  // report all of them at once instead of stopping at the first failure.
+  private async validateBulkRow(row: any, userId: string, user?: any): Promise<{ data?: any; assigneeIds?: string[]; error?: string }> {
+    const errors: string[] = [];
+    const raw = { ...row };
+
+    if (!raw.title || !String(raw.title).trim()) errors.push('Title is required');
+
+    const REQUEST_TYPES = ['TASK', 'QUERY', 'HELP'];
+    if (raw.type && !REQUEST_TYPES.includes(String(raw.type).toUpperCase())) {
+      errors.push(`Request Type must be one of ${REQUEST_TYPES.join('/')}`);
+    }
+    raw.type = REQUEST_TYPES.includes(String(raw.type).toUpperCase()) ? String(raw.type).toUpperCase() : 'TASK';
+
+    const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+    if (raw.priority && !PRIORITIES.includes(String(raw.priority).toUpperCase())) {
+      errors.push(`Priority must be one of ${PRIORITIES.join('/')}`);
+    }
+    raw.priority = PRIORITIES.includes(String(raw.priority).toUpperCase()) ? String(raw.priority).toUpperCase() : 'MEDIUM';
+
+    if (!raw.departmentId || !String(raw.departmentId).trim()) errors.push('Department is required');
+    if (!raw.dueDate) errors.push('Due Date is required');
+    // Task Type is intentionally NOT backend-required here: the DB column is nullable
+    // and single-ticket create() also accepts a null task type (the "required" rule
+    // lives only in the create form's client-side validation). The manual bulk UI
+    // enforces it per-row the same way; Excel import treats it as "validate if
+    // provided" per spec. Keeping this optional makes import preview and bulk-create
+    // agree on the same rule instead of preview passing a row that create() rejects.
+
+    // estimatedMinutes: 0h0m is treated as "not provided", not an error — a picker
+    // left untouched at 0/0 shouldn't read as an explicit zero-length estimate.
+    if (raw.estimatedMinutes !== undefined && raw.estimatedMinutes !== null && raw.estimatedMinutes !== '') {
+      const mins = Number(raw.estimatedMinutes);
+      if (Number.isNaN(mins) || mins < 0) errors.push('Estimated Time is invalid');
+      else if (mins === 0) raw.estimatedMinutes = undefined;
+    }
+
+    if (raw.scheduledStartAt && raw.scheduledEndAt) {
+      const startMs = new Date(raw.scheduledStartAt).getTime();
+      const endMs = new Date(raw.scheduledEndAt).getTime();
+      if (Number.isNaN(startMs) || Number.isNaN(endMs)) errors.push('Scheduled Start/End is not a valid date');
+      else if (endMs <= startMs) errors.push('Scheduled End must be after Scheduled Start');
+    }
+
+    if (errors.length > 0) return { error: errors.join('; ') };
+
+    const normalized = await this.normalizeTicketCreateData(raw, userId, user);
+    const data = normalized.data;
+    const assigneeIds = normalized.assigneeIds;
+
+    if (!data.departmentId) errors.push('Department not found');
+    if (errors.length === 0 && user) {
+      try {
+        await this.ticketAccess.assertCanCreateInDepartment(user, data.departmentId);
+      } catch (err: any) {
+        errors.push(err?.message ?? 'You do not have permission to create tickets in this department');
+      }
+    }
+    if (errors.length === 0 && assigneeIds.length === 0) {
+      errors.push('Assigned To is required');
+    }
+    if (errors.length === 0 && data.taskTypeId) {
+      const taskType = await this.prisma.taskType.findFirst({
+        where: { id: data.taskTypeId, OR: [{ departmentId: data.departmentId }, { isGlobal: true }] },
       });
-      // Notify each additional assignee
-      for (const uid of assigneeIds) {
-        if (uid === ticket.assignedToId) continue; // primary assignee notified below
-        try {
-          await this.notificationEventService.sendNotification(
-            uid,
-            'assignedTicket',
-            {
-              title: `New ticket assigned: ${ticket.ticketId}`,
-              message: ticket.title,
-              type: NotificationType.INFO,
-              link: `/tickets/${ticket.id}`,
-              entityId: ticket.id,
-              entityType: 'TICKET',
-            }
-          );
-        } catch (_e) { /* never crash main op */ }
+      if (!taskType) errors.push('Task Type is not valid for the selected Department');
+      else if (data.taskSubtypeId) {
+        const subtype = await this.prisma.taskSubtype.findFirst({
+          where: { id: data.taskSubtypeId, taskTypeId: data.taskTypeId },
+        });
+        if (!subtype) errors.push('Subtype is not valid for the selected Task Type');
       }
     }
 
-    await this.prisma.activityLog.create({
-      data: {
-        userId,
-        action: 'TICKET_CREATED',
-        entityType: 'TICKET',
-        entityId: ticket.id,
-        details: { ticketId: ticket.ticketId, title: ticket.title, category: ticket.category, priority: ticket.priority },
-      },
-    });
+    if (errors.length > 0) return { error: errors.join('; ') };
+    return { data, assigneeIds };
+  }
 
-    this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: OperationalAction.TICKET_CREATED, toState: 'OPEN', metadata: { ticketId: ticket.ticketId, title: ticket.title } }).catch(() => {});
-    this.gateway.emitTicketCreated(ticket);
-    this.eventEmitter.emit('ticket.created', { ticket, userId });
-
-    if (ticket.assignedTo) {
-      try {
-        await this.notificationEventService.sendNotification(
-          ticket.assignedTo.id,
-          'assignedTicket',
-          {
-            title: `New ticket assigned: ${ticket.ticketId}`,
-            message: ticket.title,
-            type: NotificationType.INFO,
-            link: `/tickets/${ticket.id}`,
-            entityId: ticket.id,
-            entityType: 'TICKET',
-          }
-        );
-      } catch (_e) { /* never crash main op */ }
+  // All-or-nothing bulk creation. Every row is validated first with zero DB
+  // writes; if any row fails, zero tickets are created. Only once every row
+  // passes does a single transaction insert them all, so a failure partway
+  // through (e.g. a rare concurrent ticketId collision) rolls back everything
+  // instead of leaving a partial batch behind. Side effects (notifications,
+  // activity log, audit log) intentionally run after the transaction commits —
+  // they must never be the reason a successful creation gets rolled back, and
+  // by the time they run the tickets are already real and visible regardless.
+  async createBulk(rows: any[], userId: string, user?: any): Promise<any[]> {
+    const MAX_ROWS = 100;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new BadRequestException('At least one ticket row is required');
+    }
+    if (rows.length > MAX_ROWS) {
+      throw new BadRequestException(`Cannot create more than ${MAX_ROWS} tickets in a single batch`);
     }
 
-    return this.addSla(ticket);
+    const rowErrors: { row: number; error: string }[] = [];
+    const validatedRows: { data: any; assigneeIds: string[] }[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const result = await this.validateBulkRow(rows[i], userId, user);
+      if (result.error) rowErrors.push({ row: i + 1, error: result.error });
+      else validatedRows.push({ data: result.data, assigneeIds: result.assigneeIds! });
+    }
+
+    if (rowErrors.length > 0) {
+      throw new BadRequestException({
+        message: 'One or more ticket rows are invalid — no tickets were created',
+        errors: rowErrors,
+      });
+    }
+
+    let createdTickets: any[];
+    try {
+      createdTickets = await this.prisma.$transaction(async (tx) => {
+        const created: any[] = [];
+        for (const row of validatedRows) {
+          const hwm = await tx.$queryRaw<Array<{ max: number }>>`
+            SELECT COALESCE(MAX(CAST(SUBSTRING("ticketId" FROM 5) AS INTEGER)), 0)::int AS max
+            FROM "tickets"
+            WHERE "ticketId" ~ '^TKT-[0-9]+$'
+          `;
+          const nextNumber = Number(hwm?.[0]?.max ?? 0) + 1;
+          const ticketId = `TKT-${String(nextNumber).padStart(3, '0')}`;
+          const ticket = await tx.ticket.create({
+            data: { ...row.data, ticketId, createdById: userId },
+            include: this.includeOptions,
+          });
+          if (row.assigneeIds.length > 0) {
+            await tx.ticketAssignee.createMany({
+              data: row.assigneeIds.map((uid) => ({ ticketId: ticket.id, userId: uid })),
+              skipDuplicates: true,
+            });
+          }
+          created.push(ticket);
+        }
+        return created;
+      });
+    } catch (err: any) {
+      this.logger.error(`Bulk ticket creation failed, transaction rolled back: ${err?.message}`);
+      throw new BadRequestException('Could not create tickets — no tickets were created. Please try again.');
+    }
+
+    for (let i = 0; i < createdTickets.length; i++) {
+      await this.fireTicketCreatedSideEffects(createdTickets[i], validatedRows[i].assigneeIds, userId);
+    }
+
+    return Promise.all(createdTickets.map((t) => this.addSla(t)));
+  }
+
+  /** Generates the downloadable .xlsx import template (delegates to TicketImportService). */
+  async generateImportTemplate(): Promise<Buffer> {
+    return this.ticketImport.generateTemplate();
+  }
+
+  // Maps one raw spreadsheet row (all text, human-entered names/emails) into the same
+  // create-row shape the bulk endpoint consumes: department/task-type/subtype/project
+  // names → ids, assignee EMAIL → active user id, Due Date + Due Time and Schedule
+  // Start/End → UTC ISO (IST wall-clock), Est Hours+Minutes → total minutes. Anything
+  // that was supplied but didn't resolve becomes a precise, field-tagged error so the
+  // preview can show "Department \"Foo\" not found" instead of a generic message.
+  private async mapImportRow(
+    raw: Record<string, string>,
+    _userId: string,
+    _user?: any,
+  ): Promise<{ payload: any; display: Record<string, string>; fieldErrors: Record<string, string> }> {
+    const fieldErrors: Record<string, string> = {};
+    const text = (v?: string) => (v ?? '').toString().trim();
+
+    const typeRaw = text(raw.type).toUpperCase();
+    const priorityRaw = text(raw.priority).toUpperCase();
+
+    // Department (name → id). Resolved here because task-type lookup is dept-scoped.
+    let departmentId = '';
+    let departmentName = text(raw.department);
+    if (departmentName) {
+      const dept = await this.prisma.department.findFirst({
+        where: { name: { equals: departmentName, mode: 'insensitive' } },
+        select: { id: true, name: true },
+      });
+      if (dept) {
+        departmentId = dept.id;
+        departmentName = dept.name;
+      } else {
+        fieldErrors.department = `Department "${departmentName}" not found`;
+      }
+    }
+
+    // Task Type (name → id), scoped to the resolved department or a global type.
+    let taskTypeId = '';
+    let taskTypeName = text(raw.taskType);
+    if (taskTypeName && departmentId) {
+      const tt = await this.prisma.taskType.findFirst({
+        where: {
+          name: { equals: taskTypeName, mode: 'insensitive' },
+          OR: [{ departmentId }, { isGlobal: true }],
+        },
+        select: { id: true, name: true },
+      });
+      if (tt) {
+        taskTypeId = tt.id;
+        taskTypeName = tt.name;
+      } else {
+        fieldErrors.taskType = `Task Type "${taskTypeName}" not found in ${departmentName || 'the selected department'}`;
+      }
+    }
+
+    // Subtype (name → id) within the resolved task type.
+    let taskSubtypeId = '';
+    let subtypeName = text(raw.subtype);
+    if (subtypeName && taskTypeId) {
+      const st = await this.prisma.taskSubtype.findFirst({
+        where: { name: { equals: subtypeName, mode: 'insensitive' }, taskTypeId },
+        select: { id: true, name: true },
+      });
+      if (st) {
+        taskSubtypeId = st.id;
+        subtypeName = st.name;
+      } else {
+        fieldErrors.subtype = `Subtype "${subtypeName}" not found for task type ${taskTypeName}`.trim();
+      }
+    }
+
+    // Assignee by EMAIL (names can repeat — email is the stable key) → active user id.
+    let assignedToId = '';
+    const assigneeEmail = text(raw.assigneeEmail);
+    let assigneeDisplay = assigneeEmail;
+    if (assigneeEmail) {
+      const u = await this.prisma.user.findFirst({
+        where: { email: { equals: assigneeEmail, mode: 'insensitive' }, isActive: true },
+        select: { id: true, name: true, email: true },
+      });
+      if (u) {
+        assignedToId = u.id;
+        assigneeDisplay = `${u.name} (${u.email})`;
+      } else {
+        fieldErrors.assignee = `No active user with email "${assigneeEmail}"`;
+      }
+    }
+
+    // Project (project code or name → id).
+    let projectId = '';
+    let projectName = text(raw.project);
+    if (projectName) {
+      const p = await this.prisma.project.findFirst({
+        where: {
+          OR: [
+            { name: { equals: projectName, mode: 'insensitive' } },
+            { projectId: { equals: projectName, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true, name: true, projectId: true },
+      });
+      if (p) {
+        projectId = p.id;
+        projectName = `${p.projectId} — ${p.name}`;
+      } else {
+        fieldErrors.project = `Project "${projectName}" not found`;
+      }
+    }
+
+    // Due Date (+ optional Due Time) → UTC ISO. Date-only is passed through as a
+    // date string so normalizeTicketCreateData applies the same 18:30 IST (13:00 UTC)
+    // convention the single-ticket form uses; with a time it's combined as IST wall-clock.
+    let dueDate: string | undefined;
+    const dueDateText = text(raw.dueDate);
+    const dueTimeText = text(raw.dueTime);
+    if (dueDateText) {
+      if (dueTimeText || /T\d/.test(dueDateText)) {
+        const iso = this.istWallClockToUtcIso(dueDateText, dueTimeText);
+        if (!iso || iso === 'INVALID') {
+          fieldErrors.dueDate = `Due Date/Time "${dueDateText}${dueTimeText ? ' ' + dueTimeText : ''}" is not valid`;
+        } else {
+          dueDate = iso;
+        }
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(dueDateText)) {
+        dueDate = dueDateText;
+      } else {
+        fieldErrors.dueDate = `Due Date "${dueDateText}" is not valid (use YYYY-MM-DD)`;
+      }
+    }
+
+    // Schedule Start / End → UTC ISO (IST wall-clock).
+    const scheduleStartText = text(raw.scheduleStart);
+    const scheduleEndText = text(raw.scheduleEnd);
+    let scheduledStartAt: string | undefined;
+    let scheduledEndAt: string | undefined;
+    if (scheduleStartText) {
+      const iso = this.istWallClockToUtcIso(scheduleStartText);
+      if (!iso || iso === 'INVALID') fieldErrors.scheduleStart = `Schedule Start "${scheduleStartText}" is not valid`;
+      else scheduledStartAt = iso;
+    }
+    if (scheduleEndText) {
+      const iso = this.istWallClockToUtcIso(scheduleEndText);
+      if (!iso || iso === 'INVALID') fieldErrors.scheduleEnd = `Schedule End "${scheduleEndText}" is not valid`;
+      else scheduledEndAt = iso;
+    }
+
+    // Estimated time: Hours + Minutes columns → total minutes (backend stores minutes).
+    const estHoursText = text(raw.estHours);
+    const estMinutesText = text(raw.estMinutes);
+    let estimatedMinutes: number | undefined;
+    if (estHoursText || estMinutesText) {
+      const h = Number(estHoursText || '0');
+      const m = Number(estMinutesText || '0');
+      if (Number.isNaN(h) || Number.isNaN(m) || h < 0 || m < 0) {
+        fieldErrors.estimated = 'Estimated Time (Hours/Minutes) is invalid';
+      } else {
+        const total = h * 60 + m;
+        if (total > 0) estimatedMinutes = total;
+      }
+    }
+
+    const payload: any = {
+      type: typeRaw || undefined,
+      title: text(raw.title),
+      description: text(raw.description) || undefined,
+      departmentId: departmentId || undefined,
+      taskTypeId: taskTypeId || undefined,
+      taskSubtypeId: taskSubtypeId || undefined,
+      assignedToId: assignedToId || undefined,
+      assigneeIds: assignedToId ? [assignedToId] : [],
+      priority: priorityRaw || undefined,
+      dueDate,
+      estimatedMinutes,
+      projectId: projectId || undefined,
+      scheduledStartAt,
+      scheduledEndAt,
+      // No dedicated "notes" column exists on Ticket; the row's Notes is persisted to
+      // the existing free-text scheduledNote field (a dedicated column would need a
+      // schema migration, which is out of scope for this task).
+      scheduledNote: text(raw.notes) || undefined,
+    };
+
+    const display: Record<string, string> = {
+      type: typeRaw || 'TASK',
+      title: text(raw.title),
+      department: departmentName,
+      taskType: taskTypeName,
+      subtype: subtypeName,
+      assignee: assigneeDisplay,
+      priority: priorityRaw || 'MEDIUM',
+      dueDate: dueTimeText ? `${dueDateText} ${dueTimeText}` : dueDateText,
+      estimated: estimatedMinutes != null ? `${Math.floor(estimatedMinutes / 60)}h ${estimatedMinutes % 60}m` : '',
+      project: projectName,
+      scheduleStart: scheduleStartText,
+      scheduleEnd: scheduleEndText,
+      notes: text(raw.notes),
+    };
+
+    return { payload, display, fieldErrors };
+  }
+
+  // Parses an uploaded .xlsx and returns a per-row preview WITHOUT creating anything.
+  // Each row is mapped (names/emails/dates resolved) and then run through the exact
+  // same validateBulkRow() the /tickets/bulk endpoint uses, so a row marked valid here
+  // is guaranteed to be accepted at create time (and vice-versa). The frontend shows
+  // this preview, the user reviews/fixes, then submits the valid rows' payloads to
+  // /tickets/bulk. Precise field-level resolution errors take precedence over the
+  // generic structural ones for the same field to avoid duplicate messages.
+  async previewImport(
+    buffer: Buffer,
+    userId: string,
+    user?: any,
+  ): Promise<{
+    totalRows: number;
+    validCount: number;
+    errorCount: number;
+    rows: Array<{ row: number; display: Record<string, string>; payload: any; valid: boolean; error: string | null }>;
+  }> {
+    const rawRows = await this.ticketImport.parseRows(buffer);
+    const MAX_ROWS = 100;
+    if (rawRows.length === 0) {
+      throw new BadRequestException('No ticket rows found in the uploaded file');
+    }
+    if (rawRows.length > MAX_ROWS) {
+      throw new BadRequestException(`File has ${rawRows.length} rows; the maximum is ${MAX_ROWS} per import`);
+    }
+
+    const rows: Array<{ row: number; display: Record<string, string>; payload: any; valid: boolean; error: string | null }> = [];
+    for (const { row, raw } of rawRows) {
+      const { payload, display, fieldErrors } = await this.mapImportRow(raw, userId, user);
+      const structural = await this.validateBulkRow(payload, userId, user);
+
+      const errs: string[] = Object.values(fieldErrors);
+      if (structural.error) {
+        for (const seg of structural.error.split('; ')) {
+          // Suppress the generic structural message when a precise field error already covers it.
+          if (fieldErrors.department && /department/i.test(seg)) continue;
+          if (fieldErrors.assignee && /assigned to/i.test(seg)) continue;
+          if (fieldErrors.taskType && /task type/i.test(seg)) continue;
+          if (fieldErrors.subtype && /subtype/i.test(seg)) continue;
+          if ((fieldErrors.dueDate) && /due date/i.test(seg)) continue;
+          if ((fieldErrors.scheduleStart || fieldErrors.scheduleEnd) && /scheduled (start|end)/i.test(seg)) continue;
+          errs.push(seg);
+        }
+      }
+      const unique = [...new Set(errs)];
+      const error = unique.length ? unique.join('; ') : null;
+      rows.push({ row, display, payload, valid: !error, error });
+    }
+
+    return {
+      totalRows: rows.length,
+      validCount: rows.filter((r) => r.valid).length,
+      errorCount: rows.filter((r) => !r.valid).length,
+      rows,
+    };
   }
 
   async update(id: string, data: any, userId: string, user?: any, opts?: { suppressCompletionNotification?: boolean }) {

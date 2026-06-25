@@ -230,6 +230,30 @@ export const ticketsApi = {
   unblockTicket: (id: string) => r(api.post(`/tickets/${id}/unblock`)),
   unassignPrimary: (id: string) => r(api.post(`/tickets/${id}/unassign`)),
   removeAssignee: (id: string, userId: string) => r(api.delete(`/tickets/${id}/assignees/${userId}`)),
+  // Bulk create — all-or-nothing. On validation failure the rejected error carries
+  // { message, errors: [{ row, error }] } so the caller can show row-level messages.
+  createBulk: (tickets: any[]) => r(api.post('/tickets/bulk', { tickets })),
+  // Upload an .xlsx and get a per-row preview back (creates nothing).
+  previewImport: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return r(api.post('/tickets/import-preview', form, { headers: { 'Content-Type': 'multipart/form-data' } }));
+  },
+  // Download the .xlsx import template (binary; bypasses the JSON axios instance).
+  downloadImportTemplate: async () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
+    const res = await fetch(`${API_URL}/tickets/import-template`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error('Could not download the import template.');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'apex-ticket-import-template.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // Comments

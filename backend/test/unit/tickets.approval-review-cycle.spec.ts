@@ -126,6 +126,7 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
       ticketAccess,
       { getSlaConfig: jest.fn().mockResolvedValue({ review: { HIGH: 24 } }), decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
       ticketLedger,
+      {} as any, // ticketImport (not used by approve/reject)
     );
   });
 

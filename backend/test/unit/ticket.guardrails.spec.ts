@@ -11,6 +11,7 @@ import { TicketAccessService } from '../../src/common/services/ticket-access.ser
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TicketStatus } from '@prisma/client';
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
+import { TicketImportService } from '../../src/modules/operations/tickets/ticket-import.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -79,6 +80,7 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
         { provide: ConfigService, useValue: mockConfig },
         { provide: EventEmitter2, useValue: mockEventEmitter },
         { provide: TicketLedgerService, useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn(), startWorkLog: jest.fn(), endActiveLog: jest.fn(), getActiveLogForTicket: jest.fn() } },
+        { provide: TicketImportService, useValue: {} },
       ],
     }).compile();
 
