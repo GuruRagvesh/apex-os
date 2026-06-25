@@ -169,6 +169,16 @@ export class TicketsController {
     return this.ticketsService.assign(id, body.assignedToId, user.id, user);
   }
 
+  @Post(':id/unassign')
+  unassignPrimary(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ticketsService.unassignPrimary(id, user.id, user);
+  }
+
+  @Delete(':id/assignees/:userId')
+  removeAssignee(@Param('id') id: string, @Param('userId') userId: string, @CurrentUser() user: any) {
+    return this.ticketsService.removeSecondaryAssignee(id, userId, user.id, user);
+  }
+
   @Post(':id/block')
   block(
     @Param('id') id: string,

@@ -20,7 +20,7 @@ import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
   Copy, Timer, CheckCircle, XCircle, History, Paperclip, Upload,
   FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, ChevronRight, Loader2,
-  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock, Star,
+  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock, Star, UserMinus,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -576,6 +576,27 @@ export default function TicketDetailPage() {
         </span>
       );
     }
+    if (field === 'secondaryAssignee') {
+      const name = resolveUserName(newVal ? newVal : oldVal);
+      return (
+        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <span className="font-semibold text-slate-800 dark:text-gray-200">{actor}</span>
+          {newVal ? (
+            <>
+              {' added '}
+              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{name}</span>
+              {' as a collaborator'}
+            </>
+          ) : (
+            <>
+              {' removed '}
+              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{name}</span>
+              {' from the ticket'}
+            </>
+          )}
+        </span>
+      );
+    }
     if (field === 'priority') {
       return (
         <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -655,6 +676,42 @@ export default function TicketDetailPage() {
       toast.success('Assigned!');
     },
   });
+
+  const invalidateAfterUnassign = () => {
+    qc.invalidateQueries({ queryKey: ['ticket', id] });
+    qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+    qc.invalidateQueries({ queryKey: ['tickets'] });
+    qc.invalidateQueries({ queryKey: ['dashboard-overview'] });
+    qc.invalidateQueries({ queryKey: ['ticket-stats'] });
+  };
+
+  const unassignPrimaryMutation = useMutation({
+    mutationFn: () => ticketsApi.unassignPrimary(ticket.id),
+    onSuccess: () => {
+      invalidateAfterUnassign();
+      toast.success('Primary assignee unassigned');
+    },
+    onError: (e: any) => toast.error(e?.message || 'Failed to unassign'),
+  });
+
+  const removeAssigneeMutation = useMutation({
+    mutationFn: (userId: string) => ticketsApi.removeAssignee(ticket.id, userId),
+    onSuccess: () => {
+      invalidateAfterUnassign();
+      toast.success('Assignee removed');
+    },
+    onError: (e: any) => toast.error(e?.message || 'Failed to remove assignee'),
+  });
+
+  const handleUnassignPrimary = () => {
+    if (!window.confirm('Unassign primary assignee? The ticket will be unassigned.' + (ticket.status === 'IN_PROGRESS' ? ' Since this ticket is In Progress, it will be moved back to Open.' : ''))) return;
+    unassignPrimaryMutation.mutate();
+  };
+
+  const handleRemoveAssignee = (userId: string, name?: string) => {
+    if (!window.confirm(`Remove ${name || 'this assignee'} from the ticket?`)) return;
+    removeAssigneeMutation.mutate(userId);
+  };
 
   const addComment = useMutation({
     mutationFn: () => commentsApi.create(id, comment),
@@ -1543,10 +1600,13 @@ export default function TicketDetailPage() {
               {canEdit ? (
                 <select
                   value={ticket.assignedToId || ''}
-                  onChange={(e) => assignMutation.mutate(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === '') { handleUnassignPrimary(); return; }
+                    assignMutation.mutate(e.target.value);
+                  }}
                   className="apex-select w-full text-xs"
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">{ticket.assignedToId ? 'Unassign' : 'Unassigned'}</option>
                   {(Array.isArray(users) ? users : (users as any)?.users ?? []).map((u: any) => (
                     <option key={u.id} value={u.id}>{u.name} — {u.role?.name}</option>
                   ))}
@@ -1564,6 +1624,17 @@ export default function TicketDetailPage() {
                       className="text-[9px] px-1 py-0.5 rounded"
                       style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}
                     >Primary</span>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={handleUnassignPrimary}
+                        disabled={unassignPrimaryMutation.isPending}
+                        title="Unassign primary assignee"
+                        className="ml-0.5 p-0.5 rounded hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                      >
+                        <UserMinus size={12} className="text-red-400" />
+                      </button>
+                    )}
                   </div>
                 ) : (ticket.assignees ?? []).length === 0 ? (
                   <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Unassigned</span>
@@ -1577,6 +1648,17 @@ export default function TicketDetailPage() {
                         <span className="text-white text-[10px] font-bold">{getInitials(a.user?.name)}</span>
                       </div>
                       <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{a.user?.name}</span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAssignee(a.user?.id, a.user?.name)}
+                          disabled={removeAssigneeMutation.isPending}
+                          title="Remove from ticket"
+                          className="p-0.5 rounded hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                        >
+                          <UserMinus size={12} className="text-red-400" />
+                        </button>
+                      )}
                     </div>
                   ))}
               </div>

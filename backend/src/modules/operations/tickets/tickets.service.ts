@@ -8,7 +8,7 @@ import { NotificationEventService } from '../notifications/notification-event.se
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
-import { TicketLedgerService } from './ticket-ledger.service';
+import { TicketLedgerService, LEDGER_PAUSE_REASONS } from './ticket-ledger.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -834,6 +834,180 @@ export class TicketsService {
 
   async assign(id: string, assignedToId: string, userId: string, user?: any) {
     return this.update(id, { assignedToId }, userId, user);
+  }
+
+  // Unassigns the ticket's primary (accountable) assignee. Bypasses the generic
+  // update() so the IN_PROGRESS/REVIEW/DONE/CLOSED safety rules below are always
+  // enforced regardless of caller — update() itself has no concept of "unassign"
+  // and would otherwise let assignedToId go to null on any open status with no
+  // safety net (and would silently leave the ticket IN_PROGRESS with nobody
+  // working it). REVIEW/DONE/CLOSED are blocked outright; IN_PROGRESS falls back
+  // to OPEN rather than leaving an orphaned in-flight ticket, since that's the
+  // option that reuses an already-allowed transition (IN_PROGRESS → OPEN is in
+  // TicketAccessService's transition matrix) instead of inventing a new
+  // "pick a replacement first" flow with no existing UI to support it.
+  async unassignPrimary(id: string, userId: string, user?: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, { assignees: true })
+      : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: { assignees: true } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+
+    if (user) await this.ticketAccess.assertCanAssignTicket(user, ticket, null);
+
+    if ([TicketStatus.DONE, TicketStatus.CLOSED].includes(ticket.status)) {
+      throw new BadRequestException('Cannot unassign a completed or closed ticket');
+    }
+    if (ticket.status === TicketStatus.REVIEW) {
+      throw new BadRequestException('Move ticket back to In Progress/Open before unassigning.');
+    }
+    if (!ticket.assignedToId) {
+      throw new BadRequestException('Ticket has no primary assignee to unassign');
+    }
+
+    const previousAssigneeId = ticket.assignedToId;
+    const wasInProgress = ticket.status === TicketStatus.IN_PROGRESS;
+    const data: any = { assignedToId: null };
+    if (wasInProgress) data.status = TicketStatus.OPEN;
+
+    const updated = await this.prisma.ticket.update({
+      where: { id: ticket.id },
+      data,
+      include: this.includeOptions,
+    });
+
+    await this.prisma.ticketHistory.createMany({
+      data: [
+        { ticketId: ticket.id, field: 'assignedToId', oldValue: previousAssigneeId, newValue: null, changedById: userId },
+        ...(wasInProgress
+          ? [{ ticketId: ticket.id, field: 'status', oldValue: ticket.status, newValue: TicketStatus.OPEN, changedById: userId }]
+          : []),
+      ],
+    });
+    await this.prisma.activityLog.create({
+      data: {
+        userId,
+        action: 'TICKET_UNASSIGNED',
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        details: { ticketId: ticket.ticketId, removedAssigneeId: previousAssigneeId, movedBackToOpen: wasInProgress },
+      },
+    });
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action: OperationalAction.TICKET_UNASSIGNED,
+      fromState: ticket.status,
+      toState: updated.status,
+      metadata: { ticketId: ticket.ticketId, removedAssigneeId: previousAssigneeId },
+    }).catch(() => {});
+    this.gateway.emitTicketStatusChanged(ticket.id, updated.status, userId);
+
+    // Best-effort: stop the removed assignee's active work clock on this ticket so it
+    // doesn't keep running against someone no longer responsible for it. Never blocks
+    // the unassign itself — the ticket's own record (above) is already the source of
+    // truth, and a clock left open here is a harmless, separately-correctable gap,
+    // not silent data loss.
+    try {
+      await this.ticketLedger.endActiveLog({
+        ticketId: ticket.id,
+        userId: previousAssigneeId,
+        pauseReason: LEDGER_PAUSE_REASONS.UNASSIGNED,
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to pause ticket timer after unassign for ${ticket.ticketId}: ${err?.message}`);
+    }
+
+    if (previousAssigneeId !== userId) {
+      try {
+        await this.notificationEventService.sendNotification(
+          previousAssigneeId,
+          'statusChanged',
+          {
+            title: `Removed from ticket: ${ticket.ticketId}`,
+            message: wasInProgress
+              ? `${ticket.title} was unassigned and moved back to Open.`
+              : `You were removed from ${ticket.title}.`,
+            type: NotificationType.WARNING,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          },
+        );
+      } catch (_e) { /* never crash main op */ }
+    }
+
+    return this.addSla(updated);
+  }
+
+  // Removes one secondary/collaborator assignee. Never touches status or the primary
+  // assignee — per product requirement, removing a collaborator is always status-neutral.
+  async removeSecondaryAssignee(id: string, targetUserId: string, userId: string, user?: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, { assignees: { include: { user: { select: { id: true, name: true } } } } })
+      : await this.prisma.ticket.findFirst({
+          where: { OR: [{ id }, { ticketId: id }] },
+          include: { assignees: { include: { user: { select: { id: true, name: true } } } } },
+        });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+
+    if (user) await this.ticketAccess.assertCanAssignTicket(user, ticket, null);
+
+    if ([TicketStatus.DONE, TicketStatus.CLOSED].includes(ticket.status)) {
+      throw new BadRequestException('Cannot unassign a completed or closed ticket');
+    }
+    if (ticket.status === TicketStatus.REVIEW) {
+      throw new BadRequestException('Move ticket back to In Progress/Open before unassigning.');
+    }
+    if (targetUserId === ticket.assignedToId) {
+      throw new BadRequestException('This user is the primary assignee — use the primary unassign action instead');
+    }
+
+    const row = (ticket.assignees ?? []).find((a: any) => a.userId === targetUserId);
+    if (!row) throw new NotFoundException('This user is not assigned to this ticket');
+
+    await this.prisma.ticketAssignee.delete({ where: { id: row.id } });
+
+    await this.prisma.ticketHistory.create({
+      data: { ticketId: ticket.id, field: 'secondaryAssignee', oldValue: targetUserId, newValue: null, changedById: userId },
+    });
+    await this.prisma.activityLog.create({
+      data: {
+        userId,
+        action: 'TICKET_ASSIGNEE_REMOVED',
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        details: { ticketId: ticket.ticketId, removedUserId: targetUserId },
+      },
+    });
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action: OperationalAction.TICKET_ASSIGNEE_REMOVED,
+      metadata: { ticketId: ticket.ticketId, removedUserId: targetUserId },
+    }).catch(() => {});
+    this.gateway.emitTicketStatusChanged(ticket.id, ticket.status, userId);
+
+    if (targetUserId !== userId) {
+      try {
+        await this.notificationEventService.sendNotification(
+          targetUserId,
+          'statusChanged',
+          {
+            title: `Removed from ticket: ${ticket.ticketId}`,
+            message: `You were removed as a collaborator on ${ticket.title}.`,
+            type: NotificationType.WARNING,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          },
+        );
+      } catch (_e) { /* never crash main op */ }
+    }
+
+    const updated = await this.prisma.ticket.findUnique({ where: { id: ticket.id }, include: this.includeOptions });
+    return this.addSla(updated);
   }
 
   // The rating applies to the ticket's primary worker. assignedToId (legacy single-assignee

@@ -228,6 +228,8 @@ export const ticketsApi = {
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
   blockTicket: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
   unblockTicket: (id: string) => r(api.post(`/tickets/${id}/unblock`)),
+  unassignPrimary: (id: string) => r(api.post(`/tickets/${id}/unassign`)),
+  removeAssignee: (id: string, userId: string) => r(api.delete(`/tickets/${id}/assignees/${userId}`)),
 };
 
 // Comments

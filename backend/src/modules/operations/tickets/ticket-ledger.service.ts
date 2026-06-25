@@ -31,6 +31,7 @@ export const LEDGER_PAUSE_REASONS = {
   BLOCKED: 'BLOCKED',
   CLOSED: 'CLOSED',
   SYSTEM: 'SYSTEM',
+  UNASSIGNED: 'UNASSIGNED',
 };
 
 @Injectable()
