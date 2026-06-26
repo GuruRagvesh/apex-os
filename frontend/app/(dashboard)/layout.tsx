@@ -14,16 +14,20 @@ import {
 } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, hasHydrated } = useAuthStore();
   const router = useRouter();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const isManagerOrAbove = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
+  // Only decide auth AFTER the persisted store has rehydrated from localStorage.
+  // Redirecting while hasHydrated is false is what logged users out on every refresh:
+  // on first render the store is empty, so the old check fired /login before the
+  // saved token loaded. Every other auth consumer in the app already waits on this flag.
   useEffect(() => {
-    if (!isAuthenticated) router.replace('/login');
-  }, [isAuthenticated, router]);
+    if (hasHydrated && !isAuthenticated) router.replace('/login');
+  }, [hasHydrated, isAuthenticated, router]);
 
   // Alt+K shortcut for Quick Action Palette (Ctrl+K is taken by CommandPalette in TopBar)
   useEffect(() => {
@@ -37,7 +41,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  if (!isAuthenticated) {
+  // Show the spinner while the store is still rehydrating (auth unknown) or while an
+  // unauthenticated user is being redirected — protected content is never rendered
+  // without a confirmed session, so route protection is unchanged.
+  if (!hasHydrated || !isAuthenticated) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
