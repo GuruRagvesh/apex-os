@@ -3,6 +3,7 @@ import { TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROLES } from '../../shared/constants/roles';
 import { AccessPolicyService } from './access-policy.service';
+import { HierarchyApprovalService } from './hierarchy-approval.service';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str ?? '');
@@ -13,7 +14,33 @@ export class TicketAccessService {
   constructor(
     private prisma: PrismaService,
     private access: AccessPolicyService,
+    private hierarchy: HierarchyApprovalService,
   ) {}
+
+  /** Exposed so services that already hold TicketAccessService can ask without a new dep. */
+  isSelfAssigned(ticket: any): boolean {
+    return this.hierarchy.isSelfAssigned(ticket);
+  }
+
+  /**
+   * Whether `user` may approve/reject `ticket` from REVIEW — used to drive the
+   * frontend so it mirrors the backend exactly. Self-assigned tickets require the
+   * worker's resolved reporting hierarchy; non-self tickets keep the existing
+   * scoped-reviewer rule.
+   */
+  async viewerCanApprove(user: any, ticket: any): Promise<boolean> {
+    if (!user || ticket?.status !== TicketStatus.REVIEW) return false;
+    if (this.hierarchy.isSelfAssigned(ticket)) {
+      if (user.id === ticket.createdById) return false; // self-worker never approves
+      return this.hierarchy.isApproverFor(user.id, ticket.createdById);
+    }
+    const roleName = this.access.roleName(user);
+    if (this.access.isAdmin(user)) return true;
+    if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {
+      return this.isTicketInUserScope(user, ticket);
+    }
+    return false;
+  }
 
   async buildTicketWhereForUser(filters: any = {}, user?: any): Promise<any> {
     const filterWhere = await this.buildFilterWhere(filters);
@@ -149,7 +176,6 @@ export class TicketAccessService {
 
     const workerStatuses: TicketStatus[] = [TicketStatus.IN_PROGRESS, TicketStatus.REVIEW];
     const isIntern = roleName === ROLES.INTERN;
-    const isEmployee = roleName === ROLES.EMPLOYEE || isIntern;
 
     if (!allowed[fromStatus]?.includes(toStatus)) {
       // Allow managers/admins to bypass standard paths for things like OPEN -> CLOSED
@@ -160,12 +186,24 @@ export class TicketAccessService {
       }
     }
 
-    const isSelfAssignedCreator = ticket.createdById === user.id && ticket.assignedToId === user.id;
+    // ── Self-assigned hierarchy gate ──────────────────────────────────────────
+    // A self-assigned ticket (creator is also a worker) may be moved OPEN→IN_PROGRESS
+    // →REVIEW by the worker, but once it reaches REVIEW — or whenever it would reach a
+    // terminal state — only the worker's RESOLVED reporting hierarchy may act. The
+    // worker can never approve/reject/complete their own work, and a random in-scope
+    // reviewer is NOT enough; the actor must be in the resolved approver chain. This
+    // is the single gate for approve(), reject(), and any direct status PATCH, so the
+    // API cannot be used to bypass the rule.
+    const selfAssigned = this.hierarchy.isSelfAssigned(ticket);
+    const exitingReview = fromStatus === TicketStatus.REVIEW && toStatus !== TicketStatus.REVIEW;
+    const reachingTerminal = toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED;
+    if (selfAssigned && (exitingReview || reachingTerminal)) {
+      await this.hierarchy.assertIsHierarchyApprover(user, ticket);
+      return;
+    }
 
     if (isIntern && toStatus !== TicketStatus.IN_PROGRESS && toStatus !== TicketStatus.REVIEW) {
-      if (!(isSelfAssignedCreator && (toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED))) {
-        throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS or REVIEW');
-      }
+      throw new ForbiddenException('Interns can only move tickets to IN_PROGRESS or REVIEW');
     }
 
     // Done -> Reopen logic
@@ -175,24 +213,24 @@ export class TicketAccessService {
       }
     }
 
-    // Terminal states logic
+    // Terminal states logic (non-self-assigned — self-assigned handled above)
     if (toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED) {
-      if (!isScopedReviewer && !isSelfAssignedCreator) {
+      if (!isScopedReviewer) {
         throw new ForbiddenException('Only scoped reviewers, managers, or admins can complete or close tickets');
       }
       return;
     }
 
-    // Rework and Reject logic
+    // Rework and Reject logic (non-self-assigned — self-assigned handled above)
     if (fromStatus === TicketStatus.REVIEW && (toStatus === TicketStatus.IN_PROGRESS || toStatus === TicketStatus.OPEN)) {
-      if (!isScopedReviewer && !isSelfAssignedCreator) {
+      if (!isScopedReviewer) {
         throw new ForbiddenException('Only scoped reviewers, managers, or admins can reject or send tickets back for rework');
       }
       return;
     }
 
     if (workerStatuses.includes(toStatus) || toStatus === TicketStatus.OPEN) {
-      if (isParticipant || isScopedReviewer || isSelfAssignedCreator) return;
+      if (isParticipant || isScopedReviewer) return;
     }
 
     throw new ForbiddenException('You do not have permission to change this ticket status');

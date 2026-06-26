@@ -730,12 +730,14 @@ export default function TicketDetailPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: () => ticketsApi.approve(ticket.id, {
-      taskEfficiencyRating,
-      employeePerformanceRating,
-      employeeAttitudeRating,
-      ratingComment
-    }),
+    // Self-assigned tickets (Task/Query/Help) and Help tickets are comment-only — never
+    // send star ratings (backend ignores them too; this keeps the payload honest).
+    mutationFn: () => {
+      const ratingsAllowed = !ticket.selfAssigned && ticket.type !== 'HELP';
+      return ticketsApi.approve(ticket.id, ratingsAllowed
+        ? { taskEfficiencyRating, employeePerformanceRating, employeeAttitudeRating, ratingComment }
+        : { ratingComment });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ticket', id] });
       qc.invalidateQueries({ queryKey: ['ticket-history', id] });
@@ -856,8 +858,14 @@ export default function TicketDetailPage() {
   const canEdit = isManagerPlus || isParticipant;
   const canDelete = isManagerPlus;
   const isTeamLeadPlus = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
-  const isSelfAssigned = ticket.createdById === ticket.assignedToId && ticket.createdById === user?.id;
-  const canApprove = (isTeamLeadPlus || isSelfAssigned) && ticket.status === 'REVIEW';
+  // Backend is the source of truth: `selfAssigned` and `viewerCanApprove` are computed
+  // server-side (hierarchy chain). The frontend only mirrors them — it never decides policy.
+  const isSelfAssigned = Boolean(ticket.selfAssigned);
+  const ratingsAllowed = !isSelfAssigned && ticket.type !== 'HELP';
+  const canApprove = Boolean(ticket.viewerCanApprove) && ticket.status === 'REVIEW';
+  // The self-assigned worker is in REVIEW but must wait for their reporting hierarchy.
+  const isSelfWorkerAwaitingReview =
+    isSelfAssigned && ticket.createdById === user?.id && ticket.status === 'REVIEW' && !canApprove;
   const isDone = ticket.status === 'DONE' || ticket.status === 'CLOSED';
   // Block/unblock: backend (TicketAccessService.assertCanBlockTicket) is the final authority.
   // This is a client-side approximation so we don't show the action to users who clearly cannot use it.
@@ -1191,12 +1199,24 @@ export default function TicketDetailPage() {
         </div>
       )}
 
+      {/* Self-assigned worker awaiting hierarchy review — cannot self-approve */}
+      {isSelfWorkerAwaitingReview && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-amber-800">
+            This ticket requires approval from your reporting hierarchy.
+          </p>
+          <p className="text-xs text-amber-700 mt-1">
+            You have submitted this self-assigned work for review. You cannot approve, reject, or rate your own ticket — your Team Lead, Manager, or Admin will review it.
+          </p>
+        </div>
+      )}
+
       {/* Approvals Banner */}
       {canApprove && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <p className="text-sm font-semibold text-amber-800 mb-3">
             {isSelfAssigned
-              ? 'This ticket is awaiting self-review — approve & complete or send back for rework'
+              ? 'This self-assigned ticket is awaiting your review — approve (comment only) or send back'
               : 'This ticket is awaiting review — approve or send back'}
           </p>
           {rejectMode ? (
@@ -1226,38 +1246,46 @@ export default function TicketDetailPage() {
             </div>
           ) : (
             <div className="space-y-4 mt-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Task Efficiency</label>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <button key={s} onClick={() => setTaskEfficiencyRating(s)} className={s <= taskEfficiencyRating ? 'text-amber-500' : 'text-slate-300'}>
-                        <Star size={20} fill={s <= taskEfficiencyRating ? 'currentColor' : 'none'} />
-                      </button>
-                    ))}
+              {ratingsAllowed ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">Task Efficiency</label>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <button key={s} onClick={() => setTaskEfficiencyRating(s)} className={s <= taskEfficiencyRating ? 'text-amber-500' : 'text-slate-300'}>
+                          <Star size={20} fill={s <= taskEfficiencyRating ? 'currentColor' : 'none'} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">Employee Performance</label>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <button key={s} onClick={() => setEmployeePerformanceRating(s)} className={s <= employeePerformanceRating ? 'text-amber-500' : 'text-slate-300'}>
+                          <Star size={20} fill={s <= employeePerformanceRating ? 'currentColor' : 'none'} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">Employee Attitude</label>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <button key={s} onClick={() => setEmployeeAttitudeRating(s)} className={s <= employeeAttitudeRating ? 'text-amber-500' : 'text-slate-300'}>
+                          <Star size={20} fill={s <= employeeAttitudeRating ? 'currentColor' : 'none'} />
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Employee Performance</label>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <button key={s} onClick={() => setEmployeePerformanceRating(s)} className={s <= employeePerformanceRating ? 'text-amber-500' : 'text-slate-300'}>
-                        <Star size={20} fill={s <= employeePerformanceRating ? 'currentColor' : 'none'} />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Employee Attitude</label>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <button key={s} onClick={() => setEmployeeAttitudeRating(s)} className={s <= employeeAttitudeRating ? 'text-amber-500' : 'text-slate-300'}>
-                        <Star size={20} fill={s <= employeeAttitudeRating ? 'currentColor' : 'none'} />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  {isSelfAssigned
+                    ? 'Self-assigned work is approved comment-only — no ratings are recorded.'
+                    : 'Help tickets are approved comment-only — no ratings are recorded.'}
+                </p>
+              )}
               <input
                 type="text"
                 value={ratingComment}
@@ -1268,10 +1296,10 @@ export default function TicketDetailPage() {
               <div className="flex gap-2">
                 <button
                   onClick={() => approveMutation.mutate()}
-                  disabled={approveMutation.isPending || !taskEfficiencyRating || !employeePerformanceRating || !employeeAttitudeRating}
+                  disabled={approveMutation.isPending || (ratingsAllowed && (!taskEfficiencyRating || !employeePerformanceRating || !employeeAttitudeRating))}
                   className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
                 >
-                  <CheckCircle size={14} /> Approve Task
+                  <CheckCircle size={14} /> {isSelfAssigned ? 'Approve & Complete' : 'Approve Task'}
                 </button>
                 <button
                   onClick={() => setRejectMode(true)}

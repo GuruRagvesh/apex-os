@@ -247,7 +247,13 @@ export class TicketsService {
       ? await this.ticketAccess.findAccessibleTicket(id, user, include)
       : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include });
     if (!ticket) throw new NotFoundException('Ticket not found');
-    return this.addSla(ticket);
+    const decorated = await this.addSla(ticket);
+    // Computed (not stored) flags so the detail UI mirrors the backend policy exactly:
+    // self-assigned tickets are review-gated to the worker's reporting hierarchy, and
+    // only a resolved approver (never the self-worker) sees approve/reject controls.
+    const selfAssigned = this.ticketAccess.isSelfAssigned(ticket);
+    const viewerCanApprove = user ? await this.ticketAccess.viewerCanApprove(user, ticket) : false;
+    return { ...decorated, selfAssigned, viewerCanApprove };
   }
 
   async assertCanUploadAttachment(user: any, ticket: any) {
@@ -1574,10 +1580,21 @@ export class TicketsService {
     }
     if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.DONE);
 
+    // No self-rating, ever: self-assigned tickets (Task/Query/Help) are comment-only —
+    // the worker's hierarchy approves with an optional comment but no star ratings.
+    // Defensive second guard: even if a payload arrives, never persist a rating authored
+    // by one of the ticket's own assignees. The comment is kept; the numeric stars are not.
+    const selfAssigned = this.ticketAccess.isSelfAssigned(ticket);
+    const reviewerIsAssignee =
+      userId === this.primaryAssigneeId(ticket) ||
+      Boolean(ticket.assignees?.some?.((a: any) => (a?.userId ?? a?.user?.id) === userId));
+    const effectiveRatings = (selfAssigned || reviewerIsAssignee)
+      ? { ratingComment: ratings?.ratingComment ?? null }
+      : ratings;
+
     // Persist the review decision BEFORE transitioning status. If this throws, the ticket
-    // must stay in REVIEW — it must never silently reach DONE with no record of the ratings
-    // that gated the Approve button on the frontend.
-    await this.persistReviewDecision(ticket, 'APPROVED', userId, ratings);
+    // must stay in REVIEW — it must never silently reach DONE with no record of the decision.
+    await this.persistReviewDecision(ticket, 'APPROVED', userId, effectiveRatings);
 
     // suppressCompletionNotification=true: update() skips its generic "Ticket resolved"
     // notification so we can send a more specific "Ticket approved" message here instead.
