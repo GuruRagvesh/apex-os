@@ -6,8 +6,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, commentsApi, usersApi, aiApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import {
-  cn, PRIORITY_COLORS, STATUS_COLORS, CATEGORY_COLORS,
-  STATUS_LABELS, PRIORITY_LABELS, CATEGORY_LABELS,
+  cn, PRIORITY_COLORS, STATUS_COLORS,
+  STATUS_LABELS, PRIORITY_LABELS,
   formatDate, formatRelativeTime, getInitials,
 } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
@@ -933,17 +933,11 @@ export default function TicketDetailPage() {
                   rows={3}
                 />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="apex-label">Priority</label>
                   <select value={editForm.priority} onChange={(e) => setEditForm((f: any) => ({ ...f, priority: e.target.value }))} className="apex-select w-full">
                     {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="apex-label">Category</label>
-                  <select value={editForm.category} onChange={(e) => setEditForm((f: any) => ({ ...f, category: e.target.value }))} className="apex-select w-full">
-                    {['IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'].map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
@@ -1079,10 +1073,9 @@ export default function TicketDetailPage() {
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <CopyableId ticketId={ticket.ticketId} />
-            {/* Department is the real, user-chosen classification. category is a required
-                legacy enum the creation form hides and always sends as OPERATIONS, so showing
-                it here as the primary badge was misleading for every ticket. */}
-            {ticket.department ? (
+            {/* User-facing classification is Department + Request Type. The old internal
+                Category enum is intentionally not shown (it's a legacy backend-only field). */}
+            {ticket.department && (
               <span
                 className="text-xs px-2 py-0.5 rounded font-medium flex items-center gap-1"
                 style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}
@@ -1090,11 +1083,10 @@ export default function TicketDetailPage() {
                 <Building2 size={11} />
                 {ticket.department.name}
               </span>
-            ) : (
-              <span className={cn('text-xs px-2 py-0.5 rounded font-medium', CATEGORY_COLORS[ticket.category])}>
-                {CATEGORY_LABELS[ticket.category] ?? ticket.category}
-              </span>
             )}
+            <span className="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+              {ticket.type === 'QUERY' ? 'Query' : ticket.type === 'HELP' ? 'Help' : 'Task'}
+            </span>
             <span className={cn('text-xs px-2 py-0.5 rounded font-medium', PRIORITY_COLORS[ticket.priority])}>
               {PRIORITY_LABELS[ticket.priority] ?? ticket.priority}
             </span>

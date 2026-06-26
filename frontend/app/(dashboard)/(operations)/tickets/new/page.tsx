@@ -25,12 +25,12 @@ const TYPE_META: Record<RequestType, { label: string; hint: string }> = {
 
 const COMMON_LABELS = {
   title: 'Title', assignee: 'Assigned To', due: 'Due Date',
-  estimate: 'Estimated Time', taskType: 'Task Type / Category',
+  estimate: 'Estimated Time', taskType: 'Task Type',
 };
 const TYPE_LABELS: Record<RequestType, Partial<typeof COMMON_LABELS>> = {
   TASK:  {},
-  QUERY: { title: 'Query', assignee: 'Ask / Route To', due: 'Needed By', estimate: 'Expected Effort', taskType: 'Query Category' },
-  HELP:  { title: 'What do you need help with?', assignee: 'Help From', due: 'Needed By', estimate: 'Expected Effort', taskType: 'Help Category' },
+  QUERY: { title: 'Query', assignee: 'Ask / Route To', due: 'Needed By', estimate: 'Expected Effort', taskType: 'Query Type' },
+  HELP:  { title: 'What do you need help with?', assignee: 'Help From', due: 'Needed By', estimate: 'Expected Effort', taskType: 'Help Type' },
 };
 const labelFor = (type: RequestType, key: keyof typeof COMMON_LABELS) =>
   TYPE_LABELS[type][key] ?? COMMON_LABELS[key];

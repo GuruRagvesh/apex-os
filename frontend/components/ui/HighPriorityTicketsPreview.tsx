@@ -76,12 +76,6 @@ export default function HighPriorityTicketsPreview({
                   {t.priority}
                 </span>
               </div>
-
-              {t.category && (
-                <span className="text-[11px] font-bold font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-transparent dark:border-blue-900/40 px-2 py-0.5 rounded">
-                  {t.category}
-                </span>
-              )}
             </div>
 
             {/* Title */}

@@ -9,14 +9,13 @@ import { TicketRow } from '@/components/tickets/ticket-row';
 import { SkeletonTicketRows } from '@/components/ui/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSocket } from '@/hooks/useSocket';
-import { cn, CATEGORY_COLORS, STATUS_LABELS } from '@/lib/utils';
+import { cn, STATUS_LABELS } from '@/lib/utils';
 import { Plus, Search, RefreshCw, Download, AlertTriangle, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { getCompanyTodayStart, getCompanyTodayEnd } from '@/lib/company-date';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
-const CATEGORIES = ['', 'IT', 'FACILITIES', 'HR', 'OPERATIONS', 'PROJECT', 'ADMIN'];
 const PRIORITIES = ['', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
 
 export default function TicketsPage() {
@@ -29,7 +28,6 @@ export default function TicketsPage() {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState({
     status: '',
-    category: '',
     priority: '',
     departmentId: '',
     assignedToId: '',
@@ -61,7 +59,6 @@ export default function TicketsPage() {
     setSearch(params.get('search') || '');
     setFilters({
       status: params.get('status') || '',
-      category: params.get('category') || '',
       priority: params.get('priority') || '',
       departmentId: params.get('departmentId') || params.get('department') || '',
       assignedToId: params.get('assignedToId') || params.get('assignee') || '',
@@ -221,14 +218,6 @@ export default function TicketsPage() {
           </div>
 
           <select
-            value={filters.category}
-            onChange={(e) => setFilter('category', e.target.value)}
-            className="apex-select"
-          >
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c || 'All Categories'}</option>)}
-          </select>
-
-          <select
             value={filters.priority}
             onChange={(e) => setFilter('priority', e.target.value)}
             className="apex-select"
@@ -297,7 +286,7 @@ export default function TicketsPage() {
             <button
               onClick={() => {
                 setSearch('');
-                setFilters({ status: '', category: '', priority: '', departmentId: '', assignedToId: '', projectId: '', dateFrom: '', dateTo: '', dueAfter: '', dueBefore: '' });
+                setFilters({ status: '', priority: '', departmentId: '', assignedToId: '', projectId: '', dateFrom: '', dateTo: '', dueAfter: '', dueBefore: '' });
                 setOverdueOnly(false);
                 setMyTickets(false);
                 setPage(1);
@@ -329,7 +318,7 @@ export default function TicketsPage() {
           }}
         >
           <div className="col-span-5">Ticket</div>
-          <div className="col-span-2">Category</div>
+          <div className="col-span-2">Type</div>
           <div className="col-span-1">Priority</div>
           <div className="col-span-2">Status</div>
           <div className="col-span-2">Assignee</div>

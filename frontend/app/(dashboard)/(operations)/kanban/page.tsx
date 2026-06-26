@@ -16,7 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ticketsApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import { cn, PRIORITY_COLORS, CATEGORY_COLORS, PRIORITY_LABELS, CATEGORY_LABELS, getInitials, formatDate, DEPT_COLORS } from '@/lib/utils';
+import { cn, PRIORITY_COLORS, PRIORITY_LABELS, getInitials, formatDate, DEPT_COLORS } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
 import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { SkeletonKanbanColumn } from '@/components/ui/skeleton';
@@ -110,9 +110,15 @@ function CardContent({ ticket, isPending, canMove = true }: { ticket: any; isPen
       )}
 
       <div className="flex items-center gap-1.5 flex-wrap mb-3">
-        <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', CATEGORY_COLORS[ticket.category])}>
-          {CATEGORY_LABELS[ticket.category] ?? ticket.category}
+        {/* Request Type + Task Type replace the old internal Category badge */}
+        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+          {ticket.type === 'QUERY' ? 'Query' : ticket.type === 'HELP' ? 'Help' : 'Task'}
         </span>
+        {ticket.taskType?.name && (
+          <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+            {ticket.taskType.name}
+          </span>
+        )}
         <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', PRIORITY_COLORS[ticket.priority])}>
           {PRIORITY_LABELS[ticket.priority] ?? ticket.priority}
         </span>

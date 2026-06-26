@@ -1,11 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { cn, PRIORITY_COLORS, STATUS_COLORS, CATEGORY_COLORS, STATUS_LABELS, PRIORITY_LABELS, CATEGORY_LABELS, formatDate, getInitials, DEPT_COLORS, formatRelativeTime } from '@/lib/utils';
+import { cn, PRIORITY_COLORS, STATUS_COLORS, STATUS_LABELS, PRIORITY_LABELS, formatDate, getInitials, DEPT_COLORS, formatRelativeTime } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
 import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { Clock, Copy, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+// Request Type (Task / Query / Help) replaces the old internal Category in the UI.
+const REQUEST_TYPE_LABELS: Record<string, string> = { TASK: 'Task', QUERY: 'Query', HELP: 'Help' };
 
 interface TicketRowProps {
   ticket: any;
@@ -61,8 +64,8 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <CopyId ticketId={ticket.ticketId} className="text-xs text-slate-400" />
-            <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', CATEGORY_COLORS[ticket.category])}>
-              {CATEGORY_LABELS[ticket.category] ?? ticket.category}
+            <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+              {REQUEST_TYPE_LABELS[ticket.type] ?? 'Task'}
             </span>
             {ticket.isOverdue && (
               <span className="flex items-center gap-0.5 text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
@@ -158,11 +161,16 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
         )}
       </div>
 
-      {/* Category col-span-2 */}
-      <div className="col-span-2">
-        <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', CATEGORY_COLORS[ticket.category])}>
-          {CATEGORY_LABELS[ticket.category] ?? ticket.category}
+      {/* Type col-span-2 — Request Type + Task Type (replaces old Category) */}
+      <div className="col-span-2 space-y-1">
+        <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 inline-block">
+          {REQUEST_TYPE_LABELS[ticket.type] ?? 'Task'}
         </span>
+        {ticket.taskType?.name && (
+          <div className="text-xs text-slate-500 dark:text-gray-400 truncate" title={ticket.taskType.name}>
+            {ticket.taskType.name}
+          </div>
+        )}
       </div>
 
       {/* Priority col-span-1 */}
