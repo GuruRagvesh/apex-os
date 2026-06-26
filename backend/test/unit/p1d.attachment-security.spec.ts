@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
+import { HierarchyApprovalService } from '../../src/common/services/hierarchy-approval.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
 
@@ -24,7 +25,7 @@ describe('P1-D ticket attachment security', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     const accessPolicy = new AccessPolicyService(prisma);
-    const ticketAccess = new TicketAccessService(prisma, accessPolicy);
+    const ticketAccess = new TicketAccessService(prisma, accessPolicy, new HierarchyApprovalService(prisma));
     service = new TicketsService(
       prisma,
       {} as any, // gateway

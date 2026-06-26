@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { TicketStatus } from '@prisma/client';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
+import { HierarchyApprovalService } from '../../src/common/services/hierarchy-approval.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 
 const prisma: any = {
@@ -23,7 +24,7 @@ describe('P0 Ticket access and timing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     accessPolicy = new AccessPolicyService(prisma);
-    ticketAccess = new TicketAccessService(prisma, accessPolicy);
+    ticketAccess = new TicketAccessService(prisma, accessPolicy, new HierarchyApprovalService(prisma));
     timing = new TicketTimingService(prisma, { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } as any);
   });
 

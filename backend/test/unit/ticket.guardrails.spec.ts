@@ -8,6 +8,7 @@ import { EmailService } from '../../src/modules/platform/email/email.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
+import { HierarchyApprovalService } from '../../src/common/services/hierarchy-approval.service';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TicketStatus } from '@prisma/client';
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
@@ -70,6 +71,7 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
         { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         TicketsService,
         AccessPolicyService,
+        HierarchyApprovalService,
         TicketAccessService,
         TicketTimingService,
         { provide: PrismaService, useValue: mockPrisma },

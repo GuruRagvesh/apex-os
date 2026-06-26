@@ -109,6 +109,8 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
       assertCanTransitionTicket: jest.fn().mockResolvedValue(undefined),
       assertCanAssignTicket: jest.fn().mockResolvedValue(undefined),
       assertCanUpdateTicket: jest.fn().mockResolvedValue(undefined),
+      // These fixtures are hierarchy-reviewed (reviewer ≠ assignee), so not self-assigned.
+      isSelfAssigned: jest.fn().mockReturnValue(false),
     };
 
     const ticketLedger = new TicketLedgerService(

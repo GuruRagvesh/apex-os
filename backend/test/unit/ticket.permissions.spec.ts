@@ -2,6 +2,7 @@ import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
+import { HierarchyApprovalService } from '../../src/common/services/hierarchy-approval.service';
 import { TicketStatus } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -43,7 +44,7 @@ describe('TicketsService — FP-13.2 Permissions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     policy = new AccessPolicyService(mockPrisma as any);
-    access = new TicketAccessService(mockPrisma as any, policy);
+    access = new TicketAccessService(mockPrisma as any, policy, new HierarchyApprovalService(mockPrisma as any));
     const mockConfig = { get: jest.fn().mockReturnValue('http://localhost') };
     
     service = new TicketsService(

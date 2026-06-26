@@ -19,6 +19,7 @@ import { TicketsService } from '../../src/modules/operations/tickets/tickets.ser
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
+import { HierarchyApprovalService } from '../../src/common/services/hierarchy-approval.service';
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
 import { TicketImportService } from '../../src/modules/operations/tickets/ticket-import.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -155,6 +156,7 @@ describe('Blocked Ticket — TicketsService', () => {
         { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         TicketsService,
         AccessPolicyService,
+        HierarchyApprovalService,
         TicketAccessService,
         TicketTimingService,
         { provide: PrismaService,            useValue: mockPrisma   },
