@@ -198,7 +198,7 @@ export class TicketsService {
 
     if (needsTimingFilter) {
       const candidates = await this.prisma.ticket.findMany({
-        where: this.andWhere(where, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
+        where: this.andWhere(where, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }),
         include: this.includeOptions,
         orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
       });
@@ -1740,7 +1740,7 @@ export class TicketsService {
 
   async getStats(user?: any) {
     const scope = await this.ticketAccess.buildTicketWhereForUser({}, user);
-    const activeScope = this.andWhere(scope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } });
+    const activeScope = this.andWhere(scope, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } });
     const unassignedScope = this.andWhere(scope, { assignedToId: null });
     const blockedScope = this.andWhere(activeScope, { isBlocked: true });
 
@@ -1799,7 +1799,7 @@ export class TicketsService {
   }> {
     const scope = await this.ticketAccess.buildTicketWhereForUser({}, user);
     const activeScope = this.andWhere(scope, {
-      status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] },
+      status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] },
     });
 
     const candidates = await this.prisma.ticket.findMany({

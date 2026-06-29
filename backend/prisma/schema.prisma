@@ -88,6 +88,7 @@ model User {
   ticketWatching          TicketWatcher[]
   assignedTickets         Ticket[]                       @relation("TicketAssignee")
   createdTickets          Ticket[]                       @relation("TicketCreator")
+  ticketsToApprove        Ticket[]                       @relation("TicketApprover")
   workdayPolicyOverride   UserWorkdayPolicyOverride?
   department              Department?                    @relation(fields: [departmentId], references: [id])
   role                    Role                           @relation(fields: [roleId], references: [id])
@@ -258,6 +259,13 @@ model Ticket {
   targetDepartmentId     String?
   targetTeamId           String?
   isCrossDepartment      Boolean          @default(false)
+  approvalState          ApprovalState    @default(NONE)
+  approvalType           ApprovalType?
+  approverId             String?
+  approvalRequestedAt    DateTime?
+  approvedAt             DateTime?
+  rejectedAt             DateTime?
+  approvalReason         String?
   attachments            Attachment[]
   comments               Comment[]
   reviewCycles           ReviewCycleLog[]
@@ -267,6 +275,7 @@ model Ticket {
   watchers               TicketWatcher[]
   assignedTo             User?            @relation("TicketAssignee", fields: [assignedToId], references: [id])
   createdBy              User             @relation("TicketCreator", fields: [createdById], references: [id])
+  approver               User?            @relation("TicketApprover", fields: [approverId], references: [id])
   department             Department?      @relation(fields: [departmentId], references: [id])
   requestingDepartment   Department?      @relation("TicketRequestingDepartment", fields: [requestingDepartmentId], references: [id])
   targetDepartment       Department?      @relation("TicketTargetDepartment", fields: [targetDepartmentId], references: [id])
@@ -295,6 +304,9 @@ model Ticket {
   @@index([requestingTeamId])
   @@index([targetTeamId])
   @@index([isCrossDepartment])
+  @@index([approvalState])
+  @@index([approverId])
+  @@index([status, approvalState])
   @@map("tickets")
 }
 
@@ -781,6 +793,7 @@ enum Priority {
 }
 
 enum TicketStatus {
+  PENDING_APPROVAL
   OPEN
   IN_PROGRESS
   REVIEW
@@ -795,6 +808,21 @@ enum TicketCategory {
   OPERATIONS
   PROJECT
   ADMIN
+}
+
+enum ApprovalState {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+  OVERRIDDEN
+}
+
+enum ApprovalType {
+  TASK_CREATION
+  QUERY_TARGET
+  MANAGER_REVIEW
+  SUPER_ADMIN_OVERRIDE
 }
 
 enum TicketType {

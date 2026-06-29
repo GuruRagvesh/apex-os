@@ -92,7 +92,7 @@ export class SchedulerService {
       // Use AND to separately exclude null and the sentinel string 'none'.
       const recurringTickets = await this.prisma.ticket.findMany({
         where: {
-          status: { notIn: ['DONE', 'CLOSED'] },
+          status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] },
           AND: [
             { scheduleRecurring: { not: null } },
             { scheduleRecurring: { not: 'none' } },

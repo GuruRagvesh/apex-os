@@ -157,7 +157,7 @@ export class AnalyticsService {
     });
 
     const overdueTickets = await this.prisma.ticket.findMany({
-      where: { departmentId: { in: deptIds }, status: { notIn: ['DONE', 'CLOSED'] } },
+      where: { departmentId: { in: deptIds }, status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] } },
       select: {
         id: true, status: true, priority: true, dueDate: true, createdAt: true, updatedAt: true,
         scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
@@ -170,7 +170,7 @@ export class AnalyticsService {
     const overdueCount = overdueTickets.filter(t => this.ticketTiming.getTimingState(t, config).isOverdue).length;
 
     const blockedCount = await this.prisma.ticket.count({
-      where: { departmentId: { in: deptIds }, isBlocked: true, status: { notIn: ['DONE', 'CLOSED'] } },
+      where: { departmentId: { in: deptIds }, isBlocked: true, status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] } },
     });
 
     return {

@@ -115,7 +115,7 @@ export class AutomationService {
     this.logger.log('[automation] Running overdue ticket check…');
 
     const openTickets = await this.prisma.ticket.findMany({
-      where: { status: { notIn: ['DONE', 'CLOSED'] } },
+      where: { status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] } },
       select: {
         id:          true,
         ticketId:    true,
