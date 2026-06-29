@@ -182,6 +182,9 @@ export const ticketsApi = {
   assign: (id: string, assignedToId: string) => r(api.patch(`/tickets/${id}/assign`, { assignedToId })),
   approve: (id: string, ratings?: any) => r(api.patch(`/tickets/${id}/approve`, ratings)),
   reject: (id: string, comment: string) => r(api.patch(`/tickets/${id}/reject`, { comment })),
+  getPendingApprovals: () => r(api.get('/tickets/pending-approvals')),
+  approveTicketCreation: (id: string) => r(api.post(`/tickets/${id}/approval`, { action: 'APPROVE' })),
+  rejectTicketCreation: (id: string, reason: string) => r(api.post(`/tickets/${id}/approval`, { action: 'REJECT', reason })),
   getHistory: (id: string) => r(api.get(`/tickets/${id}/history`)),
   uploadAttachment: (id: string, file: File, isPoc = false) => {
     const form = new FormData();

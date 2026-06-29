@@ -51,7 +51,7 @@ export class DepartmentsService {
         _count: {
           select: {
             users: { where: { isActive: true } },
-            tickets: { where: { status: { notIn: ['DONE', 'CLOSED'] } } },
+            tickets: { where: { status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] } } },
             projects: true,
             managerAccess: { where: { manager: { isActive: true } } },
           },
@@ -88,7 +88,7 @@ export class DepartmentsService {
           orderBy: { name: 'asc' },
         },
         tickets: {
-          where: { status: { notIn: ['DONE', 'CLOSED'] } },
+          where: { status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] } },
           include: {
             assignedTo: { select: { id: true, name: true, avatar: true } },
             createdBy: { select: { id: true, name: true } },
@@ -99,7 +99,7 @@ export class DepartmentsService {
         _count: {
           select: {
             users: { where: { isActive: true } },
-            tickets: { where: { status: { notIn: ['DONE', 'CLOSED'] } } },
+            tickets: { where: { status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] } } },
             projects: true,
           },
         },

@@ -13,6 +13,7 @@ export const PRIORITY_COLORS: Record<string, string> = {
 };
 
 export const STATUS_COLORS: Record<string, string> = {
+  PENDING_APPROVAL: 'bg-amber-100 text-amber-700 border-amber-200',
   OPEN: 'apex-status-open',
   IN_PROGRESS: 'apex-status-progress',
   REVIEW: 'apex-status-review',
@@ -30,6 +31,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export const STATUS_LABELS: Record<string, string> = {
+  PENDING_APPROVAL: 'Pending Approval',
   OPEN: 'Open',
   IN_PROGRESS: 'In Progress',
   REVIEW: 'Under Review',

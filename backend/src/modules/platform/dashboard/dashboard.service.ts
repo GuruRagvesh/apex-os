@@ -30,7 +30,7 @@ export class DashboardService {
 
   private async countOverdueTickets(scope: any): Promise<number> {
     const tickets = await this.prisma.ticket.findMany({
-      where: this.andWhere(scope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
+      where: this.andWhere(scope, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }),
       select: {
         id: true, status: true, priority: true, dueDate: true, createdAt: true, updatedAt: true,
         scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,
@@ -60,7 +60,7 @@ export class DashboardService {
 
   async getOverview(user: any) {
     const ticketWhere = await this.ticketAccess.buildTicketWhereForUser({}, user);
-    const activeTicketWhere = this.andWhere(ticketWhere, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } });
+    const activeTicketWhere = this.andWhere(ticketWhere, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } });
     const projectWhere = await this.buildProjectScope(user);
     const visibleUserIds = await this.ticketAccess.visibleUserIdsForWorkload(user);
     const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
@@ -117,7 +117,7 @@ export class DashboardService {
 
     // Fetch active tickets for bottleneck + blocked counts
     const activeTickets = await this.prisma.ticket.findMany({
-      where: this.andWhere(ticketWhere, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
+      where: this.andWhere(ticketWhere, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }),
       include: {
         assignedTo: { select: { id: true, name: true, avatar: true } },
         department: true,
@@ -235,7 +235,7 @@ export class DashboardService {
   async getWorkloadByUser(user?: any) {
     const visibleUserIds = user ? await this.ticketAccess.visibleUserIdsForWorkload(user) : null;
     const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
-    const activeTicketScope = this.andWhere(ticketScope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } });
+    const activeTicketScope = this.andWhere(ticketScope, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } });
     const users = await this.prisma.user.findMany({
       where: { isActive: true, ...(visibleUserIds ? { id: { in: visibleUserIds } } : {}) },
       include: {
@@ -355,7 +355,7 @@ export class DashboardService {
     const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
     const [activeToday, totalTickets, openTickets, overdue, pendingLeave, activeProjects] = await Promise.all([
       this.prisma.user.count({ where: { currentStatus: { in: ['WORKING', 'ON_BREAK', 'LOGGED_IN'] } } }),
-      this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }) }),
+      this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }) }),
       this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.OPEN }) }),
       this.countOverdueTickets(ticketScope),
       this.prisma.leaveRequest.count({ where: this.andWhere(leaveScope, { status: LeaveStatus.PENDING }) }),
@@ -394,7 +394,7 @@ export class DashboardService {
     const events: any[] = [];
 
     const tickets = await this.prisma.ticket.findMany({
-      where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] }, dueDate: { gte: now, lte: in3Days } }),
+      where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] }, dueDate: { gte: now, lte: in3Days } }),
       select: { id: true, ticketId: true, title: true, dueDate: true, priority: true, status: true },
       orderBy: { dueDate: 'asc' },
       take: 10,
@@ -428,7 +428,7 @@ export class DashboardService {
     const [overdueTicketsList, activeProjectsList, pendingLeaveList, inReviewList] = await Promise.all([
       // Overdue tickets
       this.prisma.ticket.findMany({
-        where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } }),
+        where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }),
         select: {
           id: true, ticketId: true, title: true, dueDate: true, createdAt: true, updatedAt: true,
           scheduledStartAt: true, actualStartAt: true, estimatedMinutes: true, executionDueAt: true,

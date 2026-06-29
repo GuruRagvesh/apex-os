@@ -210,7 +210,7 @@ export class UsersService {
       by: ['assignedToId'],
       where: {
         assignedToId: { not: null },
-        status: { notIn: ['DONE', 'CLOSED'] },
+        status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] },
       },
       _count: { id: true },
     });
