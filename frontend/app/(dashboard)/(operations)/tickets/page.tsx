@@ -40,6 +40,7 @@ export default function TicketsPage() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [myTickets, setMyTickets] = useState(false);
   const [page, setPage] = useState(1);
+  const [activeTab, setActiveTab] = useState<'all' | 'approvals'>('all');
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -96,6 +97,12 @@ export default function TicketsPage() {
     queryFn: () => ticketsApi.getAll({ ...filters, ...extraFilters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
   });
 
+  const { data: pendingApprovals, isLoading: isLoadingPending } = useQuery({
+    queryKey: ['pending-approvals'],
+    queryFn: () => ticketsApi.getPendingApprovals() as Promise<any[]>,
+    enabled: !!currentUser?.id,
+  });
+
   const { data: departments } = useQuery({
     queryKey: ['departments'],
     queryFn: () => departmentsApi.getAll() as Promise<any[]>,
@@ -136,11 +143,13 @@ export default function TicketsPage() {
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Tickets</h2>
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
-              {scopeText}
-            </span>
+            {activeTab === 'all' && (
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
+                {scopeText}
+              </span>
+            )}
           </div>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{total} tickets total</p>
+          {activeTab === 'all' && <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{total} tickets total</p>}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -174,7 +183,37 @@ export default function TicketsPage() {
         </div>
       </div>
 
-      {/* Quick Status Filter */}
+      {(['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName) || (pendingApprovals && pendingApprovals.length > 0)) && (
+        <div className="flex border-b mb-4" style={{ borderColor: 'var(--border-subtle)' }}>
+          <button
+            onClick={() => setActiveTab('all')}
+            className={cn(
+              'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
+              activeTab === 'all' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+            )}
+          >
+            All Tickets
+          </button>
+          <button
+            onClick={() => setActiveTab('approvals')}
+            className={cn(
+              'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px flex items-center gap-2',
+              activeTab === 'approvals' ? 'border-amber-600 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+            )}
+          >
+            Pending Approvals
+            {pendingApprovals && pendingApprovals.length > 0 && (
+              <span className="bg-amber-100 text-amber-700 text-xs px-1.5 py-0.5 rounded-full">
+                {pendingApprovals.length}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'all' ? (
+        <>
+          {/* Quick Status Filter */}
       <div className="flex items-center gap-2 flex-wrap">
         {['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE'].map((status) => (
           <button
@@ -378,6 +417,48 @@ export default function TicketsPage() {
           </div>
         )}
       </div>
+      </>
+      ) : (
+        /* Pending Approvals Tab */
+        <div
+          className="rounded-xl overflow-hidden mt-4"
+          style={{
+            backgroundColor: 'var(--surface-card)',
+            border: '1px solid var(--border-primary)',
+          }}
+        >
+          <div
+            className="grid grid-cols-12 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider"
+            style={{
+              backgroundColor: 'var(--bg-tertiary)',
+              borderBottom: '1px solid var(--border-primary)',
+              color: 'var(--text-tertiary)',
+            }}
+          >
+            <div className="col-span-5">Ticket</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-1">Priority</div>
+            <div className="col-span-2">Status</div>
+            <div className="col-span-2">Creator</div>
+          </div>
+
+          {isLoadingPending ? (
+            <SkeletonTicketRows count={3} />
+          ) : pendingApprovals && pendingApprovals.length > 0 ? (
+            <div>
+              {pendingApprovals.map((ticket: any) => <TicketRow key={ticket.id} ticket={ticket} />)}
+            </div>
+          ) : (
+            <div className="apex-empty">
+              <div className="apex-empty-icon text-amber-500">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+              </div>
+              <p className="apex-empty-title">No pending approvals</p>
+              <p className="apex-empty-desc">You're all caught up!</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -741,6 +741,28 @@ export default function TicketDetailPage() {
     onError: () => toast.error('Failed to delete ticket'),
   });
 
+  const approveCreationMutation = useMutation({
+    mutationFn: () => ticketsApi.approveTicketCreation(ticket.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      toast.success('Task approved and created');
+    },
+    onError: (e: any) => toast.error(e?.message || 'Failed to approve task'),
+  });
+
+  const rejectCreationMutation = useMutation({
+    mutationFn: () => ticketsApi.rejectTicketCreation(ticket.id, rejectComment),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      toast.success('Task creation rejected');
+      setRejectMode(false);
+      setRejectComment('');
+    },
+    onError: (e: any) => toast.error(e?.message || 'Failed to reject task'),
+  });
+
   const approveMutation = useMutation({
     // Self-assigned tickets (Task/Query/Help) and Help tickets are comment-only — never
     // send star ratings (backend ignores them too; this keeps the payload honest).
@@ -1215,6 +1237,66 @@ export default function TicketDetailPage() {
         </div>
       )}
 
+      {/* Pending Approval Banner */}
+      {ticket.status === 'PENDING_APPROVAL' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Clock size={18} className="text-amber-600" />
+            <p className="text-sm font-semibold text-amber-800">
+              This task requires approval before it can become active.
+            </p>
+          </div>
+          {ticket.approverId === user?.id ? (
+            rejectMode ? (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={rejectComment}
+                  onChange={(e) => setRejectComment(e.target.value)}
+                  placeholder="Reason for rejection..."
+                  className="apex-input"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => rejectCreationMutation.mutate()}
+                    disabled={!rejectComment.trim() || rejectCreationMutation.isPending}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
+                  >
+                    <XCircle size={14} /> Confirm Reject
+                  </button>
+                  <button
+                    onClick={() => { setRejectMode(false); setRejectComment(''); }}
+                    className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => approveCreationMutation.mutate()}
+                  disabled={approveCreationMutation.isPending}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
+                >
+                  <CheckCircle size={14} /> Approve Task
+                </button>
+                <button
+                  onClick={() => setRejectMode(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-medium rounded-lg border border-red-200 transition-colors"
+                >
+                  <XCircle size={14} /> Reject Task
+                </button>
+              </div>
+            )
+          ) : (
+            <p className="text-xs text-amber-700 mt-1">
+              Waiting for {resolveUserName(ticket.approverId)} to approve.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Approvals Banner */}
       {canApprove && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -1541,8 +1623,9 @@ export default function TicketDetailPage() {
         {/* Sidebar */}
         <div className="space-y-4">
           {/* Status stepper */}
-          <div className="apex-card p-4">
-            <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>Status</h3>
+          {ticket.status !== 'PENDING_APPROVAL' && (
+            <div className="apex-card p-4">
+              <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>Status</h3>
             {(() => {
               const steps = ['OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE'];
               const currentIdx = steps.indexOf(ticket.status);
@@ -1619,11 +1702,11 @@ export default function TicketDetailPage() {
               );
             })()}
           </div>
+          )}
 
           {/* Details */}
           <div className="apex-card p-4 space-y-3">
             <h3 className="font-semibold text-sm" style={{ color: 'var(--text-secondary)' }}>Details</h3>
-
             {/* Assignee(s) */}
             <div>
               <p className="text-xs mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
@@ -1735,7 +1818,7 @@ export default function TicketDetailPage() {
               {/* One clean Timing section — Work Timer Status / Due Date / Due Time / Time Left.
                   Replaces the old scattered "Due Date" row, separate "Time Left" row, and the
                   mislabeled "Due date: 2h left" SLA timer that used to live at the bottom. */}
-              <TicketTimingPanel ticket={ticket} />
+              {ticket.status !== 'PENDING_APPROVAL' && <TicketTimingPanel ticket={ticket} />}
               {ticket.scheduleRecurring && ticket.scheduleRecurring !== 'none' ? (
                 <>
                   <div>
