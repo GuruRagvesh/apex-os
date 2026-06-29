@@ -45,6 +45,22 @@ export const PRIORITY_LABELS: Record<string, string> = {
   URGENT: 'Urgent',
 };
 
+// Clean, human role labels — never show raw enums like TEAM_LEAD in the UI.
+export const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: 'Super Admin',
+  ADMIN: 'Admin',
+  MANAGER: 'Manager',
+  TEAM_LEAD: 'Team Lead',
+  EMPLOYEE: 'Employee',
+  INTERN: 'Intern',
+};
+
+export function formatRole(role?: string | { name?: string } | null): string {
+  const name = typeof role === 'string' ? role : role?.name ?? '';
+  if (!name) return '';
+  return ROLE_LABELS[name] ?? name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export const CATEGORY_LABELS: Record<string, string> = {
   IT: 'IT',
   FACILITIES: 'Facilities',

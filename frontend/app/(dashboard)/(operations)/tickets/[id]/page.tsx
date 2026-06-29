@@ -8,17 +8,16 @@ import { useAuthStore } from '@/store/auth.store';
 import {
   cn, PRIORITY_COLORS, STATUS_COLORS,
   STATUS_LABELS, PRIORITY_LABELS,
-  formatDate, formatRelativeTime, getInitials,
+  formatDate, formatRelativeTime, getInitials, formatRole,
 } from '@/lib/utils';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { formatDuration, computeClientTimingState } from '@/lib/ticket-timing';
-import { TimingTicker } from '@/components/tickets/OverdueTicker';
+import { computeClientTimingState } from '@/lib/ticket-timing';
 import { SkeletonTicketDetail } from '@/components/ui/skeleton';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
 import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
-  Copy, Timer, CheckCircle, XCircle, History, Paperclip, Upload,
+  Copy, CheckCircle, XCircle, History, Paperclip, Upload,
   FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, ChevronRight, Loader2,
   Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock, Star, UserMinus,
 } from 'lucide-react';
@@ -35,54 +34,67 @@ const RECURRENCE_LABELS: Record<string, string> = {
   '6_months': 'Daily for 6 months',
 };
 
-// ─── SLA Timer ───────────────────────────────────────────────────────────────
-function SlaTimer({ createdAt, slaHours, slaPercent, isOverdue, timing }: {
-  createdAt: string; slaHours?: number; slaPercent?: number; isOverdue?: boolean; timing?: any;
-}) {
-  const ms = Date.now() - new Date(createdAt).getTime();
-  const totalMins = Math.floor(ms / 60000);
-  const days = Math.floor(totalMins / 1440);
-  const hours = Math.floor((totalMins % 1440) / 60);
-  const mins = totalMins % 60;
+// ─── Work timer status (display only — derived from ticket status) ────────────
+// This is a STATUS label, not a live worker clock. OPEN ⇒ "Not started" so an open
+// ticket never looks like a worker timer is running.
+function workTimerStatus(ticket: any): { label: string; cls: string } {
+  if (ticket?.isBlocked) return { label: 'Paused', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' };
+  switch (ticket?.status) {
+    case 'IN_PROGRESS': return { label: 'Running', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' };
+    case 'REVIEW':      return { label: 'Waiting for review', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' };
+    case 'DONE':
+    case 'CLOSED':      return { label: 'Completed', cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' };
+    case 'OPEN':
+    default:            return { label: 'Not started', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' };
+  }
+}
 
-  const fallbackLabel = days > 0
-    ? `${days}d ${hours}h open`
-    : hours > 0
-    ? `${hours}h ${mins}m open`
-    : `${mins}m open`;
-
-  const overdue = timing?.isOverdue ?? isOverdue;
-  // timing.label is a short backend category name (e.g. "Due date", "Execution SLA"),
-  // not a duration — pair it with a real countdown computed from the backend's raw ms
-  // fields instead of rendering the bare category name with no value.
-  const countdownMs = overdue ? timing?.overdueMs : timing?.remainingMs;
-  const countdown = typeof countdownMs === 'number'
-    ? `${formatDuration(Math.floor(countdownMs / 60_000))} ${overdue ? 'overdue' : 'left'}`
-    : null;
-  const label = countdown ? (timing?.label ? `${timing.label}: ${countdown}` : countdown) : fallbackLabel;
-  const pct = timing?.progressPercent ?? slaPercent ?? 0;
-  const dueAt = timing?.dueAt ? new Date(timing.dueAt) : null;
-  const barColor = overdue || pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-orange-400' : 'bg-emerald-400';
-
+// ─── Header timing summary — a short, correctly-labeled status only ───────────
+// Just the work-timer status (the full Due Date / Due Time / Time Left lives once
+// in the sidebar Timing panel). Overdue urgency is already shown by the header's
+// own OVERDUE badge, so we never repeat a countdown or the misleading "Due date: 2h".
+function TimingHeaderSummary({ ticket }: { ticket: any }) {
+  const wt = workTimerStatus(ticket);
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Timer size={13} className={overdue ? 'text-red-400' : 'text-slate-400'} />
-        <span
-          className={cn('text-xs', overdue ? 'text-red-500 font-medium' : '')}
-          style={!overdue ? { color: 'var(--text-secondary)' } : undefined}
-        >
-          {label}{slaHours ? ` · SLA: ${slaHours}h` : ''}
-        </span>
-        {overdue && (
-          <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
-            <AlertTriangle size={9} /> OVERDUE
-          </span>
-        )}
+    <div className="mt-1">
+      <span className={cn('text-xs px-2 py-0.5 rounded font-medium', wt.cls)}>Work timer: {wt.label}</span>
+    </div>
+  );
+}
+
+// ─── One clean Timing section — Due Date / Due Time / Time Left / Work Timer ──
+function TicketTimingPanel({ ticket }: { ticket: any }) {
+  const wt = workTimerStatus(ticket);
+  const t = computeClientTimingState(ticket);
+  const due = ticket?.dueDate ? new Date(ticket.dueDate) : null;
+  const rowLabel = { color: 'var(--text-tertiary)' };
+  const rowValue = { color: 'var(--text-primary)' };
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs" style={rowLabel}>Work Timer Status</span>
+        <span className={cn('text-xs px-2 py-0.5 rounded font-medium', wt.cls)}>{wt.label}</span>
       </div>
-      {typeof pct === 'number' && (
-        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-          <div className={cn('h-full rounded-full transition-all', barColor)} style={{ width: `${Math.min(pct, 100)}%` }} />
+      {due && (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs" style={rowLabel}>Due Date</span>
+            <span className="text-sm font-medium" style={rowValue}>{formatDate(due)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs" style={rowLabel}>Due Time</span>
+            <span className="text-sm font-medium" style={rowValue}>
+              {due.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        </>
+      )}
+      {t.countdownLabel && t.phase !== 'blocked' && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs" style={rowLabel}>Time Left</span>
+          <span className={cn('text-sm font-medium', t.isOverdue ? 'text-red-500' : '')} style={!t.isOverdue ? rowValue : undefined}>
+            {t.countdownLabel}
+          </span>
         </div>
       )}
     </div>
@@ -1105,7 +1117,7 @@ export default function TicketDetailPage() {
             )}
           </div>
           <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{ticket.title}</h2>
-          <TimingTicker ticket={ticket} showLabel className="text-sm mt-1" />
+          <TimingHeaderSummary ticket={ticket} />
           <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
@@ -1628,7 +1640,7 @@ export default function TicketDetailPage() {
                 >
                   <option value="">{ticket.assignedToId ? 'Unassign' : 'Unassigned'}</option>
                   {(Array.isArray(users) ? users : (users as any)?.users ?? []).map((u: any) => (
-                    <option key={u.id} value={u.id}>{u.name} — {u.role?.name}</option>
+                    <option key={u.id} value={u.id}>{u.name} — {formatRole(u.role)}</option>
                   ))}
                 </select>
               ) : null}
@@ -1720,27 +1732,10 @@ export default function TicketDetailPage() {
                   <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Est. {ticket.estimatedTime}h</span>
                 </div>
               )}
-              {ticket.dueDate && (
-                <div className="flex items-center gap-2">
-                  <Calendar size={13} className={new Date(ticket.dueDate) < new Date() ? 'text-red-400' : ''} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-tertiary)' } : undefined} />
-                  <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500 font-medium' : '')} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-secondary)' } : undefined}>
-                    Due Date: {formatDate(ticket.dueDate)}
-                  </span>
-                </div>
-              )}
-              {/* Time Left — kept as its own row, separate from the Due Date row above */}
-              {(() => {
-                const timingState = computeClientTimingState(ticket);
-                if (!timingState.countdownLabel) return null;
-                return (
-                  <div className="flex items-center gap-2">
-                    <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
-                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      Time Left: {timingState.countdownLabel}
-                    </span>
-                  </div>
-                );
-              })()}
+              {/* One clean Timing section — Work Timer Status / Due Date / Due Time / Time Left.
+                  Replaces the old scattered "Due Date" row, separate "Time Left" row, and the
+                  mislabeled "Due date: 2h left" SLA timer that used to live at the bottom. */}
+              <TicketTimingPanel ticket={ticket} />
               {ticket.scheduleRecurring && ticket.scheduleRecurring !== 'none' ? (
                 <>
                   <div>
@@ -1788,7 +1783,9 @@ export default function TicketDetailPage() {
                   </p>
                 </div>
               )}
-              {ticket?.actualStartAt && (
+              {/* "Started" reflects real work start (actualStartAt). Never show it while OPEN —
+                  an OPEN ticket may still carry actualStartAt after a send-back/unassign to OPEN. */}
+              {ticket?.actualStartAt && ticket?.status !== 'OPEN' && (
                 <div>
                   <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Started</p>
                   <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
@@ -1905,15 +1902,6 @@ export default function TicketDetailPage() {
                   <Calendar size={13} style={{ color: 'var(--text-tertiary)' }} />
                   <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Updated {formatRelativeTime(ticket.updatedAt)}</span>
                 </div>
-              )}
-              {!isDone && (
-                <SlaTimer
-                  createdAt={ticket.createdAt}
-                  slaHours={ticket.slaHours}
-                  slaPercent={ticket.slaPercent}
-                  isOverdue={ticket.isOverdue}
-                  timing={ticket.timing}
-                />
               )}
             </div>
           </div>

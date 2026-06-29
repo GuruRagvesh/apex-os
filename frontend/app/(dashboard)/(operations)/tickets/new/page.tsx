@@ -7,7 +7,7 @@ import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi, taskTypesApi,
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Sparkles, Loader2, Clock, Plus, Copy, Trash2, Download, Upload, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatRole } from '@/lib/utils';
 import { MultiSelect } from '@/components/ui/multi-select';
 
 // ─── Request Types ──────────────────────────────────────────────────────────
@@ -596,7 +596,7 @@ export default function CreateTicketsPage() {
                       </div>
                     ) : (
                       <MultiSelect
-                        options={rowUsers.map((u: any) => ({ value: u.id, label: u.name, sublabel: u.role?.name ?? u.role, avatar: u.avatar }))}
+                        options={rowUsers.map((u: any) => ({ value: u.id, label: u.name, sublabel: formatRole(u.role), avatar: u.avatar }))}
                         value={row.assigneeIds}
                         onChange={(v) => setRowField(row.key, 'assigneeIds', v)}
                         placeholder={row.departmentId ? 'Select…' : 'Pick department first'}
