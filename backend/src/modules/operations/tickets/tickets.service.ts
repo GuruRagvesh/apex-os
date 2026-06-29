@@ -7,6 +7,7 @@ import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
+import { HierarchyApprovalService } from '../../../common/services/hierarchy-approval.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { TicketLedgerService, LEDGER_PAUSE_REASONS } from './ticket-ledger.service';
 import { TicketImportService } from './ticket-import.service';
@@ -29,6 +30,7 @@ export class TicketsService {
     private eventEmitter: EventEmitter2,
     private eventLogger: EventLoggerService,
     private ticketAccess: TicketAccessService,
+    private hierarchyApprovalService: HierarchyApprovalService,
     private ticketTiming: TicketTimingService,
     private ticketLedger: TicketLedgerService,
     private ticketImport: TicketImportService,
@@ -164,6 +166,95 @@ export class TicketsService {
     return dept?.id;
   }
 
+  
+  async getPendingApprovals(userId: string) {
+    const tickets = await this.prisma.ticket.findMany({
+      where: {
+        approverId: userId,
+        approvalState: 'PENDING',
+      },
+      include: this.includeOptions,
+      orderBy: { approvalRequestedAt: 'desc' },
+    });
+    return tickets.map(t => this.sanitizeTicketForResponse(t));
+  }
+
+  async processApproval(id: string, payload: { action: 'APPROVE' | 'REJECT'; reason?: string }, user: any) {
+    const ticket = await this.prisma.ticket.findFirst({
+      where: { OR: [{ id }, { ticketId: id }] },
+      include: { assignedTo: true, createdBy: true },
+    });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+
+    if (ticket.status !== TicketStatus.PENDING_APPROVAL || ticket.approvalState !== 'PENDING' || ticket.approvalType !== 'TASK_CREATION') {
+      throw new BadRequestException('Ticket is not in a valid pending task creation state');
+    }
+
+    if (payload.action !== 'APPROVE' && payload.action !== 'REJECT') {
+      throw new BadRequestException('Invalid approval action.');
+    }
+
+    if (ticket.approverId !== user.id) {
+      throw new ForbiddenException('You are not the assigned approver for this ticket');
+    }
+
+    if (payload.action === 'REJECT' && !payload.reason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+
+    const updated = await this.prisma.ticket.update({
+      where: { id: ticket.id },
+      data: {
+        status: payload.action === 'APPROVE' ? TicketStatus.OPEN : TicketStatus.CLOSED,
+        approvalState: payload.action === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+        approvedAt: payload.action === 'APPROVE' ? new Date() : null,
+        rejectedAt: payload.action === 'REJECT' ? new Date() : null,
+        approvalReason: payload.action === 'REJECT' ? payload.reason : null,
+      },
+      include: this.includeOptions,
+    });
+
+    try {
+      await this.prisma.activityLog.create({
+        data: {
+          userId: user.id,
+          action: payload.action === 'APPROVE' ? 'TICKET_APPROVED' : 'TICKET_REJECTED',
+          entityType: 'TICKET',
+          entityId: ticket.id,
+          details: { ticketId: ticket.ticketId, reason: payload.reason },
+        },
+      });
+    } catch (err) {}
+
+    this.eventLogger.log({
+      actorId: user.id,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action: payload.action === 'APPROVE' ? OperationalAction.TICKET_APPROVED : OperationalAction.TICKET_REJECTED,
+      toState: payload.action === 'APPROVE' ? 'OPEN' : 'CLOSED',
+      metadata: { ticketId: ticket.ticketId, reason: payload.reason }
+    }).catch(() => {});
+
+    try {
+      await this.notificationEventService.sendNotification(
+        ticket.createdById,
+        'ticketStatusUpdated',
+        {
+          title: `Task creation ${payload.action === 'APPROVE' ? 'approved' : 'rejected'}: ${ticket.ticketId}`,
+          message: ticket.title,
+          type: payload.action === 'APPROVE' ? 'SUCCESS' : 'ERROR',
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        }
+      );
+    } catch (err) {}
+
+    this.eventEmitter.emit('ticket.updated', { ticket: updated, userId: user.id });
+
+    return this.sanitizeTicketForResponse(updated);
+  }
+
   async findAll(query: {
     search?: string;
     status?: string;
@@ -292,6 +383,19 @@ export class TicketsService {
       data.assignedToId = userId;
       assigneeIds = [userId];
     }
+
+    if (['EMPLOYEE', 'INTERN'].includes(creatorRole) && data.type === 'TASK') {
+      const tl = await this.hierarchyApprovalService.resolveTaskCreationApprover(userId);
+      if (!tl) {
+        throw new BadRequestException('Team Lead approval is required but no active Team Lead could be resolved.');
+      }
+      data.status = 'PENDING_APPROVAL';
+      data.approvalState = 'PENDING';
+      data.approvalType = 'TASK_CREATION';
+      data.approverId = tl.id;
+      data.approvalRequestedAt = new Date().toISOString();
+    }
+
 
     // Resolve departmentId: accept UUID, CUID, or display name (schema uses cuid())
     if (data.departmentId && !isUUID(data.departmentId)) {

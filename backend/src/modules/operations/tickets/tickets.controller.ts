@@ -63,6 +63,11 @@ export class TicketsController {
     return res.send(buffer);
   }
 
+  @Get('pending-approvals')
+  getPendingApprovals(@CurrentUser() user: any) {
+    return this.ticketsService.getPendingApprovals(user.id);
+  }
+
   @Get(':id/attachments/:attachmentId/download')
   async downloadAttachment(
     @Param('id') id: string,
@@ -244,6 +249,15 @@ export class TicketsController {
     @CurrentUser() user: any,
   ) {
     return this.ticketsService.reject(id, body.comment ?? 'No reason provided', user.id, user);
+  }
+
+  @Post(':id/approval')
+  processApproval(
+    @Param('id') id: string,
+    @Body() body: { action: 'APPROVE' | 'REJECT', reason?: string },
+    @CurrentUser() user: any
+  ) {
+    return this.ticketsService.processApproval(id, body, user);
   }
 
   @Delete(':id')

@@ -167,6 +167,7 @@ export class TicketAccessService {
     const isParticipant = this.isTicketParticipant(user.id, ticket);
 
     const allowed: Record<string, TicketStatus[]> = {
+      [TicketStatus.PENDING_APPROVAL]: [],
       [TicketStatus.OPEN]: [TicketStatus.IN_PROGRESS, TicketStatus.CLOSED],
       [TicketStatus.IN_PROGRESS]: [TicketStatus.OPEN, TicketStatus.REVIEW, TicketStatus.DONE, TicketStatus.CLOSED],
       [TicketStatus.REVIEW]: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.DONE, TicketStatus.CLOSED],

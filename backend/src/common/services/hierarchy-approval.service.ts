@@ -136,4 +136,16 @@ export class HierarchyApprovalService {
       );
     }
   }
+
+  /**
+   * Resolves the Team Lead approver for TASK creation by an Employee/Intern.
+   * Returns the user's Team Lead if available, otherwise null.
+   */
+  async resolveTaskCreationApprover(creatorId: string): Promise<ApproverCandidate | null> {
+    const chain = await this.resolveApproverChainFor(creatorId);
+    // Task creation strictly requires the TEAM_LEAD tier if the user is an Employee/Intern.
+    // Do not silently escalate to Manager/Admin/SuperAdmin in B2.
+    const tl = chain.find(c => c.tier === 'TEAM_LEAD');
+    return tl || null;
+  }
 }
