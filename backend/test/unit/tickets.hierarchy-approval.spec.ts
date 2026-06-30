@@ -189,6 +189,7 @@ describe('TicketsService.approve — rating suppression for self-assigned', () =
       { emit: jest.fn() } as any,
       { log: jest.fn().mockReturnValue({ catch: jest.fn() }) } as any,
       ticketAccess as any,
+      { resolveTaskCreationApprover: jest.fn() } as any, // hierarchyApprovalService
       { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any,
       ticketLedger as any,
       {} as any,

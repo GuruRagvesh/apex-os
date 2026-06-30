@@ -59,6 +59,7 @@ function makeService(prisma: any, ticketImport: any = {}, ticketAccess: any = {}
     { emit: jest.fn() } as any, // eventEmitter
     { log: jest.fn().mockReturnValue({ catch: jest.fn() }) } as any, // eventLogger
     { assertCanCreateInDepartment: jest.fn().mockResolvedValue(undefined), ...ticketAccess } as any, // ticketAccess
+    { resolveTaskCreationApprover: jest.fn() } as any, // hierarchyApprovalService
     { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
     { startReviewCycle: jest.fn(), endReviewCycle: jest.fn() } as any, // ticketLedger
     ticketImport, // ticketImport

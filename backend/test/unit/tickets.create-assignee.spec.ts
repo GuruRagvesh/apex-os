@@ -31,6 +31,7 @@ describe('TicketsService.create — assignedToId resolution (cuid, not UUID)', (
       { emit: jest.fn() } as any, // eventEmitter
       { log: jest.fn().mockReturnValue({ catch: jest.fn() }) } as any, // eventLogger
       {} as any, // ticketAccess (not used by create())
+      { resolveTaskCreationApprover: jest.fn() } as any, // hierarchyApprovalService
       { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
       { startReviewCycle: jest.fn(), endReviewCycle: jest.fn() } as any, // ticketLedger (not used by create())
       {} as any, // ticketImport (not used by create())

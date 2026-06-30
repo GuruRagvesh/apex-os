@@ -34,6 +34,7 @@ describe('P1-D ticket attachment security', () => {
       { emit: jest.fn() } as any, // eventEmitter
       { log: jest.fn().mockResolvedValue(undefined) } as any, // eventLogger
       ticketAccess,
+      { resolveTaskCreationApprover: jest.fn() } as any, // hierarchyApprovalService
       new TicketTimingService(prisma, { now: () => new Date(), elapsedSeconds: () => 0 } as any),
       { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any, // ticketLedger
       {} as any, // ticketImport (not used by attachment download)

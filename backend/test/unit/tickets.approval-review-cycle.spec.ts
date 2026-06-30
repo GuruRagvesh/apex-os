@@ -126,6 +126,7 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
       { emit: jest.fn() } as any, // eventEmitter
       { log: jest.fn().mockReturnValue({ catch: jest.fn() }) } as any, // eventLogger
       ticketAccess,
+      { resolveTaskCreationApprover: jest.fn() } as any, // hierarchyApprovalService
       { getSlaConfig: jest.fn().mockResolvedValue({ review: { HIGH: 24 } }), decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
       ticketLedger,
       {} as any, // ticketImport (not used by approve/reject)

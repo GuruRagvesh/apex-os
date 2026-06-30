@@ -138,14 +138,68 @@ export class HierarchyApprovalService {
   }
 
   /**
-   * Resolves the Team Lead approver for TASK creation by an Employee/Intern.
-   * Returns the user's Team Lead if available, otherwise null.
+   * Resolves the active Team Lead who must approve TASK creation by an Employee/Intern.
+   * Strictly TEAM_LEAD tier — never escalates to Manager/Admin/SuperAdmin, never the
+   * creator themselves. Tries, in order:
+   *   1. explicit hierarchy mapping (User.teamLeadName employeeId → active TL),
+   *   2. structural team relation (a team the user belongs to whose lead is an active TL),
+   *   3. department fallback (the sole active TEAM_LEAD in the user's department).
+   * Returns the resolved TL, or null when none exists (caller fails clearly). Throws a
+   * clear BadRequestException only for the genuinely ambiguous "multiple department TLs"
+   * case, where a specific TL must be assigned to the user.
    */
   async resolveTaskCreationApprover(creatorId: string): Promise<ApproverCandidate | null> {
+    // 1) Explicit mapping (User.teamLeadName → employeeId), via the existing chain.
     const chain = await this.resolveApproverChainFor(creatorId);
-    // Task creation strictly requires the TEAM_LEAD tier if the user is an Employee/Intern.
-    // Do not silently escalate to Manager/Admin/SuperAdmin in B2.
-    const tl = chain.find(c => c.tier === 'TEAM_LEAD');
-    return tl || null;
+    const explicitTl = chain.find((c) => c.tier === 'TEAM_LEAD');
+    if (explicitTl) return explicitTl;
+
+    // Load the creator for the structural + department fallbacks.
+    const creator = await this.prisma.user.findUnique({
+      where: { id: creatorId },
+      select: {
+        departmentId: true,
+        teamMemberships: { select: { team: { select: { teamLeadId: true } } } },
+      },
+    });
+    if (!creator) return null;
+
+    // 2) Structural team relation: the lead of a team the creator belongs to,
+    //    if that lead is an active Team Lead and not the creator.
+    const teamLeadIds = [
+      ...new Set(
+        (creator.teamMemberships ?? [])
+          .map((m: any) => m?.team?.teamLeadId)
+          .filter((id: any): id is string => !!id && id !== creatorId),
+      ),
+    ];
+    for (const leadId of teamLeadIds) {
+      const lead = await this.prisma.user.findFirst({
+        where: { id: leadId, isActive: true, role: { name: ROLES.TEAM_LEAD } },
+        select: { id: true, name: true },
+      });
+      if (lead) return { id: lead.id, name: lead.name, tier: 'TEAM_LEAD' };
+    }
+
+    // 3) Department fallback: active TEAM_LEAD(s) in the creator's department.
+    if (!creator.departmentId) return null;
+    const deptLeads = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        departmentId: creator.departmentId,
+        role: { name: ROLES.TEAM_LEAD },
+        id: { not: creatorId }, // never the creator themselves
+      },
+      select: { id: true, name: true },
+    });
+    if (deptLeads.length === 1) {
+      return { id: deptLeads[0].id, name: deptLeads[0].name, tier: 'TEAM_LEAD' };
+    }
+    if (deptLeads.length > 1) {
+      throw new BadRequestException(
+        'Multiple active Team Leads were found. Please assign a specific Team Lead to this user.',
+      );
+    }
+    return null; // none → caller raises the clear "no active Team Lead" error
   }
 }
