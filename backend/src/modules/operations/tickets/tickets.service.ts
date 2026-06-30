@@ -649,6 +649,16 @@ export class TicketsService {
     const data = normalized.data;
     const assigneeIds = normalized.assigneeIds;
 
+    // Planning sanity: a scheduled start may not be after the due date/time. Compared on
+    // the normalized instants so timezone is respected (applies to bulk + Excel import).
+    if (data.scheduledStartAt && data.dueDate) {
+      const startMs = new Date(data.scheduledStartAt).getTime();
+      const dueMs = new Date(data.dueDate).getTime();
+      if (!Number.isNaN(startMs) && !Number.isNaN(dueMs) && startMs > dueMs) {
+        errors.push('Start Date/Time cannot be after Due Date/Time');
+      }
+    }
+
     if (!data.departmentId) errors.push('Department not found');
     if (errors.length === 0 && user) {
       try {

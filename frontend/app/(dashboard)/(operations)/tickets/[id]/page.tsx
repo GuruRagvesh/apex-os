@@ -1850,11 +1850,14 @@ export default function TicketDetailPage() {
                   <span className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>{ticket.scheduledNote}</span>
                 </div>
               )}
-              {ticket?.scheduledStartAt && ticket?.scheduledEndAt && (
+              {ticket?.scheduledStartAt && (
                 <div>
-                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Scheduled</p>
+                  {/* Planning metadata — this is the SCHEDULED start, never the actual start
+                      (actualStartAt is shown separately as "Started" only once IN_PROGRESS). */}
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Scheduled Start</p>
                   <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-primary)' }}>
-                    ⏰ {new Date(ticket.scheduledStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} → {new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    ⏰ {new Date(ticket.scheduledStartAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {ticket?.scheduledEndAt && ` → ${new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
                   </p>
                 </div>
               )}

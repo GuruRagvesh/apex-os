@@ -78,12 +78,13 @@ interface TicketRow {
   customSubtype: string;
   assigneeIds: string[];
   priority: string;
+  startDate: string;
+  startTime: string;
   dueDate: string;
   dueTime: string;
   estHours: string;
   estMinutes: string;
   projectId: string;
-  scheduledStartAt: string;
   scheduledEndAt: string;
   notes: string;
   showAdvanced: boolean;
@@ -131,10 +132,11 @@ export default function CreateTicketsPage() {
     customSubtype: '',
     assigneeIds: lockAssignee && user?.id ? [user.id] : [],
     priority: globalDefaults.priority,
+    startDate: '', startTime: '',
     dueDate: '', dueTime: '',
     estHours: '', estMinutes: '',
     projectId: globalDefaults.projectId,
-    scheduledStartAt: '', scheduledEndAt: '',
+    scheduledEndAt: '',
     notes: '',
     showAdvanced: false,
     custom: {},
@@ -276,8 +278,18 @@ export default function CreateTicketsPage() {
     if (!lockAssignee && row.assigneeIds.length === 0) e.push(`${labelFor(row.type, 'assignee')} is required`);
     if (!row.dueDate) e.push('Due Date is required');
     if (row.taskSubtypeId === '__custom__' && !row.customSubtype.trim()) e.push('Custom subtype text is required');
-    if (row.scheduledStartAt && row.scheduledEndAt && row.scheduledEndAt <= row.scheduledStartAt) {
-      e.push('Scheduled End must be after Scheduled Start');
+    // Start (scheduledStartAt) must not be after Due, and the advanced Scheduled End
+    // must be after Start. Compare as real instants so timezone is respected.
+    const startIso = combineDueDateTime(row.startDate, row.startTime);
+    const dueIso = combineDueDateTime(row.dueDate, row.dueTime);
+    if (startIso && dueIso && new Date(startIso).getTime() > new Date(dueIso).getTime()) {
+      e.push('Start Date/Time cannot be after Due Date/Time');
+    }
+    if (row.scheduledEndAt && startIso) {
+      const endIso = localDateTimeInputToIso(row.scheduledEndAt);
+      if (endIso && new Date(endIso).getTime() <= new Date(startIso).getTime()) {
+        e.push('Scheduled End must be after the Start Date/Time');
+      }
     }
     return e;
   };
@@ -300,7 +312,9 @@ export default function CreateTicketsPage() {
       dueDate: combineDueDateTime(row.dueDate, row.dueTime),
       estimatedMinutes: estTotal > 0 ? estTotal : undefined,
       projectId: row.projectId || undefined,
-      scheduledStartAt: localDateTimeInputToIso(row.scheduledStartAt),
+      // Start Date + Start Time → scheduledStartAt (same timezone-safe combiner as Due;
+      // date-only start uses the system's 18:30 IST convention, exactly like Due Date).
+      scheduledStartAt: combineDueDateTime(row.startDate, row.startTime),
       scheduledEndAt: localDateTimeInputToIso(row.scheduledEndAt),
       scheduledNote: row.notes.trim() || undefined,
     };
@@ -626,16 +640,28 @@ export default function CreateTicketsPage() {
                   </div>
                 </div>
 
-                {/* Due date/time + Estimated + Project */}
+                {/* Start date/time + Due date/time */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
+                    <label className={labelCls}>Start Date</label>
+                    <input type="date" value={row.startDate} onChange={(e) => setRowField(row.key, 'startDate', e.target.value)} className={inputCls} min={new Date().toISOString().split('T')[0]} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Start Time</label>
+                    <input type="time" value={row.startTime} onChange={(e) => setRowField(row.key, 'startTime', e.target.value)} className={inputCls} disabled={!row.startDate} />
+                  </div>
+                  <div>
                     <label className={labelCls}>{labelFor(row.type, 'due')} *</label>
-                    <input type="date" value={row.dueDate} onChange={(e) => setRowField(row.key, 'dueDate', e.target.value)} className={inputCls} min={new Date().toISOString().split('T')[0]} />
+                    <input type="date" value={row.dueDate} onChange={(e) => setRowField(row.key, 'dueDate', e.target.value)} className={inputCls} min={row.startDate || new Date().toISOString().split('T')[0]} />
                   </div>
                   <div>
                     <label className={labelCls}>Due Time</label>
                     <input type="time" value={row.dueTime} onChange={(e) => setRowField(row.key, 'dueTime', e.target.value)} className={inputCls} />
                   </div>
+                </div>
+
+                {/* Estimated Time + Project */}
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className={labelCls}>{labelFor(row.type, 'estimate')}</label>
                     <div className="flex items-center gap-1">
@@ -665,15 +691,13 @@ export default function CreateTicketsPage() {
                   </button>
                   {row.showAdvanced && (
                     <div className="px-3 pb-3 pt-1 border-t grid grid-cols-1 md:grid-cols-2 gap-3" style={{ borderColor: 'var(--border-subtle)' }}>
-                      <div>
-                        <label className={labelCls}>Scheduled Start</label>
-                        <input type="datetime-local" value={row.scheduledStartAt} onChange={(e) => setRowField(row.key, 'scheduledStartAt', e.target.value)} className={inputCls} min={new Date().toISOString().slice(0, 16)} />
-                      </div>
+                      {/* Start Date/Time live in the basic fields above; this is the optional
+                          end of the scheduled window. */}
                       <div>
                         <label className={labelCls}>Scheduled End</label>
-                        <input type="datetime-local" value={row.scheduledEndAt} onChange={(e) => setRowField(row.key, 'scheduledEndAt', e.target.value)} className={inputCls} min={row.scheduledStartAt || new Date().toISOString().slice(0, 16)} />
+                        <input type="datetime-local" value={row.scheduledEndAt} onChange={(e) => setRowField(row.key, 'scheduledEndAt', e.target.value)} className={inputCls} min={new Date().toISOString().slice(0, 16)} />
                       </div>
-                      <div className="md:col-span-2">
+                      <div>
                         <label className={labelCls}>Notes</label>
                         <input type="text" value={row.notes} onChange={(e) => setRowField(row.key, 'notes', e.target.value)} className={inputCls} placeholder="Internal note (optional)…" />
                       </div>

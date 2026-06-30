@@ -115,6 +115,29 @@ describe('TicketsService.createBulk — all-or-nothing bulk creation', () => {
     expect(tx.ticket.create).not.toHaveBeenCalled();
   });
 
+  it('rejects a row whose scheduled start is after the due date (no tickets created)', async () => {
+    const { prisma, tx } = makePrisma();
+    const service = makeService(prisma);
+
+    let err: any;
+    try {
+      // due is 2026-06-26; start is the next day → invalid
+      await service.createBulk([validRow({ scheduledStartAt: '2026-06-27T10:00:00.000Z' })], 'creator-1', manager);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.getResponse().errors[0].error).toMatch(/Start Date\/Time cannot be after Due Date\/Time/);
+    expect(tx.ticket.create).not.toHaveBeenCalled();
+  });
+
+  it('accepts a row whose scheduled start is before the due date', async () => {
+    const { prisma } = makePrisma();
+    const service = makeService(prisma);
+    const result = await service.createBulk([validRow({ scheduledStartAt: '2026-06-25T09:00:00.000Z' })], 'creator-1', manager);
+    expect(result).toHaveLength(1);
+  });
+
   it('rejects an empty batch', async () => {
     const { prisma } = makePrisma();
     const service = makeService(prisma);
