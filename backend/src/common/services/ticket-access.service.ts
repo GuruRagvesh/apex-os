@@ -38,6 +38,7 @@ export class TicketAccessService {
         if (!isEmployeeOrIntern && isTask) return true; // Higher roles can self-complete tasks
         return false;
       }
+      if (ticket.approverId && user.id === ticket.approverId) return true;
       return this.hierarchy.isApproverFor(user.id, ticket.createdById);
     }
     const roleName = this.access.roleName(user);

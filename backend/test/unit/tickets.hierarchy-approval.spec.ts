@@ -79,6 +79,22 @@ describe('HierarchyApprovalService — chain resolution', () => {
     expect(svc.isSelfAssigned({ createdById: 'emp1', assignedToId: 'x', assignees: [{ userId: 'emp1' }] })).toBe(true);
     expect(svc.isSelfAssigned({ createdById: 'emp1', assignedToId: 'x', assignees: [{ userId: 'y' }] })).toBe(false);
   });
+
+  it('uses department fallback if teamLeadName is missing', async () => {
+    // Modify emp1 so teamLeadName is missing, and it must fallback to the active department TL (tlX)
+    const users = directory();
+    const emp = users.find(u => u.id === 'emp1')!;
+    emp.teamLeadName = undefined as any;
+    // For fallback to work, we need to mock the findUnique correctly. hierPrisma does that, but let's just make sure.
+    // The fallback logic queries using 'departmentId' on emp. tlX is in d1.
+    const svc = new HierarchyApprovalService(hierPrisma(users));
+    const chain = ids(await svc.resolveApproverChainFor('emp1'));
+    // Wait, tl1 is also in d1. It will return multiple dept leads if we are not careful?
+    // In our fallback, if there are multiple dept leads, it returns null. Let's make tl1 inactive so it returns tlX.
+    users.find(u => u.id === 'tl1')!.isActive = false;
+    const chainAfter = ids(await svc.resolveApproverChainFor('emp1'));
+    expect(chainAfter).toContain('tlX');
+  });
 });
 
 describe('HierarchyApprovalService.assertIsHierarchyApprover', () => {
@@ -97,6 +113,13 @@ describe('HierarchyApprovalService.assertIsHierarchyApprover', () => {
   it('blocks a same-department reviewer who is NOT in this worker’s chain', async () => {
     const svc = new HierarchyApprovalService(hierPrisma(directory()));
     await expect(svc.assertIsHierarchyApprover({ id: 'tlX' }, ticket)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('allows approval if the actor matches ticket.approverId even if not in standard chain', async () => {
+    const svc = new HierarchyApprovalService(hierPrisma(directory()));
+    // tlX is not normally allowed to approve emp1's ticket. But here we set approverId to tlX.
+    const ticketWithApprover = { createdById: 'emp1', assignedToId: 'emp1', approverId: 'tlX' };
+    await expect(svc.assertIsHierarchyApprover({ id: 'tlX' }, ticketWithApprover)).resolves.toBeUndefined();
   });
 
   it('fails clearly (BadRequest) when a non-worker tries but no approver can be resolved', async () => {

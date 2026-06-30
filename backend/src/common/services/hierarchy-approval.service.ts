@@ -79,8 +79,34 @@ export class HierarchyApprovalService {
     const supersOnly = async () =>
       this.prisma.user.findMany({ where: { isActive: true, role: { name: ROLES.SUPER_ADMIN } } });
 
+    const getFallbackTeamLead = async (): Promise<any> => {
+      const creator = await this.prisma.user.findUnique({
+        where: { id: workerId },
+        select: {
+          departmentId: true,
+          teamMemberships: { select: { team: { select: { teamLeadId: true } } } },
+        },
+      });
+      if (!creator) return null;
+      const teamLeadIds = [...new Set((creator.teamMemberships ?? []).map((m: any) => m?.team?.teamLeadId).filter((id: any): id is string => !!id && id !== workerId))];
+      for (const leadId of teamLeadIds) {
+        const lead = await this.prisma.user.findFirst({
+          where: { id: leadId, isActive: true, role: { name: ROLES.TEAM_LEAD } },
+        });
+        if (lead) return lead;
+      }
+      if (!creator.departmentId) return null;
+      const deptLeads = await this.prisma.user.findMany({
+        where: { isActive: true, departmentId: creator.departmentId, role: { name: ROLES.TEAM_LEAD }, id: { not: workerId } },
+      });
+      if (deptLeads.length === 1) return deptLeads[0];
+      return null;
+    };
+
     if (roleName === ROLES.EMPLOYEE || roleName === ROLES.INTERN) {
-      push(await byEmployeeId(worker.teamLeadName), 'TEAM_LEAD');
+      let tl = await byEmployeeId(worker.teamLeadName);
+      if (!tl) tl = await getFallbackTeamLead();
+      push(tl, 'TEAM_LEAD');
       push(await byEmployeeId(worker.reportingManager), 'MANAGER');
       for (const a of await adminsAndSupers()) push(a, 'ADMIN');
     } else if (roleName === ROLES.TEAM_LEAD) {
@@ -124,6 +150,11 @@ export class HierarchyApprovalService {
         'You cannot approve, reject, or complete your own self-assigned ticket. It must be reviewed by your reporting hierarchy.',
       );
     }
+    
+    if (ticket.approverId && ticket.approverId === actor?.id) {
+      return; // Pre-assigned approver is always authorized.
+    }
+
     const chain = await this.resolveApproverChainFor(workerId);
     if (chain.length === 0) {
       throw new BadRequestException(
