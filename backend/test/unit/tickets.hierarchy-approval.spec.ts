@@ -123,7 +123,7 @@ describe('TicketAccessService.assertCanTransitionTicket — self-assigned gate (
     const hierarchy = new HierarchyApprovalService(prisma);
     return new TicketAccessService(prisma, policy, hierarchy);
   }
-  const selfTicket = (over: any = {}) => ({ id: 't1', status: TicketStatus.REVIEW, createdById: 'emp1', assignedToId: 'emp1', departmentId: 'd1', assignees: [], ...over });
+  const selfTicket = (over: any = {}) => ({ id: 't1', status: TicketStatus.REVIEW, type: 'TASK', createdById: 'emp1', assignedToId: 'emp1', departmentId: 'd1', assignees: [], ...over });
   const emp = { id: 'emp1', role: { name: 'EMPLOYEE' }, departmentId: 'd1' };
   const tl = { id: 'tl1', role: { name: 'TEAM_LEAD' }, departmentId: 'd1' };
   const tlX = { id: 'tlX', role: { name: 'TEAM_LEAD' }, departmentId: 'd1' };
@@ -152,10 +152,45 @@ describe('TicketAccessService.assertCanTransitionTicket — self-assigned gate (
     await expect(makeAccess().assertCanTransitionTicket(tlX, selfTicket(), TicketStatus.DONE)).rejects.toThrow(ForbiddenException);
   });
 
-  it('blocks a MANAGER from approving their OWN self-assigned ticket (no role exception)', async () => {
-    const mgrTicket = selfTicket({ createdById: 'mgr1', assignedToId: 'mgr1' });
+  it('allows TEAM_LEAD to self-complete their OWN self-assigned TASK (higher role bypass)', async () => {
+    const tlTicket = selfTicket({ createdById: 'tl1', assignedToId: 'tl1', type: 'TASK' });
+    const localTl = { id: 'tl1', role: { name: 'TEAM_LEAD' }, departmentId: 'd1' };
+    await expect(makeAccess().assertCanTransitionTicket(localTl, tlTicket, TicketStatus.DONE)).resolves.toBeUndefined();
+  });
+
+  it('allows MANAGER to self-complete their OWN self-assigned TASK (higher role bypass)', async () => {
+    const mgrTicket = selfTicket({ createdById: 'mgr1', assignedToId: 'mgr1', type: 'TASK' });
     const mgr = { id: 'mgr1', role: { name: 'MANAGER' }, departmentId: 'd1' };
-    await expect(makeAccess().assertCanTransitionTicket(mgr, mgrTicket, TicketStatus.DONE)).rejects.toThrow(ForbiddenException);
+    await expect(makeAccess().assertCanTransitionTicket(mgr, mgrTicket, TicketStatus.DONE)).resolves.toBeUndefined();
+  });
+
+  it('allows ADMIN to self-complete their OWN self-assigned TASK (higher role bypass)', async () => {
+    const adminTicket = selfTicket({ createdById: 'admin1', assignedToId: 'admin1', type: 'TASK' });
+    const admin = { id: 'admin1', role: { name: 'ADMIN' } };
+    await expect(makeAccess().assertCanTransitionTicket(admin, adminTicket, TicketStatus.DONE)).resolves.toBeUndefined();
+  });
+
+  it('allows SUPER_ADMIN to self-complete their OWN self-assigned TASK (higher role bypass)', async () => {
+    const superTicket = selfTicket({ createdById: 'super1', assignedToId: 'super1', type: 'TASK' });
+    const superAdmin = { id: 'super1', role: { name: 'SUPER_ADMIN' } };
+    await expect(makeAccess().assertCanTransitionTicket(superAdmin, superTicket, TicketStatus.DONE)).resolves.toBeUndefined();
+  });
+
+  it('blocks EMPLOYEE from self-completing their OWN self-assigned TASK', async () => {
+    const empTicket = selfTicket({ createdById: 'emp1', assignedToId: 'emp1', type: 'TASK' });
+    await expect(makeAccess().assertCanTransitionTicket(emp, empTicket, TicketStatus.DONE)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('blocks INTERN from self-completing their OWN self-assigned TASK', async () => {
+    const internTicket = selfTicket({ createdById: 'intern1', assignedToId: 'intern1', type: 'TASK' });
+    const intern = { id: 'intern1', role: { name: 'INTERN' }, departmentId: 'd1' };
+    await expect(makeAccess().assertCanTransitionTicket(intern, internTicket, TicketStatus.DONE)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('blocks MANAGER from self-completing if the ticket is NOT a TASK (e.g. QUERY)', async () => {
+    const mgrQueryTicket = selfTicket({ createdById: 'mgr1', assignedToId: 'mgr1', type: 'QUERY' });
+    const mgr = { id: 'mgr1', role: { name: 'MANAGER' }, departmentId: 'd1' };
+    await expect(makeAccess().assertCanTransitionTicket(mgr, mgrQueryTicket, TicketStatus.DONE)).rejects.toThrow(ForbiddenException);
   });
 
   it('leaves NON-self tickets on the existing scoped-reviewer path (unchanged)', async () => {

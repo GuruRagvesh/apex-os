@@ -31,7 +31,13 @@ export class TicketAccessService {
   async viewerCanApprove(user: any, ticket: any): Promise<boolean> {
     if (!user || ticket?.status !== TicketStatus.REVIEW) return false;
     if (this.hierarchy.isSelfAssigned(ticket)) {
-      if (user.id === ticket.createdById) return false; // self-worker never approves
+      if (user.id === ticket.createdById) {
+        const roleName = this.access.roleName(user);
+        const isEmployeeOrIntern = roleName === ROLES.EMPLOYEE || roleName === ROLES.INTERN;
+        const isTask = ticket.type === 'TASK';
+        if (!isEmployeeOrIntern && isTask) return true; // Higher roles can self-complete tasks
+        return false;
+      }
       return this.hierarchy.isApproverFor(user.id, ticket.createdById);
     }
     const roleName = this.access.roleName(user);
@@ -199,8 +205,16 @@ export class TicketAccessService {
     const exitingReview = fromStatus === TicketStatus.REVIEW && toStatus !== TicketStatus.REVIEW;
     const reachingTerminal = toStatus === TicketStatus.DONE || toStatus === TicketStatus.CLOSED;
     if (selfAssigned && (exitingReview || reachingTerminal)) {
-      await this.hierarchy.assertIsHierarchyApprover(user, ticket);
-      return;
+      const isEmployeeOrIntern = roleName === ROLES.EMPLOYEE || roleName === ROLES.INTERN;
+      const isSelfWorker = user.id === ticket.createdById;
+      const isTask = ticket.type === 'TASK';
+
+      // Higher roles (TL, Manager, Admin, Super Admin) are allowed to self-complete their own TASKS.
+      // If it's their own TASK and they are not an Employee/Intern, they bypass this gate.
+      if (!(isSelfWorker && !isEmployeeOrIntern && isTask)) {
+        await this.hierarchy.assertIsHierarchyApprover(user, ticket);
+        return;
+      }
     }
 
     if (isIntern && toStatus !== TicketStatus.IN_PROGRESS && toStatus !== TicketStatus.REVIEW) {
