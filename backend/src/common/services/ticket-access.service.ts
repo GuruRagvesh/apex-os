@@ -44,6 +44,12 @@ export class TicketAccessService {
     const roleName = this.access.roleName(user);
     if (this.access.isAdmin(user)) return true;
     if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {
+      // Worker cannot be the approver on a task they are assigned to (but did not create).
+      // Self-assigned path is handled above; this covers senior-assigned tasks.
+      const isWorker =
+        user.id === ticket.assignedToId ||
+        Boolean(ticket.assignees?.some?.((a: any) => (a?.userId ?? a?.user?.id) === user.id));
+      if (isWorker) return false;
       return this.isTicketInUserScope(user, ticket);
     }
     return false;
@@ -211,11 +217,12 @@ export class TicketAccessService {
       const isTask = ticket.type === 'TASK';
 
       // Higher roles (TL, Manager, Admin, Super Admin) are allowed to self-complete their own TASKS.
-      // If it's their own TASK and they are not an Employee/Intern, they bypass this gate.
-      if (!(isSelfWorker && !isEmployeeOrIntern && isTask)) {
-        await this.hierarchy.assertIsHierarchyApprover(user, ticket);
+      // Return early to skip all remaining gates (including the non-self assignee check below).
+      if (isSelfWorker && !isEmployeeOrIntern && isTask) {
         return;
       }
+      await this.hierarchy.assertIsHierarchyApprover(user, ticket);
+      return;
     }
 
     if (isIntern && toStatus !== TicketStatus.IN_PROGRESS && toStatus !== TicketStatus.REVIEW) {
@@ -234,6 +241,13 @@ export class TicketAccessService {
       if (!isScopedReviewer) {
         throw new ForbiddenException('Only scoped reviewers, managers, or admins can complete or close tickets');
       }
+      // The assignee (worker) cannot approve or close their own non-self-assigned work.
+      // Their assigner / senior reviewer must act. Covers TL closing Manager-assigned task,
+      // Manager closing Admin-assigned task, etc.
+      if (user.id === ticket.assignedToId ||
+          ticket.assignees?.some?.((a: any) => (a?.userId ?? a?.user?.id) === user.id)) {
+        throw new ForbiddenException('The assignee cannot approve or close their own work — it must be reviewed by the assigner or their hierarchy.');
+      }
       return;
     }
 
@@ -241,6 +255,10 @@ export class TicketAccessService {
     if (fromStatus === TicketStatus.REVIEW && (toStatus === TicketStatus.IN_PROGRESS || toStatus === TicketStatus.OPEN)) {
       if (!isScopedReviewer) {
         throw new ForbiddenException('Only scoped reviewers, managers, or admins can reject or send tickets back for rework');
+      }
+      if (user.id === ticket.assignedToId ||
+          ticket.assignees?.some?.((a: any) => (a?.userId ?? a?.user?.id) === user.id)) {
+        throw new ForbiddenException('The assignee cannot send back their own work — it must be reviewed by the assigner or their hierarchy.');
       }
       return;
     }

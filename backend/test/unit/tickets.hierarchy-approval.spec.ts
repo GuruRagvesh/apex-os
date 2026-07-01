@@ -229,6 +229,63 @@ describe('TicketAccessService.assertCanTransitionTicket — self-assigned gate (
     const nonSelf = selfTicket({ createdById: 'mgr1', assignedToId: 'emp1' }); // creator !== assignee
     await expect(makeAccess().assertCanTransitionTicket(tl, nonSelf, TicketStatus.DONE)).resolves.toBeUndefined();
   });
+
+  // ── Senior-assigned (non-self) worker-cannot-close gate ─────────────────────
+
+  it('blocks TL from REVIEW→DONE when Manager assigned the task to TL (worker cannot self-close)', async () => {
+    // mgr1 created + assigned to tl1 → not self-assigned, but tl1 is the worker
+    const mgrAssignedToTl = selfTicket({ createdById: 'mgr1', assignedToId: 'tl1' });
+    const mgr = { id: 'mgr1', role: { name: 'MANAGER' }, departmentId: 'd1' };
+    await expect(makeAccess().assertCanTransitionTicket(tl, mgrAssignedToTl, TicketStatus.DONE)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('blocks TL from REVIEW→IN_PROGRESS (send-back) when Manager assigned the task to TL', async () => {
+    const mgrAssignedToTl = selfTicket({ createdById: 'mgr1', assignedToId: 'tl1' });
+    await expect(makeAccess().assertCanTransitionTicket(tl, mgrAssignedToTl, TicketStatus.IN_PROGRESS)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('allows Manager to REVIEW→DONE on a task they assigned to TL (assigner can close)', async () => {
+    const mgrAssignedToTl = selfTicket({ createdById: 'mgr1', assignedToId: 'tl1' });
+    const mgr = { id: 'mgr1', role: { name: 'MANAGER' }, departmentId: 'd1' };
+    await expect(makeAccess().assertCanTransitionTicket(mgr, mgrAssignedToTl, TicketStatus.DONE)).resolves.toBeUndefined();
+  });
+});
+
+describe('TicketAccessService.viewerCanApprove — non-self assignee gate', () => {
+  function makeAccess(users = directory()) {
+    const prisma: any = {
+      ...hierPrisma(users),
+      ticket: { findFirst: jest.fn(async () => ({ id: 't1' })), count: jest.fn(async () => 1) },
+      managerDeptAccess: { findMany: jest.fn(async () => []) },
+    };
+    const policy = new AccessPolicyService(prisma);
+    const hierarchy = new HierarchyApprovalService(prisma);
+    return new TicketAccessService(prisma, policy, hierarchy);
+  }
+  const reviewTicket = (over: any = {}) => ({
+    id: 't1', status: TicketStatus.REVIEW, type: 'TASK',
+    createdById: 'mgr1', assignedToId: 'tl1', departmentId: 'd1', assignees: [], ...over,
+  });
+
+  it('returns false for TL who is the assignee (worker) on a Manager-assigned REVIEW ticket', async () => {
+    const tl = { id: 'tl1', role: { name: 'TEAM_LEAD' }, departmentId: 'd1' };
+    const result = await makeAccess().viewerCanApprove(tl, reviewTicket());
+    expect(result).toBe(false);
+  });
+
+  it('returns true for Manager (scoped, non-assignee) on a ticket they assigned to TL', async () => {
+    const mgr = { id: 'mgr1', role: { name: 'MANAGER' }, departmentId: 'd1' };
+    const result = await makeAccess().viewerCanApprove(mgr, reviewTicket());
+    expect(result).toBe(true);
+  });
+
+  it('returns false for TL who is a secondary assignee on a Manager-assigned REVIEW ticket', async () => {
+    const tl = { id: 'tl1', role: { name: 'TEAM_LEAD' }, departmentId: 'd1' };
+    // tl1 appears in assignees array but not as assignedToId
+    const ticket = reviewTicket({ assignedToId: 'emp1', assignees: [{ userId: 'tl1' }] });
+    const result = await makeAccess().viewerCanApprove(tl, ticket);
+    expect(result).toBe(false);
+  });
 });
 
 describe('TicketsService.approve — rating suppression for self-assigned', () => {
