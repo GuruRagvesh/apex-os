@@ -589,6 +589,50 @@ export class TicketsService {
     return { data, assigneeIds };
   }
 
+  // "New ticket assigned" is honest for a TASK but misleading for a cross-department
+  // QUERY/HELP request — the recipient hasn't been handed ownership of anything,
+  // they've been asked something. Keeps the same event key/recipients/notification
+  // mechanics; only the display text changes.
+  private ticketAssignedTitle(type: any, ticketId: string, reassigned = false): string {
+    if (type === 'QUERY') return `New query routed to you: ${ticketId}`;
+    if (type === 'HELP') return `New help request routed to you: ${ticketId}`;
+    return reassigned ? `Ticket assigned to you: ${ticketId}` : `New ticket assigned: ${ticketId}`;
+  }
+
+  // Resolves who should be notified that a ticket just entered REVIEW. Self-assigned
+  // tickets have a single resolved approver chain — the exact same one enforced at
+  // transition time — so that's reused directly. Regular (including cross-department
+  // QUERY/HELP) assignments have no single stored "approver", so candidates are
+  // filtered through the existing canViewTicket() scope check: the same rule that
+  // already governs who may see/act on the ticket, meaning this can never notify
+  // someone who isn't actually allowed to review it. Always excludes the assignee.
+  private async resolveReviewNotificationRecipients(ticket: any): Promise<string[]> {
+    try {
+      if (this.ticketAccess.isSelfAssigned(ticket)) {
+        if (ticket.approverId) return [ticket.approverId];
+        const primary = await this.hierarchyApprovalService.resolvePrimaryApproverFor(ticket.createdById);
+        return primary ? [primary.id] : [];
+      }
+
+      const candidates = await this.prisma.user.findMany({
+        where: {
+          isActive: true,
+          id: { not: ticket.assignedToId ?? '' },
+          role: { name: { in: ['TEAM_LEAD', 'MANAGER'] } },
+        },
+        select: { id: true, departmentId: true, role: { select: { name: true } } },
+      });
+
+      const recipients: string[] = [];
+      for (const candidate of candidates) {
+        if (await this.ticketAccess.canViewTicket(candidate, ticket.id)) recipients.push(candidate.id);
+      }
+      return recipients;
+    } catch {
+      return [];
+    }
+  }
+
   // Shared by create() and createBulk() — assignee notifications + audit trail
   // for a ticket that has already been inserted. Extracted verbatim from
   // create() (no behavior change).
@@ -607,7 +651,7 @@ export class TicketsService {
             uid,
             'assignedTicket',
             {
-              title: `New ticket assigned: ${ticket.ticketId}`,
+              title: this.ticketAssignedTitle(ticket.type, ticket.ticketId),
               message: ticket.title,
               type: NotificationType.INFO,
               link: `/tickets/${ticket.id}`,
@@ -643,7 +687,7 @@ export class TicketsService {
           ticket.assignedTo.id,
           'assignedTicket',
           {
-            title: `New ticket assigned: ${ticket.ticketId}`,
+            title: this.ticketAssignedTitle(ticket.type, ticket.ticketId),
             message: ticket.title,
             type: NotificationType.INFO,
             link: `/tickets/${ticket.id}`,
@@ -1252,7 +1296,11 @@ export class TicketsService {
     }
 
     // ── Review timer: stamp submittedAt + reviewStartedAt + reviewDueAt ──────
-    if (data.status === TicketStatus.REVIEW && !existing.submittedAt) {
+    // Captured before the mutation below so the post-update notification block
+    // can tell "freshly entered REVIEW" apart from "already in REVIEW" without
+    // re-deriving it from a field this same call is about to change.
+    const enteringReview = data.status === TicketStatus.REVIEW && !existing.submittedAt;
+    if (enteringReview) {
       const now = new Date();
       data.submittedAt = now;
       data.reviewStartedAt = now;
@@ -1360,6 +1408,28 @@ export class TicketsService {
             );
           } catch (_e) { /* never crash main operation */ }
         }
+      } else if (data.status === TicketStatus.REVIEW && enteringReview) {
+        // Notify whoever is actually responsible for reviewing this ticket — never
+        // the submitter. Wrapped so a resolution failure can only skip the
+        // notification, and can never affect the status transition itself.
+        try {
+          const recipients = await this.resolveReviewNotificationRecipients(ticket);
+          for (const recipientId of recipients) {
+            if (recipientId === userId) continue;
+            await this.notificationEventService.sendNotification(
+              recipientId,
+              'reviewPending',
+              {
+                title: `Review needed: ${ticket.ticketId}`,
+                message: `${ticket.title} is awaiting your review`,
+                type: NotificationType.WARNING,
+                link: `/tickets/${ticket.id}`,
+                entityId: ticket.id,
+                entityType: 'TICKET',
+              }
+            );
+          }
+        } catch (_e) { /* never crash main operation */ }
       }
     }
 
@@ -1381,7 +1451,7 @@ export class TicketsService {
           ticket.assignedTo.id,
           'assignedTicket',
           {
-            title: `Ticket assigned to you: ${ticket.ticketId}`,
+            title: this.ticketAssignedTitle(ticket.type, ticket.ticketId, true),
             message: ticket.title,
             type: NotificationType.INFO,
             link: `/tickets/${ticket.id}`,

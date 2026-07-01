@@ -8,6 +8,7 @@ import { TopBar } from '@/components/layout/topbar';
 import { ColdStartBanner } from '@/components/ui/cold-start-banner';
 import { QuickActionDock } from '@/components/ui/QuickActionDock';
 import { QuickActionPalette } from '@/components/ui/QuickActionPalette';
+import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
   Calendar, Activity, LogIn,
@@ -158,6 +159,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         onClose={() => setPaletteOpen(false)}
         actions={paletteActions}
       />
+      {/* Desktop notification opt-in + workday/approval reminder polling (Phase 1) */}
+      <DesktopNotificationManager />
     </div>
   );
 }
