@@ -384,7 +384,11 @@ export class TicketsService {
       assigneeIds = [userId];
     }
 
-    if (['EMPLOYEE', 'INTERN'].includes(creatorRole) && data.type === 'TASK') {
+    // Self-assigned Employee/Intern TASK starts OPEN — no creation approval gate.
+    // The force-assign above (data.assignedToId = userId) means this branch is never
+    // reached today, but it is kept so that if a future change allows assigning to
+    // others, creation approval is automatically restored for that path.
+    if (['EMPLOYEE', 'INTERN'].includes(creatorRole) && data.type === 'TASK' && data.assignedToId !== userId) {
       const tl = await this.hierarchyApprovalService.resolveTaskCreationApprover(userId);
       if (!tl) {
         throw new BadRequestException('Team Lead approval is required but no active Team Lead could be resolved.');

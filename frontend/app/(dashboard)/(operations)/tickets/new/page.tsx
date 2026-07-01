@@ -546,12 +546,6 @@ export default function CreateTicketsPage() {
                 <span className="self-center text-xs" style={{ color: 'var(--text-tertiary)' }}>{TYPE_META[row.type].hint}</span>
               </div>
 
-              {isEmployee && row.type === 'TASK' && (
-                <div className="mb-4 p-3 rounded-lg text-sm flex items-start gap-2" style={{ backgroundColor: 'var(--color-info-bg)', color: 'var(--color-info)', border: '1px solid rgba(59,130,246,0.2)' }}>
-                  <span className="mt-0.5">ℹ</span>
-                  <span>This task will require Team Lead approval before becoming active.</span>
-                </div>
-              )}
 
               {/* Title + Description */}
               <div className="space-y-3">

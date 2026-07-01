@@ -210,6 +210,15 @@ describe('TicketAccessService.assertCanTransitionTicket — self-assigned gate (
     await expect(makeAccess().assertCanTransitionTicket(intern, internTicket, TicketStatus.DONE)).rejects.toThrow(ForbiddenException);
   });
 
+  it('allows the resolved Team Lead to approve REVIEW→DONE for an Intern self-assigned TASK', async () => {
+    const internUsers = [
+      ...directory(),
+      { id: 'intern1', name: 'Intern One', employeeId: 'I1', teamLeadName: 'TL1', reportingManager: 'M1', isActive: true, departmentId: 'd1', role: { name: 'INTERN' } },
+    ];
+    const internTicket = selfTicket({ createdById: 'intern1', assignedToId: 'intern1' });
+    await expect(makeAccess(internUsers).assertCanTransitionTicket(tl, internTicket, TicketStatus.DONE)).resolves.toBeUndefined();
+  });
+
   it('blocks MANAGER from self-completing if the ticket is NOT a TASK (e.g. QUERY)', async () => {
     const mgrQueryTicket = selfTicket({ createdById: 'mgr1', assignedToId: 'mgr1', type: 'QUERY' });
     const mgr = { id: 'mgr1', role: { name: 'MANAGER' }, departmentId: 'd1' };

@@ -66,29 +66,32 @@ describe('B2 Ticket Creation Approval', () => {
   const tlUser = { id: 'tl1', role: { name: 'TEAM_LEAD' } };
   const mgrUser = { id: 'mgr1', role: { name: 'MANAGER' } };
 
-  it('Employee creates TASK -> status PENDING_APPROVAL, approvalState PENDING, approvalType TASK_CREATION, approverId active TL', async () => {
-    hierarchyApprovalService.resolveTaskCreationApprover.mockResolvedValue({ id: 'tl1', tier: 'TEAM_LEAD' });
+  it('Employee creates self-assigned TASK → OPEN immediately, no creation approval required', async () => {
     const result = await ticketsService.create({ title: 'Test', type: 'TASK' }, empUser.id, empUser);
-    
-    expect(result.status).toBe(TicketStatus.PENDING_APPROVAL);
-    expect(result.approvalState).toBe('PENDING');
-    expect(result.approvalType).toBe('TASK_CREATION');
-    expect(result.approverId).toBe('tl1');
+
+    expect(result.status).not.toBe(TicketStatus.PENDING_APPROVAL);
+    expect(result.approvalState).toBeFalsy();
+    expect(result.approvalType).toBeFalsy();
+    expect(result.approverId).toBeFalsy();
+    expect(hierarchyApprovalService.resolveTaskCreationApprover).not.toHaveBeenCalled();
   });
 
-  it('Intern creates TASK -> same pending approval behavior', async () => {
-    hierarchyApprovalService.resolveTaskCreationApprover.mockResolvedValue({ id: 'tl1', tier: 'TEAM_LEAD' });
+  it('Intern creates self-assigned TASK → OPEN immediately, no creation approval required', async () => {
     const result = await ticketsService.create({ title: 'Test', type: 'TASK' }, internUser.id, internUser);
-    
-    expect(result.status).toBe(TicketStatus.PENDING_APPROVAL);
-    expect(result.approvalState).toBe('PENDING');
+
+    expect(result.status).not.toBe(TicketStatus.PENDING_APPROVAL);
+    expect(result.approvalState).toBeFalsy();
+    expect(hierarchyApprovalService.resolveTaskCreationApprover).not.toHaveBeenCalled();
   });
 
-  it('Employee creates TASK with no active TL -> BadRequestException and no ticket created', async () => {
+  it('Employee creates self-assigned TASK with no TL → succeeds as OPEN (no creation approval gate for self-assign)', async () => {
+    // resolveTaskCreationApprover is never called for self-assigned tasks — no TL needed at creation
     hierarchyApprovalService.resolveTaskCreationApprover.mockResolvedValue(null);
-    await expect(ticketsService.create({ title: 'Test', type: 'TASK' }, empUser.id, empUser))
-      .rejects.toThrow(BadRequestException);
-    expect(prisma.ticket.create).not.toHaveBeenCalled();
+    const result = await ticketsService.create({ title: 'Test', type: 'TASK' }, empUser.id, empUser);
+
+    expect(result.status).not.toBe(TicketStatus.PENDING_APPROVAL);
+    expect(prisma.ticket.create).toHaveBeenCalled();
+    expect(hierarchyApprovalService.resolveTaskCreationApprover).not.toHaveBeenCalled();
   });
 
   it('Team Lead creates TASK -> existing OPEN behavior unchanged', async () => {
