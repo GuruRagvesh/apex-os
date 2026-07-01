@@ -1082,7 +1082,7 @@ export class TicketsService {
       if (data.status) {
         await this.ticketAccess.assertCanTransitionTicket(user, existing, data.status);
       } else {
-        await this.ticketAccess.assertCanUpdateTicket(user, existing);
+        await this.ticketAccess.assertCanUpdateTicket(user, existing, data);
       }
     }
 
