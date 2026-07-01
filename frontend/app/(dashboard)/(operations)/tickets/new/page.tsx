@@ -77,6 +77,7 @@ interface TicketRow {
   taskSubtypeId: string; // '' | id | '__custom__'
   customSubtype: string;
   assigneeIds: string[];
+  targetDepartmentId: string; // QUERY/HELP only — cross-department routing target
   priority: string;
   startDate: string;
   startTime: string;
@@ -112,7 +113,11 @@ export default function CreateTicketsPage() {
   const isEmployee = roleName === 'EMPLOYEE' || roleName === 'INTERN';
   const myDeptId = user?.department?.id ?? '';
   const lockDept = isTL || isEmployee;     // department fixed to own dept
-  const lockAssignee = isEmployee;          // always self-assigned
+  const lockAssignee = isEmployee;          // always self-assigned — TASK only, see isSelfLockedRow
+  // Employee/Intern self-assign applies to TASK rows only — QUERY/HELP are requests
+  // directed at someone else (often in another department), so a row's type decides
+  // whether the self-lock actually applies, not just the creator's role.
+  const isSelfLockedRow = (row: TicketRow) => lockAssignee && row.type === 'TASK';
 
   const [globalDefaults, setGlobalDefaults] = useState({
     departmentId: lockDept ? myDeptId : '',
@@ -131,6 +136,7 @@ export default function CreateTicketsPage() {
     taskSubtypeId: globalDefaults.taskSubtypeId,
     customSubtype: '',
     assigneeIds: lockAssignee && user?.id ? [user.id] : [],
+    targetDepartmentId: '',
     priority: globalDefaults.priority,
     startDate: '', startTime: '',
     dueDate: '', dueTime: '',
@@ -185,6 +191,31 @@ export default function CreateTicketsPage() {
   };
   const deptName = (id: string) => (Array.isArray(departments) ? departments.find((d: any) => d.id === id)?.name : '') ?? '';
 
+  // QUERY/HELP routing recipients — fetched per (type, targetDepartmentId) combination,
+  // never from usersApi.getAll(). The backend applies its own role-based visibility
+  // (e.g. Employee/Intern QUERY is funneled to TL/Manager of the target department),
+  // so the options this returns are already exactly what the current user may pick.
+  const [routingOptionsByKey, setRoutingOptionsByKey] = useState<Record<string, any[]>>({});
+  const loadingRoutingKeys = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const keys = new Set<string>();
+    rows.forEach((row) => {
+      if (row.type !== 'TASK' && row.targetDepartmentId) {
+        keys.add(`${row.type}:${row.targetDepartmentId}`);
+      }
+    });
+    keys.forEach((key) => {
+      if (routingOptionsByKey[key] || loadingRoutingKeys.current.has(key)) return;
+      loadingRoutingKeys.current.add(key);
+      const [type, targetDepartmentId] = key.split(':');
+      ticketsApi.getRoutingOptions(type as 'QUERY' | 'HELP', targetDepartmentId)
+        .then((options: any) => setRoutingOptionsByKey((prev) => ({ ...prev, [key]: Array.isArray(options) ? options : [] })))
+        .catch(() => setRoutingOptionsByKey((prev) => ({ ...prev, [key]: [] })));
+    });
+  }, [rows, routingOptionsByKey]);
+  const routingOptionsFor = (type: RequestType, targetDepartmentId: string): any[] =>
+    routingOptionsByKey[`${type}:${targetDepartmentId}`] ?? [];
+
   // ── Global defaults handlers ─────────────────────────────────────────────────
   const setGlobal = (field: GlobalField, value: string) => {
     setGlobalDefaults((g) => {
@@ -199,7 +230,7 @@ export default function CreateTicketsPage() {
       const patch: Partial<TicketRow> = { [field]: value } as any;
       if (field === 'departmentId') {
         patch.taskTypeId = ''; patch.taskSubtypeId = '';
-        patch.assigneeIds = lockAssignee ? row.assigneeIds : [];
+        patch.assigneeIds = row.type === 'TASK' ? (lockAssignee ? row.assigneeIds : []) : row.assigneeIds;
         patch.custom = { ...row.custom, taskTypeId: false, taskSubtypeId: false };
       }
       if (field === 'taskTypeId') {
@@ -230,8 +261,23 @@ export default function CreateTicketsPage() {
       ...row,
       departmentId: value,
       taskTypeId: '', taskSubtypeId: '', customSubtype: '',
-      assigneeIds: lockAssignee ? row.assigneeIds : [],
+      // Requesting-department change only clears the TASK assignee list (dept-scoped);
+      // QUERY/HELP recipients are chosen from the separate Target Department, unaffected.
+      assigneeIds: row.type === 'TASK' ? (lockAssignee ? row.assigneeIds : []) : row.assigneeIds,
       custom: { ...row.custom, departmentId: true, taskTypeId: false, taskSubtypeId: false },
+      errors: [],
+    } : row)));
+
+  // Switching Request Type resets the fields that only make sense for the previous
+  // type: TASK's department-scoped assignee vs QUERY/HELP's target department + routed
+  // recipient. Prevents e.g. a QUERY's cross-department pick silently surviving a
+  // switch back to TASK.
+  const changeRowType = (key: string, type: RequestType) =>
+    setRows((rs) => rs.map((row) => (row.key === key ? {
+      ...row,
+      type,
+      targetDepartmentId: '',
+      assigneeIds: (isEmployee && type === 'TASK' && user?.id) ? [user.id] : [],
       errors: [],
     } : row)));
 
@@ -275,7 +321,8 @@ export default function CreateTicketsPage() {
     if (!row.title.trim()) e.push('Title is required');
     if (!row.departmentId) e.push('Department is required');
     if (!row.taskTypeId) e.push('Task Type is required');
-    if (!lockAssignee && row.assigneeIds.length === 0) e.push(`${labelFor(row.type, 'assignee')} is required`);
+    if (row.type !== 'TASK' && !row.targetDepartmentId) e.push('Target Department is required');
+    if (!isSelfLockedRow(row) && row.assigneeIds.length === 0) e.push(`${labelFor(row.type, 'assignee')} is required`);
     if (!row.dueDate) e.push('Due Date is required');
     if (row.taskSubtypeId === '__custom__' && !row.customSubtype.trim()) e.push('Custom subtype text is required');
     // Start (scheduledStartAt) must not be after Due, and the advanced Scheduled End
@@ -306,8 +353,11 @@ export default function CreateTicketsPage() {
       taskTypeId: row.taskTypeId || undefined,
       taskSubtypeId: (!isCustom && row.taskSubtypeId) ? row.taskSubtypeId : undefined,
       customSubtypeText: isCustom ? (row.customSubtype.trim() || undefined) : undefined,
-      assignedToId: row.assigneeIds[0] || (lockAssignee ? user?.id : undefined) || undefined,
-      assigneeIds: row.assigneeIds.length ? row.assigneeIds : (lockAssignee && user?.id ? [user.id] : undefined),
+      assignedToId: row.assigneeIds[0] || (isSelfLockedRow(row) ? user?.id : undefined) || undefined,
+      assigneeIds: row.assigneeIds.length ? row.assigneeIds : (isSelfLockedRow(row) && user?.id ? [user.id] : undefined),
+      // Cross-department routing target — backend derives requestingDepartmentId/
+      // isCrossDepartment/team ids from this + departmentId; TASK never sends it.
+      targetDepartmentId: row.type !== 'TASK' ? (row.targetDepartmentId || undefined) : undefined,
       priority: row.priority,
       dueDate: combineDueDateTime(row.dueDate, row.dueTime),
       estimatedMinutes: estTotal > 0 ? estTotal : undefined,
@@ -509,6 +559,7 @@ export default function CreateTicketsPage() {
           const rowTaskTypes = taskTypesFor(row.departmentId);
           const rowSubtypes = subtypesFor(row.departmentId, row.taskTypeId);
           const rowUsers = usersFor(row.departmentId);
+          const rowRoutingUsers = row.type !== 'TASK' ? routingOptionsFor(row.type, row.targetDepartmentId) : [];
           return (
             <div key={row.key} className="apex-card p-5" style={row.errors.length ? { borderColor: 'var(--color-danger)', borderWidth: 1 } : undefined}>
               {/* Row header */}
@@ -535,7 +586,7 @@ export default function CreateTicketsPage() {
               {/* Request Type */}
               <div className="flex flex-wrap gap-2 mb-4">
                 {REQUEST_TYPES.map((t) => (
-                  <button key={t} type="button" onClick={() => setRowField(row.key, 'type', t)}
+                  <button key={t} type="button" onClick={() => changeRowType(row.key, t)}
                     className={cn('px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
                       row.type === t ? 'border-indigo-400 text-indigo-600 bg-indigo-50' : '')}
                     style={row.type === t ? undefined : { borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
@@ -600,24 +651,44 @@ export default function CreateTicketsPage() {
                   </div>
                 </div>
 
+                {/* Target Department — QUERY/HELP only. Separate from the Department field
+                    above, which stays the requesting department (task-type scoping, own-dept
+                    lock rules unchanged). Picking a target department loads that department's
+                    routable people from the backend, replacing the TASK assignee dropdown. */}
+                {row.type !== 'TASK' && (
+                  <div>
+                    <label className={labelCls}>{row.type === 'QUERY' ? 'Target Department' : 'Help From Department'} *</label>
+                    <select value={row.targetDepartmentId}
+                      onChange={(e) => setRowField(row.key, 'targetDepartmentId', e.target.value)}
+                      className={inputCls}>
+                      <option value="">Select…</option>
+                      {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  </div>
+                )}
+
                 {/* Assignee + Priority */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className={labelCls}>{labelFor(row.type, 'assignee')} {!lockAssignee && '*'}</label>
-                    {lockAssignee ? (
+                    <label className={labelCls}>{labelFor(row.type, 'assignee')} {!isSelfLockedRow(row) && '*'}</label>
+                    {isSelfLockedRow(row) ? (
                       <div className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm"
                         style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
                         <span>👤</span><span>Assigned to you</span>
                       </div>
                     ) : (
                       <MultiSelect
-                        options={rowUsers.map((u: any) => ({ value: u.id, label: u.name, sublabel: formatRole(u.role), avatar: u.avatar }))}
+                        options={(row.type === 'TASK' ? rowUsers : rowRoutingUsers).map((u: any) => ({ value: u.id, label: u.name, sublabel: formatRole(u.role), avatar: u.avatar }))}
                         value={row.assigneeIds}
                         onChange={(v) => setRowField(row.key, 'assigneeIds', v)}
-                        placeholder={row.departmentId ? 'Select…' : 'Pick department first'}
+                        placeholder={
+                          row.type === 'TASK'
+                            ? (row.departmentId ? 'Select…' : 'Pick department first')
+                            : (row.targetDepartmentId ? 'Select…' : 'Pick target department first')
+                        }
                       />
                     )}
-                    {!lockAssignee && row.assigneeIds.length > 0 && <LeaveWarning assigneeIds={row.assigneeIds} />}
+                    {!isSelfLockedRow(row) && row.assigneeIds.length > 0 && <LeaveWarning assigneeIds={row.assigneeIds} />}
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">

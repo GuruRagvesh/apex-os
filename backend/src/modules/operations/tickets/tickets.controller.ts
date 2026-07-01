@@ -68,6 +68,12 @@ export class TicketsController {
     return this.ticketsService.getPendingApprovals(user.id);
   }
 
+  // Static GET route — must stay above @Get(':id') so it isn't captured as an id.
+  @Get('routing-options')
+  getRoutingOptions(@Query() query: { type?: string; targetDepartmentId?: string }, @CurrentUser() user: any) {
+    return this.ticketsService.getRoutingOptions(query.type, query.targetDepartmentId, user);
+  }
+
   @Get(':id/attachments/:attachmentId/download')
   async downloadAttachment(
     @Param('id') id: string,

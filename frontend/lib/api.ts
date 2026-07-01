@@ -228,6 +228,10 @@ export const ticketsApi = {
   remove: (id: string) => r(api.delete(`/tickets/${id}`)),
   getStats: () => r(api.get('/tickets/stats')),
   getSlaRisk: () => r(api.get('/tickets/sla-risk')),
+  // Cross-department recipients for QUERY/HELP routing — separate from the TASK
+  // assignee flow (getAll() + client-side department filter), which is untouched.
+  getRoutingOptions: (type: 'QUERY' | 'HELP', targetDepartmentId: string) =>
+    r(api.get('/tickets/routing-options', { params: { type, targetDepartmentId } })),
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
   blockTicket: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
   unblockTicket: (id: string) => r(api.post(`/tickets/${id}/unblock`)),

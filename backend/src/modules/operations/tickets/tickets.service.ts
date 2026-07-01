@@ -179,6 +179,61 @@ export class TicketsService {
     return tickets.map(t => this.sanitizeTicketForResponse(t));
   }
 
+  // Selectable recipients for cross-department QUERY/HELP routing. Deliberately
+  // separate from the TASK assignee flow (usersApi.getAll() + client-side dept
+  // filter) — TASK assignment stays department/team scoped exactly as before.
+  // Returns only the minimal identity fields needed to route a request: never
+  // the full user record (no payroll/personal fields, no archived/inactive
+  // users). Employee/Intern raising a QUERY are funneled to TL/Manager of the
+  // target department only; every other case (HELP of any role, or QUERY from
+  // TL/Manager/Admin/SuperAdmin) may reach any active user in that department.
+  async getRoutingOptions(type: string | undefined, targetDepartmentId: string | undefined, user: any) {
+    const normalizedType = String(type ?? '').toUpperCase();
+    if (!['QUERY', 'HELP'].includes(normalizedType)) {
+      throw new BadRequestException('type must be QUERY or HELP');
+    }
+    if (!targetDepartmentId) {
+      throw new BadRequestException('targetDepartmentId is required');
+    }
+
+    const department = await this.prisma.department.findUnique({
+      where: { id: targetDepartmentId },
+      select: { id: true, name: true },
+    });
+    if (!department) throw new NotFoundException('Target department not found');
+
+    const roleName: string = user?.role?.name ?? user?.role ?? '';
+    const restrictToSeniors = normalizedType === 'QUERY' && ['EMPLOYEE', 'INTERN'].includes(roleName);
+
+    const where: any = { departmentId: targetDepartmentId, isActive: true };
+    if (restrictToSeniors) {
+      where.role = { name: { in: ['TEAM_LEAD', 'MANAGER'] } };
+    }
+
+    const users = await this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: { select: { name: true } },
+        department: { select: { id: true, name: true } },
+        teamMemberships: { take: 1, select: { team: { select: { name: true } } } },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role?.name ?? null,
+      departmentId: u.department?.id ?? null,
+      departmentName: u.department?.name ?? null,
+      teamName: u.teamMemberships?.[0]?.team?.name ?? null,
+    }));
+  }
+
   async processApproval(id: string, payload: { action: 'APPROVE' | 'REJECT'; reason?: string }, user: any) {
     const ticket = await this.prisma.ticket.findFirst({
       where: { OR: [{ id }, { ticketId: id }] },
@@ -377,9 +432,12 @@ export class TicketsService {
     let assigneeIds: string[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
     delete data.assigneeIds;
 
-    // Enforce self-assign for EMPLOYEE / INTERN
+    // Enforce self-assign for EMPLOYEE / INTERN — TASK only. QUERY/HELP are
+    // requests directed AT someone else (often in another department), so
+    // forcing them back onto the creator would defeat cross-department routing.
     const creatorRole: string = user?.role?.name ?? user?.role ?? '';
-    if (['EMPLOYEE', 'INTERN'].includes(creatorRole)) {
+    const requestType = String(data.type ?? 'TASK').toUpperCase();
+    if (['EMPLOYEE', 'INTERN'].includes(creatorRole) && requestType === 'TASK') {
       data.assignedToId = userId;
       assigneeIds = [userId];
     }
@@ -419,6 +477,67 @@ export class TicketsService {
       });
       data.assignedToId = assignee?.id ?? undefined;
     }
+
+    // ── Cross-department routing for QUERY / HELP ────────────────────────────
+    // TASK keeps its existing department-scoped assignee flow untouched (no
+    // change above this block for TASK). QUERY/HELP may target a person in a
+    // different department; the dormant Ticket fields (requesting/target
+    // Department/TeamId, isCrossDepartment) capture that routing so visibility
+    // (buildScopeWhere's existing assignedTo.departmentId clause) and reporting
+    // can distinguish "asked of" from "owned by" without any schema change.
+    if (['QUERY', 'HELP'].includes(requestType)) {
+      const requestingDepartmentId: string | undefined = data.departmentId;
+      let targetDepartmentId: string | undefined = data.targetDepartmentId;
+      delete data.targetDepartmentId; // not a direct Ticket column name — reassigned below once resolved
+
+      if (targetDepartmentId && !isUUID(targetDepartmentId)) {
+        const dept = await this.prisma.department.findFirst({
+          where: { OR: [{ id: targetDepartmentId }, { name: { equals: targetDepartmentId, mode: 'insensitive' } }] },
+          select: { id: true },
+        });
+        targetDepartmentId = dept?.id ?? undefined;
+      }
+
+      if (targetDepartmentId) {
+        // Defense in depth: the routing-options endpoint already restricts who
+        // can be selected, but the client is never the source of truth — re-check
+        // that the chosen recipient actually belongs to the target department.
+        if (data.assignedToId) {
+          const targetUser = await this.prisma.user.findUnique({
+            where: { id: data.assignedToId },
+            select: { isActive: true, departmentId: true },
+          });
+          if (!targetUser || !targetUser.isActive || targetUser.departmentId !== targetDepartmentId) {
+            throw new BadRequestException('Selected recipient is not an active member of the target department');
+          }
+        }
+
+        data.requestingDepartmentId = requestingDepartmentId;
+        data.targetDepartmentId = targetDepartmentId;
+        data.isCrossDepartment = Boolean(requestingDepartmentId && requestingDepartmentId !== targetDepartmentId);
+
+        const [requestingTeamMember, targetTeamMember] = await Promise.all([
+          requestingDepartmentId
+            ? this.prisma.teamMember.findFirst({ where: { userId }, select: { teamId: true } })
+            : Promise.resolve(null),
+          data.assignedToId
+            ? this.prisma.teamMember.findFirst({ where: { userId: data.assignedToId }, select: { teamId: true } })
+            : Promise.resolve(null),
+        ]);
+        if (requestingTeamMember?.teamId) data.requestingTeamId = requestingTeamMember.teamId;
+        if (targetTeamMember?.teamId) data.targetTeamId = targetTeamMember.teamId;
+      }
+    } else {
+      // TASK (and any other non-routing type): a raw payload could otherwise smuggle
+      // cross-department routing metadata onto a ticket that isn't a QUERY/HELP —
+      // these are real Ticket columns, so an unfiltered spread would persist them.
+      delete data.targetDepartmentId;
+      delete data.requestingDepartmentId;
+      delete data.requestingTeamId;
+      delete data.targetTeamId;
+      delete data.isCrossDepartment;
+    }
+
     // Null out empty string fields so Prisma doesn't try to set '' on non-String columns
     if (!data.projectId) data.projectId = undefined;
     if (!data.departmentId) data.departmentId = undefined;
