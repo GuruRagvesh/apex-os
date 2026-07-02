@@ -134,6 +134,36 @@ const STATUS_DISPLAY: Record<string, string> = {
   OPEN: 'Open', IN_PROGRESS: 'In Progress', REVIEW: 'Under Review', DONE: 'Done', CLOSED: 'Closed',
 };
 
+// ─── Request type (TASK / QUERY / HELP) display helpers ───────────────────────
+// A HELP/QUERY ticket is a cross-department request, not ordinary assigned work —
+// the header badge, Details card, and assignee label all need to say so plainly
+// instead of quietly looking like a normal TASK.
+const REQUEST_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
+  TASK: {
+    label: 'TASK',
+    cls: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600',
+  },
+  QUERY: {
+    label: 'QUERY',
+    cls: 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700',
+  },
+  HELP: {
+    label: 'HELP REQUEST',
+    cls: 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700',
+  },
+};
+function requestTypeBadge(type: string) {
+  return REQUEST_TYPE_BADGE[type] ?? REQUEST_TYPE_BADGE.TASK;
+}
+
+const REQUEST_TYPE_DISPLAY: Record<string, string> = { TASK: 'Task', QUERY: 'Query', HELP: 'Help' };
+
+function assigneeLabelFor(type: string): string {
+  if (type === 'QUERY') return 'Routed To';
+  if (type === 'HELP') return 'Help From';
+  return 'Assigned To';
+}
+
 function humanValue(field: string, value: string | null) {
   if (!value) return 'none';
   if (field === 'status') return STATUS_DISPLAY[value] ?? value;
@@ -542,6 +572,19 @@ export default function TicketDetailPage() {
     queryKey: ['users'],
     queryFn: () => usersApi.getAll() as Promise<any[]>,
   });
+
+  // QUERY/HELP tickets carry a targetDepartmentId (raw column, always returned) but
+  // findOne() doesn't include the targetDepartment relation, so the name isn't on
+  // the ticket response — resolve it frontend-only via the existing, unmodified
+  // routing-departments endpoint instead of touching the backend include list.
+  const { data: targetDepartments } = useQuery({
+    queryKey: ['ticket-target-departments', ticket?.type],
+    queryFn: () => ticketsApi.getRoutingDepartments(ticket.type as 'QUERY' | 'HELP') as Promise<any[]>,
+    enabled: Boolean(ticket && ticket.type !== 'TASK' && ticket.targetDepartmentId),
+  });
+  const targetDepartmentName = Array.isArray(targetDepartments)
+    ? targetDepartments.find((d: any) => d.id === ticket?.targetDepartmentId)?.name
+    : undefined;
 
   const { data: history } = useQuery({
     queryKey: ['ticket-history', id],
@@ -1118,8 +1161,11 @@ export default function TicketDetailPage() {
                 {ticket.department.name}
               </span>
             )}
-            <span className="text-xs px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-              {ticket.type === 'QUERY' ? 'Query' : ticket.type === 'HELP' ? 'Help' : 'Task'}
+            {/* Request type — deliberately stronger than the other header chips (bigger
+                text, bold, real border) so a QUERY/HELP ticket never reads as an
+                ordinary TASK at a glance. */}
+            <span className={cn('text-sm font-extrabold tracking-wide px-3 py-1 rounded-md border-2', requestTypeBadge(ticket.type).cls)}>
+              {requestTypeBadge(ticket.type).label}
             </span>
             <span className={cn('text-xs px-2 py-0.5 rounded font-medium', PRIORITY_COLORS[ticket.priority])}>
               {PRIORITY_LABELS[ticket.priority] ?? ticket.priority}
@@ -1707,10 +1753,19 @@ export default function TicketDetailPage() {
           {/* Details */}
           <div className="apex-card p-4 space-y-3">
             <h3 className="font-semibold text-sm" style={{ color: 'var(--text-secondary)' }}>Details</h3>
+            {/* Request Type — same TASK/QUERY/HELP distinction as the header badge,
+                repeated here since this card is the other place people scan for
+                what kind of ticket this is before reading the Assignee section. */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Request Type</span>
+              <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                {REQUEST_TYPE_DISPLAY[ticket.type] ?? 'Task'}
+              </span>
+            </div>
             {/* Assignee(s) */}
             <div>
               <p className="text-xs mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
-                <Users size={11} /> Assigned To
+                <Users size={11} /> {assigneeLabelFor(ticket.type)}
               </p>
               {canEdit ? (
                 <select
@@ -1796,9 +1851,28 @@ export default function TicketDetailPage() {
 
             <div className="space-y-2.5 pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               {ticket.department && (
-                <div className="flex items-center gap-2">
-                  <Building2 size={13} style={{ color: 'var(--text-tertiary)' }} />
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{ticket.department.name}</span>
+                <div>
+                  {/* Requesting Department label only applies once there's a separate
+                      Target Department to distinguish it from — TASK keeps the plain,
+                      unlabeled row exactly as before. */}
+                  {ticket.type !== 'TASK' && (
+                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Requesting Department</span>
+                  )}
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Building2 size={13} style={{ color: 'var(--text-tertiary)' }} />
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{ticket.department.name}</span>
+                  </div>
+                </div>
+              )}
+              {ticket.type !== 'TASK' && ticket.targetDepartmentId && targetDepartmentName && (
+                <div>
+                  <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                    {ticket.type === 'HELP' ? 'Help From Department' : 'Target Department'}
+                  </span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Building2 size={13} style={{ color: 'var(--text-tertiary)' }} />
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{targetDepartmentName}</span>
+                  </div>
                 </div>
               )}
               {ticket.project && (
