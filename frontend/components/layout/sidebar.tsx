@@ -60,12 +60,12 @@ const BASE_NAV = [
   { href: '/tickets',   label: 'Tickets',       icon: Ticket          },
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban          },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban    },
-  { href: '/teams',     label: 'Teams',          icon: UsersRound      },
+  { href: '/teams',     label: 'Manage Teams',   icon: UsersRound      },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff     },
   { href: '/calendar',  label: 'Calendar',       icon: Calendar        },
 ];
 
-const TEAMLEAD_NAV  = [{ href: '/team',    label: 'Team',          icon: Users    }];
+const TEAMLEAD_NAV  = [{ href: '/team',    label: 'My Team',       icon: Users    }];
 const MANAGER_NAV   = [{ href: '/analytics', label: 'Analytics',   icon: BarChart3 }];
 const ADMIN_NAV     = [
   { href: '/users',       label: 'Users & Roles',  icon: Users     },
