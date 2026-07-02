@@ -205,8 +205,18 @@ export default function CreateTicketsPage() {
       if (targetDepartmentsByType[type] || loadingTargetDeptTypes.current.has(type)) return;
       loadingTargetDeptTypes.current.add(type);
       ticketsApi.getRoutingDepartments(type as 'QUERY' | 'HELP')
-        .then((depts: any) => setTargetDepartmentsByType((prev) => ({ ...prev, [type]: Array.isArray(depts) ? depts : [] })))
-        .catch(() => setTargetDepartmentsByType((prev) => ({ ...prev, [type]: [] })));
+        .then((depts: any) => {
+          setTargetDepartmentsByType((prev) => ({ ...prev, [type]: Array.isArray(depts) ? depts : [] }));
+          // Safe to clear here too: targetDepartmentsByType[type] is now populated,
+          // so the guard above already blocks a re-fetch via its other branch.
+          loadingTargetDeptTypes.current.delete(type);
+        })
+        .catch((error: any) => {
+          // Never cache a failure as "[]" — that would look identical to a
+          // legitimately empty department list and permanently block retries.
+          console.error('[tickets/new] Failed to load routing departments', { type, error });
+          loadingTargetDeptTypes.current.delete(type);
+        });
     });
   }, [rows, targetDepartmentsByType]);
   const targetDepartmentsFor = (type: RequestType): any[] => targetDepartmentsByType[type] ?? [];
