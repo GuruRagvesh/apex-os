@@ -9,7 +9,7 @@ import { EventLoggerService, OperationalAction } from '../../../common/services/
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { HierarchyApprovalService } from '../../../common/services/hierarchy-approval.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
-import { TicketLedgerService, LEDGER_PAUSE_REASONS } from './ticket-ledger.service';
+import { TicketLedgerService, LEDGER_PAUSE_REASONS, LEDGER_STAGES, LEDGER_OWNER_TYPES, LEDGER_SOURCES } from './ticket-ledger.service';
 import { TicketImportService } from './ticket-import.service';
 
 function isUUID(str: string): boolean {
@@ -1406,6 +1406,35 @@ export class TicketsService {
         userId,
       });
       this.gateway.emitTicketStatusChanged(ticket.id, data.status, userId);
+
+      // ── Actual worked-time ledger: start on entering IN_PROGRESS, end on leaving it ──
+      // This is the real worked-time tracker (TicketTimeLog via TicketLedgerService) —
+      // entirely separate from the SLA/due-date countdown (TicketTimingService), which
+      // is untouched here and correctly keeps running regardless of break/end-day.
+      // startWorkLog() already dedupes on {ticketId, userId, stage, endedAt: null}, so
+      // calling it on every entry into IN_PROGRESS (including rework re-entries) can
+      // never create a duplicate active log. Wrapped like every other side effect in
+      // this block — a ledger failure must never corrupt the status transition that
+      // already committed above.
+      try {
+        if (data.status === TicketStatus.IN_PROGRESS && existing.status !== TicketStatus.IN_PROGRESS) {
+          await this.ticketLedger.startWorkLog({
+            ticketId: ticket.id,
+            userId,
+            stage: LEDGER_STAGES.WORK,
+            ownerType: LEDGER_OWNER_TYPES.ASSIGNEE,
+            source: LEDGER_SOURCES.TICKET_STATUS,
+          });
+        } else if (existing.status === TicketStatus.IN_PROGRESS && data.status !== TicketStatus.IN_PROGRESS) {
+          await this.ticketLedger.endActiveLog({
+            ticketId: ticket.id,
+            userId,
+            pauseReason: LEDGER_PAUSE_REASONS.STATUS_CHANGE,
+          });
+        }
+      } catch (err: any) {
+        this.logger.error(`Work-log ledger update failed for ${ticket.ticketId}: ${err?.message}`);
+      }
 
       if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) {
         // Notify reporter (createdBy) that their ticket is done.

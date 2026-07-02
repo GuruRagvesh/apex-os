@@ -32,6 +32,10 @@ export const LEDGER_PAUSE_REASONS = {
   CLOSED: 'CLOSED',
   SYSTEM: 'SYSTEM',
   UNASSIGNED: 'UNASSIGNED',
+  // A normal ticket status transition out of IN_PROGRESS (e.g. submitted for
+  // review, marked done) — distinct from BREAK/LOGOUT/SYSTEM, which are workday
+  // interruptions rather than the worker actually finishing/handing off the work.
+  STATUS_CHANGE: 'STATUS_CHANGE',
 };
 
 @Injectable()
