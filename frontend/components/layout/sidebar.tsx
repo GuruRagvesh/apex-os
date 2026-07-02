@@ -129,9 +129,17 @@ export function Sidebar() {
   const isAdmin      = role === 'ADMIN' || isSuperAdmin;
   const isManager    = role === 'MANAGER' || isAdmin;
   const isTeamLead   = role === 'TEAM_LEAD' || isManager;
+  // isHR is a separate boolean flag on the user, not a role — same pattern already
+  // used on the team/leave/users pages ((user as any)?.isHR).
+  const isHR         = Boolean((user as any)?.isHR);
 
   // Nav items based on role / mode
-  const mainNav = isSuperAdmin && apexMode === 'team_lead' ? TEAMLEAD_MODE_NAV : BASE_NAV;
+  // "Manage Teams" (/teams) is org-structure management — HR/Manager/Admin/SuperAdmin
+  // only, never Employee/Intern/plain Team Lead. Filtered out of the array entirely
+  // (not just visually hidden) so it never renders for roles that shouldn't see it.
+  const showManageTeams = isManager || isHR;
+  const mainNav = (isSuperAdmin && apexMode === 'team_lead' ? TEAMLEAD_MODE_NAV : BASE_NAV)
+    .filter((item) => item.href !== '/teams' || showManageTeams);
   const showTeam      = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
   const showReports   = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
   const showAdminSect = isAdmin    && !(isSuperAdmin && apexMode === 'team_lead');
