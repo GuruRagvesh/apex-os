@@ -5,6 +5,14 @@ import { TicketsService } from '../../src/modules/operations/tickets/tickets.ser
 // QUERY/HELP routing (GET /tickets/routing-options). Separate from the TASK
 // assignee flow (usersApi.getAll() + client-side department filter), which this
 // endpoint intentionally refuses to serve.
+//
+// QUERY and HELP are anyone-to-anyone: any active user in the target department is
+// a valid recipient, regardless of the requester's role or the recipient's role.
+// There was a prior restriction funneling Employee/Intern-authored QUERY requests
+// to TEAM_LEAD/MANAGER only — that was wrong (it silently blocked e.g. an Employee
+// asking another department's Employee/Intern a QUERY) and has been removed. Only
+// TASK assignment stays role/department scoped, and that flow never reaches this
+// method at all.
 describe('TicketsService.getRoutingOptions', () => {
   let prisma: any;
   let service: TicketsService;
@@ -55,6 +63,11 @@ describe('TicketsService.getRoutingOptions', () => {
       teamMemberships: [{ team: { name: 'Growth' } }],
     },
     {
+      id: 'u-intern', name: 'Target Intern', email: 'intern@x.com', isActive: true, departmentId: 'dept-target',
+      role: { name: 'INTERN' }, department: { id: 'dept-target', name: 'Marketing' },
+      teamMemberships: [],
+    },
+    {
       id: 'u-tl', name: 'Target TL', email: 'tl@x.com', isActive: true, departmentId: 'dept-target',
       role: { name: 'TEAM_LEAD' }, department: { id: 'dept-target', name: 'Marketing' },
       teamMemberships: [],
@@ -71,6 +84,7 @@ describe('TicketsService.getRoutingOptions', () => {
     },
   ];
   const departments = { 'dept-target': { id: 'dept-target', name: 'Marketing' } };
+  const ALL_ACTIVE_IDS = ['u-emp', 'u-intern', 'u-mgr', 'u-tl'];
 
   it('rejects type=TASK — TASK keeps its existing department-scoped assignee flow, never this endpoint', async () => {
     service = makeService(targetDeptUsers, departments);
@@ -96,21 +110,35 @@ describe('TicketsService.getRoutingOptions', () => {
   it('QUERY from a Manager returns every active user in the target department, any role', async () => {
     service = makeService(targetDeptUsers, departments);
     const result = await service.getRoutingOptions('QUERY', 'dept-target', { role: { name: 'MANAGER' } });
-    expect(result.map((u: any) => u.id).sort()).toEqual(['u-emp', 'u-mgr', 'u-tl']);
+    expect(result.map((u: any) => u.id).sort()).toEqual(ALL_ACTIVE_IDS);
   });
 
-  it('HELP from an Employee returns every active user in the target department, any role', async () => {
+  it('HELP from a Manager returns every active user in the target department, any role', async () => {
     service = makeService(targetDeptUsers, departments);
-    const result = await service.getRoutingOptions('HELP', 'dept-target', { role: { name: 'EMPLOYEE' } });
-    expect(result.map((u: any) => u.id).sort()).toEqual(['u-emp', 'u-mgr', 'u-tl']);
+    const result = await service.getRoutingOptions('HELP', 'dept-target', { role: { name: 'MANAGER' } });
+    expect(result.map((u: any) => u.id).sort()).toEqual(ALL_ACTIVE_IDS);
   });
 
-  it('QUERY from an Employee/Intern is restricted to TEAM_LEAD/MANAGER of the target department', async () => {
+  it('QUERY from an Employee returns every active user in the target department, including Employee and Intern', async () => {
     service = makeService(targetDeptUsers, departments);
     const result = await service.getRoutingOptions('QUERY', 'dept-target', { role: { name: 'EMPLOYEE' } });
-    expect(result.map((u: any) => u.id).sort()).toEqual(['u-mgr', 'u-tl']);
-    // The regular employee in the target department must never appear for this caller.
-    expect(result.some((u: any) => u.id === 'u-emp')).toBe(false);
+    expect(result.map((u: any) => u.id).sort()).toEqual(ALL_ACTIVE_IDS);
+    expect(result.some((u: any) => u.id === 'u-emp')).toBe(true);
+    expect(result.some((u: any) => u.id === 'u-intern')).toBe(true);
+  });
+
+  it('HELP from an Employee returns every active user in the target department, including Employee and Intern', async () => {
+    service = makeService(targetDeptUsers, departments);
+    const result = await service.getRoutingOptions('HELP', 'dept-target', { role: { name: 'EMPLOYEE' } });
+    expect(result.map((u: any) => u.id).sort()).toEqual(ALL_ACTIVE_IDS);
+    expect(result.some((u: any) => u.id === 'u-emp')).toBe(true);
+    expect(result.some((u: any) => u.id === 'u-intern')).toBe(true);
+  });
+
+  it('QUERY from an Intern returns every active user in the target department, same as any other role', async () => {
+    service = makeService(targetDeptUsers, departments);
+    const result = await service.getRoutingOptions('QUERY', 'dept-target', { role: { name: 'INTERN' } });
+    expect(result.map((u: any) => u.id).sort()).toEqual(ALL_ACTIVE_IDS);
   });
 
   it('never returns an archived/inactive user, for any role or type', async () => {

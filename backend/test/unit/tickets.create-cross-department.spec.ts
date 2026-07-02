@@ -95,6 +95,30 @@ describe('TicketsService.create — QUERY/HELP cross-department routing', () => 
     );
   });
 
+  it('Employee can create a QUERY routed to another department\'s Employee or Intern (anyone-to-anyone, not seniors-only)', async () => {
+    service = makeService();
+    // Recipient is explicitly an EMPLOYEE (not TL/Manager) in the target department —
+    // create() never restricts the recipient by role, only that they're active and
+    // actually belong to targetDepartmentId (checked below). The seniors-only
+    // restriction lived in getRoutingOptions() (who may be *offered*), never here.
+    prisma.user.findUnique.mockResolvedValue({ isActive: true, departmentId: DEPT_B, role: { name: 'EMPLOYEE' } });
+
+    await service.create(
+      {
+        title: 'How do I file an expense report?', category: 'OPERATIONS', priority: 'LOW', type: 'QUERY',
+        departmentId: DEPT_A, assignedToId: USER_TARGET_IN_B, targetDepartmentId: DEPT_B,
+      },
+      'emp-1',
+      employee,
+    );
+
+    expect(prisma.ticket.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ assignedToId: USER_TARGET_IN_B, targetDepartmentId: DEPT_B }),
+      }),
+    );
+  });
+
   it('QUERY populates requestingDepartmentId/targetDepartmentId/isCrossDepartment when departments differ', async () => {
     service = makeService();
     prisma.user.findUnique.mockResolvedValue({ isActive: true, departmentId: DEPT_B });

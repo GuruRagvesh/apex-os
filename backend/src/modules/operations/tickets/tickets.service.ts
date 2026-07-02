@@ -202,13 +202,11 @@ export class TicketsService {
     });
     if (!department) throw new NotFoundException('Target department not found');
 
-    const roleName: string = user?.role?.name ?? user?.role ?? '';
-    const restrictToSeniors = normalizedType === 'QUERY' && ['EMPLOYEE', 'INTERN'].includes(roleName);
-
+    // QUERY and HELP are anyone-to-anyone: any active user in the target department
+    // is a valid recipient, regardless of the requester's or recipient's role. Only
+    // TASK assignment is role/department scoped — that flow is untouched and never
+    // reaches this method.
     const where: any = { departmentId: targetDepartmentId, isActive: true };
-    if (restrictToSeniors) {
-      where.role = { name: { in: ['TEAM_LEAD', 'MANAGER'] } };
-    }
 
     const users = await this.prisma.user.findMany({
       where,
