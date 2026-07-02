@@ -234,6 +234,27 @@ export class TicketsService {
     }));
   }
 
+  // Selectable target departments for cross-department QUERY/HELP routing. Separate
+  // from GET /departments, which is scoped to the caller's own/managed department(s)
+  // for every non-admin role (DepartmentsService.findAll -> managedDepartmentIds) —
+  // exactly the list a QUERY/HELP requester must NOT be limited to, since the whole
+  // point is asking a department they don't belong to. The Department model has no
+  // isActive/archived flag today, so every department is "active"; if one is added
+  // later, filtering it in here is the only change needed.
+  async getRoutingDepartments(type: string | undefined) {
+    const normalizedType = String(type ?? '').toUpperCase();
+    if (!['QUERY', 'HELP'].includes(normalizedType)) {
+      throw new BadRequestException('type must be QUERY or HELP');
+    }
+
+    const departments = await this.prisma.department.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    return departments;
+  }
+
   async processApproval(id: string, payload: { action: 'APPROVE' | 'REJECT'; reason?: string }, user: any) {
     const ticket = await this.prisma.ticket.findFirst({
       where: { OR: [{ id }, { ticketId: id }] },

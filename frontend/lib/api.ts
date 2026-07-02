@@ -232,6 +232,11 @@ export const ticketsApi = {
   // assignee flow (getAll() + client-side department filter), which is untouched.
   getRoutingOptions: (type: 'QUERY' | 'HELP', targetDepartmentId: string) =>
     r(api.get('/tickets/routing-options', { params: { type, targetDepartmentId } })),
+  // Selectable TARGET departments for QUERY/HELP — unscoped (every department in
+  // the company), unlike departmentsApi.getAll() which is limited to the caller's
+  // own/managed department(s) for every non-admin role.
+  getRoutingDepartments: (type: 'QUERY' | 'HELP') =>
+    r(api.get('/tickets/routing-departments', { params: { type } })),
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
   blockTicket: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
   unblockTicket: (id: string) => r(api.post(`/tickets/${id}/unblock`)),

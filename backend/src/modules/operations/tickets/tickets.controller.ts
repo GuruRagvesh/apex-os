@@ -74,6 +74,12 @@ export class TicketsController {
     return this.ticketsService.getRoutingOptions(query.type, query.targetDepartmentId, user);
   }
 
+  // Static GET route — must stay above @Get(':id') so it isn't captured as an id.
+  @Get('routing-departments')
+  getRoutingDepartments(@Query() query: { type?: string }) {
+    return this.ticketsService.getRoutingDepartments(query.type);
+  }
+
   @Get(':id/attachments/:attachmentId/download')
   async downloadAttachment(
     @Param('id') id: string,

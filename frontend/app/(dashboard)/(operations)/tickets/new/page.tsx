@@ -191,6 +191,26 @@ export default function CreateTicketsPage() {
   };
   const deptName = (id: string) => (Array.isArray(departments) ? departments.find((d: any) => d.id === id)?.name : '') ?? '';
 
+  // Selectable TARGET departments for QUERY/HELP — fetched per type, never from
+  // departmentsApi.getAll() (which is scoped to the caller's own/managed
+  // department(s) for every non-admin role — exactly the list a QUERY/HELP
+  // requester must NOT be limited to, since the whole point is asking a
+  // department they don't belong to).
+  const [targetDepartmentsByType, setTargetDepartmentsByType] = useState<Record<string, any[]>>({});
+  const loadingTargetDeptTypes = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const types = new Set<string>();
+    rows.forEach((row) => { if (row.type !== 'TASK') types.add(row.type); });
+    types.forEach((type) => {
+      if (targetDepartmentsByType[type] || loadingTargetDeptTypes.current.has(type)) return;
+      loadingTargetDeptTypes.current.add(type);
+      ticketsApi.getRoutingDepartments(type as 'QUERY' | 'HELP')
+        .then((depts: any) => setTargetDepartmentsByType((prev) => ({ ...prev, [type]: Array.isArray(depts) ? depts : [] })))
+        .catch(() => setTargetDepartmentsByType((prev) => ({ ...prev, [type]: [] })));
+    });
+  }, [rows, targetDepartmentsByType]);
+  const targetDepartmentsFor = (type: RequestType): any[] => targetDepartmentsByType[type] ?? [];
+
   // QUERY/HELP routing recipients — fetched per (type, targetDepartmentId) combination,
   // never from usersApi.getAll(). The backend applies its own role-based visibility
   // (e.g. Employee/Intern QUERY is funneled to TL/Manager of the target department),
@@ -278,6 +298,18 @@ export default function CreateTicketsPage() {
       type,
       targetDepartmentId: '',
       assigneeIds: (isEmployee && type === 'TASK' && user?.id) ? [user.id] : [],
+      errors: [],
+    } : row)));
+
+  // Changing the target department invalidates whatever recipient was picked for
+  // the PREVIOUS target department (routing-options is keyed by targetDepartmentId,
+  // so a stale assigneeIds selection would silently point at someone in the wrong
+  // department otherwise).
+  const changeRowTargetDepartment = (key: string, targetDepartmentId: string) =>
+    setRows((rs) => rs.map((row) => (row.key === key ? {
+      ...row,
+      targetDepartmentId,
+      assigneeIds: [],
       errors: [],
     } : row)));
 
@@ -653,16 +685,19 @@ export default function CreateTicketsPage() {
 
                 {/* Target Department — QUERY/HELP only. Separate from the Department field
                     above, which stays the requesting department (task-type scoping, own-dept
-                    lock rules unchanged). Picking a target department loads that department's
-                    routable people from the backend, replacing the TASK assignee dropdown. */}
+                    lock rules unchanged). Sourced from the unscoped routing-departments
+                    endpoint (every department in the company), NOT departmentsApi.getAll()
+                    (scoped to the caller's own/managed department). Picking a target
+                    department loads that department's routable people from the backend,
+                    replacing the TASK assignee dropdown. */}
                 {row.type !== 'TASK' && (
                   <div>
                     <label className={labelCls}>{row.type === 'QUERY' ? 'Target Department' : 'Help From Department'} *</label>
                     <select value={row.targetDepartmentId}
-                      onChange={(e) => setRowField(row.key, 'targetDepartmentId', e.target.value)}
+                      onChange={(e) => changeRowTargetDepartment(row.key, e.target.value)}
                       className={inputCls}>
                       <option value="">Select…</option>
-                      {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      {targetDepartmentsFor(row.type).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
                   </div>
                 )}
@@ -681,6 +716,7 @@ export default function CreateTicketsPage() {
                         options={(row.type === 'TASK' ? rowUsers : rowRoutingUsers).map((u: any) => ({ value: u.id, label: u.name, sublabel: formatRole(u.role), avatar: u.avatar }))}
                         value={row.assigneeIds}
                         onChange={(v) => setRowField(row.key, 'assigneeIds', v)}
+                        disabled={row.type !== 'TASK' && !row.targetDepartmentId}
                         placeholder={
                           row.type === 'TASK'
                             ? (row.departmentId ? 'Select…' : 'Pick department first')
