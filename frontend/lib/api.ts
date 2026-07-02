@@ -230,13 +230,20 @@ export const ticketsApi = {
   getSlaRisk: () => r(api.get('/tickets/sla-risk')),
   // Cross-department recipients for QUERY/HELP routing — separate from the TASK
   // assignee flow (getAll() + client-side department filter), which is untouched.
+  // _ts busts the cache: Express auto-generates an ETag for this JSON response, and
+  // when the browser revalidates with a matching If-None-Match it gets back a bare
+  // 304 with no body. Axios's default validateStatus only accepts 2xx, so a 304
+  // is routed to the error interceptor instead of the success path — the caller's
+  // .catch() then silently resolves to an empty list, which is exactly what left
+  // the Target Department / Ask-Route-To dropdowns empty in production.
   getRoutingOptions: (type: 'QUERY' | 'HELP', targetDepartmentId: string) =>
-    r(api.get('/tickets/routing-options', { params: { type, targetDepartmentId } })),
+    r(api.get('/tickets/routing-options', { params: { type, targetDepartmentId, _ts: Date.now() } })),
   // Selectable TARGET departments for QUERY/HELP — unscoped (every department in
   // the company), unlike departmentsApi.getAll() which is limited to the caller's
-  // own/managed department(s) for every non-admin role.
+  // own/managed department(s) for every non-admin role. Same 304 cache-bust as
+  // getRoutingOptions above — see that comment for why _ts is required here.
   getRoutingDepartments: (type: 'QUERY' | 'HELP') =>
-    r(api.get('/tickets/routing-departments', { params: { type } })),
+    r(api.get('/tickets/routing-departments', { params: { type, _ts: Date.now() } })),
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
   blockTicket: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
   unblockTicket: (id: string) => r(api.post(`/tickets/${id}/unblock`)),

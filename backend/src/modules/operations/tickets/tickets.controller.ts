@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Patch, Delete, Body, Param, Query,
-  UseGuards, UseInterceptors, UploadedFile, Res, BadRequestException,
+  UseGuards, UseInterceptors, UploadedFile, Res, BadRequestException, Header,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -69,13 +69,19 @@ export class TicketsController {
   }
 
   // Static GET route — must stay above @Get(':id') so it isn't captured as an id.
+  // no-store: this response is scoped to the caller's role/department and changes
+  // as tickets/users change — a shared/browser cache serving a stale or wrong-user
+  // 304 here silently breaks the Target Department / routing dropdowns (see the
+  // matching comment in frontend/lib/api.ts for the symptom this caused).
   @Get('routing-options')
+  @Header('Cache-Control', 'no-store')
   getRoutingOptions(@Query() query: { type?: string; targetDepartmentId?: string }, @CurrentUser() user: any) {
     return this.ticketsService.getRoutingOptions(query.type, query.targetDepartmentId, user);
   }
 
   // Static GET route — must stay above @Get(':id') so it isn't captured as an id.
   @Get('routing-departments')
+  @Header('Cache-Control', 'no-store')
   getRoutingDepartments(@Query() query: { type?: string }) {
     return this.ticketsService.getRoutingDepartments(query.type);
   }
