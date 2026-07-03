@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -10,7 +10,7 @@ import { workdayApi } from '@/lib/api';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
   Users, UsersRound, Building2, BarChart3, LogOut, Zap, Settings,
-  Calendar, Activity, ArrowRight,
+  Calendar, Activity, ArrowRight, ChevronDown, Handshake,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UserAvatar } from '@/components/ui/user-avatar';
@@ -100,6 +100,8 @@ export function Sidebar() {
   const router              = useRouter();
   const { user, logout, hasHydrated } = useAuthStore();
   const [apexMode, setApexMode]       = useState<string>('super_admin');
+  const [showModuleMenu, setShowModuleMenu] = useState(false);
+  const moduleMenuRef = useRef<HTMLDivElement>(null);
 
   const { data: workdayData } = useQuery({
     queryKey: ['workday-today'],
@@ -120,6 +122,18 @@ export function Sidebar() {
   useEffect(() => {
     setApexMode(localStorage.getItem('apexMode') ?? 'super_admin');
   }, [pathname]);
+
+  // Close the workspace module switcher on outside click or route change
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (moduleMenuRef.current && !moduleMenuRef.current.contains(e.target as Node)) {
+        setShowModuleMenu(false);
+      }
+    };
+    if (showModuleMenu) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showModuleMenu]);
+  useEffect(() => { setShowModuleMenu(false); }, [pathname]);
 
   // Show skeleton until Zustand has rehydrated from localStorage
   if (!hasHydrated) return <SidebarSkeleton />;
@@ -143,6 +157,22 @@ export function Sidebar() {
   const showTeam      = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
   const showReports   = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
   const showAdminSect = isAdmin    && !(isSuperAdmin && apexMode === 'team_lead');
+
+  // Workspace module switcher (HRMS / Sales CRM) — separate "rooms" from the main
+  // Apex OS execution workspace, gated independently of the main nav above.
+  // isAdmin already includes isSuperAdmin (see role flags above). No MANAGER preview
+  // tier — MANAGER has no existing explicit product permission for HRMS/CRM data.
+  const showHRMS = isHR || isAdmin;
+  // No SALES role exists in frontend/lib/roles.ts yet — Sales CRM is Admin/SuperAdmin
+  // only until a real Sales role is introduced. Do not invent one here.
+  const showCRM  = isAdmin;
+  const showModuleSwitcher = showHRMS || showCRM;
+
+  const moduleItems = [
+    { href: '/dashboard', label: 'Apex OS Home', icon: LayoutDashboard },
+    ...(showHRMS ? [{ href: '/hrms', label: 'HRMS', icon: Users }] : []),
+    ...(showCRM ? [{ href: '/sales-crm', label: 'Sales CRM', icon: Handshake }] : []),
+  ];
 
   const roleBadge = ROLE_BADGE_COLOR[role] ?? { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
 
@@ -214,20 +244,57 @@ export function Sidebar() {
       className="w-64 flex flex-col"
       style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}
     >
-      {/* Logo */}
-      <div className="p-5" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }}>
-        <div className="flex items-center gap-3">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
-          >
-            <span className="text-white font-bold text-lg">A</span>
-          </div>
-          <div>
-            <p className="font-bold text-white text-base leading-none">Apex</p>
-            <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest">TechnoEdge</p>
-          </div>
+      {/* Logo / workspace switcher */}
+      <div className="p-5 relative" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }} ref={moduleMenuRef}>
+        <div className="flex items-center gap-2">
+          <Link href="/dashboard" className="flex items-center gap-3 flex-1 min-w-0">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
+            >
+              <span className="text-white font-bold text-lg">A</span>
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-white text-base leading-none truncate">APEX OS</p>
+              <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest truncate">Enterprise Execution OS</p>
+            </div>
+          </Link>
+
+          {showModuleSwitcher && (
+            <button
+              onClick={() => setShowModuleMenu((v) => !v)}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/60 transition-colors flex-shrink-0"
+              title="Switch workspace"
+            >
+              <ChevronDown size={14} className={cn('transition-transform', showModuleMenu && 'rotate-180')} />
+            </button>
+          )}
         </div>
+
+        {showModuleSwitcher && showModuleMenu && (
+          <div
+            className="absolute left-5 right-5 top-[68px] z-50 rounded-xl overflow-hidden"
+            style={{ backgroundColor: '#141C2E', border: '1px solid rgba(30,41,59,0.9)', boxShadow: '0 16px 32px rgba(0,0,0,0.5)' }}
+          >
+            <p className="px-3 pt-2.5 pb-1.5 text-[10px] font-mono uppercase tracking-widest text-slate-500">Workspaces</p>
+            <div className="p-1.5 pt-0 space-y-0.5">
+              {moduleItems.map((item) => {
+                const active = pathname === item.href || pathname.startsWith(item.href + '/');
+                return (
+                  <button
+                    key={item.href}
+                    onClick={() => { setShowModuleMenu(false); router.push(item.href); }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-sm transition-colors hover:bg-slate-800/70"
+                    style={{ color: active ? '#60a5fa' : '#cbd5e1' }}
+                  >
+                    <item.icon size={15} className="flex-shrink-0" style={{ color: active ? '#60a5fa' : '#64748b' }} />
+                    <span className="flex-1 truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}

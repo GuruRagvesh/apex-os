@@ -26,6 +26,8 @@ const pageNames: Record<string, string> = {
   '/settings': 'Settings',
   '/profile': 'My Profile',
   '/team': 'Team',
+  '/hrms': 'HRMS',
+  '/sales-crm': 'Sales CRM',
 };
 
 export function TopBar() {
