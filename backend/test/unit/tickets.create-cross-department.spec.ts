@@ -77,9 +77,10 @@ describe('TicketsService.create — QUERY/HELP cross-department routing', () => 
     );
   });
 
-  it('QUERY from an Employee is NOT force-self-assigned — the chosen recipient survives', async () => {
+  it('QUERY from an Employee is NOT force-self-assigned — the chosen recipient survives (if senior)', async () => {
     service = makeService();
-    prisma.user.findUnique.mockResolvedValue({ isActive: true, departmentId: DEPT_B });
+    // New rule: employees can only route QUERY to TL/Manager/Admin/SuperAdmin
+    prisma.user.findUnique.mockResolvedValue({ isActive: true, departmentId: DEPT_B, role: { name: 'MANAGER' } });
 
     await service.create(
       {
@@ -95,17 +96,32 @@ describe('TicketsService.create — QUERY/HELP cross-department routing', () => 
     );
   });
 
-  it('Employee can create a QUERY routed to another department\'s Employee or Intern (anyone-to-anyone, not seniors-only)', async () => {
+  it('Employee CANNOT route QUERY to a non-senior (new hierarchy rule)', async () => {
     service = makeService();
-    // Recipient is explicitly an EMPLOYEE (not TL/Manager) in the target department —
-    // create() never restricts the recipient by role, only that they're active and
-    // actually belong to targetDepartmentId (checked below). The seniors-only
-    // restriction lived in getRoutingOptions() (who may be *offered*), never here.
+    // NEW RULE: Recipient is explicitly an EMPLOYEE (not TL/Manager) in the target department.
+    // Employees can now only route QUERY to TL/Manager/Admin/SuperAdmin, so this should be rejected.
     prisma.user.findUnique.mockResolvedValue({ isActive: true, departmentId: DEPT_B, role: { name: 'EMPLOYEE' } });
+
+    await expect(
+      service.create(
+        {
+          title: 'How do I file an expense report?', category: 'OPERATIONS', priority: 'LOW', type: 'QUERY',
+          departmentId: DEPT_A, assignedToId: USER_TARGET_IN_B, targetDepartmentId: DEPT_B,
+        },
+        'emp-1',
+        employee,
+      ),
+    ).rejects.toThrow(/Employees can only route Queries to Team Leads, Managers, or Admins/);
+  });
+
+  it('Employee CAN route QUERY to a senior in another department (new hierarchy rule)', async () => {
+    service = makeService();
+    // Recipients with senior roles (TEAM_LEAD, MANAGER, ADMIN, SUPER_ADMIN) are allowed
+    prisma.user.findUnique.mockResolvedValue({ isActive: true, departmentId: DEPT_B, role: { name: 'TEAM_LEAD' } });
 
     await service.create(
       {
-        title: 'How do I file an expense report?', category: 'OPERATIONS', priority: 'LOW', type: 'QUERY',
+        title: 'How should we handle this?', category: 'OPERATIONS', priority: 'LOW', type: 'QUERY',
         departmentId: DEPT_A, assignedToId: USER_TARGET_IN_B, targetDepartmentId: DEPT_B,
       },
       'emp-1',
@@ -121,7 +137,8 @@ describe('TicketsService.create — QUERY/HELP cross-department routing', () => 
 
   it('QUERY populates requestingDepartmentId/targetDepartmentId/isCrossDepartment when departments differ', async () => {
     service = makeService();
-    prisma.user.findUnique.mockResolvedValue({ isActive: true, departmentId: DEPT_B });
+    // Need to mock a senior role for employee QUERY routing (new hierarchy rule)
+    prisma.user.findUnique.mockResolvedValue({ isActive: true, departmentId: DEPT_B, role: { name: 'MANAGER' } });
 
     await service.create(
       {

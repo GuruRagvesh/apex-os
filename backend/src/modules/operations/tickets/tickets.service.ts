@@ -524,10 +524,18 @@ export class TicketsService {
         if (data.assignedToId) {
           const targetUser = await this.prisma.user.findUnique({
             where: { id: data.assignedToId },
-            select: { isActive: true, departmentId: true },
+            select: { isActive: true, departmentId: true, role: { select: { name: true } } },
           });
           if (!targetUser || !targetUser.isActive || targetUser.departmentId !== targetDepartmentId) {
             throw new BadRequestException('Selected recipient is not an active member of the target department');
+          }
+
+          // QUERY-specific hierarchy requirement: employees/interns can only route QUERY to TL/Manager/Admin/SuperAdmin
+          if (requestType === 'QUERY' && ['EMPLOYEE', 'INTERN'].includes(creatorRole)) {
+            const tlManagerRoles = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+            if (!tlManagerRoles.includes(targetUser.role?.name ?? '')) {
+              throw new ForbiddenException('Employees can only route Queries to Team Leads, Managers, or Admins');
+            }
           }
         }
 
@@ -1933,19 +1941,40 @@ export class TicketsService {
     if (ticket.status !== TicketStatus.REVIEW) {
       throw new ForbiddenException('Only tickets in REVIEW status can be approved');
     }
-    if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.DONE);
 
-    // No self-rating, ever: self-assigned tickets (Task/Query/Help) are comment-only —
-    // the worker's hierarchy approves with an optional comment but no star ratings.
-    // Defensive second guard: even if a payload arrives, never persist a rating authored
-    // by one of the ticket's own assignees. The comment is kept; the numeric stars are not.
+    // Type-specific approval permission checks
+    if (user) {
+      if (ticket.type === 'QUERY' && userId !== ticket.createdById) {
+        throw new ForbiddenException('Only the Query creator can approve a Query');
+      }
+      if (ticket.type === 'HELP' && userId !== ticket.createdById) {
+        throw new ForbiddenException('Only the Help requester can approve a Help ticket');
+      }
+      // TASK: keep existing hierarchy-based approval via assertCanTransitionTicket
+      if (ticket.type === 'TASK') {
+        await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.DONE);
+      }
+    }
+
+    // Type-specific rating logic
     const selfAssigned = this.ticketAccess.isSelfAssigned(ticket);
     const reviewerIsAssignee =
       userId === this.primaryAssigneeId(ticket) ||
       Boolean(ticket.assignees?.some?.((a: any) => (a?.userId ?? a?.user?.id) === userId));
-    const effectiveRatings = (selfAssigned || reviewerIsAssignee)
-      ? { ratingComment: ratings?.ratingComment ?? null }
-      : ratings;
+
+    let effectiveRatings: any;
+    if (ticket.type === 'QUERY') {
+      // Query creator can submit star ratings
+      effectiveRatings = ratings;
+    } else if (ticket.type === 'HELP') {
+      // Help requester can submit full ratings (no restrictions)
+      effectiveRatings = ratings;
+    } else {
+      // TASK: no self-rating — if self-assigned or reviewer is assignee, comment-only
+      effectiveRatings = (selfAssigned || reviewerIsAssignee)
+        ? { ratingComment: ratings?.ratingComment ?? null }
+        : ratings;
+    }
 
     // Persist the review decision BEFORE transitioning status. If this throws, the ticket
     // must stay in REVIEW — it must never silently reach DONE with no record of the decision.
@@ -1985,6 +2014,17 @@ export class TicketsService {
     if (ticket.status !== TicketStatus.REVIEW) {
       throw new ForbiddenException('Only tickets in REVIEW status can be rejected');
     }
+
+    // QUERY workflow: only the creator/assigned-by can request rework, not the assignee
+    if (ticket.type === 'QUERY' && userId !== ticket.createdById) {
+      throw new ForbiddenException('Only the Query creator can request rework on a Query');
+    }
+
+    // HELP workflow: only the assignee can reject/decline the help request
+    if (ticket.type === 'HELP' && userId !== ticket.assignedToId) {
+      throw new ForbiddenException('Only the Help assignee can decline a Help request');
+    }
+
     if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.IN_PROGRESS);
 
     // Persist the rework decision/feedback BEFORE transitioning status — same ordering

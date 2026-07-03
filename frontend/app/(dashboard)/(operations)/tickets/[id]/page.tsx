@@ -807,10 +807,10 @@ export default function TicketDetailPage() {
   });
 
   const approveMutation = useMutation({
-    // Self-assigned tickets (Task/Query/Help) and Help tickets are comment-only — never
-    // send star ratings (backend ignores them too; this keeps the payload honest).
+    // Self-assigned TASK tickets are comment-only — never send star ratings.
+    // QUERY creator and HELP requester can submit full ratings.
     mutationFn: () => {
-      const ratingsAllowed = !ticket.selfAssigned && ticket.type !== 'HELP';
+      const ratingsAllowed = !ticket.selfAssigned;
       return ticketsApi.approve(ticket.id, ratingsAllowed
         ? { taskEfficiencyRating, employeePerformanceRating, employeeAttitudeRating, ratingComment }
         : { ratingComment });
@@ -1413,9 +1413,7 @@ export default function TicketDetailPage() {
                 </div>
               ) : (
                 <p className="text-xs text-slate-500">
-                  {isSelfAssigned
-                    ? 'Self-assigned work is approved comment-only — no ratings are recorded.'
-                    : 'Help tickets are approved comment-only — no ratings are recorded.'}
+                  Self-assigned work is approved comment-only — no ratings are recorded.
                 </p>
               )}
               <input
