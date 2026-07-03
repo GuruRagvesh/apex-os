@@ -10,6 +10,11 @@
  * Run:
  *   npx ts-node --compiler-options '{"module":"CommonJS"}' prisma/seed-test-users.ts
  *
+ * Environment guards:
+ *   • NODE_ENV=production → blocked entirely
+ *   • Database URL points to known production host → blocked
+ *   • Requires explicit ALLOW_TEST_USER_SEED=true to proceed
+ *
  * Test credentials (all same password):
  *   superadmin@apex.local  / Apex@local1
  *   admin@apex.local       / Apex@local1
@@ -22,6 +27,57 @@
 
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+
+// ── Production Guard ──────────────────────────────────────────────────────────
+function guardAgainstProduction() {
+  const nodeEnv = process.env.NODE_ENV?.toLowerCase() || '';
+  const databaseUrl = process.env.DATABASE_URL || '';
+  const allowTestUsers = process.env.ALLOW_TEST_USER_SEED?.toLowerCase() === 'true';
+
+  // Absolute blocker: NODE_ENV=production
+  if (nodeEnv === 'production') {
+    console.error('❌ TEST USER SEED BLOCKED: NODE_ENV is set to "production"');
+    console.error('   Test user accounts cannot be created in production.');
+    console.error('   Reason: NODE_ENV=production is a hard safety block.');
+    process.exit(1);
+  }
+
+  // Production database detection — always block, no exceptions
+  const productionPatterns = [
+    /render\.com/i,           // Render.com any host
+    /dpg-[\w]+\.[\w]+-[\w]+\.postgres\.render\.com/i,  // Render Postgres pattern
+    /production/i,            // Generic "production" in hostname
+    /prod\.technoedge/i,      // TechnoEdge production domain
+    /dpg-d8259omk1jcs73e37fbg/i, // Known production Postgres ID (from audit)
+  ];
+
+  const looksLikeProduction = productionPatterns.some((pattern) =>
+    pattern.test(databaseUrl),
+  );
+
+  if (looksLikeProduction) {
+    console.error('❌ TEST USER SEED BLOCKED: Database URL appears to point to production');
+    console.error(`   URL: ${databaseUrl.replace(/:[^:@]+@/, ':****@')}`);
+    console.error('');
+    console.error('   Production databases cannot be seeded. No exceptions.');
+    process.exit(1);
+  }
+
+  // Require explicit allow flag even for non-production databases
+  if (!allowTestUsers) {
+    console.error('❌ TEST USER SEED BLOCKED: ALLOW_TEST_USER_SEED not set');
+    console.error('');
+    console.error('   To create test users on a non-production database:');
+    console.error('   $ ALLOW_TEST_USER_SEED=true npx ts-node prisma/seed-test-users.ts');
+    console.error('');
+    process.exit(1);
+  }
+
+  // All checks passed — proceed
+  console.log('✓ Environment checks passed. Creating test users...');
+}
+
+guardAgainstProduction();
 
 const prisma = new PrismaClient();
 

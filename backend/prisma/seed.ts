@@ -6,15 +6,85 @@
  *   • 11 departments
  *   • 40 real TechnoEdge employees  (password: Apex@2026)
  *
- * Safe to run multiple times — all upserts, nothing is deleted.
+ * ⚠️  DESTRUCTIVE: Deletes demo projects and old test users. Requires explicit
+ * allow-flag to run.
  *
  * Run:  npx prisma db seed
  *  or:  npx ts-node prisma/seed.ts
+ *
+ * Environment guards:
+ *   • NODE_ENV=production → blocked entirely, no exceptions
+ *   • Database URL points to known production host → blocked entirely, no exceptions
+ *   • ALLOW_DESTRUCTIVE_SEED not set → blocked by default
+ *   • ALLOW_DESTRUCTIVE_SEED=true only allows safe non-production database seeding
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+
+// ── Production Guard ──────────────────────────────────────────────────────────
+function guardAgainstProduction() {
+  const nodeEnv = process.env.NODE_ENV?.toLowerCase() || '';
+  const databaseUrl = process.env.DATABASE_URL || '';
+  const allowDestructive = process.env.ALLOW_DESTRUCTIVE_SEED?.toLowerCase() === 'true';
+
+  // Absolute blocker: NODE_ENV=production
+  if (nodeEnv === 'production') {
+    console.error('❌ SEED BLOCKED: NODE_ENV is set to "production"');
+    console.error('   This seed script deletes data and cannot run in production.');
+    console.error('   Reason: NODE_ENV=production is a hard safety block.');
+    process.exit(1);
+  }
+
+  // Production database detection — always block, no exceptions
+  const productionPatterns = [
+    /render\.com/i,           // Render.com any host
+    /dpg-[\w]+\.[\w]+-[\w]+\.postgres\.render\.com/i,  // Render Postgres pattern
+    /production/i,            // Generic "production" in hostname
+    /prod\.technoedge/i,      // TechnoEdge production domain
+    /dpg-d8259omk1jcs73e37fbg/i, // Known production Postgres ID (from audit)
+  ];
+
+  const looksLikeProduction = productionPatterns.some((pattern) =>
+    pattern.test(databaseUrl),
+  );
+
+  if (looksLikeProduction) {
+    console.error('❌ SEED BLOCKED: Database URL appears to point to production');
+    console.error(`   URL: ${databaseUrl.replace(/:[^:@]+@/, ':****@')}`);
+    console.error('');
+    console.error('   Production databases cannot be seeded. No exceptions.');
+    process.exit(1);
+  }
+
+  // Require explicit allow flag even for non-production databases
+  if (!allowDestructive) {
+    console.error('❌ SEED BLOCKED: ALLOW_DESTRUCTIVE_SEED not set');
+    console.error('');
+    console.error('   This seed script deletes demo projects and old test users.');
+    console.error('   To proceed on a non-production database:');
+    console.error('   $ ALLOW_DESTRUCTIVE_SEED=true npx prisma db seed');
+    console.error('');
+    console.error('   Proceeding will delete demo data in 3 seconds if approved.');
+    process.exit(1);
+  }
+
+  // All checks passed — warn and proceed with 3-second delay
+  console.warn('');
+  console.warn('⚠️  WARNING: Running destructive seed script');
+  console.warn(`   Database: ${databaseUrl.replace(/:[^:@]+@/, ':****@')}`);
+  console.warn('   This will delete demo projects and old test users.');
+  console.warn('   Proceeding in 3 seconds... (press Ctrl+C to cancel)');
+  console.warn('');
+  // Sleep 3 seconds to give user a chance to Ctrl+C
+  const end = Date.now() + 3000;
+  while (Date.now() < end) {
+    // busy wait (crude but effective for a 3s delay)
+  }
+}
+
+guardAgainstProduction();
 
 const prisma = new PrismaClient();
 
