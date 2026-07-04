@@ -3,152 +3,121 @@
 import Link from 'next/link';
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
-import { cn } from '@/lib/utils';
+import { usersApi, leaveApi, changeRequestsApi } from '@/lib/api';
+import { formatRelativeTime, cn } from '@/lib/utils';
 import { motion } from 'motion/react';
 import {
   type LucideIcon,
   LayoutGrid, Users, Clock, CalendarOff, FileText, ClipboardCheck,
   UserPlus, UserMinus, Target, BarChart3, ShieldAlert, ArrowRight, ArrowLeft,
+  Loader2, ExternalLink, Inbox,
 } from 'lucide-react';
 
 // Standalone HRMS workspace — deliberately NOT under (dashboard), so it does not
 // inherit the Apex OS global Sidebar/TopBar. This page builds its own full-page
 // shell (HRMS sidebar + header + content) and replicates the auth-redirect guard
 // that (dashboard)/layout.tsx would otherwise have provided.
+//
+// Every HRMS sidebar item stays inside /hrms (internal ?section= navigation only).
+// HR-management data is fetched directly from the same APIs the main Apex OS pages
+// use — verified section by section (see notes below) — never by navigating the
+// user out to /leave, /users, /analytics, /admin/activity, or /admin/approvals.
+// Where a real Apex OS page is relevant, it is offered only as a clearly secondary
+// "Open ..." link/button, never as the primary HRMS navigation.
 
 type SectionKey =
-  | 'overview' | 'employees' | 'attendance' | 'leave' | 'documents'
-  | 'approvals' | 'onboarding' | 'offboarding' | 'performance' | 'reports';
+  | 'overview' | 'employees' | 'leave-management' | 'attendance-management'
+  | 'hr-approvals' | 'documents' | 'onboarding' | 'offboarding' | 'performance' | 'reports';
 
 interface PanelItem {
   key: SectionKey;
   label: string;
   icon: LucideIcon;
-  /** Present only when a real Apex OS route exists AND the current viewer can open it. */
-  href?: string;
 }
 
-// /users and /analytics are Admin/SuperAdmin-only in their own page guards
-// (verified by reading each page directly — neither checks the isHR flag), so
-// Employees and Reports can only link out for isAdmin viewers. For HR-only
-// viewers they fall back to an in-room Planned pane instead — HRMS must never
-// advertise a Live route that the viewer will actually be blocked from opening.
-// /leave, /admin/activity, and /admin/approvals have no such block and are
-// safe to link for everyone with HRMS access.
-function buildPanelItems(isAdmin: boolean): PanelItem[] {
-  return [
-    { key: 'overview',    label: 'HRMS Overview',        icon: LayoutGrid },
-    { key: 'employees',   label: 'Employees',            icon: Users,          href: isAdmin ? '/users' : undefined },
-    { key: 'attendance',  label: 'Attendance / Workday',  icon: Clock,          href: '/admin/activity' },
-    { key: 'leave',       label: 'Leave',                 icon: CalendarOff,    href: '/leave' },
-    { key: 'documents',   label: 'Documents',             icon: FileText },
-    { key: 'approvals',   label: 'HR Approvals',          icon: ClipboardCheck, href: '/admin/approvals' },
-    { key: 'onboarding',  label: 'Onboarding',            icon: UserPlus },
-    { key: 'offboarding', label: 'Offboarding',           icon: UserMinus },
-    { key: 'performance', label: 'Performance',           icon: Target },
-    { key: 'reports',     label: 'Reports',               icon: BarChart3,      href: isAdmin ? '/analytics' : undefined },
-  ];
-}
+const PANEL_ITEMS: PanelItem[] = [
+  { key: 'overview',              label: 'HRMS Overview',        icon: LayoutGrid },
+  { key: 'employees',             label: 'Employees',            icon: Users },
+  { key: 'attendance-management', label: 'Attendance Management', icon: Clock },
+  { key: 'leave-management',      label: 'Leave Management',      icon: CalendarOff },
+  { key: 'documents',             label: 'Documents',            icon: FileText },
+  { key: 'hr-approvals',          label: 'HR Approvals',         icon: ClipboardCheck },
+  { key: 'onboarding',            label: 'Onboarding',           icon: UserPlus },
+  { key: 'offboarding',           label: 'Offboarding',          icon: UserMinus },
+  { key: 'performance',           label: 'Performance',          icon: Target },
+  { key: 'reports',               label: 'HR Reports',           icon: BarChart3 },
+];
 
 interface OverviewCard {
   title: string;
   icon: LucideIcon;
   desc: string;
   note: string;
-  href?: string;
   badge: 'Live' | 'Planned';
   sectionKey: SectionKey;
 }
 
-// Employees and Reports badges/hrefs depend on viewer — see buildPanelItems() note.
-function buildOverviewCards(isAdmin: boolean): OverviewCard[] {
-  return [
-    {
-      title: 'Employees', icon: Users, sectionKey: 'employees',
-      href: isAdmin ? '/users' : undefined,
-      badge: isAdmin ? 'Live' : 'Planned',
-      desc: 'Company-wide employee directory, roles, and department assignment.',
-      note: isAdmin ? 'Synced with Apex OS Users & Roles.' : 'Full employee directory is currently Admin-only. HR employee directory will be connected here.',
-    },
-    {
-      title: 'Attendance / Workday', icon: Clock, href: '/admin/activity', badge: 'Live', sectionKey: 'attendance',
-      desc: 'Live work sessions, breaks, and daily attendance tracking.',
-      note: 'Powered by the live Apex OS Activity Log.',
-    },
-    {
-      title: 'Leave', icon: CalendarOff, href: '/leave', badge: 'Live', sectionKey: 'leave',
-      desc: 'Apply, approve, and track leave requests across the company.',
-      note: 'Same leave engine used across Apex OS.',
-    },
-    {
-      title: 'Documents', icon: FileText, badge: 'Planned', sectionKey: 'documents',
-      desc: 'Employee documents, ID proofs, and HR paperwork storage.',
-      note: 'Will connect to employee profiles once built.',
-    },
-    {
-      title: 'HR Approvals', icon: ClipboardCheck, href: '/admin/approvals', badge: 'Live', sectionKey: 'approvals',
-      desc: 'Designation, department, team lead, and role change approvals.',
-      note: 'Live Apex OS approval chain — will also surface Leave approvals here.',
-    },
-    {
-      title: 'Onboarding / Offboarding', icon: UserPlus, badge: 'Planned', sectionKey: 'onboarding',
-      desc: 'Structured checklists for new and exiting employees.',
-      note: 'Will auto-generate Apex OS tickets for each step.',
-    },
-    {
-      title: 'Performance Preview', icon: Target, badge: 'Planned', sectionKey: 'performance',
-      desc: 'KRA/KPI tracking and periodic performance review cycles.',
-      note: 'Not built yet — ticket-level review ratings already exist in Apex OS.',
-    },
-    {
-      title: 'Reports Preview', icon: BarChart3, sectionKey: 'reports',
-      href: isAdmin ? '/analytics' : undefined,
-      badge: isAdmin ? 'Live' : 'Planned',
-      desc: 'Headcount, attrition, leave trends, and attendance summaries.',
-      note: isAdmin ? 'HR-specific views are planned — currently powered by Apex OS Analytics.' : 'HR-specific reports are planned. Current analytics access is restricted.',
-    },
-  ];
-}
-
-// Planned (no-route-for-this-viewer) detail panes, keyed by section — shown
-// when a panel item with no href for the current viewer is opened directly.
-// Onboarding/Offboarding share one overview card above but get their own
-// focused pane here since the panel lists them as two distinct rows.
-// Employees/Reports entries only render for HR-only (non-Admin) viewers —
-// see buildPanelItems() for why those two are conditional.
-const PLANNED_DETAIL: Partial<Record<SectionKey, { title: string; icon: LucideIcon; desc: string; note: string }>> = {
-  employees: {
-    title: 'Employees', icon: Users,
-    desc: 'Company-wide employee directory, roles, and department assignment.',
-    note: 'Full employee directory is currently Admin-only. HR employee directory will be connected here.',
+// Live/Planned classification — verified by reading each backend endpoint directly:
+//   • GET /users        (usersService.findAll)   — isHrOrAdmin() bypass: HR sees the
+//     full company directory, not just their own department. Genuinely Live for HR.
+//   • GET /leave + /leave/stats (leaveAccessService.buildLeaveWhereForUser) — same
+//     isHrOrAdmin() bypass: HR sees every employee's leave, not just their own. Live.
+//   • GET /users/change-requests/pending — scoped to `currentApproverId === you` (plus
+//     admin-stage items for Admin/SuperAdmin), no isHR bypass. Still real, safe, and
+//     honestly framed as "your queue", not "every HR approval" — kept Live.
+//   • GET /events (activity/workday) — role-name only, NO isHR bypass. An HR-flagged
+//     Employee/Intern would only see their own personal activity here, which would
+//     misrepresent "Attendance Management" as company-wide when it isn't. Planned.
+//   • Documents/Onboarding/Offboarding/Performance/HR Reports — no backend exists. Planned.
+const OVERVIEW_CARDS: OverviewCard[] = [
+  {
+    title: 'Employees', icon: Users, badge: 'Live', sectionKey: 'employees',
+    desc: 'Company-wide employee directory for HR review.',
+    note: 'Live — sourced from the same Apex OS user records as Admin User Management.',
   },
-  documents: {
-    title: 'Documents', icon: FileText,
-    desc: 'A central vault for employee documents, ID proofs, and HR paperwork.',
-    note: 'Will connect to employee profiles once built. No document storage exists yet.',
+  {
+    title: 'Attendance Management', icon: Clock, badge: 'Planned', sectionKey: 'attendance-management',
+    desc: 'HR review of employee attendance, workday status, and corrections.',
+    note: 'Company-wide attendance oversight is planned.',
   },
-  onboarding: {
-    title: 'Onboarding', icon: UserPlus,
-    desc: 'A structured checklist for bringing a new employee up to speed.',
-    note: 'Will auto-generate Apex OS tickets for each onboarding step. Not built yet.',
+  {
+    title: 'Leave Management', icon: CalendarOff, badge: 'Live', sectionKey: 'leave-management',
+    desc: 'Manage employee leave requests, balances, and HR review.',
+    note: 'Live — company-wide leave data. Employees apply from Apex OS Leave.',
   },
-  offboarding: {
-    title: 'Offboarding', icon: UserMinus,
-    desc: 'A structured checklist for a clean employee exit.',
-    note: 'Will auto-generate Apex OS tickets for each offboarding step. Not built yet.',
+  {
+    title: 'Documents', icon: FileText, badge: 'Planned', sectionKey: 'documents',
+    desc: 'Employee documents, ID proofs, and HR paperwork storage.',
+    note: 'Will connect to employee profiles once built.',
   },
-  performance: {
-    title: 'Performance', icon: Target,
+  {
+    title: 'HR Approvals', icon: ClipboardCheck, badge: 'Live', sectionKey: 'hr-approvals',
+    desc: 'Employee-change approvals — designation, department, team lead, role.',
+    note: 'Live — shows requests currently awaiting your approval.',
+  },
+  {
+    title: 'Onboarding', icon: UserPlus, badge: 'Planned', sectionKey: 'onboarding',
+    desc: 'Structured checklist for bringing a new employee up to speed.',
+    note: 'Will auto-generate Apex OS tickets for each step.',
+  },
+  {
+    title: 'Offboarding', icon: UserMinus, badge: 'Planned', sectionKey: 'offboarding',
+    desc: 'Structured checklist for a clean employee exit.',
+    note: 'Will auto-generate Apex OS tickets for each step.',
+  },
+  {
+    title: 'Performance', icon: Target, badge: 'Planned', sectionKey: 'performance',
     desc: 'KRA/KPI tracking and periodic performance review cycles.',
-    note: 'The performance engine is not built yet — ticket-level review ratings already exist in Apex OS. Payroll and KRA/KPI are not built.',
+    note: 'Not built yet — ticket-level review ratings already exist in Apex OS. Payroll and KRA/KPI are not built.',
   },
-  reports: {
-    title: 'Reports', icon: BarChart3,
-    desc: 'Headcount, attrition, leave trends, and attendance summaries.',
-    note: 'HR-specific reports are planned. Current analytics access is restricted.',
+  {
+    title: 'HR Reports', icon: BarChart3, badge: 'Planned', sectionKey: 'reports',
+    desc: 'Leave trends, attendance trends, employee workload, workday compliance, approval aging.',
+    note: 'HR-specific reporting is planned. Apex OS Analytics exists separately.',
   },
-};
+];
 
 const ROLE_BADGE_COLOR: Record<string, { bg: string; text: string }> = {
   SUPER_ADMIN: { bg: 'rgba(139,92,246,0.15)', text: '#a78bfa' },
@@ -195,14 +164,6 @@ function HRMSPageInner() {
   // for HRMS data, so it is not granted here.
   const hasAccess = isHR || isAdmin;
 
-  // A manually-typed ?section= for a Live (real-route) item bounces to that real
-  // page instead of rendering an empty in-room pane for it. Recomputed inline from
-  // primitives (not a memoized array) so the effect only depends on isAdmin/section.
-  useEffect(() => {
-    const item = buildPanelItems(isAdmin).find((p) => p.key === section);
-    if (item?.href) router.replace(item.href);
-  }, [section, isAdmin, router]);
-
   if (!hasHydrated || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#050505' }}>
@@ -232,18 +193,13 @@ function HRMSPageInner() {
     );
   }
 
-  const panelItems = buildPanelItems(isAdmin);
-  const overviewCards = buildOverviewCards(isAdmin);
-  const activeItem = panelItems.find((p) => p.key === section);
-  // Only render an in-room Planned pane when the current viewer genuinely has
-  // no real route for this section — Live items always navigate away instead.
-  const plannedDetail = section !== 'overview' && !activeItem?.href ? PLANNED_DETAIL[section] : undefined;
-  const currentLabel = activeItem?.label ?? 'HRMS Overview';
+  const currentLabel = PANEL_ITEMS.find((p) => p.key === section)?.label ?? 'HRMS Overview';
   const roleBadge = ROLE_BADGE_COLOR[role] ?? { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
 
   return (
     <div className="min-h-screen flex" style={{ backgroundColor: '#050505' }}>
-      {/* HRMS workspace sidebar — standalone, no Apex OS global sidebar present */}
+      {/* HRMS workspace sidebar — standalone, no Apex OS global sidebar present.
+          Every item below stays inside /hrms — none navigate to a main Apex OS route. */}
       <aside className="w-64 flex-shrink-0 flex flex-col" style={{ backgroundColor: '#0F172A', borderRight: '1px solid #1E293B' }}>
         <div className="p-5" style={{ borderBottom: '1px solid #1E293B' }}>
           <Link
@@ -266,12 +222,12 @@ function HRMSPageInner() {
         </div>
 
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {panelItems.map((item) => {
+          {PANEL_ITEMS.map((item) => {
             const active = section === item.key;
             return (
               <button
                 key={item.key}
-                onClick={() => router.push(item.href ?? `/hrms?section=${item.key}`)}
+                onClick={() => router.push(item.key === 'overview' ? '/hrms' : `/hrms?section=${item.key}`)}
                 className={cn(
                   'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-sm font-medium transition-colors',
                   active ? 'bg-blue-600/15 text-blue-400' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200',
@@ -313,49 +269,100 @@ function HRMSPageInner() {
 
         <main className="flex-1 overflow-y-auto p-6">
           <div style={{ maxWidth: 1200, margin: '0 auto', paddingBottom: 24 }}>
-            {!plannedDetail ? (
-              <>
-                {/* Room hero */}
-                <motion.section
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="mb-6 rounded-3xl overflow-hidden relative"
-                  style={{ background: 'linear-gradient(135deg, #0f766e 0%, #0891b2 55%, #2563eb 100%)', padding: '36px 40px' }}
-                >
-                  <div className="flex items-center gap-2 mb-3">
-                    <Users size={13} style={{ color: 'rgba(255,255,255,0.65)' }} />
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
-                      Apex OS · Workspace
-                    </span>
-                  </div>
-                  <h1 style={{ fontSize: 30, fontWeight: 900, color: '#fff', letterSpacing: '-0.4px', marginBottom: 8 }}>HRMS</h1>
-                  <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, maxWidth: 640 }}>
-                    The HR room inside Apex OS. Attendance, leave, and HR approvals already run on live Apex OS data —
-                    onboarding, offboarding, and performance workflows will connect through the same tickets, approvals,
-                    notifications, and analytics as the rest of Apex OS.
-                  </p>
-                </motion.section>
-
-                {/* Overview grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {overviewCards.map((card, i) => (
-                    <OverviewCardTile
-                      key={card.title}
-                      card={card}
-                      index={i}
-                      onOpen={() => router.push(card.href ?? `/hrms?section=${card.sectionKey}`)}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <PlannedPane detail={plannedDetail} onBack={() => router.push('/hrms')} />
+            {section === 'overview' && <OverviewSection onOpen={(key) => router.push(`/hrms?section=${key}`)} />}
+            {section === 'employees' && <EmployeesPanel isAdmin={isAdmin} onBack={() => router.push('/hrms')} />}
+            {section === 'leave-management' && <LeaveManagementPanel onBack={() => router.push('/hrms')} />}
+            {section === 'hr-approvals' && <HRApprovalsPanel onBack={() => router.push('/hrms')} />}
+            {section === 'attendance-management' && (
+              <PlannedPanel
+                title="Attendance Management" icon={Clock}
+                desc="This section is for HR review of employee attendance, workday status, missing checkout, breaks, and corrections."
+                note="Personal workday actions remain in the main Apex OS workspace. Company-wide attendance oversight inside HRMS is planned."
+                secondaryLink={{ href: '/admin/activity', label: 'Open Apex OS Activity Log' }}
+                onBack={() => router.push('/hrms')}
+              />
+            )}
+            {section === 'documents' && (
+              <PlannedPanel
+                title="Documents" icon={FileText}
+                desc="A central vault for employee documents, ID proofs, and HR paperwork."
+                note="Will connect to employee profiles once built. No document storage exists yet."
+                onBack={() => router.push('/hrms')}
+              />
+            )}
+            {section === 'onboarding' && (
+              <PlannedPanel
+                title="Onboarding" icon={UserPlus}
+                desc="A structured checklist for bringing a new employee up to speed."
+                note="Will auto-generate Apex OS tickets for each onboarding step. Not built yet."
+                onBack={() => router.push('/hrms')}
+              />
+            )}
+            {section === 'offboarding' && (
+              <PlannedPanel
+                title="Offboarding" icon={UserMinus}
+                desc="A structured checklist for a clean employee exit."
+                note="Will auto-generate Apex OS tickets for each offboarding step. Not built yet."
+                onBack={() => router.push('/hrms')}
+              />
+            )}
+            {section === 'performance' && (
+              <PlannedPanel
+                title="Performance" icon={Target}
+                desc="KRA/KPI tracking and periodic performance review cycles."
+                note="The performance engine is not built yet — ticket-level review ratings already exist in Apex OS. Payroll and KRA/KPI are not built."
+                onBack={() => router.push('/hrms')}
+              />
+            )}
+            {section === 'reports' && (
+              <PlannedPanel
+                title="HR Reports" icon={BarChart3}
+                desc="Leave trends, attendance trends, employee workload, workday compliance, and HR approval aging."
+                note="No HR-specific report exists yet. Apex OS Analytics exists separately as its own live page — this is not a live HR reports module."
+                secondaryLink={{ href: '/analytics', label: 'Open Apex OS Analytics' }}
+                onBack={() => router.push('/hrms')}
+              />
             )}
           </div>
         </main>
       </div>
     </div>
+  );
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────────
+
+function OverviewSection({ onOpen }: { onOpen: (key: SectionKey) => void }) {
+  return (
+    <>
+      <motion.section
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className="mb-6 rounded-3xl overflow-hidden relative"
+        style={{ background: 'linear-gradient(135deg, #0f766e 0%, #0891b2 55%, #2563eb 100%)', padding: '36px 40px' }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Users size={13} style={{ color: 'rgba(255,255,255,0.65)' }} />
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+            Apex OS · Workspace
+          </span>
+        </div>
+        <h1 style={{ fontSize: 30, fontWeight: 900, color: '#fff', letterSpacing: '-0.4px', marginBottom: 8 }}>HRMS</h1>
+        <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, maxWidth: 660 }}>
+          HRMS is for HR department management work — employee records, leave management, attendance review, and
+          HR approvals. Apex OS Home stays the place for everyday personal work like applying leave, tickets, and
+          daily tasks. HRMS does not replace the main Apex OS workspace; it separates HR management work from
+          everyday employee work.
+        </p>
+      </motion.section>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {OVERVIEW_CARDS.map((card, i) => (
+          <OverviewCardTile key={card.title} card={card} index={i} onOpen={() => onOpen(card.sectionKey)} />
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -394,46 +401,289 @@ function OverviewCardTile({ card, index, onOpen }: { card: OverviewCard; index: 
   );
 }
 
-function PlannedPane({ detail, onBack }: { detail: { title: string; icon: LucideIcon; desc: string; note: string }; onBack: () => void }) {
-  const Icon = detail.icon;
+// ── Shared section chrome ──────────────────────────────────────────────────────
+
+function BackButton({ onBack }: { onBack: () => void }) {
+  return (
+    <button
+      onClick={onBack}
+      className="flex items-center gap-1.5 text-xs font-medium mb-6 transition-colors"
+      style={{ color: '#64748b' }}
+    >
+      <ArrowLeft size={12} />
+      Back to HRMS Overview
+    </button>
+  );
+}
+
+function SecondaryLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+      style={{ color: '#94a3b8', border: '1px solid #1E293B', backgroundColor: 'rgba(148,163,184,0.06)' }}
+    >
+      {label}
+      <ExternalLink size={11} />
+    </Link>
+  );
+}
+
+function SectionBadge({ badge }: { badge: 'Live' | 'Planned' }) {
+  return (
+    <span
+      className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 rounded-full"
+      style={{
+        background: badge === 'Live' ? 'rgba(16,185,129,0.12)' : 'rgba(148,163,184,0.12)',
+        color: badge === 'Live' ? '#34d399' : '#94a3b8',
+      }}
+    >
+      {badge}
+    </span>
+  );
+}
+
+function PanelShell({
+  title, icon: Icon, badge, desc, onBack, secondaryLink, children,
+}: {
+  title: string; icon: LucideIcon; badge: 'Live' | 'Planned'; desc: string;
+  onBack: () => void; secondaryLink?: { href: string; label: string }; children?: React.ReactNode;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className="rounded-2xl overflow-hidden border p-8"
+      className="rounded-2xl overflow-hidden border p-6"
       style={{ backgroundColor: '#0F172A', borderColor: '#1E293B' }}
     >
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1.5 text-xs font-medium mb-6 transition-colors"
-        style={{ color: '#64748b' }}
-      >
-        <ArrowLeft size={12} />
-        Back to HRMS Overview
-      </button>
+      <BackButton onBack={onBack} />
 
-      <div className="flex items-start gap-4 mb-5">
-        <div className="p-3 rounded-xl flex-shrink-0" style={{ background: 'rgba(148,163,184,0.12)' }}>
-          <Icon size={22} style={{ color: '#94a3b8' }} />
-        </div>
-        <div>
-          <div className="flex items-center gap-2 mb-1.5">
-            <h2 className="text-lg font-bold" style={{ color: '#e2e8f0' }}>{detail.title}</h2>
-            <span
-              className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 rounded-full"
-              style={{ background: 'rgba(148,163,184,0.12)', color: '#94a3b8' }}
-            >
-              Planned
-            </span>
+      <div className="flex items-start justify-between gap-4 mb-5 flex-wrap">
+        <div className="flex items-start gap-4">
+          <div className="p-3 rounded-xl flex-shrink-0" style={{ background: badge === 'Live' ? 'rgba(16,185,129,0.1)' : 'rgba(148,163,184,0.12)' }}>
+            <Icon size={22} style={{ color: badge === 'Live' ? '#34d399' : '#94a3b8' }} />
           </div>
-          <p className="text-sm" style={{ color: '#8892a4' }}>{detail.desc}</p>
+          <div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <h2 className="text-lg font-bold" style={{ color: '#e2e8f0' }}>{title}</h2>
+              <SectionBadge badge={badge} />
+            </div>
+            <p className="text-sm max-w-xl" style={{ color: '#8892a4' }}>{desc}</p>
+          </div>
         </div>
+        {secondaryLink && <SecondaryLink href={secondaryLink.href} label={secondaryLink.label} />}
       </div>
 
-      <div className="pt-4" style={{ borderTop: '1px solid #1E293B' }}>
-        <p className="text-xs font-mono" style={{ color: '#475569' }}>{detail.note}</p>
-      </div>
+      {children}
     </motion.div>
+  );
+}
+
+function PlannedPanel({
+  title, icon, desc, note, secondaryLink, onBack,
+}: {
+  title: string; icon: LucideIcon; desc: string; note: string;
+  secondaryLink?: { href: string; label: string }; onBack: () => void;
+}) {
+  return (
+    <PanelShell title={title} icon={icon} badge="Planned" desc={desc} onBack={onBack} secondaryLink={secondaryLink}>
+      <div className="pt-4" style={{ borderTop: '1px solid #1E293B' }}>
+        <p className="text-xs font-mono" style={{ color: '#475569' }}>{note}</p>
+      </div>
+    </PanelShell>
+  );
+}
+
+function EmptyRow({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-10" style={{ color: '#475569' }}>
+      <Inbox size={22} />
+      <p className="text-xs">{label}</p>
+    </div>
+  );
+}
+
+function LoadingRow() {
+  return (
+    <div className="flex items-center justify-center py-10">
+      <Loader2 size={18} className="animate-spin" style={{ color: '#475569' }} />
+    </div>
+  );
+}
+
+// ── Employees (Live) ───────────────────────────────────────────────────────────
+
+function EmployeesPanel({ isAdmin, onBack }: { isAdmin: boolean; onBack: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['hrms-employees'],
+    queryFn: () => usersApi.getAll({ limit: 50 }) as Promise<any>,
+  });
+  const employees: any[] = (data as any)?.users ?? [];
+  const total = (data as any)?.total ?? employees.length;
+
+  return (
+    <PanelShell
+      title="Employees" icon={Users} badge="Live"
+      desc="Company-wide employee directory for HR review, sourced from live Apex OS user records."
+      onBack={onBack}
+      secondaryLink={isAdmin ? { href: '/users', label: 'Open Admin User Management' } : undefined}
+    >
+      <div className="rounded-xl overflow-hidden border" style={{ borderColor: '#1E293B' }}>
+        {isLoading ? (
+          <LoadingRow />
+        ) : employees.length === 0 ? (
+          <EmptyRow label="No employees found." />
+        ) : (
+          <div className="divide-y" style={{ borderColor: '#1E293B' }}>
+            {employees.map((u: any) => (
+              <div key={u.id} className="flex items-center justify-between gap-3 px-4 py-2.5" style={{ borderColor: '#1E293B' }}>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: '#e2e8f0' }}>{u.name}</p>
+                  <p className="text-xs truncate" style={{ color: '#64748b' }}>{u.email}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#94a3b8' }}>
+                    {u.department?.name ?? '—'}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(37,99,235,0.12)', color: '#60a5fa' }}>
+                    {u.role?.name ?? '—'}
+                  </span>
+                  {!u.isActive && (
+                    <span className="text-[10px] px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
+                      Inactive
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-[10px] font-mono mt-3" style={{ color: '#475569' }}>
+        Showing {employees.length} of {total} employees. Editing, deactivation, and account creation remain in Admin User Management.
+      </p>
+    </PanelShell>
+  );
+}
+
+// ── Leave Management (Live) ─────────────────────────────────────────────────────
+
+function LeaveManagementPanel({ onBack }: { onBack: () => void }) {
+  const { data: stats } = useQuery({
+    queryKey: ['hrms-leave-stats'],
+    queryFn: () => leaveApi.getStats() as Promise<any>,
+  });
+  const { data: listData, isLoading } = useQuery({
+    queryKey: ['hrms-leave-list'],
+    queryFn: () => leaveApi.getAll({ limit: 20 }) as Promise<any>,
+  });
+  const items: any[] = (listData as any)?.items ?? [];
+  const s = (stats as any) ?? {};
+
+  return (
+    <PanelShell
+      title="Leave Management" icon={CalendarOff} badge="Live"
+      desc="This section is for managing employee leave requests, balances, approvals, and HR review."
+      onBack={onBack}
+      secondaryLink={{ href: '/leave', label: 'Open Apex OS Leave' }}
+    >
+      <p className="text-xs mb-4" style={{ color: '#64748b' }}>
+        Employees apply for their own leave from Apex OS Leave. Employee leave application remains in Apex OS —
+        HR leave management lives here.
+      </p>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        {[
+          { label: 'Total', value: s.total },
+          { label: 'Pending', value: s.pending },
+          { label: 'Approved', value: s.approved },
+          { label: 'Rejected', value: s.rejected },
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: 'rgba(148,163,184,0.06)', border: '1px solid #1E293B' }}>
+            <p className="text-lg font-bold font-mono" style={{ color: '#e2e8f0' }}>{stat.value ?? '—'}</p>
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: '#64748b' }}>{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-xl overflow-hidden border" style={{ borderColor: '#1E293B' }}>
+        {isLoading ? (
+          <LoadingRow />
+        ) : items.length === 0 ? (
+          <EmptyRow label="No leave requests found." />
+        ) : (
+          <div className="divide-y" style={{ borderColor: '#1E293B' }}>
+            {items.map((it: any) => (
+              <div key={it.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: '#e2e8f0' }}>{it.user?.name ?? 'Unknown'}</p>
+                  <p className="text-xs truncate" style={{ color: '#64748b' }}>
+                    {it.type} · {new Date(it.startDate).toLocaleDateString()} – {new Date(it.endDate).toLocaleDateString()}
+                  </p>
+                </div>
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded font-mono uppercase flex-shrink-0"
+                  style={{
+                    backgroundColor: it.status === 'PENDING' ? 'rgba(245,158,11,0.12)' : it.status === 'APPROVED' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                    color: it.status === 'PENDING' ? '#fbbf24' : it.status === 'APPROVED' ? '#34d399' : '#f87171',
+                  }}
+                >
+                  {it.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-[10px] font-mono mt-3" style={{ color: '#475569' }}>
+        To approve or reject a request, use the existing action in Apex OS Leave.
+      </p>
+    </PanelShell>
+  );
+}
+
+// ── HR Approvals (Live) ─────────────────────────────────────────────────────────
+
+function HRApprovalsPanel({ onBack }: { onBack: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['hrms-approvals'],
+    queryFn: () => changeRequestsApi.listPendingApprovals() as Promise<any[]>,
+  });
+  const items: any[] = Array.isArray(data) ? data : [];
+
+  return (
+    <PanelShell
+      title="HR Approvals" icon={ClipboardCheck} badge="Live"
+      desc="Employee-change approvals — designation, department, team lead, and role changes currently awaiting your approval."
+      onBack={onBack}
+      secondaryLink={{ href: '/admin/approvals', label: 'Open Legacy Admin Approvals' }}
+    >
+      <div className="rounded-xl overflow-hidden border" style={{ borderColor: '#1E293B' }}>
+        {isLoading ? (
+          <LoadingRow />
+        ) : items.length === 0 ? (
+          <EmptyRow label="No employee-change approvals are currently waiting on you." />
+        ) : (
+          <div className="divide-y" style={{ borderColor: '#1E293B' }}>
+            {items.map((it: any) => (
+              <div key={it.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: '#e2e8f0' }}>
+                    {it.targetUser?.name ?? 'Unknown employee'}
+                  </p>
+                  <p className="text-xs truncate" style={{ color: '#64748b' }}>
+                    {String(it.requestType ?? '').replace(/_/g, ' ')} · requested by {it.requestedBy?.name ?? 'Unknown'}
+                  </p>
+                </div>
+                <span className="text-[10px] font-mono flex-shrink-0" style={{ color: '#475569' }}>
+                  {it.createdAt ? formatRelativeTime(it.createdAt) : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </PanelShell>
   );
 }
