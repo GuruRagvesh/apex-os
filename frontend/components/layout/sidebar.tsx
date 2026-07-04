@@ -11,6 +11,7 @@ import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
   Users, UsersRound, Building2, BarChart3, LogOut, Zap, Settings,
   Calendar, Activity, ArrowRight, ChevronDown, Handshake,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UserAvatar } from '@/components/ui/user-avatar';
@@ -103,6 +104,14 @@ export function Sidebar() {
   const [showModuleMenu, setShowModuleMenu] = useState(false);
   const moduleMenuRef = useRef<HTMLDivElement>(null);
 
+  // Tuck/collapse — default expanded, read the persisted preference in a
+  // useEffect after mount (not a lazy useState initializer) so the server-
+  // rendered/first-client-render markup always matches, avoiding a hydration
+  // mismatch. A brief flash of the expanded rail on load for users who chose
+  // collapsed is the accepted tradeoff of this safer approach.
+  const [collapsed, setCollapsed] = useState(false);
+  const [sidebarMounted, setSidebarMounted] = useState(false);
+
   const { data: workdayData } = useQuery({
     queryKey: ['workday-today'],
     enabled: !!user,
@@ -122,6 +131,20 @@ export function Sidebar() {
   useEffect(() => {
     setApexMode(localStorage.getItem('apexMode') ?? 'super_admin');
   }, [pathname]);
+
+  // Read the persisted tuck/collapse preference once, after mount.
+  useEffect(() => {
+    setCollapsed(localStorage.getItem('apex.sidebar.collapsed') === 'true');
+    setSidebarMounted(true);
+  }, []);
+
+  // Persist the preference on every change after the initial read above —
+  // guarded on sidebarMounted so this doesn't overwrite a stored 'true' with
+  // the default 'false' before the read effect has run.
+  useEffect(() => {
+    if (!sidebarMounted) return;
+    localStorage.setItem('apex.sidebar.collapsed', String(collapsed));
+  }, [collapsed, sidebarMounted]);
 
   // Close the workspace module switcher on outside click or route change
   useEffect(() => {
@@ -180,6 +203,23 @@ export function Sidebar() {
   function NavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
     const active = pathname === href || pathname.startsWith(href + '/');
 
+    if (collapsed) {
+      return (
+        <Link href={href} title={label}>
+          <div
+            className={cn(
+              'flex items-center justify-center py-2.5 rounded-xl transition-colors cursor-pointer border',
+              active
+                ? 'bg-blue-600/15 text-blue-400 border-blue-900/40 shadow-inner'
+                : 'text-slate-500 hover:bg-slate-900 hover:text-slate-100 border-transparent',
+            )}
+          >
+            <Icon size={18} className="flex-shrink-0" />
+          </div>
+        </Link>
+      );
+    }
+
     return (
       <Link href={href}>
         <motion.div
@@ -232,6 +272,7 @@ export function Sidebar() {
   }
 
   function SectionLabel({ children }: { children: React.ReactNode }) {
+    if (collapsed) return null;
     return (
       <p className="font-mono text-[10px] uppercase tracking-widest text-slate-500 px-3 mb-1 mt-4">
         {children}
@@ -241,26 +282,45 @@ export function Sidebar() {
 
   return (
     <aside
-      className="w-64 flex flex-col"
+      className={cn(
+        'flex flex-col flex-shrink-0 relative transition-all duration-300 ease-in-out',
+        collapsed ? 'w-20' : 'w-64',
+      )}
       style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}
     >
+      {/* Tuck/expand toggle — straddles the sidebar's right edge, always visible
+          in both states so the user can always get back to expanded mode. */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        aria-label={collapsed ? 'Expand sidebar' : 'Tuck sidebar'}
+        title={collapsed ? 'Expand sidebar' : 'Tuck sidebar'}
+        className="absolute -right-3 top-6 z-10 w-6 h-6 rounded-full flex items-center justify-center transition-colors"
+        style={{ backgroundColor: '#1E293B', border: '1px solid rgba(30,41,59,0.9)', color: '#94a3b8' }}
+      >
+        {collapsed ? <PanelLeftOpen size={12} /> : <PanelLeftClose size={12} />}
+      </button>
+
       {/* Logo / workspace switcher */}
       <div className="p-5 relative" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }} ref={moduleMenuRef}>
         <div className="flex items-center gap-2">
-          <Link href="/dashboard" className="flex items-center gap-3 flex-1 min-w-0">
+          <Link href="/dashboard" className={cn('flex items-center gap-3 flex-1 min-w-0', collapsed && 'justify-center')} title={collapsed ? 'Apex OS Home' : undefined}>
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
             >
               <span className="text-white font-bold text-lg">A</span>
             </div>
-            <div className="min-w-0">
-              <p className="font-bold text-white text-base leading-none truncate">APEX OS</p>
-              <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest truncate">Enterprise Execution OS</p>
-            </div>
+            {!collapsed && (
+              <div className="min-w-0">
+                <p className="font-bold text-white text-base leading-none truncate">APEX OS</p>
+                <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest truncate">Enterprise Execution OS</p>
+              </div>
+            )}
           </Link>
 
-          {showModuleSwitcher && (
+          {/* Module switcher stays expanded-mode-only for now — collapsed rail has no room for it. */}
+          {showModuleSwitcher && !collapsed && (
             <button
               onClick={() => setShowModuleMenu((v) => !v)}
               className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/60 transition-colors flex-shrink-0"
@@ -271,7 +331,7 @@ export function Sidebar() {
           )}
         </div>
 
-        {showModuleSwitcher && showModuleMenu && (
+        {showModuleSwitcher && !collapsed && showModuleMenu && (
           <div
             className="absolute left-5 right-5 top-[68px] z-50 rounded-xl overflow-hidden"
             style={{ backgroundColor: '#141C2E', border: '1px solid rgba(30,41,59,0.9)', boxShadow: '0 16px 32px rgba(0,0,0,0.5)' }}
@@ -343,57 +403,85 @@ export function Sidebar() {
 
       {/* Footer area */}
       <div className="p-3 space-y-2.5" style={{ borderTop: '1px solid rgba(30,41,59,0.5)' }}>
-        {/* OPERATIONS PANEL status block */}
-        <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800/40 font-mono text-[9px] text-slate-500 space-y-1">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="font-bold uppercase tracking-tight">OPERATIONS PANEL</span>
-            <span className="text-emerald-500 font-black">● LIVE</span>
+        {/* OPERATIONS PANEL status block — collapses to a small live dot */}
+        {collapsed ? (
+          <div className="flex items-center justify-center py-1" title="Operations Panel — Live">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
           </div>
-          <p className="truncate">SLA_SHIELD: STABLE_BOUND</p>
-          <p>METRICS_CONNEC: DYNAMIC</p>
-        </div>
+        ) : (
+          <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800/40 font-mono text-[9px] text-slate-500 space-y-1">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="font-bold uppercase tracking-tight">OPERATIONS PANEL</span>
+              <span className="text-emerald-500 font-black">● LIVE</span>
+            </div>
+            <p className="truncate">SLA_SHIELD: STABLE_BOUND</p>
+            <p>METRICS_CONNEC: DYNAMIC</p>
+          </div>
+        )}
 
         {/* User profile card */}
-        <div
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-slate-800/60"
-          onClick={() => router.push('/profile')}
-        >
-          <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
-            <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
-                style={{ backgroundColor: roleBadge.bg, color: roleBadge.text }}
-              >
-                {role}
-              </span>
-              {isSuperAdmin && (
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5"
-                  style={{
-                    background: apexMode === 'super_admin'
-                      ? 'linear-gradient(135deg,rgba(88,28,135,0.15) 0%,rgba(109,40,217,0.10) 100%)'
-                      : 'linear-gradient(135deg,rgba(30,64,175,0.15) 0%,rgba(79,70,229,0.10) 100%)',
-                    border: apexMode === 'super_admin' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(96,165,250,0.3)',
-                    color: apexMode === 'super_admin' ? '#a78bfa' : '#60a5fa',
-                  }}
-                >
-                  {apexMode === 'super_admin'
-                    ? <><Zap size={9} />SA</>
-                    : <><Users size={9} />TL</>}
-                </span>
-              )}
-            </div>
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={() => router.push('/profile')}
+              title={user?.name ?? 'Profile'}
+              className="rounded-full transition-opacity hover:opacity-80"
+            >
+              <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-slate-500 hover:text-red-400 transition-colors"
+              title="Logout"
+              aria-label="Logout"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleLogout(); }}
-            className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0"
-            title="Logout"
+        ) : (
+          <div
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-slate-800/60"
+            onClick={() => router.push('/profile')}
           >
-            <LogOut size={16} />
-          </button>
-        </div>
+            <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
+              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
+                  style={{ backgroundColor: roleBadge.bg, color: roleBadge.text }}
+                >
+                  {role}
+                </span>
+                {isSuperAdmin && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5"
+                    style={{
+                      background: apexMode === 'super_admin'
+                        ? 'linear-gradient(135deg,rgba(88,28,135,0.15) 0%,rgba(109,40,217,0.10) 100%)'
+                        : 'linear-gradient(135deg,rgba(30,64,175,0.15) 0%,rgba(79,70,229,0.10) 100%)',
+                      border: apexMode === 'super_admin' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(96,165,250,0.3)',
+                      color: apexMode === 'super_admin' ? '#a78bfa' : '#60a5fa',
+                    }}
+                  >
+                    {apexMode === 'super_admin'
+                      ? <><Zap size={9} />SA</>
+                      : <><Users size={9} />TL</>}
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleLogout(); }}
+              className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0"
+              title="Logout"
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
