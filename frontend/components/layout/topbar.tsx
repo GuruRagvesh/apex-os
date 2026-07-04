@@ -14,6 +14,8 @@ import { UserAvatar } from '@/components/ui/user-avatar';
 import { downloadScreenshot } from '@/lib/download-screenshot';
 import toast from 'react-hot-toast';
 
+// /hrms and /sales-crm are standalone workspace pages (frontend/app/(workspaces)) —
+// they no longer render inside the dashboard shell, so TopBar never mounts for them.
 const pageNames: Record<string, string> = {
   '/dashboard': 'Home',
   '/tickets': 'Tickets',
@@ -26,8 +28,6 @@ const pageNames: Record<string, string> = {
   '/settings': 'Settings',
   '/profile': 'My Profile',
   '/team': 'Team',
-  '/hrms': 'HRMS',
-  '/sales-crm': 'Sales CRM',
 };
 
 export function TopBar() {

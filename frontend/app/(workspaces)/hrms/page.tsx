@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,11 @@ import {
   UserPlus, UserMinus, Target, BarChart3, ShieldAlert, ArrowRight, ArrowLeft,
 } from 'lucide-react';
 
+// Standalone HRMS workspace — deliberately NOT under (dashboard), so it does not
+// inherit the Apex OS global Sidebar/TopBar. This page builds its own full-page
+// shell (HRMS sidebar + header + content) and replicates the auth-redirect guard
+// that (dashboard)/layout.tsx would otherwise have provided.
+
 type SectionKey =
   | 'overview' | 'employees' | 'attendance' | 'leave' | 'documents'
   | 'approvals' | 'onboarding' | 'offboarding' | 'performance' | 'reports';
@@ -20,14 +25,10 @@ interface PanelItem {
   key: SectionKey;
   label: string;
   icon: LucideIcon;
-  /** Present only when a real Apex OS route exists — clicking navigates there. */
+  /** Present only when a real Apex OS route exists AND the current viewer can open it. */
   href?: string;
 }
 
-// HRMS left panel — every entry here also appears as an overview card below.
-// Items with an href are real, working Apex OS pages; items without one are
-// in-room placeholder sections (no route exists for them yet).
-//
 // /users and /analytics are Admin/SuperAdmin-only in their own page guards
 // (verified by reading each page directly — neither checks the isHR flag), so
 // Employees and Reports can only link out for isAdmin viewers. For HR-only
@@ -68,7 +69,7 @@ function buildOverviewCards(isAdmin: boolean): OverviewCard[] {
       href: isAdmin ? '/users' : undefined,
       badge: isAdmin ? 'Live' : 'Planned',
       desc: 'Company-wide employee directory, roles, and department assignment.',
-      note: isAdmin ? 'Synced with Apex OS Users & Roles.' : 'The full directory is currently Admin-only. HR access is planned.',
+      note: isAdmin ? 'Synced with Apex OS Users & Roles.' : 'Full employee directory is currently Admin-only. HR employee directory will be connected here.',
     },
     {
       title: 'Attendance / Workday', icon: Clock, href: '/admin/activity', badge: 'Live', sectionKey: 'attendance',
@@ -105,7 +106,7 @@ function buildOverviewCards(isAdmin: boolean): OverviewCard[] {
       href: isAdmin ? '/analytics' : undefined,
       badge: isAdmin ? 'Live' : 'Planned',
       desc: 'Headcount, attrition, leave trends, and attendance summaries.',
-      note: isAdmin ? 'HR-specific views are planned — currently powered by Apex OS Analytics.' : 'Apex OS Analytics is currently Team Lead and above only. HR-specific reporting access is planned.',
+      note: isAdmin ? 'HR-specific views are planned — currently powered by Apex OS Analytics.' : 'HR-specific reports are planned. Current analytics access is restricted.',
     },
   ];
 }
@@ -120,7 +121,7 @@ const PLANNED_DETAIL: Partial<Record<SectionKey, { title: string; icon: LucideIc
   employees: {
     title: 'Employees', icon: Users,
     desc: 'Company-wide employee directory, roles, and department assignment.',
-    note: 'The full employee directory (Apex OS Users & Roles) is currently Admin-only. HR access to this view is planned.',
+    note: 'Full employee directory is currently Admin-only. HR employee directory will be connected here.',
   },
   documents: {
     title: 'Documents', icon: FileText,
@@ -140,20 +141,47 @@ const PLANNED_DETAIL: Partial<Record<SectionKey, { title: string; icon: LucideIc
   performance: {
     title: 'Performance', icon: Target,
     desc: 'KRA/KPI tracking and periodic performance review cycles.',
-    note: 'The performance engine is not built yet — ticket-level review ratings already exist in Apex OS.',
+    note: 'The performance engine is not built yet — ticket-level review ratings already exist in Apex OS. Payroll and KRA/KPI are not built.',
   },
   reports: {
     title: 'Reports', icon: BarChart3,
     desc: 'Headcount, attrition, leave trends, and attendance summaries.',
-    note: 'Apex OS Analytics is currently Team Lead and above only. HR-specific reporting access is planned.',
+    note: 'HR-specific reports are planned. Current analytics access is restricted.',
   },
 };
 
+const ROLE_BADGE_COLOR: Record<string, { bg: string; text: string }> = {
+  SUPER_ADMIN: { bg: 'rgba(139,92,246,0.15)', text: '#a78bfa' },
+  ADMIN:       { bg: 'rgba(239,68,68,0.15)',  text: '#f87171' },
+  MANAGER:     { bg: 'rgba(245,158,11,0.15)', text: '#fbbf24' },
+  TEAM_LEAD:   { bg: 'rgba(37,99,235,0.15)',  text: '#60a5fa' },
+  EMPLOYEE:    { bg: 'rgba(16,185,129,0.15)', text: '#34d399' },
+  INTERN:      { bg: 'rgba(20,184,166,0.15)', text: '#2dd4bf' },
+};
+
 export default function HRMSPage() {
-  const { user, hasHydrated } = useAuthStore();
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#050505' }}>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#2563eb' }} />
+      </div>
+    }>
+      <HRMSPageInner />
+    </Suspense>
+  );
+}
+
+function HRMSPageInner() {
+  const { user, isAuthenticated, hasHydrated } = useAuthStore();
   const router = useRouter();
   const searchParams = useSearchParams();
   const section = (searchParams.get('section') as SectionKey) || 'overview';
+
+  // This page is a standalone workspace (not under (dashboard)), so it must
+  // replicate the auth-redirect guard (dashboard)/layout.tsx normally provides.
+  useEffect(() => {
+    if (hasHydrated && !isAuthenticated) router.replace('/login');
+  }, [hasHydrated, isAuthenticated, router]);
 
   const roleObj = user?.role as any;
   const role: string = roleObj?.name ?? (typeof roleObj === 'string' ? roleObj : '') ?? '';
@@ -175,29 +203,31 @@ export default function HRMSPage() {
     if (item?.href) router.replace(item.href);
   }, [section, isAdmin, router]);
 
-  if (!hasHydrated) {
+  if (!hasHydrated || !isAuthenticated) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#050505' }}>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#2563eb' }} />
       </div>
     );
   }
 
   if (!hasAccess) {
     return (
-      <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
-        <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
-          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ backgroundColor: '#050505' }}>
+        <div className="max-w-xl w-full rounded-2xl p-8 text-center space-y-4" style={{ backgroundColor: '#0F172A', border: '1px solid #1E293B' }}>
+          <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(37,99,235,0.12)' }}>
+            <ShieldAlert size={24} style={{ color: '#60a5fa' }} />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold text-white">HRMS is restricted</h1>
+            <p className="text-sm mt-2" style={{ color: '#94a3b8' }}>
+              HRMS is available to HR and Admin roles. Use Team, Leave, or Profile for your own HR-related actions.
+            </p>
+          </div>
+          <Link href="/dashboard" className="inline-flex justify-center px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors" style={{ backgroundColor: '#2563eb' }}>
+            Back to Apex OS Home
+          </Link>
         </div>
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>HRMS is restricted</h1>
-          <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
-            HRMS is available to HR and Admin roles. Use Team, Leave, or Profile for your own HR-related actions.
-          </p>
-        </div>
-        <Link href="/dashboard" className="apex-btn-primary inline-flex justify-center px-4 py-2 rounded-lg text-sm">
-          Back to Home
-        </Link>
       </div>
     );
   }
@@ -208,35 +238,34 @@ export default function HRMSPage() {
   // Only render an in-room Planned pane when the current viewer genuinely has
   // no real route for this section — Live items always navigate away instead.
   const plannedDetail = section !== 'overview' && !activeItem?.href ? PLANNED_DETAIL[section] : undefined;
+  const currentLabel = activeItem?.label ?? 'HRMS Overview';
+  const roleBadge = ROLE_BADGE_COLOR[role] ?? { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
 
   return (
-    <div className="flex gap-5" style={{ maxWidth: 1400, margin: '0 auto', paddingBottom: 48 }}>
-      {/* HRMS room panel — local to this page, distinct from the main Apex OS sidebar */}
-      <aside
-        className="w-56 flex-shrink-0 rounded-2xl overflow-hidden self-start"
-        style={{ backgroundColor: '#0F172A', border: '1px solid #1E293B' }}
-      >
-        <div className="p-4" style={{ borderBottom: '1px solid #1E293B' }}>
+    <div className="min-h-screen flex" style={{ backgroundColor: '#050505' }}>
+      {/* HRMS workspace sidebar — standalone, no Apex OS global sidebar present */}
+      <aside className="w-64 flex-shrink-0 flex flex-col" style={{ backgroundColor: '#0F172A', borderRight: '1px solid #1E293B' }}>
+        <div className="p-5" style={{ borderBottom: '1px solid #1E293B' }}>
           <Link
             href="/dashboard"
-            className="flex items-center gap-1.5 text-xs font-medium mb-3 transition-colors"
+            className="flex items-center gap-1.5 text-xs font-medium mb-4 transition-colors hover:text-slate-300"
             style={{ color: '#64748b' }}
           >
             <ArrowLeft size={12} />
             Apex OS Home
           </Link>
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #0f766e 0%, #2563eb 100%)' }}>
-              <Users size={13} style={{ color: '#fff' }} />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #0f766e 0%, #2563eb 100%)' }}>
+              <Users size={16} style={{ color: '#fff' }} />
             </div>
             <div>
-              <p className="font-bold text-white text-sm leading-none">HRMS</p>
-              <p className="text-[9px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest">Human Resources</p>
+              <p className="font-bold text-white text-base leading-none">HRMS</p>
+              <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest">Human Resources</p>
             </div>
           </div>
         </div>
 
-        <nav className="p-2 space-y-0.5">
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {panelItems.map((item) => {
             const active = section === item.key;
             return (
@@ -244,11 +273,11 @@ export default function HRMSPage() {
                 key={item.key}
                 onClick={() => router.push(item.href ?? `/hrms?section=${item.key}`)}
                 className={cn(
-                  'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-xs font-medium transition-colors',
+                  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-sm font-medium transition-colors',
                   active ? 'bg-blue-600/15 text-blue-400' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200',
                 )}
               >
-                <item.icon size={14} className="flex-shrink-0" style={{ color: active ? '#60a5fa' : '#64748b' }} />
+                <item.icon size={16} className="flex-shrink-0" style={{ color: active ? '#60a5fa' : '#64748b' }} />
                 <span className="flex-1 truncate">{item.label}</span>
               </button>
             );
@@ -256,47 +285,75 @@ export default function HRMSPage() {
         </nav>
       </aside>
 
-      {/* HRMS room content */}
-      <div className="flex-1 min-w-0">
-        {section === 'overview' || !plannedDetail ? (
-          <>
-            {/* Room hero */}
-            <motion.section
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25 }}
-              className="mb-6 rounded-3xl overflow-hidden relative"
-              style={{ background: 'linear-gradient(135deg, #0f766e 0%, #0891b2 55%, #2563eb 100%)', padding: '36px 40px' }}
+      {/* HRMS content column */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* HRMS header/top area */}
+        <header
+          className="h-14 px-6 flex items-center justify-between flex-shrink-0"
+          style={{ borderBottom: '1px solid #1E293B', backgroundColor: '#0B1220' }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-semibold text-white truncate">{currentLabel}</span>
+            <span
+              className="text-[9px] font-mono uppercase tracking-widest px-2 py-0.5 rounded-full flex-shrink-0"
+              style={{ background: 'rgba(37,99,235,0.12)', color: '#60a5fa' }}
             >
-              <div className="flex items-center gap-2 mb-3">
-                <Users size={13} style={{ color: 'rgba(255,255,255,0.65)' }} />
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
-                  Apex OS · Workspace
-                </span>
-              </div>
-              <h1 style={{ fontSize: 30, fontWeight: 900, color: '#fff', letterSpacing: '-0.4px', marginBottom: 8 }}>HRMS</h1>
-              <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, maxWidth: 640 }}>
-                The HR room inside Apex OS. Attendance, leave, and HR approvals already run on live Apex OS data —
-                onboarding, offboarding, and performance workflows will connect through the same tickets, approvals,
-                and notifications as the rest of Apex OS.
-              </p>
-            </motion.section>
+              HRMS Workspace
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span
+              className="text-[10px] px-2 py-1 rounded font-mono uppercase tracking-wide"
+              style={{ backgroundColor: roleBadge.bg, color: roleBadge.text }}
+            >
+              {isHR ? 'HR' : role}
+            </span>
+          </div>
+        </header>
 
-            {/* Overview grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {overviewCards.map((card, i) => (
-                <OverviewCardTile
-                  key={card.title}
-                  card={card}
-                  index={i}
-                  onOpen={() => router.push(card.href ?? `/hrms?section=${card.sectionKey}`)}
-                />
-              ))}
-            </div>
-          </>
-        ) : (
-          <PlannedPane detail={plannedDetail} onBack={() => router.push('/hrms')} />
-        )}
+        <main className="flex-1 overflow-y-auto p-6">
+          <div style={{ maxWidth: 1200, margin: '0 auto', paddingBottom: 24 }}>
+            {!plannedDetail ? (
+              <>
+                {/* Room hero */}
+                <motion.section
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="mb-6 rounded-3xl overflow-hidden relative"
+                  style={{ background: 'linear-gradient(135deg, #0f766e 0%, #0891b2 55%, #2563eb 100%)', padding: '36px 40px' }}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users size={13} style={{ color: 'rgba(255,255,255,0.65)' }} />
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+                      Apex OS · Workspace
+                    </span>
+                  </div>
+                  <h1 style={{ fontSize: 30, fontWeight: 900, color: '#fff', letterSpacing: '-0.4px', marginBottom: 8 }}>HRMS</h1>
+                  <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, maxWidth: 640 }}>
+                    The HR room inside Apex OS. Attendance, leave, and HR approvals already run on live Apex OS data —
+                    onboarding, offboarding, and performance workflows will connect through the same tickets, approvals,
+                    notifications, and analytics as the rest of Apex OS.
+                  </p>
+                </motion.section>
+
+                {/* Overview grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {overviewCards.map((card, i) => (
+                    <OverviewCardTile
+                      key={card.title}
+                      card={card}
+                      index={i}
+                      onOpen={() => router.push(card.href ?? `/hrms?section=${card.sectionKey}`)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <PlannedPane detail={plannedDetail} onBack={() => router.push('/hrms')} />
+            )}
+          </div>
+        </main>
       </div>
     </div>
   );
