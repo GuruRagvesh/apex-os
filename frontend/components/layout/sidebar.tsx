@@ -283,77 +283,99 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col flex-shrink-0 relative transition-all duration-300 ease-in-out',
+        'flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out',
         collapsed ? 'w-20' : 'w-64',
       )}
       style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}
     >
-      {/* Tuck/expand toggle — straddles the sidebar's right edge, always visible
-          in both states so the user can always get back to expanded mode. */}
-      <button
-        type="button"
-        onClick={() => setCollapsed((v) => !v)}
-        aria-label={collapsed ? 'Expand sidebar' : 'Tuck sidebar'}
-        title={collapsed ? 'Expand sidebar' : 'Tuck sidebar'}
-        className="absolute -right-3 top-6 z-10 w-6 h-6 rounded-full flex items-center justify-center transition-colors"
-        style={{ backgroundColor: '#1E293B', border: '1px solid rgba(30,41,59,0.9)', color: '#94a3b8' }}
-      >
-        {collapsed ? <PanelLeftOpen size={12} /> : <PanelLeftClose size={12} />}
-      </button>
-
-      {/* Logo / workspace switcher */}
+      {/* Logo / workspace switcher / tuck-expand control — everything here stays
+          inside the sidebar's own bounds, no absolute edge positioning. */}
       <div className="p-5 relative" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }} ref={moduleMenuRef}>
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard" className={cn('flex items-center gap-3 flex-1 min-w-0', collapsed && 'justify-center')} title={collapsed ? 'Apex OS Home' : undefined}>
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-3">
+            <Link href="/dashboard" title="Apex OS Home">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
+              >
+                <span className="text-white font-bold text-lg">A</span>
+              </div>
+            </Link>
+            <button
+              type="button"
+              onClick={() => setCollapsed(false)}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+              className="w-8 h-8 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 transition-colors"
             >
-              <span className="text-white font-bold text-lg">A</span>
+              <PanelLeftOpen size={16} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <Link href="/dashboard" className="flex items-center gap-3 flex-1 min-w-0">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #1e40af 0%, #4f46e5 100%)' }}
+                >
+                  <span className="text-white font-bold text-lg">A</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-white text-base leading-none truncate">APEX OS</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest truncate">Enterprise Execution OS</p>
+                </div>
+              </Link>
+
+              {/* Module chevron = switch workspace. Separate, distinctly-styled
+                  button below = collapse/expand sidebar. Kept apart so the two
+                  controls are never confused for one another. */}
+              {showModuleSwitcher && (
+                <button
+                  onClick={() => setShowModuleMenu((v) => !v)}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/60 transition-colors flex-shrink-0"
+                  title="Switch workspace"
+                >
+                  <ChevronDown size={14} className={cn('transition-transform', showModuleMenu && 'rotate-180')} />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setCollapsed(true)}
+                aria-label="Tuck sidebar"
+                title="Tuck sidebar"
+                className="w-8 h-8 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 transition-colors flex-shrink-0"
+              >
+                <PanelLeftClose size={16} />
+              </button>
             </div>
-            {!collapsed && (
-              <div className="min-w-0">
-                <p className="font-bold text-white text-base leading-none truncate">APEX OS</p>
-                <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest truncate">Enterprise Execution OS</p>
+
+            {showModuleSwitcher && showModuleMenu && (
+              <div
+                className="absolute left-5 right-5 top-[68px] z-50 rounded-xl overflow-hidden"
+                style={{ backgroundColor: '#141C2E', border: '1px solid rgba(30,41,59,0.9)', boxShadow: '0 16px 32px rgba(0,0,0,0.5)' }}
+              >
+                <p className="px-3 pt-2.5 pb-1.5 text-[10px] font-mono uppercase tracking-widest text-slate-500">Workspaces</p>
+                <div className="p-1.5 pt-0 space-y-0.5">
+                  {moduleItems.map((item) => {
+                    const active = pathname === item.href || pathname.startsWith(item.href + '/');
+                    return (
+                      <button
+                        key={item.href}
+                        onClick={() => { setShowModuleMenu(false); router.push(item.href); }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-sm transition-colors hover:bg-slate-800/70"
+                        style={{ color: active ? '#60a5fa' : '#cbd5e1' }}
+                      >
+                        <item.icon size={15} className="flex-shrink-0" style={{ color: active ? '#60a5fa' : '#64748b' }} />
+                        <span className="flex-1 truncate">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
-          </Link>
-
-          {/* Module switcher stays expanded-mode-only for now — collapsed rail has no room for it. */}
-          {showModuleSwitcher && !collapsed && (
-            <button
-              onClick={() => setShowModuleMenu((v) => !v)}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/60 transition-colors flex-shrink-0"
-              title="Switch workspace"
-            >
-              <ChevronDown size={14} className={cn('transition-transform', showModuleMenu && 'rotate-180')} />
-            </button>
-          )}
-        </div>
-
-        {showModuleSwitcher && !collapsed && showModuleMenu && (
-          <div
-            className="absolute left-5 right-5 top-[68px] z-50 rounded-xl overflow-hidden"
-            style={{ backgroundColor: '#141C2E', border: '1px solid rgba(30,41,59,0.9)', boxShadow: '0 16px 32px rgba(0,0,0,0.5)' }}
-          >
-            <p className="px-3 pt-2.5 pb-1.5 text-[10px] font-mono uppercase tracking-widest text-slate-500">Workspaces</p>
-            <div className="p-1.5 pt-0 space-y-0.5">
-              {moduleItems.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(item.href + '/');
-                return (
-                  <button
-                    key={item.href}
-                    onClick={() => { setShowModuleMenu(false); router.push(item.href); }}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-sm transition-colors hover:bg-slate-800/70"
-                    style={{ color: active ? '#60a5fa' : '#cbd5e1' }}
-                  >
-                    <item.icon size={15} className="flex-shrink-0" style={{ color: active ? '#60a5fa' : '#64748b' }} />
-                    <span className="flex-1 truncate">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          </>
         )}
       </div>
 
