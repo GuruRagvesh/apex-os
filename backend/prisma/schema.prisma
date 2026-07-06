@@ -8,91 +8,94 @@ datasource db {
 }
 
 model User {
-  id                      String                         @id @default(cuid())
-  email                   String                         @unique
-  name                    String
-  password                String
-  avatar                  String?
-  isActive                Boolean                        @default(true)
-  roleId                  String
-  departmentId            String?
-  createdAt               DateTime                       @default(now())
-  updatedAt               DateTime                       @updatedAt
-  mustChangePassword      Boolean                        @default(true)
-  photoUrl                String?
-  isHR                    Boolean                        @default(false)
-  currentStatus           String                         @default("OFFLINE")
-  lastActiveAt            DateTime?
-  phone                   String?
-  dateOfBirth             DateTime?
-  gender                  String?
-  bloodGroup              String?
-  currentAddress          String?
-  permanentAddress        String?
-  emergencyName           String?
-  emergencyPhone          String?
-  emergencyRelation       String?
-  userLocation            String?                        @default("Pune HQ")
-  employeeId              String?                        @unique
-  designation             String?
-  employmentType          String?                        @default("Full-time")
-  workMode                String?                        @default("Office")
-  joiningDate             DateTime?
-  probationPeriod         String?
-  reportingManager        String?
-  teamLeadName            String?
-  workLocation            String?                        @default("Pune HQ")
-  shiftTiming             String?                        @default("9:30 AM - 6:30 PM")
-  ctcAnnual               String?
-  basicSalary             String?
-  salaryStructure         String?
-  bankName                String?
-  accountNumber           String?
-  ifscCode                String?
-  accountHolderName       String?
-  paymentMode             String?
-  panNumber               String?
-  aadhaarNumber           String?
-  uanNumber               String?
-  pfApplicable            Boolean?                       @default(true)
-  esicApplicable          Boolean?                       @default(false)
-  professionalTax         Boolean?                       @default(true)
-  taxRegime               String?
-  verificationStatus      String?                        @default("Pending")
-  verifiedBy              String?
-  verificationDate        DateTime?
-  hrNotes                 String?
-  bio                     String?
-  activityLogs            ActivityLog[]
-  attendanceEvents        AttendanceEvent[]
-  breakLogs               BreakLog[]
-  comments                Comment[]
-  employeeDocuments       EmployeeDocument[]
-  changeRequestsApproving EmployeeProfileChangeRequest[] @relation("ChangeRequestCurrentApprover")
-  changeRequestsCreated   EmployeeProfileChangeRequest[] @relation("ChangeRequestRequester")
-  changeRequestsTarget    EmployeeProfileChangeRequest[] @relation("ChangeRequestTarget")
-  leaveRequests           LeaveRequest[]
-  managedDepts            ManagerDeptAccess[]            @relation("ManagerAccess")
-  notifications           Notification[]
-  operationalEvents       OperationalEvent[]             @relation("EventActor")
-  projectMembers          ProjectMember[]
-  assigneeCycles          ReviewCycleLog[]               @relation("CycleAssignee")
-  reviewerCycles          ReviewCycleLog[]               @relation("CycleReviewer")
-  ticketAssignments       TicketAssignee[]
-  ticketHistory           TicketHistory[]
-  ticketTimeLogs          TicketTimeLog[]
-  departmentMemberships   UserDepartmentMembership[]
-  roleAssignments         UserRoleAssignment[]
-  teamMemberships         TeamMember[]
-  teamsLed                Team[]                         @relation("TeamLeadOf")
-  ticketWatching          TicketWatcher[]
-  assignedTickets         Ticket[]                       @relation("TicketAssignee")
-  createdTickets          Ticket[]                       @relation("TicketCreator")
-  ticketsToApprove        Ticket[]                       @relation("TicketApprover")
-  workdayPolicyOverride   UserWorkdayPolicyOverride?
-  department              Department?                    @relation(fields: [departmentId], references: [id])
-  role                    Role                           @relation(fields: [roleId], references: [id])
-  workSessions            WorkSession[]
+  id                        String                         @id @default(cuid())
+  email                     String                         @unique
+  name                      String
+  password                  String
+  avatar                    String?
+  isActive                  Boolean                        @default(true)
+  roleId                    String
+  departmentId              String?
+  createdAt                 DateTime                       @default(now())
+  updatedAt                 DateTime                       @updatedAt
+  mustChangePassword        Boolean                        @default(true)
+  photoUrl                  String?
+  isHR                      Boolean                        @default(false)
+  currentStatus             String                         @default("OFFLINE")
+  lastActiveAt              DateTime?
+  phone                     String?
+  dateOfBirth               DateTime?
+  gender                    String?
+  bloodGroup                String?
+  currentAddress            String?
+  permanentAddress          String?
+  emergencyName             String?
+  emergencyPhone            String?
+  emergencyRelation         String?
+  userLocation              String?                        @default("Pune HQ")
+  employeeId                String?                        @unique
+  designation               String?
+  employmentType            String?                        @default("Full-time")
+  workMode                  String?                        @default("Office")
+  joiningDate               DateTime?
+  probationPeriod           String?
+  reportingManager          String?
+  teamLeadName              String?
+  workLocation              String?                        @default("Pune HQ")
+  shiftTiming               String?                        @default("9:30 AM - 6:30 PM")
+  ctcAnnual                 String?
+  basicSalary               String?
+  salaryStructure           String?
+  bankName                  String?
+  accountNumber             String?
+  ifscCode                  String?
+  accountHolderName         String?
+  paymentMode               String?
+  panNumber                 String?
+  aadhaarNumber             String?
+  uanNumber                 String?
+  pfApplicable              Boolean?                       @default(true)
+  esicApplicable            Boolean?                       @default(false)
+  professionalTax           Boolean?                       @default(true)
+  taxRegime                 String?
+  verificationStatus        String?                        @default("Pending")
+  verifiedBy                String?
+  verificationDate          DateTime?
+  hrNotes                   String?
+  bio                       String?
+  activityLogs              ActivityLog[]
+  attendanceEvents          AttendanceEvent[]
+  attendanceProfile         EmployeeAttendanceProfile?
+  attendanceRegularizations AttendanceRegularization[]
+  breakLogs                 BreakLog[]
+  comments                  Comment[]
+  dailyAttendanceRecords    DailyAttendance[]
+  employeeDocuments         EmployeeDocument[]
+  changeRequestsApproving   EmployeeProfileChangeRequest[] @relation("ChangeRequestCurrentApprover")
+  changeRequestsCreated     EmployeeProfileChangeRequest[] @relation("ChangeRequestRequester")
+  changeRequestsTarget      EmployeeProfileChangeRequest[] @relation("ChangeRequestTarget")
+  leaveRequests             LeaveRequest[]
+  managedDepts              ManagerDeptAccess[]            @relation("ManagerAccess")
+  notifications             Notification[]
+  operationalEvents         OperationalEvent[]             @relation("EventActor")
+  projectMembers            ProjectMember[]
+  assigneeCycles            ReviewCycleLog[]               @relation("CycleAssignee")
+  reviewerCycles            ReviewCycleLog[]               @relation("CycleReviewer")
+  ticketAssignments         TicketAssignee[]
+  ticketHistory             TicketHistory[]
+  ticketTimeLogs            TicketTimeLog[]
+  departmentMemberships     UserDepartmentMembership[]
+  roleAssignments           UserRoleAssignment[]
+  teamMemberships           TeamMember[]
+  teamsLed                  Team[]                         @relation("TeamLeadOf")
+  ticketWatching            TicketWatcher[]
+  assignedTickets           Ticket[]                       @relation("TicketAssignee")
+  createdTickets            Ticket[]                       @relation("TicketCreator")
+  ticketsToApprove          Ticket[]                       @relation("TicketApprover")
+  workdayPolicyOverride     UserWorkdayPolicyOverride?
+  department                Department?                    @relation(fields: [departmentId], references: [id])
+  role                      Role                           @relation(fields: [roleId], references: [id])
+  workSessions              WorkSession[]
 
   @@index([departmentId])
   @@index([roleId])
@@ -560,15 +563,27 @@ model UserWorkdayPolicyOverride {
 }
 
 model AttendanceEvent {
-  id            String       @id @default(cuid())
-  userId        String
-  workSessionId String?
-  eventType     String
-  timestamp     DateTime     @default(now())
-  source        String       @default("manual")
-  metadata      Json?
-  user          User         @relation(fields: [userId], references: [id])
-  workSession   WorkSession? @relation(fields: [workSessionId], references: [id])
+  id                 String       @id @default(cuid())
+  userId             String
+  workSessionId      String?
+  eventType          String
+  timestamp          DateTime     @default(now())
+  source             String       @default("manual")
+  metadata           Json?
+  // ── HRMS attendance policy foundation (Phase 1) — additive, nullable only.
+  // Not yet populated or read by any service; capture UI/wiring is a later phase.
+  clientTimestamp    DateTime?
+  timezone           String?
+  latitude           Float?
+  longitude          Float?
+  accuracy           Float?
+  faceImageUrl       String?
+  deviceMetadata     Json?
+  ipAddress          String?
+  verificationStatus String?
+  policyVersion      String?
+  user               User         @relation(fields: [userId], references: [id])
+  workSession        WorkSession? @relation(fields: [workSessionId], references: [id])
 
   @@index([userId])
   @@index([timestamp])
@@ -777,6 +792,194 @@ model EmployeeProfileChangeRequest {
   @@map("employee_profile_change_requests")
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// HRMS Attendance & Leave Policy foundation (Phase 1 — schema only)
+// Additive only. Nothing in this section is read or written by any existing
+// service yet — leave/workday behavior is unchanged until a later phase wires
+// these tables in. See APEX_OS Phase 0 audit + Phase 1 schema foundation.
+// ════════════════════════════════════════════════════════════════════════════
+
+model AttendancePolicy {
+  id                      String        @id @default(cuid())
+  financialYear           String
+  name                    String
+  isActive                Boolean       @default(true)
+  minimumWorkingMinutes   Int           @default(540)
+  lateExemptionEnabled    Boolean       @default(true)
+  faceCaptureRequired     Boolean       @default(false)
+  locationCaptureRequired Boolean       @default(false)
+  geoFenceEnabled         Boolean       @default(false)
+  regularizationEnabled   Boolean       @default(true)
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  updatedById             String?
+  shiftPolicies           ShiftPolicy[]
+
+  @@index([financialYear])
+  @@index([isActive])
+  @@map("attendance_policies")
+}
+
+model ShiftPolicy {
+  id                    String                      @id @default(cuid())
+  attendancePolicyId    String
+  name                  String
+  category              AttendanceCategory
+  startTime             String
+  endTime               String
+  graceMinutes          Int                         @default(10)
+  minimumWorkingMinutes Int                         @default(540)
+  isActive              Boolean                     @default(true)
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  attendancePolicy      AttendancePolicy            @relation(fields: [attendancePolicyId], references: [id], onDelete: Cascade)
+  employeeProfiles      EmployeeAttendanceProfile[]
+
+  @@index([attendancePolicyId])
+  @@index([category])
+  @@map("shift_policies")
+}
+
+// One row per user. Deliberately does NOT remove User.reportingManager /
+// User.teamLeadName (free-text fields) — those stay untouched until a later
+// phase confirms nothing in the frontend still depends on them.
+model EmployeeAttendanceProfile {
+  id                    String             @id @default(cuid())
+  userId                String             @unique
+  category              AttendanceCategory
+  attendanceRequired    Boolean            @default(true)
+  assignedShiftId       String?
+  assignedLeavePolicyId String?
+  reportingManagerId    String?
+  hrReviewerId          String?
+  effectiveFrom         DateTime           @default(now())
+  effectiveTo           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  updatedById           String?
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedShift         ShiftPolicy?       @relation(fields: [assignedShiftId], references: [id])
+  assignedLeavePolicy   LeavePolicy?       @relation(fields: [assignedLeavePolicyId], references: [id])
+
+  @@index([category])
+  @@index([assignedShiftId])
+  @@index([assignedLeavePolicyId])
+  @@index([reportingManagerId])
+  @@map("employee_attendance_profiles")
+}
+
+model WeeklyOffPolicy {
+  id             String    @id @default(cuid())
+  name           String
+  everySunday    Boolean   @default(true)
+  secondSaturday Boolean   @default(true)
+  fourthSaturday Boolean   @default(true)
+  isActive       Boolean   @default(true)
+  effectiveFrom  DateTime  @default(now())
+  effectiveTo    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([isActive])
+  @@map("weekly_off_policies")
+}
+
+model HolidayCalendar {
+  id            String    @id @default(cuid())
+  financialYear String
+  name          String
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  holidays      Holiday[]
+
+  @@index([financialYear])
+  @@map("holiday_calendars")
+}
+
+model Holiday {
+  id         String          @id @default(cuid())
+  calendarId String
+  date       DateTime        @db.Date
+  name       String
+  isOptional Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  calendar   HolidayCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, date])
+  @@index([calendarId])
+  @@map("holidays")
+}
+
+model LeavePolicy {
+  id                              String                      @id @default(cuid())
+  financialYear                   String
+  name                            String
+  totalPaidLeaves                 Int                         @default(14)
+  combinedPoolTypes               Json                        @default("[]")
+  lwpAfterBalanceExhausted        Boolean                     @default(true)
+  approvedLeavePriorityOverAbsent Boolean                     @default(true)
+  weeklyOffExcluded               Boolean                     @default(true)
+  holidaysExcluded                Boolean                     @default(true)
+  isActive                        Boolean                     @default(true)
+  createdAt                       DateTime                    @default(now())
+  updatedAt                       DateTime                    @updatedAt
+  employeeProfiles                EmployeeAttendanceProfile[]
+
+  @@index([financialYear])
+  @@map("leave_policies")
+}
+
+model DailyAttendance {
+  id                String                @id @default(cuid())
+  userId            String
+  date              DateTime              @db.Date
+  status            DailyAttendanceStatus
+  punchInAt         DateTime?
+  punchOutAt        DateTime?
+  workedMinutes     Int                   @default(0)
+  breakMinutes      Int                   @default(0)
+  lateMinutes       Int                   @default(0)
+  leaveDeducted     Float                 @default(0)
+  lwpDeducted       Float                 @default(0)
+  calculationReason String?
+  locked            Boolean               @default(false)
+  lockedAt          DateTime?
+  policyVersion     String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@index([status])
+  @@map("daily_attendance")
+}
+
+model AttendanceRegularization {
+  id                String                    @id @default(cuid())
+  userId            String
+  date              DateTime                  @db.Date
+  requestType       RegularizationRequestType
+  reason            String
+  requestedPunchIn  DateTime?
+  requestedPunchOut DateTime?
+  status            RegularizationStatus      @default(PENDING)
+  managerApproverId String?
+  managerDecisionAt DateTime?
+  hrApproverId      String?
+  hrDecisionAt      DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([status])
+  @@map("attendance_regularizations")
+}
+
 enum ProjectStatus {
   ACTIVE
   ON_HOLD
@@ -857,4 +1060,43 @@ enum NotificationType {
   SUCCESS
   WARNING
   ERROR
+}
+
+// ── HRMS Attendance & Leave Policy foundation (Phase 1) ──────────────────────
+
+enum AttendanceCategory {
+  MANAGEMENT_EXEMPT
+  TEAM_LEADER
+  REGULAR_EMPLOYEE
+}
+
+enum DailyAttendanceStatus {
+  PRESENT
+  LATE
+  LATE_EXEMPTED
+  LEAVE
+  HALF_DAY
+  WEEKLY_OFF
+  HOLIDAY
+  LWP
+  ABSENT
+  MISSING_PUNCH
+  PENDING_REGULARIZATION
+  GEO_MISMATCH
+  FACE_MISSING
+}
+
+enum RegularizationRequestType {
+  MISSING_PUNCH
+  LOCATION_EXCEPTION
+  FACE_EXCEPTION
+  LATE_CORRECTION
+  HALF_DAY_CORRECTION
+}
+
+enum RegularizationStatus {
+  PENDING
+  MANAGER_APPROVED
+  HR_APPROVED
+  REJECTED
 }
