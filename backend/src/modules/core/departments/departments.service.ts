@@ -24,7 +24,7 @@ export class DepartmentsService {
   // not a guess from department membership/role. Schema still allows multiple rows for a department
   // (no DB-level uniqueness change yet), so this defensively picks one deterministic row instead of
   // throwing if legacy/accidental duplicate data exists.
-  private async selectDepartmentHead(departmentId: string) {
+  async selectDepartmentHead(departmentId: string) {
     const rows = await this.prisma.managerDeptAccess.findMany({
       where: {
         departmentId,
