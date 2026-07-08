@@ -61,3 +61,21 @@ coverage/
 # match src/modules/uploads/ or any other nested directory named "uploads".
 /uploads/
 /frontend/public/uploads/
+
+# ─── Security: Backup / Recovery / Data-Dump Artifacts ───────────────────────
+*.sql
+*.sql.gz
+*.dump
+*.bak
+*.zip
+*_backup_*
+apex_backup_*
+snapshot_*.json
+*_dry_run.json
+*_recovery_*.json
+backup_manifest.json
+recovered_*.json
+
+# Exception: real Prisma migrations must stay tracked despite the blanket
+# *.sql rule above, or `git add` will silently skip new migration files.
+!backend/prisma/migrations/**/*.sql
