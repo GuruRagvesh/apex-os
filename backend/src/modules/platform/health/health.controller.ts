@@ -25,7 +25,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       version: '1.0.0',
       database,
-      environment: process.env.NODE_ENV || 'development',
+      environment: process.env.APP_ENV || process.env.NODE_ENV || 'development',
     };
   }
 }
