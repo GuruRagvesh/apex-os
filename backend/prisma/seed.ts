@@ -22,6 +22,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 
 // ── Production Guard ──────────────────────────────────────────────────────────
 function guardAgainstProduction() {
@@ -367,18 +368,24 @@ async function main() {
     console.log('   ✓ Miscellaneous project ready');
   }
 
-  // ── Subrat — dedicated SUPER_ADMIN with own password (mustChangePassword: false) ──
+  // ── Subrat — dedicated SUPER_ADMIN. Password comes from SUBRAT_SEED_PASSWORD
+  // if set, otherwise a random one-time password is generated and printed
+  // below. Either way mustChangePassword forces a real password on first
+  // login, and re-running the seed never touches an existing password. ──
   console.log('\n👤 Upserting shared SUPER_ADMIN: Subrat...');
-  const subratPassword = await bcrypt.hash('SubratApex@2026', 12);
+  const existingSubrat = await prisma.user.findUnique({ where: { email: 'subrat@technoedgels.com' } });
+  const subratEnvPassword = process.env.SUBRAT_SEED_PASSWORD;
+  const subratPlaintextPassword = subratEnvPassword || crypto.randomBytes(18).toString('base64url');
+  const subratPassword = await bcrypt.hash(subratPlaintextPassword, 12);
   await prisma.user.upsert({
     where:  { email: 'subrat@technoedgels.com' },
     update: {
       name:               'Subrat',
       roleId:             roles['SUPER_ADMIN'],
       departmentId:       depts['Company / Operations'],
-      password:           subratPassword,
-      mustChangePassword: false,
       isActive:           true,
+      // Password intentionally left untouched on update — re-running the
+      // seed must never clobber a real, already-rotated password.
     },
     create: {
       name:               'Subrat',
@@ -387,10 +394,17 @@ async function main() {
       roleId:             roles['SUPER_ADMIN'],
       departmentId:       depts['Company / Operations'],
       isActive:           true,
-      mustChangePassword: false,
+      mustChangePassword: true,
     },
   });
-  console.log('   ✓ Subrat              [SUPER_ADMIN]  Company / Operations');
+  if (existingSubrat) {
+    console.log('   · Subrat              [SUPER_ADMIN]  Company / Operations (already exists — password unchanged)');
+  } else if (subratEnvPassword) {
+    console.log('   ✓ Subrat              [SUPER_ADMIN]  Company / Operations (password set from SUBRAT_SEED_PASSWORD)');
+  } else {
+    console.log('   ⚠️  Subrat              [SUPER_ADMIN]  Company / Operations (one-time generated password below — not stored anywhere else)');
+    console.log(`      ${subratPlaintextPassword}`);
+  }
 
   // ── Summary ────────────────────────────────────────────────────────────────
   console.log('\n' + '─'.repeat(60));

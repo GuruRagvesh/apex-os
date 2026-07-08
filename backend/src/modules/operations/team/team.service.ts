@@ -1,4 +1,5 @@
 ﻿import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -7,6 +8,7 @@ export class TeamService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
   ) {}
 
   async sendTeamRequest(requesterId: string, targetUserId: string, reason?: string) {
@@ -24,16 +26,23 @@ export class TeamService {
 
     if (!target) throw new NotFoundException('Target user not found');
 
-    // Find the manager (Tejas Kadam first, fallback to any MANAGER)
-    const manager = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: 'tejas.kadam@technoedgels.com' },
-          { role: { name: { in: ['MANAGER'] } } },
-        ],
-      },
-      select: { id: true, name: true },
-    });
+    // Find the manager: preferred manager from config first (deterministic —
+    // unlike the OR+findFirst pattern this replaced, which never actually
+    // guaranteed priority), fallback to any MANAGER.
+    const preferredManagerEmail = this.config.get<string>('TEAM_REQUEST_PREFERRED_MANAGER_EMAIL');
+    let manager = preferredManagerEmail
+      ? await this.prisma.user.findFirst({
+          where: { email: preferredManagerEmail },
+          select: { id: true, name: true },
+        })
+      : null;
+
+    if (!manager) {
+      manager = await this.prisma.user.findFirst({
+        where: { role: { name: { in: ['MANAGER'] } } },
+        select: { id: true, name: true },
+      });
+    }
 
     if (!manager) throw new NotFoundException('No manager found to send request to');
 
