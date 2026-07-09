@@ -46,6 +46,22 @@ export class TVAService {
     return new Date(isoString);
   }
 
+  /**
+   * Returns the company-timezone calendar date as a Date safe for @db.Date
+   * columns (e.g. WorkSession.date). companyDayStart() returns the real
+   * midnight-IST instant, which for IST (UTC+5:30) falls on the *previous*
+   * UTC calendar day — Prisma's @db.Date mapping reads a Date's UTC
+   * calendar date, so storing companyDayStart() there silently shifts every
+   * business day back by one. This encodes the date directly as UTC
+   * midnight so the stored/queried date matches the intended business day.
+   */
+  companyDateOnly(date?: Date): Date {
+    const tz = this.companyTimezone();
+    const targetDate = date || this.now();
+    const dateString = formatInTimeZone(targetDate, tz, 'yyyy-MM-dd');
+    return new Date(`${dateString}T00:00:00.000Z`);
+  }
+
   elapsedMinutes(start: Date, end?: Date): number {
     const endTime = end || this.now();
     const diffMs = endTime.getTime() - start.getTime();

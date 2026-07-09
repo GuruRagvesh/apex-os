@@ -148,7 +148,7 @@ export class WorkdayService {
   }
 
   private getTodayDate(): Date {
-    return this.tva.companyDayStart();
+    return this.tva.companyDateOnly();
   }
 
   private isClosedSession(session: any): boolean {

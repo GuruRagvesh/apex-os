@@ -143,7 +143,12 @@ export class SchedulerService {
   // 1. MIDNIGHT LEAVE STATUS SETTER — 00:01 every day
   @Cron('1 0 * * *')
   async setLeaveStatuses() {
+    // Two distinct values on purpose: `today` is the real instant, correct
+    // for comparing against LeaveRequest's DateTime start/end range below.
+    // `todayDateOnly` is the @db.Date-safe encoding, correct for
+    // WorkSession.date (see TVAService.companyDateOnly).
     const today = this.tva.companyDayStart();
+    const todayDateOnly = this.tva.companyDateOnly();
 
     const approvedLeaves = await this.prisma.leaveRequest.findMany({
       where: {
@@ -155,7 +160,7 @@ export class SchedulerService {
 
     for (const leave of approvedLeaves) {
       let existingSession = await this.prisma.workSession.findFirst({
-        where: { userId: leave.userId, date: today },
+        where: { userId: leave.userId, date: todayDateOnly },
         orderBy: { createdAt: 'desc' }
       });
 
@@ -167,7 +172,7 @@ export class SchedulerService {
       } else {
         await this.attendanceAuthority.createWorkSession({
           userId: leave.userId,
-          date: today,
+          date: todayDateOnly,
           status: 'ON_LEAVE',
           leaveId: leave.id,
         });
@@ -389,7 +394,7 @@ export class SchedulerService {
     if (hour < 9 || hour > 20) return;
 
     const cutoff = new Date(this.tva.now().getTime() - 2 * 60 * 60 * 1000);
-    const today = this.tva.companyDayStart();
+    const today = this.tva.companyDateOnly();
 
     const idleUsers = await this.prisma.user.findMany({
       where: { currentStatus: 'IDLE', lastActiveAt: { lte: cutoff }, isActive: true },

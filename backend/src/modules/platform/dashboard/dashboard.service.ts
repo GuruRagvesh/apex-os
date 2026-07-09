@@ -365,7 +365,7 @@ export class DashboardService {
   }
 
   private async getWorkdayStatus(user: any) {
-    const today = this.tva.companyDayStart();
+    const today = this.tva.companyDateOnly();
     const now = this.tva.now();
     
     const sessions = await this.prisma.workSession.findMany({

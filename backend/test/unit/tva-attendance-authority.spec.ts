@@ -37,7 +37,7 @@ describe('TVA Attendance Authority (Unit)', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), companyDateOnly: () => new Date('2023-10-25T00:00:00.000Z'), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         WorkdayService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AccessPolicyService, useValue: { checkAccess: jest.fn() } },
