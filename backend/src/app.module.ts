@@ -36,6 +36,7 @@ import { TaskTypesModule } from './modules/platform/task-types/task-types.module
 import { WorkdayModule } from './modules/platform/workday/workday.module';
 import { EventsModule } from './modules/platform/events/events.module';
 import { AnalyticsModule } from './modules/platform/analytics/analytics.module';
+import { HrmsAttendanceModule } from './modules/platform/hrms-attendance/hrms-attendance.module';
 
 import { AppThrottlerGuard } from './shared/guards/app-throttler.guard';
 
@@ -80,6 +81,7 @@ const isTest = process.env.NODE_ENV === 'test';
     WorkdayModule,
     EventsModule,
     AnalyticsModule,
+    HrmsAttendanceModule,
   ],
 })
 export class AppModule {}

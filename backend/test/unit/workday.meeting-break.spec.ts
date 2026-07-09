@@ -62,6 +62,7 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
       {
         now: jest.fn(() => NOW),
         companyDayStart: jest.fn(() => TODAY),
+        companyDateOnly: jest.fn(() => TODAY),
       } as any,
     );
   });

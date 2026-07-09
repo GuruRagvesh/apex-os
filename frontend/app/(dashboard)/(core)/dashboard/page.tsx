@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ticketsApi, dashboardApi, changeRequestsApi } from '@/lib/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
+import { HrmsAttendancePanel } from '@/components/workday/HrmsAttendancePanel';
 import { WorkdayHistoryStrip } from '@/components/workday/WorkdayHistoryStrip';
 import { CriticalActionPanel } from '@/components/home/CriticalActionPanel';
 import { UpcomingEvents } from '@/components/home/UpcomingEvents';
@@ -386,6 +387,8 @@ export default function HomePage() {
 
         {/* WorkdayBar — workday state, timer, break management */}
         <WorkdayBar />
+        {/* HRMS attendance capture (Phase 1, behind feature flags) — quiet no-op panel until enabled */}
+        <HrmsAttendancePanel />
         {/* Recent session history — last 7 sessions, compact strip */}
         <WorkdayHistoryStrip />
       </motion.section>

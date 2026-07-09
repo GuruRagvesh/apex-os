@@ -45,6 +45,7 @@ describe('WorkdayService Release A corruption guards', () => {
       {
         now: jest.fn(() => now),
         companyDayStart: jest.fn(() => today),
+        companyDateOnly: jest.fn(() => today),
       } as any,
     );
   });

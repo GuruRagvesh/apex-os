@@ -410,6 +410,26 @@ export const workdayApi = {
   getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
 };
 
+// HRMS Attendance Capture (Phase 1, behind feature flags)
+export const hrmsAttendanceApi = {
+  getToday: () => r(api.get('/hrms/attendance/today')),
+  punchIn: (data: {
+    clientTimestamp?: string;
+    timezone?: string;
+    latitude?: number;
+    longitude?: number;
+    accuracy?: number;
+    faceImageUrl?: string;
+    deviceMetadata?: Record<string, unknown>;
+  }) => r(api.post('/hrms/attendance/punch-in', data)),
+  breakStart: (data?: { breakType?: string; estimatedMinutes?: number; deviceMetadata?: Record<string, unknown> }) =>
+    r(api.post('/hrms/attendance/break-start', data ?? {})),
+  breakEnd: () => r(api.post('/hrms/attendance/break-end', {})),
+  punchOut: (data?: { clientTimestamp?: string; deviceMetadata?: Record<string, unknown> }) =>
+    r(api.post('/hrms/attendance/punch-out', data ?? {})),
+  getHistory: () => r(api.get('/hrms/attendance/history')),
+};
+
 // Notifications
 export const notificationsApi = {
   getAll: (unread?: boolean) => r(api.get('/notifications', { params: { unread } })),
