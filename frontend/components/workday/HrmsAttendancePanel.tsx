@@ -38,10 +38,11 @@ export function HrmsAttendancePanel() {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['hrms-attendance-today'],
     queryFn: () => hrmsAttendanceApi.getToday() as Promise<any>,
     staleTime: 30000,
+    retry: 1,
   });
 
   const refetchAll = () => {
@@ -53,7 +54,22 @@ export function HrmsAttendancePanel() {
     queryClient.invalidateQueries({ queryKey: ['workday-history'] });
   };
 
-  if (isLoading || !data) return null;
+  if (isLoading) return null;
+
+  // Surface fetch failures instead of silently rendering nothing — a wrong
+  // API base URL, a CORS block, or a 401/500 would otherwise look identical
+  // to "feature disabled" or "still loading" with zero visible signal.
+  if (isError || !data) {
+    const status = (error as any)?.response?.status;
+    return (
+      <div className="apex-card" style={{ padding: '12px 16px', marginTop: 8, borderColor: 'rgba(239,68,68,0.4)' }}>
+        <p className="text-[11px]" style={{ color: '#ef4444' }}>
+          Could not load HRMS attendance status{status ? ` (HTTP ${status})` : ''}. Existing workday controls are
+          unaffected.
+        </p>
+      </div>
+    );
+  }
 
   // Feature is off — show a quiet, informational state, never block the
   // existing workday controls (QuickActionDock / WorkdayBar) elsewhere on
