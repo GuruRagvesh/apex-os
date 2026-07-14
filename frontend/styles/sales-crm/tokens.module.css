@@ -1,0 +1,148 @@
+/* ============================================================
+   Sales CRM — Scoped design tokens (Phase 1)
+
+   Implemented as a CSS Module (not a plain global .css file) because
+   Next.js App Router only allows global CSS imports from the root
+   layout (frontend/app/layout.tsx). A nested layout — this workspace
+   lives under frontend/app/(workspaces)/sales-crm/layout.tsx — cannot
+   import global CSS without breaking the build. CSS Modules are
+   exempt from that restriction and additionally hash the class name,
+   which gives even stronger containment than the plain ".sales-crm-root"
+   selector named in the integration spec. The custom properties below
+   still cascade to every descendant regardless of the hashed class
+   name, so nested components can freely use var(--color-bg) etc.
+
+   Palette matches the dark/purple visual identity already shipped on
+   the existing /sales-crm workspace page (hardcoded hex values in
+   frontend/app/(workspaces)/sales-crm/page.tsx) rather than the intern
+   source's light-theme tokens, so the new module pages look like one
+   continuous workspace instead of switching themes mid-navigation.
+
+   Deliberately NOT ported from intern source in Phase 1:
+   - reset.css (global html, body, and element-level resets — would
+     affect every other Apex page)
+   - dashboard.css / leads.css / database.css / settings.css /
+     analytics.css / login.css / shell.css / primitives.css (~7,300
+     lines total, written against the intern's exact JSX/class
+     structure, which Phase 1 does not port verbatim — see the
+     production integration report for the scope rationale)
+   - the [data-theme="dark"] token overrides — Phase 1 ships a single
+     theme and does not hook into Apex's own theme system, per the
+     containment instructions (do not touch Apex root theme setup)
+   ============================================================ */
+
+.salesCrmRoot {
+  /* ---- Primary (Violet, matches existing placeholder) ---- */
+  --color-primary:         #7c3aed;
+  --color-primary-hover:   #6d28d9;
+  --color-primary-soft:    rgba(139,92,246,0.12);
+  --color-primary-text:    #a78bfa;
+
+  --color-primary-light:   #a78bfa;
+  --color-primary-dark:    #4c1d95;
+  --color-primary-50:      rgba(139,92,246,0.08);
+  --color-primary-100:     rgba(139,92,246,0.15);
+
+  /* ---- Accent (Blue) ---- */
+  --color-accent:          #2563eb;
+  --color-accent-soft:     rgba(37,99,235,0.12);
+  --color-accent-light:    #60a5fa;
+
+  /* ---- Surfaces ---- */
+  --color-bg:              #050505;
+  --color-bg-elevated:     #0B1220;
+  --color-surface:         #0F172A;
+  --color-surface-hover:   #16213a;
+  --color-surface-muted:   #0B1220;
+  --color-surface-active:  #1a2540;
+
+  /* ---- Borders ---- */
+  --color-border:          #1E293B;
+  --color-border-strong:   #2d3b52;
+  --color-border-light:    #16213a;
+
+  /* ---- Text ---- */
+  --color-text-primary:    #e2e8f0;
+  --color-text-secondary:  #94a3b8;
+  --color-text-muted:      #64748b;
+  --color-text-inverse:    #050505;
+
+  /* ---- Status ---- */
+  --color-success:         #34d399;
+  --color-success-soft:    rgba(16,185,129,0.12);
+  --color-warning:         #fbbf24;
+  --color-warning-soft:    rgba(245,158,11,0.12);
+  --color-danger:          #f87171;
+  --color-danger-soft:     rgba(239,68,68,0.12);
+  --color-error:           #f87171;
+  --color-info:            #60a5fa;
+  --color-info-soft:       rgba(37,99,235,0.12);
+
+  --color-border-hover:    var(--color-border-strong);
+  --color-success-50:      var(--color-success-soft);
+  --color-warning-50:      var(--color-warning-soft);
+  --color-error-50:        var(--color-danger-soft);
+  --color-info-50:         var(--color-info-soft);
+
+  /* ---- Shadows ---- */
+  --shadow-xs:  0 1px 2px rgba(0,0,0,0.3);
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:  0 4px 6px rgba(0,0,0,0.4);
+  --shadow-lg:  0 10px 15px rgba(0,0,0,0.5);
+  --shadow-xl:  0 20px 25px rgba(0,0,0,0.5);
+
+  /* ---- Radii ---- */
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px;
+  --radius-full: 9999px;
+
+  /* ---- Spacing ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ---- Layout ---- */
+  --sidebar-width:      260px;
+  --sidebar-collapsed:  72px;
+  --topbar-height:      56px;
+
+  /* ---- Typography ---- */
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.125rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.5rem;
+  --text-3xl:  1.875rem;
+
+  /* ---- Transitions ---- */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  min-height: 100vh;
+}
+
+.salesCrmRoot :global(::-webkit-scrollbar) {
+  width: 8px;
+  height: 8px;
+}
+
+.salesCrmRoot :global(::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+.salesCrmRoot :global(::-webkit-scrollbar-thumb) {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-full);
+}
