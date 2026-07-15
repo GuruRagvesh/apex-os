@@ -1,206 +1,325 @@
-'use client';
+"use client";
 
-import { useMemo, useState } from 'react';
-import { Search, ChevronDown, ChevronUp, Phone, Mail, MapPin } from 'lucide-react';
-import { MOCK_LEADS } from '@/lib/sales-crm/mock-data';
-import { getLeadsStats, filterAndSearchLeads, type LeadFilterState } from '@/lib/sales-crm/lead-calculations';
-import type { Lead } from '@/lib/sales-crm/types';
-import { Card, StatCard } from '@/components/sales-crm/ui/Card';
-import { StageBadge, PriorityBadge, PlainBadge } from '@/components/sales-crm/ui/Badge';
-import { EmptyState } from '@/components/sales-crm/ui/EmptyState';
-import { Target, Users, Clock, CheckCircle2 } from 'lucide-react';
+import { useState, Suspense, useEffect } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { Lead, Role, LeadStage, ColumnConfig } from "@/lib/sales-crm/types";
+import { MOCK_LEADS } from "@/lib/sales-crm/mock-data";
+import { getLeadsStats, filterAndSearchLeads, LeadFilterState, LeadSortState } from "@/lib/sales-crm/lead-calculations";
+import { logAction } from "@/lib/sales-crm/audit-log";
+import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import LeadCreate from "./LeadCreate";
+import LeadStats from "./LeadStats";
+import LeadFilters from "./LeadFilters";
+import LeadList from "./LeadList";
+import LeadDetail from "./LeadDetail";
+import ColumnManager from "./ColumnManager";
+import { canDeleteRecord } from "@/lib/sales-crm/permissions";
+import { Settings2 } from "lucide-react";
+import styles from "@/styles/sales-crm/leads.module.css";
+import ui from "@/styles/sales-crm/primitives.module.css";
 
-const OWNER_NAMES: Record<string, string> = {
-  'u-superadmin-1': 'Priya Sharma',
-  'u-admin-1': 'Rahul Mehta',
-  'u-employee-1': 'Sneha Patil',
-};
+function LeadsPageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
 
-const EMPTY_FILTERS: LeadFilterState = { owner: '', stage: '', source: '' };
+  const querySearch = searchParams.get("search") || "";
+  const queryOwner = searchParams.get("owner") || "";
+  const queryStage = searchParams.get("stage") || "";
+  const querySource = searchParams.get("source") || "";
+  const queryAlert = searchParams.get("alert") || "";
+  const queryLeadId = searchParams.get("leadId") || "";
+  const queryAction = searchParams.get("action") || "";
 
-export default function SalesCrmLeads() {
-  const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState<LeadFilterState>(EMPTY_FILTERS);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [leads, setLeads] = useState<Lead[]>(MOCK_LEADS);
+  const [filters, setFilters] = useState<LeadFilterState>({
+    owner: queryOwner,
+    stage: queryStage,
+    source: querySource,
+    alert: queryAlert,
+  });
+  const [sortState, setSortState] = useState<LeadSortState>({
+    field: "createdDate",
+    direction: "desc",
+  });
 
-  const stats = useMemo(() => getLeadsStats(MOCK_LEADS), []);
-  const filtered = useMemo(() => filterAndSearchLeads(MOCK_LEADS, search, filters), [search, filters]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkNotice, setBulkNotice] = useState<{ message: string; type: "error" | "success" } | null>(null);
 
-  const stages = useMemo(() => Array.from(new Set(MOCK_LEADS.map((l) => l.leadStage))).sort(), []);
-  const sources = useMemo(() => Array.from(new Set(MOCK_LEADS.map((l) => l.leadSource))).sort(), []);
+  const [columns, setColumns] = useState<ColumnConfig[]>([]);
+  const [showColumnManager, setShowColumnManager] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("salescrm_lead_columns");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setTimeout(() => setColumns(parsed), 0);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    if (!stored || !JSON.parse(stored).length) {
+      const defaultCols: ColumnConfig[] = [
+        { id: "leadOwner", label: "Lead Owner", visible: true },
+        { id: "company", label: "Company", visible: true },
+        { id: "poc", label: "POC", visible: true },
+        { id: "contact", label: "Email / Phone", visible: true },
+        { id: "stage", label: "Stage", visible: true },
+        { id: "score", label: "Score", visible: true },
+        { id: "activity", label: "Last Activity", visible: true },
+        { id: "action", label: "Action", visible: true },
+      ];
+      setTimeout(() => setColumns(defaultCols), 0);
+      localStorage.setItem("salescrm_lead_columns", JSON.stringify(defaultCols));
+    }
+  }, []);
+
+  const handleSetColumns = (newCols: ColumnConfig[]) => {
+    setColumns(newCols);
+    localStorage.setItem("salescrm_lead_columns", JSON.stringify(newCols));
+  };
+
+  const isAddLeadMode = queryAction === "add";
+
+  const handleCancelAdd = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("action");
+    router.replace(`${pathname}?${params.toString()}`);
+  };
+
+  const handleSaveNewLead = (newLead: Lead) => {
+    setLeads([newLead, ...leads]);
+    logAction({
+      userId: user?.id || "system",
+      userName: user ? user.name : "System",
+      userRole: (user?.role || "SYSTEM") as Role | "SYSTEM",
+      action: "create",
+      collection: "Leads",
+      entityId: newLead.id,
+      details: `Added new lead: ${newLead.company}`,
+      after: newLead,
+      metadata: {
+        lead_status: newLead.leadStage,
+        pipeline_stage: newLead.leadStage,
+        company: newLead.company,
+        department: newLead.department,
+        poc: newLead.poc,
+        leadOwner: newLead.leadOwner,
+      },
+    });
+    handleCancelAdd();
+  };
+
+  const handleClearFilters = () => {
+    setFilters({ owner: "", stage: "", source: "", alert: "" });
+    if (querySearch || queryOwner || queryStage || querySource || queryAlert) {
+      router.push(pathname);
+    }
+  };
+
+  const handleSelectLead = (leadId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("leadId", leadId);
+    router.push(`${pathname}?${params.toString()}`);
+  };
+
+  const handleBackToList = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("leadId");
+    router.push(`${pathname}?${params.toString()}`);
+  };
+
+  const handleUpdateLead = (updatedLead: Lead) => {
+    setLeads((prev) => prev.map((l) => (l.id === updatedLead.id ? updatedLead : l)));
+  };
+
+  const userRole = (user?.role as Role | undefined) ?? Role.EMPLOYEE;
+  const canDelete = canDeleteRecord(userRole);
+  const canBulkManage = userRole === Role.SUPERADMIN || userRole === Role.ADMIN || userRole === Role.MANAGER;
+
+  const handleDeleteLead = (leadId: string) => {
+    if (!canDelete) {
+      setBulkNotice({ message: "You do not have permission to delete leads.", type: "error" });
+      setTimeout(() => setBulkNotice(null), 3000);
+      return;
+    }
+    setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    handleBackToList();
+  };
+
+  const filteredLeads = filterAndSearchLeads(leads, querySearch, filters, sortState);
+
+  const handleToggleSelect = (leadId: string) => {
+    setSelectedIds((prev) => (prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]));
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.length === filteredLeads.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredLeads.map((l) => l.id));
+    }
+  };
+
+  const handleBulkAssign = (newOwner: string) => {
+    if (userRole !== Role.SUPERADMIN && userRole !== Role.ADMIN && userRole !== Role.MANAGER) {
+      setBulkNotice({ message: "Access Denied: Only Admins/Managers can bulk assign.", type: "error" });
+      setTimeout(() => setBulkNotice(null), 3000);
+      return;
+    }
+    setLeads((prev) =>
+      prev.map((l) => {
+        if (selectedIds.includes(l.id)) {
+          return { ...l, leadOwner: newOwner };
+        }
+        return l;
+      })
+    );
+    selectedIds.forEach((id) => {
+      logAction({
+        userId: user?.id || "system",
+        userName: user ? user.name : "System",
+        userRole: userRole,
+        action: "update",
+        collection: "Leads",
+        entityId: id,
+        details: `Bulk reassigned to ${newOwner}`,
+      });
+    });
+    setSelectedIds([]);
+    setBulkNotice({ message: `Successfully assigned ${selectedIds.length} leads to ${newOwner}`, type: "success" });
+    setTimeout(() => setBulkNotice(null), 3000);
+  };
+
+  const handleBulkStatusChange = (newStage: LeadStage) => {
+    if (userRole !== Role.SUPERADMIN && userRole !== Role.ADMIN && userRole !== Role.MANAGER) {
+      setBulkNotice({ message: "Access Denied: Only Admins/Managers can bulk update status.", type: "error" });
+      setTimeout(() => setBulkNotice(null), 3000);
+      return;
+    }
+    setLeads((prev) =>
+      prev.map((l) => {
+        if (selectedIds.includes(l.id)) {
+          return { ...l, leadStage: newStage };
+        }
+        return l;
+      })
+    );
+    selectedIds.forEach((id) => {
+      logAction({
+        userId: user?.id || "system",
+        userName: user ? user.name : "System",
+        userRole: userRole,
+        action: "stage_change",
+        collection: "Leads",
+        entityId: id,
+        details: `Bulk status changed to ${newStage}`,
+      });
+    });
+    setSelectedIds([]);
+    setBulkNotice({ message: `Successfully updated status to ${newStage} for ${selectedIds.length} leads`, type: "success" });
+    setTimeout(() => setBulkNotice(null), 3000);
+  };
+
+  const selectedLead = leads.find((l) => l.id === queryLeadId);
+  const stats = getLeadsStats(leads);
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <StatCard label="Total Leads" value={stats.totalLeads} icon={<Target size={14} style={{ color: 'var(--color-primary-text)' }} />} />
-        <StatCard label="Active Leads" value={stats.activeLeads} icon={<Users size={14} style={{ color: 'var(--color-primary-text)' }} />} />
-        <StatCard label="Pending Follow-ups" value={stats.pendingFollowups} icon={<Clock size={14} style={{ color: 'var(--color-primary-text)' }} />} />
-        <StatCard label="Qualified" value={stats.qualifiedLeads} icon={<CheckCircle2 size={14} style={{ color: 'var(--color-primary-text)' }} />} />
-      </div>
-
-      <Card className="p-3 sm:p-4">
-        <div className="flex flex-col sm:flex-row gap-2.5">
-          <div className="relative flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search leads, companies, contacts..."
-              className="w-full pl-9 pr-3 py-2 rounded-lg text-sm outline-none"
-              style={{ backgroundColor: 'var(--color-surface-hover)', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)' }}
-            />
-          </div>
-          <select
-            value={filters.stage}
-            onChange={(e) => setFilters((f) => ({ ...f, stage: e.target.value }))}
-            className="px-3 py-2 rounded-lg text-sm outline-none"
-            style={{ backgroundColor: 'var(--color-surface-hover)', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)' }}
-          >
-            <option value="">All Stages</option>
-            {stages.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <select
-            value={filters.source}
-            onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
-            className="px-3 py-2 rounded-lg text-sm outline-none"
-            style={{ backgroundColor: 'var(--color-surface-hover)', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)' }}
-          >
-            <option value="">All Sources</option>
-            {sources.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <select
-            value={filters.owner}
-            onChange={(e) => setFilters((f) => ({ ...f, owner: e.target.value }))}
-            className="px-3 py-2 rounded-lg text-sm outline-none"
-            style={{ backgroundColor: 'var(--color-surface-hover)', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)' }}
-          >
-            <option value="">All Owners</option>
-            {Object.entries(OWNER_NAMES).map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </Card>
-
-      <Card>
-        {filtered.length === 0 ? (
-          <EmptyState icon={Target} title="No leads match your filters" description="Try adjusting your search or filters to see more results." />
-        ) : (
-          <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
-            {filtered.map((lead) => (
-              <LeadRow key={lead.id} lead={lead} expanded={expandedId === lead.id} onToggle={() => setExpandedId((id) => (id === lead.id ? null : lead.id))} />
-            ))}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-function LeadRow({ lead, expanded, onToggle }: { lead: Lead; expanded: boolean; onToggle: () => void }) {
-  const ownerName = OWNER_NAMES[lead.leadOwner] ?? lead.leadOwner;
-
-  return (
-    <div>
-      <button onClick={onToggle} className="w-full text-left p-4 flex items-center gap-3 hover:bg-white/[0.02] transition-colors">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
-              {lead.company}
-            </span>
-            <StageBadge stage={lead.leadStage} />
-            <PriorityBadge priority={lead.priority} />
-          </div>
-          <div className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>
-            {lead.poc} · {lead.designation} · {lead.location}
-          </div>
-        </div>
-        <div className="hidden sm:block text-xs text-right flex-shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
-          <div>{ownerName}</div>
-          <div style={{ color: 'var(--color-text-muted)' }}>{lead.leadSource}</div>
-        </div>
-        {expanded ? <ChevronUp size={16} style={{ color: 'var(--color-text-muted)' }} /> : <ChevronDown size={16} style={{ color: 'var(--color-text-muted)' }} />}
-      </button>
-
-      {expanded && (
-        <div className="px-4 pb-4 space-y-3" style={{ backgroundColor: 'var(--color-surface-muted)' }}>
-          <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs pt-3" style={{ color: 'var(--color-text-secondary)' }}>
-            <span className="flex items-center gap-1.5">
-              <Mail size={12} style={{ color: 'var(--color-text-muted)' }} /> {lead.email}
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Phone size={12} style={{ color: 'var(--color-text-muted)' }} /> {lead.phone}
-            </span>
-            <span className="flex items-center gap-1.5">
-              <MapPin size={12} style={{ color: 'var(--color-text-muted)' }} /> {lead.location}
-            </span>
+    <div className={`${styles["lead-page-container"]} ${selectedLead ? styles["lead-page-container--detail"] : ""}`}>
+      {isAddLeadMode ? (
+        <LeadCreate onCancel={handleCancelAdd} onSave={handleSaveNewLead} existingLeads={leads} />
+      ) : selectedLead ? (
+        <LeadDetail lead={selectedLead} onBack={handleBackToList} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
+      ) : (
+        <>
+          <div className={styles["lead-list-summary-row"]}>
+            <LeadStats stats={stats} />
+            <button
+              className={`${ui["ui-btn"]} ${ui["ui-btn-secondary"]} ${styles["lead-list-columns-button"]}`}
+              onClick={() => setShowColumnManager(true)}
+              title="Manage Columns"
+            >
+              <Settings2 size={18} />
+              <span className="lead-hide-mobile">Columns</span>
+            </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <DetailList title={`Activities (${lead.activities.length})`}>
-              {lead.activities.map((a) => (
-                <li key={a.id} className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                    {a.activityType}
-                  </span>{' '}
-                  — {a.comment}
-                </li>
-              ))}
-            </DetailList>
-            <DetailList title={`Follow-ups (${lead.followups.length})`}>
-              {lead.followups.map((f) => (
-                <li key={f.id} className="text-xs flex items-center gap-1.5" style={{ color: 'var(--color-text-secondary)' }}>
-                  <PlainBadge tone={f.status === 'Overdue' ? 'danger' : f.status === 'Completed' ? 'success' : 'warning'}>{f.status}</PlainBadge>
-                  {f.followupType} on {f.followupDate}
-                </li>
-              ))}
-            </DetailList>
-            <DetailList title={`Requirements (${lead.requirements.length})`}>
-              {lead.requirements.map((r) => (
-                <li key={r.id} className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                    {r.title}
-                  </span>{' '}
-                  — {r.status}
-                </li>
-              ))}
-            </DetailList>
-            <DetailList title={`Deals (${lead.deals.length})`}>
-              {lead.deals.map((d) => (
-                <li key={d.id} className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                    ${d.value.toLocaleString()}
-                  </span>{' '}
-                  — {d.stage}
-                </li>
-              ))}
-            </DetailList>
-          </div>
-        </div>
+          <LeadFilters filters={filters} setFilters={setFilters} sortState={sortState} setSortState={setSortState} onClear={handleClearFilters} />
+
+          {bulkNotice && (
+            <div className={`${ui["ui-card"]} ui-p-3 ${bulkNotice.type === "error" ? "ui-badge-error" : ui["ui-badge-success"]} ${styles["lead-mb-4"]} ${styles["lead-br-md"]}`}>
+              {bulkNotice.message}
+            </div>
+          )}
+
+          {canBulkManage && selectedIds.length > 0 && (
+            <div
+              className={`${ui["ui-card"]} ui-p-3 ${styles["lead-mb-4"]} ${styles["lead-flex"]} ${styles["lead-align-center"]} ${styles["lead-justify-between"]} ${styles["lead-bg-hover"]} ${styles["lead-bulk-action-bar"]}`}
+            >
+              <span className={styles["lead-text-medium"]}>{selectedIds.length} Selected</span>
+              <div className={`${styles["lead-flex"]} ${styles["lead-gap-3"]} ${styles["lead-align-center"]}`}>
+                <select
+                  className={`${ui["ui-select"]} ${styles["lead-bulk-select"]}`}
+                  onChange={(e) => {
+                    if (e.target.value) handleBulkAssign(e.target.value);
+                    e.target.value = "";
+                  }}
+                >
+                  <option value="">Bulk Assign Owner...</option>
+                  <option value="u-superadmin-1">Priya</option>
+                  <option value="u-admin-1">Rahul</option>
+                  <option value="u-employee-1">Sneha</option>
+                </select>
+                <select
+                  className={`${ui["ui-select"]} ${styles["lead-bulk-select"]}`}
+                  onChange={(e) => {
+                    if (e.target.value) handleBulkStatusChange(e.target.value as LeadStage);
+                    e.target.value = "";
+                  }}
+                >
+                  <option value="">Bulk Change Stage...</option>
+                  <option value="Created">Created</option>
+                  <option value="Cold">Cold</option>
+                  <option value="Level 0">Level 0</option>
+                  <option value="Level 1">Level 1</option>
+                  <option value="Level 2">Level 2</option>
+                  <option value="Closed">Closed</option>
+                  <option value="Invalid">Invalid</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          <LeadList
+            leads={filteredLeads}
+            columns={columns}
+            onSelectLead={handleSelectLead}
+            onUpdateLead={handleUpdateLead}
+            userRole={userRole}
+            canBulkManage={canBulkManage}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
+            onToggleSelectAll={handleToggleSelectAll}
+            onQuickAddActivity={(leadId) => {
+              const params = new URLSearchParams(searchParams.toString());
+              params.set("leadId", leadId);
+              params.set("action", "add-activity");
+              router.push(`${pathname}?${params.toString()}`);
+            }}
+          />
+          {showColumnManager && <ColumnManager columns={columns} setColumns={handleSetColumns} onClose={() => setShowColumnManager(false)} />}
+        </>
       )}
     </div>
   );
 }
 
-function DetailList({ title, children }: { title: string; children: React.ReactNode }) {
-  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+export default function SalesCrmLeads() {
   return (
-    <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: 'var(--color-text-muted)' }}>
-        {title}
-      </div>
-      {hasChildren ? <ul className="space-y-1">{children}</ul> : <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>None yet.</p>}
-    </div>
+    <Suspense fallback={<div className="ui-p-3">Loading...</div>}>
+      <LeadsPageContent />
+    </Suspense>
   );
 }

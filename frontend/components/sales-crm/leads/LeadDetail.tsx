@@ -1,0 +1,56 @@
+"use client";
+
+import { useState } from "react";
+import { Lead, Role } from "@/lib/sales-crm/types";
+import LeadInfoPanel from "./LeadInfoPanel";
+import LeadTabs from "./LeadTabs";
+import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { canDeleteRecord } from "@/lib/sales-crm/permissions";
+import styles from "@/styles/sales-crm/leads.module.css";
+import ui from "@/styles/sales-crm/primitives.module.css";
+
+interface LeadDetailProps {
+  lead: Lead;
+  onBack: () => void;
+  onUpdate: (updatedLead: Lead) => void;
+  onDelete?: (leadId: string) => void;
+}
+
+export default function LeadDetail({ lead, onBack, onUpdate, onDelete }: LeadDetailProps) {
+  const { user } = useAuth();
+  const userRole = (user?.role as Role | undefined) ?? Role.EMPLOYEE;
+  const canDelete = canDeleteRecord(userRole);
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  return (
+    <div className={`${styles["lead-detail-layout"]} ${styles["lead-relative"]}`}>
+      {canDelete && onDelete && (
+        <div className={styles["lead-absolute-top-right"]}>
+          {/* NOTE: Backend API enforcement is still required for production security. */}
+          <button className={`${ui["ui-btn"]} ui-btn-outline ${styles["lead-text-error"]} ${styles["lead-border-error"]}`} onClick={() => setShowDeleteConfirm(true)}>
+            Delete Lead
+          </button>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="lead-modal-overlay">
+          <div className="lead-modal-content">
+            <h3 className="lead-text-lg lead-font-medium">Confirm Delete</h3>
+            <p className="ui-text-muted ui-mb-4">Are you sure you want to delete this lead? This action cannot be undone.</p>
+            <div className={`${styles["lead-flex"]} ${styles["lead-gap-4"]} ${styles["lead-justify-end"]}`}>
+              <button className={`${ui["ui-btn"]} ui-btn-outline`} onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+              <button className={`${ui["ui-btn"]} ${ui["ui-btn-primary"]} ${styles["lead-bg-error"]}`} onClick={() => {
+                onDelete?.(lead.id);
+                setShowDeleteConfirm(false);
+              }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <LeadInfoPanel lead={lead} onUpdate={onUpdate} />
+      <LeadTabs lead={lead} onUpdate={onUpdate} onBack={onBack} />
+    </div>
+  );
+}
