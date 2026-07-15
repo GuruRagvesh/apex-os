@@ -481,15 +481,77 @@ export function validateImportData(
 }
 
 /* ------------------------------------------------------------------ */
-/*  CSV / Excel parser — TEMPORARILY DISABLED                          */
-/*  xlsx was removed pending an import-package decision (2 high-        */
-/*  severity advisories, no npm fix available). This stub keeps the    */
-/*  original signature so future callers don't need to change once a   */
-/*  package is chosen — it just throws a clear, catchable error today  */
-/*  instead of silently parsing nothing. Not called by any mounted UI. */
+/*  CSV parser                                                         */
+/*  Intern's original parseCSV ran both CSV and Excel files through    */
+/*  XLSX.read(). xlsx was removed pending an import-package decision,  */
+/*  and Settings' ImportData.tsx (Step 7) only ever offers .csv/.json  */
+/*  in its file picker anyway — there is no Excel path here to keep    */
+/*  disabled. This is a manual RFC-4180-style parser (quoted fields,   */
+/*  escaped quotes, embedded commas, CRLF/LF) with no dependency, so   */
+/*  CSV import keeps working. Errors propagate to the caller rather    */
+/*  than silently resolving to an empty array (intern's original did  */
+/*  the latter, swallowing parse failures behind a console.error).    */
 /* ------------------------------------------------------------------ */
-export async function parseCSV(_file: File | string): Promise<Record<string, string>[]> {
-  throw new Error("Excel import is disabled until the import package is approved");
+function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (normalized[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+    } else if (char === '"') {
+      inQuotes = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+export async function parseCSV(file: File | string): Promise<Record<string, string>[]> {
+  const text = typeof file === "string" ? file : await file.text();
+  const rows = parseCsvRows(text);
+  if (rows.length === 0) return [];
+
+  const headers = rows[0];
+  return rows
+    .slice(1)
+    .filter((row) => row.some((cell) => cell !== ""))
+    .map((row) => {
+      const stringRow: Record<string, string> = {};
+      headers.forEach((header, i) => {
+        stringRow[header] = row[i] ?? "";
+      });
+      return stringRow;
+    });
 }
 
 /* ------------------------------------------------------------------ */
