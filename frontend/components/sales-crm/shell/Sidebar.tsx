@@ -1,28 +1,29 @@
 'use client';
 
+// Adapted from intern source (src/components/layout/Sidebar.tsx). Structure,
+// classes, and behavior are ported as-is; only the nav hrefs (real /sales-crm/*
+// routes instead of intern's bare routes) and the active-path check (extended
+// to also treat /sales-crm as the Dashboard item, since that route renders the
+// same dashboard) were adapted. No "back to Apex Home" link — the strict
+// containment rules for this step forbid linking to root /dashboard.
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { APP_NAME } from '@/lib/sales-crm/constants';
+import styles from '@/styles/sales-crm/shell.module.css';
 import {
-  type LucideIcon,
+  BarChart3,
   LayoutDashboard,
   Target,
   ClipboardList,
   Handshake,
   Database,
-  BarChart3,
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
-  ArrowLeft,
 } from 'lucide-react';
 
-interface NavItem {
-  label: string;
-  href: string;
-  icon: LucideIcon;
-}
-
-const NAV_ITEMS: NavItem[] = [
+const NAV_ITEMS = [
   { label: 'Dashboard', href: '/sales-crm/dashboard', icon: LayoutDashboard },
   { label: 'Leads', href: '/sales-crm/leads', icon: Target },
   { label: 'Requirements & Sourcing', href: '/sales-crm/requirements-sourcing', icon: ClipboardList },
@@ -42,82 +43,55 @@ export default function Sidebar({ collapsed, onToggleCollapse, onNavItemClick }:
   const pathname = usePathname();
 
   return (
-    <aside
-      className="flex-shrink-0 flex flex-col h-screen sticky top-0 transition-all"
-      style={{
-        width: collapsed ? 'var(--sidebar-collapsed)' : 'var(--sidebar-width)',
-        backgroundColor: 'var(--color-surface)',
-        borderRight: '1px solid var(--color-border)',
-      }}
-    >
-      <div className="p-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        <Link
-          href="/dashboard"
-          className="flex items-center gap-1.5 text-xs font-medium mb-4 transition-colors hover:text-slate-300"
-          style={{ color: 'var(--color-text-muted)' }}
+    <aside className={styles.sidebar}>
+      {/* Logo */}
+      <div className={styles['sidebar-logo']}>
+        <div className={styles['sidebar-logo-icon']}>S</div>
+        <span className={styles['sidebar-logo-text']}>{APP_NAME}</span>
+        <button
+          className={styles['sidebar-toggle']}
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          <ArrowLeft size={12} />
-          {!collapsed && 'Apex OS Home'}
-        </Link>
-        <div className="flex items-center gap-3">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%)' }}
-          >
-            <Handshake size={16} style={{ color: '#fff' }} />
-          </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="font-bold text-base leading-none truncate" style={{ color: 'var(--color-text-primary)' }}>
-                Sales CRM
-              </p>
-              <p className="text-[10px] mt-0.5 font-mono uppercase tracking-widest" style={{ color: 'var(--color-text-muted)' }}>
-                Revenue Operations
-              </p>
-            </div>
-          )}
-          <button
-            onClick={onToggleCollapse}
-            className="ml-auto flex-shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
-            style={{ color: 'var(--color-text-muted)' }}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
-        </div>
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+        </button>
       </div>
 
-      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+      {/* Navigation */}
+      <nav className={styles['sidebar-nav']}>
+        <ul className={styles['sidebar-nav-list']}>
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isDashboard = item.href === '/sales-crm/dashboard';
+            const isActive = isDashboard
+              ? pathname === '/sales-crm' || pathname === item.href || pathname.startsWith(`${item.href}/`)
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavItemClick}
-              title={collapsed ? item.label : undefined}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors"
-              style={{
-                backgroundColor: isActive ? 'var(--color-primary-soft)' : 'transparent',
-                color: isActive ? 'var(--color-primary-text)' : 'var(--color-text-secondary)',
-              }}
-            >
-              <Icon size={16} className="flex-shrink-0" style={{ color: isActive ? 'var(--color-primary-text)' : 'var(--color-text-muted)' }} />
-              {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
-            </Link>
-          );
-        })}
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className={`${styles['sidebar-nav-item']} ${isActive ? styles['sidebar-nav-item-active'] : ''}`}
+                  title={collapsed ? item.label : undefined}
+                  onClick={onNavItemClick}
+                >
+                  <span className={styles['sidebar-nav-icon']}>
+                    <Icon size={20} />
+                  </span>
+                  <span className={styles['sidebar-nav-label']}>{item.label}</span>
+                  {isActive && <div className={styles['sidebar-active-indicator']} />}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       </nav>
 
-      <div className="p-3" style={{ borderTop: '1px solid var(--color-border)' }}>
-        {!collapsed && (
-          <p className="text-[10px] font-mono uppercase tracking-widest text-center" style={{ color: 'var(--color-text-muted)' }}>
-            Sales CRM Phase 1
-          </p>
-        )}
+      {/* Footer */}
+      <div className={styles['sidebar-footer']}>
+        <div className={styles['sidebar-footer-divider']} />
+        <p className={styles['sidebar-footer-text']}>{APP_NAME} · Phase 1 · Local data</p>
       </div>
     </aside>
   );

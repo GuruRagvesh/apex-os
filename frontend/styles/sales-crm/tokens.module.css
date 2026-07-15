@@ -1,5 +1,5 @@
 /* ============================================================
-   Sales CRM — Scoped design tokens (Phase 1)
+   Sales CRM — Scoped design tokens (Step 2: real intern palette)
 
    Implemented as a CSS Module (not a plain global .css file) because
    Next.js App Router only allows global CSS imports from the root
@@ -12,84 +12,84 @@
    still cascade to every descendant regardless of the hashed class
    name, so nested components can freely use var(--color-bg) etc.
 
-   Palette matches the dark/purple visual identity already shipped on
-   the existing /sales-crm workspace page (hardcoded hex values in
-   frontend/app/(workspaces)/sales-crm/page.tsx) rather than the intern
-   source's light-theme tokens, so the new module pages look like one
-   continuous workspace instead of switching themes mid-navigation.
+   Step 2 supersedes Phase 1's hand-picked dark/purple palette with the
+   real intern tokens.css values (light default + dark override), per
+   the explicit decision to use the intern visual system as the base
+   rather than force Apex's earlier placeholder look. Dark mode is
+   applied via [data-salescrm-theme="dark"] on this same scoped class —
+   never on document.documentElement/<html>/<body> — see lib/sales-crm/theme.tsx.
 
-   Deliberately NOT ported from intern source in Phase 1:
-   - reset.css (global html, body, and element-level resets — would
-     affect every other Apex page)
+   Still deliberately NOT ported:
+   - reset.css (global html, body, *, a, button, input/select/textarea
+     resets — would affect every other Apex page)
    - dashboard.css / leads.css / database.css / settings.css /
-     analytics.css / login.css / shell.css / primitives.css (~7,300
-     lines total, written against the intern's exact JSX/class
-     structure, which Phase 1 does not port verbatim — see the
-     production integration report for the scope rationale)
-   - the [data-theme="dark"] token overrides — Phase 1 ships a single
-     theme and does not hook into Apex's own theme system, per the
-     containment instructions (do not touch Apex root theme setup)
+     analytics.css / login.css (module-specific CSS for content not
+     ported yet — Step 3+)
    ============================================================ */
 
 .salesCrmRoot {
-  /* ---- Primary (Violet, matches existing placeholder) ---- */
-  --color-primary:         #7c3aed;
-  --color-primary-hover:   #6d28d9;
-  --color-primary-soft:    rgba(139,92,246,0.12);
-  --color-primary-text:    #a78bfa;
+  /* ---- Primary (Indigo) ---- */
+  --color-primary:         #4F46E5;
+  --color-primary-hover:   #4338CA;
+  --color-primary-soft:    #EEF2FF;
+  --color-primary-text:    #3730A3;
 
-  --color-primary-light:   #a78bfa;
-  --color-primary-dark:    #4c1d95;
-  --color-primary-50:      rgba(139,92,246,0.08);
-  --color-primary-100:     rgba(139,92,246,0.15);
+  --color-primary-light:   #6366F1;
+  --color-primary-dark:    #4338CA;
+  --color-primary-50:      #EEF2FF;
+  --color-primary-100:     #E0E7FF;
 
-  /* ---- Accent (Blue) ---- */
-  --color-accent:          #2563eb;
-  --color-accent-soft:     rgba(37,99,235,0.12);
-  --color-accent-light:    #60a5fa;
+  /* ---- Accent (Cyan) ---- */
+  --color-accent:          #06B6D4;
+  --color-accent-soft:     #ECFEFF;
+  --color-accent-light:    #22D3EE;
 
   /* ---- Surfaces ---- */
-  --color-bg:              #050505;
-  --color-bg-elevated:     #0B1220;
-  --color-surface:         #0F172A;
-  --color-surface-hover:   #16213a;
-  --color-surface-muted:   #0B1220;
-  --color-surface-active:  #1a2540;
+  --color-bg:              #F5F7FA;
+  --color-bg-elevated:     #FFFFFF;
+  --color-surface:         #FFFFFF;
+  --color-surface-hover:   #F1F5F9;
+  --color-surface-muted:   #F8FAFC;
+  --color-surface-active:  #E8EEF5;
 
   /* ---- Borders ---- */
-  --color-border:          #1E293B;
-  --color-border-strong:   #2d3b52;
-  --color-border-light:    #16213a;
+  --color-border:          #E2E8F0;
+  --color-border-strong:   #CBD5E1;
+  --color-border-light:    #F1F5F9;
 
   /* ---- Text ---- */
-  --color-text-primary:    #e2e8f0;
-  --color-text-secondary:  #94a3b8;
-  --color-text-muted:      #64748b;
-  --color-text-inverse:    #050505;
+  --color-text-primary:    #0F172A;
+  --color-text-secondary:  #475569;
+  --color-text-muted:      #94A3B8;
+  --color-text-inverse:    #FFFFFF;
 
   /* ---- Status ---- */
-  --color-success:         #34d399;
-  --color-success-soft:    rgba(16,185,129,0.12);
-  --color-warning:         #fbbf24;
-  --color-warning-soft:    rgba(245,158,11,0.12);
-  --color-danger:          #f87171;
-  --color-danger-soft:     rgba(239,68,68,0.12);
-  --color-error:           #f87171;
-  --color-info:            #60a5fa;
-  --color-info-soft:       rgba(37,99,235,0.12);
+  --color-success:         #059669;
+  --color-success-soft:    #ECFDF5;
+  --color-warning:         #D97706;
+  --color-warning-soft:    #FFFBEB;
+  --color-danger:          #DC2626;
+  --color-danger-soft:     #FEF2F2;
+  --color-error:           #DC2626;
+  --color-info:            #2563EB;
+  --color-info-soft:       #EFF6FF;
 
   --color-border-hover:    var(--color-border-strong);
   --color-success-50:      var(--color-success-soft);
+  --color-success-200:     #A7F3D0;
   --color-warning-50:      var(--color-warning-soft);
+  --color-warning-200:     #FDE68A;
   --color-error-50:        var(--color-danger-soft);
+  --color-error-200:       #FECACA;
   --color-info-50:         var(--color-info-soft);
+  --color-info-200:        #BFDBFE;
 
   /* ---- Shadows ---- */
-  --shadow-xs:  0 1px 2px rgba(0,0,0,0.3);
-  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
-  --shadow-md:  0 4px 6px rgba(0,0,0,0.4);
-  --shadow-lg:  0 10px 15px rgba(0,0,0,0.5);
-  --shadow-xl:  0 20px 25px rgba(0,0,0,0.5);
+  --shadow-xs:  0 1px 2px rgba(0,0,0,0.04);
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md:  0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:  0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
+  --shadow-xl:  0 20px 25px -5px rgba(0,0,0,0.08), 0 8px 10px -6px rgba(0,0,0,0.04);
 
   /* ---- Radii ---- */
   --radius-sm:   6px;
@@ -112,7 +112,7 @@
   /* ---- Layout ---- */
   --sidebar-width:      260px;
   --sidebar-collapsed:  72px;
-  --topbar-height:      56px;
+  --topbar-height:      60px;
 
   /* ---- Typography ---- */
   --text-xs:   0.75rem;
@@ -131,6 +131,68 @@
   background: var(--color-bg);
   color: var(--color-text-primary);
   min-height: 100vh;
+}
+
+/* ============================================================
+   Dark theme — scoped to this wrapper only via a data attribute
+   set by lib/sales-crm/theme.tsx directly on the element carrying
+   .salesCrmRoot. Never applied to document.documentElement/<html>.
+   ============================================================ */
+.salesCrmRoot[data-salescrm-theme="dark"] {
+  --color-bg:              #0F1117;
+  --color-bg-elevated:     #1A1D27;
+  --color-surface:         #1E2130;
+  --color-surface-hover:   #262A3A;
+  --color-surface-muted:   #161922;
+  --color-surface-active:  #2D3148;
+
+  --color-border:          #2A2E3F;
+  --color-border-strong:   #3D4259;
+  --color-border-light:    #22253A;
+
+  --color-text-primary:    #F1F5F9;
+  --color-text-secondary:  #94A3B8;
+  --color-text-muted:      #64748B;
+  --color-text-inverse:    #0F172A;
+
+  --color-primary:         #818CF8;
+  --color-primary-hover:   #6366F1;
+  --color-primary-soft:    rgba(129,140,248,0.12);
+  --color-primary-text:    #A5B4FC;
+  --color-primary-light:   #A5B4FC;
+  --color-primary-dark:    #6366F1;
+  --color-primary-50:      rgba(129,140,248,0.08);
+  --color-primary-100:     rgba(129,140,248,0.15);
+
+  --color-accent:          #22D3EE;
+  --color-accent-soft:     rgba(34,211,238,0.10);
+  --color-accent-light:    #67E8F9;
+
+  --color-success:         #34D399;
+  --color-success-soft:    rgba(52,211,153,0.12);
+  --color-warning:         #FBBF24;
+  --color-warning-soft:    rgba(251,191,36,0.12);
+  --color-danger:          #F87171;
+  --color-danger-soft:     rgba(248,113,113,0.12);
+  --color-error:           #F87171;
+  --color-info:            #60A5FA;
+  --color-info-soft:       rgba(96,165,250,0.12);
+
+  --color-border-hover:    var(--color-border-strong);
+  --color-success-50:      var(--color-success-soft);
+  --color-success-200:     rgba(52,211,153,0.3);
+  --color-warning-50:      var(--color-warning-soft);
+  --color-warning-200:     rgba(251,191,36,0.3);
+  --color-error-50:        var(--color-danger-soft);
+  --color-error-200:       rgba(248,113,113,0.3);
+  --color-info-50:         var(--color-info-soft);
+  --color-info-200:        rgba(96,165,250,0.3);
+
+  --shadow-xs:  0 1px 2px rgba(0,0,0,0.3);
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:  0 4px 6px rgba(0,0,0,0.4);
+  --shadow-lg:  0 10px 15px rgba(0,0,0,0.5);
+  --shadow-xl:  0 20px 25px rgba(0,0,0,0.5);
 }
 
 .salesCrmRoot :global(::-webkit-scrollbar) {
