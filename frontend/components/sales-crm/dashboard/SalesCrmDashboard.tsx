@@ -1,157 +1,263 @@
-'use client';
+"use client";
+// Adapted from intern source (src/app/(protected)/dashboard/page.tsx).
+// Replaces the Phase 1 simplified rebuild with the real intern Dashboard
+// experience: dashboard-type switcher (Sales/Lead/Deals/Activity), Quick
+// Add, Export (PDF working, Excel disabled — see report-output.ts),
+// Share, and personal/team mode. useAuth() now comes from the Apex auth
+// adapter, not intern's mock auth.
 
-import { useMemo } from 'react';
-import { Users, Activity, Handshake, DollarSign, AlertTriangle, Clock } from 'lucide-react';
-import { getDashboardData } from '@/lib/sales-crm/dashboard-calculations';
-import { MOCK_LEADS } from '@/lib/sales-crm/mock-data';
-import { Role } from '@/lib/sales-crm/types';
-import { Card, StatCard } from '@/components/sales-crm/ui/Card';
-import { PlainBadge } from '@/components/sales-crm/ui/Badge';
-
-const currency = (n: number) => `$${n.toLocaleString('en-US')}`;
+import { useEffect, useState, useCallback } from "react";
+import { DashboardData, getDashboardData } from "@/lib/sales-crm/dashboard-calculations";
+import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { Role } from "@/lib/sales-crm/types";
+import DashboardHeader from "./DashboardHeader";
+import QuickAdd from "./QuickAdd";
+import SalesDashboard from "./SalesDashboard";
+import ExportModal from "./ExportModal";
+import ShareModal from "./ShareModal";
+import { useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
+import Toast from "./Toast";
+import {
+  ReportArtifact,
+  createSharePackage,
+  downloadReportExport,
+} from "@/lib/sales-crm/report-output";
+import styles from "@/styles/sales-crm/dashboard.module.css";
 
 export default function SalesCrmDashboard() {
-  const data = useMemo(() => getDashboardData(MOCK_LEADS, Role.SUPERADMIN, '', 'team', 'all'), []);
+  const { user } = useAuth();
+  const userRole = (user?.role as Role | undefined) ?? Role.EMPLOYEE;
+  const currentUserId = user?.id || "";
 
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <StatCard label="Total Leads" value={data.totalLeads} sub={`${data.activeLeads} active`} icon={<Users size={14} style={{ color: 'var(--color-primary-text)' }} />} />
-        <StatCard label="Active Deals" value={data.activeDeals.count} sub={currency(data.activeDeals.value)} icon={<Handshake size={14} style={{ color: 'var(--color-primary-text)' }} />} />
-        <StatCard label="Conversion Rate" value={`${data.conversionRate}%`} sub={`${data.newLeads} new leads`} icon={<Activity size={14} style={{ color: 'var(--color-primary-text)' }} />} />
-        <StatCard label="Revenue (Won)" value={currency(data.revenue)} sub={`${data.requirementsCaptured.total} requirements`} icon={<DollarSign size={14} style={{ color: 'var(--color-primary-text)' }} />} />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="p-4 sm:p-5 lg:col-span-2">
-          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>
-            Lead Funnel
-          </h2>
-          <div className="space-y-2.5">
-            {data.leadFunnel.map((group) => {
-              const max = Math.max(...data.leadFunnel.map((g) => g.count), 1);
-              const pct = Math.round((group.count / max) * 100);
-              return (
-                <div key={group.groupName}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="font-medium flex items-center gap-1.5" style={{ color: 'var(--color-text-secondary)' }}>
-                      {group.groupName}
-                      {group.isBottleneck && <PlainBadge tone="warning">Bottleneck</PlainBadge>}
-                    </span>
-                    <span style={{ color: 'var(--color-text-muted)' }}>{group.count}</span>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-surface-hover)' }}>
-                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: group.color.startsWith('var') ? 'var(--color-primary)' : group.color }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-
-        <Card className="p-4 sm:p-5">
-          <h2 className="text-sm font-semibold mb-4 flex items-center gap-1.5" style={{ color: 'var(--color-text-primary)' }}>
-            <Clock size={14} style={{ color: 'var(--color-text-muted)' }} />
-            Today&apos;s Action Board
-          </h2>
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <MiniStat label="Calls due" value={data.todayActionBoard.summary.callsDue} />
-            <MiniStat label="Follow-ups" value={data.todayActionBoard.summary.followupsDue} />
-            <MiniStat label="Meetings" value={data.todayActionBoard.summary.meetingsToday} />
-            <MiniStat label="Requirements" value={data.todayActionBoard.summary.requirementsPending} />
-          </div>
-          {data.todayActionBoard.workList.length === 0 ? (
-            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Nothing due today.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {data.todayActionBoard.workList.slice(0, 5).map((item) => (
-                <li key={item.id} className="text-xs flex items-center justify-between gap-2" style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="truncate">
-                    {item.type} · {item.leadCompany}
-                  </span>
-                  <span className="flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
-                    {item.time}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-4 sm:p-5">
-          <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text-primary)' }}>
-            Owner Performance
-          </h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr style={{ color: 'var(--color-text-muted)' }}>
-                  <th className="text-left font-medium pb-2">Owner</th>
-                  <th className="text-right font-medium pb-2">Leads</th>
-                  <th className="text-right font-medium pb-2">Deals</th>
-                  <th className="text-right font-medium pb-2">Risk</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.ownerPerformance.map((o) => (
-                  <tr key={o.ownerId} style={{ borderTop: '1px solid var(--color-border)' }}>
-                    <td className="py-2" style={{ color: 'var(--color-text-primary)' }}>
-                      {o.ownerName}
-                    </td>
-                    <td className="text-right" style={{ color: 'var(--color-text-secondary)' }}>
-                      {o.leads}
-                    </td>
-                    <td className="text-right" style={{ color: 'var(--color-text-secondary)' }}>
-                      {o.deals}
-                    </td>
-                    <td className="text-right">{o.risk > 0 ? <PlainBadge tone="danger">{o.risk}</PlainBadge> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <Card className="p-4 sm:p-5">
-          <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: 'var(--color-text-primary)' }}>
-            <AlertTriangle size={14} style={{ color: 'var(--color-warning)' }} />
-            Needs Attention
-          </h2>
-          {data.needsAttention.length === 0 ? (
-            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Nothing needs attention right now.
-            </p>
-          ) : (
-            <ul className="space-y-2.5">
-              {data.needsAttention.map((item) => (
-                <li key={item.id} className="flex items-start gap-2">
-                  <PlainBadge tone={item.type === 'error' ? 'danger' : 'warning'}>{item.title}</PlainBadge>
-                  <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                    {item.instruction}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-    </div>
+  const canSeeTeam = [
+    Role.SUPERADMIN,
+    Role.ADMIN,
+    Role.MANAGER,
+    Role.TL,
+  ].includes(userRole);
+  const [dashboardModeState, setDashboardMode] = useState<"personal" | "team">(
+    () => {
+      if (typeof window !== "undefined") {
+        const saved = localStorage.getItem("salescrm_default_dashboard");
+        if (saved === "team" && canSeeTeam) return "team";
+        return "personal";
+      }
+      return "personal";
+    },
   );
-}
+  const dashboardMode = canSeeTeam ? dashboardModeState : "personal";
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [dateRange, setDateRange] = useState<
+    "today" | "week" | "month" | "all"
+  >("all");
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [dashboardType, setDashboardType] = useState<string>("Sales");
 
-function MiniStat({ label, value }: { label: string; value: number }) {
+  const { logAction } = useAnalyticsStore();
+
+
+  /* Persist default dashboard */
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("salescrm_default_dashboard", dashboardMode);
+    }
+  }, [dashboardMode]);
+
+  const loadData = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsRefreshing(true);
+    /* simulate brief loading for realism */ await new Promise((r) => setTimeout(r, 400));
+    setData(getDashboardData(undefined, userRole, currentUserId, dashboardMode, dateRange));
+    setIsRefreshing(false);
+  }, [userRole, currentUserId, dashboardMode, dateRange]);
+
+  /* Listen to refresh-dashboard event from Topbar */
+  useEffect(() => {
+    const handleRefreshDash = () => {
+      loadData(true);
+    };
+    window.addEventListener("salescrm:refresh-dashboard", handleRefreshDash);
+    return () => window.removeEventListener("salescrm:refresh-dashboard", handleRefreshDash);
+  }, [loadData]);
+  useEffect(() => {
+    if (userRole && currentUserId) {
+      let isMounted = true;
+      const fetchInitialData = async () => {
+        /* simulate brief loading for realism */ await new Promise((r) =>
+          setTimeout(r, 400),
+        );
+        if (isMounted) {
+          setData(
+            getDashboardData(
+              undefined,
+              userRole,
+              currentUserId,
+              dashboardMode,
+              dateRange,
+            ),
+          );
+        }
+      };
+      fetchInitialData();
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [userRole, currentUserId, dashboardMode, dateRange]);
+  const handleRefresh = async () => {
+    if (user) {
+      logAction({
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        action: "update",
+        collection: "System",
+        details: "Refreshed dashboard data.",
+      });
+    }
+    await loadData(true);
+  };
+
+  const buildDashboardArtifact = (): ReportArtifact | null => {
+    if (!data) return null;
+
+    return {
+      title: `${dashboardType} Dashboard`,
+      subtitle: "Sales CRM analytics dashboard snapshot",
+      generatedBy: user?.name || "System",
+      generatedAt: new Date().toISOString(),
+      context: {
+        dashboardType,
+        dashboardMode,
+        dateRange,
+        userRole,
+      },
+      summary: {
+        totalLeads: data.totalLeads,
+        activeLeads: data.activeLeads,
+        activeLeadsPercentage: `${data.activeLeadsPercentage}%`,
+        newLeads: data.newLeads,
+        conversionRate: `${data.conversionRate}%`,
+        opportunityPipeline: data.opportunityPipeline,
+        opportunityValue: data.opportunityValue,
+        revenue: data.revenue,
+        activeDeals: data.activeDeals.count,
+        activeDealValue: data.activeDeals.value,
+      },
+      filters: {
+        dateRange,
+        dashboardMode,
+      },
+      sections: [
+        {
+          title: "Requirements Captured",
+          rows: [{ ...data.requirementsCaptured }],
+        },
+        {
+          title: "Lead Funnel",
+          rows: data.leadFunnel.map((row) => ({ ...row })),
+        },
+        {
+          title: "Action Board Summary",
+          rows: [{ ...data.todayActionBoard.summary }],
+        },
+        {
+          title: "Action Board Worklist",
+          rows: data.todayActionBoard.workList.map((row) => ({ ...row })),
+        },
+        {
+          title: "Owner Performance",
+          rows: data.ownerPerformance.map((row) => ({ ...row })),
+        },
+        {
+          title: "Needs Attention",
+          rows: data.needsAttention.map((row) => ({ ...row })),
+        },
+      ],
+    };
+  };
+
+  if (!data && !isRefreshing) {
+    return (
+      <div className={styles["dashboard-loading"]}>
+        <div className={styles["spinner"]}></div> <p>Loading your dashboard...</p>
+      </div>
+    );
+  }
   return (
-    <div className="rounded-lg p-2.5" style={{ backgroundColor: 'var(--color-surface-hover)' }}>
-      <div className="text-lg font-bold" style={{ color: 'var(--color-text-primary)' }}>
-        {value}
-      </div>
-      <div className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-        {label}
-      </div>
+    <div className={styles["dash-container"]}>
+      {showQuickAdd && <QuickAdd onClose={() => setShowQuickAdd(false)} />}
+      {/* 1. Dashboard Header (Switcher, Filters, Actions) */}
+      <DashboardHeader
+        userRole={userRole}
+        dashboardMode={dashboardMode}
+        setDashboardMode={setDashboardMode}
+        dateRange={dateRange}
+        setDateRange={setDateRange}
+        onRefresh={handleRefresh}
+        isRefreshing={isRefreshing}
+        onQuickAdd={() => setShowQuickAdd(true)}
+        dashboardType={dashboardType}
+        setDashboardType={setDashboardType}
+        onExport={() => setShowExportModal(true)}
+        onShare={() => setShowShareModal(true)}
+      />
+      {data && <SalesDashboard data={data} dashboardType={dashboardType} />}
+
+      {showExportModal && (
+        <ExportModal
+          onClose={() => setShowExportModal(false)}
+          onExport={async (action) => {
+            const artifact = buildDashboardArtifact();
+            if (!artifact) {
+              setToastMsg("Dashboard data is still loading.");
+              return;
+            }
+
+            try {
+              const fileName = await downloadReportExport(action, artifact);
+              logAction({ type: "ExportDashboard", ...action, fileName, dashboardMode });
+              setToastMsg(`${fileName} downloaded successfully.`);
+            } catch (err) {
+              setToastMsg(err instanceof Error ? err.message : "Export failed. Please try again.");
+            }
+          }}
+        />
+      )}
+      {showShareModal && (
+        <ShareModal
+          onClose={() => setShowShareModal(false)}
+          onShare={async (action) => {
+            const artifact = buildDashboardArtifact();
+            if (!artifact) {
+              setToastMsg("Dashboard data is still loading.");
+              return;
+            }
+
+            try {
+              const result = await createSharePackage(action, artifact);
+              logAction({
+                type: "ShareDashboard",
+                ...action,
+                dashboardMode,
+                token: result.token,
+                fileName: result.fileName,
+              });
+              setToastMsg(
+                result.copied
+                  ? `${result.fileName} downloaded and copied.`
+                  : `${result.fileName} downloaded.`,
+              );
+            } catch {
+              setToastMsg("Share failed. Please try again.");
+            }
+          }}
+        />
+      )}
+      {toastMsg && <Toast message={toastMsg} onClose={() => setToastMsg(null)} />}
     </div>
   );
 }
