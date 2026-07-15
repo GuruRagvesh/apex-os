@@ -1,0 +1,29 @@
+/* Sales CRM — ConfirmModal styles.
+   ConfirmModal.tsx lives in intern source at src/components/settings/ConfirmModal.tsx,
+   but is a generic, self-contained confirmation dialog (no Settings-specific
+   logic) that Analytics' ReportManagement.tsx also depends on. It has been
+   relocated to components/sales-crm/ui/ as a shared primitive. These 4 rules
+   are extracted verbatim from intern's src/styles/settings.css (lines
+   776-778, 838-852) since Settings itself has not been ported yet — this is
+   not a partial Settings port, just the minimum styling this one relocated
+   component needs. */
+
+.settings-confirm-modal {
+  max-width: 480px;
+}
+
+.settings-confirm-message {
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.settings-confirm-type-section {
+  margin-top: 16px;
+}
+
+.settings-confirm-type-label {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+}
