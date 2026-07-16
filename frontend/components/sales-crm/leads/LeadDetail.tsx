@@ -14,9 +14,10 @@ interface LeadDetailProps {
   onBack: () => void;
   onUpdate: (updatedLead: Lead) => void;
   onDelete?: (leadId: string) => void;
+  assignableUsers?: { id: string; name: string; role: Role }[];
 }
 
-export default function LeadDetail({ lead, onBack, onUpdate, onDelete }: LeadDetailProps) {
+export default function LeadDetail({ lead, onBack, onUpdate, onDelete, assignableUsers }: LeadDetailProps) {
   const { user } = useAuth();
   const userRole = (user?.role as Role | undefined) ?? Role.EMPLOYEE;
   const canDelete = canDeleteRecord(userRole);
@@ -49,7 +50,7 @@ export default function LeadDetail({ lead, onBack, onUpdate, onDelete }: LeadDet
           </div>
         </div>
       )}
-      <LeadInfoPanel lead={lead} onUpdate={onUpdate} />
+      <LeadInfoPanel lead={lead} onUpdate={onUpdate} assignableUsers={assignableUsers} />
       <LeadTabs lead={lead} onUpdate={onUpdate} onBack={onBack} />
     </div>
   );

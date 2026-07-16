@@ -8,17 +8,27 @@ import { canEditRecord, canChangeLeadOwner, isContactFieldVisible } from "@/lib/
 import { logAction } from "@/lib/sales-crm/audit-log";
 import { AuditCollection } from "@/lib/sales-crm/types/audit";
 import { MOCK_USERS } from "@/lib/sales-crm/constants";
+import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
+import { salesCrmLeadsApi } from "@/lib/api";
 import { Phone, Mail, MoreHorizontal, Activity as ActivityIcon, Edit3 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { getLocalTomorrowISO, isStrictFutureDate } from "@/lib/sales-crm/date-utils";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 
-export default function LeadInfoPanel({ lead, onUpdate }: { lead: Lead; onUpdate: (updatedLead: Lead) => void }) {
+interface LeadInfoPanelProps {
+  lead: Lead;
+  onUpdate: (updatedLead: Lead) => void;
+  assignableUsers?: { id: string; name: string; role: Role }[];
+}
+
+export default function LeadInfoPanel({ lead, onUpdate, assignableUsers }: LeadInfoPanelProps) {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const userRole = (user?.role as Role | undefined) ?? Role.EMPLOYEE;
   const currentUserId = user?.id || "";
+  const backendEnabled = isSalesLeadsBackendEnabled();
+  const ownerDirectory = assignableUsers ?? MOCK_USERS;
 
   const canEdit = canEditRecord(userRole, lead.leadOwner, currentUserId);
   const canChangeOwner = canChangeLeadOwner(currentUserId, lead.leadOwner);
@@ -80,10 +90,28 @@ export default function LeadInfoPanel({ lead, onUpdate }: { lead: Lead; onUpdate
     setActivityModalOpen(true);
   };
 
-  const handleSaveActivity = (act: Activity) => {
+  const handleSaveActivity = async (act: Activity) => {
     const isStageUpdate = Boolean(pendingStage && !pendingNoteOnly);
     const finalStage = isStageUpdate ? act.stage : lead.leadStage;
     const isStageChange = isStageUpdate && finalStage !== lead.leadStage;
+
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.addActivity(lead.id, {
+          activityType: act.activityType,
+          comment: act.comment,
+          stage: isStageChange ? finalStage : undefined,
+          occurredAt: act.dateTime,
+          followupDate: act.followupDate,
+          followupTime: act.followupTime,
+          followupNote: act.followupNote,
+        });
+      } catch (err: any) {
+        alert(err?.message || "Failed to save activity.");
+        return;
+      }
+    }
+
     const followupIdBase = `${lead.id}-${lead.followups.length}-${act.activityType}-${act.comment}`.replace(/[^a-zA-Z0-9]/g, "").slice(0, 36);
     const followup = act.followupDate && act.followupTime ? {
       id: `f-${followupIdBase || lead.followups.length}`,
@@ -186,7 +214,7 @@ export default function LeadInfoPanel({ lead, onUpdate }: { lead: Lead; onUpdate
     };
   };
 
-  const handleSavePrimary = () => {
+  const handleSavePrimary = async () => {
     if (!canEdit) return;
     const nextFollowUpChanged = editLead.nextFollowUpDate !== lead.nextFollowUpDate;
     if (nextFollowUpChanged && editLead.nextFollowUpDate && !isStrictFutureDate(editLead.nextFollowUpDate)) {
@@ -194,6 +222,33 @@ export default function LeadInfoPanel({ lead, onUpdate }: { lead: Lead; onUpdate
       return;
     }
     setPrimaryError("");
+
+    if (backendEnabled) {
+      try {
+        if (editLead.leadOwner !== lead.leadOwner) {
+          await salesCrmLeadsApi.reassignOwner(lead.id, editLead.leadOwner);
+        }
+        const fieldsChanged =
+          editLead.company !== lead.company || editLead.poc !== lead.poc || editLead.designation !== lead.designation ||
+          editLead.phone !== lead.phone || editLead.email !== lead.email || editLead.location !== lead.location ||
+          editLead.leadScore !== lead.leadScore;
+        if (fieldsChanged) {
+          await salesCrmLeadsApi.update(lead.id, {
+            company: editLead.company,
+            poc: editLead.poc,
+            designation: editLead.designation,
+            phone: editLead.phone,
+            email: editLead.email,
+            location: editLead.location,
+            score: editLead.leadScore,
+          });
+        }
+      } catch (err: any) {
+        setPrimaryError(err?.message || "Failed to save changes.");
+        return;
+      }
+    }
+
     const act = generateEditActivity(lead, editLead);
     const updatedLead = { ...editLead };
     if (act) {
@@ -224,8 +279,36 @@ export default function LeadInfoPanel({ lead, onUpdate }: { lead: Lead; onUpdate
     setIsEditingPrimary(false);
   };
 
-  const handleSaveSecondary = () => {
+  const handleSaveSecondary = async () => {
     if (!canEdit) return;
+
+    if (backendEnabled) {
+      const fieldsChanged =
+        editLead.alternateNumber !== lead.alternateNumber || editLead.linkedin !== lead.linkedin ||
+        editLead.website !== lead.website || editLead.leadSource !== lead.leadSource ||
+        editLead.companySize !== lead.companySize || editLead.industry !== lead.industry ||
+        editLead.priority !== lead.priority || editLead.serviceInterest !== lead.serviceInterest ||
+        editLead.initialNotes !== lead.initialNotes;
+      if (fieldsChanged) {
+        try {
+          await salesCrmLeadsApi.update(lead.id, {
+            alternatePhone: editLead.alternateNumber,
+            linkedin: editLead.linkedin,
+            website: editLead.website,
+            leadSource: editLead.leadSource,
+            companySize: editLead.companySize,
+            industry: editLead.industry,
+            priority: editLead.priority,
+            serviceInterest: editLead.serviceInterest,
+            initialNotes: editLead.initialNotes,
+          });
+        } catch (err: any) {
+          alert(err?.message || "Failed to save changes.");
+          return;
+        }
+      }
+    }
+
     const act = generateEditActivity(lead, editLead);
     const updatedLead = { ...editLead };
     if (act) {
@@ -398,13 +481,13 @@ export default function LeadInfoPanel({ lead, onUpdate }: { lead: Lead; onUpdate
                 <span className={styles["lead-field-label"]}>Owner</span>
                 {isEditingPrimary && canChangeOwner ? (
                   <select className={`${ui["ui-select"]} ui-select-sm ${styles["lead-flex-1"]}`} value={editLead.leadOwner} onChange={e => setEditLead({...editLead, leadOwner: e.target.value})}>
-                    {MOCK_USERS.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    {ownerDirectory.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 ) : (
                   <span className={styles["lead-field-value"]}>
-                    {MOCK_USERS.find(u => u.id === editLead.leadOwner)?.name || editLead.leadOwner}
+                    {ownerDirectory.find(u => u.id === editLead.leadOwner)?.name || editLead.leadOwner}
                     <span className={`${styles["lead-text-muted"]} ${styles["lead-text-xs"]} lead-ml-1`}>
-                      ({MOCK_USERS.find(u => u.id === editLead.leadOwner)?.role || "Unknown"})
+                      ({ownerDirectory.find(u => u.id === editLead.leadOwner)?.role || "Unknown"})
                     </span>
                   </span>
                 )}

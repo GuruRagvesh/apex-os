@@ -4,11 +4,14 @@ import { useState } from "react";
 import { Lead, Role } from "@/lib/sales-crm/types";
 import { useAuth } from "@/lib/sales-crm/auth-adapter";
 import { logAction } from "@/lib/sales-crm/audit-log";
+import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
+import { salesCrmLeadsApi } from "@/lib/api";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 
 export default function RequirementTab({ lead, onUpdate }: { lead: Lead, onUpdate: (l: Lead) => void }) {
   const { user } = useAuth();
+  const backendEnabled = isSalesLeadsBackendEnabled();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
@@ -16,7 +19,18 @@ export default function RequirementTab({ lead, onUpdate }: { lead: Lead, onUpdat
   const [timeline, setTimeline] = useState("");
   const [status, setStatus] = useState<"New Requirement" | "In Discussion" | "Fulfillment" | "Proposal" | "Deal">("New Requirement");
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (!title.trim()) return;
+
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.addRequirement(lead.id, { title, details, priority, status, timeline });
+      } catch (err: any) {
+        alert(err?.message || "Failed to add requirement.");
+        return;
+      }
+    }
+
     const newRequirement = {
       id: `r-${lead.requirements?.length || 0}-${title.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10)}`,
       title,
@@ -24,7 +38,7 @@ export default function RequirementTab({ lead, onUpdate }: { lead: Lead, onUpdat
       priority,
       status,
       timeline,
-      fulfillmentOwner: "Current User"
+      fulfillmentOwner: user?.name || "Current User"
     };
 
     onUpdate({

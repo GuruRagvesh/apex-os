@@ -29,7 +29,7 @@ const APEX_TO_CRM_ROLE: Record<string, Role> = {
   INTERN: Role.EMPLOYEE,
 };
 
-function mapApexRoleToCrmRole(apexRoleName: string | undefined): Role {
+export function mapApexRoleToCrmRole(apexRoleName: string | undefined): Role {
   if (apexRoleName && apexRoleName in APEX_TO_CRM_ROLE) {
     return APEX_TO_CRM_ROLE[apexRoleName];
   }

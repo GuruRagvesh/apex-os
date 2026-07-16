@@ -8,6 +8,8 @@ import { isContactFieldVisible } from "@/lib/sales-crm/permissions";
 import { MoreVertical, Mail, Phone, PlusCircle, UserCog } from "lucide-react";
 import { MOCK_USERS, ROLE_LABELS } from "@/lib/sales-crm/constants";
 import { logAction } from "@/lib/sales-crm/audit-log";
+import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
+import { salesCrmLeadsApi } from "@/lib/api";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 
@@ -22,6 +24,7 @@ interface LeadListProps {
   onToggleSelect: (leadId: string) => void;
   onToggleSelectAll: () => void;
   onQuickAddActivity: (leadId: string) => void;
+  assignableUsers?: { id: string; name: string; role: Role }[];
 }
 
 export default function LeadList({
@@ -35,9 +38,12 @@ export default function LeadList({
   onToggleSelect,
   onToggleSelectAll,
   onQuickAddActivity,
+  assignableUsers,
 }: LeadListProps) {
   const { user } = useAuth();
   const currentUserId = user?.id || "";
+  const backendEnabled = isSalesLeadsBackendEnabled();
+  const ownerDirectory = assignableUsers ?? MOCK_USERS;
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [ownerChangeId, setOwnerChangeId] = useState<string | null>(null);
@@ -200,7 +206,7 @@ export default function LeadList({
   };
 
   const handleEmail = (lead: Lead) => {
-    const ownerUser = MOCK_USERS.find((u) => u.id === lead.leadOwner);
+    const ownerUser = ownerDirectory.find((u) => u.id === lead.leadOwner);
     const subject = encodeURIComponent(
       `SalesCRM follow-up - ${lead.company}`
     );
@@ -282,9 +288,19 @@ export default function LeadList({
     onQuickAddActivity(lead.id);
   };
 
-  const handleChangeOwner = (lead: Lead, newOwnerId: string) => {
-    const prevOwner = MOCK_USERS.find((u) => u.id === lead.leadOwner);
-    const newOwner = MOCK_USERS.find((u) => u.id === newOwnerId);
+  const handleChangeOwner = async (lead: Lead, newOwnerId: string) => {
+    const prevOwner = ownerDirectory.find((u) => u.id === lead.leadOwner);
+    const newOwner = ownerDirectory.find((u) => u.id === newOwnerId);
+
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.reassignOwner(lead.id, newOwnerId);
+      } catch (err: any) {
+        showToast(err?.message || "Failed to change owner.");
+        closeAll();
+        return;
+      }
+    }
 
     logAction({
       userId: user?.id || "system",
@@ -313,7 +329,7 @@ export default function LeadList({
   };
 
   const getOwnerDisplay = (ownerId: string) => {
-    const owner = MOCK_USERS.find((u) => u.id === ownerId);
+    const owner = ownerDirectory.find((u) => u.id === ownerId);
     if (!owner) return <span>{ownerId}</span>;
     return (
       <div>
@@ -432,7 +448,7 @@ export default function LeadList({
       return createPortal(
         <div className={`${styles["lead-action-popover"]} ${styles["lead-owner-picker"]}`} ref={ownerRef}>
           <div className={styles["lead-owner-picker-title"]}>Assign Owner</div>
-          {MOCK_USERS.map((u) => (
+          {ownerDirectory.map((u) => (
             <button
               key={u.id}
               className={`${styles["lead-action-item"]} ${u.id === lead.leadOwner ? styles["lead-action-item--active"] : ""}`}

@@ -29,3 +29,12 @@ export async function resolveDataSource<T>(mockValue: T, apiCall: () => Promise<
   if (isMockMode()) return mockValue;
   return apiCall();
 }
+
+// Sales CRM — Leads (Phase 2.2). Independent of SALES_CRM_DATA_MODE above:
+// Leads now has a real backend, but Database/Analytics/Settings/Dashboard do
+// not yet, and must keep reading local/mock data regardless of this flag.
+// Defaults OFF (mock) when unset or not exactly "true" — new backend-backed
+// behavior ships dark until explicitly enabled per environment.
+export function isSalesLeadsBackendEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_SALES_CRM_LEADS_BACKEND_ENABLED === "true";
+}

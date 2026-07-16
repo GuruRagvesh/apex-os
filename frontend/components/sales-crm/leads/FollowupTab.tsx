@@ -5,12 +5,15 @@ import { CheckCircle, AlertCircle, CalendarClock } from "lucide-react";
 import { Lead, Role } from "@/lib/sales-crm/types";
 import { useAuth } from "@/lib/sales-crm/auth-adapter";
 import { logAction } from "@/lib/sales-crm/audit-log";
+import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
+import { salesCrmLeadsApi } from "@/lib/api";
 import { getLocalTomorrowISO, isStrictFutureDate } from "@/lib/sales-crm/date-utils";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 
 export default function FollowupTab({ lead, onUpdate }: { lead: Lead, onUpdate: (l: Lead) => void }) {
   const { user } = useAuth();
+  const backendEnabled = isSalesLeadsBackendEnabled();
   const [showForm, setShowForm] = useState(false);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
@@ -19,7 +22,7 @@ export default function FollowupTab({ lead, onUpdate }: { lead: Lead, onUpdate: 
   const [comment, setComment] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const handleSave = () => {
+  const handleSave = async () => {
     let hasErr = false;
     const newErr: Record<string, string> = {};
     if (!date) { newErr.date = "Date is required"; hasErr = true; }
@@ -29,6 +32,20 @@ export default function FollowupTab({ lead, onUpdate }: { lead: Lead, onUpdate: 
     if (hasErr) {
       setErrors(newErr);
       return;
+    }
+
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.addFollowup(lead.id, {
+          type,
+          note: nextAction || comment || undefined,
+          followupDate: date,
+          followupTime: time,
+        });
+      } catch (err: any) {
+        setErrors({ date: err?.message || "Failed to add follow-up." });
+        return;
+      }
     }
 
     const newFollowup = {
