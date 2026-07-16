@@ -1,12 +1,17 @@
 "use client";
 
-import { useState, Suspense, useEffect } from "react";
+import { useState, useMemo, Suspense, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { Lead, Role, LeadStage, ColumnConfig } from "@/lib/sales-crm/types";
 import { MOCK_LEADS } from "@/lib/sales-crm/mock-data";
+import { MOCK_USERS } from "@/lib/sales-crm/constants";
 import { getLeadsStats, filterAndSearchLeads, LeadFilterState, LeadSortState } from "@/lib/sales-crm/lead-calculations";
 import { logAction } from "@/lib/sales-crm/audit-log";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth, mapApexRoleToCrmRole } from "@/lib/sales-crm/auth-adapter";
+import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
+import { mapBackendLead, buildCreatePayload } from "@/lib/sales-crm/lead-adapter";
+import { salesCrmLeadsApi, usersApi } from "@/lib/api";
 import LeadCreate from "./LeadCreate";
 import LeadStats from "./LeadStats";
 import LeadFilters from "./LeadFilters";
@@ -32,7 +37,40 @@ function LeadsPageContent() {
   const queryLeadId = searchParams.get("leadId") || "";
   const queryAction = searchParams.get("action") || "";
 
+  const backendEnabled = isSalesLeadsBackendEnabled();
+  const qc = useQueryClient();
+
+  const leadsQuery = useQuery({
+    queryKey: ["sales-crm-leads"],
+    queryFn: () => salesCrmLeadsApi.getAll(),
+    enabled: backendEnabled,
+  });
+  const usersQuery = useQuery({
+    queryKey: ["sales-crm-assignable-users"],
+    queryFn: () => usersApi.getAll(),
+    enabled: backendEnabled,
+  });
+
   const [leads, setLeads] = useState<Lead[]>(MOCK_LEADS);
+  const [createError, setCreateError] = useState("");
+
+  // effectiveLeads/assignableUsers are the single switch point between mock
+  // and backend data — everything below reads from these, never from `leads`
+  // or MOCK_USERS directly, so the rest of this component (and its children)
+  // don't need to know which mode is active.
+  const backendLeadsData: any[] = Array.isArray(leadsQuery.data) ? leadsQuery.data : [];
+  const effectiveLeads = useMemo(
+    () => (backendEnabled ? backendLeadsData.map(mapBackendLead) : leads),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [backendEnabled, leadsQuery.data, leads]
+  );
+  const assignableUsers = useMemo(() => {
+    if (!backendEnabled) return MOCK_USERS;
+    const realUsers: any[] = Array.isArray(usersQuery.data) ? usersQuery.data : [];
+    return realUsers.map((u) => ({ id: u.id, name: u.name, email: u.email, role: mapApexRoleToCrmRole(u.role?.name) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backendEnabled, usersQuery.data]);
+
   const [filters, setFilters] = useState<LeadFilterState>({
     owner: queryOwner,
     stage: queryStage,
@@ -89,8 +127,19 @@ function LeadsPageContent() {
     router.replace(`${pathname}?${params.toString()}`);
   };
 
-  const handleSaveNewLead = (newLead: Lead) => {
-    setLeads([newLead, ...leads]);
+  const handleSaveNewLead = async (newLead: Lead) => {
+    setCreateError("");
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.create(buildCreatePayload(newLead));
+        qc.invalidateQueries({ queryKey: ["sales-crm-leads"] });
+      } catch (err: any) {
+        setCreateError(err?.message || "Failed to create lead. Please try again.");
+        return;
+      }
+    } else {
+      setLeads([newLead, ...leads]);
+    }
     logAction({
       userId: user?.id || "system",
       userName: user ? user.name : "System",
@@ -132,6 +181,14 @@ function LeadsPageContent() {
   };
 
   const handleUpdateLead = (updatedLead: Lead) => {
+    // In backend mode, callers have already made their own real API call
+    // (see LeadInfoPanel/LeadTabs/FollowupTab/RequirementTab) before invoking
+    // this — the updatedLead argument itself is only a "something changed,
+    // refresh" signal here, not the source of truth.
+    if (backendEnabled) {
+      qc.invalidateQueries({ queryKey: ["sales-crm-leads"] });
+      return;
+    }
     setLeads((prev) => prev.map((l) => (l.id === updatedLead.id ? updatedLead : l)));
   };
 
@@ -139,17 +196,28 @@ function LeadsPageContent() {
   const canDelete = canDeleteRecord(userRole);
   const canBulkManage = userRole === Role.SUPERADMIN || userRole === Role.ADMIN || userRole === Role.MANAGER;
 
-  const handleDeleteLead = (leadId: string) => {
+  const handleDeleteLead = async (leadId: string) => {
     if (!canDelete) {
       setBulkNotice({ message: "You do not have permission to delete leads.", type: "error" });
       setTimeout(() => setBulkNotice(null), 3000);
       return;
     }
-    setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.remove(leadId);
+        qc.invalidateQueries({ queryKey: ["sales-crm-leads"] });
+      } catch (err: any) {
+        setBulkNotice({ message: err?.message || "Failed to delete lead.", type: "error" });
+        setTimeout(() => setBulkNotice(null), 3000);
+        return;
+      }
+    } else {
+      setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    }
     handleBackToList();
   };
 
-  const filteredLeads = filterAndSearchLeads(leads, querySearch, filters, sortState);
+  const filteredLeads = filterAndSearchLeads(effectiveLeads, querySearch, filters, sortState);
 
   const handleToggleSelect = (leadId: string) => {
     setSelectedIds((prev) => (prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]));
@@ -163,20 +231,31 @@ function LeadsPageContent() {
     }
   };
 
-  const handleBulkAssign = (newOwner: string) => {
+  const handleBulkAssign = async (newOwner: string) => {
     if (userRole !== Role.SUPERADMIN && userRole !== Role.ADMIN && userRole !== Role.MANAGER) {
       setBulkNotice({ message: "Access Denied: Only Admins/Managers can bulk assign.", type: "error" });
       setTimeout(() => setBulkNotice(null), 3000);
       return;
     }
-    setLeads((prev) =>
-      prev.map((l) => {
-        if (selectedIds.includes(l.id)) {
-          return { ...l, leadOwner: newOwner };
-        }
-        return l;
-      })
-    );
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.bulkUpdate({ leadIds: selectedIds, ownerId: newOwner });
+        qc.invalidateQueries({ queryKey: ["sales-crm-leads"] });
+      } catch (err: any) {
+        setBulkNotice({ message: err?.message || "Failed to bulk assign leads.", type: "error" });
+        setTimeout(() => setBulkNotice(null), 3000);
+        return;
+      }
+    } else {
+      setLeads((prev) =>
+        prev.map((l) => {
+          if (selectedIds.includes(l.id)) {
+            return { ...l, leadOwner: newOwner };
+          }
+          return l;
+        })
+      );
+    }
     selectedIds.forEach((id) => {
       logAction({
         userId: user?.id || "system",
@@ -193,20 +272,31 @@ function LeadsPageContent() {
     setTimeout(() => setBulkNotice(null), 3000);
   };
 
-  const handleBulkStatusChange = (newStage: LeadStage) => {
+  const handleBulkStatusChange = async (newStage: LeadStage) => {
     if (userRole !== Role.SUPERADMIN && userRole !== Role.ADMIN && userRole !== Role.MANAGER) {
       setBulkNotice({ message: "Access Denied: Only Admins/Managers can bulk update status.", type: "error" });
       setTimeout(() => setBulkNotice(null), 3000);
       return;
     }
-    setLeads((prev) =>
-      prev.map((l) => {
-        if (selectedIds.includes(l.id)) {
-          return { ...l, leadStage: newStage };
-        }
-        return l;
-      })
-    );
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.bulkUpdate({ leadIds: selectedIds, leadStage: newStage });
+        qc.invalidateQueries({ queryKey: ["sales-crm-leads"] });
+      } catch (err: any) {
+        setBulkNotice({ message: err?.message || "Failed to bulk update status.", type: "error" });
+        setTimeout(() => setBulkNotice(null), 3000);
+        return;
+      }
+    } else {
+      setLeads((prev) =>
+        prev.map((l) => {
+          if (selectedIds.includes(l.id)) {
+            return { ...l, leadStage: newStage };
+          }
+          return l;
+        })
+      );
+    }
     selectedIds.forEach((id) => {
       logAction({
         userId: user?.id || "system",
@@ -223,15 +313,25 @@ function LeadsPageContent() {
     setTimeout(() => setBulkNotice(null), 3000);
   };
 
-  const selectedLead = leads.find((l) => l.id === queryLeadId);
-  const stats = getLeadsStats(leads);
+  const selectedLead = effectiveLeads.find((l) => l.id === queryLeadId);
+  const stats = getLeadsStats(effectiveLeads);
+  const leadsLoading = backendEnabled && leadsQuery.isLoading;
 
   return (
     <div className={`${styles["lead-page-container"]} ${selectedLead ? styles["lead-page-container--detail"] : ""}`}>
       {isAddLeadMode ? (
-        <LeadCreate onCancel={handleCancelAdd} onSave={handleSaveNewLead} existingLeads={leads} />
+        <>
+          {createError && (
+            <div className={`${ui["ui-card"]} ui-p-3 ui-badge-error ${styles["lead-mb-4"]} ${styles["lead-br-md"]}`}>
+              {createError}
+            </div>
+          )}
+          <LeadCreate onCancel={handleCancelAdd} onSave={handleSaveNewLead} existingLeads={effectiveLeads} />
+        </>
       ) : selectedLead ? (
-        <LeadDetail lead={selectedLead} onBack={handleBackToList} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
+        <LeadDetail lead={selectedLead} onBack={handleBackToList} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} assignableUsers={assignableUsers} />
+      ) : leadsLoading ? (
+        <div className={`${ui["ui-card"]} ui-p-3`}>Loading leads...</div>
       ) : (
         <>
           <div className={styles["lead-list-summary-row"]}>
@@ -246,7 +346,7 @@ function LeadsPageContent() {
             </button>
           </div>
 
-          <LeadFilters filters={filters} setFilters={setFilters} sortState={sortState} setSortState={setSortState} onClear={handleClearFilters} />
+          <LeadFilters filters={filters} setFilters={setFilters} sortState={sortState} setSortState={setSortState} onClear={handleClearFilters} assignableUsers={assignableUsers} />
 
           {bulkNotice && (
             <div className={`${ui["ui-card"]} ui-p-3 ${bulkNotice.type === "error" ? "ui-badge-error" : ui["ui-badge-success"]} ${styles["lead-mb-4"]} ${styles["lead-br-md"]}`}>
@@ -268,9 +368,9 @@ function LeadsPageContent() {
                   }}
                 >
                   <option value="">Bulk Assign Owner...</option>
-                  <option value="u-superadmin-1">Priya</option>
-                  <option value="u-admin-1">Rahul</option>
-                  <option value="u-employee-1">Sneha</option>
+                  {assignableUsers.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
                 </select>
                 <select
                   className={`${ui["ui-select"]} ${styles["lead-bulk-select"]}`}
@@ -302,6 +402,7 @@ function LeadsPageContent() {
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}
+            assignableUsers={assignableUsers}
             onQuickAddActivity={(leadId) => {
               const params = new URLSearchParams(searchParams.toString());
               params.set("leadId", leadId);

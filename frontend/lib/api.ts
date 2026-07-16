@@ -410,6 +410,24 @@ export const workdayApi = {
   getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
 };
 
+// Sales CRM — Leads (Phase 2.2). Feature-flagged in the UI via
+// NEXT_PUBLIC_SALES_CRM_LEADS_BACKEND_ENABLED — see
+// lib/sales-crm/api-connector.ts#isSalesLeadsBackendEnabled.
+export const salesCrmLeadsApi = {
+  getAll: (params?: any) => r(api.get('/sales-crm/leads', { params })),
+  getOne: (id: string) => r(api.get(`/sales-crm/leads/${id}`)),
+  create: (data: any) => r(api.post('/sales-crm/leads', data)),
+  update: (id: string, data: any) => r(api.put(`/sales-crm/leads/${id}`, data)),
+  reassignOwner: (id: string, ownerId: string) => r(api.patch(`/sales-crm/leads/${id}/owner`, { ownerId })),
+  bulkUpdate: (data: { leadIds: string[]; ownerId?: string; leadStage?: string }) =>
+    r(api.patch('/sales-crm/leads/bulk', data)),
+  addActivity: (id: string, data: any) => r(api.post(`/sales-crm/leads/${id}/activities`, data)),
+  addFollowup: (id: string, data: any) => r(api.post(`/sales-crm/leads/${id}/followups`, data)),
+  addRequirement: (id: string, data: any) => r(api.post(`/sales-crm/leads/${id}/requirements`, data)),
+  addDeal: (id: string, data: any) => r(api.post(`/sales-crm/leads/${id}/deals`, data)),
+  remove: (id: string) => r(api.delete(`/sales-crm/leads/${id}`)),
+};
+
 // Notifications
 export const notificationsApi = {
   getAll: (unread?: boolean) => r(api.get('/notifications', { params: { unread } })),

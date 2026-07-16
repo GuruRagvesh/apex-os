@@ -8,6 +8,8 @@ import FollowupTab from "./FollowupTab";
 import RequirementTab from "./RequirementTab";
 import { logAction } from "@/lib/sales-crm/audit-log";
 import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
+import { salesCrmLeadsApi } from "@/lib/api";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 
@@ -30,8 +32,25 @@ export default function LeadTabs({ lead, onUpdate, onBack }: { lead: Lead, onUpd
   }
 
   const { user } = useAuth();
+  const backendEnabled = isSalesLeadsBackendEnabled();
 
-  const handleAddActivity = (act: Activity) => {
+  const handleAddActivity = async (act: Activity) => {
+    if (backendEnabled) {
+      try {
+        await salesCrmLeadsApi.addActivity(lead.id, {
+          activityType: act.activityType,
+          comment: act.comment,
+          occurredAt: act.dateTime,
+          followupDate: act.followupDate,
+          followupTime: act.followupTime,
+          followupNote: act.followupNote,
+        });
+      } catch (err: any) {
+        alert(err?.message || "Failed to add activity.");
+        return;
+      }
+    }
+
     const followupIdBase = `${lead.id}-${lead.followups.length}-${act.activityType}-${act.comment}`.replace(/[^a-zA-Z0-9]/g, "").slice(0, 36);
     const followup = act.followupDate && act.followupTime ? {
       id: `f-${followupIdBase || lead.followups.length}`,

@@ -1,3 +1,5 @@
+import { Role } from "@/lib/sales-crm/types";
+import { MOCK_USERS } from "@/lib/sales-crm/constants";
 import { LeadFilterState, LeadSortState } from "@/lib/sales-crm/lead-calculations";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
@@ -8,10 +10,12 @@ interface LeadFiltersProps {
   sortState: LeadSortState;
   setSortState: (sort: LeadSortState) => void;
   onClear: () => void;
+  assignableUsers?: { id: string; name: string; role: Role }[];
 }
 
-export default function LeadFilters({ filters, setFilters, sortState, setSortState, onClear }: LeadFiltersProps) {
+export default function LeadFilters({ filters, setFilters, sortState, setSortState, onClear, assignableUsers }: LeadFiltersProps) {
   const hasActiveFilters = filters.owner || filters.stage || filters.source || filters.alert || filters.dateFrom;
+  const ownerOptions = assignableUsers ?? MOCK_USERS;
 
   return (
     <div className={styles["lead-filters-card"]}>
@@ -21,9 +25,9 @@ export default function LeadFilters({ filters, setFilters, sortState, setSortSta
         onChange={(e) => setFilters({ ...filters, owner: e.target.value })}
       >
         <option value="">All Owners</option>
-        <option value="u-superadmin-1">Priya</option>
-        <option value="u-admin-1">Rahul</option>
-        <option value="u-employee-1">Sneha</option>
+        {ownerOptions.map((u) => (
+          <option key={u.id} value={u.id}>{u.name}</option>
+        ))}
       </select>
 
       <select
