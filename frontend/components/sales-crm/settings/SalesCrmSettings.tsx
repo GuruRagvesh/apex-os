@@ -1,117 +1,91 @@
-'use client';
+"use client";
 
-import { Check, X, Users, ShieldCheck, Workflow } from 'lucide-react';
-import { MOCK_USERS, ROLE_LABELS } from '@/lib/sales-crm/constants';
-import { Role } from '@/lib/sales-crm/types';
-import * as permissions from '@/lib/sales-crm/permissions';
-import { Card } from '@/components/sales-crm/ui/Card';
-import { PlainBadge } from '@/components/sales-crm/ui/Badge';
+// SalesCRM — Settings page
+// Replaces the placeholder with a full settings management module
 
-const ALL_ROLES = [Role.SUPERADMIN, Role.ADMIN, Role.MANAGER, Role.TL, Role.EMPLOYEE];
+import { useState } from "react";
+import ProfileSettings from "./ProfileSettings";
+import UserManagement from "./UserManagement";
+import RolePermissions from "./RolePermissions";
+import CRMConfiguration from "./CRMConfiguration";
+import ImportData from "./ImportData";
+import AuditLogs from "./AuditLogs";
+import BackupRestore from "./BackupRestore";
+import Integrations from "./Integrations";
+import styles from "@/styles/sales-crm/settings.module.css";
+import ui from "@/styles/sales-crm/primitives.module.css";
 
-// Only role-only permission checks are shown here (no record/owner context
-// available in a static settings view) — computed live from the real
-// permissions module, not hardcoded.
-const PERMISSION_CHECKS: { label: string; check: (role: Role) => boolean }[] = [
-  { label: 'Import records', check: permissions.canImport },
-  { label: 'Export records', check: permissions.canExport },
-  { label: 'Add records', check: permissions.canAddRecord },
-  { label: 'Delete records', check: permissions.canDeleteRecord },
-  { label: 'Add deals', check: permissions.canAddDeal },
-  { label: 'Delete deals', check: permissions.canDeleteDeal },
-  { label: 'Export deals', check: permissions.canExportDeals },
-  { label: 'Manage custom activity tabs', check: permissions.canManageActivityTabs },
+type SettingsSection = "profile" | "users" | "roles" | "audit" | "integrations" | "backup" | "import" | "crm";
+
+const SETTINGS_SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
+  { id: "profile", label: "Profile", icon: "P" },
+  { id: "users", label: "User Management", icon: "U" },
+  { id: "roles", label: "Role Permissions", icon: "R" },
+  { id: "audit", label: "Activity Logs", icon: "A" },
+  { id: "integrations", label: "Integrations", icon: "V" },
+  { id: "backup", label: "Backup & Restore", icon: "B" },
+  { id: "import", label: "Import Data", icon: "I" },
+  { id: "crm", label: "Advanced Configuration", icon: "C" },
 ];
 
-const PIPELINE_STAGES = ['Created', 'Cold', 'Level 0', 'Level 0(A)', 'Level 1', 'Level 1(A)', 'Level 2', 'Level 3', 'Level 4', 'Level 4(A)', 'Level 5', 'Level 6', 'Closed', 'Invalid', 'Hold'];
+export default function SettingsPage() {
+  const [activeSection, setActiveSection] = useState<SettingsSection>("profile");
+  const [searchQuery, setSearchQuery] = useState("");
 
-export default function SalesCrmSettings() {
+  const filteredSections = SETTINGS_SECTIONS.filter((section) => section.label.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const renderSettingsContent = () => {
+    switch (activeSection) {
+      case "profile":
+        return <ProfileSettings />;
+      case "users":
+        return <UserManagement />;
+      case "roles":
+        return <RolePermissions />;
+      case "audit":
+        return <AuditLogs />;
+      case "integrations":
+        return <Integrations />;
+      case "backup":
+        return <BackupRestore />;
+      case "import":
+        return <ImportData />;
+      case "crm":
+        return <CRMConfiguration />;
+      default:
+        return null;
+    }
+  };
+
   return (
-    <div className="space-y-5">
-      <Card className="p-4 sm:p-5">
-        <h2 className="text-sm font-semibold mb-1 flex items-center gap-1.5" style={{ color: 'var(--color-text-primary)' }}>
-          <Users size={14} style={{ color: 'var(--color-text-muted)' }} />
-          Team
-        </h2>
-        <p className="text-xs mb-4" style={{ color: 'var(--color-text-muted)' }}>
-          Reference reps used to attribute demo leads and deals. User management will connect to Apex OS's real user
-          directory once the backend is wired up.
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                <th className="text-left font-medium px-3 py-2" style={{ color: 'var(--color-text-muted)' }}>Name</th>
-                <th className="text-left font-medium px-3 py-2" style={{ color: 'var(--color-text-muted)' }}>Email</th>
-                <th className="text-left font-medium px-3 py-2" style={{ color: 'var(--color-text-muted)' }}>Role</th>
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_USERS.map((u, i) => (
-                <tr key={u.id} style={{ borderTop: i > 0 ? '1px solid var(--color-border)' : undefined }}>
-                  <td className="px-3 py-2.5" style={{ color: 'var(--color-text-primary)' }}>{u.name}</td>
-                  <td className="px-3 py-2.5" style={{ color: 'var(--color-text-secondary)' }}>{u.email}</td>
-                  <td className="px-3 py-2.5">
-                    <PlainBadge tone="primary">{ROLE_LABELS[u.role]}</PlainBadge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div className={styles["settings-page"]}>
+      <div className={styles["settings-admin-header"]}>
+        <div>
+          <h1 className={styles["settings-admin-title"]}>Settings & Administration</h1>
+          <p className={styles["settings-admin-subtitle"]}>Manage workspace preferences, users, and integrations.</p>
         </div>
-      </Card>
-
-      <Card className="p-4 sm:p-5">
-        <h2 className="text-sm font-semibold mb-1 flex items-center gap-1.5" style={{ color: 'var(--color-text-primary)' }}>
-          <ShieldCheck size={14} style={{ color: 'var(--color-text-muted)' }} />
-          Role Permissions
-        </h2>
-        <p className="text-xs mb-4" style={{ color: 'var(--color-text-muted)' }}>
-          Computed live from the Sales CRM permission engine — not a static table.
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                <th className="text-left font-medium px-3 py-2" style={{ color: 'var(--color-text-muted)' }}>Action</th>
-                {ALL_ROLES.map((role) => (
-                  <th key={role} className="text-center font-medium px-3 py-2" style={{ color: 'var(--color-text-muted)' }}>
-                    {ROLE_LABELS[role]}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {PERMISSION_CHECKS.map((p, i) => (
-                <tr key={p.label} style={{ borderTop: i > 0 ? '1px solid var(--color-border)' : undefined }}>
-                  <td className="px-3 py-2.5" style={{ color: 'var(--color-text-primary)' }}>{p.label}</td>
-                  {ALL_ROLES.map((role) => (
-                    <td key={role} className="text-center px-3 py-2.5">
-                      {p.check(role) ? (
-                        <Check size={14} className="inline" style={{ color: 'var(--color-success)' }} />
-                      ) : (
-                        <X size={14} className="inline" style={{ color: 'var(--color-text-muted)' }} />
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <Card className="p-4 sm:p-5">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: 'var(--color-text-primary)' }}>
-          <Workflow size={14} style={{ color: 'var(--color-text-muted)' }} />
-          Pipeline Stages
-        </h2>
-        <div className="flex flex-wrap gap-1.5">
-          {PIPELINE_STAGES.map((stage) => (
-            <PlainBadge key={stage} tone="neutral">{stage}</PlainBadge>
+      </div>
+      <div className={styles["settings-layout"]}>
+        {/* Left sidebar navigation */}
+        <nav className={styles["settings-sidebar-nav"]}>
+          <div className={styles["settings-search-container"]}>
+            <input className={`${ui["ui-input"]} ui-input-sm ${styles["settings-search-input"]}`} placeholder="Search Settings..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          </div>
+          {filteredSections.map((section) => (
+            <button
+              key={section.id}
+              className={`${styles["settings-sidebar-item"]} ${activeSection === section.id ? styles["settings-sidebar-item-active"] : ""}`}
+              onClick={() => setActiveSection(section.id)}
+            >
+              <span className={styles["settings-sidebar-item-icon"]}>{section.icon}</span>
+              <span className={styles["settings-sidebar-item-label"]}>{section.label}</span>
+            </button>
           ))}
-        </div>
-      </Card>
+        </nav>
+
+        {/* Content panel */}
+        <div className={styles["settings-content-panel"]}>{renderSettingsContent()}</div>
+      </div>
     </div>
   );
 }

@@ -62,7 +62,7 @@ export default function SalesCrmLayout({ children }: { children: React.ReactNode
   }
 
   return (
-    <SalesCrmShell userName={user?.name ?? 'User'} role={role}>
+    <SalesCrmShell>
       {children}
     </SalesCrmShell>
   );

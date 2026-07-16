@@ -33,6 +33,11 @@ export interface NavItem {
   description?: string;
 }
 
+export interface AuthState {
+  user: User | null;
+  isAuthenticated: boolean;
+}
+
 export type LeadStage =
   | "Created"
   | "Cold"
@@ -158,4 +163,19 @@ export interface CompanyMaster {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+}
+
+export interface CompanyAlias {
+  id: string;
+  companyId: string;
+  alias: string;
+  normalizedAlias: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface ExternalCompanySuggestion {
+  name: string;
+  domain: string;
+  source: "clearbit";
 }
