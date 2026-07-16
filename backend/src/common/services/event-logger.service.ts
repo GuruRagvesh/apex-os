@@ -69,6 +69,17 @@ export enum OperationalAction {
 
   // ── Exports ───────────────────────────────────────────────────────────────
   EXPORT_PERFORMED = 'EXPORT_PERFORMED',
+
+  // ── Sales CRM — Leads ────────────────────────────────────────────────────
+  LEAD_CREATED = 'LEAD_CREATED',
+  LEAD_UPDATED = 'LEAD_UPDATED',
+  LEAD_OWNER_CHANGED = 'LEAD_OWNER_CHANGED',
+  LEAD_STAGE_CHANGED = 'LEAD_STAGE_CHANGED',
+  LEAD_DELETED = 'LEAD_DELETED',
+  LEAD_ACTIVITY_ADDED = 'LEAD_ACTIVITY_ADDED',
+  LEAD_FOLLOWUP_ADDED = 'LEAD_FOLLOWUP_ADDED',
+  LEAD_REQUIREMENT_ADDED = 'LEAD_REQUIREMENT_ADDED',
+  LEAD_DEAL_ADDED = 'LEAD_DEAL_ADDED',
 }
 
 @Injectable()

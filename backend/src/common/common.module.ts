@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { EventLoggerService } from './services/event-logger.service';
 import { LeaveAccessService } from './services/leave-access.service';
+import { SalesAccessService } from './services/sales-access.service';
 import { TicketTimingService } from './services/ticket-timing.service';
 import { TicketAccessService } from './services/ticket-access.service';
 import { AccessPolicyService } from './services/access-policy.service';
@@ -22,6 +23,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     TicketAccessService,
     TicketTimingService,
     LeaveAccessService,
+    SalesAccessService,
     CompanyDateService,
     AttendanceAuthorityService,
     TVAService,
@@ -33,6 +35,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     TicketAccessService,
     TicketTimingService,
     LeaveAccessService,
+    SalesAccessService,
     CompanyDateService,
     AttendanceAuthorityService,
     TVAService,
