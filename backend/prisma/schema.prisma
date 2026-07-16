@@ -93,6 +93,10 @@ model User {
   createdTickets            Ticket[]                       @relation("TicketCreator")
   ticketsToApprove          Ticket[]                       @relation("TicketApprover")
   workdayPolicyOverride     UserWorkdayPolicyOverride?
+  salesLeads                Lead[]
+  salesLeadActivities       LeadActivity[]
+  salesFollowups            FollowUp[]
+  salesRequirementsOwned    Requirement[]
   department                Department?                    @relation(fields: [departmentId], references: [id])
   role                      Role                           @relation(fields: [roleId], references: [id])
   workSessions              WorkSession[]
@@ -152,6 +156,7 @@ model Department {
   teams            Team[]
   requestedTickets Ticket[]                   @relation("TicketRequestingDepartment")
   targetedTickets  Ticket[]                   @relation("TicketTargetDepartment")
+  salesLeads       Lead[]
 
   @@map("departments")
 }
@@ -978,6 +983,151 @@ model AttendanceRegularization {
   @@index([userId, date])
   @@index([status])
   @@map("attendance_regularizations")
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Sales CRM — Leads foundation (Phase 2.1 — schema only)
+// Additive only. No service reads/writes these tables yet; the frontend Sales
+// CRM UI (/sales-crm) still runs entirely on local mock data until Phase 2.2
+// wires it up. leadStage/leadSource/priority/status-type fields are plain
+// String, not Prisma enum, because Sales CRM's stage/status lists are
+// admin-configurable (Settings > CRM Configuration already models these as
+// editable string arrays) and some real stage values ("Level 0(A)") aren't
+// valid Prisma enum identifiers anyway.
+// ════════════════════════════════════════════════════════════════════════════
+
+model Lead {
+  id               String         @id @default(cuid())
+  ownerId          String
+  departmentId     String?
+  company          String
+  poc              String
+  email            String
+  phone            String
+  alternatePhone   String?
+  designation      String?
+  location         String?
+  linkedin         String?
+  website          String?
+  /// Configurable via Settings > CRM Configuration (pipeline_stages) — validated
+  /// against an allow-list at the service layer once Phase 2.2 wires this up.
+  leadStage        String         @default("Created")
+  leadSource       String?
+  priority         String         @default("Medium")
+  headquarters     String?
+  /// The prospect's own department at their company (e.g. "Engineering") —
+  /// free text, NOT a relation. Distinct from departmentId/ownerDept below,
+  /// which are Apex's internal department for owner/team scoping.
+  department       String?
+  companySize      String?
+  industry         String?
+  serviceInterest  String?
+  score            Int?
+  age              Int?
+  tags             Json?
+  customFields     Json?
+  initialNotes     String?
+  lastActivityDate DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  owner            User           @relation(fields: [ownerId], references: [id])
+  ownerDept        Department?    @relation(fields: [departmentId], references: [id])
+  activities       LeadActivity[]
+  followups        FollowUp[]
+  requirements     Requirement[]
+  deals            Deal[]
+
+  @@index([ownerId])
+  @@index([departmentId])
+  @@index([leadStage])
+  @@index([createdAt])
+  @@index([email])
+  @@index([phone])
+  @@map("sales_leads")
+}
+
+model LeadActivity {
+  id            String   @id @default(cuid())
+  leadId        String
+  activityType  String
+  comment       String?
+  previousStage String?
+  newStage      String?
+  createdById   String
+  occurredAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  lead          Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdBy     User     @relation(fields: [createdById], references: [id])
+
+  @@index([leadId])
+  @@index([createdById])
+  @@index([occurredAt])
+  @@map("sales_lead_activities")
+}
+
+model FollowUp {
+  id           String   @id @default(cuid())
+  leadId       String
+  type         String
+  note         String?
+  /// Date-only "YYYY-MM-DD" string, deliberately not DateTime — the frontend's
+  /// date-utils.ts was written specifically to avoid UTC drift on these.
+  followupDate String
+  followupTime String?
+  status       String   @default("Pending")
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdBy    User     @relation(fields: [createdById], references: [id])
+
+  @@index([leadId])
+  @@index([status])
+  @@index([followupDate])
+  @@map("sales_followups")
+}
+
+model Requirement {
+  id        String   @id @default(cuid())
+  leadId    String
+  title     String
+  details   String?
+  priority  String   @default("Medium")
+  status    String   @default("New Requirement")
+  timeline  String?
+  ownerId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  owner     User?    @relation(fields: [ownerId], references: [id])
+  deals     Deal[]
+
+  @@index([leadId])
+  @@index([status])
+  @@index([ownerId])
+  @@map("sales_requirements")
+}
+
+model Deal {
+  id              String       @id @default(cuid())
+  leadId          String
+  requirementId   String?
+  stage           String       @default("Proposal Sent")
+  /// Float, matching this schema's existing money/amount convention
+  /// (Ticket.estimatedTime/actualTime, DailyAttendance.leaveDeducted/
+  /// lwpDeducted) — there is no Decimal type used anywhere in this schema.
+  value           Float        @default(0)
+  paymentStatus   String?
+  expectedCloseAt DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  lead            Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  requirement     Requirement? @relation(fields: [requirementId], references: [id])
+
+  @@index([leadId])
+  @@index([requirementId])
+  @@index([stage])
+  @@map("sales_deals")
 }
 
 enum ProjectStatus {

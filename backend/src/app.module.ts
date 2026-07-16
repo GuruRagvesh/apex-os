@@ -24,6 +24,9 @@ import { TeamModule } from './modules/operations/team/team.module';
 // ── 🤖 AI ─────────────────────────────────────────────────────────────────────
 import { AiModule } from './modules/ai/ai.module';
 
+// ── 💼 Business ───────────────────────────────────────────────────────────────
+import { SalesCrmModule } from './modules/business/sales-crm/sales-crm.module';
+
 // ── 🚀 Platform ───────────────────────────────────────────────────────────────
 import { DashboardModule } from './modules/platform/dashboard/dashboard.module';
 import { GatewayModule } from './modules/platform/gateway/gateway.module';
@@ -68,6 +71,8 @@ const isTest = process.env.NODE_ENV === 'test';
     TeamModule,
     // 🤖 AI
     AiModule,
+    // 💼 Business
+    SalesCrmModule,
     // 🚀 Platform
     DashboardModule,
     GatewayModule,
