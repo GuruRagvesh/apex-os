@@ -42,6 +42,7 @@ export enum OperationalAction {
   BREAK_ENDED = 'BREAK_ENDED',
   IDLE_DETECTED = 'IDLE_DETECTED',
   IDLE_CLASSIFIED = 'IDLE_CLASSIFIED',
+  WORKDAY_CONTINUED = 'WORKDAY_CONTINUED',
   WORKDAY_ENDED = 'WORKDAY_ENDED',
 
   // ── Leave ─────────────────────────────────────────────────────────────────

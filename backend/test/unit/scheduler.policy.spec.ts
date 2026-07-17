@@ -5,7 +5,7 @@ import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
 import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { SettingsService } from '../../src/modules/platform/settings/settings.service';
-import { shouldPolicyAutoStop, buildCompanyDateTimeUtc, resolvePolicyCutoffForUser } from '../../src/modules/platform/workday/workday.policy.helper';
+import { shouldPolicyAutoStop, buildCompanyDateTimeUtc, resolvePolicyCutoffForUser, AUTO_CLOSE_GRACE_MINUTES } from '../../src/modules/platform/workday/workday.policy.helper';
 
 describe('FP-18E Policy Auto Stop Helper', () => {
   it('1. resolvePolicyCutoffForUser returns employee end time', () => {
@@ -115,5 +115,67 @@ describe('FP-18E Policy Auto Stop Helper', () => {
 
     const res = shouldPolicyAutoStop(session, user, policy, now, '2026-06-04', '2026-06-04');
     expect(res.shouldStop).toBe(false);
+  });
+
+  // ── Resume/active-session grace window (workday resume auto-close consent fix) ──
+  // A session the user is demonstrably still in (WORKING/ON_BREAK, recent
+  // lastActiveAt) must not be silently force-closed the instant the clock
+  // crosses the cutoff — it gets AUTO_CLOSE_GRACE_MINUTES to respond to the
+  // frontend consent prompt. Genuinely abandoned sessions still close safely.
+
+  it('13. WORKING session with recent activity is NOT stopped just after cutoff', () => {
+    const policy = { autoClose: true, autoCloseTime: '20:00', timezone: 'Asia/Kolkata' };
+    const cutoff = buildCompanyDateTimeUtc('2026-06-04', '20:00', 'Asia/Kolkata');
+    const now = new Date(cutoff.getTime() + 2 * 60000); // 2 min after cutoff
+    const user = { role: { name: 'EMPLOYEE' }, lastActiveAt: new Date(now.getTime() - 1 * 60000) }; // active 1 min ago
+    const session = { logoutAt: null, status: 'WORKING' };
+
+    const res = shouldPolicyAutoStop(session, user, policy, now, '2026-06-04', '2026-06-04');
+    expect(res.shouldStop).toBe(false);
+  });
+
+  it('14. ON_BREAK session with recent activity is NOT stopped just after cutoff', () => {
+    const policy = { autoClose: true, autoCloseTime: '20:00', timezone: 'Asia/Kolkata' };
+    const cutoff = buildCompanyDateTimeUtc('2026-06-04', '20:00', 'Asia/Kolkata');
+    const now = new Date(cutoff.getTime() + 5 * 60000);
+    const user = { role: { name: 'EMPLOYEE' }, lastActiveAt: new Date(now.getTime() - 3 * 60000) };
+    const session = { logoutAt: null, status: 'ON_BREAK' };
+
+    const res = shouldPolicyAutoStop(session, user, policy, now, '2026-06-04', '2026-06-04');
+    expect(res.shouldStop).toBe(false);
+  });
+
+  it('15. WORKING session past the grace window with no activity IS stopped (abandoned-session safety net)', () => {
+    const policy = { autoClose: true, autoCloseTime: '20:00', timezone: 'Asia/Kolkata' };
+    const cutoff = buildCompanyDateTimeUtc('2026-06-04', '20:00', 'Asia/Kolkata');
+    const now = new Date(cutoff.getTime() + (AUTO_CLOSE_GRACE_MINUTES + 5) * 60000);
+    const user = { role: { name: 'EMPLOYEE' }, lastActiveAt: new Date(cutoff.getTime() - 5 * 60000) }; // last seen before cutoff
+    const session = { logoutAt: null, status: 'WORKING' };
+
+    const res = shouldPolicyAutoStop(session, user, policy, now, '2026-06-04', '2026-06-04');
+    expect(res.shouldStop).toBe(true);
+    expect(res.cutoffUtc).toBeDefined();
+  });
+
+  it('16. IDLE session past cutoff is stopped even with a status field present (grace only applies to WORKING/ON_BREAK)', () => {
+    const policy = { autoClose: true, autoCloseTime: '20:00', timezone: 'Asia/Kolkata' };
+    const cutoff = buildCompanyDateTimeUtc('2026-06-04', '20:00', 'Asia/Kolkata');
+    const now = new Date(cutoff.getTime() + 2 * 60000);
+    const user = { role: { name: 'EMPLOYEE' }, lastActiveAt: new Date(now.getTime() - 1 * 60000) };
+    const session = { logoutAt: null, status: 'IDLE' };
+
+    const res = shouldPolicyAutoStop(session, user, policy, now, '2026-06-04', '2026-06-04');
+    expect(res.shouldStop).toBe(true);
+  });
+
+  it('17. WORKING session with no lastActiveAt at all past cutoff is stopped (fail safe, not fail open)', () => {
+    const policy = { autoClose: true, autoCloseTime: '20:00', timezone: 'Asia/Kolkata' };
+    const cutoff = buildCompanyDateTimeUtc('2026-06-04', '20:00', 'Asia/Kolkata');
+    const now = new Date(cutoff.getTime() + 2 * 60000);
+    const user = { role: { name: 'EMPLOYEE' } }; // no lastActiveAt
+    const session = { logoutAt: null, status: 'WORKING' };
+
+    const res = shouldPolicyAutoStop(session, user, policy, now, '2026-06-04', '2026-06-04');
+    expect(res.shouldStop).toBe(true);
   });
 });

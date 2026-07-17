@@ -50,6 +50,11 @@ export class WorkdayController {
     return this.workdayService.resumeAutoClosedWork(req.user.id ?? req.user.sub);
   }
 
+  @Post('continue-working')
+  continueWorking(@Request() req: any) {
+    return this.workdayService.continueWorking(req.user.id ?? req.user.sub);
+  }
+
   @Get('today')
   getToday(@Request() req: any) {
     return this.workdayService.getToday(req.user.id ?? req.user.sub);
