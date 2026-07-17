@@ -284,8 +284,16 @@ export class DashboardService {
       alerts.push({ type: 'TICKET_OVERDUE', severity: 'red', title: `${overdueCount} overdue ticket${overdueCount > 1 ? 's' : ''}`, desc: 'Tickets past their active SLA timer need immediate attention', actionLabel: 'View', actionUrl: '/tickets?overdue=true' });
     }
 
+    // QUERY tickets are approved/rejected by their creator only (see
+    // TicketAccessService.viewerCanApprove / TicketsService.approve/reject) —
+    // ticketScope is a general visibility scope, not approval authority, so a
+    // QUERY the viewer merely has visibility into (e.g. via department scope)
+    // but did not create must not inflate this "needs your review" alert.
     const reviewCount = await this.prisma.ticket.count({
-      where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }),
+      where: this.andWhere(ticketScope, {
+        status: TicketStatus.REVIEW,
+        OR: [{ NOT: { type: 'QUERY' } }, { type: 'QUERY', createdById: user.id }],
+      }),
     });
     if (reviewCount > 0 && ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'].includes(roleName)) {
       alerts.push({ type: 'REVIEW_PENDING', severity: 'purple', title: `${reviewCount} ticket${reviewCount > 1 ? 's' : ''} awaiting review`, desc: 'Review and approve or reject to unblock your team', actionLabel: 'Review', actionUrl: '/tickets?status=REVIEW' });

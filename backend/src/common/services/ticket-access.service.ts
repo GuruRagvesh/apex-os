@@ -30,6 +30,16 @@ export class TicketAccessService {
    */
   async viewerCanApprove(user: any, ticket: any): Promise<boolean> {
     if (!user || ticket?.status !== TicketStatus.REVIEW) return false;
+    // QUERY: tickets.service.ts's approve()/reject() gate strictly on the
+    // creator — no hierarchy or scoped-reviewer path applies, unlike TASK.
+    // Checked first, ahead of the self-assigned/generic branches below, so a
+    // manager/lead who merely happens to be in scope of the creator's or
+    // assignee's department (buildScopeWhere is a visibility rule, not an
+    // approval-authority rule) never sees an approve/reject control they
+    // cannot actually use.
+    if (ticket.type === 'QUERY') {
+      return user.id === ticket.createdById;
+    }
     if (this.hierarchy.isSelfAssigned(ticket)) {
       if (user.id === ticket.createdById) {
         const roleName = this.access.roleName(user);

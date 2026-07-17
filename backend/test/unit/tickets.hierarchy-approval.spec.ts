@@ -288,6 +288,55 @@ describe('TicketAccessService.viewerCanApprove — non-self assignee gate', () =
   });
 });
 
+// Regression coverage for fix/query-approval-scope: QUERY approval must be
+// gated strictly on the creator, matching TicketsService.approve()/reject()
+// exactly — never the generic scoped-reviewer/hierarchy path TASK uses.
+describe('TicketAccessService.viewerCanApprove — QUERY creator-only gate', () => {
+  function makeAccess(users = directory()) {
+    const prisma: any = {
+      ...hierPrisma(users),
+      ticket: { findFirst: jest.fn(async () => ({ id: 't1' })), count: jest.fn(async () => 1) },
+      managerDeptAccess: { findMany: jest.fn(async () => []) },
+    };
+    const policy = new AccessPolicyService(prisma);
+    const hierarchy = new HierarchyApprovalService(prisma);
+    return new TicketAccessService(prisma, policy, hierarchy);
+  }
+  // Cross-department QUERY: created by emp1 (d1), routed to and answered by
+  // someone outside emp1's own management chain — assignedToId deliberately
+  // set to a user not otherwise related to d1's hierarchy.
+  const queryTicket = (over: any = {}) => ({
+    id: 't1', status: TicketStatus.REVIEW, type: 'QUERY',
+    createdById: 'emp1', assignedToId: 'tlX', departmentId: 'd1', assignees: [], ...over,
+  });
+
+  it('returns true for the actual creator, even a plain EMPLOYEE', async () => {
+    const creator = { id: 'emp1', role: { name: 'EMPLOYEE' }, departmentId: 'd1' };
+    const result = await makeAccess().viewerCanApprove(creator, queryTicket());
+    expect(result).toBe(true);
+  });
+
+  it('returns false for a Manager who manages the creator\'s department but did not create it', async () => {
+    // mgr1 manages d1 (emp1's department) — under the old generic scoped-reviewer
+    // rule this would incorrectly return true via buildScopeWhere's createdBy match.
+    const mgr = { id: 'mgr1', role: { name: 'MANAGER' }, departmentId: 'd1' };
+    const result = await makeAccess().viewerCanApprove(mgr, queryTicket());
+    expect(result).toBe(false);
+  });
+
+  it('returns false for the assignee who answered the query', async () => {
+    const assignee = { id: 'tlX', role: { name: 'TEAM_LEAD' }, departmentId: 'd1' };
+    const result = await makeAccess().viewerCanApprove(assignee, queryTicket());
+    expect(result).toBe(false);
+  });
+
+  it('returns false for Admin — QUERY has no admin-override path, unlike TASK', async () => {
+    const admin = { id: 'admin1', role: { name: 'ADMIN' } };
+    const result = await makeAccess().viewerCanApprove(admin, queryTicket());
+    expect(result).toBe(false);
+  });
+});
+
 describe('TicketsService.approve — rating suppression for self-assigned', () => {
   function makeService(selfAssigned: boolean) {
     let captured: any = null;
