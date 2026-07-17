@@ -4,6 +4,7 @@ import { AccessPolicyService } from '../../../common/services/access-policy.serv
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TimezoneUtil, DEFAULT_COMPANY_TIMEZONE } from '../../../common/utils/timezone.util';
 import { calculateWorkdayRuntime } from './workday.calculation';
+import { buildCompanyDateTimeUtc } from './workday.policy.helper';
 import { TicketLedgerService } from '../../operations/tickets/ticket-ledger.service';
 import { NotificationEventService } from '../../operations/notifications/notification-event.service';
 import { NotificationType } from '@prisma/client';
@@ -274,6 +275,7 @@ export class WorkdayService {
       logoutAt: now,
       totalBreakMinutes,
       totalWorkMinutes,
+      closureReason: 'ENDED_BY_USER',
     });
 
     await this.prisma.attendanceEvent.create({
@@ -516,6 +518,45 @@ export class WorkdayService {
     return { session: newSession, message: 'Workday resumed after auto-close' };
   }
 
+  // Called when the user picks "Continue Working" on the auto-close consent
+  // prompt. Does not touch session status (a user on a break stays on break) —
+  // it only refreshes the activity signal shouldPolicyAutoStop checks, so the
+  // backend's own grace-period safety net doesn't treat them as abandoned, and
+  // records a distinct, clearly-labeled event for the audit trail.
+  async continueWorking(userId: string) {
+    const today = this.getTodayDate();
+    const now = this.tva.now();
+
+    const session = await this.prisma.workSession.findFirst({
+      where: { userId, date: today },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!session || !['WORKING', 'ON_BREAK'].includes(session.status)) {
+      throw new Error('No active session to continue');
+    }
+
+    await this.attendanceAuthority.setUserStatus(userId, session.status, now);
+
+    await this.prisma.attendanceEvent.create({
+      data: {
+        userId,
+        workSessionId: session.id,
+        eventType: 'WORKDAY_CONTINUED',
+        source: 'manual',
+      },
+    });
+
+    this.eventLogger.log({
+      actorId: userId,
+      entityType: 'WorkdaySession',
+      entityId: session.id,
+      action: OperationalAction.WORKDAY_CONTINUED,
+    }).catch(() => {});
+
+    return { message: 'Continuing workday' };
+  }
+
   async getToday(userId: string) {
     const today = this.getTodayDate();
     const now = this.tva.now();
@@ -550,6 +591,25 @@ export class WorkdayService {
     const remainingBreakMinutes = Math.max(0, DAILY_BREAK_ALLOWANCE_MINUTES - rt.totalBreakMinutes);
     const exceededBreakMinutes = Math.max(0, rt.totalBreakMinutes - DAILY_BREAK_ALLOWANCE_MINUTES);
 
+    // Tells the frontend when to show the auto-close consent prompt. This is
+    // deliberately independent of the backend's own grace-period safety net in
+    // shouldPolicyAutoStop: the prompt should appear promptly right at cutoff
+    // for anyone still WORKING/ON_BREAK, while the backend only force-closes
+    // later, once there's genuinely no activity signal for the grace window.
+    let needsAutoCloseConsent = false;
+    let autoCloseTime: string | null = null;
+    if (session && ['WORKING', 'ON_BREAK'].includes(session.status)) {
+      const policySetting = await this.prisma.appSetting.findUnique({ where: { key: 'workday_policy' } });
+      const policy = (policySetting?.value as any) ?? null;
+      if (policy?.autoClose === true) {
+        const timezone = policy.timezone || DEFAULT_COMPANY_TIMEZONE;
+        const currentCompanyDateStr = formatInTimeZone(now, timezone, 'yyyy-MM-dd');
+        autoCloseTime = policy.autoCloseTime || '23:59';
+        const cutoffUtc = buildCompanyDateTimeUtc(currentCompanyDateStr, autoCloseTime, timezone);
+        needsAutoCloseConsent = now.getTime() >= cutoffUtc.getTime();
+      }
+    }
+
     return {
       session,
       allSessions: sessions,
@@ -566,6 +626,8 @@ export class WorkdayService {
       usedBreakMinutes: rt.totalBreakMinutes,
       remainingBreakMinutes,
       exceededBreakMinutes,
+      needsAutoCloseConsent,
+      autoCloseTime,
     };
   }
 

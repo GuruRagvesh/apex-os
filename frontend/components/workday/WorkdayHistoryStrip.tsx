@@ -77,7 +77,7 @@ export function WorkdayHistoryStrip() {
         if (summary.status === 'ENDED') {
           badgeBg = 'rgba(16,185,129,0.1)'; badgeColor = '#059669'; badgeText = 'Complete';
         } else if (summary.status === 'AUTO_CLOSED') {
-          badgeBg = 'rgba(107,114,128,0.1)'; badgeColor = '#4b5563'; badgeText = 'Auto-closed';
+          badgeBg = 'rgba(107,114,128,0.1)'; badgeColor = '#4b5563'; badgeText = 'Auto-closed due to inactivity';
         } else if (summary.status === 'WORKING' || summary.status === 'ON_BREAK') {
           badgeBg = 'rgba(99,102,241,0.1)'; badgeColor = '#6366f1'; badgeText = summary.status === 'WORKING' ? 'Working' : 'On break';
         } else if (summary.status === 'NEEDS_REVIEW') {

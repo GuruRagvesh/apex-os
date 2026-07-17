@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { AlertTriangle } from 'lucide-react';
 import { BreakModal } from './BreakModal';
 import { EndDayModal } from './EndDayModal';
+import { AutoCloseConsentModal } from './AutoCloseConsentModal';
 
 const STATUS_COLORS: Record<string, string> = {
   WORKING: 'bg-green-500',
@@ -31,6 +32,7 @@ export function WorkdayBar() {
   const [elapsed, setElapsed] = useState(0);
   const [breakElapsed, setBreakElapsed] = useState(0);
   const [loading, setLoading] = useState<string | null>(null);
+  const [consentDismissed, setConsentDismissed] = useState(false);
 
   const { data: todayData, dataUpdatedAt, refetch } = useQuery({
     queryKey: ['workday-today'],
@@ -51,6 +53,8 @@ export function WorkdayBar() {
   const leaveInfo = (todayData as any)?.leaveInfo;
   const isResumed = (todayData as any)?.isResumed;
   const autoClosedCount = (todayData as any)?.autoClosedCount ?? 0;
+  const needsAutoCloseConsent = (todayData as any)?.needsAutoCloseConsent ?? false;
+  const autoCloseTime = (todayData as any)?.autoCloseTime ?? null;
 
   // Live elapsed time (WORKING) and live break timer (ON_BREAK)
   useEffect(() => {
@@ -199,7 +203,7 @@ export function WorkdayBar() {
           <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-red-500" />
           <div>
             <p className="text-sm font-semibold text-red-700 dark:text-red-300">
-              Your workday was auto-closed.
+              Your workday was auto-closed due to inactivity.
             </p>
             <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
               Resume workday to continue working today?
@@ -302,28 +306,36 @@ export function WorkdayBar() {
       : null;
     const plannedMins = openBreak?.estimatedMinutes ?? null;
     return (
-      <div className="flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl px-4 py-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className={dotCls} />
-          <div>
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
-              On Break{breakTypeLabel ? ` · ${breakTypeLabel}` : ''}
-            </p>
-            <p className="text-xs text-orange-500 dark:text-orange-400">
-              {breakElapsed > 0 ? `${breakElapsed} min so far` : 'Just started'}
-              {plannedMins && ` · ${plannedMins} min planned`}
-              {elapsed > 0 && ` · ${formatMinutes(elapsed)} worked today`}
-            </p>
+      <>
+        <div className="flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl px-4 py-3 mb-4">
+          <div className="flex items-center gap-2">
+            <span className={dotCls} />
+            <div>
+              <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                On Break{breakTypeLabel ? ` · ${breakTypeLabel}` : ''}
+              </p>
+              <p className="text-xs text-orange-500 dark:text-orange-400">
+                {breakElapsed > 0 ? `${breakElapsed} min so far` : 'Just started'}
+                {plannedMins && ` · ${plannedMins} min planned`}
+                {elapsed > 0 && ` · ${formatMinutes(elapsed)} worked today`}
+              </p>
+            </div>
           </div>
+          <button
+            onClick={handleEndBreak}
+            disabled={loading === 'endBreak'}
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+          >
+            {loading === 'endBreak' ? 'Resuming...' : 'Resume Work'}
+          </button>
         </div>
-        <button
-          onClick={handleEndBreak}
-          disabled={loading === 'endBreak'}
-          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
-        >
-          {loading === 'endBreak' ? 'Resuming...' : 'Resume Work'}
-        </button>
-      </div>
+        {needsAutoCloseConsent && !consentDismissed && (
+          <AutoCloseConsentModal
+            autoCloseTime={autoCloseTime}
+            onClose={() => { setConsentDismissed(true); refetch(); }}
+          />
+        )}
+      </>
     );
   }
 
@@ -397,6 +409,12 @@ export function WorkdayBar() {
           totalBreakMinutes={liveTotalBreakMinutes}
           onClose={() => setShowEndModal(false)}
           onEnded={() => { setShowEndModal(false); refetch(); }}
+        />
+      )}
+      {needsAutoCloseConsent && !consentDismissed && !showEndModal && (
+        <AutoCloseConsentModal
+          autoCloseTime={autoCloseTime}
+          onClose={() => { setConsentDismissed(true); refetch(); }}
         />
       )}
     </>

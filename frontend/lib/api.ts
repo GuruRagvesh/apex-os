@@ -405,6 +405,7 @@ export const workdayApi = {
   reportIdle: (idleDuration: number) =>
     r(api.post('/workday/idle', { idleDuration })),
   resumeAutoClosedWork: () => r(api.post('/workday/resume-auto-closed', {})),
+  continueWorking: () => r(api.post('/workday/continue-working', {})),
   getToday: () => r(api.get('/workday/today')),
   getTeam: () => r(api.get('/workday/team')),
   getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
