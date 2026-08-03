@@ -155,6 +155,43 @@ describe('WorkdayService.finalizeWorkSession — unified session-closing finaliz
     expect(result.totalWorkMinutes).toBe(120); // full elapsed, meeting not deducted
   });
 
+  // Attendance Phase 1, item 1e: manual and automatic End Day must produce
+  // structurally identical terminal records, differing only in the
+  // closure-specific fields each path's own options supply — not in which
+  // fields get set or how totals/breaks are computed. Exercises the actual
+  // option shapes each of the 4 real call sites passes (workday.service.ts
+  // endWork; scheduler.service.ts policy auto-stop, stale/midnight
+  // auto-close, idle autoLogoutInactive).
+  it.each([
+    ['manual endWork', { effectiveEndAt: NOW, terminalStatus: 'LOGGED_OUT' as const, closureReason: 'ENDED_BY_USER', actorUserId: 'user-1', eventSource: 'manual' as const, attendanceEventType: 'LOGOUT', ticketPauseReason: 'LOGOUT' }],
+    ['policy auto-stop', { effectiveEndAt: NOW, terminalStatus: 'AUTO_CLOSED' as const, closureReason: 'POLICY_AUTO_STOP', autoClosedAt: NOW, eventSource: 'system' as const, attendanceEventType: 'POLICY_AUTO_STOP', ticketPauseReason: 'POLICY_AUTO_STOP' }],
+    ['stale/midnight auto-close', { effectiveEndAt: NOW, terminalStatus: 'AUTO_CLOSED' as const, closureReason: 'AUTO_CLOSE', autoClosedAt: NOW, eventSource: 'system' as const, attendanceEventType: 'AUTO_CLOSE', ticketPauseReason: 'SYSTEM' }],
+    ['idle auto-logout', { effectiveEndAt: NOW, terminalStatus: 'LOGGED_OUT' as const, closureReason: 'AUTO_LOGOUT_INACTIVE', eventSource: 'system' as const, attendanceEventType: 'AUTO_LOGOUT', eventMetadata: { reason: '2 hours idle' }, ticketPauseReason: 'AUTO_LOGOUT' }],
+  ])('%s: produces a structurally complete terminal record — same fields, same break-closing, same ticket-pause, same audit shape', async (_label, options) => {
+    prisma.workSession.findUnique.mockResolvedValue(baseSession({
+      breakLogs: [makeBreak({ id: 'b1', startAt: new Date('2026-06-10T09:00:00.000Z'), endAt: null })],
+    }));
+
+    await service.finalizeWorkSession('ws1', options as any);
+
+    // Every path closes the open break the same way.
+    expect(prisma.breakLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'b1' }, data: expect.objectContaining({ endAt: NOW, durationMinutes: expect.any(Number) }),
+    }));
+    // Every path writes the same base terminal fields; AUTO_CLOSED paths
+    // additionally get autoClosed/autoClosedAt — an intended difference tied
+    // to terminalStatus itself, not a parity violation.
+    const updateCall = attendanceAuthority.updateWorkSession.mock.calls[0][1];
+    const expectedKeys = ['closureReason', 'logoutAt', 'status', 'totalBreakMinutes', 'totalWorkMinutes'];
+    if ((options as any).terminalStatus === 'AUTO_CLOSED') expectedKeys.push('autoClosed', 'autoClosedAt');
+    expect(Object.keys(updateCall).sort()).toEqual(expectedKeys.sort());
+    // Every path pauses ticket logs inside the same transaction.
+    expect(ticketLedger.pauseActiveLogsForUser).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-1' }), prisma);
+    // Every path emits exactly one AttendanceEvent and one OperationalEvent.
+    expect(prisma.attendanceEvent.create).toHaveBeenCalledTimes(1);
+    expect(eventLogger.log).toHaveBeenCalledTimes(1);
+  });
+
   // Required scenario 7: active ticket time log paused for every close path
   it("pauses the user's active ticket logs inside the same transaction (via the tx client)", async () => {
     prisma.workSession.findUnique.mockResolvedValue(baseSession());

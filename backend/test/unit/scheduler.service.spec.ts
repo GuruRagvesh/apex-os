@@ -283,3 +283,75 @@ describe('SchedulerService - autoLogoutInactive (path D)', () => {
     expect(attendanceAuthorityMock.setUserStatus).toHaveBeenCalledWith('user-2', 'OFFLINE');
   });
 });
+
+// Attendance Phase 1, item 1c: the cron runs every 15 minutes, so the window
+// right after midnight (00:00-00:15) is where a session that started late
+// the previous evening could plausibly be misclassified as "today" (and
+// wrongly skipped) or double-processed. The FP-19A tests above cover the
+// IST-cutoff-to-UTC conversion but not this specific boundary — this uses a
+// fully controlled fake "now" (the other describe block relies on real
+// wall-clock time, which can't deterministically land in this window).
+describe('SchedulerService - midnight-boundary auto-close (session spanning midnight)', () => {
+  let service: SchedulerService;
+  let prisma: any;
+  let settingsService: any;
+  let workdayServiceMock: any;
+
+  beforeEach(async () => {
+    prisma = {
+      workSession: { findMany: jest.fn() },
+    };
+    settingsService = {
+      getWorkdayPolicy: jest.fn().mockResolvedValue({ autoClose: true, autoCloseTime: '23:59', timezone: 'UTC' }),
+    };
+    workdayServiceMock = { finalizeWorkSession: jest.fn().mockResolvedValue({}) };
+
+    // "Now" is 00:05 on day N+1 — inside the cron's first 00:00-00:15 tick.
+    const nowJustAfterMidnight = new Date('2026-06-11T00:05:00.000Z');
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: TVAService, useValue: { now: () => nowJustAfterMidnight, companyTimezone: () => 'UTC', companyNow: () => nowJustAfterMidnight, companyDayStart: () => nowJustAfterMidnight, companyDateOnly: () => nowJustAfterMidnight, formatZoned: () => 'mock', companyDayEnd: () => nowJustAfterMidnight, elapsedSeconds: () => 0 } },
+        SchedulerService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: SettingsService, useValue: settingsService },
+        { provide: TicketLedgerService, useValue: { pauseActiveLogsForUser: jest.fn() } },
+        { provide: NotificationEventService, useValue: { sendNotification: jest.fn() } },
+        { provide: EventsGateway, useValue: { emitNotificationToUser: jest.fn() } },
+        { provide: CompanyDateService, useValue: {} },
+        { provide: AttendanceAuthorityService, useValue: { setUserStatus: jest.fn(), updateManyWorkSessions: jest.fn() } },
+        { provide: WorkdayService, useValue: workdayServiceMock },
+      ],
+    }).compile();
+
+    service = module.get<SchedulerService>(SchedulerService);
+  });
+
+  it('a session that started at 23:50 the previous day is closed via the retrospective (stale) branch, not skipped as "today"', async () => {
+    const sessionStartedLateNight = new Date('2026-06-10T23:50:00.000Z'); // day N, 23:50 UTC
+
+    prisma.workSession.findMany.mockResolvedValue([
+      {
+        id: 'session-midnight',
+        userId: 'user-1',
+        loginAt: sessionStartedLateNight,
+        createdAt: sessionStartedLateNight,
+        breakLogs: [],
+        user: { role: { name: 'EMPLOYEE' } },
+      },
+    ]);
+
+    await service.autoCloseMidnightSessions();
+
+    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalled();
+    const [sessionId, options] = workdayServiceMock.finalizeWorkSession.mock.calls[0];
+    expect(sessionId).toBe('session-midnight');
+    expect(options.closureReason).toBe('AUTO_CLOSE'); // retrospective/stale branch, not POLICY_AUTO_STOP
+    expect(options.terminalStatus).toBe('AUTO_CLOSED');
+
+    // The cutoff must be day N's autoCloseTime (23:59), strictly after the
+    // session's own 23:50 start — never a negative-duration close.
+    expect(options.effectiveEndAt.toISOString()).toBe('2026-06-10T23:59:00.000Z');
+    expect(options.effectiveEndAt.getTime()).toBeGreaterThan(sessionStartedLateNight.getTime());
+  });
+});
