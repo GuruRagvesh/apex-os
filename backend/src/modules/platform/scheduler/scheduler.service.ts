@@ -9,6 +9,7 @@ import { TimezoneUtil } from '../../../common/utils/timezone.util';
 import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
 import { SettingsService } from '../settings/settings.service';
 import { shouldPolicyAutoStop } from '../workday/workday.policy.helper';
+import { WorkdayService } from '../workday/workday.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 
@@ -24,6 +25,7 @@ export class SchedulerService {
     private settingsService: SettingsService,
     private tva: TVAService,
     private attendanceAuthority: AttendanceAuthorityService,
+    private workdayService: WorkdayService,
   ) {}
 
   private async sendScheduleNotification(ticket: any, prefix: string) {
@@ -220,49 +222,14 @@ export class SchedulerService {
           const { shouldStop, cutoffUtc } = shouldPolicyAutoStop(session, session.user, policy, nowGlobal, currentCompanyDateStr, sessionCompanyDateStr);
           
           if (shouldStop && cutoffUtc) {
-            await this.ticketLedger.pauseActiveLogsForUser({
-              userId: session.userId,
-              pauseReason: 'POLICY_AUTO_STOP',
-              endedAt: cutoffUtc,
-            });
-
-            let totalBreakMinutes = 0;
-            for (const breakLog of session.breakLogs) {
-              if (breakLog.endAt) {
-                totalBreakMinutes += breakLog.durationMinutes ?? 0;
-              } else {
-                const duration = Math.max(0, Math.floor((cutoffUtc.getTime() - breakLog.startAt.getTime()) / 60000));
-                await this.prisma.breakLog.update({
-                  where: { id: breakLog.id },
-                  data: { endAt: cutoffUtc, durationMinutes: duration, source: 'POLICY_AUTO_STOP' },
-                });
-                totalBreakMinutes += duration;
-              }
-            }
-
-            let totalWorkMinutes = 0;
-            if (session.startWorkAt) {
-              const elapsed = Math.floor((cutoffUtc.getTime() - session.startWorkAt.getTime()) / 60000);
-              totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
-            }
-
-            await this.attendanceAuthority.updateWorkSession(session.id, {
-              logoutAt: cutoffUtc,
-              status: 'AUTO_CLOSED',
-              autoClosed: true,
-              autoClosedAt: nowGlobal,
+            await this.workdayService.finalizeWorkSession(session.id, {
+              effectiveEndAt: cutoffUtc,
+              terminalStatus: 'AUTO_CLOSED',
               closureReason: 'POLICY_AUTO_STOP',
-              totalBreakMinutes,
-              totalWorkMinutes,
-            });
-
-            await this.prisma.attendanceEvent.create({
-              data: {
-                userId: session.userId,
-                workSessionId: session.id,
-                eventType: 'POLICY_AUTO_STOP',
-                source: 'system',
-              },
+              autoClosedAt: nowGlobal,
+              eventSource: 'system',
+              attendanceEventType: 'POLICY_AUTO_STOP',
+              ticketPauseReason: 'POLICY_AUTO_STOP',
             });
 
             await this.attendanceAuthority.setUserStatus(session.userId, 'LOGGED_OUT');
@@ -283,58 +250,21 @@ export class SchedulerService {
           continue; // Skip midnight stale-close for current/future day
         }
 
-        // The session belongs to `sessionCompanyDateStr`. We want the configured autoCloseTime on THAT same day.
+        // The session belongs to `sessionCompanyDateStr`. We want the configured
+        // autoCloseTime on THAT same day — the intended retrospective cutoff,
+        // i.e. the time the session logically ended, not the current instant.
         const cutoffIso = `${sessionCompanyDateStr}T${autoCloseTimeConfig}:00.000`;
         const offsetString = formatInTimeZone(sessionAnchor, timezone, 'xxx');
-        const autoCloseTime = new Date(`${cutoffIso}${offsetString}`);
-        
-        // We use autoCloseTime (the midnight boundary) as the time the session logically ended, unless now is earlier? 
-        // No, we are closing it retrospectively.
-        const now = autoCloseTime; 
-        
-        await this.ticketLedger.pauseActiveLogsForUser({
-          userId: session.userId,
-          pauseReason: 'SYSTEM',
-          endedAt: now,
-        });
+        const retrospectiveCutoff = new Date(`${cutoffIso}${offsetString}`);
 
-        let totalBreakMinutes = 0;
-        for (const breakLog of session.breakLogs) {
-          if (breakLog.endAt) {
-            totalBreakMinutes += breakLog.durationMinutes ?? 0;
-          } else {
-            const duration = Math.max(0, Math.floor((now.getTime() - breakLog.startAt.getTime()) / 60000));
-            await this.prisma.breakLog.update({
-              where: { id: breakLog.id },
-              data: { endAt: now, durationMinutes: duration, source: 'AUTO_CLOSE' },
-            });
-            totalBreakMinutes += duration;
-          }
-        }
-
-        let totalWorkMinutes = 0;
-        if (session.startWorkAt) {
-          const elapsed = Math.floor((now.getTime() - session.startWorkAt.getTime()) / 60000);
-          totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
-        }
-
-        await this.attendanceAuthority.updateWorkSession(session.id, {
-          logoutAt: now,
-          status: 'AUTO_CLOSED',
-          autoClosed: true,
-          autoClosedAt: nowGlobal,
+        await this.workdayService.finalizeWorkSession(session.id, {
+          effectiveEndAt: retrospectiveCutoff,
+          terminalStatus: 'AUTO_CLOSED',
           closureReason: 'AUTO_CLOSE',
-          totalBreakMinutes,
-          totalWorkMinutes,
-        });
-
-        await this.prisma.attendanceEvent.create({
-          data: {
-            userId: session.userId,
-            workSessionId: session.id,
-            eventType: 'AUTO_CLOSE',
-            source: 'system',
-          },
+          autoClosedAt: nowGlobal,
+          eventSource: 'system',
+          attendanceEventType: 'AUTO_CLOSE',
+          ticketPauseReason: 'SYSTEM',
         });
 
         await this.attendanceAuthority.setUserStatus(session.userId, 'LOGGED_OUT');
@@ -390,10 +320,11 @@ export class SchedulerService {
   // 3. AUTO LOGOUT — every hour
   @Cron('0 * * * *')
   async autoLogoutInactive() {
-    const hour = this.tva.now().getHours();
+    const now = this.tva.now();
+    const hour = now.getHours();
     if (hour < 9 || hour > 20) return;
 
-    const cutoff = new Date(this.tva.now().getTime() - 2 * 60 * 60 * 1000);
+    const cutoff = new Date(now.getTime() - 2 * 60 * 60 * 1000);
     const today = this.tva.companyDateOnly();
 
     const idleUsers = await this.prisma.user.findMany({
@@ -401,19 +332,27 @@ export class SchedulerService {
     });
 
     for (const user of idleUsers) {
-      await this.attendanceAuthority.setUserStatus(user.id, 'OFFLINE');
-      await this.attendanceAuthority.updateManyWorkSessions(
-        { userId: user.id, date: today, status: 'IDLE' },
-        { status: 'LOGGED_OUT', logoutAt: this.tva.now() }
-      );
-      await this.prisma.attendanceEvent.create({
-        data: {
-          userId: user.id,
-          eventType: 'AUTO_LOGOUT',
-          source: 'system',
-          metadata: { reason: '2 hours idle' },
-        },
+      // Status stays LOGGED_OUT (unchanged from today) — only closureReason
+      // is added, since existing status/closure semantics for this path must
+      // be preserved rather than reinterpreted as AUTO_CLOSED.
+      const session = await this.prisma.workSession.findFirst({
+        where: { userId: user.id, date: today, status: 'IDLE' },
+        orderBy: { createdAt: 'desc' },
       });
+
+      if (session) {
+        await this.workdayService.finalizeWorkSession(session.id, {
+          effectiveEndAt: now,
+          terminalStatus: 'LOGGED_OUT',
+          closureReason: 'AUTO_LOGOUT_INACTIVE',
+          eventSource: 'system',
+          attendanceEventType: 'AUTO_LOGOUT',
+          eventMetadata: { reason: '2 hours idle' },
+          ticketPauseReason: 'AUTO_LOGOUT',
+        });
+      }
+
+      await this.attendanceAuthority.setUserStatus(user.id, 'OFFLINE');
     }
     if (idleUsers.length > 0) {
       console.log(`[Scheduler] Auto-logout: ${idleUsers.length} idle users logged out.`);

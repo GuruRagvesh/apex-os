@@ -22,16 +22,22 @@ describe('TVA Attendance Authority (Unit)', () => {
 
   beforeEach(async () => {
     mockPrisma = {
+      $transaction: jest.fn((cb: any) => cb(mockPrisma)),
+      $queryRaw: jest.fn().mockResolvedValue([]),
       workSession: {
         findFirst: jest.fn(),
+        findUnique: jest.fn(),
       },
       breakLog: {
         create: jest.fn(),
         findFirst: jest.fn(),
         update: jest.fn(),
       },
+      ticketTimeLog: {
+        count: jest.fn().mockResolvedValue(0),
+      },
       attendanceEvent: {
-        create: jest.fn(),
+        create: jest.fn().mockResolvedValue({}),
       },
     };
 
@@ -120,20 +126,26 @@ describe('TVA Attendance Authority (Unit)', () => {
   });
 
   it('6. end day writes through authority', async () => {
-    mockPrisma.workSession.findFirst.mockResolvedValue({
+    const openSession = {
       id: 'session-1',
+      userId: 'user-1',
       status: 'WORKING',
       logoutAt: null,
       startWorkAt: new Date(Date.now() - 60 * 60000),
+      closureReason: null,
+      autoClosed: false,
+      autoClosedAt: null,
       breakLogs: [],
-    });
+    };
+    mockPrisma.workSession.findFirst.mockResolvedValue(openSession);
+    mockPrisma.workSession.findUnique.mockResolvedValue(openSession);
 
     await workdayService.endWork('user-1');
 
     expect(attendanceAuthority.updateWorkSession).toHaveBeenCalledWith('session-1', expect.objectContaining({
       status: 'LOGGED_OUT',
       totalWorkMinutes: 60,
-    }));
+    }), expect.anything()); // 3rd arg: the finalizer's transaction client
     expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'LOGGED_OUT');
   });
 

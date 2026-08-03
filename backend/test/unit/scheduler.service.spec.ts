@@ -9,7 +9,14 @@ import { SettingsService } from '../../src/modules/platform/settings/settings.se
 import { formatInTimeZone } from 'date-fns-tz';
 import { CompanyDateService } from '../../src/common/services/company-date.service';
 import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
+import { WorkdayService } from '../../src/modules/platform/workday/workday.service';
 
+// Break-closing / totals / ticket-log-pause moved out of SchedulerService and
+// into WorkdayService.finalizeWorkSession (the shared Workday session-closing
+// finalizer) — so these tests now assert on the arguments SchedulerService
+// passes to the (mocked) finalizer, not on attendanceAuthority.updateWorkSession
+// directly. Business-level assertions (the exact cutoff timestamp, whether a
+// close happens at all) are unchanged from before the refactor.
 describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   let service: SchedulerService;
   let prisma: any;
@@ -17,6 +24,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   let ticketLedger: any;
   let notificationEventService: any;
   let attendanceAuthorityMock: any;
+  let workdayServiceMock: any;
   let companyTimezoneMock: string;
 
   beforeEach(async () => {
@@ -25,6 +33,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     prisma = {
       workSession: {
         findMany: jest.fn(),
+        findFirst: jest.fn(),
         update: jest.fn(),
       },
       breakLog: {
@@ -34,6 +43,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
         create: jest.fn(),
       },
       user: {
+        findMany: jest.fn(),
         update: jest.fn(),
       },
     };
@@ -54,9 +64,13 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
       emitNotificationToUser: jest.fn(),
     };
 
+    workdayServiceMock = {
+      finalizeWorkSession: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => companyTimezoneMock, companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
+        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => companyTimezoneMock, companyNow: () => new Date(), companyDayStart: () => new Date(), companyDateOnly: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         SchedulerService,
         { provide: PrismaService, useValue: prisma },
         { provide: SettingsService, useValue: settingsService },
@@ -64,7 +78,8 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
         { provide: NotificationEventService, useValue: notificationEventService },
         { provide: EventsGateway, useValue: gateway },
         { provide: CompanyDateService, useValue: {} },
-        { provide: AttendanceAuthorityService, useValue: { updateWorkSession: jest.fn(), setUserStatus: jest.fn() } },
+        { provide: AttendanceAuthorityService, useValue: { updateWorkSession: jest.fn(), setUserStatus: jest.fn(), updateManyWorkSessions: jest.fn() } },
+        { provide: WorkdayService, useValue: workdayServiceMock },
       ],
     }).compile();
 
@@ -81,7 +96,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   it('6. autoClose false skips policy auto-stop', async () => {
     settingsService.getWorkdayPolicy.mockResolvedValue({ autoClose: false });
     await service.autoCloseMidnightSessions();
-    expect(attendanceAuthorityMock.updateWorkSession).not.toHaveBeenCalled();
+    expect(workdayServiceMock.finalizeWorkSession).not.toHaveBeenCalled();
   });
 
   it('7. stale session closes at configured autoCloseTime, not midnight', async () => {
@@ -91,7 +106,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     settingsService.getWorkdayPolicy.mockResolvedValue({ autoClose: true, autoCloseTime: '22:00', timezone: 'UTC' });
     const oldSessionDate = new Date();
     oldSessionDate.setDate(oldSessionDate.getDate() - 2); // 2 days ago
-    
+
     prisma.workSession.findMany.mockResolvedValue([
       {
         id: 'session-1',
@@ -104,18 +119,21 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    expect(attendanceAuthorityMock.updateWorkSession).toHaveBeenCalled();
-    const updateCall = attendanceAuthorityMock.updateWorkSession.mock.calls[0][1];
-    
-    // Check that logoutAt was set based on the configured autoCloseTime '22:00'
+    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalled();
+    const [sessionId, options] = workdayServiceMock.finalizeWorkSession.mock.calls[0];
+    expect(sessionId).toBe('session-1');
+
+    // Check that effectiveEndAt was set based on the configured autoCloseTime '22:00'
     const expectedCutoff = `${formatInTimeZone(oldSessionDate, 'UTC', 'yyyy-MM-dd')}T22:00:00.000Z`;
-    expect(updateCall.logoutAt.toISOString()).toBe(expectedCutoff);
+    expect(options.effectiveEndAt.toISOString()).toBe(expectedCutoff);
+    expect(options.terminalStatus).toBe('AUTO_CLOSED');
+    expect(options.closureReason).toBe('AUTO_CLOSE');
   });
 
-  it('8. logoutAt equals configured autoCloseTime converted to UTC', async () => {
+  it('8. logoutAt (effectiveEndAt) equals configured autoCloseTime converted to UTC', async () => {
     settingsService.getWorkdayPolicy.mockResolvedValue({ autoClose: true, autoCloseTime: '23:59', timezone: 'Asia/Kolkata' });
     const oldSessionDate = new Date('2026-06-01T10:00:00Z');
-    
+
     prisma.workSession.findMany.mockResolvedValue([
       {
         id: 'session-2',
@@ -128,18 +146,18 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    const updateCall = attendanceAuthorityMock.updateWorkSession.mock.calls[0][1];
-    
+    const options = workdayServiceMock.finalizeWorkSession.mock.calls[0][1];
+
     // The session anchor is 2026-06-01T10:00:00Z, which is 2026-06-01 15:30 IST.
     // Cutoff time in IST is 2026-06-01 23:59. UTC = 2026-06-01 18:29:00Z
     const expectedUtc = new Date('2026-06-01T18:29:00.000Z');
-    expect(updateCall.logoutAt.getTime()).toBe(expectedUtc.getTime());
+    expect(options.effectiveEndAt.getTime()).toBe(expectedUtc.getTime());
   });
 
   it('9. current-day before configured autoCloseTime remains active', async () => {
     settingsService.getWorkdayPolicy.mockResolvedValue({ autoClose: true, employeeTiming: { end: '23:59' }, timezone: 'UTC' });
     const now = new Date();
-    
+
     prisma.workSession.findMany.mockResolvedValue([
       {
         id: 'session-3',
@@ -154,7 +172,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     await service.autoCloseMidnightSessions();
     // It should not close since it's today and before cutoff (assuming current time is before 23:59)
     // Actually, shouldPolicyAutoStop will handle it, but it might return false unless we're past the time.
-    expect(attendanceAuthorityMock.updateWorkSession).not.toHaveBeenCalled();
+    expect(workdayServiceMock.finalizeWorkSession).not.toHaveBeenCalled();
   });
 
   it('10. repeated scheduler run does not duplicate notification', async () => {
@@ -189,6 +207,151 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    expect(attendanceAuthorityMock.updateWorkSession).toHaveBeenCalled();
+    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalled();
+  });
+});
+
+// autoLogoutInactive (path D) had zero existing coverage — it previously set
+// status/logoutAt directly via a bulk update with no break-closing, totals,
+// or ticket-log-pause. It now looks up the user's IDLE session and routes it
+// through the same shared finalizer as the other three closing paths.
+describe('SchedulerService - autoLogoutInactive (path D)', () => {
+  let service: SchedulerService;
+  let prisma: any;
+  let attendanceAuthorityMock: any;
+  let workdayServiceMock: any;
+  let tvaNow: Date;
+
+  beforeEach(async () => {
+    tvaNow = new Date('2026-06-10T14:00:00.000Z'); // 14:00 — inside the 9-20 active window
+
+    prisma = {
+      user: { findMany: jest.fn() },
+      workSession: { findFirst: jest.fn() },
+    };
+
+    workdayServiceMock = { finalizeWorkSession: jest.fn().mockResolvedValue({}) };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: TVAService, useValue: { now: () => tvaNow, companyDateOnly: () => new Date('2026-06-10T00:00:00.000Z'), companyTimezone: () => 'UTC', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), formatZoned: () => 'mock', elapsedSeconds: () => 0 } },
+        SchedulerService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: SettingsService, useValue: { getWorkdayPolicy: jest.fn() } },
+        { provide: TicketLedgerService, useValue: { pauseActiveLogsForUser: jest.fn() } },
+        { provide: NotificationEventService, useValue: { sendNotification: jest.fn() } },
+        { provide: EventsGateway, useValue: { emitNotificationToUser: jest.fn() } },
+        { provide: CompanyDateService, useValue: {} },
+        { provide: AttendanceAuthorityService, useValue: { setUserStatus: jest.fn(), updateManyWorkSessions: jest.fn() } },
+        { provide: WorkdayService, useValue: workdayServiceMock },
+      ],
+    }).compile();
+
+    service = module.get<SchedulerService>(SchedulerService);
+    attendanceAuthorityMock = module.get<AttendanceAuthorityService>(AttendanceAuthorityService) as any;
+  });
+
+  it('outside the 9am-8pm window does nothing', async () => {
+    tvaNow = new Date('2026-06-10T22:00:00.000Z');
+    await service.autoLogoutInactive();
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+  });
+
+  it('idle user with an open IDLE session: finalizer called with LOGGED_OUT + AUTO_LOGOUT_INACTIVE, then user set OFFLINE', async () => {
+    prisma.user.findMany.mockResolvedValue([{ id: 'user-1' }]);
+    prisma.workSession.findFirst.mockResolvedValue({ id: 'session-1', userId: 'user-1', status: 'IDLE' });
+
+    await service.autoLogoutInactive();
+
+    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalledWith('session-1', expect.objectContaining({
+      terminalStatus: 'LOGGED_OUT',
+      closureReason: 'AUTO_LOGOUT_INACTIVE',
+      attendanceEventType: 'AUTO_LOGOUT',
+      ticketPauseReason: 'AUTO_LOGOUT',
+      eventSource: 'system',
+    }));
+    expect(attendanceAuthorityMock.setUserStatus).toHaveBeenCalledWith('user-1', 'OFFLINE');
+  });
+
+  it('idle user with no matching session: finalizer not called, user still set OFFLINE', async () => {
+    prisma.user.findMany.mockResolvedValue([{ id: 'user-2' }]);
+    prisma.workSession.findFirst.mockResolvedValue(null);
+
+    await service.autoLogoutInactive();
+
+    expect(workdayServiceMock.finalizeWorkSession).not.toHaveBeenCalled();
+    expect(attendanceAuthorityMock.setUserStatus).toHaveBeenCalledWith('user-2', 'OFFLINE');
+  });
+});
+
+// Attendance Phase 1, item 1c: the cron runs every 15 minutes, so the window
+// right after midnight (00:00-00:15) is where a session that started late
+// the previous evening could plausibly be misclassified as "today" (and
+// wrongly skipped) or double-processed. The FP-19A tests above cover the
+// IST-cutoff-to-UTC conversion but not this specific boundary — this uses a
+// fully controlled fake "now" (the other describe block relies on real
+// wall-clock time, which can't deterministically land in this window).
+describe('SchedulerService - midnight-boundary auto-close (session spanning midnight)', () => {
+  let service: SchedulerService;
+  let prisma: any;
+  let settingsService: any;
+  let workdayServiceMock: any;
+
+  beforeEach(async () => {
+    prisma = {
+      workSession: { findMany: jest.fn() },
+    };
+    settingsService = {
+      getWorkdayPolicy: jest.fn().mockResolvedValue({ autoClose: true, autoCloseTime: '23:59', timezone: 'UTC' }),
+    };
+    workdayServiceMock = { finalizeWorkSession: jest.fn().mockResolvedValue({}) };
+
+    // "Now" is 00:05 on day N+1 — inside the cron's first 00:00-00:15 tick.
+    const nowJustAfterMidnight = new Date('2026-06-11T00:05:00.000Z');
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: TVAService, useValue: { now: () => nowJustAfterMidnight, companyTimezone: () => 'UTC', companyNow: () => nowJustAfterMidnight, companyDayStart: () => nowJustAfterMidnight, companyDateOnly: () => nowJustAfterMidnight, formatZoned: () => 'mock', companyDayEnd: () => nowJustAfterMidnight, elapsedSeconds: () => 0 } },
+        SchedulerService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: SettingsService, useValue: settingsService },
+        { provide: TicketLedgerService, useValue: { pauseActiveLogsForUser: jest.fn() } },
+        { provide: NotificationEventService, useValue: { sendNotification: jest.fn() } },
+        { provide: EventsGateway, useValue: { emitNotificationToUser: jest.fn() } },
+        { provide: CompanyDateService, useValue: {} },
+        { provide: AttendanceAuthorityService, useValue: { setUserStatus: jest.fn(), updateManyWorkSessions: jest.fn() } },
+        { provide: WorkdayService, useValue: workdayServiceMock },
+      ],
+    }).compile();
+
+    service = module.get<SchedulerService>(SchedulerService);
+  });
+
+  it('a session that started at 23:50 the previous day is closed via the retrospective (stale) branch, not skipped as "today"', async () => {
+    const sessionStartedLateNight = new Date('2026-06-10T23:50:00.000Z'); // day N, 23:50 UTC
+
+    prisma.workSession.findMany.mockResolvedValue([
+      {
+        id: 'session-midnight',
+        userId: 'user-1',
+        loginAt: sessionStartedLateNight,
+        createdAt: sessionStartedLateNight,
+        breakLogs: [],
+        user: { role: { name: 'EMPLOYEE' } },
+      },
+    ]);
+
+    await service.autoCloseMidnightSessions();
+
+    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalled();
+    const [sessionId, options] = workdayServiceMock.finalizeWorkSession.mock.calls[0];
+    expect(sessionId).toBe('session-midnight');
+    expect(options.closureReason).toBe('AUTO_CLOSE'); // retrospective/stale branch, not POLICY_AUTO_STOP
+    expect(options.terminalStatus).toBe('AUTO_CLOSED');
+
+    // The cutoff must be day N's autoCloseTime (23:59), strictly after the
+    // session's own 23:50 start — never a negative-duration close.
+    expect(options.effectiveEndAt.toISOString()).toBe('2026-06-10T23:59:00.000Z');
+    expect(options.effectiveEndAt.getTime()).toBeGreaterThan(sessionStartedLateNight.getTime());
   });
 });

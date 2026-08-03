@@ -18,6 +18,7 @@ import { NotificationEventService } from '../../src/modules/operations/notificat
 import { SettingsService } from '../../src/modules/platform/settings/settings.service';
 import { CompanyDateService } from '../../src/common/services/company-date.service';
 import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
+import { WorkdayService } from '../../src/modules/platform/workday/workday.service';
 
 // ── Minimal mocks ─────────────────────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ describe('SchedulerService — recurring ticket query', () => {
         { provide: SettingsService, useValue: mockSettingsService },
         { provide: CompanyDateService, useValue: { getTodayStart: jest.fn() } },
         { provide: AttendanceAuthorityService, useValue: { setUserStatus: jest.fn(), updateManyWorkSessions: jest.fn() } },
+        { provide: WorkdayService, useValue: { finalizeWorkSession: jest.fn() } },
       ],
     }).compile();
 

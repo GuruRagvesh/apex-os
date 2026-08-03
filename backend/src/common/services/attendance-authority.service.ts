@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -49,7 +50,9 @@ export class AttendanceAuthorityService {
   }
 
   /**
-   * Authority update for WorkSessions.
+   * Authority update for WorkSessions. Optional `tx` lets callers (e.g.
+   * WorkdayService.finalizeWorkSession) run this inside their own Prisma
+   * transaction; omitted, it behaves exactly as before.
    */
   async updateWorkSession(
     sessionId: string,
@@ -65,9 +68,11 @@ export class AttendanceAuthorityService {
       totalBreakMinutes?: number;
       leaveId?: string;
       continuationOfSessionId?: string;
-    }
+    },
+    tx?: Prisma.TransactionClient,
   ) {
-    return this.prisma.workSession.update({
+    const client = tx ?? this.prisma;
+    return client.workSession.update({
       where: { id: sessionId },
       data,
     });

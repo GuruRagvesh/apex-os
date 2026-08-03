@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TVAService } from '../../../common/services/tva.service';
 
@@ -168,13 +169,19 @@ export class TicketLedgerService {
     });
   }
 
-  async pauseActiveLogsForUser(input: {
-    userId: string;
-    pauseReason: string;
-    breakLogId?: string;
-    endedAt?: Date;
-  }) {
-    const activeLogs = await this.prisma.ticketTimeLog.findMany({
+  // Optional `tx` lets callers (e.g. WorkdayService.finalizeWorkSession) run this
+  // inside their own Prisma transaction; omitted, it behaves exactly as before.
+  async pauseActiveLogsForUser(
+    input: {
+      userId: string;
+      pauseReason: string;
+      breakLogId?: string;
+      endedAt?: Date;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? this.prisma;
+    const activeLogs = await client.ticketTimeLog.findMany({
       where: { userId: input.userId, endedAt: null },
     });
 
@@ -185,7 +192,7 @@ export class TicketLedgerService {
 
     for (const log of activeLogs) {
       const durationSeconds = this.tva.elapsedSeconds(log.startedAt, endedAt);
-      await this.prisma.ticketTimeLog.update({
+      await client.ticketTimeLog.update({
         where: { id: log.id },
         data: {
           endedAt,
