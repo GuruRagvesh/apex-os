@@ -514,9 +514,9 @@ export class WorkdayService {
     if (openBreaks.length > 1) throw new Error('Multiple open breaks found');
     const openBreak = openBreaks[0];
 
-    const durationMinutes = Math.floor(
+    const durationMinutes = Math.max(0, Math.floor(
       (now.getTime() - openBreak.startAt.getTime()) / 60000,
-    );
+    ));
 
     const updated = await this.prisma.breakLog.update({
       where: { id: openBreak.id },
