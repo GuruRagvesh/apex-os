@@ -17,6 +17,18 @@ import { TVAService } from '../../../common/services/tva.service';
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
 const DAILY_BREAK_ALLOWANCE_MINUTES = 60;
 
+export interface FinalizeWorkSessionOptions {
+  effectiveEndAt: Date;
+  terminalStatus: 'LOGGED_OUT' | 'AUTO_CLOSED';
+  closureReason: string;
+  autoClosedAt?: Date;
+  actorUserId?: string;
+  eventSource: 'manual' | 'system';
+  attendanceEventType: string;
+  eventMetadata?: Record<string, any>;
+  ticketPauseReason: string;
+}
+
 @Injectable()
 export class WorkdayService {
   constructor(
@@ -247,59 +259,167 @@ export class WorkdayService {
       };
     }
 
-    let totalBreakMinutes = session.breakLogs
-      .filter((b) => b.durationMinutes && b.breakType !== 'MEETING')
-      .reduce((sum, b) => sum + (b.durationMinutes ?? 0), 0);
-
-    // Close any open break
-    const openBreak = session.breakLogs.find((b) => !b.endAt);
-    if (openBreak) {
-      const openDuration = Math.max(0, Math.floor((now.getTime() - openBreak.startAt.getTime()) / 60000));
-      await this.prisma.breakLog.update({
-        where: { id: openBreak.id },
-        data: { endAt: now, durationMinutes: openDuration },
-      });
-      if (openBreak.breakType !== 'MEETING') {
-        totalBreakMinutes += openDuration;
-      }
-    }
-
-    let totalWorkMinutes = 0;
-    if (session.startWorkAt) {
-      const elapsed = Math.floor((now.getTime() - session.startWorkAt.getTime()) / 60000);
-      totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
-    }
-
-    const updated = await this.attendanceAuthority.updateWorkSession(session.id, {
-      status: 'LOGGED_OUT',
-      logoutAt: now,
-      totalBreakMinutes,
-      totalWorkMinutes,
+    const result = await this.finalizeWorkSession(session.id, {
+      effectiveEndAt: now,
+      terminalStatus: 'LOGGED_OUT',
       closureReason: 'ENDED_BY_USER',
-    });
-
-    await this.prisma.attendanceEvent.create({
-      data: { userId, workSessionId: session.id, eventType: 'LOGOUT', source: 'manual' },
+      actorUserId: userId,
+      eventSource: 'manual',
+      attendanceEventType: 'LOGOUT',
+      ticketPauseReason: 'LOGOUT',
     });
 
     await this.attendanceAuthority.setUserStatus(userId, 'LOGGED_OUT');
 
-    await this.ticketLedger.pauseActiveLogsForUser({
-      userId,
-      pauseReason: 'LOGOUT',
-      endedAt: now,
+    return {
+      session: result.session,
+      summary: { totalWorkMinutes: result.totalWorkMinutes, totalBreakMinutes: result.totalBreakMinutes },
+    };
+  }
+
+  // Single shared closer for every Workday session-ending path (manual
+  // endWork, policy auto-stop, stale/midnight auto-close, idle auto-logout).
+  // The corruption-prone core — break-closing, totals, terminal fields,
+  // ticket-log pause — runs inside one Prisma transaction; audit events fire
+  // after commit so a logging failure can never roll back a real closure.
+  //
+  // Idempotency: a session that is already terminal AND has no open breaks
+  // AND has no active ticket logs is a true no-op (zero writes). A session
+  // that is already terminal but still has leftover open breaks / active
+  // ticket logs / stale totals (e.g. a session closed by a pre-fix bug) is
+  // reconciled — breaks closed, totals recomputed, logs paused — but its
+  // existing status/logoutAt/closureReason are preserved rather than
+  // overwritten, and no duplicate closure audit event is emitted.
+  async finalizeWorkSession(sessionId: string, options: FinalizeWorkSessionOptions) {
+    const txResult = await this.prisma.$transaction(async (tx) => {
+      // Row lock so two concurrent finalizer calls for the same session
+      // serialize instead of racing on the terminal-field write below —
+      // matches this repo's existing tx.$queryRaw usage (tickets.service.ts).
+      await tx.$queryRaw`SELECT id FROM "work_sessions" WHERE id = ${sessionId} FOR UPDATE`;
+
+      const session = await tx.workSession.findUnique({
+        where: { id: sessionId },
+        include: { breakLogs: true },
+      });
+      if (!session) throw new NotFoundException('Work session not found');
+
+      const wasAlreadyTerminal = this.isClosedSession(session);
+      const hasOpenBreaks = session.breakLogs.some((b) => !b.endAt);
+      const activeTicketLogCount = await tx.ticketTimeLog.count({
+        where: { userId: session.userId, endedAt: null },
+      });
+
+      if (wasAlreadyTerminal && !hasOpenBreaks && activeTicketLogCount === 0) {
+        return {
+          session,
+          totalWorkMinutes: session.totalWorkMinutes,
+          totalBreakMinutes: session.totalBreakMinutes,
+          didClose: false,
+          userId: session.userId,
+        };
+      }
+
+      // An already-terminal session's own recorded logoutAt is authoritative
+      // and must never move during a reconciliation pass — only a still-open
+      // session gets this call's cutoff (clamped to never precede startWorkAt).
+      let effectiveEndAt = session.logoutAt ?? options.effectiveEndAt;
+      if (!session.logoutAt && session.startWorkAt && effectiveEndAt.getTime() < session.startWorkAt.getTime()) {
+        effectiveEndAt = session.startWorkAt;
+      }
+
+      let totalBreakMinutes = 0;
+      for (const b of session.breakLogs) {
+        if (b.endAt) {
+          if (b.breakType !== 'MEETING') totalBreakMinutes += b.durationMinutes ?? 0;
+          continue; // never touch an already-closed break
+        }
+        const clampedEnd = b.startAt.getTime() > effectiveEndAt.getTime() ? b.startAt : effectiveEndAt;
+        const durationMinutes = Math.max(0, Math.floor((clampedEnd.getTime() - b.startAt.getTime()) / 60000));
+        await tx.breakLog.update({
+          where: { id: b.id },
+          data: { endAt: clampedEnd, durationMinutes },
+        });
+        if (b.breakType !== 'MEETING') totalBreakMinutes += durationMinutes;
+      }
+
+      let totalWorkMinutes = 0;
+      if (session.startWorkAt) {
+        const elapsed = Math.floor((effectiveEndAt.getTime() - session.startWorkAt.getTime()) / 60000);
+        totalWorkMinutes = Math.max(0, elapsed - totalBreakMinutes);
+      }
+
+      // Preserve-if-present: a session closed by a different (possibly
+      // racing) path already recorded its own valid status/reason — don't
+      // let a reconciliation pass overwrite facts about *how* it closed,
+      // only fix what's structurally missing (e.g. path D's historical
+      // null closureReason).
+      const resolvedStatus = wasAlreadyTerminal ? session.status : options.terminalStatus;
+      const resolvedClosureReason = session.closureReason ?? options.closureReason;
+
+      const updateData: {
+        status: string;
+        logoutAt: Date;
+        closureReason: string;
+        totalWorkMinutes: number;
+        totalBreakMinutes: number;
+        autoClosed?: boolean;
+        autoClosedAt?: Date;
+      } = {
+        status: resolvedStatus,
+        logoutAt: effectiveEndAt,
+        closureReason: resolvedClosureReason,
+        totalWorkMinutes,
+        totalBreakMinutes,
+      };
+      if (resolvedStatus === 'AUTO_CLOSED' && !session.autoClosed) {
+        updateData.autoClosed = true;
+        updateData.autoClosedAt = options.autoClosedAt ?? effectiveEndAt;
+      }
+
+      const updated = await this.attendanceAuthority.updateWorkSession(sessionId, updateData, tx);
+
+      await this.ticketLedger.pauseActiveLogsForUser(
+        {
+          userId: session.userId,
+          pauseReason: options.ticketPauseReason,
+          endedAt: effectiveEndAt,
+        },
+        tx,
+      );
+
+      return {
+        session: updated,
+        totalWorkMinutes,
+        totalBreakMinutes,
+        didClose: !wasAlreadyTerminal,
+        userId: session.userId,
+      };
     });
 
-    this.eventLogger.log({
-      actorId: userId,
-      entityType: 'WorkdaySession',
-      entityId: session.id,
-      action: OperationalAction.WORKDAY_ENDED,
-    }).catch(() => {});
+    if (txResult.didClose) {
+      await this.prisma.attendanceEvent.create({
+        data: {
+          userId: options.actorUserId ?? txResult.userId,
+          workSessionId: txResult.session.id,
+          eventType: options.attendanceEventType,
+          source: options.eventSource,
+          metadata: options.eventMetadata,
+        },
+      }).catch(() => {});
+
+      this.eventLogger.log({
+        actorId: options.actorUserId ?? txResult.userId,
+        entityType: 'WorkdaySession',
+        entityId: txResult.session.id,
+        action: OperationalAction.WORKDAY_ENDED,
+        metadata: { closureReason: txResult.session.closureReason, source: options.eventSource },
+      }).catch(() => {});
+    }
 
     return {
-      session: updated,
-      summary: { totalWorkMinutes, totalBreakMinutes },
+      session: txResult.session,
+      totalWorkMinutes: txResult.totalWorkMinutes,
+      totalBreakMinutes: txResult.totalBreakMinutes,
     };
   }
 
