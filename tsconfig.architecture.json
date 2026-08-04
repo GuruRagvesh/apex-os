@@ -1,0 +1,33 @@
+{
+  "//": [
+    "Apex OS vertical-slice architecture path aliases.",
+    "",
+    "STATUS: INACTIVE. Phase 0 defines these aliases but does not activate them.",
+    "",
+    "frontend/tsconfig.json and backend/tsconfig.json deliberately do NOT extend",
+    "this file yet. The current applications build with their existing paths and",
+    "their existing imports, unchanged.",
+    "",
+    "Aliases become active PER MIGRATED MODULE: when a component moves into",
+    "platforms/, the app that consumes it extends this config so the alias",
+    "resolves. Activating them globally before anything has migrated would",
+    "resolve to empty directories.",
+    "",
+    "See docs/architecture/MODULAR_ARCHITECTURE_FOUNDATION.md"
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@apex/apps/*": ["apps/*"],
+      "@apex/platforms/*": ["platforms/*"],
+      "@apex/core/*": ["platforms/core/*"],
+      "@apex/workforce/*": ["platforms/workforce/*"],
+      "@apex/operations/*": ["platforms/operations/*"],
+      "@apex/intelligence/*": ["platforms/intelligence/*"],
+      "@apex/business/*": ["platforms/business/*"],
+      "@apex/system/*": ["platforms/system/*"],
+      "@apex/database/*": ["database/*"],
+      "@apex/shared/*": ["shared/*"]
+    }
+  }
+}

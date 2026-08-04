@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json.schemastore.org/base.json",
+  "version": 1,
+  "description": "Apex OS vertical-slice architecture dependency boundaries. Consumed by scripts/architecture/validate-boundaries.mjs. Phase 0: enforcement covers only the new architecture roots; frontend/, backend/ and e2e/ are legacy-active and enter enforcement as their modules migrate.",
+  "documentation": "docs/architecture/PUBLIC_API_CONVENTIONS.md",
+
+  "enforcedRoots": ["apps", "platforms", "database", "shared"],
+
+  "legacyActiveRoots": {
+    "roots": ["frontend", "backend", "e2e"],
+    "enforced": false,
+    "reason": "These are the live application roots serving production. They are excluded from enforcement until their modules migrate, per Phase 0 scope."
+  },
+
+  "platforms": ["core", "workforce", "operations", "intelligence", "business", "system"],
+
+  "layers": {
+    "apps": {
+      "path": "apps",
+      "mayImport": ["platforms", "shared", "database"],
+      "mustNotImport": [],
+      "notes": "Composition shells only. No business rules. One app must not import another app's internals."
+    },
+    "platforms": {
+      "path": "platforms",
+      "mayImport": ["platforms", "shared", "database"],
+      "mustNotImport": ["apps"],
+      "notes": "Cross-component and cross-platform imports must use a public index entry point."
+    },
+    "shared": {
+      "path": "shared",
+      "mayImport": ["shared", "database"],
+      "mustNotImport": ["apps", "platforms"],
+      "notes": "Cross-cutting only. Importing a platform inverts the dependency graph."
+    },
+    "database": {
+      "path": "database",
+      "mayImport": ["database"],
+      "mustNotImport": ["apps", "platforms", "shared"],
+      "notes": "Bottom of the graph. Schema, migrations and the Prisma client import nothing internal."
+    }
+  },
+
+  "rules": [
+    {
+      "id": "frontend-no-backend",
+      "severity": "error",
+      "description": "Frontend code must not import backend code.",
+      "from": "**/frontend/**",
+      "forbiddenTargetSegments": ["backend"],
+      "rationale": "Server code must never reach the browser bundle."
+    },
+    {
+      "id": "backend-no-frontend",
+      "severity": "error",
+      "description": "Backend code must not import frontend code.",
+      "from": "**/backend/**",
+      "forbiddenTargetSegments": ["frontend"],
+      "rationale": "Server runtime must not depend on browser modules."
+    },
+    {
+      "id": "shared-no-platforms",
+      "severity": "error",
+      "description": "shared/ must not import apps/ or platforms/.",
+      "fromLayer": "shared",
+      "forbiddenLayers": ["apps", "platforms"],
+      "rationale": "shared/ is depended upon by platforms; importing back creates a cycle."
+    },
+    {
+      "id": "database-no-upper-layers",
+      "severity": "error",
+      "description": "database/ must not import apps/, platforms/ or shared/.",
+      "fromLayer": "database",
+      "forbiddenLayers": ["apps", "platforms", "shared"],
+      "rationale": "The Prisma client must be importable from every layer without a cycle."
+    },
+    {
+      "id": "platforms-no-apps",
+      "severity": "error",
+      "description": "platforms/ must not import apps/.",
+      "fromLayer": "platforms",
+      "forbiddenLayers": ["apps"],
+      "rationale": "Apps compose platforms, never the reverse."
+    },
+    {
+      "id": "app-internal-isolation",
+      "severity": "error",
+      "description": "An app must not import another app's internal files.",
+      "scope": "apps",
+      "rationale": "Apps are independent composition shells."
+    },
+    {
+      "id": "component-public-entry",
+      "severity": "error",
+      "description": "Cross-component imports must target a component's public entry point, not its internal frontend/, backend/, shared/ or tests/ folders.",
+      "scope": "platforms",
+      "internalSegments": ["frontend", "backend", "shared", "tests"],
+      "componentDepth": 3,
+      "rationale": "A component's internals are private; only index.ts is public."
+    }
+  ],
+
+  "publicEntryPoints": {
+    "filenames": ["index.ts", "index.tsx", "index.js", "index.mjs"],
+    "componentPathPattern": "platforms/<platform>/<module>/<component>",
+    "notes": "A cross-component import may address the component directory itself or its index file, but must not address a path inside it."
+  },
+
+  "scan": {
+    "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+    "ignoreDirectories": [
+      "node_modules",
+      "dist",
+      "build",
+      ".next",
+      "coverage",
+      "__fixtures__",
+      "fixtures",
+      ".git"
+    ],
+    "ignoreFilePatterns": [".d.ts"]
+  }
+}
