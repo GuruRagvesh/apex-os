@@ -1,0 +1,40 @@
+name: Architecture Boundaries
+
+# Enforces the vertical-slice dependency rules defined in
+# architecture-boundaries.json.
+#
+# Deliberately dependency-free: the validator uses Node built-ins only, so this
+# workflow never runs an install step. It does not touch a database, does not
+# use secrets, and does not deploy.
+#
+# Scope: apps/, platforms/, database/, shared/. The legacy-active roots
+# (frontend/, backend/, e2e/) are excluded until their modules migrate.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - staging
+
+permissions:
+  contents: read
+
+jobs:
+  boundaries:
+    name: Validate architecture boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validator self-tests
+        run: node scripts/architecture/validate-boundaries.test.mjs
+
+      - name: Boundary scan
+        run: node scripts/architecture/validate-boundaries.mjs
