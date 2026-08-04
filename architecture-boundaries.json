@@ -100,6 +100,34 @@
     }
   ],
 
+  "legacyFrontendImports": {
+    "description": "platforms/** importing frontend/** is FORBIDDEN by default. Migration phases may carry a narrow, temporary, per-component exemption listed below. Each entry names exactly one source component and an explicit allowlist of destination paths. platforms/** -> backend/** has no exemption mechanism and is always forbidden.",
+    "defaultRule": "forbidden",
+    "exceptions": [
+      {
+        "id": "DEBT-P1A-LEADS-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Phase 1A",
+        "removalPhase": "Phase 2 (Sales CRM shared slice)",
+        "from": "platforms/business/sales-crm/leads/",
+        "allowedTargets": [
+          "frontend/lib/api.ts",
+          "frontend/lib/sales-crm/",
+          "frontend/components/sales-crm/ui/",
+          "frontend/styles/sales-crm/"
+        ],
+        "reason": "Phase 1A migrated the Leads frontend slice only. Its shared Sales CRM dependencies (types, auth-adapter, audit-log, permissions, constants, mock-data, country-codes, api-connector), the global API client, two shared CRM UI primitives and the CRM stylesheets are still owned by other Sales CRM components that have not migrated. Duplicating them would create two implementations; moving them would exceed Phase 1A scope.",
+        "removalConditions": [
+          "Sales CRM shared slice migrates, providing public entry points for types/auth-adapter/audit-log/permissions/constants/mock-data/country-codes",
+          "api-connector is assigned an owner (audit decision D2)",
+          "CompanyAutocomplete and CountryCodeSelect move to platforms/business/sales-crm/shared/ui",
+          "CRM stylesheets move to platforms/business/sales-crm/shared/styles",
+          "frontend/lib/api.ts salesCrmLeadsApi is replaced by a component-owned API adapter in Phase 1B"
+        ]
+      }
+    ]
+  },
+
   "publicEntryPoints": {
     "filenames": ["index.ts", "index.tsx", "index.js", "index.mjs"],
     "componentPathPattern": "platforms/<platform>/<module>/<component>",

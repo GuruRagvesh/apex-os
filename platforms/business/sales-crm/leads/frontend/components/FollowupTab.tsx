@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/sales-crm/auth-adapter";
 import { logAction } from "@/lib/sales-crm/audit-log";
 import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
 import { salesCrmLeadsApi } from "@/lib/api";
-import { getLocalTomorrowISO, isStrictFutureDate } from "@/lib/sales-crm/date-utils";
+import { getLocalTomorrowISO, isStrictFutureDate } from "../../shared/types/date-utils";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

@@ -126,6 +126,13 @@ function toPosix(p) {
  * specifier is external (a bare package) or otherwise not analysable.
  */
 function resolveSpecifier(specifier, fileRel, aliasMap) {
+  // Legacy frontend alias: '@/x' resolves to 'frontend/x'. Resolved so that
+  // platforms/** -> frontend/** imports are VISIBLE to the rules below rather
+  // than silently skipped as if they were external packages.
+  if (specifier.startsWith('@/')) {
+    return `frontend/${specifier.slice(2)}`;
+  }
+
   // Alias form: @apex/<layer>/...
   for (const [prefix, target] of Object.entries(aliasMap)) {
     if (specifier === prefix || specifier.startsWith(`${prefix}/`)) {
@@ -185,9 +192,44 @@ function segmentsOf(pathRel) {
   return pathRel.split('/');
 }
 
+// ── legacy-import exemptions ────────────────────────────────────────────────
+/**
+ * platforms/** -> frontend/** is forbidden by default. A migration phase may
+ * carry a narrow, temporary, per-component exemption declared in
+ * architecture-boundaries.json. Returns the matching exemption or null.
+ *
+ * An exemption matches only when BOTH the importing file is inside the named
+ * component AND the target is inside one of that exemption's allowed paths.
+ */
+function findLegacyExemption(fileRel, targetRel, config) {
+  const legacy = config.legacyFrontendImports;
+  if (!legacy || !Array.isArray(legacy.exceptions)) return null;
+
+  for (const exception of legacy.exceptions) {
+    if (!fileRel.startsWith(exception.from)) continue;
+    for (const allowed of exception.allowedTargets) {
+      let isMatch;
+      if (allowed.endsWith('/')) {
+        // Directory prefix.
+        isMatch = targetRel.startsWith(allowed);
+      } else {
+        // Exact file. Import specifiers are usually extensionless
+        // ('@/lib/api' -> 'frontend/lib/api'), so match both directions.
+        isMatch =
+          targetRel === allowed ||
+          targetRel.startsWith(`${allowed}.`) ||
+          allowed.startsWith(`${targetRel}.`);
+      }
+      if (isMatch) return exception;
+    }
+  }
+  return null;
+}
+
 // ── rule evaluation ─────────────────────────────────────────────────────────
 function checkFile(fileRel, source, config, aliasMap) {
   const violations = [];
+  const debts = [];
   const fromLayer = layerOf(fileRel);
   const fromSegments = segmentsOf(fileRel);
   const componentDepth = 3; // platform/module/component
@@ -207,6 +249,31 @@ function checkFile(fileRel, source, config, aliasMap) {
 
     const add = (ruleId, message) =>
       violations.push({ file: fileRel, specifier, resolved: targetRel, rule: ruleId, message });
+
+    // 0. platforms/ importing the legacy application roots.
+    //    frontend/ may be allowed by a narrow, temporary, per-component
+    //    exemption. backend/ never is.
+    if (fromLayer === 'platforms' && (toLayer === 'frontend' || toLayer === 'backend')) {
+      if (toLayer === 'backend') {
+        add(
+          'platforms-no-legacy-backend',
+          'platforms/ must not import backend/. There is no exemption mechanism for this.',
+        );
+        continue;
+      }
+      const exemption = findLegacyExemption(fileRel, targetRel, config);
+      if (!exemption) {
+        add(
+          'platforms-no-legacy-frontend',
+          'platforms/ must not import frontend/. If this is a migration-phase dependency, it needs an explicit narrow exemption in architecture-boundaries.json.',
+        );
+      } else {
+        // Allowed, but deliberately surfaced as tracked debt rather than
+        // passing silently.
+        debts.push({ file: fileRel, specifier, resolved: targetRel, id: exemption.id });
+      }
+      continue;
+    }
 
     // 1. frontend must not import backend
     if (fromIsFrontend && toSegments.includes('backend')) {
@@ -272,7 +339,7 @@ function checkFile(fileRel, source, config, aliasMap) {
     }
   }
 
-  return violations;
+  return { violations, debts };
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
@@ -289,6 +356,7 @@ function main() {
   const aliasMap = buildAliasMap(config);
   const files = collectFiles(args.root, config);
   const violations = [];
+  const debts = [];
 
   for (const abs of files) {
     const rel = toPosix(relative(args.root, abs));
@@ -298,18 +366,33 @@ function main() {
     } catch {
       continue;
     }
-    violations.push(...checkFile(rel, source, config, aliasMap));
+    const result = checkFile(rel, source, config, aliasMap);
+    violations.push(...result.violations);
+    debts.push(...result.debts);
   }
 
   if (args.json) {
-    console.log(JSON.stringify({ scanned: files.length, violations }, null, 2));
+    console.log(JSON.stringify({ scanned: files.length, violations, debts }, null, 2));
     process.exit(violations.length === 0 ? 0 : 1);
   }
 
   console.log(`[architecture] scanned ${files.length} file(s) in ${config.enforcedRoots.join(', ')}`);
   console.log(`[architecture] legacy-active roots not yet enforced: ${config.legacyActiveRoots.roots.join(', ')}`);
 
+  if (debts.length > 0) {
+    const byId = new Map();
+    for (const d of debts) byId.set(d.id, (byId.get(d.id) ?? 0) + 1);
+    console.log('');
+    console.log(`[architecture] ${debts.length} allowlisted legacy import(s) — tracked migration debt, not clean:`);
+    for (const [id, count] of byId) {
+      const ex = (config.legacyFrontendImports?.exceptions ?? []).find((e) => e.id === id);
+      console.log(`  ${id}  (${count} import(s))`);
+      if (ex) console.log(`    removal phase: ${ex.removalPhase}`);
+    }
+  }
+
   if (violations.length === 0) {
+    console.log('');
     console.log('[architecture] OK — no boundary violations found.');
     process.exit(0);
   }

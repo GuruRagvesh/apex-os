@@ -251,6 +251,76 @@ testCase(
   { expectExit: 1, expectRule: 'frontend-no-backend' },
 );
 
+// ── Phase 1A: narrow temporary legacy-import exemption ──────────────────────
+// platforms/** -> frontend/** is forbidden by default. Sales CRM Leads carries
+// an explicit, narrow, temporary exemption (DEBT-P1A-LEADS-LEGACY-FRONTEND).
+// These prove the exemption is genuinely narrow and has not weakened the rule.
+
+// 11. The allowlisted Leads legacy import is accepted.
+testCase(
+  'accepts the allowlisted Sales CRM Leads legacy frontend import',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/SalesCrmLeads.tsx',
+      `import { salesCrmLeadsApi } from '@/lib/api';\nimport { Lead } from '@/lib/sales-crm/types';\nimport styles from '@/styles/sales-crm/leads.module.css';\nexport default function S() { return null; }\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 12. Another platform importing the SAME frontend path is rejected.
+testCase(
+  'rejects another platform importing the same allowlisted frontend path',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/attendance/workday/frontend/screens/WorkdayScreen.tsx',
+      `import { salesCrmLeadsApi } from '@/lib/api';\nexport default function S() { return null; }\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 13. Leads importing an UNRELATED frontend module is rejected.
+testCase(
+  'rejects Sales CRM Leads importing an unrelated frontend module',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `import { WorkdayBar } from '@/components/workday/WorkdayBar';\nexport const L = () => WorkdayBar;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 14. Platform -> legacy backend remains rejected, with no exemption path.
+testCase(
+  'rejects platform importing legacy backend even for the exempted component',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/api/lead-adapter.ts',
+      `import { LeadsService } from '../../../../../../backend/src/modules/business/sales-crm/leads.service';\nexport const a = LeadsService;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-backend' },
+);
+
+// 15. The exemption does not leak to a sibling Sales CRM component.
+testCase(
+  'rejects a sibling Sales CRM component using the Leads exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/dashboard/frontend/screens/DashboardScreen.tsx',
+      `import { Lead } from '@/lib/sales-crm/types';\nexport default function S() { return null; }\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── summary ─────────────────────────────────────────────────────────────────
 console.log(`\n[architecture] ${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);
