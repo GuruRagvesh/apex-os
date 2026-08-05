@@ -2,7 +2,7 @@
 
 import { DashboardData, filterLeadsFromDashboard } from "@/lib/sales-crm/dashboard-calculations";
 import styles from "@/styles/sales-crm/dashboard.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 import { Users, Target, ClipboardList, Handshake, Plus, Percent, Briefcase, DollarSign } from "lucide-react";
 
 export default function TopKpiStrip({ data }: { data: DashboardData }) {

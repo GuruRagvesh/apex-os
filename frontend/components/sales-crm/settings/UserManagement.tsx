@@ -9,7 +9,7 @@ import { SettingsUser } from "@/lib/sales-crm/types/settings";
 import UserFormModal from "./UserFormModal";
 import ConfirmModal from "@/components/sales-crm/ui/ConfirmModal";
 import styles from "@/styles/sales-crm/settings.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 const MANAGER_ROLES: Role[] = [Role.SUPERADMIN, Role.ADMIN, Role.MANAGER];
 

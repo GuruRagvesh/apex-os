@@ -17,8 +17,8 @@
 import { useState, useEffect, useRef, useId } from "react";
 import { CompanyMaster } from "@apex/sales-crm-shared";
 import { LocalStorageCompanyRepository } from "@/lib/sales-crm/company/company-repository";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface CompanyAutocompleteProps {
     value: { companyName: string; companyId?: string };

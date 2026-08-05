@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
 import { useAuth, Role } from "@apex/sales-crm-shared";
 import styles from "@/styles/sales-crm/settings.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 type ProfileTab = "my-profile" | "company-profile" | "my-password";
 

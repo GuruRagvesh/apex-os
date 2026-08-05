@@ -70,16 +70,49 @@ value is exactly `"true"`. Phase 2A moved the file without touching that logic.
 
 ## Styles
 
-**This component owns no stylesheets.** The Sales CRM CSS modules remain in
-`frontend/styles/sales-crm/`.
+Phase 2B moved **`primitives.module.css`** here, to
+`frontend/styles/primitives.module.css`. 37 of its 51 importers are Sales CRM
+feature screens other than Leads, so it is genuinely shared.
 
-`primitives.module.css` is genuinely shared — every Sales CRM component uses
-it — but it is applied to the same elements as `leads.module.css`, and routing
-a CSS module through this component's barrel would change its position in the
-bundle graph. Cascade order between the two decides which declaration wins.
-Phase 2A declined that visual-regression risk for a phase whose contract is
-"no UI change". Both stylesheets move together in a later phase, when all their
-consumers have migrated and the ordering can be verified in one step.
+It is published as an **exact public style subpath**, never through the
+JavaScript barrel above:
+
+```ts
+import ui from '@apex/sales-crm-shared/styles/primitives.module.css';           // correct
+import { ui } from '@apex/sales-crm-shared';                                    // never — barrel
+import ui from '@apex/sales-crm-shared/frontend/styles/primitives.module.css';  // never — internal path
+```
+
+The third line reaches the **same physical file** and is still rejected.
+Approval matches the **original import specifier**, not the resolved path, so a
+public asset has exactly one public spelling. It also fails to resolve at build
+time: `frontend/tsconfig.json` maps `@apex/sales-crm-shared/styles/*` and
+nothing under `frontend/`.
+
+**Why not the barrel.** A CSS module routed through a JS barrel changes its
+position in the bundle graph, and therefore its cascade order against other
+stylesheets applied to the same elements — `primitives.module.css` and
+`leads.module.css` are applied together on the same nodes, so a reordering
+silently changes which declaration wins. Publishing by exact path keeps each
+consumer's stylesheet imports in their original positions.
+
+The alias is declared in three places that must stay in agreement:
+
+| Where | Entry |
+| --- | --- |
+| `frontend/tsconfig.json` | `"@apex/sales-crm-shared/styles/*"` |
+| `architecture-boundaries.json` → `componentAliases` | `"@apex/sales-crm-shared/styles"` |
+| `architecture-boundaries.json` → `publicStyleSubpaths.specifiers` | exact specifier → exact repository path |
+
+`publicStyleSubpaths` is an **exact specifier allowlist, not a directory**.
+Another stylesheet dropped beside `primitives.module.css` is still private, and
+the entry only counts if the specifier resolves to the path it is declared
+against — so a drifting alias in `frontend/tsconfig.json` cannot silently widen
+what is public. Self-tests cover the canonical alias, the internal-path
+spelling, an unapproved neighbour, and both dynamic `import()` and `require()`.
+
+`leads.module.css` is **not** here. It went to the Leads component, where all
+16 of its importers live.
 
 ## Temporary legacy dependencies
 
@@ -116,15 +149,20 @@ them import the store.
 
 ## Related debts owned elsewhere
 
-Both are carried by the Leads slice, not by this component:
+Both are carried by the Leads component, not by this one:
 
-- `DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` — the two stylesheets plus
-  `CompanyAutocomplete` and `CountryCodeSelect`. Those two controls have
-  exactly one consumer (Leads), so moving them here would create a shared
-  module that nothing shares.
-- `DEBT-P2A-SALES-CRM-API-CLIENT` — `salesCrmLeadsApi` in `frontend/lib/api.ts`,
-  which rides the shared axios instance carrying the auth interceptor and the
-  401 redirect.
+- `DEBT-P2A-SALES-CRM-API-CLIENT` (6) — `salesCrmLeadsApi` in
+  `frontend/lib/api.ts`, which rides the shared axios instance carrying the
+  auth interceptor and the 401 redirect.
+- `DEBT-P2B-LEADS-COMPANY-REPOSITORY` (1) — `CompanyAutocomplete` still calls
+  `LocalStorageCompanyRepository`, which could not move: it has a second
+  importer and it reads `MOCK_CLIENTS` from the unmigrated Sales CRM
+  **database** component. It was deliberately not placed here, because that
+  would make this component depend on a feature's mock data.
+
+`DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` (30) was **removed** in Phase 2B:
+`leads.module.css` and both controls went to Leads, `primitives.module.css`
+came here. Total Sales CRM debt is now **8** imports, down from 37.
 
 See `architecture-boundaries.json` for the exact allowlists and removal
 conditions.

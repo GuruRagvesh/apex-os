@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Activity, LeadStage } from "@apex/sales-crm-shared";
 import { STAGE_FORMS } from "../../shared/types/stage-forms";
 import { getLocalTodayISO, getLocalTomorrowISO, isStrictFutureDate, isTodayOrPastDate } from "../../shared/types/date-utils";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 const ACTIVITY_TYPES_BY_STAGE: Record<LeadStage, string[]> = {
   "Created": ["Lead Created", "Email", "SMS", "WhatsApp", "Campaign Response", "Follow-up"],

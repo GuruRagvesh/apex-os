@@ -16,7 +16,8 @@
     "paths": {
       "@/*": ["./*"],
       "@apex/sales-crm-leads": ["../platforms/business/sales-crm/leads/index.ts"],
-      "@apex/sales-crm-shared": ["../platforms/business/sales-crm/shared/index.ts"]
+      "@apex/sales-crm-shared": ["../platforms/business/sales-crm/shared/index.ts"],
+      "@apex/sales-crm-shared/styles/*": ["../platforms/business/sales-crm/shared/frontend/styles/*"]
     }
   },
   "include": [

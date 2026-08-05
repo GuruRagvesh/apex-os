@@ -7,8 +7,8 @@ import ActivityTab from "./ActivityTab";
 import FollowupTab from "./FollowupTab";
 import RequirementTab from "./RequirementTab";
 import { salesCrmLeadsApi } from "@/lib/api";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function LeadTabs({ lead, onUpdate, onBack }: { lead: Lead, onUpdate: (l: Lead) => void, onBack: () => void }) {
   const searchParams = useSearchParams();

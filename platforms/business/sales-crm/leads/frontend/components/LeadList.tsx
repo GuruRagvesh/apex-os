@@ -5,8 +5,8 @@ import { createPortal } from "react-dom";
 import { Lead, LeadStage, Role, ColumnConfig, useAuth, isContactFieldVisible, MOCK_USERS, ROLE_LABELS, logAction, isSalesLeadsBackendEnabled } from "@apex/sales-crm-shared";
 import { MoreVertical, Mail, Phone, PlusCircle, UserCog } from "lucide-react";
 import { salesCrmLeadsApi } from "@/lib/api";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface LeadListProps {
   leads: Lead[];

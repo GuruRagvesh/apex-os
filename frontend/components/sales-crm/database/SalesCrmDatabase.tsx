@@ -11,7 +11,7 @@ import DatabaseSection from "./DatabaseSection";
 import DatabaseModal from "./DatabaseModal";
 import ImportDataModal from "./ImportDataModal";
 import styles from "@/styles/sales-crm/database.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 function DatabasePageContent() {
   const router = useRouter();

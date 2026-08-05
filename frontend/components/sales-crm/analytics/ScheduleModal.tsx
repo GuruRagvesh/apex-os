@@ -4,7 +4,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { ReportSchedule } from "@/lib/sales-crm/analytics-store";
 import styles from "@/styles/sales-crm/analytics.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface ScheduleModalProps {
   schedule?: ReportSchedule;

@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Lead, Role, useAuth, canDeleteRecord } from "@apex/sales-crm-shared";
 import LeadInfoPanel from "./LeadInfoPanel";
 import LeadTabs from "./LeadTabs";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface LeadDetailProps {
   lead: Lead;

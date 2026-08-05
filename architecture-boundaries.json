@@ -15,9 +15,17 @@
   "platforms": ["core", "workforce", "operations", "intelligence", "business", "system"],
 
   "componentAliases": {
-    "description": "Short public aliases for migrated components, mirroring frontend/tsconfig.json paths. Declared here so the validator RESOLVES them instead of treating them as bare packages — otherwise an import reaching into a component's internals through its alias would be invisible to the rules below. Each alias must address a component root, never a file inside it.",
+    "description": "Short public aliases for migrated components, mirroring frontend/tsconfig.json paths. Declared here so the validator RESOLVES them instead of treating them as bare packages — otherwise an import reaching into a component's internals through its alias would be invisible to the rules below. Each alias must address a component root, or a declared public subpath listed in publicStyleSubpaths.",
     "@apex/sales-crm-leads": "platforms/business/sales-crm/leads",
-    "@apex/sales-crm-shared": "platforms/business/sales-crm/shared"
+    "@apex/sales-crm-shared": "platforms/business/sales-crm/shared",
+    "@apex/sales-crm-shared/styles": "platforms/business/sales-crm/shared/frontend/styles"
+  },
+
+  "publicStyleSubpaths": {
+    "description": "Stylesheets that are PUBLIC despite living under a component-internal folder. A CSS module cannot be re-exported through a JavaScript barrel without changing its position in the bundle graph, and therefore its cascade order against other stylesheets applied to the same elements. So a shared stylesheet is published by an exact alias instead of a barrel export. Matching is on the ORIGINAL IMPORT SPECIFIER, not on the resolved file: several spellings can resolve to the same physical file, and only the canonical alias is public. '@apex/sales-crm-shared/styles/primitives.module.css' passes; '@apex/sales-crm-shared/frontend/styles/primitives.module.css' addresses the same file through the component's internal folder and is REJECTED. Each entry maps the exact permitted specifier to the exact repository path it must resolve to — if the two disagree, the import is rejected, so a drifting alias in frontend/tsconfig.json cannot silently widen this.",
+    "specifiers": {
+      "@apex/sales-crm-shared/styles/primitives.module.css": "platforms/business/sales-crm/shared/frontend/styles/primitives.module.css"
+    }
   },
 
   "layers": {
@@ -111,22 +119,17 @@
     "defaultRule": "forbidden",
     "exceptions": [
       {
-        "id": "DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS",
+        "id": "DEBT-P2B-LEADS-COMPANY-REPOSITORY",
         "status": "temporary",
-        "introducedIn": "Phase 2A",
-        "removalPhase": "Phase 2B (Leads-owned asset migration)",
-        "from": "platforms/business/sales-crm/leads/",
-        "allowedTargets": [
-          "frontend/styles/sales-crm/leads.module.css",
-          "frontend/styles/sales-crm/primitives.module.css",
-          "frontend/components/sales-crm/ui/CompanyAutocomplete.tsx",
-          "frontend/components/sales-crm/ui/CountryCodeSelect.tsx"
-        ],
-        "reason": "Phase 2A moved every Sales CRM dependency that is genuinely shared by two or more components. These four are not. leads.module.css is consumed by 15 Leads files and by exactly two controls; CompanyAutocomplete and CountryCodeSelect each have exactly one consumer (Leads), so moving them into the shared slice would create a 'shared' module that nothing shares. primitives.module.css IS shared by every Sales CRM component, but routing a CSS module through the shared slice's barrel changes its position in the bundle graph, and it is applied to the same elements as leads.module.css — a cascade-order change is a visual regression risk that Phase 2A explicitly declined to take.",
+        "introducedIn": "Phase 2B",
+        "removalPhase": "Phase 2D (Sales CRM company/database ownership)",
+        "from": "platforms/business/sales-crm/leads/frontend/components/CompanyAutocomplete.tsx",
+        "allowedTargets": ["frontend/lib/sales-crm/company/company-repository.ts"],
+        "reason": "Phase 2B moved CompanyAutocomplete into the Leads component because Leads is its only consumer. Its company lookup still calls LocalStorageCompanyRepository, which could not follow: the repository has a second importer (frontend/lib/sales-crm/storage.ts) and it reads MOCK_CLIENTS from frontend/lib/sales-crm/database-data.ts, which is owned by the unmigrated Sales CRM database component. Moving the repository into Leads would take a database-owned dependency with it; moving it into the shared component would make shared depend on a feature's mock data. Both invert ownership, so the repository stays where it is until the company/database concern gets an owner.",
         "removalConditions": [
-          "leads.module.css moves into platforms/business/sales-crm/leads/frontend/styles/",
-          "CompanyAutocomplete and CountryCodeSelect move into the Leads slice, or gain a second Sales CRM consumer that justifies the shared slice",
-          "primitives.module.css moves once the remaining Sales CRM feature screens migrate, so all its consumers move together and cascade order can be verified in one step"
+          "The Sales CRM database component migrates, giving database-data.ts an owner",
+          "LocalStorageCompanyRepository and its normalization helper move to that owner or to the Sales CRM shared component",
+          "CompanyAutocomplete consumes it through a public entry point"
         ]
       },
       {

@@ -7,8 +7,8 @@ import { salesCrmLeadsApi } from "@/lib/api";
 import { Phone, Mail, MoreHorizontal, Activity as ActivityIcon, Edit3 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { getLocalTomorrowISO, isStrictFutureDate } from "../../shared/types/date-utils";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface LeadInfoPanelProps {
   lead: Lead;

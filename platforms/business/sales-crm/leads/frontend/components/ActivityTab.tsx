@@ -7,8 +7,8 @@ import { Activity, LeadStage, Role, useAuth, canManageActivityTabs } from "@apex
 import ActivityModal from "./ActivityModal";
 import ActivityTabManager, { CustomTab } from "./ActivityTabManager";
 import { STAGE_FORMS } from "../../shared/types/stage-forms";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function ActivityTab({ activities, currentStage, onAddActivity }: { activities: Activity[], currentStage: LeadStage, onAddActivity: (act: Activity) => void }) {
   const searchParams = useSearchParams();

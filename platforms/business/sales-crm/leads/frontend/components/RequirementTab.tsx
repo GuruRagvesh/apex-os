@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { Lead, Role, useAuth, logAction, isSalesLeadsBackendEnabled } from "@apex/sales-crm-shared";
 import { salesCrmLeadsApi } from "@/lib/api";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function RequirementTab({ lead, onUpdate }: { lead: Lead, onUpdate: (l: Lead) => void }) {
   const { user } = useAuth();
