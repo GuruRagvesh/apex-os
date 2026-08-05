@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Lead, LeadStage, Activity, Role, useAuth, canEditRecord, canChangeLeadOwner, isContactFieldVisible, logAction, AuditCollection, MOCK_USERS, isSalesLeadsBackendEnabled } from "@apex/sales-crm-shared";
+import { salesCrmLeadsApi } from "@apex/sales-crm-shared/api";
 import ActivityModal from "./ActivityModal";
-import { salesCrmLeadsApi } from "@/lib/api";
 import { Phone, Mail, MoreHorizontal, Activity as ActivityIcon, Edit3 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { getLocalTomorrowISO, isStrictFutureDate } from "../../shared/types/date-utils";

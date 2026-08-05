@@ -17,7 +17,9 @@
       "@/*": ["./*"],
       "@apex/sales-crm-leads": ["../platforms/business/sales-crm/leads/index.ts"],
       "@apex/sales-crm-shared": ["../platforms/business/sales-crm/shared/index.ts"],
-      "@apex/sales-crm-shared/styles/*": ["../platforms/business/sales-crm/shared/frontend/styles/*"]
+      "@apex/sales-crm-shared/api": ["../platforms/business/sales-crm/shared/frontend/api/index.ts"],
+      "@apex/sales-crm-shared/styles/*": ["../platforms/business/sales-crm/shared/frontend/styles/*"],
+      "@apex/shared-auth": ["../shared/auth/index.ts"]
     }
   },
   "include": [
@@ -28,7 +30,8 @@
     "../platforms/business/sales-crm/leads/**/*.ts",
     "../platforms/business/sales-crm/leads/**/*.tsx",
     "../platforms/business/sales-crm/shared/**/*.ts",
-    "../platforms/business/sales-crm/shared/**/*.tsx"
+    "../platforms/business/sales-crm/shared/**/*.tsx",
+    "../shared/auth/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

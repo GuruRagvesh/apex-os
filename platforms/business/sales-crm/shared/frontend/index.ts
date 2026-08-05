@@ -20,3 +20,8 @@ export {
   isSalesLeadsBackendEnabled,
 } from './api/api-connector';
 export type { SalesCrmDataMode } from './api/api-connector';
+
+// The Leads HTTP API is deliberately NOT exported here. It lives behind the
+// '@apex/sales-crm-shared/api' subpath so that consumers needing only types,
+// constants, permissions, mock data or styles do not load axios or evaluate
+// the authenticated-client module. See ./api/index.ts.

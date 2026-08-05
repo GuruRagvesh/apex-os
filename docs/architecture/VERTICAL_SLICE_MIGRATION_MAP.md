@@ -488,7 +488,7 @@ created.** They are built when the features are built.
 > (`@apex/sales-crm-shared/styles/primitives.module.css`), never through the
 > JavaScript barrel — a barrel export changes a CSS module's bundle position
 > and therefore its cascade order against `leads.module.css`, which is applied
-> to the same elements. `publicStyleSubpaths` in `architecture-boundaries.json`
+> to the same elements. `publicSubpaths` in `architecture-boundaries.json`
 > is an exact allowlist, not a directory.
 >
 > **CSS content and import order preserved.** Both stylesheets are byte-identical
@@ -507,6 +507,55 @@ created.** They are built when the features are built.
 > name, CSS declaration, component prop, API path, feature flag, role gate or
 > mock-data behaviour changed.** Frontend build stays at 38/38 static pages with
 > Sales CRM route sizes unchanged; backend and Prisma untouched.
+
+> **Status update (2026-08-05) — Phase 2C: the authenticated API client is
+> EXTRACTED** (branch `refactor/sales-crm-api-client`).
+>
+> The application's single axios instance — with the `Bearer` request
+> interceptor, the `nexus_*`→`apex_*` token-key migration, the 401 →
+> `/login?expired=true` redirect and the `response.data` unwrapping — moved
+> **verbatim** from `frontend/lib/api.ts` to `shared/auth/frontend/authenticated-api-client.ts`,
+> published as `@apex/shared-auth`. `frontend/lib/api.ts` keeps all 20
+> application-wide API groups unchanged and re-exports `api`, because callers
+> import the raw instance from it.
+>
+> `salesCrmLeadsApi` (11 methods) moved to the Sales CRM `shared` component and
+> is consumed through `@apex/sales-crm-shared`. It is **not** re-exported from
+> `frontend/lib/api.ts`: no runtime consumer of the old path remained, and a
+> compatibility re-export would drag the Sales CRM barrel — including the
+> Zustand-backed auth adapter — into all 57 consumers of that file.
+>
+> **Debt: 8 → 3.** `DEBT-P2A-SALES-CRM-API-CLIENT` (6) **removed**. Five of its
+> six imports vanished outright; the sixth line also imported `usersApi`, an
+> application-wide group used by 20 files, which is not a Sales CRM concern and
+> stays put — recorded as `DEBT-P2C-LEADS-GLOBAL-USERS-API` (1). That is why the
+> total is 3 and not the 2 originally projected.
+>
+> Two validator gaps closed: `shared/` importing the legacy `frontend/` or
+> `backend/` roots was previously **unguarded** and is now
+> `shared-no-legacy-frontend` / `-backend` with no exemption mechanism; and
+> declared shared modules now publish a public entry point
+> (`shared-module-public-entry`), so `shared/auth` internals are private exactly
+> as a platform component's are.
+>
+> Self-tests 42 → 57, including source-contract assertions that there is exactly
+> one production `axios.create`, that each interceptor is registered once, and
+> that the token keys, migration keys, 401 redirect string and all 11 Leads
+> endpoint/verb pairs are unchanged.
+>
+> `salesCrmLeadsApi` is published under the exact subpath
+> **`@apex/sales-crm-shared/api`**, not the component's root barrel. Routing it
+> through the barrel was measured first and cost **~23 kB of First Load JS** on
+> `/sales-crm`, `/sales-crm/analytics`, `/sales-crm/dashboard`,
+> `/sales-crm/database` and `/sales-crm/settings` — five routes that never call
+> the Leads API — because every consumer of the barrel then loaded axios and
+> evaluated the authenticated-client module. The subpath returned all five to
+> their Phase 2B sizes exactly. The standing rule: **the Sales CRM root barrel
+> carries no HTTP infrastructure.**
+>
+> **No route, API path, payload, response handling, token behaviour, redirect,
+> feature flag or role gate changed.** Frontend build 38/38 with Sales CRM route
+> sizes back at baseline; backend, Prisma and schema untouched.
 
 
 | Current | Target |
