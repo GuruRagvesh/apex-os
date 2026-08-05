@@ -251,22 +251,22 @@ testCase(
   { expectExit: 1, expectRule: 'frontend-no-backend' },
 );
 
-// ── Phase 2A: narrow temporary legacy-import exemptions ─────────────────────
-// platforms/** -> frontend/** is forbidden by default. Phase 2A replaced the
-// broad Phase 1A exemption with three narrow ones:
-//   DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS  (Leads -> 2 stylesheets, 2 controls)
-//   DEBT-P2A-SALES-CRM-API-CLIENT       (Leads -> frontend/lib/api.ts)
-//   DEBT-P2A-SALES-CRM-AUTH-STORE       (one exact file -> auth.store.ts)
+// ── narrow temporary legacy-import exemptions ───────────────────────────────
+// platforms/** -> frontend/** is forbidden by default. Phase 2B retired the
+// asset exemption entirely, leaving three narrow ones:
+//   DEBT-P2B-LEADS-COMPANY-REPOSITORY  (one exact file -> company-repository)
+//   DEBT-P2A-SALES-CRM-API-CLIENT      (Leads -> frontend/lib/api.ts)
+//   DEBT-P2A-SALES-CRM-AUTH-STORE      (one exact file -> auth.store.ts)
 // These prove each is genuinely narrow and has not weakened the rule.
 
-// 11. The allowlisted Leads legacy imports are accepted.
+// 11. The allowlisted Leads legacy import is accepted.
 testCase(
   'accepts the allowlisted Sales CRM Leads legacy imports',
   (root) => {
     write(
       root,
       'platforms/business/sales-crm/leads/frontend/screens/SalesCrmLeads.tsx',
-      `import { salesCrmLeadsApi } from '@/lib/api';\nimport styles from '@/styles/sales-crm/leads.module.css';\nimport ui from '@/styles/sales-crm/primitives.module.css';\nimport CountryCodeSelect from '@/components/sales-crm/ui/CountryCodeSelect';\nexport default function S() { return null; }\n`,
+      `import { salesCrmLeadsApi } from '@/lib/api';\nexport default function S() { return null; }\n`,
     );
   },
   { expectExit: 0 },
@@ -476,6 +476,277 @@ testCase(
   },
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
+
+// ── Phase 2B: asset ownership and public style subpaths ─────────────────────
+// leads.module.css and the two controls became Leads-internal; primitives
+// .module.css became a shared asset published by an EXACT declared subpath,
+// because a CSS module cannot go through the JS barrel without changing its
+// bundle position and therefore its cascade order.
+
+// 27. Leads may import its own internal assets internally.
+testCase(
+  'accepts Leads importing its own internal stylesheet and controls',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/leads/frontend/styles/leads.module.css', `.x { color: red; }\n`);
+    write(root, 'platforms/business/sales-crm/leads/frontend/components/CountryCodeSelect.tsx', `export default function C() { return null; }\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadCreate.tsx',
+      `import CountryCodeSelect from './CountryCodeSelect';\nimport styles from '../styles/leads.module.css';\nexport const L = () => [CountryCodeSelect, styles];\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 28. An external component cannot reach Leads' internal stylesheet.
+testCase(
+  'rejects an external component importing the Leads internal stylesheet',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/leads/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/dashboard/frontend/screens/DashboardScreen.tsx',
+      `import styles from '@apex/sales-crm-leads/frontend/styles/leads.module.css';\nexport default function S() { return styles; }\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 29. An external component cannot reach a Leads internal control either.
+testCase(
+  'rejects an external component importing a Leads internal control',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/leads/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/settings/frontend/screens/SettingsScreen.tsx',
+      `import CountryCodeSelect from '@apex/sales-crm-leads/frontend/components/CountryCodeSelect';\nexport default CountryCodeSelect;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 30. A Sales CRM component may consume the APPROVED shared style subpath.
+testCase(
+  'accepts a Sales CRM component consuming the approved shared style subpath',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/primitives.module.css', `.y { color: blue; }\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadStats.tsx',
+      `import ui from '@apex/sales-crm-shared/styles/primitives.module.css';\nexport const L = () => ui;\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 31. An UNAPPROVED shared internal style path is still rejected. This is what
+//     keeps publicStyleSubpaths an exact allowlist rather than a directory.
+testCase(
+  'rejects an unapproved shared internal style path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/secret.module.css', `.z { color: green; }\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `import s from '@apex/sales-crm-shared/styles/secret.module.css';\nexport const L = () => s;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 32. A non-Sales-CRM platform cannot consume Sales CRM internals.
+testCase(
+  'rejects a non-Sales-CRM platform importing Sales CRM internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/workforce/attendance/workday/frontend/screens/WorkdayScreen.tsx',
+      `import ui from '@apex/sales-crm-shared/frontend/api/auth-adapter';\nexport default function S() { return ui; }\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 33. The legacy asset paths Phase 2B migrated away are no longer allowlisted.
+testCase(
+  'rejects Leads importing legacy asset paths that Phase 2B migrated away',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadDetail.tsx',
+      `import styles from '@/styles/sales-crm/leads.module.css';\nexport const L = () => styles;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 34. ...including the legacy control paths.
+testCase(
+  'rejects Leads importing the legacy control paths',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadCreate.tsx',
+      `import C from '@/components/sales-crm/ui/CompanyAutocomplete';\nexport const L = () => C;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 35. The company-repository exemption applies to the exact adapter file only.
+testCase(
+  'accepts CompanyAutocomplete importing the legacy company repository',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/CompanyAutocomplete.tsx',
+      `import { LocalStorageCompanyRepository } from '@/lib/sales-crm/company/company-repository';\nexport const C = () => LocalStorageCompanyRepository;\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 36. A sibling Leads component cannot reuse the company-repository exemption.
+testCase(
+  'rejects a sibling Leads component reusing the company-repository exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadCreate.tsx',
+      `import { LocalStorageCompanyRepository } from '@/lib/sales-crm/company/company-repository';\nexport const L = () => LocalStorageCompanyRepository;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 37. The SAME public stylesheet, spelled through the component's internal
+//     folder, is rejected. Approval matches the original specifier, not the
+//     resolved file, so a second spelling of a public asset is not public.
+testCase(
+  'rejects the public stylesheet spelled through the internal folder path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/primitives.module.css', `.y { color: blue; }\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadFilters.tsx',
+      `import ui from '@apex/sales-crm-shared/frontend/styles/primitives.module.css';\nexport const L = () => ui;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 38. ...including by dynamic import().
+testCase(
+  'detects dynamic import() of the internal-folder spelling',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/primitives.module.css', `.y { color: blue; }\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadTabs.tsx',
+      `export const load = () => import('@apex/sales-crm-shared/frontend/styles/primitives.module.css');\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 39. ...and by require().
+testCase(
+  'detects require() of the internal-folder spelling',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/primitives.module.css', `.y { color: blue; }\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `const ui = require('@apex/sales-crm-shared/frontend/styles/primitives.module.css');\nexport default ui;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 40. A declared specifier that does NOT resolve to its declared path is not
+//     public either — this is what stops a drifting alias from widening the
+//     allowlist. Here the component root exists but the stylesheet sits
+//     somewhere else, so the specifier resolves past the declared file.
+testCase(
+  'rejects a public style specifier that resolves somewhere unexpected',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/primitives.module.css', `.y { color: blue; }\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadStats.tsx',
+      `import ui from '@apex/sales-crm-shared/styles/primitives.module.css/extra';\nexport const L = () => ui;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 38. require() of a Leads internal asset from outside is checked too.
+testCase(
+  'detects require() of a Leads internal asset from another component',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/leads/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/analytics/frontend/screens/AnalyticsScreen.tsx',
+      `const styles = require('@apex/sales-crm-leads/frontend/styles/leads.module.css');\nexport default styles;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// ── real-repository debt counts ─────────────────────────────────────────────
+// Every case above runs against a throwaway fixture. These run against THIS
+// repository, so a new exempted import cannot be added without updating the
+// expected number here. That is the point: tracked debt should only ever go
+// down by a deliberate edit, never drift up quietly.
+function testRealRepoDebtCounts(expected) {
+  const { code, stdout, stderr } = runValidator(REPO_ROOT);
+  const output = `${stdout}\n${stderr}`;
+  const problems = [];
+
+  if (code !== 0) problems.push(`expected the repository to have no violations, got exit ${code}`);
+
+  for (const [id, want] of Object.entries(expected)) {
+    const m = output.match(new RegExp(`${id}\\s+\\((\\d+) import\\(s\\)\\)`));
+    if (!m) {
+      problems.push(`${id} not reported`);
+      continue;
+    }
+    const got = Number(m[1]);
+    if (got !== want) problems.push(`${id}: expected ${want} import(s), got ${got}`);
+  }
+
+  // No debt identifier may appear that we did not expect.
+  const reported = [...output.matchAll(/^\s{2}(DEBT-[A-Z0-9-]+)\s+\(/gm)].map((m) => m[1]);
+  for (const id of reported) {
+    if (!(id in expected)) problems.push(`unexpected debt identifier reported: ${id}`);
+  }
+
+  const total = Object.values(expected).reduce((a, b) => a + b, 0);
+  const totalMatch = output.match(/(\d+) allowlisted legacy import\(s\)/);
+  if (totalMatch && Number(totalMatch[1]) !== total) {
+    problems.push(`total debt: expected ${total}, got ${totalMatch[1]}`);
+  }
+
+  const name = `real repository debt is exactly ${total} (${Object.entries(expected).map(([k, v]) => `${k.replace('DEBT-', '')}=${v}`).join(', ')})`;
+  if (problems.length === 0) {
+    console.log(`  PASS  ${name}`);
+    passed += 1;
+  } else {
+    console.error(`  FAIL  ${name}`);
+    for (const p of problems) console.error(`          ${p}`);
+    console.error(`        --- validator output ---\n${output.trim()}\n`);
+    failed += 1;
+  }
+}
+
+testRealRepoDebtCounts({
+  'DEBT-P2A-SALES-CRM-API-CLIENT': 6,
+  'DEBT-P2B-LEADS-COMPANY-REPOSITORY': 1,
+  'DEBT-P2A-SALES-CRM-AUTH-STORE': 1,
+});
 
 // ── summary ─────────────────────────────────────────────────────────────────
 console.log(`\n[architecture] ${passed} passed, ${failed} failed\n`);

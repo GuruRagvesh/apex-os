@@ -2,7 +2,7 @@
 
 import { Role } from "@apex/sales-crm-shared";
 import styles from "@/styles/sales-crm/dashboard.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 import { RefreshCw, Plus } from "lucide-react";
 
 interface DashboardHeaderProps {

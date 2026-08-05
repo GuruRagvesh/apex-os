@@ -7,7 +7,7 @@ import ProfileModal from "./ProfileModal";
 import ConfirmModal from "@/components/sales-crm/ui/ConfirmModal";
 import styles from "@/styles/sales-crm/analytics.module.css";
 import dash from "@/styles/sales-crm/dashboard.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function ReportManagement() {
   const { profiles, createProfile, editProfile, deleteProfile } = useAnalyticsStore();

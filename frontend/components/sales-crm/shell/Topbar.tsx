@@ -20,7 +20,7 @@ import { useTheme } from '@/lib/sales-crm/theme';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { filterLeadsFromDashboard } from '@/lib/sales-crm/dashboard-calculations';
 import shell from '@/styles/sales-crm/shell.module.css';
-import ui from '@/styles/sales-crm/primitives.module.css';
+import ui from '@apex/sales-crm-shared/styles/primitives.module.css';
 import {
   type LucideIcon,
   Search,

@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import styles from "@/styles/sales-crm/confirm-modal.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface ConfirmModalProps {
   title: string;

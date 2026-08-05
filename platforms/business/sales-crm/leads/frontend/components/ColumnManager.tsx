@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { ColumnConfig, logAction, useAuth } from "@apex/sales-crm-shared";
 import { X, ArrowUp, ArrowDown, Plus, Trash2 } from "lucide-react";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface ColumnManagerProps {
   columns: ColumnConfig[];

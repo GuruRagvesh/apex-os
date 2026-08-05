@@ -473,6 +473,41 @@ created.** They are built when the features are built.
 > deferred to **Phase 2B**.
 > See `platforms/business/sales-crm/shared/docs/README.md`.
 
+> **Status update (2026-08-05) — Phase 2B: legacy Sales CRM assets MIGRATED**
+> (branch `refactor/sales-crm-leads-legacy-assets`). The four assets split by
+> **importer evidence, not by filename**:
+>
+> | Asset | Importers | Went to |
+> | --- | --- | --- |
+> | `leads.module.css` | 16, all Leads | `leads/frontend/styles/` — component-internal |
+> | `CompanyAutocomplete.tsx` | 1 (`LeadCreate`) | `leads/frontend/components/` — internal |
+> | `CountryCodeSelect.tsx` | 1 (`LeadCreate`) | `leads/frontend/components/` — internal |
+> | `primitives.module.css` | 51, of which 37 are other Sales CRM features | `shared/frontend/styles/` — public subpath |
+>
+> `primitives.module.css` is published as an **exact public style subpath**
+> (`@apex/sales-crm-shared/styles/primitives.module.css`), never through the
+> JavaScript barrel — a barrel export changes a CSS module's bundle position
+> and therefore its cascade order against `leads.module.css`, which is applied
+> to the same elements. `publicStyleSubpaths` in `architecture-boundaries.json`
+> is an exact allowlist, not a directory.
+>
+> **CSS content and import order preserved.** Both stylesheets are byte-identical
+> to `HEAD` after CRLF normalisation (verified by SHA-256), and all 16 consumers
+> keep `leads` then `primitives` on consecutive lines in their original
+> positions — only the module specifier changed.
+>
+> **Debt: 37 → 8.** `DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` (30) **removed**. One
+> new narrow debt, `DEBT-P2B-LEADS-COMPANY-REPOSITORY` (1): `CompanyAutocomplete`
+> still calls `LocalStorageCompanyRepository`, which could not follow it —
+> the repository has a second importer and reads `MOCK_CLIENTS` from the
+> unmigrated Sales CRM **database** component. `DEBT-P2A-SALES-CRM-API-CLIENT`
+> (6) and `DEBT-P2A-SALES-CRM-AUTH-STORE` (1) are unchanged.
+>
+> Architecture self-tests 26 → 38. **No browser route, rendered markup, class
+> name, CSS declaration, component prop, API path, feature flag, role gate or
+> mock-data behaviour changed.** Frontend build stays at 38/38 static pages with
+> Sales CRM route sizes unchanged; backend and Prisma untouched.
+
 
 | Current | Target |
 | --- | --- |

@@ -331,7 +331,23 @@ function checkFile(fileRel, source, config, aliasMap) {
       const toComponent = componentRootOf(targetRel, componentDepth);
       if (toComponent && toComponent !== fromComponent) {
         const remainder = targetRel.slice(toComponent.length).replace(/^\//, '');
-        const isPublic = remainder === '' || publicNames.includes(remainder);
+        // A declared public stylesheet is public even though it lives under an
+        // internal folder. CSS modules cannot go through the JS barrel without
+        // changing bundle position and therefore cascade order, so they are
+        // published by an exact alias instead.
+        //
+        // This matches the ORIGINAL SPECIFIER, not the resolved path. Several
+        // spellings resolve to the same physical file — only the canonical
+        // alias is public. '@apex/sales-crm-shared/styles/primitives.module.css'
+        // passes; '@apex/sales-crm-shared/frontend/styles/primitives.module.css'
+        // reaches the same file through the component's internal folder and is
+        // rejected below like any other internal path.
+        //
+        // The declared specifier must also resolve to the declared path, so a
+        // drifting alias cannot silently widen what counts as public.
+        const declaredStylePath = (config.publicStyleSubpaths?.specifiers ?? {})[specifier];
+        const isPublicStyle = declaredStylePath !== undefined && declaredStylePath === targetRel;
+        const isPublic = remainder === '' || publicNames.includes(remainder) || isPublicStyle;
         const reachesInternal = internalSegments.includes(remainder.split('/')[0]);
         if (!isPublic && reachesInternal) {
           add(

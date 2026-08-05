@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Role, User, logAction } from "@apex/sales-crm-shared";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export interface CustomTab {
   id: string;

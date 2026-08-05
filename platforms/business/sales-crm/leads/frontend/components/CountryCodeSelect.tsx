@@ -9,8 +9,8 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { getCountryCodes, getDefaultCountryCode } from "@apex/sales-crm-shared";
 import { Search, ChevronDown } from "lucide-react";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface CountryCodeSelectProps {
   value: string;

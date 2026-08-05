@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { Lead, LeadStage, useAuth, ROLE_LABELS, MOCK_LEADS, getDefaultCountryCode } from "@apex/sales-crm-shared";
-import CountryCodeSelect from "@/components/sales-crm/ui/CountryCodeSelect";
-import CompanyAutocomplete from "@/components/sales-crm/ui/CompanyAutocomplete";
-import styles from "@/styles/sales-crm/leads.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import CountryCodeSelect from "./CountryCodeSelect";
+import CompanyAutocomplete from "./CompanyAutocomplete";
+import styles from "../styles/leads.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface LeadCreateProps {
   onCancel: () => void;

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X, Download, FileText } from "lucide-react";
 import styles from "@/styles/sales-crm/dashboard.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface ExportModalProps {
   onClose: () => void;

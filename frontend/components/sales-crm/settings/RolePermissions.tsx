@@ -7,7 +7,7 @@ import { useAuth, Role, ROLE_LABELS } from "@apex/sales-crm-shared";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
 import { RolePermissionDefaults, RolePermissionSet } from "@/lib/sales-crm/types/settings";
 import styles from "@/styles/sales-crm/settings.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 const PERMISSION_KEYS: (keyof RolePermissionSet)[] = ["view", "add", "edit", "delete", "export"];
 const PERMISSION_LABELS: Record<keyof RolePermissionSet, string> = {

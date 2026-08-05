@@ -7,7 +7,7 @@ import { useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
 import { downloadReportExport } from "@/lib/sales-crm/report-output";
 import Toast from "@/components/sales-crm/dashboard/Toast";
 import styles from "@/styles/sales-crm/analytics.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 type DashboardMode = "personal" | "team";
 type Density = "compact" | "comfortable";

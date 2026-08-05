@@ -5,7 +5,7 @@ import { X, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { MOCK_LEADS } from "@apex/sales-crm-shared";
 import styles from "@/styles/sales-crm/dashboard.module.css";
-import ui from "@/styles/sales-crm/primitives.module.css";
+import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface QuickAddProps {
   onClose: () => void;
