@@ -1,62 +1,17 @@
-import axios, { type AxiosRequestConfig } from 'axios';
+// Apex OS — application-wide API methods.
+//
+// The authenticated axios instance, its interceptors, the token-key migration
+// and the 401 redirect moved to shared/auth in Phase 2C so that platform
+// slices can make authenticated requests without importing this legacy module.
+// This file still owns every application-wide API group below, unchanged.
+//
+// `api` is re-exported because callers import the raw instance from here
+// (e.g. components/ui/cold-start-banner.tsx). It is the same singleton — this
+// file does not create one.
 
-// ── One-time localStorage key migration (nexus_* → apex_*) ─────────────────
-// Runs on module load in the browser. Safe to remove after all users have
-// been migrated (legacy compatibility only — do not remove the comment).
-if (typeof window !== 'undefined') {
-  const oldToken = localStorage.getItem('nexus_token');
-  if (oldToken && !localStorage.getItem('apex_token')) {
-    localStorage.setItem('apex_token', oldToken);
-  }
-  // Clean up any legacy keys regardless
-  localStorage.removeItem('nexus_token');
-  localStorage.removeItem('nexus_user'); // was used in older builds
-  localStorage.removeItem('nexus-auth'); // legacy zustand persist key
-}
+import { api, unwrap as r, API_BASE_URL as API_URL } from '@apex/shared-auth';
 
-// Strip any trailing /api from the env var so we never get a double /api
-// Works whether NEXT_PUBLIC_API_URL ends with /api or not
-const API_URL = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '')}/api`
-  : 'http://localhost:3001/api';
-
-export const api = axios.create({
-  baseURL: API_URL,
-  headers: { 'Content-Type': 'application/json' },
-});
-
-api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('apex_token');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-api.interceptors.response.use(
-  (response) => response.data,
-  (error) => {
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
-      localStorage.removeItem('apex_token');
-      localStorage.removeItem('apex-auth');
-      // Only redirect if not already on the login page
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login?expired=true';
-      }
-    }
-    const data = error.response?.data;
-    if (error.response?.status === 403) {
-      return Promise.reject({ ...data, message: data?.message || 'You do not have permission to perform this action.' });
-    }
-    if (Array.isArray(data?.message)) {
-      return Promise.reject({ ...data, message: data.message.join(', ') });
-    }
-    return Promise.reject(data || error);
-  },
-);
-
-// Typed wrappers — axios interceptor returns response.data directly
-const r = <T = any>(p: any): Promise<T> => p as unknown as Promise<T>;
+export { api };
 
 // Auth
 export const authApi = {
@@ -411,23 +366,14 @@ export const workdayApi = {
   getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
 };
 
-// Sales CRM — Leads (Phase 2.2). Feature-flagged in the UI via
-// NEXT_PUBLIC_SALES_CRM_LEADS_BACKEND_ENABLED — see
-// lib/sales-crm/api-connector.ts#isSalesLeadsBackendEnabled.
-export const salesCrmLeadsApi = {
-  getAll: (params?: any) => r(api.get('/sales-crm/leads', { params })),
-  getOne: (id: string) => r(api.get(`/sales-crm/leads/${id}`)),
-  create: (data: any) => r(api.post('/sales-crm/leads', data)),
-  update: (id: string, data: any) => r(api.put(`/sales-crm/leads/${id}`, data)),
-  reassignOwner: (id: string, ownerId: string) => r(api.patch(`/sales-crm/leads/${id}/owner`, { ownerId })),
-  bulkUpdate: (data: { leadIds: string[]; ownerId?: string; leadStage?: string }) =>
-    r(api.patch('/sales-crm/leads/bulk', data)),
-  addActivity: (id: string, data: any) => r(api.post(`/sales-crm/leads/${id}/activities`, data)),
-  addFollowup: (id: string, data: any) => r(api.post(`/sales-crm/leads/${id}/followups`, data)),
-  addRequirement: (id: string, data: any) => r(api.post(`/sales-crm/leads/${id}/requirements`, data)),
-  addDeal: (id: string, data: any) => r(api.post(`/sales-crm/leads/${id}/deals`, data)),
-  remove: (id: string) => r(api.delete(`/sales-crm/leads/${id}`)),
-};
+// Sales CRM — Leads: moved in Phase 2C to the Sales CRM shared component,
+// which owns it. Import it from '@apex/sales-crm-shared'.
+//
+// Deliberately NOT re-exported here. A compatibility re-export would pull the
+// whole Sales CRM shared barrel — its auth adapter (and therefore the Zustand
+// store), the audit-log React store and the mock-data module — into all 57
+// consumers of this file, including the login page. No runtime consumer of
+// the old path remains, so the re-export would buy nothing.
 
 // Notifications
 export const notificationsApi = {

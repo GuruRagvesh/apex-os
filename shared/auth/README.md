@@ -2,9 +2,61 @@
 
 Authentication and authorization primitives used by every platform.
 
-**Status: Phase 0 — empty scaffold.** Live code is
-`backend/src/shared/{guards,decorators,constants,interfaces}/` and
-`frontend/lib/roles.ts`.
+**Status: partially migrated.** The **frontend authenticated HTTP client**
+lives here as of Phase 2C. The backend half (guards, decorators, role
+constants, `UserPayload`) is still `backend/src/shared/{guards,decorators,constants,interfaces}/`,
+and `frontend/lib/roles.ts` has not moved.
+
+## The authenticated HTTP client
+
+`frontend/authenticated-api-client.ts` — moved verbatim from
+`frontend/lib/api.ts` in Phase 2C. It owns, and is the only owner of:
+
+- the single `axios.create()` for the application
+- the resolved API base URL (`API_BASE_URL`)
+- the `Bearer` token request interceptor
+- the one-time `nexus_*` → `apex_*` localStorage key migration
+- the 401 response handling: clears `apex_token` / `apex-auth`, redirects to
+  `/login?expired=true` unless already under `/login`
+- the 403 and array-message error normalisation
+- `unwrap` — the typed helper reflecting that the response interceptor already
+  returned `response.data`
+
+**Singleton.** This must remain the only production `axios.create()`. A second
+instance would silently drop the interceptors; a second registration would run
+the 401 redirect twice. A self-test asserts both, and that the token keys, the
+migration keys and the redirect string are unchanged.
+
+**Why it is here and not in `core/identity`.** Same argument as the guards
+below: attaching a token to a request is *mechanism*, used by every platform.
+Login, token issuance and password recovery are *policy* and belong to
+`core/identity/authentication`.
+
+### Public entry point
+
+```ts
+import { api, unwrap, API_BASE_URL } from '@apex/shared-auth';
+```
+
+`shared/auth/index.ts` is the only importable path. Reaching into
+`shared/auth/frontend/**` from outside the module is a boundary violation
+(`shared-module-public-entry`), enforced for static imports, dynamic `import()`
+and `require()`.
+
+### A constraint for whoever migrates the backend half
+
+`index.ts` currently does `export * from './frontend'`. When Nest guards land
+here it must **stop** doing that — a guard importing `@apex/shared-auth` would
+otherwise pull axios and browser-only localStorage code into the server bundle.
+Split it into explicit frontend and backend entry points at that point.
+
+### Dependency rules
+
+`shared/auth` must not import `platforms/**`, `apps/**`, or the legacy
+`frontend/**` and `backend/**` roots. Unlike `platforms/**`, there is **no**
+exemption mechanism: this is new code with no migration history to carry, and
+it has to stay importable from a process where `frontend/` does not exist.
+Self-tests cover all of these.
 
 ## Why guards live here and not in `core/identity`
 

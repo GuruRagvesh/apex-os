@@ -18,10 +18,15 @@ The alias is declared in `frontend/tsconfig.json` and in
 `architecture-boundaries.json` under `componentAliases`, so the validator
 resolves it rather than treating it as an external package.
 
-Reaching past it is a boundary violation and is enforced:
+It carries types, constants, permissions, mock data and the browser adapters —
+but **no HTTP infrastructure**. Two things are published beside it under exact
+declared subpaths: `/api` and `/styles/...` (see below).
+
+Reaching past these is a boundary violation and is enforced:
 
 ```ts
 import { Role, useAuth } from '@apex/sales-crm-shared';                       // OK
+import { salesCrmLeadsApi } from '@apex/sales-crm-shared/api';                // OK
 import { useAuth } from '@apex/sales-crm-shared/frontend/api/auth-adapter';   // rejected
 ```
 
@@ -53,6 +58,52 @@ with it. `resolveJsonModule` is already enabled in `frontend/tsconfig.json`.
 | `useAuth`, `mapApexRoleToCrmRole`, `UseAuthResult` | `frontend/api/auth-adapter.ts` |
 | `logAction`, `useAuditLogs` | `frontend/api/audit-log.ts` |
 | `SALES_CRM_DATA_MODE`, `isMockMode`, `resolveDataSource`, `isSalesLeadsBackendEnabled`, `SalesCrmDataMode` | `frontend/api/api-connector.ts` |
+
+
+### `salesCrmLeadsApi` — the Leads HTTP API
+
+Moved here from `frontend/lib/api.ts` in Phase 2C, verbatim: same 11 method
+names, endpoint strings, HTTP verbs, query/body placement and return handling.
+A self-test asserts the whole table.
+
+**Published under its own subpath, not the root barrel:**
+
+```ts
+import { salesCrmLeadsApi } from '@apex/sales-crm-shared/api';   // correct
+import { salesCrmLeadsApi } from '@apex/sales-crm-shared';       // not exported there
+```
+
+It rides the application's single authenticated client:
+
+```ts
+import { api, unwrap as r } from '@apex/shared-auth';
+```
+
+so the `Bearer` header, the 401 → `/login?expired=true` redirect and the
+`response.data` unwrapping are exactly the ones every other Apex OS request
+uses. This component **does not** call `axios.create`, register interceptors,
+read a token, touch `localStorage`, or import `frontend/lib/api.ts` — all
+asserted by self-tests.
+
+`frontend/lib/api.ts` deliberately does **not** re-export it. A compatibility
+re-export would pull this whole barrel — the auth adapter and therefore the
+Zustand store, the audit-log React store, the mock-data module — into all 57
+consumers of that file, including the login page. No runtime consumer of the
+old path remained after the six were updated, so the re-export would buy
+nothing.
+
+**Why it is not in the root barrel.** It was, briefly, and the cost was
+measured: re-exporting it from `index.ts` pulled axios and the
+authenticated-client module into every consumer of `@apex/sales-crm-shared`,
+adding **~23 kB of First Load JS** to `/sales-crm`, `/sales-crm/analytics`,
+`/sales-crm/dashboard`, `/sales-crm/database` and `/sales-crm/settings` —
+five routes that never call the Leads API. Moving it behind
+`@apex/sales-crm-shared/api` returned all five to their previous sizes.
+
+The rule this leaves behind: **the root barrel carries no HTTP infrastructure.**
+A screen that wants types, constants, permissions, mock data or styles must not
+pay for axios. A self-test asserts the barrel never re-exports the API, and that
+every Leads consumer reaches it through the subpath.
 
 `isSalesLeadsBackendEnabled()` is the Sales CRM Leads feature flag. It reads
 `NEXT_PUBLIC_SALES_CRM_LEADS_BACKEND_ENABLED` and defaults to mock unless the
@@ -102,9 +153,10 @@ The alias is declared in three places that must stay in agreement:
 | --- | --- |
 | `frontend/tsconfig.json` | `"@apex/sales-crm-shared/styles/*"` |
 | `architecture-boundaries.json` → `componentAliases` | `"@apex/sales-crm-shared/styles"` |
-| `architecture-boundaries.json` → `publicStyleSubpaths.specifiers` | exact specifier → exact repository path |
+| `architecture-boundaries.json` → `publicSubpaths.specifiers` | exact specifier → exact repository path |
 
-`publicStyleSubpaths` is an **exact specifier allowlist, not a directory**.
+`publicSubpaths` is an **exact specifier allowlist, not a directory**. It covers
+both the stylesheet and the `/api` entry point.
 Another stylesheet dropped beside `primitives.module.css` is still private, and
 the entry only counts if the specifier resolves to the path it is declared
 against — so a drifting alias in `frontend/tsconfig.json` cannot silently widen
@@ -151,18 +203,19 @@ them import the store.
 
 Both are carried by the Leads component, not by this one:
 
-- `DEBT-P2A-SALES-CRM-API-CLIENT` (6) — `salesCrmLeadsApi` in
-  `frontend/lib/api.ts`, which rides the shared axios instance carrying the
-  auth interceptor and the 401 redirect.
 - `DEBT-P2B-LEADS-COMPANY-REPOSITORY` (1) — `CompanyAutocomplete` still calls
   `LocalStorageCompanyRepository`, which could not move: it has a second
   importer and it reads `MOCK_CLIENTS` from the unmigrated Sales CRM
   **database** component. It was deliberately not placed here, because that
   would make this component depend on a feature's mock data.
+- `DEBT-P2C-LEADS-GLOBAL-USERS-API` (1) — the Leads screen calls
+  `usersApi.getAll()` to populate the assignable lead-owner list. `usersApi` is
+  an application-wide group used by 20 files and is not a Sales CRM concern, so
+  it stays in `frontend/lib/api.ts`.
 
-`DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` (30) was **removed** in Phase 2B:
-`leads.module.css` and both controls went to Leads, `primitives.module.css`
-came here. Total Sales CRM debt is now **8** imports, down from 37.
+`DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` (30) was removed in Phase 2B and
+`DEBT-P2A-SALES-CRM-API-CLIENT` (6) in Phase 2C. Total Sales CRM debt is now
+**3** imports, down from 37 → 8 → 3.
 
 See `architecture-boundaries.json` for the exact allowlists and removal
 conditions.

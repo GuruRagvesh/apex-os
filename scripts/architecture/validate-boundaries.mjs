@@ -192,6 +192,20 @@ function layerOf(pathRel) {
  *   → platforms/workforce/attendance/workday
  * Returns null when the path is not deep enough to be inside a component.
  */
+/**
+ * The declared shared module a path belongs to, e.g.
+ * shared/auth/frontend/authenticated-api-client.ts → shared/auth
+ * Only modules listed in sharedModulePublicEntry are enforced; the rest of
+ * shared/ is still Phase 0 scaffolding with no code to protect.
+ */
+function sharedModuleRootOf(pathRel, config) {
+  const modules = config.sharedModulePublicEntry?.modules ?? [];
+  for (const mod of modules) {
+    if (pathRel === mod || pathRel.startsWith(`${mod}/`)) return mod;
+  }
+  return null;
+}
+
 function componentRootOf(pathRel, depth) {
   const parts = pathRel.split('/');
   if (parts[0] !== 'platforms') return null;
@@ -286,6 +300,20 @@ function checkFile(fileRel, source, config, aliasMap) {
       continue;
     }
 
+    // 0b. shared/ importing the legacy application roots.
+    //     shared/ sits below every platform, so a dependency on legacy feature
+    //     code would invert the graph exactly as importing a platform does.
+    //     There is NO exemption mechanism here: shared/ is new code with no
+    //     migration history to carry, and shared/auth in particular must stay
+    //     importable from a Nest process where frontend/ does not exist.
+    if (fromLayer === 'shared' && (toLayer === 'frontend' || toLayer === 'backend')) {
+      add(
+        `shared-no-legacy-${toLayer}`,
+        `shared/ must not import ${toLayer}/. Cross-cutting code cannot depend on a legacy application root.`,
+      );
+      continue;
+    }
+
     // 1. frontend must not import backend
     if (fromIsFrontend && toSegments.includes('backend')) {
       add('frontend-no-backend', 'Frontend code must not import backend code.');
@@ -331,23 +359,24 @@ function checkFile(fileRel, source, config, aliasMap) {
       const toComponent = componentRootOf(targetRel, componentDepth);
       if (toComponent && toComponent !== fromComponent) {
         const remainder = targetRel.slice(toComponent.length).replace(/^\//, '');
-        // A declared public stylesheet is public even though it lives under an
-        // internal folder. CSS modules cannot go through the JS barrel without
-        // changing bundle position and therefore cascade order, so they are
-        // published by an exact alias instead.
+        // A declared public subpath is public even though it lives under an
+        // internal folder. Two things need this: a CSS module (a barrel export
+        // changes its bundle position and therefore its cascade order) and the
+        // HTTP API (a barrel export drags axios into every consumer of the root
+        // barrel). Both are published by an exact alias instead.
         //
         // This matches the ORIGINAL SPECIFIER, not the resolved path. Several
-        // spellings resolve to the same physical file — only the canonical
-        // alias is public. '@apex/sales-crm-shared/styles/primitives.module.css'
-        // passes; '@apex/sales-crm-shared/frontend/styles/primitives.module.css'
-        // reaches the same file through the component's internal folder and is
-        // rejected below like any other internal path.
+        // spellings resolve to the same code — only the canonical alias is
+        // public. '@apex/sales-crm-shared/api' passes;
+        // '@apex/sales-crm-shared/frontend/api/sales-crm-leads-api' reaches the
+        // same code through the component's internal folder and is rejected
+        // below like any other internal path.
         //
         // The declared specifier must also resolve to the declared path, so a
         // drifting alias cannot silently widen what counts as public.
-        const declaredStylePath = (config.publicStyleSubpaths?.specifiers ?? {})[specifier];
-        const isPublicStyle = declaredStylePath !== undefined && declaredStylePath === targetRel;
-        const isPublic = remainder === '' || publicNames.includes(remainder) || isPublicStyle;
+        const declaredSubpath = (config.publicSubpaths?.specifiers ?? {})[specifier];
+        const isPublicSubpath = declaredSubpath !== undefined && declaredSubpath === targetRel;
+        const isPublic = remainder === '' || publicNames.includes(remainder) || isPublicSubpath;
         const reachesInternal = internalSegments.includes(remainder.split('/')[0]);
         if (!isPublic && reachesInternal) {
           add(
@@ -360,6 +389,25 @@ function checkFile(fileRel, source, config, aliasMap) {
           add(
             'component-public-entry',
             `Cross-component import must target ${toComponent} or its index file, not ${remainder}.`,
+          );
+        }
+      }
+    }
+
+    // 8. a declared shared module is importable only through its public entry.
+    //    Same contract as a platform component: shared/auth owns the
+    //    authenticated HTTP client, and nothing outside it may reach past
+    //    shared/auth into shared/auth/frontend/**.
+    if (toLayer === 'shared') {
+      const toSharedModule = sharedModuleRootOf(targetRel, config);
+      const fromSharedModule = sharedModuleRootOf(fileRel, config);
+      if (toSharedModule && toSharedModule !== fromSharedModule) {
+        const remainder = targetRel.slice(toSharedModule.length).replace(/^\//, '');
+        const isPublic = remainder === '' || publicNames.includes(remainder);
+        if (!isPublic) {
+          add(
+            'shared-module-public-entry',
+            `Import must target ${toSharedModule} or its index file, not ${remainder}. ${toSharedModule} publishes a public entry point.`,
           );
         }
       }

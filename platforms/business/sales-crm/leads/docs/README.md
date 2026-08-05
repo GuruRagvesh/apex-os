@@ -4,8 +4,9 @@
 **Migrated:** 2026-08-04
 **Shared dependencies extracted:** 2026-08-05 (Phase 2A)
 **Legacy assets reclaimed:** 2026-08-05 (Phase 2B)
-**Debt identifiers:** `DEBT-P2A-SALES-CRM-API-CLIENT`,
-`DEBT-P2B-LEADS-COMPANY-REPOSITORY`
+**API ownership moved:** 2026-08-05 (Phase 2C)
+**Debt identifiers:** `DEBT-P2B-LEADS-COMPANY-REPOSITORY`,
+`DEBT-P2C-LEADS-GLOBAL-USERS-API`
 
 The first vertical slice migrated under the Platform → Module → Component
 architecture. Chosen as the pilot because it is the lowest-risk feature in the
@@ -131,28 +132,41 @@ Sales CRM shared imports now use:
 import { Role, useAuth, logAction, isSalesLeadsBackendEnabled } from '@apex/sales-crm-shared';
 ```
 
-Shared Sales CRM styles use the declared public style subpath — **not** the
-JavaScript barrel, which would change bundle position and cascade order:
+Shared Sales CRM code comes from the component's public entry point; its styles
+come from the declared public style subpath — **not** the JavaScript barrel,
+which would change bundle position and cascade order:
 
 ```ts
+import { useAuth, Role } from '@apex/sales-crm-shared';                 // shared code
+import { salesCrmLeadsApi } from '@apex/sales-crm-shared/api';          // shared HTTP API
 import styles from '../styles/leads.module.css';                        // own asset
 import ui from '@apex/sales-crm-shared/styles/primitives.module.css';   // shared asset
 ```
+
+Since Phase 2C this component makes **no** direct HTTP calls: `salesCrmLeadsApi`
+is owned by the Sales CRM `shared` component and built on the application's
+single authenticated client in `shared/auth`. Nothing here imports axios, reads
+a token or handles a 401.
+
+The API comes from the `/api` subpath rather than the root barrel on purpose —
+the barrel is kept free of HTTP infrastructure so screens that need only types,
+constants or styles do not load axios.
 
 **Current remaining migration debt:**
 
 | Identifier | Imports | Removal phase |
 | --- | --- | --- |
-| `DEBT-P2A-SALES-CRM-API-CLIENT` | 6 | Phase 2C |
 | `DEBT-P2B-LEADS-COMPANY-REPOSITORY` | 1 | Phase 2D |
+| `DEBT-P2C-LEADS-GLOBAL-USERS-API` | 1 | Phase 3 |
 | `DEBT-P2A-SALES-CRM-AUTH-STORE` | 1 | Phase 3 |
 
-**Total remaining debt: 8 imports.** Phase 1A: **90** → Phase 2A: **37** →
-Phase 2B: **8**. `DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` (30) is **removed**.
+**Total remaining debt: 3 imports.** Phase 1A: **90** → Phase 2A: **37** →
+Phase 2B: **8** → Phase 2C: **3**. `DEBT-P2A-SALES-CRM-API-CLIENT` (6) is
+**removed**.
 
 `DEBT-P2A-SALES-CRM-AUTH-STORE` is not carried by this component — it belongs to
 the `shared` component's auth adapter and is listed here only to account for the
-full 8.
+full 3.
 
 ### Moved to the `shared` component in Phase 2A
 
@@ -180,7 +194,7 @@ public style subpath rather than a barrel export.
 | Kept in `frontend/` | Why |
 | --- | --- |
 | `LocalStorageCompanyRepository` (1 import, from `CompanyAutocomplete` only) | It could not follow the control into Leads: it has a second importer (`frontend/lib/sales-crm/storage.ts`) and it reads `MOCK_CLIENTS` from `database-data.ts`, owned by the unmigrated Sales CRM **database** component. Moving it into Leads would drag a database-owned dependency along; moving it into `shared` would make shared depend on a feature's mock data. Both invert ownership. |
-| Global API client / `salesCrmLeadsApi` (6 imports) | `salesCrmLeadsApi` rides the module-local axios instance in `frontend/lib/api.ts`, which carries the Bearer-token interceptor, the 401 → `/login?expired=true` redirect, `response.data` unwrapping and a one-time `nexus_*`→`apex_*` localStorage migration shared by 58 files. Extracting it would duplicate that chain or import it back anyway. |
+| Application-wide `usersApi` (1 import, from the Leads screen only) | The screen calls `usersApi.getAll()` once, to populate the assignable lead-owner list. `usersApi` is an application-wide group used by 20 files across attendance, tickets, projects and admin — not a Sales CRM concern. Re-implementing `GET /users` inside Sales CRM to satisfy a boundary would duplicate an existing application API, which is worse than recording the dependency. |
 | Application-wide auth store (`frontend/store/auth.store.ts`) | Owned by the identity platform. Only the `shared` auth adapter may touch it; every Sales CRM file consumes `useAuth()` instead. |
 | Settings-owned types (`frontend/lib/sales-crm/types/settings.ts`) | Belongs to the unmigrated `settings` component, not to shared code. Not a Leads dependency. |
 
@@ -199,9 +213,9 @@ component migrates (giving `database-data.ts` an owner), `LocalStorageCompanyRep
 and its `normalization` helper move to that owner or to the `shared` component,
 and `CompanyAutocomplete` consumes it through a public entry point.
 
-`DEBT-P2A-SALES-CRM-API-CLIENT` is removed when the shared axios instance and
-its interceptors move to a platform- or shared-owned HTTP client, and
-`salesCrmLeadsApi` is replaced by a Leads-owned API adapter built on it.
+`DEBT-P2C-LEADS-GLOBAL-USERS-API` is removed when `core/users` migrates to
+`platforms/core/users` with a public entry point and the Leads screen resolves
+assignable owners through it.
 
 No other component may use these exemptions. Self-tests prove that a sibling
 Leads component cannot reuse the company-repository exemption, that a sibling

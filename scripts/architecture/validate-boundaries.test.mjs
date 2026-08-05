@@ -12,11 +12,11 @@
  * Exit 0 = all cases pass. Exit 1 = at least one case failed.
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execSync } from 'node:child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -252,21 +252,21 @@ testCase(
 );
 
 // ── narrow temporary legacy-import exemptions ───────────────────────────────
-// platforms/** -> frontend/** is forbidden by default. Phase 2B retired the
-// asset exemption entirely, leaving three narrow ones:
-//   DEBT-P2B-LEADS-COMPANY-REPOSITORY  (one exact file -> company-repository)
-//   DEBT-P2A-SALES-CRM-API-CLIENT      (Leads -> frontend/lib/api.ts)
-//   DEBT-P2A-SALES-CRM-AUTH-STORE      (one exact file -> auth.store.ts)
+// platforms/** -> frontend/** is forbidden by default. Phase 2C retired the
+// API-client exemption, leaving three narrow ones, each scoped to one file:
+//   DEBT-P2B-LEADS-COMPANY-REPOSITORY  (CompanyAutocomplete -> company-repository)
+//   DEBT-P2C-LEADS-GLOBAL-USERS-API    (SalesCrmLeads screen -> usersApi)
+//   DEBT-P2A-SALES-CRM-AUTH-STORE      (auth-adapter -> auth.store.ts)
 // These prove each is genuinely narrow and has not weakened the rule.
 
-// 11. The allowlisted Leads legacy import is accepted.
+// 11. The Leads screen may still reach the application-wide users API.
 testCase(
-  'accepts the allowlisted Sales CRM Leads legacy imports',
+  'accepts the Leads screen importing the application-wide users API',
   (root) => {
     write(
       root,
       'platforms/business/sales-crm/leads/frontend/screens/SalesCrmLeads.tsx',
-      `import { salesCrmLeadsApi } from '@/lib/api';\nexport default function S() { return null; }\n`,
+      `import { usersApi } from '@/lib/api';\nexport default function S() { return usersApi; }\n`,
     );
   },
   { expectExit: 0 },
@@ -541,7 +541,7 @@ testCase(
 );
 
 // 31. An UNAPPROVED shared internal style path is still rejected. This is what
-//     keeps publicStyleSubpaths an exact allowlist rather than a directory.
+//     keeps publicSubpaths an exact allowlist rather than a directory.
 testCase(
   'rejects an unapproved shared internal style path',
   (root) => {
@@ -696,6 +696,198 @@ testCase(
   { expectExit: 1, expectRule: 'component-public-entry' },
 );
 
+// ── Phase 2C: shared-auth HTTP client boundary ──────────────────────────────
+// The authenticated axios singleton moved to shared/auth, and the Sales CRM
+// Leads API moved to the Sales CRM shared component. shared/auth publishes a
+// public entry point; its internals are private like a platform component's.
+
+// 41. Leads consumes salesCrmLeadsApi through the narrow /api subpath.
+//     The root barrel deliberately does NOT carry it — that would drag axios
+//     into every consumer that only wants types, constants, permissions,
+//     mock data or styles.
+testCase(
+  'accepts Leads importing salesCrmLeadsApi from the /api subpath',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/api/index.ts', `export const salesCrmLeadsApi = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `import { salesCrmLeadsApi } from '@apex/sales-crm-shared/api';\nexport const L = () => salesCrmLeadsApi;\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 41b. Reaching the API through the component's internal folder is rejected,
+//      even though it resolves to the same code as the /api subpath.
+testCase(
+  'rejects the Sales CRM API spelled through the internal folder path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/api/index.ts', `export const salesCrmLeadsApi = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadStats.tsx',
+      `import { salesCrmLeadsApi } from '@apex/sales-crm-shared/frontend/api';\nexport const L = () => salesCrmLeadsApi;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 41c. A deeper path under the approved /api subpath is still private —
+//      publicSubpaths is an exact specifier allowlist, not a directory.
+testCase(
+  'rejects a deeper path under the approved /api subpath',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/api/index.ts', `export const salesCrmLeadsApi = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadFilters.tsx',
+      `import { salesCrmLeadsApi } from '@apex/sales-crm-shared/api/sales-crm-leads-api';\nexport const L = () => salesCrmLeadsApi;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 41d. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of an internal Sales CRM API path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/api/index.ts', `export const salesCrmLeadsApi = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadDetail.tsx',
+      `export const load = () => import('@apex/sales-crm-shared/frontend/api/sales-crm-leads-api');\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 41e. ...and by require().
+testCase(
+  'detects require() of an internal Sales CRM API path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/api/index.ts', `export const salesCrmLeadsApi = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/ColumnManager.tsx',
+      `const { salesCrmLeadsApi } = require('@apex/sales-crm-shared/frontend/api/sales-crm-leads-api');\nexport default salesCrmLeadsApi;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 42. Leads may NOT reach the API adapter through its internal path.
+testCase(
+  'rejects Leads importing the Sales CRM API adapter through an internal path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadTabs.tsx',
+      `import { salesCrmLeadsApi } from '@apex/sales-crm-shared/frontend/api/sales-crm-leads-api';\nexport const L = () => salesCrmLeadsApi;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 43. Sales CRM shared may consume the shared-auth public entry point.
+testCase(
+  'accepts Sales CRM shared importing the authenticated client public API',
+  (root) => {
+    write(root, 'shared/auth/index.ts', `export const api = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/shared/frontend/api/sales-crm-leads-api.ts',
+      `import { api } from '@apex/shared-auth';\nexport const salesCrmLeadsApi = { getAll: () => api };\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 44. ...but not shared-auth internals.
+testCase(
+  'rejects Sales CRM shared importing shared-auth internals',
+  (root) => {
+    write(root, 'shared/auth/index.ts', `export const api = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/shared/frontend/api/sales-crm-leads-api.ts',
+      `import { api } from '@apex/shared-auth/frontend/authenticated-api-client';\nexport const s = api;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 45. Reaching shared-auth internals by dynamic import() is checked too.
+testCase(
+  'detects dynamic import() of shared-auth internals',
+  (root) => {
+    write(root, 'shared/auth/index.ts', `export const api = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadDetail.tsx',
+      `export const load = () => import('@apex/shared-auth/frontend/authenticated-api-client');\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 46. ...and by require().
+testCase(
+  'detects require() of shared-auth internals',
+  (root) => {
+    write(root, 'shared/auth/index.ts', `export const api = {};\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadFilters.tsx',
+      `const { api } = require('@apex/shared-auth/frontend/authenticated-api-client');\nexport default api;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 47. shared/auth must not import a platform — that inverts the graph.
+testCase(
+  'rejects shared-auth importing a platform',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'shared/auth/frontend/authenticated-api-client.ts',
+      `import { X } from '@apex/sales-crm-shared';\nexport const api = X;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 48. shared/auth must not import legacy frontend feature code either.
+testCase(
+  'rejects shared-auth importing legacy frontend feature code',
+  (root) => {
+    write(
+      root,
+      'shared/auth/frontend/authenticated-api-client.ts',
+      `import { useAuthStore } from '@/store/auth.store';\nexport const api = useAuthStore;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-legacy-frontend' },
+);
+
+// 49. A Leads component other than the screen may NOT import frontend/lib/api.ts.
+//     The Phase 2A API-client exemption covered the whole component; its
+//     replacement covers exactly one file.
+testCase(
+  'rejects a Leads component importing frontend/lib/api.ts after Phase 2C',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadInfoPanel.tsx',
+      `import { salesCrmLeadsApi } from '@/lib/api';\nexport const L = () => salesCrmLeadsApi;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -743,11 +935,210 @@ function testRealRepoDebtCounts(expected) {
 }
 
 testRealRepoDebtCounts({
-  'DEBT-P2A-SALES-CRM-API-CLIENT': 6,
   'DEBT-P2B-LEADS-COMPANY-REPOSITORY': 1,
+  'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P2A-SALES-CRM-AUTH-STORE': 1,
 });
 
-// ── summary ─────────────────────────────────────────────────────────────────
-console.log(`\n[architecture] ${passed} passed, ${failed} failed\n`);
-process.exit(failed === 0 ? 0 : 1);
+// ── Phase 2C behaviour lock ─────────────────────────────────────────────────
+// Source-contract assertions against THIS repository. The HTTP client carries
+// authentication for every Apex OS request, so the properties below are the
+// ones that would break login or silently duplicate the 401 redirect. They are
+// deliberately targeted assertions, not whole-file snapshots.
+const CLIENT = 'shared/auth/frontend/authenticated-api-client.ts';
+const CRM_API = 'platforms/business/sales-crm/shared/frontend/api/sales-crm-leads-api.ts';
+const LEGACY_API = 'frontend/lib/api.ts';
+
+function readRepo(rel) {
+  try {
+    return readFileSync(join(REPO_ROOT, rel), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Code with comments removed, so an assertion about what a file must NOT do
+ * is not tripped by a doc comment saying it must not do that.
+ *
+ * Line comments are only stripped when the line STARTS with // or *, which
+ * leaves URLs such as 'http://localhost:3001/api' intact.
+ */
+function codeOf(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split(/\r?\n/)
+    .filter((l) => {
+      const t = l.trim();
+      return !t.startsWith('//') && !t.startsWith('*');
+    })
+    .join('\n');
+}
+
+/** Tracked AND untracked-but-not-ignored sources — new files count. */
+function repoSources() {
+  return execSync('git ls-files --cached --others --exclude-standard', { cwd: REPO_ROOT, encoding: 'utf8' })
+    .split('\n').map((s) => s.trim()).filter(Boolean)
+    .filter((f) => /\.(ts|tsx)$/.test(f));
+}
+
+function assertContract(name, fn) {
+  let problems;
+  try {
+    problems = fn() ?? [];
+  } catch (err) {
+    problems = [`threw: ${err.message}`];
+  }
+  if (problems.length === 0) {
+    console.log(`  PASS  ${name}`);
+    passed += 1;
+  } else {
+    console.error(`  FAIL  ${name}`);
+    for (const p of problems) console.error(`          ${p}`);
+    failed += 1;
+  }
+}
+
+assertContract('exactly one production axios.create, and it is in shared/auth', () => {
+  const problems = [];
+  // e2e/ is a standalone script harness with its own throwaway clients
+  const sources = repoSources().filter((f) => !f.startsWith('e2e/'));
+  const creators = sources.filter((f) => codeOf(readRepo(f) ?? '').includes('axios.create'));
+  if (creators.length !== 1) problems.push(`expected 1 axios.create, found ${creators.length}: ${creators.join(', ')}`);
+  else if (creators[0] !== CLIENT) problems.push(`axios.create lives in ${creators[0]}, expected ${CLIENT}`);
+  return problems;
+});
+
+assertContract('the client registers each interceptor exactly once', () => {
+  const raw = readRepo(CLIENT);
+  if (raw === null) return [`${CLIENT} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  const req = (src.match(/interceptors\.request\.use/g) ?? []).length;
+  const res = (src.match(/interceptors\.response\.use/g) ?? []).length;
+  if (req !== 1) problems.push(`request interceptor registered ${req} time(s), expected 1`);
+  if (res !== 1) problems.push(`response interceptor registered ${res} time(s), expected 1`);
+  return problems;
+});
+
+assertContract('the client preserves token keys, migration and the 401 redirect', () => {
+  const raw = readRepo(CLIENT);
+  if (raw === null) return [`${CLIENT} is missing`];
+  const src = codeOf(raw);
+  const required = [
+    "localStorage.getItem('nexus_token')",   // legacy key read
+    "localStorage.setItem('apex_token'",     // migration write
+    "localStorage.removeItem('nexus_token')",
+    "localStorage.removeItem('nexus_user')",
+    "localStorage.removeItem('nexus-auth')",
+    "localStorage.getItem('apex_token')",    // request interceptor
+    "localStorage.removeItem('apex_token')", // 401 cleanup
+    "localStorage.removeItem('apex-auth')",
+    '`Bearer ${token}`',
+    "'/login?expired=true'",
+    "window.location.pathname.startsWith('/login')",
+    "typeof window !== 'undefined'",
+    'process.env.NEXT_PUBLIC_API_URL',
+    "'http://localhost:3001/api'",
+  ];
+  return required.filter((s) => !src.includes(s)).map((s) => `missing from the client: ${s}`);
+});
+
+assertContract('the Sales CRM API rides the shared client and owns no transport', () => {
+  const raw = readRepo(CRM_API);
+  if (raw === null) return [`${CRM_API} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes("from '@apex/shared-auth'")) problems.push('does not import the shared authenticated client');
+  for (const forbidden of ['axios.create', 'interceptors.', 'localStorage', 'auth.store', "from 'axios'", '@/lib/api']) {
+    if (src.includes(forbidden)) problems.push(`must not contain: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('the Sales CRM Leads API contract is unchanged', () => {
+  const src = readRepo(CRM_API);
+  if (src === null) return [`${CRM_API} is missing`];
+  // method -> [http verb, endpoint fragment] exactly as it was in frontend/lib/api.ts
+  const CONTRACT = {
+    getAll: ['get', "'/sales-crm/leads', { params }"],
+    getOne: ['get', '`/sales-crm/leads/${id}`'],
+    create: ['post', "'/sales-crm/leads', data"],
+    update: ['put', '`/sales-crm/leads/${id}`, data'],
+    reassignOwner: ['patch', '`/sales-crm/leads/${id}/owner`, { ownerId }'],
+    bulkUpdate: ['patch', "'/sales-crm/leads/bulk', data"],
+    addActivity: ['post', '`/sales-crm/leads/${id}/activities`, data'],
+    addFollowup: ['post', '`/sales-crm/leads/${id}/followups`, data'],
+    addRequirement: ['post', '`/sales-crm/leads/${id}/requirements`, data'],
+    addDeal: ['post', '`/sales-crm/leads/${id}/deals`, data'],
+    remove: ['delete', '`/sales-crm/leads/${id}`'],
+  };
+  const problems = [];
+  for (const [method, [verb, call]] of Object.entries(CONTRACT)) {
+    if (!new RegExp(`\\b${method}\\s*:`).test(src)) {
+      problems.push(`method missing: ${method}`);
+      continue;
+    }
+    if (!src.includes(`api.${verb}(${call})`)) {
+      problems.push(`${method}: expected api.${verb}(${call})`);
+    }
+  }
+  const declared = (src.match(/^\s{2}(\w+)\s*:/gm) ?? []).length;
+  if (declared !== Object.keys(CONTRACT).length) {
+    problems.push(`expected ${Object.keys(CONTRACT).length} methods, found ${declared}`);
+  }
+  return problems;
+});
+
+assertContract('the Sales CRM root barrel stays free of the HTTP API', () => {
+  // Re-exporting salesCrmLeadsApi from the root barrel pulls axios and the
+  // authenticated-client module into every consumer of '@apex/sales-crm-shared'
+  // — including screens that only want types, constants or styles. That cost
+  // ~23 kB of First Load JS on five Sales CRM routes when it was measured.
+  const problems = [];
+  for (const barrel of [
+    'platforms/business/sales-crm/shared/index.ts',
+    'platforms/business/sales-crm/shared/frontend/index.ts',
+  ]) {
+    const raw = readRepo(barrel);
+    if (raw === null) {
+      problems.push(`${barrel} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    if (src.includes('salesCrmLeadsApi')) problems.push(`${barrel} must not export salesCrmLeadsApi`);
+    if (src.includes('sales-crm-leads-api')) problems.push(`${barrel} must not reference the API module`);
+  }
+  // ...and the subpath barrel must actually publish it.
+  const apiIndex = readRepo('platforms/business/sales-crm/shared/frontend/api/index.ts');
+  if (apiIndex === null) problems.push('the /api subpath entry point is missing');
+  else if (!codeOf(apiIndex).includes('salesCrmLeadsApi')) {
+    problems.push('the /api subpath entry point does not export salesCrmLeadsApi');
+  }
+  return problems;
+});
+
+assertContract('no Leads consumer reaches the API through the root barrel', () => {
+  const problems = [];
+  const consumers = repoSources().filter((f) => f.startsWith('platforms/business/sales-crm/leads/'));
+  for (const f of consumers) {
+    const src = codeOf(readRepo(f) ?? '');
+    if (!src.includes('salesCrmLeadsApi')) continue;
+    if (!src.includes("from \"@apex/sales-crm-shared/api\"") && !src.includes("from '@apex/sales-crm-shared/api'")) {
+      problems.push(`${f} uses salesCrmLeadsApi but not via @apex/sales-crm-shared/api`);
+    }
+  }
+  return problems;
+});
+
+assertContract('frontend/lib/api.ts owns no client and no Sales CRM API', () => {
+  const raw = readRepo(LEGACY_API);
+  if (raw === null) return [`${LEGACY_API} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const forbidden of ['axios.create', "from 'axios'", 'interceptors.', 'salesCrmLeadsApi']) {
+    if (src.includes(forbidden)) problems.push(`must no longer contain: ${forbidden}`);
+  }
+  if (!src.includes("from '@apex/shared-auth'")) problems.push('does not import the shared authenticated client');
+  return problems;
+});

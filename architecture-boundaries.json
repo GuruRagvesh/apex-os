@@ -15,16 +15,24 @@
   "platforms": ["core", "workforce", "operations", "intelligence", "business", "system"],
 
   "componentAliases": {
-    "description": "Short public aliases for migrated components, mirroring frontend/tsconfig.json paths. Declared here so the validator RESOLVES them instead of treating them as bare packages — otherwise an import reaching into a component's internals through its alias would be invisible to the rules below. Each alias must address a component root, or a declared public subpath listed in publicStyleSubpaths.",
+    "description": "Short public aliases for migrated components, mirroring frontend/tsconfig.json paths. Declared here so the validator RESOLVES them instead of treating them as bare packages — otherwise an import reaching into a component's internals through its alias would be invisible to the rules below. Each alias must address a component root, or a declared public subpath listed in publicSubpaths.",
     "@apex/sales-crm-leads": "platforms/business/sales-crm/leads",
     "@apex/sales-crm-shared": "platforms/business/sales-crm/shared",
-    "@apex/sales-crm-shared/styles": "platforms/business/sales-crm/shared/frontend/styles"
+    "@apex/sales-crm-shared/styles": "platforms/business/sales-crm/shared/frontend/styles",
+    "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
+    "@apex/shared-auth": "shared/auth"
   },
 
-  "publicStyleSubpaths": {
-    "description": "Stylesheets that are PUBLIC despite living under a component-internal folder. A CSS module cannot be re-exported through a JavaScript barrel without changing its position in the bundle graph, and therefore its cascade order against other stylesheets applied to the same elements. So a shared stylesheet is published by an exact alias instead of a barrel export. Matching is on the ORIGINAL IMPORT SPECIFIER, not on the resolved file: several spellings can resolve to the same physical file, and only the canonical alias is public. '@apex/sales-crm-shared/styles/primitives.module.css' passes; '@apex/sales-crm-shared/frontend/styles/primitives.module.css' addresses the same file through the component's internal folder and is REJECTED. Each entry maps the exact permitted specifier to the exact repository path it must resolve to — if the two disagree, the import is rejected, so a drifting alias in frontend/tsconfig.json cannot silently widen this.",
+  "sharedModulePublicEntry": {
+    "description": "Modules under shared/ that have migrated real code and therefore publish a public entry point. Anything outside the module may import the module root or its index file only — reaching into its internal frontend/, backend/, shared/ or tests/ folders is a boundary violation, exactly as for a platform component. Only modules listed here are enforced; the remaining shared/ folders are still Phase 0 scaffolds with nothing to protect.",
+    "modules": ["shared/auth"]
+  },
+
+  "publicSubpaths": {
+    "description": "Entry points that are PUBLIC despite living under a component-internal folder, for things that must not travel through the component's root barrel. Two reasons arise in practice. (1) A CSS module re-exported through a JavaScript barrel changes position in the bundle graph and therefore its cascade order against other stylesheets applied to the same elements. (2) An HTTP API re-exported through the root barrel drags axios and the authenticated-client module into every consumer of that barrel, including screens that only want types or constants. Matching is on the ORIGINAL IMPORT SPECIFIER, not on the resolved path: several spellings can resolve to the same file, and only the canonical alias is public. '@apex/sales-crm-shared/api' passes; '@apex/sales-crm-shared/frontend/api/sales-crm-leads-api' addresses the same code through the component's internal folder and is REJECTED. Each entry maps the exact permitted specifier to the exact repository path it must resolve to — if the two disagree the import is rejected, so a drifting alias in frontend/tsconfig.json cannot silently widen this. Exact specifiers only: never a wildcard, never a directory prefix.",
     "specifiers": {
-      "@apex/sales-crm-shared/styles/primitives.module.css": "platforms/business/sales-crm/shared/frontend/styles/primitives.module.css"
+      "@apex/sales-crm-shared/styles/primitives.module.css": "platforms/business/sales-crm/shared/frontend/styles/primitives.module.css",
+      "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api"
     }
   },
 
@@ -81,6 +89,14 @@
       "rationale": "shared/ is depended upon by platforms; importing back creates a cycle."
     },
     {
+      "id": "shared-no-legacy-frontend",
+      "severity": "error",
+      "description": "shared/ must not import the legacy frontend/ or backend/ roots.",
+      "fromLayer": "shared",
+      "forbiddenLayers": ["frontend", "backend"],
+      "rationale": "shared/ sits below every platform, so depending on legacy feature code inverts the graph exactly as importing a platform does. Unlike platforms/, there is no exemption mechanism: shared/ is new code with no migration history to carry, and shared/auth must stay importable from a Nest process where frontend/ does not exist. Reported as shared-no-legacy-frontend or shared-no-legacy-backend."
+    },
+    {
       "id": "database-no-upper-layers",
       "severity": "error",
       "description": "database/ must not import apps/, platforms/ or shared/.",
@@ -133,16 +149,16 @@
         ]
       },
       {
-        "id": "DEBT-P2A-SALES-CRM-API-CLIENT",
+        "id": "DEBT-P2C-LEADS-GLOBAL-USERS-API",
         "status": "temporary",
-        "introducedIn": "Phase 2A",
-        "removalPhase": "Phase 2C (Sales CRM API ownership)",
-        "from": "platforms/business/sales-crm/leads/",
+        "introducedIn": "Phase 2C",
+        "removalPhase": "Phase 3 (core/users platform slice)",
+        "from": "platforms/business/sales-crm/leads/frontend/screens/SalesCrmLeads.tsx",
         "allowedTargets": ["frontend/lib/api.ts"],
-        "reason": "salesCrmLeadsApi is a self-contained export, but it rides the module-local axios instance in frontend/lib/api.ts, which carries the Bearer-token request interceptor, the 401 redirect to /login?expired=true, the response.data unwrapping and a one-time nexus_*->apex_* localStorage migration shared by 58 files. Extracting the methods without that instance would either duplicate the interceptor chain (two 401 handlers, duplicated storage migration) or import it back from legacy anyway, reducing no debt.",
+        "reason": "Phase 2C moved salesCrmLeadsApi out of frontend/lib/api.ts and eliminated 5 of the 6 imports it carried. The sixth line imported two symbols: salesCrmLeadsApi AND usersApi. usersApi is an application-wide API group used by 20 files across attendance, tickets, projects and admin; it is not a Sales CRM concern and must not move into a Sales CRM component. The Leads screen calls usersApi.getAll() once, to populate the assignable lead-owner list. Re-implementing GET /users inside Sales CRM would duplicate an existing application API to satisfy a boundary, which is worse than recording the dependency.",
         "removalConditions": [
-          "The shared axios instance and its interceptors move to a platform- or shared-owned HTTP client",
-          "salesCrmLeadsApi is replaced by a Leads-owned API adapter built on that client"
+          "core/users migrates to platforms/core/users with a public entry point",
+          "The Leads screen resolves assignable owners through that entry point"
         ]
       },
       {

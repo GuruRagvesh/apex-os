@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Lead, Role, useAuth, logAction, isSalesLeadsBackendEnabled } from "@apex/sales-crm-shared";
-import { salesCrmLeadsApi } from "@/lib/api";
+import { salesCrmLeadsApi } from "@apex/sales-crm-shared/api";
 import styles from "../styles/leads.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
