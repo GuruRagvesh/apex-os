@@ -10,7 +10,7 @@
 // stageDetails). Those are dropped on write and come back undefined on read
 // when backend mode is active — this is an accepted, honest gap, not a bug.
 
-import { Lead, Activity, FollowUp, Requirement, Deal, LeadStage } from "./types";
+import { Lead, Activity, FollowUp, Requirement, Deal, LeadStage } from "@/lib/sales-crm/types";
 
 export function mapBackendActivity(a: any, fallbackStage: LeadStage): Activity {
   return {

@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Activity, LeadStage } from "@/lib/sales-crm/types";
-import { STAGE_FORMS } from "./stage-forms";
-import { getLocalTodayISO, getLocalTomorrowISO, isStrictFutureDate, isTodayOrPastDate } from "@/lib/sales-crm/date-utils";
+import { STAGE_FORMS } from "../../shared/types/stage-forms";
+import { getLocalTodayISO, getLocalTomorrowISO, isStrictFutureDate, isTodayOrPastDate } from "../../shared/types/date-utils";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

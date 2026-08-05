@@ -433,7 +433,18 @@ created.** They are built when the features are built.
 
 ## platforms/business
 
-### business/sales-crm ✅ — **pilot module (Phase 1)**
+### business/sales-crm — **pilot module**
+
+> **Status update (2026-08-04):** the **Leads frontend slice is MIGRATED**
+> (Phase 1A, branch `refactor/sales-crm-leads-frontend`). 18 files now live in
+> `platforms/business/sales-crm/leads/`. The **Leads backend remains in its
+> legacy location** and is deferred to **Phase 1B** — `backend/tsconfig.json`
+> sets `rootDir: "./src"`, so compiling external sources would change the emit
+> layout and break `render.yaml`'s `node dist/main.js`. **No API endpoint,
+> browser route, response shape, feature-flag default or Prisma file changed.**
+> All other Sales CRM components below are still unmigrated.
+> See `platforms/business/sales-crm/leads/docs/README.md`.
+
 
 | Current | Target |
 | --- | --- |

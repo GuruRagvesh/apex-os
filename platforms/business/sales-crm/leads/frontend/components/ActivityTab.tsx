@@ -8,7 +8,7 @@ import ActivityModal from "./ActivityModal";
 import ActivityTabManager, { CustomTab } from "./ActivityTabManager";
 import { useAuth } from "@/lib/sales-crm/auth-adapter";
 import { canManageActivityTabs } from "@/lib/sales-crm/permissions";
-import { STAGE_FORMS } from "./stage-forms";
+import { STAGE_FORMS } from "../../shared/types/stage-forms";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

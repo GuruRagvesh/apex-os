@@ -1,4 +1,4 @@
-import { Lead } from "./types";
+import { Lead } from "@/lib/sales-crm/types";
 
 export interface LeadsStatsData {
   totalLeads: number;

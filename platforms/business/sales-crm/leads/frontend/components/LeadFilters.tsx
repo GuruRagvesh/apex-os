@@ -1,6 +1,6 @@
 import { Role } from "@/lib/sales-crm/types";
 import { MOCK_USERS } from "@/lib/sales-crm/constants";
-import { LeadFilterState, LeadSortState } from "@/lib/sales-crm/lead-calculations";
+import { LeadFilterState, LeadSortState } from "../api/lead-calculations";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

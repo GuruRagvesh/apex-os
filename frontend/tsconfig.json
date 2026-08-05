@@ -13,8 +13,18 @@
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
-    "paths": { "@/*": ["./*"] }
+    "paths": {
+      "@/*": ["./*"],
+      "@apex/sales-crm-leads": ["../platforms/business/sales-crm/leads/index.ts"]
+    }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "../platforms/business/sales-crm/leads/**/*.ts",
+    "../platforms/business/sales-crm/leads/**/*.tsx"
+  ],
   "exclude": ["node_modules"]
 }
