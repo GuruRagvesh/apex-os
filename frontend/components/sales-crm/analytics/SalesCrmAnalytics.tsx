@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { BarChart3, CalendarClock, FolderKanban, Home, LayoutGrid, Users, type LucideIcon } from "lucide-react";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth } from "@apex/sales-crm-shared";
 import AnalyticsHome from "./AnalyticsHome";
 import DashboardGrid from "./DashboardGrid";
 import ReportsView from "./ReportsView";

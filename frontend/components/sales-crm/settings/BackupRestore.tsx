@@ -3,7 +3,7 @@
 // SalesCRM - Backup, Restore, and Factory Reset
 
 import { useState, useRef } from "react";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth } from "@apex/sales-crm-shared";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
 import ConfirmModal from "@/components/sales-crm/ui/ConfirmModal";
 import styles from "@/styles/sales-crm/settings.module.css";

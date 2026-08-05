@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X, Users, User, LayoutGrid, AlertCircle } from "lucide-react";
 import { useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth } from "@apex/sales-crm-shared";
 import styles from "@/styles/sales-crm/dashboard.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

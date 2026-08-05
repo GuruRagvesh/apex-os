@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Role, User } from "@/lib/sales-crm/types";
-import { logAction } from "@/lib/sales-crm/audit-log";
+import { Role, User, logAction } from "@apex/sales-crm-shared";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

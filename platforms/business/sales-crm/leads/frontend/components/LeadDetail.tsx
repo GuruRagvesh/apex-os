@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Lead, Role } from "@/lib/sales-crm/types";
+import { Lead, Role, useAuth, canDeleteRecord } from "@apex/sales-crm-shared";
 import LeadInfoPanel from "./LeadInfoPanel";
 import LeadTabs from "./LeadTabs";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { canDeleteRecord } from "@/lib/sales-crm/permissions";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

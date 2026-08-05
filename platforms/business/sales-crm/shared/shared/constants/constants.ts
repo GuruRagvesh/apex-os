@@ -3,7 +3,7 @@
 // live under /sales-crm per Apex OS containment rules; MOCK_USERS kept as
 // reference/display data only (lead ownership, activity attribution) — NOT
 // used for authentication. Real auth is Apex OS's own Admin/SuperAdmin gate.
-import { NavItem, Role } from "./types";
+import { NavItem, Role } from "../types";
 
 export const APP_NAME = "Sales CRM";
 

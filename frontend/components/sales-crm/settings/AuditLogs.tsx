@@ -3,11 +3,8 @@
 // SalesCRM — Audit Logs table with filters
 
 import { useState, useMemo } from "react";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth, useAuditLogs, Role, AuditLogRecord } from "@apex/sales-crm-shared";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
-import { useAuditLogs } from "@/lib/sales-crm/audit-log";
-import { Role } from "@/lib/sales-crm/types";
-import { AuditLogRecord } from "@/lib/sales-crm/types/audit";
 import styles from "@/styles/sales-crm/settings.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

@@ -15,14 +15,10 @@
 //   - a "Phase 1 · Local data" badge next to the page title
 
 import { useState, useRef, useEffect } from 'react';
-import { useAuth } from '@/lib/sales-crm/auth-adapter';
+import { useAuth, ROLE_LABELS, Role, logAction, canImport } from '@apex/sales-crm-shared';
 import { useTheme } from '@/lib/sales-crm/theme';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { ROLE_LABELS } from '@/lib/sales-crm/constants';
-import { Role } from '@/lib/sales-crm/types';
 import { filterLeadsFromDashboard } from '@/lib/sales-crm/dashboard-calculations';
-import { logAction } from '@/lib/sales-crm/audit-log';
-import { canImport } from '@/lib/sales-crm/permissions';
 import shell from '@/styles/sales-crm/shell.module.css';
 import ui from '@/styles/sales-crm/primitives.module.css';
 import {

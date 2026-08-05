@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ArrowUpDown, Download, Filter, Pin, Plus, Search, X } from "lucide-react";
 import { ReportConfig, SavedReport, canViewItem, createAnalyticsId, getUserAnalyticsContext, useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth } from "@apex/sales-crm-shared";
 import Chart, { ChartDataPoint, ChartType } from "@/components/sales-crm/ui/Chart";
 import ExportModal from "@/components/sales-crm/dashboard/ExportModal";
 import Toast from "@/components/sales-crm/dashboard/Toast";

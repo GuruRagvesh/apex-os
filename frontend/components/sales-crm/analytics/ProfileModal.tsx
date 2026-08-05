@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { ReportProfile } from "@/lib/sales-crm/analytics-store";
-import { Role } from "@/lib/sales-crm/types";
+import { Role } from "@apex/sales-crm-shared";
 import styles from "@/styles/sales-crm/analytics.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

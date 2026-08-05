@@ -1,5 +1,4 @@
-import { Role } from "@/lib/sales-crm/types";
-import { MOCK_USERS } from "@/lib/sales-crm/constants";
+import { Role, MOCK_USERS } from "@apex/sales-crm-shared";
 import { LeadFilterState, LeadSortState } from "../api/lead-calculations";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";

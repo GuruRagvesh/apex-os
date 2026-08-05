@@ -2,7 +2,7 @@
 // Ported from intern source (src/lib/mock-data.ts). Local/mock data only —
 // Sales CRM Phase 1 is a frontend workspace with no backend connection yet.
 
-import { Lead } from "./types";
+import { Lead } from "../types";
 
 const today = new Date();
 const formatDate = (date: Date) => date.toISOString().split("T")[0];

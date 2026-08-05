@@ -1,7 +1,7 @@
 // Sales CRM — Settings module TypeScript types
 // Ported from intern source (src/types/settings.ts).
 
-import { Role } from "./index";
+import { Role } from "@apex/sales-crm-shared";
 
 /* ------------------------------------------------------------------ */
 /*  Audit Actions                                                      */

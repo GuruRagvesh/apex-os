@@ -14,6 +14,12 @@
 
   "platforms": ["core", "workforce", "operations", "intelligence", "business", "system"],
 
+  "componentAliases": {
+    "description": "Short public aliases for migrated components, mirroring frontend/tsconfig.json paths. Declared here so the validator RESOLVES them instead of treating them as bare packages — otherwise an import reaching into a component's internals through its alias would be invisible to the rules below. Each alias must address a component root, never a file inside it.",
+    "@apex/sales-crm-leads": "platforms/business/sales-crm/leads",
+    "@apex/sales-crm-shared": "platforms/business/sales-crm/shared"
+  },
+
   "layers": {
     "apps": {
       "path": "apps",
@@ -105,24 +111,48 @@
     "defaultRule": "forbidden",
     "exceptions": [
       {
-        "id": "DEBT-P1A-LEADS-LEGACY-FRONTEND",
+        "id": "DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS",
         "status": "temporary",
-        "introducedIn": "Phase 1A",
-        "removalPhase": "Phase 2 (Sales CRM shared slice)",
+        "introducedIn": "Phase 2A",
+        "removalPhase": "Phase 2B (Leads-owned asset migration)",
         "from": "platforms/business/sales-crm/leads/",
         "allowedTargets": [
-          "frontend/lib/api.ts",
-          "frontend/lib/sales-crm/",
-          "frontend/components/sales-crm/ui/",
-          "frontend/styles/sales-crm/"
+          "frontend/styles/sales-crm/leads.module.css",
+          "frontend/styles/sales-crm/primitives.module.css",
+          "frontend/components/sales-crm/ui/CompanyAutocomplete.tsx",
+          "frontend/components/sales-crm/ui/CountryCodeSelect.tsx"
         ],
-        "reason": "Phase 1A migrated the Leads frontend slice only. Its shared Sales CRM dependencies (types, auth-adapter, audit-log, permissions, constants, mock-data, country-codes, api-connector), the global API client, two shared CRM UI primitives and the CRM stylesheets are still owned by other Sales CRM components that have not migrated. Duplicating them would create two implementations; moving them would exceed Phase 1A scope.",
+        "reason": "Phase 2A moved every Sales CRM dependency that is genuinely shared by two or more components. These four are not. leads.module.css is consumed by 15 Leads files and by exactly two controls; CompanyAutocomplete and CountryCodeSelect each have exactly one consumer (Leads), so moving them into the shared slice would create a 'shared' module that nothing shares. primitives.module.css IS shared by every Sales CRM component, but routing a CSS module through the shared slice's barrel changes its position in the bundle graph, and it is applied to the same elements as leads.module.css — a cascade-order change is a visual regression risk that Phase 2A explicitly declined to take.",
         "removalConditions": [
-          "Sales CRM shared slice migrates, providing public entry points for types/auth-adapter/audit-log/permissions/constants/mock-data/country-codes",
-          "api-connector is assigned an owner (audit decision D2)",
-          "CompanyAutocomplete and CountryCodeSelect move to platforms/business/sales-crm/shared/ui",
-          "CRM stylesheets move to platforms/business/sales-crm/shared/styles",
-          "frontend/lib/api.ts salesCrmLeadsApi is replaced by a component-owned API adapter in Phase 1B"
+          "leads.module.css moves into platforms/business/sales-crm/leads/frontend/styles/",
+          "CompanyAutocomplete and CountryCodeSelect move into the Leads slice, or gain a second Sales CRM consumer that justifies the shared slice",
+          "primitives.module.css moves once the remaining Sales CRM feature screens migrate, so all its consumers move together and cascade order can be verified in one step"
+        ]
+      },
+      {
+        "id": "DEBT-P2A-SALES-CRM-API-CLIENT",
+        "status": "temporary",
+        "introducedIn": "Phase 2A",
+        "removalPhase": "Phase 2C (Sales CRM API ownership)",
+        "from": "platforms/business/sales-crm/leads/",
+        "allowedTargets": ["frontend/lib/api.ts"],
+        "reason": "salesCrmLeadsApi is a self-contained export, but it rides the module-local axios instance in frontend/lib/api.ts, which carries the Bearer-token request interceptor, the 401 redirect to /login?expired=true, the response.data unwrapping and a one-time nexus_*->apex_* localStorage migration shared by 58 files. Extracting the methods without that instance would either duplicate the interceptor chain (two 401 handlers, duplicated storage migration) or import it back from legacy anyway, reducing no debt.",
+        "removalConditions": [
+          "The shared axios instance and its interceptors move to a platform- or shared-owned HTTP client",
+          "salesCrmLeadsApi is replaced by a Leads-owned API adapter built on that client"
+        ]
+      },
+      {
+        "id": "DEBT-P2A-SALES-CRM-AUTH-STORE",
+        "status": "temporary",
+        "introducedIn": "Phase 2A",
+        "removalPhase": "Phase 3 (identity platform slice)",
+        "from": "platforms/business/sales-crm/shared/frontend/api/auth-adapter.ts",
+        "allowedTargets": ["frontend/store/auth.store.ts"],
+        "reason": "The Sales CRM auth adapter maps an Apex identity onto a CRM Role. It is the single point of contact between Sales CRM and the application-wide Zustand auth store, which is owned by the identity platform and must not move in a Sales CRM phase. Every other Sales CRM file consumes this adapter, never the store.",
+        "removalConditions": [
+          "The application-wide auth store migrates to platforms/core/identity/",
+          "The adapter imports it through that component's public entry point"
         ]
       }
     ]

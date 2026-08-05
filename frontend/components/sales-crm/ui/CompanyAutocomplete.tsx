@@ -15,7 +15,7 @@
 // ported) is the only path that was ever reachable in this environment.
 
 import { useState, useEffect, useRef, useId } from "react";
-import { CompanyMaster } from "@/lib/sales-crm/types";
+import { CompanyMaster } from "@apex/sales-crm-shared";
 import { LocalStorageCompanyRepository } from "@/lib/sales-crm/company/company-repository";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";

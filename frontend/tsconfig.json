@@ -15,7 +15,8 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./*"],
-      "@apex/sales-crm-leads": ["../platforms/business/sales-crm/leads/index.ts"]
+      "@apex/sales-crm-leads": ["../platforms/business/sales-crm/leads/index.ts"],
+      "@apex/sales-crm-shared": ["../platforms/business/sales-crm/shared/index.ts"]
     }
   },
   "include": [
@@ -24,7 +25,9 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     "../platforms/business/sales-crm/leads/**/*.ts",
-    "../platforms/business/sales-crm/leads/**/*.tsx"
+    "../platforms/business/sales-crm/leads/**/*.tsx",
+    "../platforms/business/sales-crm/shared/**/*.ts",
+    "../platforms/business/sales-crm/shared/**/*.tsx"
   ],
   "exclude": ["node_modules"]
 }

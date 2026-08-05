@@ -4,7 +4,7 @@
 // route-local (config/ sibling to components/), not under lib/, since only
 // ActivityTab.tsx and ActivityModal.tsx use it.
 
-import { LeadStage } from "@/lib/sales-crm/types";
+import { LeadStage } from "@apex/sales-crm-shared";
 
 export type StageFieldType =
   | "text"

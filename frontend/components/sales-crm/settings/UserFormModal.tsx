@@ -3,9 +3,8 @@
 // SalesCRM — Add/Edit user modal
 
 import { useState, useEffect } from "react";
-import { Role } from "@/lib/sales-crm/types";
+import { Role, ROLE_LABELS } from "@apex/sales-crm-shared";
 import { SettingsUser } from "@/lib/sales-crm/types/settings";
-import { ROLE_LABELS } from "@/lib/sales-crm/constants";
 import styles from "@/styles/sales-crm/settings.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

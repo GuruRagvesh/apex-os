@@ -2,13 +2,10 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Lead, Activity, Role } from "@/lib/sales-crm/types";
+import { Lead, Activity, Role, logAction, useAuth, isSalesLeadsBackendEnabled } from "@apex/sales-crm-shared";
 import ActivityTab from "./ActivityTab";
 import FollowupTab from "./FollowupTab";
 import RequirementTab from "./RequirementTab";
-import { logAction } from "@/lib/sales-crm/audit-log";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
 import { salesCrmLeadsApi } from "@/lib/api";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";

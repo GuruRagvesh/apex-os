@@ -8,8 +8,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { DashboardData, getDashboardData } from "@/lib/sales-crm/dashboard-calculations";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { Role } from "@/lib/sales-crm/types";
+import { useAuth, Role } from "@apex/sales-crm-shared";
 import DashboardHeader from "./DashboardHeader";
 import QuickAdd from "./QuickAdd";
 import SalesDashboard from "./SalesDashboard";

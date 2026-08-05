@@ -4,12 +4,8 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { CollectionType, DatabaseRecord, getSchema } from "@/lib/sales-crm/database-schema";
 import { MOCK_CLIENTS, MOCK_TRAINERS, MOCK_VENDORS, MOCK_SERVICES, MOCK_LEADS_MASTER } from "@/lib/sales-crm/database-data";
-import { logAction } from "@/lib/sales-crm/audit-log";
-import { AuditCollection } from "@/lib/sales-crm/types/audit";
+import { logAction, AuditCollection, useAuth, canAddRecord, canDeleteRecord, canImport, canEditRecord, Role } from "@apex/sales-crm-shared";
 
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { canAddRecord, canDeleteRecord, canImport, canEditRecord } from "@/lib/sales-crm/permissions";
-import { Role } from "@/lib/sales-crm/types";
 
 import DatabaseSection from "./DatabaseSection";
 import DatabaseModal from "./DatabaseModal";

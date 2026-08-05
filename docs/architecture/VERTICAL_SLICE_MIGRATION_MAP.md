@@ -445,6 +445,34 @@ created.** They are built when the features are built.
 > All other Sales CRM components below are still unmigrated.
 > See `platforms/business/sales-crm/leads/docs/README.md`.
 
+> **Status update (2026-08-05) — Phase 2A: the `shared` component is MIGRATED**
+> (branch `refactor/sales-crm-shared-frontend`). 10 files moved into
+> `platforms/business/sales-crm/shared/`, published through
+> `@apex/sales-crm-shared`: domain types and audit types, role permissions,
+> constants, mock data, country codes (with `data/countries.json`), the auth
+> adapter, the audit-log store and the data-mode connector.
+>
+> **Leads legacy debt: 90 → 37 imports.** The single broad
+> `DEBT-P1A-LEADS-LEGACY-FRONTEND` exemption is **removed** and replaced by
+> three narrow ones — `DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` (30),
+> `DEBT-P2A-SALES-CRM-API-CLIENT` (6), `DEBT-P2A-SALES-CRM-AUTH-STORE` (1).
+>
+> Legacy Sales CRM feature screens were **not** migrated; they now import
+> `@apex/sales-crm-shared` from their existing location, so there is exactly one
+> implementation of each shared concern. The **Sales CRM backend remains in its
+> legacy location** (see `apex-os-render-root-blocks-backend-slices`).
+> **No browser route, API path, payload, response handling, role gate,
+> feature-flag default, mock-data behaviour or Prisma file changed.**
+> Frontend build stays at 38/38 static pages.
+>
+> Two rows in the table below are now **superseded**: the Sales CRM
+> stylesheets and `frontend/components/sales-crm/ui/*` did **not** move to the
+> shared component. `CompanyAutocomplete` and `CountryCodeSelect` have exactly
+> one consumer (Leads), and moving `primitives.module.css` through the shared
+> barrel would change CSS cascade order against `leads.module.css`. Both are
+> deferred to **Phase 2B**.
+> See `platforms/business/sales-crm/shared/docs/README.md`.
+
 
 | Current | Target |
 | --- | --- |

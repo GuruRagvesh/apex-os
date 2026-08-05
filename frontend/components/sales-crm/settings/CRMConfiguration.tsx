@@ -3,7 +3,7 @@
 // SalesCRM - CRM Configuration editor
 
 import { useState } from "react";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth } from "@apex/sales-crm-shared";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
 import { CRMConfig } from "@/lib/sales-crm/types/settings";
 import styles from "@/styles/sales-crm/settings.module.css";

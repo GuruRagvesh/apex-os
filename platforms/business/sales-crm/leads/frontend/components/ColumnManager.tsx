@@ -1,10 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ColumnConfig } from "@/lib/sales-crm/types";
+import { ColumnConfig, logAction, useAuth } from "@apex/sales-crm-shared";
 import { X, ArrowUp, ArrowDown, Plus, Trash2 } from "lucide-react";
-import { logAction } from "@/lib/sales-crm/audit-log";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

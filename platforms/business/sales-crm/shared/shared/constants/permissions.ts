@@ -4,7 +4,7 @@
 // only (edit own lead vs. any lead, etc.) — it is NOT the app access gate.
 // Real workspace access control is Apex OS's own Admin/SuperAdmin auth gate.
 
-import { Role } from "./types";
+import { Role } from "../types";
 
 // ---------------------------------------------------------------------------
 // 1. Overall CRM Permissions

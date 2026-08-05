@@ -9,7 +9,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { APP_NAME } from '@/lib/sales-crm/constants';
+import { APP_NAME } from '@apex/sales-crm-shared';
 import styles from '@/styles/sales-crm/shell.module.css';
 import {
   BarChart3,

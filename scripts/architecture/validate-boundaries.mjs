@@ -133,8 +133,11 @@ function resolveSpecifier(specifier, fileRel, aliasMap) {
     return `frontend/${specifier.slice(2)}`;
   }
 
-  // Alias form: @apex/<layer>/...
-  for (const [prefix, target] of Object.entries(aliasMap)) {
+  // Alias form: @apex/<layer>/... and the short component aliases.
+  // Sorted longest-first so a component alias ('@apex/sales-crm-shared') is
+  // matched before any shorter prefix that happens to overlap it.
+  const prefixes = Object.entries(aliasMap).sort((a, b) => b[0].length - a[0].length);
+  for (const [prefix, target] of prefixes) {
     if (specifier === prefix || specifier.startsWith(`${prefix}/`)) {
       const rest = specifier.slice(prefix.length).replace(/^\//, '');
       return rest ? `${target}/${rest}` : target;
@@ -166,6 +169,14 @@ function buildAliasMap(config) {
   };
   for (const platform of config.platforms) {
     map[`@apex/${platform}`] = `platforms/${platform}`;
+  }
+  // Short component aliases declared in architecture-boundaries.json, mirroring
+  // frontend/tsconfig.json. Without these the validator would treat
+  // '@apex/sales-crm-shared/frontend/api/auth-adapter' as a bare package and
+  // silently allow an import that reaches into a component's internals.
+  for (const [alias, target] of Object.entries(config.componentAliases ?? {})) {
+    if (alias === 'description') continue;
+    map[alias] = target;
   }
   return map;
 }

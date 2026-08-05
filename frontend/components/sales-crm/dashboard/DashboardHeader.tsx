@@ -1,6 +1,6 @@
 "use client";
 
-import { Role } from "@/lib/sales-crm/types";
+import { Role } from "@apex/sales-crm-shared";
 import styles from "@/styles/sales-crm/dashboard.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 import { RefreshCw, Plus } from "lucide-react";

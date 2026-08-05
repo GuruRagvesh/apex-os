@@ -1,6 +1,4 @@
-import { Lead, LeadStage, Role } from "./types";
-import { MOCK_LEADS } from "./mock-data";
-import { isDealMoneyVisible } from "./permissions";
+import { Lead, LeadStage, Role, MOCK_LEADS, isDealMoneyVisible } from "@apex/sales-crm-shared";
 
 // This file simulates a backend service or data layer that provides dashboard metrics.
 // When the backend is built, these functions will be replaced by API calls,
