@@ -3,7 +3,7 @@
 // SalesCRM — Data Import component with CSV/JSON support
 
 import { useState, useRef } from "react";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth } from "@apex/sales-crm-shared";
 import { useSettingsStore, parseCSV, parseJSONImport, validateImportData } from "@/lib/sales-crm/settings-store";
 import { IMPORT_COLLECTIONS, IMPORT_SCHEMAS } from "@/lib/sales-crm/types/settings";
 import type { ImportCollection, ImportPreviewResult } from "@/lib/sales-crm/types/settings";

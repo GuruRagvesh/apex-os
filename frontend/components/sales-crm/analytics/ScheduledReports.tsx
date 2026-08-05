@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Plus, Edit2, Pause, Trash2, Play } from "lucide-react";
 import { useAnalyticsStore, ReportSchedule, canViewItem, createAnalyticsId, getUserAnalyticsContext } from "@/lib/sales-crm/analytics-store";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth } from "@apex/sales-crm-shared";
 import ScheduleModal from "./ScheduleModal";
 import styles from "@/styles/sales-crm/analytics.module.css";
 import dash from "@/styles/sales-crm/dashboard.module.css";

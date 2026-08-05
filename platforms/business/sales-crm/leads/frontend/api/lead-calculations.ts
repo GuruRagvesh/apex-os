@@ -1,4 +1,4 @@
-import { Lead } from "@/lib/sales-crm/types";
+import { Lead } from "@apex/sales-crm-shared";
 
 export interface LeadsStatsData {
   totalLeads: number;

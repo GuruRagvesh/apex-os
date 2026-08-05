@@ -2,13 +2,8 @@
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Lead, LeadStage, Role, ColumnConfig } from "@/lib/sales-crm/types";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { isContactFieldVisible } from "@/lib/sales-crm/permissions";
+import { Lead, LeadStage, Role, ColumnConfig, useAuth, isContactFieldVisible, MOCK_USERS, ROLE_LABELS, logAction, isSalesLeadsBackendEnabled } from "@apex/sales-crm-shared";
 import { MoreVertical, Mail, Phone, PlusCircle, UserCog } from "lucide-react";
-import { MOCK_USERS, ROLE_LABELS } from "@/lib/sales-crm/constants";
-import { logAction } from "@/lib/sales-crm/audit-log";
-import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
 import { salesCrmLeadsApi } from "@/lib/api";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";

@@ -251,19 +251,22 @@ testCase(
   { expectExit: 1, expectRule: 'frontend-no-backend' },
 );
 
-// ── Phase 1A: narrow temporary legacy-import exemption ──────────────────────
-// platforms/** -> frontend/** is forbidden by default. Sales CRM Leads carries
-// an explicit, narrow, temporary exemption (DEBT-P1A-LEADS-LEGACY-FRONTEND).
-// These prove the exemption is genuinely narrow and has not weakened the rule.
+// ── Phase 2A: narrow temporary legacy-import exemptions ─────────────────────
+// platforms/** -> frontend/** is forbidden by default. Phase 2A replaced the
+// broad Phase 1A exemption with three narrow ones:
+//   DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS  (Leads -> 2 stylesheets, 2 controls)
+//   DEBT-P2A-SALES-CRM-API-CLIENT       (Leads -> frontend/lib/api.ts)
+//   DEBT-P2A-SALES-CRM-AUTH-STORE       (one exact file -> auth.store.ts)
+// These prove each is genuinely narrow and has not weakened the rule.
 
-// 11. The allowlisted Leads legacy import is accepted.
+// 11. The allowlisted Leads legacy imports are accepted.
 testCase(
-  'accepts the allowlisted Sales CRM Leads legacy frontend import',
+  'accepts the allowlisted Sales CRM Leads legacy imports',
   (root) => {
     write(
       root,
       'platforms/business/sales-crm/leads/frontend/screens/SalesCrmLeads.tsx',
-      `import { salesCrmLeadsApi } from '@/lib/api';\nimport { Lead } from '@/lib/sales-crm/types';\nimport styles from '@/styles/sales-crm/leads.module.css';\nexport default function S() { return null; }\n`,
+      `import { salesCrmLeadsApi } from '@/lib/api';\nimport styles from '@/styles/sales-crm/leads.module.css';\nimport ui from '@/styles/sales-crm/primitives.module.css';\nimport CountryCodeSelect from '@/components/sales-crm/ui/CountryCodeSelect';\nexport default function S() { return null; }\n`,
     );
   },
   { expectExit: 0 },
@@ -315,7 +318,160 @@ testCase(
     write(
       root,
       'platforms/business/sales-crm/dashboard/frontend/screens/DashboardScreen.tsx',
-      `import { Lead } from '@/lib/sales-crm/types';\nexport default function S() { return null; }\n`,
+      `import styles from '@/styles/sales-crm/leads.module.css';\nexport default function S() { return null; }\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 16. Paths that Phase 2A migrated OUT of frontend/ are no longer allowlisted.
+// This is the test that would fail if someone re-added the broad Phase 1A
+// exemption, or left a stale import behind after the move.
+testCase(
+  'rejects Leads importing legacy paths that Phase 2A migrated away',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadDetail.tsx',
+      `import { Lead } from '@/lib/sales-crm/types';\nexport const L = () => null;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 17. A Sales CRM component may consume the shared slice's PUBLIC entry point.
+testCase(
+  'accepts a Sales CRM component consuming the shared public API',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadStats.tsx',
+      `import { Role, useAuth } from '@apex/sales-crm-shared';\nexport const L = () => useAuth() && Role;\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 18. Reaching into the shared slice's internals through its alias is rejected.
+// Without componentAliases in architecture-boundaries.json the validator would
+// treat this as a bare package and silently allow it.
+testCase(
+  'rejects a Sales CRM component importing shared slice internals via the alias',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadFilters.tsx',
+      `import { useAuth } from '@apex/sales-crm-shared/frontend/api/auth-adapter';\nexport const L = () => useAuth();\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 19. A NON-Sales-CRM platform cannot reach into the shared slice's internals.
+testCase(
+  'rejects a non-Sales-CRM platform importing Sales CRM shared internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/workforce/attendance/workday/backend/services/workday.service.ts',
+      `import { Role } from '@apex/business/sales-crm/shared/shared/types';\nexport const r = Role;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 20. The auth-store exemption applies to the exact adapter file only.
+testCase(
+  'accepts the Sales CRM auth adapter importing the legacy auth store',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/shared/frontend/api/auth-adapter.ts',
+      `import { useAuthStore } from '@/store/auth.store';\nexport const useAuth = () => useAuthStore();\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 21. A sibling file in the SAME folder cannot reuse the auth-store exemption.
+testCase(
+  'rejects a sibling shared file reusing the auth-store exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/shared/frontend/api/audit-log.ts',
+      `import { useAuthStore } from '@/store/auth.store';\nexport const a = () => useAuthStore();\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 22. Another platform cannot reuse the auth-store exemption either.
+testCase(
+  'rejects another platform importing the legacy auth store',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/attendance/workday/frontend/hooks/useMe.ts',
+      `import { useAuthStore } from '@/store/auth.store';\nexport const m = () => useAuthStore();\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 23. The existing Leads public API remains valid through its own alias.
+testCase(
+  'accepts an app composing the Leads public API through its alias',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/leads/index.ts', `export const SalesCrmLeads = () => null;\n`);
+    write(
+      root,
+      'apps/web/app/sales-crm/leads/page.tsx',
+      `export { SalesCrmLeads as default } from '@apex/sales-crm-leads';\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 24. Reaching into the Leads slice's internals through its alias is rejected.
+testCase(
+  'rejects reaching into Leads internals through its alias',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/leads/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'apps/web/app/sales-crm/leads/page.tsx',
+      `import LeadList from '@apex/sales-crm-leads/frontend/components/LeadList';\nexport default LeadList;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 25. Dynamic import() of shared slice internals is checked too.
+testCase(
+  'detects dynamic import() reaching into shared slice internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadTabs.tsx',
+      `export const load = () => import('@apex/sales-crm-shared/shared/constants/permissions');\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 26. require() of the legacy auth store from a non-exempt file is checked too.
+testCase(
+  'detects require() of the legacy auth store from a non-exempt file',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/shared/shared/constants/permissions.ts',
+      `const { useAuthStore } = require('@/store/auth.store');\nexport const p = useAuthStore;\n`,
     );
   },
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },

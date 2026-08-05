@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { Role } from "@/lib/sales-crm/types";
+import { useAuth, Role } from "@apex/sales-crm-shared";
 import styles from "@/styles/sales-crm/settings.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

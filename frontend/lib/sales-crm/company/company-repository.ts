@@ -5,9 +5,8 @@
 // the external company-suggestions API route it was built for), so this
 // repository is local-storage-only, same as the intern's own fallback path.
 
-import { CompanyMaster } from "../types";
+import { CompanyMaster, MOCK_LEADS } from "@apex/sales-crm-shared";
 import { normalizeCompanyName, normalizeDomain } from "./normalization";
-import { MOCK_LEADS } from "../mock-data";
 import { MOCK_CLIENTS } from "../database-data";
 
 export interface CompanyRepository {

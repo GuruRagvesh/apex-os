@@ -18,7 +18,7 @@
 // it is a deliberate no-op, not a second auth path.
 
 import { useAuthStore } from "@/store/auth.store";
-import { Role, User as CrmUser } from "./types";
+import { Role, User as CrmUser } from "../../shared/types";
 
 const APEX_TO_CRM_ROLE: Record<string, Role> = {
   SUPER_ADMIN: Role.SUPERADMIN,

@@ -2,7 +2,9 @@
 
 **Status:** Frontend migrated (Phase 1A). Backend deferred to Phase 1B.
 **Migrated:** 2026-08-04
-**Debt identifier:** `DEBT-P1A-LEADS-LEGACY-FRONTEND`
+**Shared dependencies extracted:** 2026-08-05 (Phase 2A)
+**Debt identifiers:** `DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS`,
+`DEBT-P2A-SALES-CRM-API-CLIENT`
 
 The first vertical slice migrated under the Platform → Module → Component
 architecture. Chosen as the pilot because it is the lowest-risk feature in the
@@ -30,8 +32,10 @@ Leads surface.
 - Backend controller, service, access policy and Nest module remain in
   `backend/src/`. See [Backend deferral](#backend-deferral-phase-1b).
 - Sales CRM shared code (types, auth adapter, audit log, permissions,
-  constants, mock data, country codes, API connector) is still owned by
-  unmigrated Sales CRM components.
+  constants, mock data, country codes, API/data-mode connector) is owned by the
+  **`shared` component** as of Phase 2A and consumed here through
+  `@apex/sales-crm-shared`. See
+  [Temporary legacy dependencies](#temporary-legacy-dependencies).
 
 ---
 
@@ -74,8 +78,9 @@ This component does not re-implement that gate and must not weaken it.
 NEXT_PUBLIC_SALES_CRM_LEADS_BACKEND_ENABLED
 ```
 
-Read by `isSalesLeadsBackendEnabled()` in
-`frontend/lib/sales-crm/api-connector.ts` (**not** migrated — still shared).
+Read by `isSalesLeadsBackendEnabled()`, published from the Sales CRM `shared`
+component as `@apex/sales-crm-shared` (Phase 2A moved the file from
+`frontend/lib/sales-crm/api-connector.ts` without changing the flag logic).
 
 | Value | Behaviour |
 | --- | --- |
@@ -108,43 +113,73 @@ The 13 view components are **internal** and intentionally not re-exported.
 
 ## Temporary legacy dependencies
 
-This component still imports from the legacy `frontend/` root — **90 imports**,
-all covered by the narrow exemption `DEBT-P1A-LEADS-LEGACY-FRONTEND` in
-`architecture-boundaries.json`.
+Sales CRM shared imports now use:
 
-| Legacy path | Why still there |
+```ts
+import { Role, useAuth, logAction, isSalesLeadsBackendEnabled } from '@apex/sales-crm-shared';
+```
+
+**Current remaining migration debt:**
+
+| Identifier | Imports | Removal phase |
+| --- | --- | --- |
+| `DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` | 30 | Phase 2B |
+| `DEBT-P2A-SALES-CRM-API-CLIENT` | 6 | Phase 2C |
+| `DEBT-P2A-SALES-CRM-AUTH-STORE` | 1 | Phase 3 |
+
+**Total remaining debt: 37 imports** (previous Phase 1A debt: **90 imports**).
+
+`DEBT-P2A-SALES-CRM-AUTH-STORE` is not carried by this component — it belongs to
+the `shared` component's auth adapter and is listed here only to account for the
+full 37.
+
+### Moved to the `shared` component in Phase 2A
+
+- types
+- auth adapter
+- audit log
+- permissions
+- constants
+- mock data
+- country codes
+- API/data-mode connector
+
+### Intentionally still legacy
+
+| Kept in `frontend/` | Why |
 | --- | --- |
-| `@/lib/sales-crm/types` (16) | Sales CRM-wide type module, shared with 13 other files |
-| `@/styles/sales-crm/*.module.css` (28) | CRM stylesheets shared with the shell and other components |
-| `@/lib/sales-crm/auth-adapter` (10) | Shared with 15 other files |
-| `@/lib/sales-crm/audit-log` (8) | Shared with database, settings, shell |
-| `@/lib/sales-crm/api-connector` (6) | Holds the flag **and** the CRM-wide data-mode boundary |
-| `@/lib/api` (6) | Global Apex API client (`salesCrmLeadsApi`) |
-| `@/lib/sales-crm/permissions` (5) | Shared with database, shell |
-| `@/lib/sales-crm/constants` (5) | Shared with settings, shell |
-| `@/lib/sales-crm/mock-data` (2) | Shared with dashboard |
-| `@/lib/sales-crm/country-codes` (1) | Shared with `ui/CountryCodeSelect` |
-| `@/components/sales-crm/ui/*` (2) | Shared CRM UI primitives |
+| Sales CRM CSS assets (`leads.module.css`, `primitives.module.css` — 28 imports) | `primitives` is genuinely shared, but it styles the same elements as `leads.module.css`; routing a CSS module through the shared barrel changes its bundle-graph position and therefore cascade order. Phase 2A declined that visual-regression risk. Both move in Phase 2B once all consumers migrate together. |
+| `CompanyAutocomplete`, `CountryCodeSelect` (2 imports) | Each has exactly **one** consumer — this component. Moving them into `shared` would create a shared module that nothing shares. |
+| Global API client / `salesCrmLeadsApi` (6 imports) | `salesCrmLeadsApi` rides the module-local axios instance in `frontend/lib/api.ts`, which carries the Bearer-token interceptor, the 401 → `/login?expired=true` redirect, `response.data` unwrapping and a one-time `nexus_*`→`apex_*` localStorage migration shared by 58 files. Extracting it would duplicate that chain or import it back anyway. |
+| Application-wide auth store (`frontend/store/auth.store.ts`) | Owned by the identity platform. Only the `shared` auth adapter may touch it; every Sales CRM file consumes `useAuth()` instead. |
+| Settings-owned types (`frontend/lib/sales-crm/types/settings.ts`) | Belongs to the unmigrated `settings` component, not to shared code. Not a Leads dependency. |
 
 **These are visible, not hidden.** The validator resolves `@/…` to
 `frontend/…` specifically so this debt is reported on every run rather than
-silently skipped as an external package.
+silently skipped as an external package. Phase 2A additionally declared
+`componentAliases` in `architecture-boundaries.json` so `@apex/sales-crm-leads`
+and `@apex/sales-crm-shared` are resolved too — previously they were treated as
+bare packages, which meant an import reaching into a component's internals
+through its alias was invisible.
 
 ### Removal conditions
 
-The exemption is removed when **all** of these are true:
+`DEBT-P2A-LEADS-OWNED-LEGACY-ASSETS` is removed when:
 
-1. The Sales CRM shared slice migrates, publishing entry points for types,
-   auth-adapter, audit-log, permissions, constants, mock-data and country-codes.
-2. `api-connector.ts` is assigned an owner (open audit decision **D2** — it is
-   currently Leads-only in practice but documented as the CRM-wide connector).
-3. `CompanyAutocomplete` and `CountryCodeSelect` move to
-   `platforms/business/sales-crm/shared/ui/`.
-4. CRM stylesheets move to `platforms/business/sales-crm/shared/styles/`.
-5. `salesCrmLeadsApi` is replaced by a component-owned API adapter (Phase 1B).
+1. `leads.module.css` moves into this component's `frontend/styles/`.
+2. `CompanyAutocomplete` and `CountryCodeSelect` move into this component, or
+   gain a second Sales CRM consumer that justifies the `shared` component.
+3. `primitives.module.css` moves once the remaining Sales CRM feature screens
+   migrate, so all its consumers move together and cascade order can be
+   verified in one step.
 
-No other component may use this exemption. Self-tests prove a sibling Sales CRM
-component and an unrelated platform are both rejected for the same import.
+`DEBT-P2A-SALES-CRM-API-CLIENT` is removed when the shared axios instance and
+its interceptors move to a platform- or shared-owned HTTP client, and
+`salesCrmLeadsApi` is replaced by a Leads-owned API adapter built on it.
+
+No other component may use these exemptions. Self-tests prove a sibling Sales
+CRM component and an unrelated platform are both rejected for the same import,
+and that paths Phase 2A migrated away are no longer allowlisted.
 
 ---
 
@@ -184,7 +219,7 @@ exactly.
 Any change to this component must pass:
 
 ```bash
-npm run architecture:test    # 15 self-tests, incl. exemption narrowness
+npm run architecture:test    # 26 self-tests, incl. exemption narrowness
 npm run architecture:check   # live scan; debt count reported, not hidden
 cd frontend && npm run build # must stay at 38/38 static pages
 cd backend  && npm run build # must remain unaffected

@@ -6,7 +6,7 @@
 // the generic "crm_settings" to a namespaced key.
 
 import { useSyncExternalStore, useCallback } from "react";
-import { Role } from "./types";
+import { Role, logAction, AuditAction as GlobalAuditAction, AuditCollection } from "@apex/sales-crm-shared";
 import {
   SettingsState,
   SettingsUser,
@@ -25,8 +25,6 @@ import {
   UserProfile,
   CustomRole,
 } from "./types/settings";
-import { logAction } from "./audit-log";
-import { AuditAction as GlobalAuditAction, AuditCollection } from "./types/audit";
 
 /* ------------------------------------------------------------------ */
 /*  Storage key                                                        */

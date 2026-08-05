@@ -1,14 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Lead, LeadStage, Activity, Role } from "@/lib/sales-crm/types";
+import { Lead, LeadStage, Activity, Role, useAuth, canEditRecord, canChangeLeadOwner, isContactFieldVisible, logAction, AuditCollection, MOCK_USERS, isSalesLeadsBackendEnabled } from "@apex/sales-crm-shared";
 import ActivityModal from "./ActivityModal";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { canEditRecord, canChangeLeadOwner, isContactFieldVisible } from "@/lib/sales-crm/permissions";
-import { logAction } from "@/lib/sales-crm/audit-log";
-import { AuditCollection } from "@/lib/sales-crm/types/audit";
-import { MOCK_USERS } from "@/lib/sales-crm/constants";
-import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
 import { salesCrmLeadsApi } from "@/lib/api";
 import { Phone, Mail, MoreHorizontal, Activity as ActivityIcon, Edit3 } from "lucide-react";
 import { useSearchParams } from "next/navigation";

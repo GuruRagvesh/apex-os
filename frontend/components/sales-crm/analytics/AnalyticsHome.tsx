@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAnalyticsStore, canViewItem, getUserAnalyticsContext } from "@/lib/sales-crm/analytics-store";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth } from "@apex/sales-crm-shared";
 import { Pin } from "lucide-react";
 import styles from "@/styles/sales-crm/analytics.module.css";
 import dash from "@/styles/sales-crm/dashboard.module.css";

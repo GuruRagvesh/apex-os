@@ -3,11 +3,9 @@
 import { useState } from "react";
 import { Settings, CheckCircle, ArrowRight } from "lucide-react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { Activity, LeadStage, Role } from "@/lib/sales-crm/types";
+import { Activity, LeadStage, Role, useAuth, canManageActivityTabs } from "@apex/sales-crm-shared";
 import ActivityModal from "./ActivityModal";
 import ActivityTabManager, { CustomTab } from "./ActivityTabManager";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { canManageActivityTabs } from "@/lib/sales-crm/permissions";
 import { STAGE_FORMS } from "../../shared/types/stage-forms";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";

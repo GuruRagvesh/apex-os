@@ -1,13 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Lead, LeadStage } from "@/lib/sales-crm/types";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { ROLE_LABELS } from "@/lib/sales-crm/constants";
-import { MOCK_LEADS } from "@/lib/sales-crm/mock-data";
+import { Lead, LeadStage, useAuth, ROLE_LABELS, MOCK_LEADS, getDefaultCountryCode } from "@apex/sales-crm-shared";
 import CountryCodeSelect from "@/components/sales-crm/ui/CountryCodeSelect";
 import CompanyAutocomplete from "@/components/sales-crm/ui/CompanyAutocomplete";
-import { getDefaultCountryCode } from "@/lib/sales-crm/country-codes";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";
 

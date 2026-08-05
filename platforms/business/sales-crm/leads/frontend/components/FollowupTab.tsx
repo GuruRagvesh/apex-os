@@ -2,10 +2,7 @@
 
 import { useState } from "react";
 import { CheckCircle, AlertCircle, CalendarClock } from "lucide-react";
-import { Lead, Role } from "@/lib/sales-crm/types";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
-import { logAction } from "@/lib/sales-crm/audit-log";
-import { isSalesLeadsBackendEnabled } from "@/lib/sales-crm/api-connector";
+import { Lead, Role, useAuth, logAction, isSalesLeadsBackendEnabled } from "@apex/sales-crm-shared";
 import { salesCrmLeadsApi } from "@/lib/api";
 import { getLocalTomorrowISO, isStrictFutureDate } from "../../shared/types/date-utils";
 import styles from "@/styles/sales-crm/leads.module.css";

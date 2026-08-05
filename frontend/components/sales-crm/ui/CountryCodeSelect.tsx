@@ -7,7 +7,7 @@
 // component's first real consumer.
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { getCountryCodes, getDefaultCountryCode } from "@/lib/sales-crm/country-codes";
+import { getCountryCodes, getDefaultCountryCode } from "@apex/sales-crm-shared";
 import { Search, ChevronDown } from "lucide-react";
 import styles from "@/styles/sales-crm/leads.module.css";
 import ui from "@/styles/sales-crm/primitives.module.css";

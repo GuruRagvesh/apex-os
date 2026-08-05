@@ -6,7 +6,7 @@
 // with an unrelated Apex OS or browser-global key.
 
 import { useSyncExternalStore } from "react";
-import { AuditLogRecord } from "./types/audit";
+import { AuditLogRecord } from "../../shared/types/audit";
 
 const AUDIT_STORE_KEY = "salescrm_audit_logs";
 const MAX_LOGS = 500;

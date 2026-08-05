@@ -3,11 +3,9 @@
 // SalesCRM — User Management component
 
 import { useState } from "react";
-import { useAuth } from "@/lib/sales-crm/auth-adapter";
+import { useAuth, Role, ROLE_LABELS } from "@apex/sales-crm-shared";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
-import { Role } from "@/lib/sales-crm/types";
 import { SettingsUser } from "@/lib/sales-crm/types/settings";
-import { ROLE_LABELS } from "@/lib/sales-crm/constants";
 import UserFormModal from "./UserFormModal";
 import ConfirmModal from "@/components/sales-crm/ui/ConfirmModal";
 import styles from "@/styles/sales-crm/settings.module.css";
