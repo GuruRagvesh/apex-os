@@ -1077,6 +1077,155 @@ testCase(
   { expectExit: 1, expectRule: 'platforms-no-legacy-backend' },
 );
 
+// ── Intelligence Dashboard: component boundary ──────────────────────────────
+// Only the screen is published; the eight widgets under it are private.
+
+// 61. A thin route adapter may compose the Dashboard public entry.
+testCase(
+  'accepts a thin route importing the Dashboard public entry',
+  (root) => {
+    write(root, 'platforms/intelligence/dashboard/overview/index.ts', `export const DashboardScreen = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/dashboard/page.tsx',
+      `import { DashboardScreen } from '@apex/intelligence-dashboard';
+export default DashboardScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 62. Its widgets are internal — no external component may reach them.
+testCase(
+  'rejects an external component importing a Dashboard widget',
+  (root) => {
+    write(root, 'platforms/intelligence/dashboard/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { TeamPressurePanel } from '@apex/intelligence-dashboard/frontend/components/TeamPressurePanel';
+export default TeamPressurePanel;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 63. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of a Dashboard internal path',
+  (root) => {
+    write(root, 'platforms/intelligence/dashboard/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `export const load = () => import('@apex/intelligence-dashboard/frontend/screens/DashboardScreen');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 64. ...and by require().
+testCase(
+  'detects require() of a Dashboard internal path',
+  (root) => {
+    write(root, 'platforms/intelligence/dashboard/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `const W = require('@apex/intelligence-dashboard/frontend/components/HomeSkeleton');
+export default W;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 65. Dashboard frontend must not import backend code.
+testCase(
+  'rejects Dashboard frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { DashboardService } from '../../backend/services/dashboard.service';
+export default DashboardService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 66. shared/ must not import the Dashboard component.
+testCase(
+  'rejects a shared module importing the Dashboard component',
+  (root) => {
+    write(root, 'platforms/intelligence/dashboard/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/dash-helper.ts',
+      `import { X } from '@apex/intelligence-dashboard';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 67. The Dashboard legacy exemption covers its allowlisted targets only.
+testCase(
+  'accepts a Dashboard file importing its allowlisted legacy dependencies',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { dashboardApi } from '@/lib/api';
+import { WorkdayBar } from '@/components/workday/WorkdayBar';
+import { CommandModal } from '@/components/ui/CommandModal';
+export default function S() { return null; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 68. An unallowlisted legacy path is still rejected for the Dashboard.
+testCase(
+  'rejects a Dashboard file importing an unallowlisted legacy path',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { salesCrmLeadsApi } from '@/lib/sales-crm/api-connector';
+export default function S() { return null; }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 69. Another platform cannot reuse the Dashboard exemption.
+testCase(
+  'rejects another platform reusing the Dashboard legacy exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { WorkdayBar } from '@/components/workday/WorkdayBar';
+export default WorkdayBar;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -1128,6 +1277,7 @@ testRealRepoDebtCounts({
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P2A-SALES-CRM-AUTH-STORE': 1,
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 9,
+  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 15,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

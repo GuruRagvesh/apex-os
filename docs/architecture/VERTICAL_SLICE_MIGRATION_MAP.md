@@ -45,35 +45,46 @@ only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
 **Last measured: 2026-08-06.**
 
-The official baseline counts **merged** work only. A branch awaiting merge is
-reported separately so the headline figure never runs ahead of `main`.
+Two figures, because they answer different questions. Every component we create
+adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
+footprint number flatters progress. **Legacy relocation is the honest metric.**
 
-| | Merged baseline (`origin/main`) | Candidate branch (Projects, unmerged) |
+### Primary — legacy files relocated
+
+| | Merged (`origin/main`) | Candidate (Dashboard branch) |
 | --- | --- | --- |
-| Compartmentalised | **43** | 45 |
-| Legacy remaining | 390 | 388 |
-| **Total tracked runtime files** | **433** | 433 |
-| **Completion** | **9.9%** | 10.4% |
+| Legacy relocated | 33 | **42** |
+| Legacy remaining | 390 | 382 |
+| Denominator | 423 | 424 |
+| **Relocation** | **7.8%** | **9.9%** |
 
-`compartmentalize/operations-projects-frontend` moves the figure to **45/433 =
-10.4%** and gives `operations` its first real feature compartment. Until it
-merges, the repository baseline remains **43/433 = 9.9%**.
+### Secondary — target-architecture footprint
+
+| | Merged (`origin/main`) | Candidate (Dashboard branch) |
+| --- | --- | --- |
+| Files in new architecture | 47 | **58** |
+| of which new barrels | 12 | 14 |
+| of which extracted modules | 2 | 2 |
+| Total tracked | 437 | 440 |
+| **Footprint** | **10.8%** | **13.2%** |
+
+`compartmentalize/intelligence-dashboard-frontend` relocates **9 legacy files**
+and adds **2 barrels**. Until it merges the baseline remains 33/423 = 7.8%.
 
 ### Platform coverage
 
-Merged baseline; the Projects branch adds the `operations` row on merge.
+Candidate branch included; `intelligence` is new.
 
 | Platform | Files | Status |
 | --- | --- | --- |
 | `business` | 40 | Sales CRM Leads + shared |
-| `operations` | 0 → **2 on merge** | Projects frontend (candidate branch) |
+| `intelligence` | 11 | Dashboard overview (candidate branch) |
+| `operations` | 4 | Projects frontend |
+| `shared` | 3 | `shared/auth` |
 | `core` | 0 | not started |
 | `workforce` | 0 | not started |
-| `intelligence` | 0 | not started |
 | `system` | 0 | not started |
-| `shared` | 3 | `shared/auth` |
-| `database` | 0 | not started |
-| `apps` | 0 | not activated |
+| `database` / `apps` | 0 | not started |
 
 ### Largest remaining blocks
 
@@ -494,6 +505,36 @@ created.** They are built when the features are built.
 > **D5** — `home-v2` is an unlinked preview of the dashboard, using the
 > established hidden-route pattern. It belongs with the dashboard it previews,
 > and its route adapter stays unlinked.
+>
+> **D5 CORRECTED (2026-08-06).** This is no longer true. `frontend/app/home-v2/page.tsx`
+> renders `ApexLandingPage` with `showPreviewBanner` — the same component `/`
+> renders — and its own comment says the content "is promoted to /". It is a
+> landing-page alias route, not a dashboard preview, and belongs to
+> `platforms/system/public-site` per **D4**. It was NOT moved to the dashboard.
+>
+> **Status update (2026-08-06) — Dashboard overview frontend COMPARTMENTALISED**
+> (branch `compartmentalize/intelligence-dashboard-frontend`), giving
+> `intelligence` its first compartment.
+>
+> 9 legacy files → `platforms/intelligence/dashboard/overview/frontend/`:
+> `dashboard/page.tsx` (770 ln) → `screens/DashboardScreen.tsx`, and all eight
+> `components/home/*` → `components/`, emptying that folder. Five had exactly
+> one consumer (this screen); three had none anywhere and were moved rather than
+> orphaned — **not deleted**.
+>
+> Public entry `@apex/intelligence-dashboard` publishes one export. Route
+> `/dashboard` unchanged, measured 20.5 kB / 223 kB against a 20.6 / 223
+> baseline, so no subpath was needed.
+>
+> **`components/dashboard/*` (4) did NOT move** — the row above misassigns them.
+> `activity-item` is consumed by profile, `category-chart` and
+> `ticket-trend-chart` by analytics, `stat-card` by nothing. They follow
+> analytics and profile, not the dashboard.
+>
+> New tracked debt `DEBT-P4-DASHBOARD-LEGACY-FRONTEND` — **15 imports** across
+> `lib/{api,utils,company-date}`, `store/auth.store`, `components/ui/` and
+> `components/workday/`. Repository debt 12 → 27. Self-tests 76 → 85.
+> **No route, logic, API contract, permission, query key or style changed.**
 
 ### intelligence/analytics + reports ✅
 
