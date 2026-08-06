@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { cn } from '@apex/shared-utilities';
 import { ticketsApi, dashboardApi, changeRequestsApi } from '@/lib/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { WorkdayHistoryStrip } from '@/components/workday/WorkdayHistoryStrip';

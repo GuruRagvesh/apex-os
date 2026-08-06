@@ -7,8 +7,9 @@ import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi, taskTypesApi,
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Sparkles, Loader2, Clock, Plus, Copy, Trash2, Download, Upload, X } from 'lucide-react';
-import { cn, formatRole } from '@/lib/utils';
-import { MultiSelect } from '@/components/ui/multi-select';
+import { formatRole } from '@/lib/utils';
+import { cn } from '@apex/shared-utilities';
+import { MultiSelect } from '@apex/shared-ui/components/multi-select';
 
 // ─── Request Types ──────────────────────────────────────────────────────────
 // Task / Query / Help are real Ticket.type enum values (stored honestly). The

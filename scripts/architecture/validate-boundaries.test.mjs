@@ -1651,6 +1651,178 @@ export const t = leaveApi;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── shared/utilities: cross-cutting helpers ─────────────────────────────────
+// Bottom of the graph, below shared/ui. cn, formatDate and getInitials were
+// extracted from frontend/lib/utils.ts; the domain vocabulary stayed behind.
+
+// 93. Platform code may consume the shared-utilities public entry.
+testCase(
+  'accepts platform code importing the shared-utilities public entry',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = (...a) => a.join(' ');
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import { cn } from '@apex/shared-utilities';
+export default cn;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 94. Platform code may NOT reach shared-utilities internals.
+testCase(
+  'rejects platform code importing shared-utilities internals',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { cn } from '@apex/shared-utilities/class-names';
+export default cn;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 95. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of shared-utilities internals',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `export const load = () => import('@apex/shared-utilities/date');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 96. ...and by require().
+testCase(
+  'detects require() of shared-utilities internals',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `const t = require('@apex/shared-utilities/text');
+export default t;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 97. shared/utilities must not import a platform.
+testCase(
+  'rejects shared-utilities importing a platform',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/date.ts',
+      `import { X } from '@apex/workforce-leave';
+export const d = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 98. shared/utilities must not import the legacy frontend root — this is the
+//     rule that kept skeleton/multi-select/status-badge out of shared/ui until
+//     cn moved here.
+testCase(
+  'rejects shared-utilities importing legacy frontend code',
+  (root) => {
+    write(
+      root,
+      'shared/utilities/text.ts',
+      `import { ROLE_LABELS } from '@/lib/utils';
+export const t = ROLE_LABELS;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-legacy-frontend' },
+);
+
+// 99. shared/ui may consume shared/utilities through its public entry — the
+//     dependency that unblocked the three primitives.
+testCase(
+  'accepts shared-ui importing shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/skeleton.tsx',
+      `import { cn } from '@apex/shared-utilities';
+export const Skeleton = () => cn();
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 100. ...but not its internals.
+testCase(
+  'rejects shared-ui reaching into shared-utilities internals',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/skeleton.tsx',
+      `import { cn } from '@apex/shared-utilities/class-names';
+export const S = cn;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 101. The three unblocked primitives are published by exact subpath.
+testCase(
+  'accepts a route importing the newly published skeleton subpath',
+  (root) => {
+    write(root, 'shared/ui/frontend/components/skeleton.tsx', `export const Skeleton = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/tickets/page.tsx',
+      `import { Skeleton } from '@apex/shared-ui/components/skeleton';
+export default Skeleton;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 102. Their old legacy paths are no longer importable from a platform.
+testCase(
+  'rejects a platform importing a primitive that moved to shared-ui',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { Skeleton } from '@/components/ui/skeleton';
+export default Skeleton;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -1702,7 +1874,7 @@ testRealRepoDebtCounts({
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P2A-SALES-CRM-AUTH-STORE': 1,
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 7,
-  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 10,
+  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 9,
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 3,
 });
 

@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { teamApi, usersApi, workdayApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import { cn } from '@/lib/utils';
+import { cn } from '@apex/shared-utilities';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
 import {

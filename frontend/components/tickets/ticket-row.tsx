@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { cn, PRIORITY_COLORS, STATUS_COLORS, STATUS_LABELS, PRIORITY_LABELS, formatDate, getInitials, DEPT_COLORS, formatRelativeTime } from '@/lib/utils';
+import { PRIORITY_COLORS, STATUS_COLORS, STATUS_LABELS, PRIORITY_LABELS, DEPT_COLORS, formatRelativeTime } from '@/lib/utils';
+import { cn, formatDate, getInitials } from '@apex/shared-utilities';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
 import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { Clock, Copy, AlertTriangle } from 'lucide-react';

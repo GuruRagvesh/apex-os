@@ -18,3 +18,13 @@ export { default as HoverPreview } from './components/HoverPreview';
 
 export { KpiCapsuleStrip } from './components/KpiCapsuleStrip';
 export { default as KpiCapsule } from './components/KpiCapsule';
+
+// Unblocked once `cn` moved to shared/utilities — these three had it as their
+// sole legacy dependency.
+export {
+  Skeleton, SkeletonTicketRow, SkeletonTicketRows, SkeletonStatCard, SkeletonStatCards,
+  SkeletonKanbanCard, SkeletonKanbanColumn, SkeletonTicketDetail, CardSkeleton,
+  TableRowSkeleton, TableRowSkeletons,
+} from './components/skeleton';
+export { MultiSelect } from './components/multi-select';
+export { StatusBadge, PriorityBadge } from './components/status-badge';
