@@ -22,7 +22,9 @@
       "@apex/operations-projects": ["../platforms/operations/projects/project-management/index.ts"],
       "@apex/operations-projects/screens/*": ["../platforms/operations/projects/project-management/frontend/screens/*"],
       "@apex/intelligence-dashboard": ["../platforms/intelligence/dashboard/overview/index.ts"],
-      "@apex/shared-auth": ["../shared/auth/index.ts"]
+      "@apex/shared-auth": ["../shared/auth/index.ts"],
+      "@apex/shared-ui": ["../shared/ui/index.ts"],
+      "@apex/shared-ui/components/*": ["../shared/ui/frontend/components/*"]
     }
   },
   "include": [
@@ -38,7 +40,9 @@
     "../platforms/operations/projects/**/*.tsx",
     "../platforms/intelligence/dashboard/**/*.ts",
     "../platforms/intelligence/dashboard/**/*.tsx",
-    "../shared/auth/**/*.ts"
+    "../shared/auth/**/*.ts",
+    "../shared/ui/**/*.ts",
+    "../shared/ui/**/*.tsx"
   ],
   "exclude": ["node_modules"]
 }

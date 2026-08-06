@@ -10,7 +10,7 @@ import { ArrowLeft, Ticket, Users, Edit3, Trash2, Activity, UserPlus, X } from '
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { TicketRow } from '@/components/tickets/ticket-row';
-import { Breadcrumb } from '@/components/ui/breadcrumb';
+import { Breadcrumb } from '@apex/shared-ui/components/breadcrumb';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();

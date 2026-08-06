@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi, usersApi, settingsApi, taskTypesApi, departmentsApi } from '@/lib/api';
-import { UserAvatar } from '@/components/ui/user-avatar';
+import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
 import toast from 'react-hot-toast';
 import {
   User, Shield, Palette, Building2,
