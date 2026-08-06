@@ -888,6 +888,195 @@ testCase(
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Operations Projects: component boundary ─────────────────────────────────
+// The first compartmentalised slice outside Sales CRM. Its two screens are
+// published through @apex/operations-projects; everything under frontend/ is
+// private, and the thin Next.js route adapters are the only consumers.
+
+// 50. A thin route adapter may compose the Projects public entry.
+testCase(
+  'accepts a thin route importing the Projects public entry',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const ProjectsScreen = () => null;\n`);
+    write(
+      root,
+      'apps/web/app/projects/page.tsx',
+      `import { ProjectsScreen } from '@apex/operations-projects';\nexport default function P() { return ProjectsScreen; }\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 50b. A route may import the exact declared screen subpath. Each route uses
+//      its own screen rather than the barrel, so /projects does not also load
+//      ProjectDetailScreen — measured at ~8 kB when it did.
+testCase(
+  'accepts a route importing the exact declared screen subpath',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx', `export default function S() { return null; }\n`);
+    write(
+      root,
+      'apps/web/app/projects/page.tsx',
+      `import ProjectsScreen from '@apex/operations-projects/screens/ProjectsScreen';\nexport default ProjectsScreen;\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 50c. An UNDECLARED file in the same screens folder stays private —
+//      publicSubpaths is an exact specifier allowlist, not a directory.
+testCase(
+  'rejects an undeclared screen beside the declared ones',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/frontend/screens/SecretScreen.tsx', `export default function S() { return null; }\n`);
+    write(
+      root,
+      'apps/web/app/projects/page.tsx',
+      `import SecretScreen from '@apex/operations-projects/screens/SecretScreen';\nexport default SecretScreen;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 51. Another component cannot reach a Projects screen.
+testCase(
+  'rejects another component importing a Projects internal screen',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/operations/tickets/lifecycle/frontend/screens/TicketsScreen.tsx',
+      `import { ProjectsScreen } from '@apex/operations-projects/frontend/screens/ProjectsScreen';\nexport default ProjectsScreen;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 52. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of a Projects internal path',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/summary/frontend/screens/SummaryScreen.tsx',
+      `export const load = () => import('@apex/operations-projects/frontend/screens/ProjectDetailScreen');\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 53. ...and by require().
+testCase(
+  'detects require() of a Projects internal path',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `const S = require('@apex/operations-projects/frontend/index');\nexport default S;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 54. Projects frontend must not import backend code.
+testCase(
+  'rejects Projects frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { ProjectsService } from '../../backend/services/projects.service';\nexport default ProjectsService;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 55. Projects must not reach into another platform's internals.
+//     Note the target is deliberately another platform's FRONTEND: a frontend
+//     file importing backend code trips the more specific frontend-no-backend
+//     rule first (covered separately by case 54), which would mask the
+//     component-boundary check this case exists to prove.
+testCase(
+  'rejects Projects importing another platform internals',
+  (root) => {
+    write(root, 'platforms/workforce/attendance/workday/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen.tsx',
+      `import { WorkdayBar } from '@apex/workforce/attendance/workday/frontend/components/WorkdayBar';\nexport default WorkdayBar;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 56. shared/ must not import Projects — that inverts the graph.
+testCase(
+  'rejects a shared module importing Projects',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const X = 1;\n`);
+    write(
+      root,
+      'shared/utilities/project-helper.ts',
+      `import { X } from '@apex/operations-projects';\nexport const h = X;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 57. The Projects legacy exemption is scoped to the screens folder only.
+testCase(
+  'accepts a Projects screen importing its allowlisted legacy dependencies',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { projectsApi } from '@/lib/api';\nimport { useAuthStore } from '@/store/auth.store';\nimport { cn } from '@/lib/utils';\nimport { EmptyState } from '@/components/ui/empty-state';\nexport default function S() { return null; }\n`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 58. A Projects file OUTSIDE the screens folder cannot reuse that exemption.
+testCase(
+  'rejects a Projects file outside screens/ reusing the legacy exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/api/projects-adapter.ts',
+      `import { projectsApi } from '@/lib/api';\nexport const a = projectsApi;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 59. A legacy path NOT on the Projects allowlist is rejected.
+testCase(
+  'rejects a Projects screen importing an unallowlisted legacy path',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { WorkdayBar } from '@/components/workday/WorkdayBar';\nexport default function S() { return WorkdayBar; }\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 60. Projects must not import the legacy backend root — no exemption exists.
+testCase(
+  'rejects Projects importing the legacy backend root',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { ProjectsService } from '../../../../../../backend/src/modules/operations/projects/projects.service';\nexport default ProjectsService;\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-backend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -938,6 +1127,7 @@ testRealRepoDebtCounts({
   'DEBT-P2B-LEADS-COMPANY-REPOSITORY': 1,
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P2A-SALES-CRM-AUTH-STORE': 1,
+  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 9,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

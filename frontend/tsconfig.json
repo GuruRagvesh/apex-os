@@ -19,6 +19,8 @@
       "@apex/sales-crm-shared": ["../platforms/business/sales-crm/shared/index.ts"],
       "@apex/sales-crm-shared/api": ["../platforms/business/sales-crm/shared/frontend/api/index.ts"],
       "@apex/sales-crm-shared/styles/*": ["../platforms/business/sales-crm/shared/frontend/styles/*"],
+      "@apex/operations-projects": ["../platforms/operations/projects/project-management/index.ts"],
+      "@apex/operations-projects/screens/*": ["../platforms/operations/projects/project-management/frontend/screens/*"],
       "@apex/shared-auth": ["../shared/auth/index.ts"]
     }
   },
@@ -31,6 +33,8 @@
     "../platforms/business/sales-crm/leads/**/*.tsx",
     "../platforms/business/sales-crm/shared/**/*.ts",
     "../platforms/business/sales-crm/shared/**/*.tsx",
+    "../platforms/operations/projects/**/*.ts",
+    "../platforms/operations/projects/**/*.tsx",
     "../shared/auth/**/*.ts"
   ],
   "exclude": ["node_modules"]
