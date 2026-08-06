@@ -22,7 +22,8 @@
     "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
     "@apex/shared-auth": "shared/auth",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
-    "@apex/operations-projects/screens": "platforms/operations/projects/project-management/frontend/screens"
+    "@apex/operations-projects/screens": "platforms/operations/projects/project-management/frontend/screens",
+    "@apex/intelligence-dashboard": "platforms/intelligence/dashboard/overview"
   },
 
   "sharedModulePublicEntry": {
@@ -138,6 +139,29 @@
     "description": "platforms/** importing frontend/** is FORBIDDEN by default. Migration phases may carry a narrow, temporary, per-component exemption listed below. Each entry names exactly one source component and an explicit allowlist of destination paths. platforms/** -> backend/** has no exemption mechanism and is always forbidden.",
     "defaultRule": "forbidden",
     "exceptions": [
+      {
+        "id": "DEBT-P4-DASHBOARD-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Intelligence Dashboard frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/intelligence/dashboard/overview/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts",
+          "frontend/lib/utils.ts",
+          "frontend/lib/company-date.ts",
+          "frontend/store/auth.store.ts",
+          "frontend/components/ui/",
+          "frontend/components/workday/"
+        ],
+        "reason": "The dashboard screen and its eight widgets moved verbatim and carry legacy imports across six target groups. None is dashboard-owned: lib/api.ts holds application-wide API groups (ticketsApi, dashboardApi, changeRequestsApi); lib/utils.ts and lib/company-date.ts are broad shared helpers; auth.store.ts is the application-wide identity store; components/ui/ holds global primitives (KpiCapsuleStrip, AnnouncementBroadcast, CommandModal, QuickActionPalette, CommandCard) used across features; components/workday/ (WorkdayBar, WorkdayHistoryStrip) belongs to workforce/attendance and is explicitly out of scope for this phase. Moving any of them would restructure unrelated shared code or touch the attendance engine.",
+        "removalConditions": [
+          "frontend/components/workday/: workforce/attendance is compartmentalised and its bar is consumed through a public entry",
+          "frontend/components/ui/: global primitives migrate to shared/ui",
+          "frontend/lib/{utils,company-date}.ts: shared helpers migrate to shared/utilities and shared/time",
+          "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity",
+          "frontend/lib/api.ts: dashboardApi becomes dashboard-owned once an app-wide API layer is compartmentalised"
+        ]
+      },
       {
         "id": "DEBT-P3-PROJECTS-LEGACY-FRONTEND",
         "status": "temporary",
