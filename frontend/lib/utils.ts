@@ -1,9 +1,16 @@
-import { type ClassValue, clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+// Apex OS — feature vocabulary and formatters.
+//
+// cn, formatDate and getInitials moved to shared/utilities: they are used by
+// three platforms and carry no feature rules. Import them from
+// '@apex/shared-utilities'.
+//
+// What remains is deliberately NOT utilities — it is domain vocabulary owned by
+// the features that use it (ticket priority/status/category, project status,
+// leave status, role and department labels). Each moves with its feature.
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+// formatRelativeTime falls back to formatDate for anything older than a week,
+// so this file consumes the extracted helper rather than keeping a second copy.
+import { formatDate } from '@apex/shared-utilities';
 
 export const PRIORITY_COLORS: Record<string, string> = {
   LOW: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
@@ -99,21 +106,6 @@ export const LEAVE_STATUS_COLORS: Record<string, string> = {
   REJECTED: 'apex-badge-danger',
   CANCELLED: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
 };
-
-export function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-}
-
-export function formatDate(date: string | Date): string {
-  return new Date(date).toLocaleDateString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
-}
 
 export function formatRelativeTime(date: string | Date): string {
   const now = new Date();

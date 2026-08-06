@@ -25,6 +25,7 @@
       "@apex/shared-auth": ["../shared/auth/index.ts"],
       "@apex/shared-ui": ["../shared/ui/index.ts"],
       "@apex/shared-ui/components/*": ["../shared/ui/frontend/components/*"],
+      "@apex/shared-utilities": ["../shared/utilities/index.ts"],
       "@apex/workforce-leave": ["../platforms/workforce/leave/applications/index.ts"]
     }
   },
@@ -44,6 +45,7 @@
     "../shared/auth/**/*.ts",
     "../shared/ui/**/*.ts",
     "../shared/ui/**/*.tsx",
+    "../shared/utilities/**/*.ts",
     "../platforms/workforce/leave/**/*.ts",
     "../platforms/workforce/leave/**/*.tsx"
   ],

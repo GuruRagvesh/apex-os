@@ -6,13 +6,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, commentsApi, usersApi, aiApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import {
-  cn, PRIORITY_COLORS, STATUS_COLORS,
+  PRIORITY_COLORS, STATUS_COLORS,
   STATUS_LABELS, PRIORITY_LABELS,
-  formatDate, formatRelativeTime, getInitials, formatRole,
+  formatRelativeTime, formatRole,
 } from '@/lib/utils';
+import { cn, formatDate, getInitials } from '@apex/shared-utilities';
 import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
 import { computeClientTimingState } from '@/lib/ticket-timing';
-import { SkeletonTicketDetail } from '@/components/ui/skeleton';
+import { SkeletonTicketDetail } from '@apex/shared-ui/components/skeleton';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
 import {

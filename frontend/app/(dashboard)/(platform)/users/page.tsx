@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { usersApi, rolesApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import { cn, getInitials } from '@/lib/utils';
+import { cn, getInitials } from '@apex/shared-utilities';
 import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert, Download, Loader2, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';

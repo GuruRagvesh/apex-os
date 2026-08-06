@@ -53,36 +53,40 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | Candidate (Leave branch) |
+| | Merged (`origin/main`) | Candidate (shared/utilities branch) |
 | --- | --- | --- |
-| Legacy relocated | 53 | **56** |
-| **Relocation** | **12.5%** | **13.2%** |
+| Legacy relocated | 56 | **59** |
+| **Relocation** | **13.2%** | **13.9%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Candidate (Leave branch) |
+| | Merged (`origin/main`) | Candidate (shared/utilities branch) |
 | --- | --- | --- |
-| Runtime files in new architecture | 71 | **77** |
-| of which barrels | 16 | 19 |
-| of which extracted modules | 2 | 2 |
-| Legacy remaining | 371 | 369 |
-| Total tracked runtime | 442 | 446 |
-| **Footprint** | **16.1%** | **17.3%** |
+| Runtime files in new architecture | 77 | **84** |
+| of which barrels | 19 | 20 |
+| of which extracted modules | 2 | 5 |
+| Legacy remaining | 369 | 366 |
+| Total tracked runtime | 446 | 450 |
+| **Footprint** | **17.3%** | **18.7%** |
 
-`compartmentalize/workforce-leave-frontend` relocates **3 legacy files** and
-adds **3 barrels**. Until it merges the baseline remains 53/423 = 12.5%.
-README files are documentation and are excluded from both figures.
+`compartmentalize/shared-utilities-frontend` **extracts 3 exports** into 3 new
+modules and **relocates 3 legacy files** (the primitives those exports
+unblocked). Extracted modules are counted separately from relocated files: no
+legacy file left `frontend/lib/utils.ts`, only three of its exports did.
+Until it merges the baseline remains 56/423 = 13.2%. README files are
+documentation and excluded from both figures.
 
 ### Platform and shared coverage
 
-Candidate branch included; `workforce` is new.
+Candidate branch included.
 
 | Module | Files | Status |
 | --- | --- | --- |
 | `platforms/business` | 40 | Sales CRM Leads + shared |
-| `shared/ui` | 13 | Design-system primitives |
+| `shared/ui` | 16 | Design-system primitives |
 | `platforms/intelligence` | 11 | Dashboard overview |
-| `platforms/workforce` | 6 | Leave applications (candidate branch) |
+| `platforms/workforce` | 6 | Leave applications |
+| `shared/utilities` | 4 | `cn`, `formatDate`, `getInitials` (candidate branch) |
 | `platforms/operations` | 4 | Projects frontend |
 | `shared/auth` | 3 | Authenticated HTTP client |
 | `platforms/core` | 0 | not started |
@@ -171,6 +175,39 @@ throughout this map.
 
 > Guards, decorators and the role constant are used by every platform. They go
 > to `shared/auth/`, not inside a component — see dependency rule 8.
+
+> **Status update (2026-08-06) — shared/utilities EXTRACTED**
+> (branch `compartmentalize/shared-utilities-frontend`).
+>
+> Three exports moved **verbatim** out of `frontend/lib/utils.ts` into
+> `shared/utilities/`, published as `@apex/shared-utilities`:
+> `cn` (`class-names.ts`, 20 consumers across 3 platforms), `getInitials`
+> (`text.ts`, 9 across 2), `formatDate` (`date.ts`, 7 across 2). 20 consumers
+> updated.
+>
+> **The mixed file was not moved wholesale.** What remains in
+> `frontend/lib/utils.ts` is feature vocabulary, not utilities — ticket
+> priority/status/category, `PROJECT_STATUS_*`, `LEAVE_STATUS_*`, `ROLE_LABELS`,
+> `formatRole`, `DEPT_COLORS` — each owned by the feature that uses it.
+> `formatRelativeTime` stayed too: **1 platform consumer**, failing the
+> multiple-platform bar. It falls back to `formatDate`, so `lib/utils.ts` now
+> imports the extracted helper — one implementation, not two.
+>
+> **This unblocked three Shared UI primitives.** `skeleton`, `multi-select` and
+> `status-badge` had `cn` as their **sole** legacy dependency, and `shared/` may
+> not import the legacy `frontend/` root (no exemption mechanism). All three
+> moved to `shared/ui` in the same phase, each published by an exact subpath.
+> `frontend/components/ui/` is down to 5 files, all with feature logic.
+>
+> **Debt 23 → 22.** Only Dashboard dropped an import — it consumed `cn` alone.
+> Projects and Leave still import `@/lib/utils` for their own domain constants,
+> so their counts are unchanged; the debt counter counts import statements, not
+> symbols. Dashboard's allowlist was tightened to drop `lib/utils.ts`.
+> Self-tests 110 → 120.
+>
+> **No implementation, date-formatting output, class-merging behaviour,
+> component API or visible UI changed.** All route bundles within ±1 kB of
+> baseline. Frontend build 38/38.
 
 > **Status update (2026-08-06) — shared/ui COMPARTMENTALISED**
 > (branch `compartmentalize/shared-ui-frontend`). 11 design-system primitives

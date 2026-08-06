@@ -10,7 +10,7 @@ import {
   User, Shield, Palette, Building2,
   CalendarDays, Mail, Eye, EyeOff, Lock, Tags,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@apex/shared-utilities';
 import { useTheme, type ThemeId, type AccentId } from '@/hooks/useTheme';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────

@@ -7,7 +7,7 @@ import {
 } from '@/lib/api';
 import { TicketTrendChart } from '@/components/dashboard/ticket-trend-chart';
 import { CategoryChart } from '@/components/dashboard/category-chart';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
 import {
   TrendingUp, TrendingDown, Minus, Download, ShieldAlert,
   Activity, Users, CheckCircle, AlertTriangle, Clock, RotateCcw,

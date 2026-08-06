@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { Settings, Ticket, Clock, CalendarOff, FolderKanban, Network, Edit3, X, Plus, ArrowRight } from 'lucide-react';
 import { TicketRow } from '@/components/tickets/ticket-row';
 import { ActivityItem } from '@/components/dashboard/activity-item';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
 import { useState, useMemo } from 'react';
 
 function getInitials(name: string) {

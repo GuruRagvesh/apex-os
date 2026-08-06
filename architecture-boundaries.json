@@ -26,12 +26,13 @@
     "@apex/intelligence-dashboard": "platforms/intelligence/dashboard/overview",
     "@apex/shared-ui": "shared/ui",
     "@apex/shared-ui/components": "shared/ui/frontend/components",
-    "@apex/workforce-leave": "platforms/workforce/leave/applications"
+    "@apex/workforce-leave": "platforms/workforce/leave/applications",
+    "@apex/shared-utilities": "shared/utilities"
   },
 
   "sharedModulePublicEntry": {
     "description": "Modules under shared/ that have migrated real code and therefore publish a public entry point. Anything outside the module may import the module root or its index file only — reaching into its internal frontend/, backend/, shared/ or tests/ folders is a boundary violation, exactly as for a platform component. Only modules listed here are enforced; the remaining shared/ folders are still Phase 0 scaffolds with nothing to protect.",
-    "modules": ["shared/auth", "shared/ui"]
+    "modules": ["shared/auth", "shared/ui", "shared/utilities"]
   },
 
   "publicSubpaths": {
@@ -51,7 +52,10 @@
       "@apex/shared-ui/components/CommandCard": "shared/ui/frontend/components/CommandCard",
       "@apex/shared-ui/components/HoverPreview": "shared/ui/frontend/components/HoverPreview",
       "@apex/shared-ui/components/KpiCapsuleStrip": "shared/ui/frontend/components/KpiCapsuleStrip",
-      "@apex/shared-ui/components/KpiCapsule": "shared/ui/frontend/components/KpiCapsule"
+      "@apex/shared-ui/components/KpiCapsule": "shared/ui/frontend/components/KpiCapsule",
+      "@apex/shared-ui/components/skeleton": "shared/ui/frontend/components/skeleton",
+      "@apex/shared-ui/components/multi-select": "shared/ui/frontend/components/multi-select",
+      "@apex/shared-ui/components/status-badge": "shared/ui/frontend/components/status-badge"
     }
   },
 
@@ -166,7 +170,7 @@
         ],
         "reason": "The Leave screen moved verbatim and carries three legacy imports. None is Leave-owned: leaveApi lives in frontend/lib/api.ts among ~20 application-wide API groups; lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also holds LEAVE_STATUS_COLORS; auth.store.ts is the application-wide identity store. The screen's global UI dependency was already retired - it consumes EmptyState through @apex/shared-ui/components/empty-state, not the legacy path.",
         "removalConditions": [
-          "frontend/lib/utils.ts: LEAVE_STATUS_COLORS splits out to this component; cn/formatDate/getInitials move to shared/utilities",
+          "frontend/lib/utils.ts: LEAVE_STATUS_COLORS splits out to this component (cn/formatDate/getInitials already moved to shared/utilities)",
           "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity",
           "frontend/lib/api.ts: leaveApi becomes a Leave-owned adapter once an app-wide API layer is compartmentalised"
         ]
@@ -179,7 +183,6 @@
         "from": "platforms/intelligence/dashboard/overview/frontend/",
         "allowedTargets": [
           "frontend/lib/api.ts",
-          "frontend/lib/utils.ts",
           "frontend/lib/company-date.ts",
           "frontend/store/auth.store.ts",
           "frontend/components/workday/"
@@ -187,7 +190,7 @@
         "reason": "The dashboard screen and its eight widgets moved verbatim and carry legacy imports across six target groups. None is dashboard-owned: lib/api.ts holds application-wide API groups (ticketsApi, dashboardApi, changeRequestsApi); lib/utils.ts and lib/company-date.ts are broad shared helpers; auth.store.ts is the application-wide identity store; components/workday/ (WorkdayBar, WorkdayHistoryStrip) belongs to workforce/attendance and is explicitly out of scope for this phase. Moving any of them would restructure unrelated shared code or touch the attendance engine.",
         "removalConditions": [
           "frontend/components/workday/: workforce/attendance is compartmentalised and its bar is consumed through a public entry",
-          "frontend/lib/{utils,company-date}.ts: shared helpers migrate to shared/utilities and shared/time",
+          "frontend/lib/company-date.ts: migrates to shared/time per D1",
           "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity",
           "frontend/lib/api.ts: dashboardApi becomes dashboard-owned once an app-wide API layer is compartmentalised"
         ]
@@ -207,7 +210,7 @@
         "reason": "The two Projects screens moved verbatim and carry 9 legacy imports across 6 targets. None of the six is Projects-owned, so none could follow: projectsApi has 5 consumers of which 4 are not Projects (tickets/new, users/[id], profile, command-palette); lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also happens to hold the PROJECT_STATUS_* constants; auth.store.ts is the application-wide identity store; TicketRow is owned by operations/tickets and has three consumers. Splitting any of them would restructure unrelated shared code, which this phase explicitly does not do. The exemption is scoped to the screens folder only.",
         "removalConditions": [
           "frontend/lib/api.ts: projectsApi becomes a Projects-owned adapter once core/users and operations/tickets stop consuming it, or once an app-wide API layer is compartmentalised",
-          "frontend/lib/utils.ts: PROJECT_STATUS_LABELS and PROJECT_STATUS_COLORS split out to this component; cn/formatDate/getInitials move to shared/utilities",
+          "frontend/lib/utils.ts: PROJECT_STATUS_LABELS and PROJECT_STATUS_COLORS split out to this component (cn/formatDate/getInitials already moved to shared/utilities)",
           "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity and is consumed through its public entry",
           "frontend/components/tickets/ticket-row.tsx: operations/tickets is compartmentalised and TicketRow is consumed through its public entry"
         ]

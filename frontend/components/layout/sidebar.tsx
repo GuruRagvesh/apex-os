@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/auth.store';
-import { cn } from '@/lib/utils';
+import { cn } from '@apex/shared-utilities';
 import { useQuery } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import {

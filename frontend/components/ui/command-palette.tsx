@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { ticketsApi, projectsApi, teamApi } from '@/lib/api';
 import { Search, Ticket, FolderKanban, Users, ArrowRight, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@apex/shared-utilities';
 
 interface SearchResult {
   id:       string;

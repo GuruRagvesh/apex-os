@@ -1,5 +1,5 @@
 import React from 'react';
-import { cn } from '@/lib/utils';
+import { cn } from '@apex/shared-utilities';
 
 // Base shimmer skeleton — uses CSS variable colours so it adapts to all themes
 export function Skeleton({ className, style }: { className?: string; style?: React.CSSProperties }) {

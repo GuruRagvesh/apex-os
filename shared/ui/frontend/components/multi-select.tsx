@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { X, ChevronDown, Search, Check } from 'lucide-react';
-import { cn, getInitials } from '@/lib/utils';
+import { cn, getInitials } from '@apex/shared-utilities';
 
 export interface MultiSelectOption {
   value: string;
