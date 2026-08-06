@@ -24,7 +24,8 @@
       "@apex/intelligence-dashboard": ["../platforms/intelligence/dashboard/overview/index.ts"],
       "@apex/shared-auth": ["../shared/auth/index.ts"],
       "@apex/shared-ui": ["../shared/ui/index.ts"],
-      "@apex/shared-ui/components/*": ["../shared/ui/frontend/components/*"]
+      "@apex/shared-ui/components/*": ["../shared/ui/frontend/components/*"],
+      "@apex/workforce-leave": ["../platforms/workforce/leave/applications/index.ts"]
     }
   },
   "include": [
@@ -42,7 +43,9 @@
     "../platforms/intelligence/dashboard/**/*.tsx",
     "../shared/auth/**/*.ts",
     "../shared/ui/**/*.ts",
-    "../shared/ui/**/*.tsx"
+    "../shared/ui/**/*.tsx",
+    "../platforms/workforce/leave/**/*.ts",
+    "../platforms/workforce/leave/**/*.tsx"
   ],
   "exclude": ["node_modules"]
 }

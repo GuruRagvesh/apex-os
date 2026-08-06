@@ -25,7 +25,8 @@
     "@apex/operations-projects/screens": "platforms/operations/projects/project-management/frontend/screens",
     "@apex/intelligence-dashboard": "platforms/intelligence/dashboard/overview",
     "@apex/shared-ui": "shared/ui",
-    "@apex/shared-ui/components": "shared/ui/frontend/components"
+    "@apex/shared-ui/components": "shared/ui/frontend/components",
+    "@apex/workforce-leave": "platforms/workforce/leave/applications"
   },
 
   "sharedModulePublicEntry": {
@@ -152,6 +153,24 @@
     "description": "platforms/** importing frontend/** is FORBIDDEN by default. Migration phases may carry a narrow, temporary, per-component exemption listed below. Each entry names exactly one source component and an explicit allowlist of destination paths. platforms/** -> backend/** has no exemption mechanism and is always forbidden.",
     "defaultRule": "forbidden",
     "exceptions": [
+      {
+        "id": "DEBT-P5-LEAVE-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Workforce Leave frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/workforce/leave/applications/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts",
+          "frontend/lib/utils.ts",
+          "frontend/store/auth.store.ts"
+        ],
+        "reason": "The Leave screen moved verbatim and carries three legacy imports. None is Leave-owned: leaveApi lives in frontend/lib/api.ts among ~20 application-wide API groups; lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also holds LEAVE_STATUS_COLORS; auth.store.ts is the application-wide identity store. The screen's global UI dependency was already retired - it consumes EmptyState through @apex/shared-ui/components/empty-state, not the legacy path.",
+        "removalConditions": [
+          "frontend/lib/utils.ts: LEAVE_STATUS_COLORS splits out to this component; cn/formatDate/getInitials move to shared/utilities",
+          "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity",
+          "frontend/lib/api.ts: leaveApi becomes a Leave-owned adapter once an app-wide API layer is compartmentalised"
+        ]
+      },
       {
         "id": "DEBT-P4-DASHBOARD-LEGACY-FRONTEND",
         "status": "temporary",
