@@ -53,32 +53,30 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | Candidate (shared/utilities branch) |
+| | Merged (`origin/main`) | Candidate (core/users branch) |
 | --- | --- | --- |
-| Legacy relocated | 56 | **59** |
-| **Relocation** | **13.2%** | **13.9%** |
+| Legacy relocated | 59 | **61** |
+| **Relocation** | **13.9%** | **14.4%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Candidate (shared/utilities branch) |
+| | Merged (`origin/main`) | Candidate (core/users branch) |
 | --- | --- | --- |
-| Runtime files in new architecture | 77 | **84** |
-| of which barrels | 19 | 20 |
-| of which extracted modules | 2 | 5 |
-| Legacy remaining | 369 | 366 |
-| Total tracked runtime | 446 | 450 |
-| **Footprint** | **17.3%** | **18.7%** |
+| Runtime files in new architecture | 84 | **88** |
+| of which barrels | 20 | 22 |
+| of which extracted modules | 5 | 5 |
+| Legacy remaining | 366 | 366 |
+| Total tracked runtime | 450 | 454 |
+| **Footprint** | **18.7%** | **19.4%** |
 
-`compartmentalize/shared-utilities-frontend` **extracts 3 exports** into 3 new
-modules and **relocates 3 legacy files** (the primitives those exports
-unblocked). Extracted modules are counted separately from relocated files: no
-legacy file left `frontend/lib/utils.ts`, only three of its exports did.
-Until it merges the baseline remains 56/423 = 13.2%. README files are
-documentation and excluded from both figures.
+`compartmentalize/core-users-frontend` relocates **2 legacy files** and adds
+**2 barrels**. Until it merges the baseline remains 59/423 = 13.9%. README
+files are documentation and excluded from both figures.
 
 ### Platform and shared coverage
 
-Candidate branch included.
+Candidate branch included; `core` is new. **Five of six platforms now hold a
+compartment** — only `system` is untouched.
 
 | Module | Files | Status |
 | --- | --- | --- |
@@ -86,10 +84,10 @@ Candidate branch included.
 | `shared/ui` | 16 | Design-system primitives |
 | `platforms/intelligence` | 11 | Dashboard overview |
 | `platforms/workforce` | 6 | Leave applications |
-| `shared/utilities` | 4 | `cn`, `formatDate`, `getInitials` (candidate branch) |
 | `platforms/operations` | 4 | Projects frontend |
+| `shared/utilities` | 4 | `cn`, `formatDate`, `getInitials` |
+| `platforms/core` | 4 | Users administration (candidate branch) |
 | `shared/auth` | 3 | Authenticated HTTP client |
-| `platforms/core` | 0 | not started |
 | `platforms/system` | 0 | not started |
 | `database` / `apps` | 0 | not started |
 
@@ -275,6 +273,43 @@ throughout this map.
 > deactivation/anonymisation and refuses to anonymise on failure. That
 > cross-component dependency must become a published contract from
 > `system/backup`, not a direct import.
+
+> **Status update (2026-08-06) — Users ADMINISTRATION frontend COMPARTMENTALISED**
+> (branch `compartmentalize/core-users-frontend`), giving `core` its first
+> compartment and taking platform coverage to five of six.
+>
+> 2 legacy files → `platforms/core/users/administration/frontend/screens/`:
+> `users/page.tsx` (661 ln) → `UsersScreen.tsx`, `users/[id]/page.tsx` (683 ln)
+> → `UserDetailScreen.tsx`. `UsersScreen.tsx` preserves the original screen
+> source exactly; `UserDetailScreen.tsx` matched it before trailing-whitespace
+> normalisation, with fifteen pre-existing whitespace sequences removed — logic,
+> strings, class names, component behaviour and rendered output unchanged.
+> Neither needed an import rewrite.
+>
+> Public entry `@apex/core-users` plus two exact screen subpaths. The routes use
+> the subpaths, not the barrel, matching the Projects rule. `/users` and
+> `/users/[id]` measured 154 kB and 156 kB against identical baselines.
+>
+> **Only the `administration` component moved.** The rows above assign
+> `/users/[id]/profile` and `(dashboard)/profile` to **`profiles`**, and
+> `/admin/approvals` to **`change-requests`** — different components, both
+> unmigrated, so those three screens stayed. `frontend/modules/core/users/users.api.ts`
+> is a re-export shim with zero importers; retained, not deleted.
+>
+> **This component administers users; it does not own identity.** The auth
+> store, login, sessions and role policy remain with `core/identity` — moving
+> them here would invert that ownership.
+>
+> New tracked debt `DEBT-P6-CORE-USERS-LEGACY-FRONTEND` — **5 imports**
+> (`lib/api`, `lib/utils` for the tickets-owned STATUS/PRIORITY colours,
+> `store/auth.store`). Repository debt 22 → 27. Both screens already consumed
+> `cn`/`formatDate`/`getInitials` from `@apex/shared-utilities`, so the debt is
+> 5 rather than 7 — the Shared Utilities phase paying off again.
+> Self-tests 120 → 132.
+>
+> **No authentication, authorization, role check, visibility rule, scoping,
+> endpoint, payload, query key, pagination, filter, sort, validation, copy,
+> style or defect changed.** Frontend build 38/38.
 
 ### core/organization ✅
 
