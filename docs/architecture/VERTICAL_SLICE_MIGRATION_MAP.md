@@ -47,45 +47,45 @@ only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
 Two figures, because they answer different questions. Every component we create
 adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
-footprint number flatters progress. **Legacy relocation is the honest metric.**
+footprint number flatters progress. **Legacy relocation is the honest metric**,
+and its denominator is fixed at **423** so the percentage cannot drift by
+adding scaffolding.
 
-### Primary — legacy files relocated
+### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | Candidate (shared/ui branch) |
+| | Merged (`origin/main`) | Candidate (Leave branch) |
 | --- | --- | --- |
-| Legacy relocated | 42 | **53** |
-| Legacy remaining | 382 | 371 |
-| Denominator | 424 | 424 |
-| **Relocation** | **9.9%** | **12.5%** |
+| Legacy relocated | 53 | **56** |
+| **Relocation** | **12.5%** | **13.2%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Candidate (shared/ui branch) |
+| | Merged (`origin/main`) | Candidate (Leave branch) |
 | --- | --- | --- |
-| Files in new architecture | 58 | **71** |
-| of which new barrels | 14 | 16 |
+| Runtime files in new architecture | 71 | **77** |
+| of which barrels | 16 | 19 |
 | of which extracted modules | 2 | 2 |
-| Total tracked | 440 | 442 |
-| **Footprint** | **13.2%** | **16.1%** |
+| Legacy remaining | 371 | 369 |
+| Total tracked runtime | 442 | 446 |
+| **Footprint** | **16.1%** | **17.3%** |
 
-`compartmentalize/shared-ui-frontend` relocates **11 legacy files** and adds
-**2 barrels**. It is the first phase to *reduce* debt: 27 → 20, because five
-dashboard and two Projects imports moved to their real owner. Until it merges
-the baseline remains 42/424 = 9.9%.
+`compartmentalize/workforce-leave-frontend` relocates **3 legacy files** and
+adds **3 barrels**. Until it merges the baseline remains 53/423 = 12.5%.
+README files are documentation and are excluded from both figures.
 
 ### Platform and shared coverage
 
-Candidate branch included.
+Candidate branch included; `workforce` is new.
 
 | Module | Files | Status |
 | --- | --- | --- |
 | `platforms/business` | 40 | Sales CRM Leads + shared |
-| `shared/ui` | 13 | Design-system primitives (candidate branch) |
+| `shared/ui` | 13 | Design-system primitives |
 | `platforms/intelligence` | 11 | Dashboard overview |
+| `platforms/workforce` | 6 | Leave applications (candidate branch) |
 | `platforms/operations` | 4 | Projects frontend |
 | `shared/auth` | 3 | Authenticated HTTP client |
 | `platforms/core` | 0 | not started |
-| `platforms/workforce` | 0 | not started |
 | `platforms/system` | 0 | not started |
 | `database` / `apps` | 0 | not started |
 
@@ -383,6 +383,44 @@ created.** They are built when the features are built.
 > `isHR`, while the service layer honours `isHR`. Resolve the policy question
 > **before** splitting `leave.service.ts` across two components, or the
 > inconsistency gets baked into the boundary.
+
+> **Status update (2026-08-06) — Leave FRONTEND COMPARTMENTALISED**
+> (branch `compartmentalize/workforce-leave-frontend`), giving `workforce` its
+> first compartment.
+>
+> 3 legacy files → `platforms/workforce/leave/applications/`:
+> `leave/page.tsx` (677 ln) → `frontend/screens/LeaveScreen.tsx`,
+> `components/ui/LeavesApprover.tsx` (146 ln) → `frontend/components/`,
+> `modules/operations/leave/leave.types.ts` (25 ln) → `shared/contracts/`.
+> `LeavesApprover.tsx` and `leave.types.ts` are **R100**. `LeaveScreen.tsx` was
+> identical before trailing-whitespace normalisation — four whitespace-only
+> lines (18 chars) removed so the commit carries no `git diff --check`
+> failures; **logic and rendered output unchanged**. The screen needed no
+> import rewrite at all.
+>
+> Public entry `@apex/workforce-leave` publishes one screen plus the four domain
+> types; `LeavesApprover` stays internal. Route `/leave` unchanged, measured
+> 7.05 kB / 149 kB against a 7.06 / 149 baseline, so no subpath was needed.
+>
+> **The applications/approvals/balances split was NOT applied to the frontend.**
+> That split is a backend split; on the frontend `LeaveScreen.tsx` performs both
+> application *and* approval (`approveMutation`, `rejectMutation`, the
+> self-approval guard). Creating a frontend `approvals` component for one unused
+> presentational file would bake in precisely the boundary the ⚠️ above warns
+> against baking in. `LeavesApprover` becomes a clean candidate to move once the
+> `isHR` policy question is settled and the backend splits.
+>
+> `frontend/modules/operations/leave/leave.api.ts` did **not** move — a
+> re-export shim of `@/lib/api` with zero importers. Retained, not deleted.
+>
+> New tracked debt `DEBT-P5-LEAVE-LEGACY-FRONTEND` — **3 imports**
+> (`lib/api`, `lib/utils`, `store/auth.store`). Repository debt 20 → 23. The
+> screen's global-UI dependency was already retired by the shared/ui phase: it
+> consumes `EmptyState` via `@apex/shared-ui/components/empty-state`.
+> Self-tests 99 → 110.
+>
+> **No leave policy, balance, approval rule, permission, date calculation,
+> endpoint, payload, query key, style or defect changed.** Frontend build 38/38.
 
 ### workforce/calendar ✅ (**new module** — D11)
 

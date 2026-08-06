@@ -1466,6 +1466,191 @@ export default Breadcrumb;
   { expectExit: 1, expectRule: 'shared-module-public-entry' },
 );
 
+// ── Workforce Leave: component boundary ─────────────────────────────────────
+// One screen is published; LeavesApprover and the contracts are internal.
+
+// 82. A thin route may compose the Leave public entry.
+testCase(
+  'accepts a thin route importing the Leave public entry',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const LeaveScreen = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/leave/page.tsx',
+      `import { LeaveScreen } from '@apex/workforce-leave';
+export default LeaveScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 83. External code cannot reach Leave internals.
+testCase(
+  'rejects external code importing a Leave internal screen',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import LeavesApprover from '@apex/workforce-leave/frontend/components/LeavesApprover';
+export default LeavesApprover;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 84. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of a Leave internal path',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `export const load = () => import('@apex/workforce-leave/shared/contracts/leave.types');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 85. ...and by require().
+testCase(
+  'detects require() of a Leave internal path',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `const S = require('@apex/workforce-leave/frontend/index');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 86. Leave frontend must not import backend code.
+testCase(
+  'rejects Leave frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import { LeaveService } from '../../backend/services/leave.service';
+export default LeaveService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 87. Leave must not reach into another platform's internals — attendance and
+//     workday in particular are out of scope for this phase.
+testCase(
+  'rejects Leave importing workday internals',
+  (root) => {
+    write(root, 'platforms/workforce/attendance/workday/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import { WorkdayBar } from '@apex/workforce/attendance/workday/frontend/components/WorkdayBar';
+export default WorkdayBar;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 88. shared/ must not import Leave — that inverts the graph.
+testCase(
+  'rejects a shared module importing Leave',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/leave-helper.ts',
+      `import { X } from '@apex/workforce-leave';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 89. Leave may consume Shared UI through its declared public subpath.
+testCase(
+  'accepts Leave importing a shared-ui component subpath',
+  (root) => {
+    write(root, 'shared/ui/frontend/components/empty-state.tsx', `export const EmptyState = () => null;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import { EmptyState } from '@apex/shared-ui/components/empty-state';
+export default EmptyState;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 90. The Leave exemption covers its three allowlisted targets only.
+testCase(
+  'accepts a Leave screen importing its allowlisted legacy dependencies',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import { leaveApi } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
+import { cn } from '@/lib/utils';
+export default function S() { return null; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 91. An unallowlisted legacy path is still rejected for Leave.
+testCase(
+  'rejects a Leave screen importing an unallowlisted legacy path',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import { WorkdayBar } from '@/components/workday/WorkdayBar';
+export default WorkdayBar;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 92. A Leave file outside frontend/ cannot reuse the exemption — the shared
+//     contracts layer must stay framework- and legacy-free.
+testCase(
+  'rejects a Leave shared-contracts file reusing the legacy exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/leave/applications/shared/contracts/leave.types.ts',
+      `import { leaveApi } from '@/lib/api';
+export const t = leaveApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -1518,6 +1703,7 @@ testRealRepoDebtCounts({
   'DEBT-P2A-SALES-CRM-AUTH-STORE': 1,
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 7,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 10,
+  'DEBT-P5-LEAVE-LEGACY-FRONTEND': 3,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────
