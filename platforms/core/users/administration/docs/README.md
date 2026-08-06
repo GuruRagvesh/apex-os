@@ -1,0 +1,129 @@
+# Core Users — administration
+
+**Status:** Frontend compartmentalised. Backend deferred.
+**Compartmentalised:** 2026-08-06
+**Debt identifier:** `DEBT-P6-CORE-USERS-LEGACY-FRONTEND` (5 imports)
+
+The first `core` compartment. A **relocation of ownership**, not a redesign:
+both screens moved with no import rewrite needed.
+
+**Source correspondence.** `UsersScreen.tsx` preserves the original screen
+source exactly. `UserDetailScreen.tsx` matched the original screen source
+before trailing-whitespace normalisation — fifteen pre-existing whitespace
+sequences were removed; logic, strings, class names, component behaviour and
+rendered output remain unchanged.
+
+---
+
+## Ownership
+
+This component owns the **admin-facing** user surface: the user directory and
+the per-user administration detail view — search, filter, role and department
+assignment, activation and deactivation, backup download, and the read-only
+rollups of a user's tickets, leave, projects and workday.
+
+**Compartmentalised here (2 files):**
+
+| Area | Contents |
+| --- | --- |
+| `frontend/screens/UsersScreen.tsx` | 661 lines — directory, search, filters, create, activate/deactivate |
+| `frontend/screens/UserDetailScreen.tsx` | 683 lines — detail, edit, role/department, backup, cross-feature rollups |
+
+### This component administers users. It does not own identity.
+
+That distinction decides several things below. Login, sessions, tokens, the
+auth store and role *policy* belong to `core/identity`. This component reads the
+current user to decide what an administrator may see — it never defines who the
+user is.
+
+## Browser routes
+
+```
+/users
+/users/[id]
+```
+
+**Unchanged.** Both route files stay under
+`frontend/app/(dashboard)/(platform)/users/` as thin adapters:
+
+```tsx
+import UsersScreen from '@apex/core-users/screens/UsersScreen';
+
+export default function UsersPage() {
+  return <UsersScreen />;
+}
+```
+
+`UserDetailScreen` reads its id from `useParams()`, exactly as the route file
+did, so no prop contract was introduced.
+
+## Public API
+
+| Specifier | Purpose |
+| --- | --- |
+| `@apex/core-users` | Component entry — exports both screens |
+| `@apex/core-users/screens/UsersScreen` | Exact screen subpath |
+| `@apex/core-users/screens/UserDetailScreen` | Exact screen subpath |
+
+**The routes use the subpaths, not the barrel** — the same rule the Projects
+component follows. Two screens behind one barrel means importing either loads
+both; `/users` and `/users/[id]` measured 154 kB and 156 kB against identical
+baselines, so nothing regressed. The subpaths are declared in
+`publicSubpaths.specifiers` as an **exact allowlist**: another file dropped into
+`frontend/screens/` is still private, and a self-test proves it.
+
+## What did not move
+
+| Kept | Owner |
+| --- | --- |
+| `/users/[id]/profile/page.tsx` (833 ln) | **`core/users/profiles`** per the map — a different component |
+| `(dashboard)/profile/page.tsx` (558 ln) | **`core/users/profiles`** — self-service, not administration |
+| `/admin/approvals/page.tsx` (194 ln) | **`core/users/change-requests`** per the map |
+| `frontend/store/auth.store.ts` | `core/identity` — see the distinction above |
+| `frontend/modules/core/users/users.api.ts` | A one-line re-export shim of `@/lib/api` with **zero importers**, matching the projects/leave/tickets pattern. Moving it would create tracked debt for a file nobody uses. Left in place; **not deleted**. |
+| `usersApi`, `rolesApi`, `departmentsApi` in `lib/api.ts` | Application-wide API groups |
+| `STATUS_COLORS`, `PRIORITY_COLORS` in `lib/utils.ts` | **operations/tickets** vocabulary, used to render a user's ticket rollup |
+
+Only `/users` and `/users/[id]` were in scope. The `profiles` and
+`change-requests` components remain unmigrated, so their screens stay put.
+
+### `DEBT-P6-CORE-USERS-LEGACY-FRONTEND`
+
+5 imports across three targets, scoped to this component's `frontend/` folder.
+Each has its own removal condition in `architecture-boundaries.json`.
+
+Both screens already consume `cn`, `formatDate` and `getInitials` from
+`@apex/shared-utilities` — that coupling was retired by the Shared Utilities
+phase before this one began, so the debt is 5 rather than 7.
+
+## Backend
+
+**Not migrated.** `backend/src/modules/core/users/` (controller, service,
+module) stays put. Backend slices are blocked until the Render deployment root
+moves.
+
+Note the map's 🔒 warning on `users.service.ts`: it calls the OneDrive backup
+vault during deactivation/anonymisation and refuses to anonymise on failure.
+That cross-component dependency must become a published contract from
+`system/backup` before the backend moves — it is not addressed here.
+
+## Behaviour — preserved, not touched
+
+Authentication, authorization, role checks, user visibility rules, department
+and team scoping, creation and editing rules, endpoint paths, payloads,
+response handling, query keys, pagination, filtering, sorting, validation,
+copy, styling and existing defects are all unchanged. Neither screen required
+an import rewrite. See [Source correspondence](#core-users--administration)
+above for the exact provenance of each file.
+
+## Validation requirements
+
+```bash
+npm run architecture:test    # boundary + subpath + debt-count self-tests
+npm run architecture:check   # live scan; debt reported, not hidden
+cd frontend && npm run build # 38/38 static pages; /users 154 kB, /users/[id] 156 kB
+```
+
+Manual checks not performed by this phase: directory load per role, search,
+filter, create user, edit role/department, activate/deactivate, backup
+download, and the ticket/leave/project/workday rollups on the detail screen.

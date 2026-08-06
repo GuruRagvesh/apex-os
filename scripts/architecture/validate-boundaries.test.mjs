@@ -1823,6 +1823,211 @@ export default Skeleton;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Core Users: administration component boundary ───────────────────────────
+// Admin-facing user directory and detail screens. This component administers
+// users; it does NOT own identity - the auth store stays with core/identity.
+
+// 103. A thin route may import the exact declared screen subpath.
+testCase(
+  'accepts a thin route importing an exact Core Users screen subpath',
+  (root) => {
+    write(root, 'platforms/core/users/administration/frontend/screens/UsersScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/users/page.tsx',
+      `import UsersScreen from '@apex/core-users/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 104. An undeclared screen beside the declared ones stays private.
+testCase(
+  'rejects an undeclared Core Users screen subpath',
+  (root) => {
+    write(root, 'platforms/core/users/administration/frontend/screens/SecretScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/users/page.tsx',
+      `import S from '@apex/core-users/screens/SecretScreen';
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 105. External code cannot reach Core Users internals.
+testCase(
+  'rejects external code importing Core Users internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 106. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of a Core Users internal path',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `export const load = () => import('@apex/core-users/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 107. ...and by require().
+testCase(
+  'detects require() of a Core Users internal path',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `const S = require('@apex/core-users/frontend/screens/UserDetailScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 108. Core Users frontend must not import backend code.
+testCase(
+  'rejects Core Users frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { UsersService } from '../../backend/services/users.service';
+export default UsersService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 109. Core Users must not reach into another platform's internals.
+testCase(
+  'rejects Core Users importing another platform internals',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UserDetailScreen.tsx',
+      `import { LeaveScreen } from '@apex/workforce-leave/frontend/screens/LeaveScreen';
+export default LeaveScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 110. shared/ must not import Core Users.
+testCase(
+  'rejects a shared module importing Core Users',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/user-helper.ts',
+      `import { X } from '@apex/core-users';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 111. Core Users may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Core Users consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/skeleton.tsx', `export const Skeleton = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { cn } from '@apex/shared-utilities';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
+export default function S() { return [cn, Skeleton]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 112. The Core Users exemption covers its three allowlisted targets only.
+testCase(
+  'accepts a Core Users screen importing its allowlisted legacy dependencies',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { usersApi } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
+import { STATUS_COLORS } from '@/lib/utils';
+export default function S() { return null; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 113. An unallowlisted legacy path is still rejected for Core Users.
+testCase(
+  'rejects a Core Users screen importing an unallowlisted legacy path',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { WorkdayBar } from '@/components/workday/WorkdayBar';
+export default WorkdayBar;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 114. The auth-store exemptions stay narrow: a Sales CRM sibling still cannot
+//      reach the store just because Core Users may.
+testCase(
+  'rejects a non-exempt Sales CRM file importing the legacy auth store',
+  (root) => {
+    write(
+      root,
+      'platforms/business/sales-crm/shared/frontend/api/audit-log.ts',
+      `import { useAuthStore } from '@/store/auth.store';
+export const a = useAuthStore;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -1876,6 +2081,7 @@ testRealRepoDebtCounts({
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 7,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 9,
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 3,
+  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 5,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

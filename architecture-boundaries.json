@@ -27,7 +27,9 @@
     "@apex/shared-ui": "shared/ui",
     "@apex/shared-ui/components": "shared/ui/frontend/components",
     "@apex/workforce-leave": "platforms/workforce/leave/applications",
-    "@apex/shared-utilities": "shared/utilities"
+    "@apex/shared-utilities": "shared/utilities",
+    "@apex/core-users": "platforms/core/users/administration",
+    "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens"
   },
 
   "sharedModulePublicEntry": {
@@ -55,7 +57,9 @@
       "@apex/shared-ui/components/KpiCapsule": "shared/ui/frontend/components/KpiCapsule",
       "@apex/shared-ui/components/skeleton": "shared/ui/frontend/components/skeleton",
       "@apex/shared-ui/components/multi-select": "shared/ui/frontend/components/multi-select",
-      "@apex/shared-ui/components/status-badge": "shared/ui/frontend/components/status-badge"
+      "@apex/shared-ui/components/status-badge": "shared/ui/frontend/components/status-badge",
+      "@apex/core-users/screens/UsersScreen": "platforms/core/users/administration/frontend/screens/UsersScreen",
+      "@apex/core-users/screens/UserDetailScreen": "platforms/core/users/administration/frontend/screens/UserDetailScreen"
     }
   },
 
@@ -157,6 +161,24 @@
     "description": "platforms/** importing frontend/** is FORBIDDEN by default. Migration phases may carry a narrow, temporary, per-component exemption listed below. Each entry names exactly one source component and an explicit allowlist of destination paths. platforms/** -> backend/** has no exemption mechanism and is always forbidden.",
     "defaultRule": "forbidden",
     "exceptions": [
+      {
+        "id": "DEBT-P6-CORE-USERS-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Core Users administration frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/core/users/administration/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts",
+          "frontend/lib/utils.ts",
+          "frontend/store/auth.store.ts"
+        ],
+        "reason": "The two admin screens moved verbatim and carry legacy imports across three targets. None is Core Users-owned: lib/api.ts holds application-wide API groups (usersApi, rolesApi, departmentsApi, ticketsApi, leaveApi, projectsApi, workdayApi, dashboardApi); lib/utils.ts supplies the ticket-owned STATUS_COLORS and PRIORITY_COLORS used to render a user's ticket list; auth.store.ts is the application-wide identity store. Note this component administers users but does NOT own identity - the auth store belongs to core/identity, and moving it here would invert that. Both screens already consume cn/formatDate/getInitials from @apex/shared-utilities, so that coupling is already retired.",
+        "removalConditions": [
+          "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity and is consumed through its public entry",
+          "frontend/lib/utils.ts: STATUS_COLORS and PRIORITY_COLORS move with operations/tickets",
+          "frontend/lib/api.ts: usersApi becomes a Core Users-owned adapter once an app-wide API layer is compartmentalised"
+        ]
+      },
       {
         "id": "DEBT-P5-LEAVE-LEGACY-FRONTEND",
         "status": "temporary",
