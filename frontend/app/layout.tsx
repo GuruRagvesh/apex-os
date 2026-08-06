@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
-import { StagingBanner } from '@/components/ui/staging-banner';
+import { StagingBanner } from '@apex/shared-ui/components/staging-banner';
 
 const inter = Inter({ subsets: ['latin'] });
 

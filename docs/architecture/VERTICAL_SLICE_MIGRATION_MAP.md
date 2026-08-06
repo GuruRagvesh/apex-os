@@ -51,39 +51,42 @@ footprint number flatters progress. **Legacy relocation is the honest metric.**
 
 ### Primary — legacy files relocated
 
-| | Merged (`origin/main`) | Candidate (Dashboard branch) |
+| | Merged (`origin/main`) | Candidate (shared/ui branch) |
 | --- | --- | --- |
-| Legacy relocated | 33 | **42** |
-| Legacy remaining | 390 | 382 |
-| Denominator | 423 | 424 |
-| **Relocation** | **7.8%** | **9.9%** |
+| Legacy relocated | 42 | **53** |
+| Legacy remaining | 382 | 371 |
+| Denominator | 424 | 424 |
+| **Relocation** | **9.9%** | **12.5%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Candidate (Dashboard branch) |
+| | Merged (`origin/main`) | Candidate (shared/ui branch) |
 | --- | --- | --- |
-| Files in new architecture | 47 | **58** |
-| of which new barrels | 12 | 14 |
+| Files in new architecture | 58 | **71** |
+| of which new barrels | 14 | 16 |
 | of which extracted modules | 2 | 2 |
-| Total tracked | 437 | 440 |
-| **Footprint** | **10.8%** | **13.2%** |
+| Total tracked | 440 | 442 |
+| **Footprint** | **13.2%** | **16.1%** |
 
-`compartmentalize/intelligence-dashboard-frontend` relocates **9 legacy files**
-and adds **2 barrels**. Until it merges the baseline remains 33/423 = 7.8%.
+`compartmentalize/shared-ui-frontend` relocates **11 legacy files** and adds
+**2 barrels**. It is the first phase to *reduce* debt: 27 → 20, because five
+dashboard and two Projects imports moved to their real owner. Until it merges
+the baseline remains 42/424 = 9.9%.
 
-### Platform coverage
+### Platform and shared coverage
 
-Candidate branch included; `intelligence` is new.
+Candidate branch included.
 
-| Platform | Files | Status |
+| Module | Files | Status |
 | --- | --- | --- |
-| `business` | 40 | Sales CRM Leads + shared |
-| `intelligence` | 11 | Dashboard overview (candidate branch) |
-| `operations` | 4 | Projects frontend |
-| `shared` | 3 | `shared/auth` |
-| `core` | 0 | not started |
-| `workforce` | 0 | not started |
-| `system` | 0 | not started |
+| `platforms/business` | 40 | Sales CRM Leads + shared |
+| `shared/ui` | 13 | Design-system primitives (candidate branch) |
+| `platforms/intelligence` | 11 | Dashboard overview |
+| `platforms/operations` | 4 | Projects frontend |
+| `shared/auth` | 3 | Authenticated HTTP client |
+| `platforms/core` | 0 | not started |
+| `platforms/workforce` | 0 | not started |
+| `platforms/system` | 0 | not started |
 | `database` / `apps` | 0 | not started |
 
 ### Largest remaining blocks
@@ -168,6 +171,36 @@ throughout this map.
 
 > Guards, decorators and the role constant are used by every platform. They go
 > to `shared/auth/`, not inside a component — see dependency rule 8.
+
+> **Status update (2026-08-06) — shared/ui COMPARTMENTALISED**
+> (branch `compartmentalize/shared-ui-frontend`). 11 design-system primitives
+> moved from `frontend/components/ui/` to `shared/ui/frontend/components/`:
+> breadcrumb, empty-state, user-avatar, staging-banner, AnnouncementBroadcast,
+> CommandModal, QuickActionPalette, CommandCard, HoverPreview, KpiCapsuleStrip,
+> KpiCapsule. Every one had zero legacy dependencies.
+>
+> Published as `@apex/shared-ui` plus **11 exact per-component subpaths**.
+> Consumers use the subpaths: routing them through the barrel made a route that
+> needs one primitive load all eleven, costing **~50 kB First Load JS on six
+> routes** (`/projects` 153→203, `/leave` 149→207, `/settings` 154→212,
+> `/teams/[id]` 145→196, `/departments/[id]` 147→198, `/projects/[id]` 158→209).
+> The subpaths returned every route to baseline exactly.
+>
+> **First phase to reduce debt: 27 → 20.** Five dashboard imports and two
+> Projects imports moved to their real owner, and both allowlists were tightened
+> so the retired coupling cannot reappear. **No new exemption was added.**
+>
+> **`skeleton` (5 consumers), `multi-select` and `status-badge` did NOT move** —
+> all three import `cn` from `frontend/lib/utils.ts`, and `shared/` may not
+> import the legacy frontend root (`shared-no-legacy-frontend`, no exemption
+> mechanism by design). Extracting `cn` to `shared/utilities` is the unlock.
+> `QuickActionDock`, `cold-start-banner` and `command-palette` stay for feature
+> logic; `HighPriorityTicketsPreview`, `LeavesApprover` and
+> `DownloadScreenshotButton` are feature-specific or lib-coupled and unused —
+> retained, not deleted.
+>
+> **No component API, markup, styling, accessibility behaviour or route
+> changed.** Frontend build 38/38.
 
 ### core/identity/password-recovery ✅
 

@@ -6,7 +6,7 @@ import { leaveApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, LEAVE_STATUS_COLORS, formatDate, getInitials } from '@/lib/utils';
 import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, Info, ChevronDown } from 'lucide-react';
-import { EmptyState } from '@/components/ui/empty-state';
+import { EmptyState } from '@apex/shared-ui/components/empty-state';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
 

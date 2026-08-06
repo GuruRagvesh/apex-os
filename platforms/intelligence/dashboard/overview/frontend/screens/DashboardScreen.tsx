@@ -13,11 +13,11 @@ import { UpcomingEvents } from '../components/UpcomingEvents';
 import { RecentActivityFeed } from '../components/RecentActivityFeed';
 import { TeamPressurePanel } from '../components/TeamPressurePanel';
 import { HomeSkeleton } from '../components/HomeSkeleton';
-import { KpiCapsuleStrip } from '@/components/ui/KpiCapsuleStrip';
-import { AnnouncementBroadcast } from '@/components/ui/AnnouncementBroadcast';
-import { CommandModal } from '@/components/ui/CommandModal';
-import { QuickActionPalette } from '@/components/ui/QuickActionPalette';
-import CommandCard from '@/components/ui/CommandCard';
+import { KpiCapsuleStrip } from '@apex/shared-ui/components/KpiCapsuleStrip';
+import { AnnouncementBroadcast } from '@apex/shared-ui/components/AnnouncementBroadcast';
+import { CommandModal } from '@apex/shared-ui/components/CommandModal';
+import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalette';
+import CommandCard from '@apex/shared-ui/components/CommandCard';
 import { motion } from 'motion/react';
 import {
   Ticket, AlertTriangle, Clock, CheckCircle, CalendarDays,

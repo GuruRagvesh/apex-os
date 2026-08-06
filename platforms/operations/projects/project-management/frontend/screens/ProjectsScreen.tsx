@@ -6,7 +6,7 @@ import { projectsApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn, PROJECT_STATUS_COLORS, PRIORITY_COLORS, formatDate, getInitials } from '@/lib/utils';
 import { Plus, FolderKanban, Users, Ticket, Calendar } from 'lucide-react';
-import { EmptyState } from '@/components/ui/empty-state';
+import { EmptyState } from '@apex/shared-ui/components/empty-state';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';

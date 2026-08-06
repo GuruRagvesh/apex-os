@@ -23,12 +23,14 @@
     "@apex/shared-auth": "shared/auth",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
     "@apex/operations-projects/screens": "platforms/operations/projects/project-management/frontend/screens",
-    "@apex/intelligence-dashboard": "platforms/intelligence/dashboard/overview"
+    "@apex/intelligence-dashboard": "platforms/intelligence/dashboard/overview",
+    "@apex/shared-ui": "shared/ui",
+    "@apex/shared-ui/components": "shared/ui/frontend/components"
   },
 
   "sharedModulePublicEntry": {
     "description": "Modules under shared/ that have migrated real code and therefore publish a public entry point. Anything outside the module may import the module root or its index file only — reaching into its internal frontend/, backend/, shared/ or tests/ folders is a boundary violation, exactly as for a platform component. Only modules listed here are enforced; the remaining shared/ folders are still Phase 0 scaffolds with nothing to protect.",
-    "modules": ["shared/auth"]
+    "modules": ["shared/auth", "shared/ui"]
   },
 
   "publicSubpaths": {
@@ -37,7 +39,18 @@
       "@apex/sales-crm-shared/styles/primitives.module.css": "platforms/business/sales-crm/shared/frontend/styles/primitives.module.css",
       "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
       "@apex/operations-projects/screens/ProjectsScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectsScreen",
-      "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen"
+      "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen",
+      "@apex/shared-ui/components/breadcrumb": "shared/ui/frontend/components/breadcrumb",
+      "@apex/shared-ui/components/empty-state": "shared/ui/frontend/components/empty-state",
+      "@apex/shared-ui/components/user-avatar": "shared/ui/frontend/components/user-avatar",
+      "@apex/shared-ui/components/staging-banner": "shared/ui/frontend/components/staging-banner",
+      "@apex/shared-ui/components/AnnouncementBroadcast": "shared/ui/frontend/components/AnnouncementBroadcast",
+      "@apex/shared-ui/components/CommandModal": "shared/ui/frontend/components/CommandModal",
+      "@apex/shared-ui/components/QuickActionPalette": "shared/ui/frontend/components/QuickActionPalette",
+      "@apex/shared-ui/components/CommandCard": "shared/ui/frontend/components/CommandCard",
+      "@apex/shared-ui/components/HoverPreview": "shared/ui/frontend/components/HoverPreview",
+      "@apex/shared-ui/components/KpiCapsuleStrip": "shared/ui/frontend/components/KpiCapsuleStrip",
+      "@apex/shared-ui/components/KpiCapsule": "shared/ui/frontend/components/KpiCapsule"
     }
   },
 
@@ -150,13 +163,11 @@
           "frontend/lib/utils.ts",
           "frontend/lib/company-date.ts",
           "frontend/store/auth.store.ts",
-          "frontend/components/ui/",
           "frontend/components/workday/"
         ],
-        "reason": "The dashboard screen and its eight widgets moved verbatim and carry legacy imports across six target groups. None is dashboard-owned: lib/api.ts holds application-wide API groups (ticketsApi, dashboardApi, changeRequestsApi); lib/utils.ts and lib/company-date.ts are broad shared helpers; auth.store.ts is the application-wide identity store; components/ui/ holds global primitives (KpiCapsuleStrip, AnnouncementBroadcast, CommandModal, QuickActionPalette, CommandCard) used across features; components/workday/ (WorkdayBar, WorkdayHistoryStrip) belongs to workforce/attendance and is explicitly out of scope for this phase. Moving any of them would restructure unrelated shared code or touch the attendance engine.",
+        "reason": "The dashboard screen and its eight widgets moved verbatim and carry legacy imports across six target groups. None is dashboard-owned: lib/api.ts holds application-wide API groups (ticketsApi, dashboardApi, changeRequestsApi); lib/utils.ts and lib/company-date.ts are broad shared helpers; auth.store.ts is the application-wide identity store; components/workday/ (WorkdayBar, WorkdayHistoryStrip) belongs to workforce/attendance and is explicitly out of scope for this phase. Moving any of them would restructure unrelated shared code or touch the attendance engine.",
         "removalConditions": [
           "frontend/components/workday/: workforce/attendance is compartmentalised and its bar is consumed through a public entry",
-          "frontend/components/ui/: global primitives migrate to shared/ui",
           "frontend/lib/{utils,company-date}.ts: shared helpers migrate to shared/utilities and shared/time",
           "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity",
           "frontend/lib/api.ts: dashboardApi becomes dashboard-owned once an app-wide API layer is compartmentalised"
@@ -172,16 +183,13 @@
           "frontend/lib/api.ts",
           "frontend/lib/utils.ts",
           "frontend/store/auth.store.ts",
-          "frontend/components/ui/empty-state.tsx",
-          "frontend/components/ui/breadcrumb.tsx",
           "frontend/components/tickets/ticket-row.tsx"
         ],
-        "reason": "The two Projects screens moved verbatim and carry 9 legacy imports across 6 targets. None of the six is Projects-owned, so none could follow: projectsApi has 5 consumers of which 4 are not Projects (tickets/new, users/[id], profile, command-palette); lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also happens to hold the PROJECT_STATUS_* constants; auth.store.ts is the application-wide identity store; EmptyState and Breadcrumb are global UI with consumers outside Projects; TicketRow is owned by operations/tickets and has three consumers. Splitting any of them would restructure unrelated shared code, which this phase explicitly does not do. The exemption is scoped to the screens folder only.",
+        "reason": "The two Projects screens moved verbatim and carry 9 legacy imports across 6 targets. None of the six is Projects-owned, so none could follow: projectsApi has 5 consumers of which 4 are not Projects (tickets/new, users/[id], profile, command-palette); lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also happens to hold the PROJECT_STATUS_* constants; auth.store.ts is the application-wide identity store; TicketRow is owned by operations/tickets and has three consumers. Splitting any of them would restructure unrelated shared code, which this phase explicitly does not do. The exemption is scoped to the screens folder only.",
         "removalConditions": [
           "frontend/lib/api.ts: projectsApi becomes a Projects-owned adapter once core/users and operations/tickets stop consuming it, or once an app-wide API layer is compartmentalised",
           "frontend/lib/utils.ts: PROJECT_STATUS_LABELS and PROJECT_STATUS_COLORS split out to this component; cn/formatDate/getInitials move to shared/utilities",
           "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity and is consumed through its public entry",
-          "frontend/components/ui/{empty-state,breadcrumb}.tsx: global UI primitives migrate to shared/ui",
           "frontend/components/tickets/ticket-row.tsx: operations/tickets is compartmentalised and TicketRow is consumed through its public entry"
         ]
       },

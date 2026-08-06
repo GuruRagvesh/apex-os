@@ -1032,7 +1032,7 @@ testCase(
     write(
       root,
       'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
-      `import { projectsApi } from '@/lib/api';\nimport { useAuthStore } from '@/store/auth.store';\nimport { cn } from '@/lib/utils';\nimport { EmptyState } from '@/components/ui/empty-state';\nexport default function S() { return null; }\n`,
+      `import { projectsApi } from '@/lib/api';\nimport { useAuthStore } from '@/store/auth.store';\nimport { cn } from '@/lib/utils';\nimport { TicketRow } from '@/components/tickets/ticket-row';\nexport default function S() { return null; }\n`,
     );
   },
   { expectExit: 0 },
@@ -1188,7 +1188,7 @@ testCase(
       'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
       `import { dashboardApi } from '@/lib/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
-import { CommandModal } from '@/components/ui/CommandModal';
+import { companyToday } from '@/lib/company-date';
 export default function S() { return null; }
 `,
     );
@@ -1224,6 +1224,246 @@ export default WorkdayBar;
     );
   },
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 69b/69c. Paths that moved into shared/ui are no longer allowlisted for the
+//          components that used to import them, so the old coupling cannot
+//          silently reappear.
+testCase(
+  'rejects Projects importing a UI primitive that moved to shared-ui',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { EmptyState } from '@/components/ui/empty-state';
+export default EmptyState;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+testCase(
+  'rejects Dashboard importing a UI primitive that moved to shared-ui',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { CommandModal } from '@/components/ui/CommandModal';
+export default CommandModal;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// ── shared/ui: design-system module boundary ────────────────────────────────
+// shared/ui sits below every platform. It publishes primitives through one
+// entry and may depend on nothing above or beside it.
+
+// 70. Platform frontend code may consume the shared/ui public entry.
+testCase(
+  'accepts platform frontend importing the shared-ui public entry',
+  (root) => {
+    write(root, 'shared/ui/index.ts', `export const EmptyState = () => null;
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { EmptyState } from '@apex/shared-ui';
+export default EmptyState;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 71. Platform code may NOT reach shared/ui internals.
+testCase(
+  'rejects platform code importing shared-ui internals',
+  (root) => {
+    write(root, 'shared/ui/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { CommandModal } from '@apex/shared-ui/frontend/components/CommandModal';
+export default CommandModal;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 72. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of shared-ui internals',
+  (root) => {
+    write(root, 'shared/ui/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/components/LeadList.tsx',
+      `export const load = () => import('@apex/shared-ui/frontend/components/breadcrumb');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 73. ...and by require().
+testCase(
+  'detects require() of shared-ui internals',
+  (root) => {
+    write(root, 'shared/ui/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen.tsx',
+      `const B = require('@apex/shared-ui/frontend/index');
+export default B;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 74. shared/ui must not import a platform — that inverts the graph.
+testCase(
+  'rejects shared-ui importing a platform',
+  (root) => {
+    write(root, 'platforms/intelligence/dashboard/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/KpiCapsuleStrip.tsx',
+      `import { X } from '@apex/intelligence-dashboard';
+export const K = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 75. shared/ui must not import backend code.
+testCase(
+  'rejects shared-ui importing backend code',
+  (root) => {
+    write(
+      root,
+      'shared/ui/frontend/components/CommandModal.tsx',
+      `import { DashboardService } from '../../../../backend/src/modules/platform/dashboard/dashboard.service';
+export const C = DashboardService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-legacy-backend' },
+);
+
+// 76. shared/ui must not import a legacy feature screen or store. This is the
+//     rule that kept skeleton/multi-select/status-badge OUT of this module:
+//     they still need `cn` from frontend/lib/utils.ts, and there is no
+//     exemption mechanism for shared/ -> frontend/.
+testCase(
+  'rejects shared-ui importing a legacy store',
+  (root) => {
+    write(
+      root,
+      'shared/ui/frontend/components/user-avatar.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export const U = useAuthStore;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-legacy-frontend' },
+);
+
+// 77. ...including a legacy shared helper such as lib/utils.
+testCase(
+  'rejects shared-ui importing frontend lib helpers',
+  (root) => {
+    write(
+      root,
+      'shared/ui/frontend/components/skeleton.tsx',
+      `import { cn } from '@/lib/utils';
+export const S = cn;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-legacy-frontend' },
+);
+
+// 78. shared/auth and shared/ui are independent modules: neither may reach
+//     into the other's internals.
+testCase(
+  'rejects shared-ui reaching into shared-auth internals',
+  (root) => {
+    write(root, 'shared/auth/index.ts', `export const api = {};
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/cold.tsx',
+      `import { api } from '@apex/shared-auth/frontend/authenticated-api-client';
+export const C = api;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 79. A declared shared-ui component subpath is public. Routes use these
+//     rather than the barrel: importing the barrel for one primitive pulled
+//     all eleven and cost ~50 kB First Load JS on six routes when measured.
+testCase(
+  'accepts a platform importing an exact shared-ui component subpath',
+  (root) => {
+    write(root, 'shared/ui/frontend/components/empty-state.tsx', `export const EmptyState = () => null;
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { EmptyState } from '@apex/shared-ui/components/empty-state';
+export default EmptyState;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 80. An UNDECLARED component beside the declared ones stays private —
+//     publicSubpaths is an exact specifier allowlist, not a directory.
+testCase(
+  'rejects an undeclared shared-ui component subpath',
+  (root) => {
+    write(root, 'shared/ui/frontend/components/secret.tsx', `export const Secret = () => null;
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { Secret } from '@apex/shared-ui/components/secret';
+export default Secret;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
+// 81. The same component spelled through the internal folder is rejected,
+//     even though it resolves to the same file.
+testCase(
+  'rejects a shared-ui component spelled through the internal folder path',
+  (root) => {
+    write(root, 'shared/ui/frontend/components/breadcrumb.tsx', `export const Breadcrumb = () => null;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { Breadcrumb } from '@apex/shared-ui/frontend/components/breadcrumb';
+export default Breadcrumb;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
 );
 
 // ── real-repository debt counts ─────────────────────────────────────────────
@@ -1276,8 +1516,8 @@ testRealRepoDebtCounts({
   'DEBT-P2B-LEADS-COMPANY-REPOSITORY': 1,
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P2A-SALES-CRM-AUTH-STORE': 1,
-  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 9,
-  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 15,
+  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 7,
+  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 10,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

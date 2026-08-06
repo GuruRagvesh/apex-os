@@ -14,7 +14,7 @@ import {
   PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { UserAvatar } from '@/components/ui/user-avatar';
+import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
 import { motion } from 'motion/react';
 
 // ── Skeleton shown before Zustand hydrates ────────────────────────────────────

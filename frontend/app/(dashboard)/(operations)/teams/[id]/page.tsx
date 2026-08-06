@@ -10,7 +10,7 @@ import {
   Crown, AlertCircle, ShieldAlert,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Breadcrumb } from '@/components/ui/breadcrumb';
+import { Breadcrumb } from '@apex/shared-ui/components/breadcrumb';
 
 const MANAGE_ROLES = ['ADMIN', 'SUPER_ADMIN', 'MANAGER'];
 

@@ -403,7 +403,15 @@ function checkFile(fileRel, source, config, aliasMap) {
       const fromSharedModule = sharedModuleRootOf(fileRel, config);
       if (toSharedModule && toSharedModule !== fromSharedModule) {
         const remainder = targetRel.slice(toSharedModule.length).replace(/^\//, '');
-        const isPublic = remainder === '' || publicNames.includes(remainder);
+        // A declared public subpath is public here for the same reason it is
+        // for a platform component: a design-system barrel would force every
+        // consumer to load all of shared/ui. Publishing each primitive by an
+        // exact alias keeps a route that needs one primitive loading one.
+        // Matched on the ORIGINAL SPECIFIER and only when it resolves to the
+        // declared path — see publicSubpaths in architecture-boundaries.json.
+        const declaredSubpath = (config.publicSubpaths?.specifiers ?? {})[specifier];
+        const isPublicSubpath = declaredSubpath !== undefined && declaredSubpath === targetRel;
+        const isPublic = remainder === '' || publicNames.includes(remainder) || isPublicSubpath;
         if (!isPublic) {
           add(
             'shared-module-public-entry',

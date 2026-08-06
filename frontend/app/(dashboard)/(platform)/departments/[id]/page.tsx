@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { Breadcrumb } from '@/components/ui/breadcrumb';
+import { Breadcrumb } from '@apex/shared-ui/components/breadcrumb';
 
 const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
 
