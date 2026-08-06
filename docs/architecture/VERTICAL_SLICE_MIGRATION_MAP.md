@@ -38,6 +38,59 @@ with the reason it is deferred to a later phase.
 
 ---
 
+## Whole-Apex scoreboard
+
+Exact tracked counts from `git ls-files`, not estimates. Runtime extensions
+only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
+
+**Last measured: 2026-08-06.**
+
+The official baseline counts **merged** work only. A branch awaiting merge is
+reported separately so the headline figure never runs ahead of `main`.
+
+| | Merged baseline (`origin/main`) | Candidate branch (Projects, unmerged) |
+| --- | --- | --- |
+| Compartmentalised | **43** | 45 |
+| Legacy remaining | 390 | 388 |
+| **Total tracked runtime files** | **433** | 433 |
+| **Completion** | **9.9%** | 10.4% |
+
+`compartmentalize/operations-projects-frontend` moves the figure to **45/433 =
+10.4%** and gives `operations` its first real feature compartment. Until it
+merges, the repository baseline remains **43/433 = 9.9%**.
+
+### Platform coverage
+
+Merged baseline; the Projects branch adds the `operations` row on merge.
+
+| Platform | Files | Status |
+| --- | --- | --- |
+| `business` | 40 | Sales CRM Leads + shared |
+| `operations` | 0 → **2 on merge** | Projects frontend (candidate branch) |
+| `core` | 0 | not started |
+| `workforce` | 0 | not started |
+| `intelligence` | 0 | not started |
+| `system` | 0 | not started |
+| `shared` | 3 | `shared/auth` |
+| `database` | 0 | not started |
+| `apps` | 0 | not activated |
+
+### Largest remaining blocks
+
+| Area | Files | Note |
+| --- | --- | --- |
+| `backend/src` | 113 | **Blocked** — needs the Render deployment-root move |
+| `frontend/components` | 90 | Largest unblocked block |
+| `backend/test` | 54 | Moves with its backend modules |
+| `frontend/app` | 45 | Route adapters + screens |
+| `backend/prisma` | 15 | Stays centralised per **D13** |
+
+Backend is 182 files — **42% of all remaining work — and it is blocked.**
+Validating the staging repository-root deployment unblocks more than any
+individual frontend slice.
+
+---
+
 ## Architecture decisions applied
 
 These were open questions in the first draft. They are now decided and reflected
@@ -380,6 +433,39 @@ created.** They are built when the features are built.
 > `stages/`, `membership/` and `reporting/` have no separate files today —
 > `projects.service.ts` covers all three. Split during Phase 4 only if the
 > split is real; per D10, do not create empty folders.
+
+> **Status update (2026-08-06) — Operations Projects frontend COMPARTMENTALISED**
+> (branch `compartmentalize/operations-projects-frontend`). The first slice
+> outside Sales CRM.
+>
+> | Current | Destination |
+> | --- | --- |
+> | `frontend/app/(dashboard)/(operations)/projects/page.tsx` (290 ln) | `platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx` |
+> | `frontend/app/(dashboard)/(operations)/projects/[id]/page.tsx` (456 ln) | `.../frontend/screens/ProjectDetailScreen.tsx` |
+>
+> Public import: **`@apex/operations-projects`**, plus two exact screen
+> subpaths `@apex/operations-projects/screens/{ProjectsScreen,ProjectDetailScreen}`.
+> The routes use the subpaths, not the barrel: with both screens behind one
+> barrel each route loaded both, taking `/projects` 153 → 161 kB and
+> `/projects/[id]` 158 → 161 kB. The subpaths returned both to baseline exactly.
+>
+> **Nothing else was Projects-owned.** `projectsApi` has 5 consumers of which 4
+> are not Projects (tickets/new, users/[id], profile, command-palette);
+> `lib/utils.ts`, `auth.store.ts`, `EmptyState`, `Breadcrumb` are shared or
+> global; `TicketRow` belongs to operations/tickets;
+> `frontend/modules/operations/projects/projects.api.ts` is a re-export shim
+> with **zero importers** and was left in place, not deleted.
+>
+> **New tracked debt `DEBT-P3-PROJECTS-LEGACY-FRONTEND` — 9 imports** across
+> those 6 targets, scoped to the screens folder only, each with its own removal
+> condition. Total repository debt 3 → 12. Self-tests 63 → 76.
+>
+> **Routes, component logic, API requests, payloads, permissions, styling and
+> known defects are unchanged.** The Projects **backend** stays in
+> `backend/src/` pending the Render deployment-root move. Frontend build 38/38.
+>
+> The rows above are now partially superseded: the two frontend screens have
+> moved; the backend rows and the `stages/` test row remain accurate.
 
 ### operations/task-types ✅
 
