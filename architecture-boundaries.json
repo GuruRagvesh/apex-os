@@ -29,7 +29,8 @@
     "@apex/workforce-leave": "platforms/workforce/leave/applications",
     "@apex/shared-utilities": "shared/utilities",
     "@apex/core-users": "platforms/core/users/administration",
-    "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens"
+    "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
+    "@apex/core-identity": "platforms/core/identity/authentication"
   },
 
   "sharedModulePublicEntry": {
@@ -162,6 +163,20 @@
     "defaultRule": "forbidden",
     "exceptions": [
       {
+        "id": "DEBT-P7-CORE-IDENTITY-AUTH-STORE",
+        "status": "temporary",
+        "introducedIn": "Core Identity authentication adapter",
+        "removalPhase": "Phase 8 (auth store relocation, staging-validated)",
+        "from": "platforms/core/identity/authentication/frontend/state/auth-store.adapter.ts",
+        "allowedTargets": ["frontend/store/auth.store.ts"],
+        "reason": "The adapter re-exports the existing Zustand store so platform components consume authentication state through a component boundary instead of importing frontend/store/ directly. The store itself was deliberately NOT moved: 29 legacy consumers still import it, the repository has no frontend test covering login, logout, hydration or the 401 path, and frontend/app/(dashboard)/layout.tsx records that redirecting while hasHydrated is false is what logged users out on every refresh. The store also has an implicit localStorage contract with shared/auth that no import expresses - auth.store writes apex_token and clears apex_token plus apexMode on logout, while the authenticated client reads apex_token per request and on 401 clears apex_token and the apex-auth persist key before hard-navigating to /login?expired=true. This exemption names exactly one file so no sibling can reuse it.",
+        "removalConditions": [
+          "The 29 legacy consumers migrate to @apex/core-identity",
+          "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
+          "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
         "id": "DEBT-P6-CORE-USERS-LEGACY-FRONTEND",
         "status": "temporary",
         "introducedIn": "Core Users administration frontend compartmentalisation",
@@ -169,12 +184,10 @@
         "from": "platforms/core/users/administration/frontend/",
         "allowedTargets": [
           "frontend/lib/api.ts",
-          "frontend/lib/utils.ts",
-          "frontend/store/auth.store.ts"
+          "frontend/lib/utils.ts"
         ],
         "reason": "The two admin screens moved verbatim and carry legacy imports across three targets. None is Core Users-owned: lib/api.ts holds application-wide API groups (usersApi, rolesApi, departmentsApi, ticketsApi, leaveApi, projectsApi, workdayApi, dashboardApi); lib/utils.ts supplies the ticket-owned STATUS_COLORS and PRIORITY_COLORS used to render a user's ticket list; auth.store.ts is the application-wide identity store. Note this component administers users but does NOT own identity - the auth store belongs to core/identity, and moving it here would invert that. Both screens already consume cn/formatDate/getInitials from @apex/shared-utilities, so that coupling is already retired.",
         "removalConditions": [
-          "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity and is consumed through its public entry",
           "frontend/lib/utils.ts: STATUS_COLORS and PRIORITY_COLORS move with operations/tickets",
           "frontend/lib/api.ts: usersApi becomes a Core Users-owned adapter once an app-wide API layer is compartmentalised"
         ]
@@ -187,13 +200,11 @@
         "from": "platforms/workforce/leave/applications/frontend/",
         "allowedTargets": [
           "frontend/lib/api.ts",
-          "frontend/lib/utils.ts",
-          "frontend/store/auth.store.ts"
+          "frontend/lib/utils.ts"
         ],
         "reason": "The Leave screen moved verbatim and carries three legacy imports. None is Leave-owned: leaveApi lives in frontend/lib/api.ts among ~20 application-wide API groups; lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also holds LEAVE_STATUS_COLORS; auth.store.ts is the application-wide identity store. The screen's global UI dependency was already retired - it consumes EmptyState through @apex/shared-ui/components/empty-state, not the legacy path.",
         "removalConditions": [
           "frontend/lib/utils.ts: LEAVE_STATUS_COLORS splits out to this component (cn/formatDate/getInitials already moved to shared/utilities)",
-          "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity",
           "frontend/lib/api.ts: leaveApi becomes a Leave-owned adapter once an app-wide API layer is compartmentalised"
         ]
       },
@@ -206,14 +217,12 @@
         "allowedTargets": [
           "frontend/lib/api.ts",
           "frontend/lib/company-date.ts",
-          "frontend/store/auth.store.ts",
           "frontend/components/workday/"
         ],
         "reason": "The dashboard screen and its eight widgets moved verbatim and carry legacy imports across six target groups. None is dashboard-owned: lib/api.ts holds application-wide API groups (ticketsApi, dashboardApi, changeRequestsApi); lib/utils.ts and lib/company-date.ts are broad shared helpers; auth.store.ts is the application-wide identity store; components/workday/ (WorkdayBar, WorkdayHistoryStrip) belongs to workforce/attendance and is explicitly out of scope for this phase. Moving any of them would restructure unrelated shared code or touch the attendance engine.",
         "removalConditions": [
           "frontend/components/workday/: workforce/attendance is compartmentalised and its bar is consumed through a public entry",
           "frontend/lib/company-date.ts: migrates to shared/time per D1",
-          "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity",
           "frontend/lib/api.ts: dashboardApi becomes dashboard-owned once an app-wide API layer is compartmentalised"
         ]
       },
@@ -226,14 +235,12 @@
         "allowedTargets": [
           "frontend/lib/api.ts",
           "frontend/lib/utils.ts",
-          "frontend/store/auth.store.ts",
           "frontend/components/tickets/ticket-row.tsx"
         ],
         "reason": "The two Projects screens moved verbatim and carry 9 legacy imports across 6 targets. None of the six is Projects-owned, so none could follow: projectsApi has 5 consumers of which 4 are not Projects (tickets/new, users/[id], profile, command-palette); lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also happens to hold the PROJECT_STATUS_* constants; auth.store.ts is the application-wide identity store; TicketRow is owned by operations/tickets and has three consumers. Splitting any of them would restructure unrelated shared code, which this phase explicitly does not do. The exemption is scoped to the screens folder only.",
         "removalConditions": [
           "frontend/lib/api.ts: projectsApi becomes a Projects-owned adapter once core/users and operations/tickets stop consuming it, or once an app-wide API layer is compartmentalised",
           "frontend/lib/utils.ts: PROJECT_STATUS_LABELS and PROJECT_STATUS_COLORS split out to this component (cn/formatDate/getInitials already moved to shared/utilities)",
-          "frontend/store/auth.store.ts: the auth store migrates to platforms/core/identity and is consumed through its public entry",
           "frontend/components/tickets/ticket-row.tsx: operations/tickets is compartmentalised and TicketRow is consumed through its public entry"
         ]
       },
@@ -262,19 +269,6 @@
         "removalConditions": [
           "core/users migrates to platforms/core/users with a public entry point",
           "The Leads screen resolves assignable owners through that entry point"
-        ]
-      },
-      {
-        "id": "DEBT-P2A-SALES-CRM-AUTH-STORE",
-        "status": "temporary",
-        "introducedIn": "Phase 2A",
-        "removalPhase": "Phase 3 (identity platform slice)",
-        "from": "platforms/business/sales-crm/shared/frontend/api/auth-adapter.ts",
-        "allowedTargets": ["frontend/store/auth.store.ts"],
-        "reason": "The Sales CRM auth adapter maps an Apex identity onto a CRM Role. It is the single point of contact between Sales CRM and the application-wide Zustand auth store, which is owned by the identity platform and must not move in a Sales CRM phase. Every other Sales CRM file consumes this adapter, never the store.",
-        "removalConditions": [
-          "The application-wide auth store migrates to platforms/core/identity/",
-          "The adapter imports it through that component's public entry point"
         ]
       }
     ]

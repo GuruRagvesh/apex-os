@@ -53,40 +53,43 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | Candidate (core/users branch) |
+| | Merged (`origin/main`) | Candidate (core/identity branch) |
 | --- | --- | --- |
-| Legacy relocated | 59 | **61** |
-| **Relocation** | **13.9%** | **14.4%** |
+| Legacy relocated | 61 | **61** |
+| **Relocation** | **14.4%** | **14.4%** |
+
+**Unchanged on purpose.** The Core Identity phase moved **no legacy runtime
+file** — `frontend/store/auth.store.ts` stayed exactly where it was. It created
+a public boundary, not a relocation.
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Candidate (core/users branch) |
+| | Merged (`origin/main`) | Candidate (core/identity branch) |
 | --- | --- | --- |
-| Runtime files in new architecture | 84 | **88** |
-| of which barrels | 20 | 22 |
-| of which extracted modules | 5 | 5 |
+| Runtime files in new architecture | 88 | **91** |
+| of which barrels | 22 | 24 |
+| of which adapters / extracted modules | 5 | 6 |
 | Legacy remaining | 366 | 366 |
-| Total tracked runtime | 450 | 454 |
-| **Footprint** | **18.7%** | **19.4%** |
+| Total tracked runtime | 454 | 457 |
+| **Footprint** | **19.4%** | **19.9%** |
 
-`compartmentalize/core-users-frontend` relocates **2 legacy files** and adds
-**2 barrels**. Until it merges the baseline remains 59/423 = 13.9%. README
-files are documentation and excluded from both figures.
+Three new runtime files: the adapter plus two barrels. Legacy remaining is
+**unchanged** — nothing left `frontend/`. README files are excluded from both
+figures.
 
 ### Platform and shared coverage
 
-Candidate branch included; `core` is new. **Five of six platforms now hold a
-compartment** — only `system` is untouched.
+Candidate branch included. Five of six platforms hold a compartment.
 
 | Module | Files | Status |
 | --- | --- | --- |
 | `platforms/business` | 40 | Sales CRM Leads + shared |
 | `shared/ui` | 16 | Design-system primitives |
 | `platforms/intelligence` | 11 | Dashboard overview |
+| `platforms/core` | 7 | Users administration + Identity auth boundary |
 | `platforms/workforce` | 6 | Leave applications |
 | `platforms/operations` | 4 | Projects frontend |
 | `shared/utilities` | 4 | `cn`, `formatDate`, `getInitials` |
-| `platforms/core` | 4 | Users administration (candidate branch) |
 | `shared/auth` | 3 | Authenticated HTTP client |
 | `platforms/system` | 0 | not started |
 | `database` / `apps` | 0 | not started |
@@ -156,8 +159,43 @@ throughout this map.
 | `frontend/app/(auth)/login/page.tsx` | `platforms/core/identity/authentication/frontend/screens/` + route adapter |
 | `frontend/modules/core/auth/auth.api.ts` | `platforms/core/identity/authentication/frontend/api/` |
 | `frontend/modules/core/auth/auth.types.ts` | `platforms/core/identity/authentication/shared/contracts/` |
-| `frontend/store/auth.store.ts` | `platforms/core/identity/authentication/frontend/state/` |
+| `frontend/store/auth.store.ts` | `platforms/core/identity/authentication/frontend/state/` ⚠️ **not yet moved — see below** |
 | `backend/test/unit/auth.otp.spec.ts`, `auth.throttle.spec.ts` | `platforms/core/identity/authentication/tests/backend/` |
+
+> **Status update (2026-08-06) — Core Identity AUTH STATE BOUNDARY created**
+> (branch `compartmentalize/core-identity-frontend`). A **boundary, not a
+> relocation**: `frontend/store/auth.store.ts` was NOT moved and NOT modified.
+> Its SHA-256 is unchanged, as are `shared/auth/**`, the dashboard layout and
+> all five `(auth)` routes.
+>
+> `platforms/core/identity/authentication/frontend/state/auth-store.adapter.ts`
+> is a single `export { useAuthStore } from '@/store/auth.store'` line —
+> published as **`@apex/core-identity`**. It is not a wrapper; a self-test
+> rejects `create(`, `persist(`, `useState`, `useEffect`, `useMemo` and
+> `zustand` appearing in it, because a second store means a second persisted
+> state.
+>
+> **9 platform consumers migrated** (dashboard 3, projects 2, core/users 2,
+> sales-crm 1, leave 1). **29 legacy consumers untouched** — a self-test asserts
+> that count so nobody migrates legacy authentication without staging.
+>
+> **Debt 27 → 19** (`27 − 9 + 1`). `DEBT-P2A-SALES-CRM-AUTH-STORE` is removed
+> entirely, and `auth.store.ts` was dropped from the Projects, Dashboard, Leave
+> and Core Users allowlists. One narrow `DEBT-P7-CORE-IDENTITY-AUTH-STORE`
+> replaces them, scoped to the adapter file alone.
+>
+> **Why the store did not move:** 29 legacy consumers; **zero** frontend tests
+> for login, logout, hydration or the 401 path; and
+> `frontend/app/(dashboard)/layout.tsx` records that redirecting while
+> `hasHydrated` is false is what logged users out on every refresh. The store
+> also has an **invisible localStorage contract** with `shared/auth` — no import
+> expresses it — around `apex_token`, `apex-auth`, `apexMode` and the `nexus_*`
+> migration, plus the 401 hard-navigate to `/login?expired=true`. Self-tests now
+> assert every one of those literals on both sides.
+>
+> **No storage key, persisted shape, hydration timing, login, logout, 401
+> behaviour, redirect or authorization changed.** Self-tests 132 → 149.
+> Frontend build 38/38 with all auth-touching routes at baseline.
 
 ### core/identity/authorization ✅
 

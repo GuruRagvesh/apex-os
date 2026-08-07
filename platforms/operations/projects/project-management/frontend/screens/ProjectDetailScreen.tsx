@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi, departmentsApi, eventsApi, usersApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import { PROJECT_STATUS_COLORS, PRIORITY_COLORS, PROJECT_STATUS_LABELS, PRIORITY_LABELS, formatRelativeTime } from '@/lib/utils';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
 import { ArrowLeft, Ticket, Users, Edit3, Trash2, Activity, UserPlus, X } from 'lucide-react';

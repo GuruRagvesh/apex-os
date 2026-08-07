@@ -28,6 +28,7 @@
       "@apex/shared-utilities": ["../shared/utilities/index.ts"],
       "@apex/core-users": ["../platforms/core/users/administration/index.ts"],
       "@apex/core-users/screens/*": ["../platforms/core/users/administration/frontend/screens/*"],
+      "@apex/core-identity": ["../platforms/core/identity/authentication/index.ts"],
       "@apex/workforce-leave": ["../platforms/workforce/leave/applications/index.ts"]
     }
   },
@@ -50,6 +51,7 @@
     "../shared/utilities/**/*.ts",
     "../platforms/core/users/**/*.ts",
     "../platforms/core/users/**/*.tsx",
+    "../platforms/core/identity/**/*.ts",
     "../platforms/workforce/leave/**/*.ts",
     "../platforms/workforce/leave/**/*.tsx"
   ],

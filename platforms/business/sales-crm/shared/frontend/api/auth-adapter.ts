@@ -17,7 +17,7 @@
 // here exists only so intern components that reference it don't crash;
 // it is a deliberate no-op, not a second auth path.
 
-import { useAuthStore } from "@/store/auth.store";
+import { useAuthStore } from "@apex/core-identity";
 import { Role, User as CrmUser } from "../../shared/types";
 
 const APEX_TO_CRM_ROLE: Record<string, Role> = {

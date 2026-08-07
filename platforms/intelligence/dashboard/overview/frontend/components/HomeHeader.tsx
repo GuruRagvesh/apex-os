@@ -1,5 +1,5 @@
 'use client';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 
 export function HomeHeader({ summary }: { summary: any }) {
   const user = useAuthStore(s => s.user);

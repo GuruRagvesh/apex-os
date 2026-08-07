@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { STATUS_COLORS, PRIORITY_COLORS } from '@/lib/utils';
 import { cn, formatDate } from '@apex/shared-utilities';
 import toast from 'react-hot-toast';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 
 const roleBadge: Record<string, string> = {
   SUPER_ADMIN: 'bg-purple-100 text-purple-700 border border-purple-200',
