@@ -383,14 +383,31 @@ testCase(
   { expectExit: 1, expectRule: 'component-public-entry' },
 );
 
-// 20. The auth-store exemption applies to the exact adapter file only.
+// 20. The Sales CRM auth adapter no longer reaches the legacy store - it now
+//     consumes @apex/core-identity, so DEBT-P2A-SALES-CRM-AUTH-STORE is gone.
 testCase(
-  'accepts the Sales CRM auth adapter importing the legacy auth store',
+  'rejects the Sales CRM auth adapter importing the legacy auth store',
   (root) => {
     write(
       root,
       'platforms/business/sales-crm/shared/frontend/api/auth-adapter.ts',
       `import { useAuthStore } from '@/store/auth.store';\nexport const useAuth = () => useAuthStore();\n`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+testCase(
+  'accepts the Sales CRM auth adapter consuming Core Identity',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/shared/frontend/api/auth-adapter.ts',
+      `import { useAuthStore } from '@apex/core-identity';
+export const useAuth = () => useAuthStore();
+`,
     );
   },
   { expectExit: 0 },
@@ -1032,7 +1049,7 @@ testCase(
     write(
       root,
       'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
-      `import { projectsApi } from '@/lib/api';\nimport { useAuthStore } from '@/store/auth.store';\nimport { cn } from '@/lib/utils';\nimport { TicketRow } from '@/components/tickets/ticket-row';\nexport default function S() { return null; }\n`,
+      `import { projectsApi } from '@/lib/api';\nimport { cn } from '@/lib/utils';\nimport { TicketRow } from '@/components/tickets/ticket-row';\nexport default function S() { return null; }\n`,
     );
   },
   { expectExit: 0 },
@@ -1611,7 +1628,6 @@ testCase(
       root,
       'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
       `import { leaveApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 export default function S() { return null; }
 `,
@@ -1988,7 +2004,6 @@ testCase(
       root,
       'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
       `import { usersApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth.store';
 import { STATUS_COLORS } from '@/lib/utils';
 export default function S() { return null; }
 `,
@@ -2027,6 +2042,273 @@ export const a = useAuthStore;
   },
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
+
+// ── Core Identity: authentication state boundary ────────────────────────────
+// The adapter re-exports the legacy Zustand store. The store itself did NOT
+// move: 29 legacy consumers still import it directly and there is no frontend
+// test covering login, logout, hydration or the 401 path.
+
+// 115. Platform code may consume the Core Identity public auth binding.
+testCase(
+  'accepts a platform importing the Core Identity auth binding',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default useAuthStore;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 116. External code cannot reach Core Identity state internals.
+testCase(
+  'rejects external code importing Core Identity state internals',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity/frontend/state/auth-store.adapter';
+export default useAuthStore;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 117. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Core Identity state internals',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `export const load = () => import('@apex/core-identity/frontend/state/auth-store.adapter');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 118. ...and by require().
+testCase(
+  'detects require() of Core Identity state internals',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `const s = require('@apex/core-identity/frontend/index');
+export default s;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 119. shared/ must not import Core Identity.
+testCase(
+  'rejects a shared module importing Core Identity',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/identity-helper.ts',
+      `import { X } from '@apex/core-identity';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 120. Core Identity frontend must not import backend code.
+testCase(
+  'rejects Core Identity frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/core/identity/authentication/frontend/state/auth-store.adapter.ts',
+      `import { AuthService } from '../../backend/services/auth.service';
+export default AuthService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 121. Core Identity must not reach into another platform's internals.
+testCase(
+  'rejects Core Identity importing another platform internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/identity/authentication/frontend/state/auth-store.adapter.ts',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 122. The adapter may import exactly frontend/store/auth.store.ts.
+testCase(
+  'accepts the Core Identity adapter importing the legacy auth store',
+  (root) => {
+    write(
+      root,
+      'platforms/core/identity/authentication/frontend/state/auth-store.adapter.ts',
+      `export { useAuthStore } from '@/store/auth.store';
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 123. No sibling Core Identity file may reuse that exemption.
+testCase(
+  'rejects a sibling Core Identity file reusing the auth-store exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/identity/authentication/frontend/state/other.ts',
+      `import { useAuthStore } from '@/store/auth.store';
+export const o = useAuthStore;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 124. The adapter may not reach any OTHER legacy path.
+testCase(
+  'rejects the Core Identity adapter importing an unallowlisted legacy path',
+  (root) => {
+    write(
+      root,
+      'platforms/core/identity/authentication/frontend/state/auth-store.adapter.ts',
+      `import { authApi } from '@/lib/api';
+export const a = authApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 125. Platform components may no longer reach the legacy store directly —
+//      that is the whole point of the adapter.
+testCase(
+  'rejects a platform importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default useAuthStore;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// ── Core Identity behaviour lock ────────────────────────────────────────────
+// Authentication is the one area where a silent regression logs every user
+// out. These assert the invariants the adapter phase promised NOT to touch.
+
+assertContract('the legacy auth store is untouched by the adapter phase', () => {
+  const raw = readRepo('frontend/store/auth.store.ts');
+  if (raw === null) return ['frontend/store/auth.store.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  const required = [
+    "name: 'apex-auth'",                      // persist key
+    "localStorage.setItem('apex_token', token)",
+    "localStorage.removeItem('apex_token')",
+    "localStorage.removeItem('apexMode')",
+    'partialize:',
+    'onRehydrateStorage:',
+    'setHasHydrated',
+    'hasHydrated:',
+    'isAuthenticated:',
+    'setAuth:',
+    'logout:',
+    'updateUser:',
+  ];
+  for (const r of required) if (!src.includes(r)) problems.push(`missing from auth.store.ts: ${r}`);
+  // the store must remain free of any adapter/platform coupling
+  for (const f of ['@apex/', 'platforms/']) {
+    if (src.includes(f)) problems.push(`auth.store.ts must not reference: ${f}`);
+  }
+  return problems;
+});
+
+assertContract('the Core Identity adapter re-exports without wrapping', () => {
+  const rel = 'platforms/core/identity/authentication/frontend/state/auth-store.adapter.ts';
+  const raw = readRepo(rel);
+  if (raw === null) return [`${rel} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes("export { useAuthStore } from '@/store/auth.store';")) {
+    problems.push('the adapter must be a bare re-export of the legacy store');
+  }
+  // a second store, a wrapper or a selector would change behaviour
+  for (const forbidden of ['create(', 'persist(', 'useState', 'useEffect', 'useMemo', 'zustand']) {
+    if (src.includes(forbidden)) problems.push(`adapter must not contain: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('shared/auth still owns the token and 401 contract', () => {
+  const raw = readRepo('shared/auth/frontend/authenticated-api-client.ts');
+  if (raw === null) return ['shared/auth client is missing'];
+  const src = codeOf(raw);
+  const required = [
+    "localStorage.getItem('apex_token')",
+    "localStorage.removeItem('apex_token')",
+    "localStorage.removeItem('apex-auth')",
+    "localStorage.getItem('nexus_token')",
+    "localStorage.removeItem('nexus_token')",
+    "localStorage.removeItem('nexus_user')",
+    "localStorage.removeItem('nexus-auth')",
+    "'/login?expired=true'",
+  ];
+  return required.filter((r) => !src.includes(r)).map((r) => `missing from shared/auth: ${r}`);
+});
+
+assertContract('no platform component imports the legacy auth store directly', () => {
+  const problems = [];
+  for (const f of repoSources().filter((x) => x.startsWith('platforms/'))) {
+    const src = codeOf(readRepo(f) ?? '');
+    if (!/from\s*['"]@\/store\/auth\.store['"]/.test(src)) continue;
+    if (f.endsWith('frontend/state/auth-store.adapter.ts')) continue; // the one exemption
+    problems.push(`${f} still imports the legacy auth store directly`);
+  }
+  return problems;
+});
+
+assertContract('the legacy consumer set is unchanged by this phase', () => {
+  // The adapter phase deliberately left every legacy consumer alone. If this
+  // number moves, someone migrated legacy code without staging validation.
+  const legacy = repoSources()
+    .filter((f) => f.startsWith('frontend/'))
+    .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
+  return legacy.length === 29
+    ? []
+    : [`expected 29 legacy auth-store consumers, found ${legacy.length}`];
+});
 
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
@@ -2077,11 +2359,11 @@ function testRealRepoDebtCounts(expected) {
 testRealRepoDebtCounts({
   'DEBT-P2B-LEADS-COMPANY-REPOSITORY': 1,
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
-  'DEBT-P2A-SALES-CRM-AUTH-STORE': 1,
-  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 7,
-  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 9,
-  'DEBT-P5-LEAVE-LEGACY-FRONTEND': 3,
-  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 5,
+  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 5,
+  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
+  'DEBT-P5-LEAVE-LEGACY-FRONTEND': 2,
+  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
+  'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────
