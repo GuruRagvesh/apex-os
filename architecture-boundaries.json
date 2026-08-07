@@ -30,7 +30,9 @@
     "@apex/shared-utilities": "shared/utilities",
     "@apex/core-users": "platforms/core/users/administration",
     "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
-    "@apex/core-identity": "platforms/core/identity/authentication"
+    "@apex/core-identity": "platforms/core/identity/authentication",
+    "@apex/system-public-site": "platforms/system/public-site",
+    "@apex/system-public-site/screens": "platforms/system/public-site/frontend/screens"
   },
 
   "sharedModulePublicEntry": {
@@ -60,7 +62,10 @@
       "@apex/shared-ui/components/multi-select": "shared/ui/frontend/components/multi-select",
       "@apex/shared-ui/components/status-badge": "shared/ui/frontend/components/status-badge",
       "@apex/core-users/screens/UsersScreen": "platforms/core/users/administration/frontend/screens/UsersScreen",
-      "@apex/core-users/screens/UserDetailScreen": "platforms/core/users/administration/frontend/screens/UserDetailScreen"
+      "@apex/core-users/screens/UserDetailScreen": "platforms/core/users/administration/frontend/screens/UserDetailScreen",
+      "@apex/system-public-site/screens/ApexLandingPage": "platforms/system/public-site/frontend/screens/ApexLandingPage",
+      "@apex/system-public-site/screens/PrivacyScreen": "platforms/system/public-site/frontend/screens/PrivacyScreen",
+      "@apex/system-public-site/screens/TermsScreen": "platforms/system/public-site/frontend/screens/TermsScreen"
     }
   },
 

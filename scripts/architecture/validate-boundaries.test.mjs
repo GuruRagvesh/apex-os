@@ -2310,6 +2310,182 @@ assertContract('the legacy consumer set is unchanged by this phase', () => {
     : [`expected 29 legacy auth-store consumers, found ${legacy.length}`];
 });
 
+// ── System Public Site: unauthenticated surface ─────────────────────────────
+// D4: the marketing and legal screens. No backend, no legacy dependency, and
+// no debt - the only component so far that carries none.
+
+// 126. A thin route may import an exact declared screen subpath.
+testCase(
+  'accepts a thin public route importing an exact System screen subpath',
+  (root) => {
+    write(root, 'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx', `export const ApexLandingPage = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/page.tsx',
+      `import { ApexLandingPage } from '@apex/system-public-site/screens/ApexLandingPage';
+export default ApexLandingPage;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 127. An undeclared screen beside the declared ones stays private.
+testCase(
+  'rejects an undeclared System public-site screen subpath',
+  (root) => {
+    write(root, 'platforms/system/public-site/frontend/screens/SecretScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/page.tsx',
+      `import S from '@apex/system-public-site/screens/SecretScreen';
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 128. External code cannot reach System public-site internals.
+testCase(
+  'rejects external code importing System public-site internals',
+  (root) => {
+    write(root, 'platforms/system/public-site/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { ApexLandingPage } from '@apex/system-public-site/frontend/screens/ApexLandingPage';
+export default ApexLandingPage;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 129. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of System public-site internals',
+  (root) => {
+    write(root, 'platforms/system/public-site/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `export const load = () => import('@apex/system-public-site/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 130. ...and by require().
+testCase(
+  'detects require() of System public-site internals',
+  (root) => {
+    write(root, 'platforms/system/public-site/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `const S = require('@apex/system-public-site/frontend/screens/TermsScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 131. System frontend must not import backend code.
+testCase(
+  'rejects System frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import { HealthService } from '../../backend/services/health.service';
+export default HealthService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 132. System must not reach into another platform's internals.
+testCase(
+  'rejects System importing another platform internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 133. shared/ must not import System.
+testCase(
+  'rejects a shared module importing System public-site',
+  (root) => {
+    write(root, 'platforms/system/public-site/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/public-helper.ts',
+      `import { X } from '@apex/system-public-site';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 134. System may consume Shared UI, Shared Utilities and Core Identity
+//      through their public entries - it just does not need to today.
+testCase(
+  'accepts System consuming shared-ui, shared-utilities and core-identity publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/empty-state.tsx', `export const EmptyState = () => null;
+`);
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import { cn } from '@apex/shared-utilities';
+import { EmptyState } from '@apex/shared-ui/components/empty-state';
+import { useAuthStore } from '@apex/core-identity';
+export default function S() { return [cn, EmptyState, useAuthStore]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 135. System carries NO legacy exemption - any legacy import is rejected.
+testCase(
+  'rejects System public-site importing any legacy frontend path',
+  (root) => {
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import { cn } from '@/lib/utils';
+export default cn;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the

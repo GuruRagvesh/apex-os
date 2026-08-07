@@ -43,7 +43,7 @@ with the reason it is deferred to a later phase.
 Exact tracked counts from `git ls-files`, not estimates. Runtime extensions
 only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
-**Last measured: 2026-08-06.**
+**Last measured: 2026-08-07** (batch branch, Commit 1).
 
 Two figures, because they answer different questions. Every component we create
 adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
@@ -53,33 +53,34 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | Candidate (core/identity branch) |
+| | Merged (`origin/main`) | Batch branch, after Commit 1 |
 | --- | --- | --- |
-| Legacy relocated | 61 | **61** |
-| **Relocation** | **14.4%** | **14.4%** |
-
-**Unchanged on purpose.** The Core Identity phase moved **no legacy runtime
-file** — `frontend/store/auth.store.ts` stayed exactly where it was. It created
-a public boundary, not a relocation.
+| Legacy relocated | 61 | **64** |
+| **Relocation** | **14.4%** | **15.1%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Candidate (core/identity branch) |
+| | Merged (`origin/main`) | Batch branch, after Commit 1 |
 | --- | --- | --- |
-| Runtime files in new architecture | 88 | **91** |
-| of which barrels | 22 | 24 |
-| of which adapters / extracted modules | 5 | 6 |
-| Legacy remaining | 366 | 366 |
-| Total tracked runtime | 454 | 457 |
-| **Footprint** | **19.4%** | **19.9%** |
+| Runtime files in new architecture | 91 | **96** |
+| of which barrels | 24 | 26 |
+| of which adapters / extracted modules | 6 | 6 |
+| Legacy remaining | 366 | 365 |
+| Total tracked runtime | 457 | 461 |
+| **Footprint** | **19.9%** | **20.8%** |
 
-Three new runtime files: the adapter plus two barrels. Legacy remaining is
-**unchanged** — nothing left `frontend/`. README files are excluded from both
-figures.
+Commit 1 relocates **3 legacy files** and adds **2 barrels**. Legacy remaining
+drops by only 1 because two of the three moves left a thin route adapter behind
+in `frontend/app/`. README files are excluded from both figures.
+
+**Batch note:** `compartmentalize/architecture-batch-2026-08-07` holds several
+independently validated commits and pushes once at end of day. Per-commit
+deltas are measured against the previous commit; this table reconciles against
+`origin/main`.
 
 ### Platform and shared coverage
 
-Candidate branch included. Five of six platforms hold a compartment.
+Batch branch included. **All six platforms now hold a compartment.**
 
 | Module | Files | Status |
 | --- | --- | --- |
@@ -88,10 +89,10 @@ Candidate branch included. Five of six platforms hold a compartment.
 | `platforms/intelligence` | 11 | Dashboard overview |
 | `platforms/core` | 7 | Users administration + Identity auth boundary |
 | `platforms/workforce` | 6 | Leave applications |
+| `platforms/system` | 5 | **Public site (batch Commit 1)** |
 | `platforms/operations` | 4 | Projects frontend |
 | `shared/utilities` | 4 | `cn`, `formatDate`, `getInitials` |
 | `shared/auth` | 3 | Authenticated HTTP client |
-| `platforms/system` | 0 | not started |
 | `database` / `apps` | 0 | not started |
 
 ### Largest remaining blocks
@@ -943,6 +944,33 @@ created.** They are built when the features are built.
 > **D4 — `public-site`** collects the unauthenticated marketing and legal
 > surfaces. They are real screens with no platform affiliation; putting them in
 > `apps/web` would leak page implementation into the composition shell.
+>
+> **Status update (2026-08-07) — public-site COMPARTMENTALISED**
+> (batch branch `compartmentalize/architecture-batch-2026-08-07`, Commit 1),
+> giving `system` its first compartment and completing coverage of **all six
+> platforms**.
+>
+> 3 legacy files → `platforms/system/public-site/frontend/screens/`:
+> `components/landing/ApexLandingPage.tsx` (474 ln, **byte-identical**),
+> plus the `/privacy` and `/terms` bodies as `PrivacyScreen.tsx` and
+> `TermsScreen.tsx`. `frontend/components/landing/` is now empty.
+>
+> **`metadata` stayed in the route files.** Next.js only honours
+> `export const metadata` in a route file, so `/privacy` and `/terms` keep
+> theirs with byte-identical values; only the JSX bodies moved.
+>
+> Published as `@apex/system-public-site` plus **three exact screen subpaths**.
+> All four routes — `/`, `/home-v2`, `/privacy`, `/terms` — use the subpaths and
+> measured **193 B / 94.5 kB**, identical to baseline. A barrel would have
+> pulled the 474-line landing page into two 193 B pages.
+>
+> **This component adds ZERO debt** — the first to do so. Its three screens
+> import only `next/link` and lucide icons, so there is no exemption entry at
+> all, and a self-test asserts any legacy import from it is rejected.
+> Repository debt unchanged at 19. Self-tests 149 → 159.
+>
+> **No rendered copy, layout, styling, animation, link, navigation, responsive
+> behaviour, route URL, route visibility or metadata value changed.**
 >
 > ⚠️ `notifications` currently sits under `operations/` and moves to `system/`.
 > Also carries open **BUG-H**: `events.gateway.ts` broadcasts ticket events to
