@@ -10,7 +10,7 @@ import { logAction, AuditCollection, useAuth, canAddRecord, canDeleteRecord, can
 import DatabaseSection from "./DatabaseSection";
 import DatabaseModal from "./DatabaseModal";
 import ImportDataModal from "./ImportDataModal";
-import styles from "@/styles/sales-crm/database.module.css";
+import styles from "../styles/database.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 function DatabasePageContent() {

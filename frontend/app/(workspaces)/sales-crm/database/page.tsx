@@ -1,4 +1,4 @@
-import SalesCrmDatabase from '@/components/sales-crm/database/SalesCrmDatabase';
+import { SalesCrmDatabase } from '@apex/sales-crm-database';
 
 export default function SalesCrmDatabasePage() {
   return <SalesCrmDatabase />;

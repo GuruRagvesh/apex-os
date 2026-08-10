@@ -4496,6 +4496,7 @@ testRealRepoDebtCounts({
   'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
   'DEBT-P2B1-SALES-CRM-DASHBOARD-LEGACY-FRONTEND': 11,
   'DEBT-P2B2-SALES-CRM-ANALYTICS-LEGACY-FRONTEND': 12,
+  'DEBT-P2B3-SALES-CRM-DATABASE-LEGACY-FRONTEND': 7,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

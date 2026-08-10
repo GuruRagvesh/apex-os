@@ -22,6 +22,7 @@
     "@apex/sales-crm-shared/components": "platforms/business/sales-crm/shared/frontend/components",
     "@apex/sales-crm-dashboard": "platforms/business/sales-crm/dashboard",
     "@apex/sales-crm-analytics": "platforms/business/sales-crm/analytics",
+    "@apex/sales-crm-database": "platforms/business/sales-crm/database",
     "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
     "@apex/shared-auth": "shared/auth",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
@@ -201,6 +202,23 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P2B3-SALES-CRM-DATABASE-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Sales CRM Phase 2B database compartmentalisation",
+        "removalPhase": "Phase 2B remaining commits (ui ownership, lib split)",
+        "from": "platforms/business/sales-crm/database/frontend/",
+        "allowedTargets": [
+          "frontend/lib/sales-crm/database-schema.ts",
+          "frontend/lib/sales-crm/database-utils.ts",
+          "frontend/lib/sales-crm/database-data.ts"
+        ],
+        "reason": "Same scheduled pattern as dashboard and analytics: the database components moved ahead of frontend/lib/sales-crm, which is split LAST in this phase because a library file's owner can only be read from consumers that have already migrated. database.module.css was NOT left behind - it is exclusively database-owned, with no consumer outside this folder, so it moved into the component and is imported by relative path from its five siblings, keeping it out of every barrel. primitives.module.css already arrives by exact public path from sales-crm/shared, so this component reaches into no sibling component's internals.",
+        "removalConditions": [
+          "frontend/lib/sales-crm/*: resolved by the Phase 2B library split, which classifies each file by its current consumers",
+          "frontend/components/sales-crm/ui/*: resolved by the Phase 2B ui-ownership commit"
         ]
       },
       {

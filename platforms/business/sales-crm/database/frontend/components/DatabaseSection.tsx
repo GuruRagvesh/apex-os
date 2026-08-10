@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { CollectionType, DatabaseRecord } from "@/lib/sales-crm/database-schema";
 import { computeLinkedData } from "@/lib/sales-crm/database-utils";
 import { UserCog, Archive } from "lucide-react";
-import styles from "@/styles/sales-crm/database.module.css";
+import styles from "../styles/database.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface DatabaseSectionProps {
