@@ -2299,15 +2299,41 @@ assertContract('no platform component imports the legacy auth store directly', (
   return problems;
 });
 
-assertContract('the legacy consumer set is unchanged by this phase', () => {
-  // The adapter phase deliberately left every legacy consumer alone. If this
-  // number moves, someone migrated legacy code without staging validation.
+assertContract('the legacy auth-store consumer set only shrinks by compartmentalisation', () => {
+  // The adapter phase left all 29 legacy consumers alone. Core Users Profiles
+  // then took 2 of them OUT of frontend/ entirely - the screens moved into
+  // platforms/ and now read the store through @apex/core-identity, so they are
+  // no longer legacy consumers at all. That is the only sanctioned way this
+  // number moves: a screen leaves frontend/ with its import rewritten to the
+  // public boundary. An in-place rewrite of a file that stays in frontend/
+  // would still be an unvalidated auth migration, and the route-adapter check
+  // below is what distinguishes the two.
+  const problems = [];
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  return legacy.length === 29
-    ? []
-    : [`expected 29 legacy auth-store consumers, found ${legacy.length}`];
+  if (legacy.length !== 27) {
+    problems.push(`expected 27 legacy auth-store consumers, found ${legacy.length}`);
+  }
+  // The two that left must be thin adapters carrying no auth dependency at all.
+  for (const route of [
+    'frontend/app/(dashboard)/profile/page.tsx',
+    'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx',
+  ]) {
+    const src = codeOf(readRepo(route) ?? '');
+    if (src === '') {
+      problems.push(`${route} is missing - the route must survive as an adapter`);
+      continue;
+    }
+    if (src.includes('auth.store')) problems.push(`${route} must not import the auth store`);
+    if (src.includes('@apex/core-identity')) {
+      problems.push(`${route} is an adapter; auth belongs in the screen, not the route`);
+    }
+    if (!src.includes('@apex/core-users-profiles/screens/')) {
+      problems.push(`${route} must import its exact Profiles screen subpath`);
+    }
+  }
+  return problems;
 });
 
 // ── System Public Site: unauthenticated surface ─────────────────────────────
@@ -2486,6 +2512,314 @@ export default cn;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Core Users Profiles: the two profile surfaces ──────────────────────────
+// The second component in the core/users module. Its defining property is that
+// it is the FIRST component to consume authentication through @apex/core-identity
+// instead of importing frontend/store/auth.store.ts directly — so the tests
+// below lock that in rather than merely allowing it.
+
+// 136. The /profile route may import its exact declared screen subpath.
+testCase(
+  'accepts the /profile route importing the exact ProfileScreen subpath',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/profile/page.tsx',
+      `import ProfileScreen from '@apex/core-users-profiles/screens/ProfileScreen';
+export default ProfileScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 137. ...and /users/[id]/profile may import its own screen subpath.
+testCase(
+  'accepts the /users/[id]/profile route importing the exact UserProfileScreen subpath',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/users/[id]/profile/page.tsx',
+      `import UserProfileScreen from '@apex/core-users-profiles/screens/UserProfileScreen';
+export default UserProfileScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 138. An undeclared screen beside the two declared ones stays private.
+testCase(
+  'rejects an undeclared Core Users Profiles screen subpath',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/frontend/screens/PayrollScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/profile/page.tsx',
+      `import S from '@apex/core-users-profiles/screens/PayrollScreen';
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 139. External code cannot reach Profiles internals.
+testCase(
+  'rejects external code importing Core Users Profiles internals',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { ActivityItem } from '@apex/core-users-profiles/frontend/components/activity-item';
+export default ActivityItem;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 140. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Core Users Profiles internals',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `export const load = () => import('@apex/core-users-profiles/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 141. ...and by require().
+testCase(
+  'detects require() of Core Users Profiles internals',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `const S = require('@apex/core-users-profiles/frontend/screens/ProfileScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 142. Profiles frontend must not import backend code.
+testCase(
+  'rejects Core Users Profiles frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+      `import { UsersService } from '../../backend/services/users.service';
+export default UsersService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 143. Profiles must not reach into another platform's internals.
+testCase(
+  'rejects Core Users Profiles importing another platform internals',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import ProjectsScreen from '@apex/operations-projects/frontend/screens/ProjectsScreen';
+export default ProjectsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 144. Profiles reaches its SIBLING component only through its public entry —
+//      administration and profiles are two components, not one folder.
+testCase(
+  'rejects Core Users Profiles importing Core Users Administration internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 145. Profiles may consume Core Identity through its public entry.
+testCase(
+  'accepts Core Users Profiles consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 146. ...but ONLY through it — the adapter file itself stays private.
+testCase(
+  'rejects Core Users Profiles reaching past the Core Identity public entry',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity/frontend/state/auth-store.adapter';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 147. A direct legacy auth-store import from Profiles is rejected. The
+//      DEBT-P8 allowlist deliberately omits frontend/store/auth.store.ts, so
+//      the boundary cannot be re-crossed by a later edit to this component.
+testCase(
+  'rejects Core Users Profiles importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 148. Profiles may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Core Users Profiles consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const getInitials = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/skeleton.tsx', `export const Skeleton = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/components/activity-item.tsx',
+      `import { getInitials } from '@apex/shared-utilities';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
+export default function S() { return [getInitials, Skeleton]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 149. shared/ must not import Profiles.
+testCase(
+  'rejects a shared module importing Core Users Profiles',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/user-avatar.tsx',
+      `import { X } from '@apex/core-users-profiles';
+export const A = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 150. The DEBT-P8 allowlist covers exactly its three targets...
+testCase(
+  'accepts the three allowlisted Core Users Profiles legacy targets',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { usersApi } from '@/lib/api';
+import { formatRelativeTime } from '@/lib/utils';
+import { TicketRow } from '@/components/tickets/ticket-row';
+export default function S() { return [usersApi, formatRelativeTime, TicketRow]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 151. ...and nothing else.
+testCase(
+  'rejects an unallowlisted legacy target from Core Users Profiles',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { Sidebar } from '@/components/layout/sidebar';
+export default Sidebar;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 152. The exemption is scoped to frontend/ — a sibling folder cannot reuse it.
+testCase(
+  'rejects a Core Users Profiles file outside frontend/ reusing the exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/shared/contracts/profile.types.ts',
+      `import { usersApi } from '@/lib/api';
+export const t = usersApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 153. Administration must not borrow the Profiles allowlist. Its own DEBT-P6
+//      entry names only lib/api.ts and lib/utils.ts, so ticket-row is out.
+testCase(
+  'rejects Core Users Administration reusing the Profiles legacy allowlist',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { TicketRow } from '@/components/tickets/ticket-row';
+export default TicketRow;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -2540,6 +2874,7 @@ testRealRepoDebtCounts({
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 2,
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
+  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 4,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────
@@ -2742,5 +3077,78 @@ assertContract('frontend/lib/api.ts owns no client and no Sales CRM API', () => 
     if (src.includes(forbidden)) problems.push(`must no longer contain: ${forbidden}`);
   }
   if (!src.includes("from '@apex/shared-auth'")) problems.push('does not import the shared authenticated client');
+  return problems;
+});
+
+assertContract('both Profiles screens read auth through the Core Identity boundary', () => {
+  const problems = [];
+  for (const screen of [
+    'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+    'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+  ]) {
+    const raw = readRepo(screen);
+    if (raw === null) {
+      problems.push(`${screen} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    if (!src.includes("from '@apex/core-identity'")) {
+      problems.push(`${screen} does not consume @apex/core-identity`);
+    }
+    if (src.includes('@/store/auth.store')) {
+      problems.push(`${screen} still imports the legacy auth store`);
+    }
+    // The migration is an import-path change only: the call shape is untouched.
+    if (!src.includes('useAuthStore()')) {
+      problems.push(`${screen} no longer calls useAuthStore() - the hook usage must be unchanged`);
+    }
+  }
+  return problems;
+});
+
+assertContract('ActivityItem stays internal to Core Users Profiles', () => {
+  // Its only consumer repo-wide is ProfileScreen. Publishing it through either
+  // barrel would pull it into every consumer of '@apex/core-users-profiles',
+  // and would also let another component depend on a Profiles-owned detail.
+  const problems = [];
+  const INTERNAL = 'platforms/core/users/profiles/frontend/components/activity-item.tsx';
+  if (readRepo(INTERNAL) === null) problems.push(`${INTERNAL} is missing`);
+
+  for (const barrel of [
+    'platforms/core/users/profiles/index.ts',
+    'platforms/core/users/profiles/frontend/index.ts',
+  ]) {
+    const raw = readRepo(barrel);
+    if (raw === null) {
+      problems.push(`${barrel} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    if (src.includes('ActivityItem') || src.includes('activity-item')) {
+      problems.push(`${barrel} must not publish ActivityItem`);
+    }
+  }
+  // No file outside this component may reference the old legacy path either.
+  for (const f of repoSources()) {
+    if (f.startsWith('platforms/core/users/profiles/')) continue;
+    if (f === 'scripts/architecture/validate-boundaries.test.mjs') continue;
+    const src = codeOf(readRepo(f) ?? '');
+    if (src.includes('@/components/dashboard/activity-item')) {
+      problems.push(`${f} imports activity-item from its old legacy path`);
+    }
+  }
+  return problems;
+});
+
+assertContract('the Profiles barrel publishes exactly the two screens', () => {
+  const raw = readRepo('platforms/core/users/profiles/frontend/index.ts');
+  if (raw === null) return ['platforms/core/users/profiles/frontend/index.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const screen of ['ProfileScreen', 'UserProfileScreen']) {
+    if (!src.includes(screen)) problems.push(`the frontend barrel does not export ${screen}`);
+  }
+  const exportCount = (src.match(/^export /gm) ?? []).length;
+  if (exportCount !== 2) problems.push(`expected 2 exports, found ${exportCount}`);
   return problems;
 });

@@ -30,6 +30,8 @@
     "@apex/shared-utilities": "shared/utilities",
     "@apex/core-users": "platforms/core/users/administration",
     "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
+    "@apex/core-users-profiles": "platforms/core/users/profiles",
+    "@apex/core-users-profiles/screens": "platforms/core/users/profiles/frontend/screens",
     "@apex/core-identity": "platforms/core/identity/authentication",
     "@apex/system-public-site": "platforms/system/public-site",
     "@apex/system-public-site/screens": "platforms/system/public-site/frontend/screens"
@@ -63,6 +65,8 @@
       "@apex/shared-ui/components/status-badge": "shared/ui/frontend/components/status-badge",
       "@apex/core-users/screens/UsersScreen": "platforms/core/users/administration/frontend/screens/UsersScreen",
       "@apex/core-users/screens/UserDetailScreen": "platforms/core/users/administration/frontend/screens/UserDetailScreen",
+      "@apex/core-users-profiles/screens/ProfileScreen": "platforms/core/users/profiles/frontend/screens/ProfileScreen",
+      "@apex/core-users-profiles/screens/UserProfileScreen": "platforms/core/users/profiles/frontend/screens/UserProfileScreen",
       "@apex/system-public-site/screens/ApexLandingPage": "platforms/system/public-site/frontend/screens/ApexLandingPage",
       "@apex/system-public-site/screens/PrivacyScreen": "platforms/system/public-site/frontend/screens/PrivacyScreen",
       "@apex/system-public-site/screens/TermsScreen": "platforms/system/public-site/frontend/screens/TermsScreen"
@@ -176,9 +180,27 @@
         "allowedTargets": ["frontend/store/auth.store.ts"],
         "reason": "The adapter re-exports the existing Zustand store so platform components consume authentication state through a component boundary instead of importing frontend/store/ directly. The store itself was deliberately NOT moved: 29 legacy consumers still import it, the repository has no frontend test covering login, logout, hydration or the 401 path, and frontend/app/(dashboard)/layout.tsx records that redirecting while hasHydrated is false is what logged users out on every refresh. The store also has an implicit localStorage contract with shared/auth that no import expresses - auth.store writes apex_token and clears apex_token plus apexMode on logout, while the authenticated client reads apex_token per request and on 401 clears apex_token and the apex-auth persist key before hard-navigating to /login?expired=true. This exemption names exactly one file so no sibling can reuse it.",
         "removalConditions": [
-          "The 29 legacy consumers migrate to @apex/core-identity",
+          "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Core Users profiles frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/core/users/profiles/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts",
+          "frontend/lib/utils.ts",
+          "frontend/components/tickets/ticket-row.tsx"
+        ],
+        "reason": "The two profile screens and the activity-item component moved and carry four legacy imports across three targets. None is Profiles-owned: lib/api.ts holds application-wide API groups (usersApi, rolesApi, departmentsApi, ticketsApi, leaveApi, projectsApi, dashboardApi, analyticsApi) plus changeRequestsApi, which belongs to the unmigrated core/users/change-requests component; lib/utils.ts supplies formatRelativeTime, consumed by activity-item; components/tickets/ticket-row.tsx is owned by operations/tickets and has four importers, so it cannot follow Profiles. The authentication coupling was NOT carried over - both screens consume useAuthStore through @apex/core-identity, making Profiles the first real consumer of that boundary. Skeleton comes from @apex/shared-ui/components/skeleton and getInitials from @apex/shared-utilities, so those couplings are already retired.",
+        "removalConditions": [
+          "frontend/components/tickets/ticket-row.tsx: moves with operations/tickets, which also owns its three other importers",
+          "frontend/lib/utils.ts: formatRelativeTime joins shared/utilities once its formatDate dependency no longer round-trips through the legacy module",
+          "frontend/lib/api.ts: usersApi becomes a Core Users-owned adapter once an app-wide API layer is compartmentalised, and changeRequestsApi follows core/users/change-requests"
         ]
       },
       {

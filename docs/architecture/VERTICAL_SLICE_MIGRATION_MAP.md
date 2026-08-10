@@ -43,7 +43,7 @@ with the reason it is deferred to a later phase.
 Exact tracked counts from `git ls-files`, not estimates. Runtime extensions
 only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
-**Last measured: 2026-08-07** (batch branch, Commit 1).
+**Last measured: 2026-08-07** (batch branch, Commit 2).
 
 Two figures, because they answer different questions. Every component we create
 adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
@@ -53,25 +53,31 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | Batch branch, after Commit 1 |
-| --- | --- | --- |
-| Legacy relocated | 61 | **64** |
-| **Relocation** | **14.4%** | **15.1%** |
+| | Merged (`origin/main`) | After Commit 1 | After Commit 2 |
+| --- | --- | --- | --- |
+| Legacy relocated | 61 | 64 | **67** |
+| **Relocation** | **14.4%** | **15.1%** | **15.8%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Batch branch, after Commit 1 |
-| --- | --- | --- |
-| Runtime files in new architecture | 91 | **96** |
-| of which barrels | 24 | 26 |
-| of which adapters / extracted modules | 6 | 6 |
-| Legacy remaining | 366 | 365 |
-| Total tracked runtime | 457 | 461 |
-| **Footprint** | **19.9%** | **20.8%** |
+| | Merged (`origin/main`) | After Commit 1 | After Commit 2 |
+| --- | --- | --- | --- |
+| Runtime files in new architecture | 91 | 96 | **101** |
+| of which barrels | 24 | 26 | 28 |
+| of which adapters / extracted modules | 6 | 6 | 6 |
+| Legacy remaining | 366 | 365 | 364 |
+| Total tracked runtime | 457 | 461 | 465 |
+| **Footprint** | **19.9%** | **20.8%** | **21.7%** |
 
-Commit 1 relocates **3 legacy files** and adds **2 barrels**. Legacy remaining
-drops by only 1 because two of the three moves left a thin route adapter behind
-in `frontend/app/`. README files are excluded from both figures.
+Each commit relocates **3 legacy files** and adds **2 barrels**, and each moves
+legacy remaining by only 1 because two of its three moves leave a thin route
+adapter behind in `frontend/app/`. Commit 2's third file, `activity-item.tsx`,
+left nothing behind. README files are excluded from both figures.
+
+**Counting method.** Architecture = `platforms/` + `shared/` + `apps/` +
+`database/`. Legacy = `frontend/` + `backend/`, excluding `backend/prisma/`
+(schema and migrations are database artifacts, not relocatable runtime files).
+`e2e/`, `scripts/`, `docs/` and root config are excluded from both.
 
 **Batch note:** `compartmentalize/architecture-batch-2026-08-07` holds several
 independently validated commits and pushes once at end of day. Per-commit
@@ -87,9 +93,9 @@ Batch branch included. **All six platforms now hold a compartment.**
 | `platforms/business` | 40 | Sales CRM Leads + shared |
 | `shared/ui` | 16 | Design-system primitives |
 | `platforms/intelligence` | 11 | Dashboard overview |
-| `platforms/core` | 7 | Users administration + Identity auth boundary |
+| `platforms/core` | 12 | Users administration + **Users profiles (batch Commit 2)** + Identity auth boundary |
 | `platforms/workforce` | 6 | Leave applications |
-| `platforms/system` | 5 | **Public site (batch Commit 1)** |
+| `platforms/system` | 5 | Public site (batch Commit 1) |
 | `platforms/operations` | 4 | Projects frontend |
 | `shared/utilities` | 4 | `cn`, `formatDate`, `getInitials` |
 | `shared/auth` | 3 | Authenticated HTTP client |
@@ -349,6 +355,55 @@ throughout this map.
 > **No authentication, authorization, role check, visibility rule, scoping,
 > endpoint, payload, query key, pagination, filter, sort, validation, copy,
 > style or defect changed.** Frontend build 38/38.
+
+> **Status update (2026-08-07) — Users PROFILES frontend COMPARTMENTALISED**
+> (batch branch `compartmentalize/architecture-batch-2026-08-07`, Commit 2),
+> giving `core/users` its second component.
+>
+> 3 legacy files → `platforms/core/users/profiles/frontend/`:
+> `(dashboard)/profile/page.tsx` (558 ln) → `screens/ProfileScreen.tsx`,
+> `users/[id]/profile/page.tsx` (833 ln) → `screens/UserProfileScreen.tsx`, and
+> `components/dashboard/activity-item.tsx` (29 ln) → `components/activity-item.tsx`.
+> `UserProfileScreen.tsx` and `activity-item.tsx` preserve their original
+> sources exactly apart from the import and identifier edits below;
+> `ProfileScreen.tsx` matched its original before trailing-whitespace
+> normalisation, with eleven pre-existing whitespace sequences (50 characters)
+> removed — logic, strings, class names, component behaviour and rendered
+> output unchanged.
+>
+> **`activity-item` was resolved as Profiles-owned**, settling the open question
+> left by the Dashboard phase note above. Its only importer repo-wide is
+> `ProfileScreen`, so leaving it in `frontend/components/dashboard/` would have
+> created a debt entry no future phase could ever retire. `ticket-row` was NOT
+> moved — it has four importers and belongs to `operations/tickets`.
+>
+> Public entry `@apex/core-users-profiles` plus two exact screen subpaths. Not
+> `core-user-profiles`: every alias is built from real directory names, and
+> `@apex/core-users` was already administration's. Both routes are unchanged and
+> use the subpaths, not the barrel — `/profile` measured 9.81 kB / 160 kB
+> against a 9.8 kB / 160 kB baseline and `/users/[id]/profile` 10.3 kB / 148 kB
+> against an identical baseline. `ActivityItem` stays internal.
+>
+> **First component to consume `@apex/core-identity`.** Both screens migrated
+> `useAuthStore` from `@/store/auth.store` to the public boundary — an
+> import-path change only, with the hook call and destructuring untouched. The
+> adapter had zero importers until now. Legacy auth-store consumers 29 → 27:
+> these two left `frontend/` entirely rather than being rewritten in place, and
+> a self-test enforces that distinction.
+>
+> New tracked debt `DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND` — **4 imports**
+> (`lib/api` ×2, `components/tickets/ticket-row`, `lib/utils` for
+> `formatRelativeTime`). `store/auth.store` is deliberately absent from the
+> allowlist so the boundary cannot be re-crossed. Repository debt 19 → 23.
+> Self-tests 159 → 180.
+>
+> `frontend/modules/core/users/users.api.ts` is assigned to `profiles/frontend/api/`
+> by the row above but remains a re-export shim with zero importers; retained,
+> not deleted — same call as administration.
+>
+> **No form, validation, upload, document, password, role, visibility, endpoint,
+> payload, query key, error handling, toast, copy or style changed.** Frontend
+> build 38/38, 42 routes.
 
 ### core/organization ✅
 

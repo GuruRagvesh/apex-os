@@ -28,6 +28,8 @@
       "@apex/shared-utilities": ["../shared/utilities/index.ts"],
       "@apex/core-users": ["../platforms/core/users/administration/index.ts"],
       "@apex/core-users/screens/*": ["../platforms/core/users/administration/frontend/screens/*"],
+      "@apex/core-users-profiles": ["../platforms/core/users/profiles/index.ts"],
+      "@apex/core-users-profiles/screens/*": ["../platforms/core/users/profiles/frontend/screens/*"],
       "@apex/core-identity": ["../platforms/core/identity/authentication/index.ts"],
       "@apex/system-public-site": ["../platforms/system/public-site/index.ts"],
       "@apex/system-public-site/screens/*": ["../platforms/system/public-site/frontend/screens/*"],
