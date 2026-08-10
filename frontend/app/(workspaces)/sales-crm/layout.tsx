@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth.store';
 import { ShieldAlert } from 'lucide-react';
-import SalesCrmShell from '@/components/sales-crm/shell/SalesCrmShell';
+import { SalesCrmShell } from '@apex/sales-crm-shell';
 
 // Shared shell + auth gate for the entire /sales-crm route tree. This
 // workspace is standalone (not under (dashboard)), so it must replicate the

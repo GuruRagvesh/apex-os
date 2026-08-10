@@ -24,6 +24,7 @@
     "@apex/sales-crm-analytics": "platforms/business/sales-crm/analytics",
     "@apex/sales-crm-database": "platforms/business/sales-crm/database",
     "@apex/sales-crm-settings": "platforms/business/sales-crm/settings",
+    "@apex/sales-crm-shell": "platforms/business/sales-crm/shell",
     "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
     "@apex/shared-auth": "shared/auth",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
@@ -203,6 +204,22 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P2B5-SALES-CRM-SHELL-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Sales CRM Phase 2B shell compartmentalisation",
+        "removalPhase": "Phase 2B remaining commits (ui ownership, lib split)",
+        "from": "platforms/business/sales-crm/shell/frontend/",
+        "allowedTargets": [
+          "frontend/lib/sales-crm/theme.ts",
+          "frontend/lib/sales-crm/dashboard-calculations.ts"
+        ],
+        "reason": "The CRM workspace chrome - sidebar, topbar and the placeholder pane. shell.module.css and tokens.module.css are both exclusively shell-owned, with no consumer anywhere outside this folder, so both moved into the component and are imported by relative path from their siblings. SalesCrmShell imports tokens BEFORE shell and that relative order is preserved exactly, because the two are applied to the same nodes. The two remaining targets are lib/sales-crm modules scheduled for the library split.",
+        "removalConditions": [
+          "frontend/lib/sales-crm/*: resolved by the Phase 2B library split, which classifies each file by its current consumers",
+          "frontend/components/sales-crm/ui/*: resolved by the Phase 2B ui-ownership commit"
         ]
       },
       {
