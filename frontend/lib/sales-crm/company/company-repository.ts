@@ -7,7 +7,7 @@
 
 import { CompanyMaster, MOCK_LEADS } from "@apex/sales-crm-shared";
 import { normalizeCompanyName, normalizeDomain } from "./normalization";
-import { MOCK_CLIENTS } from "../database-data";
+import { MOCK_CLIENTS } from "@apex/sales-crm-shared/lib/database-data";
 
 export interface CompanyRepository {
   search(query: string): CompanyMaster[];

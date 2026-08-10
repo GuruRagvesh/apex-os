@@ -20,6 +20,7 @@
       "@apex/sales-crm-shared/api": ["../platforms/business/sales-crm/shared/frontend/api/index.ts"],
       "@apex/sales-crm-shared/styles/*": ["../platforms/business/sales-crm/shared/frontend/styles/*"],
       "@apex/sales-crm-shared/components/*": ["../platforms/business/sales-crm/shared/frontend/components/*"],
+      "@apex/sales-crm-shared/lib/*": ["../platforms/business/sales-crm/shared/frontend/lib/*"],
       "@apex/sales-crm-dashboard": ["../platforms/business/sales-crm/dashboard/index.ts"],
       "@apex/sales-crm-analytics": ["../platforms/business/sales-crm/analytics/index.ts"],
       "@apex/sales-crm-database": ["../platforms/business/sales-crm/database/index.ts"],

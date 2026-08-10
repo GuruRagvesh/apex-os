@@ -2,8 +2,8 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { CollectionType, DatabaseRecord, getSchema } from "@/lib/sales-crm/database-schema";
-import { MOCK_CLIENTS, MOCK_TRAINERS, MOCK_VENDORS, MOCK_SERVICES, MOCK_LEADS_MASTER } from "@/lib/sales-crm/database-data";
+import { CollectionType, DatabaseRecord, getSchema } from "../lib/database-schema";
+import { MOCK_CLIENTS, MOCK_TRAINERS, MOCK_VENDORS, MOCK_SERVICES, MOCK_LEADS_MASTER } from "@apex/sales-crm-shared/lib/database-data";
 import { logAction, AuditCollection, useAuth, canAddRecord, canDeleteRecord, canImport, canEditRecord, Role } from "@apex/sales-crm-shared";
 
 

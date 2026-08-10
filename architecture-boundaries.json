@@ -20,6 +20,7 @@
     "@apex/sales-crm-shared": "platforms/business/sales-crm/shared",
     "@apex/sales-crm-shared/styles": "platforms/business/sales-crm/shared/frontend/styles",
     "@apex/sales-crm-shared/components": "platforms/business/sales-crm/shared/frontend/components",
+    "@apex/sales-crm-shared/lib": "platforms/business/sales-crm/shared/frontend/lib",
     "@apex/sales-crm-dashboard": "platforms/business/sales-crm/dashboard",
     "@apex/sales-crm-analytics": "platforms/business/sales-crm/analytics",
     "@apex/sales-crm-database": "platforms/business/sales-crm/database",
@@ -67,6 +68,7 @@
       "@apex/sales-crm-shared/components/Chart": "platforms/business/sales-crm/shared/frontend/components/Chart",
       "@apex/sales-crm-shared/components/ConfirmModal": "platforms/business/sales-crm/shared/frontend/components/ConfirmModal",
       "@apex/sales-crm-shell/components/PlannedPane": "platforms/business/sales-crm/shell/frontend/components/PlannedPane",
+      "@apex/sales-crm-shared/lib/database-data": "platforms/business/sales-crm/shared/frontend/lib/database-data",
       "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
       "@apex/operations-projects/screens/ProjectsScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectsScreen",
       "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen",
@@ -250,8 +252,6 @@
         "removalPhase": "Phase 2B remaining commits (ui ownership, lib split)",
         "from": "platforms/business/sales-crm/database/frontend/",
         "allowedTargets": [
-          "frontend/lib/sales-crm/database-schema.ts",
-          "frontend/lib/sales-crm/database-utils.ts",
           "frontend/lib/sales-crm/database-data.ts"
         ],
         "reason": "Same scheduled pattern as dashboard and analytics: the database components moved ahead of frontend/lib/sales-crm, which is split LAST in this phase because a library file's owner can only be read from consumers that have already migrated. database.module.css was NOT left behind - it is exclusively database-owned, with no consumer outside this folder, so it moved into the component and is imported by relative path from its five siblings, keeping it out of every barrel. primitives.module.css already arrives by exact public path from sales-crm/shared, so this component reaches into no sibling component's internals.",
