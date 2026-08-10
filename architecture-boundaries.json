@@ -29,6 +29,8 @@
     "@apex/shared-ui/components": "shared/ui/frontend/components",
     "@apex/workforce-leave": "platforms/workforce/leave/applications",
     "@apex/workforce-calendar": "platforms/workforce/calendar/overview",
+    "@apex/workforce-teams": "platforms/workforce/teams/team-management",
+    "@apex/workforce-teams/screens": "platforms/workforce/teams/team-management/frontend/screens",
     "@apex/shared-utilities": "shared/utilities",
     "@apex/core-users": "platforms/core/users/administration",
     "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
@@ -74,6 +76,8 @@
       "@apex/core-users-profiles/screens/UserProfileScreen": "platforms/core/users/profiles/frontend/screens/UserProfileScreen",
       "@apex/core-organization-departments/screens/DepartmentsScreen": "platforms/core/organization/departments/frontend/screens/DepartmentsScreen",
       "@apex/core-organization-departments/screens/DepartmentDetailScreen": "platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen",
+      "@apex/workforce-teams/screens/TeamsScreen": "platforms/workforce/teams/team-management/frontend/screens/TeamsScreen",
+      "@apex/workforce-teams/screens/TeamDetailScreen": "platforms/workforce/teams/team-management/frontend/screens/TeamDetailScreen",
       "@apex/system-public-site/screens/ApexLandingPage": "platforms/system/public-site/frontend/screens/ApexLandingPage",
       "@apex/system-public-site/screens/PrivacyScreen": "platforms/system/public-site/frontend/screens/PrivacyScreen",
       "@apex/system-public-site/screens/TermsScreen": "platforms/system/public-site/frontend/screens/TermsScreen"
@@ -190,6 +194,20 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Workforce Teams team-management frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/workforce/teams/team-management/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts"
+        ],
+        "reason": "The two team screens moved with one legacy import each, both naming the same target. teamsApi is not exclusively this component's - core/organization/departments also lists a department's teams - and departmentsApi and usersApi are application-wide. Authentication was NOT carried over: both screens read useAuthStore through @apex/core-identity. There is no lib/utils coupling, and the detail screen already consumed Breadcrumb through @apex/shared-ui/components/breadcrumb before this phase. Note the folder this component came from mixes two features: plural teams.* is team CRUD and belongs here, singular team.* is the reporting-lines surface and is a different component that has NOT migrated - it reads workdayApi and does timezone-sensitive formatting, so it was deliberately skipped.",
+        "removalConditions": [
+          "frontend/lib/api.ts: teamsApi becomes a Workforce Teams-owned adapter once an app-wide API layer is compartmentalised; departmentsApi follows core/organization/departments and usersApi follows core/users"
         ]
       },
       {

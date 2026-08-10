@@ -2312,13 +2312,13 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 23) {
-    problems.push(`expected 23 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 21) {
+    problems.push(`expected 21 legacy auth-store consumers, found ${legacy.length}`);
   }
   // Each one that left must be a thin adapter carrying no auth dependency at
   // all, and must reach its screen through that component's public entry.
   // 29 -> 27 core/users/profiles; -> 26 intelligence/analytics;
-  // -> 24 core/organization/departments; -> 23 workforce/calendar.
+  // -> 24 core/organization/departments; -> 23 workforce/calendar; -> 21 workforce/teams.
   const DEPARTED = {
     'frontend/app/(dashboard)/profile/page.tsx': '@apex/core-users-profiles/screens/',
     'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx': '@apex/core-users-profiles/screens/',
@@ -2326,6 +2326,8 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
     'frontend/app/(dashboard)/(platform)/departments/page.tsx': '@apex/core-organization-departments/screens/',
     'frontend/app/(dashboard)/(platform)/departments/[id]/page.tsx': '@apex/core-organization-departments/screens/',
     'frontend/app/(dashboard)/calendar/page.tsx': '@apex/workforce-calendar',
+    'frontend/app/(dashboard)/(operations)/teams/page.tsx': '@apex/workforce-teams/screens/',
+    'frontend/app/(dashboard)/(operations)/teams/[id]/page.tsx': '@apex/workforce-teams/screens/',
   };
   for (const [route, entry] of Object.entries(DEPARTED)) {
     const src = codeOf(readRepo(route) ?? '');
@@ -3795,6 +3797,243 @@ export default STATUS_COLORS;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Workforce Teams: team-management ───────────────────────────────────────
+// Team CRUD and membership. The folder it came from mixes two features -
+// plural teams.* (here) and singular team.* (reporting-lines, not migrated) -
+// so the tests below also pin that the two stay separate components.
+
+// 211. Each teams route may import its exact declared screen subpath.
+testCase(
+  'accepts the /teams route importing the exact TeamsScreen subpath',
+  (root) => {
+    write(root, 'platforms/workforce/teams/team-management/frontend/screens/TeamsScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/teams/page.tsx',
+      `import TeamsScreen from '@apex/workforce-teams/screens/TeamsScreen';
+export default TeamsScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 212. ...including the detail route.
+testCase(
+  'accepts the /teams/[id] route importing the exact TeamDetailScreen subpath',
+  (root) => {
+    write(root, 'platforms/workforce/teams/team-management/frontend/screens/TeamDetailScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/teams/[id]/page.tsx',
+      `import TeamDetailScreen from '@apex/workforce-teams/screens/TeamDetailScreen';
+export default TeamDetailScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 213. An undeclared screen beside them stays private.
+testCase(
+  'rejects an undeclared Workforce Teams screen subpath',
+  (root) => {
+    write(root, 'platforms/workforce/teams/team-management/frontend/screens/RosterScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/teams/page.tsx',
+      `import S from '@apex/workforce-teams/screens/RosterScreen';
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 214. External code cannot reach Teams internals.
+testCase(
+  'rejects external code importing Workforce Teams internals',
+  (root) => {
+    write(root, 'platforms/workforce/teams/team-management/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import TeamsScreen from '@apex/workforce-teams/frontend/screens/TeamsScreen';
+export default TeamsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 215. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Workforce Teams internals',
+  (root) => {
+    write(root, 'platforms/workforce/teams/team-management/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `export const load = () => import('@apex/workforce-teams/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 216. ...and by require().
+testCase(
+  'detects require() of Workforce Teams internals',
+  (root) => {
+    write(root, 'platforms/workforce/teams/team-management/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `const S = require('@apex/workforce-teams/frontend/screens/TeamDetailScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 217. Teams frontend must not import backend code.
+testCase(
+  'rejects Workforce Teams frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/teams/team-management/frontend/screens/TeamsScreen.tsx',
+      `import { TeamsService } from '../../backend/services/teams.service';
+export default TeamsService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 218. Teams must not reach into another platform's internals.
+testCase(
+  'rejects Workforce Teams importing another platform internals',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/teams/team-management/frontend/screens/TeamsScreen.tsx',
+      `import DepartmentsScreen from '@apex/core-organization-departments/frontend/screens/DepartmentsScreen';
+export default DepartmentsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 219. Teams may consume Core Identity and Shared UI publicly.
+testCase(
+  'accepts Workforce Teams consuming Core Identity and shared-ui publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(root, 'shared/ui/frontend/components/breadcrumb.tsx', `export const Breadcrumb = () => null;
+`);
+    write(
+      root,
+      'platforms/workforce/teams/team-management/frontend/screens/TeamDetailScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+import { Breadcrumb } from '@apex/shared-ui/components/breadcrumb';
+export default function S() { return [useAuthStore, Breadcrumb]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 220. A direct legacy auth-store import from Teams is rejected.
+testCase(
+  'rejects Workforce Teams importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/teams/team-management/frontend/screens/TeamsScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 221. shared/ must not import Teams.
+testCase(
+  'rejects a shared module importing Workforce Teams',
+  (root) => {
+    write(root, 'platforms/workforce/teams/team-management/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/user-avatar.tsx',
+      `import { X } from '@apex/workforce-teams';
+export const A = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 222. The DEBT-P13 allowlist covers lib/api.ts and nothing else.
+testCase(
+  'accepts the single allowlisted Workforce Teams legacy target',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/teams/team-management/frontend/screens/TeamsScreen.tsx',
+      `import { teamsApi, departmentsApi, usersApi } from '@/lib/api';
+export default function S() { return [teamsApi, departmentsApi, usersApi]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 223. ...not lib/utils.
+testCase(
+  'rejects lib/utils from Workforce Teams',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/teams/team-management/frontend/screens/TeamsScreen.tsx',
+      `import { cn } from '@/lib/utils';
+export default cn;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 224. The reporting-lines surface is a SEPARATE component and did not migrate.
+//      If it ever does, it cannot borrow team-management's exemption - it reads
+//      workdayApi, which deserves its own review rather than a silent inherit.
+testCase(
+  'rejects Workforce Teams reporting-lines reusing the team-management exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/teams/reporting-lines/frontend/screens/TeamScreen.tsx',
+      `import { teamApi, workdayApi } from '@/lib/api';
+export default function S() { return [teamApi, workdayApi]; }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -3854,6 +4093,7 @@ testRealRepoDebtCounts({
   'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
   'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,
   'DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND': 1,
+  'DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND': 2,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

@@ -38,7 +38,9 @@
       "@apex/system-public-site": ["../platforms/system/public-site/index.ts"],
       "@apex/system-public-site/screens/*": ["../platforms/system/public-site/frontend/screens/*"],
       "@apex/workforce-leave": ["../platforms/workforce/leave/applications/index.ts"],
-      "@apex/workforce-calendar": ["../platforms/workforce/calendar/overview/index.ts"]
+      "@apex/workforce-calendar": ["../platforms/workforce/calendar/overview/index.ts"],
+      "@apex/workforce-teams": ["../platforms/workforce/teams/team-management/index.ts"],
+      "@apex/workforce-teams/screens/*": ["../platforms/workforce/teams/team-management/frontend/screens/*"]
     }
   },
   "include": [
@@ -67,6 +69,8 @@
     "../platforms/core/identity/**/*.ts",
     "../platforms/system/public-site/**/*.ts",
     "../platforms/system/public-site/**/*.tsx",
+    "../platforms/workforce/teams/**/*.ts",
+    "../platforms/workforce/teams/**/*.tsx",
     "../platforms/workforce/calendar/**/*.ts",
     "../platforms/workforce/calendar/**/*.tsx",
     "../platforms/workforce/leave/**/*.ts",
