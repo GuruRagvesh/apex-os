@@ -24,6 +24,7 @@
     "@apex/operations-projects": "platforms/operations/projects/project-management",
     "@apex/operations-projects/screens": "platforms/operations/projects/project-management/frontend/screens",
     "@apex/intelligence-dashboard": "platforms/intelligence/dashboard/overview",
+    "@apex/intelligence-analytics": "platforms/intelligence/analytics/overview",
     "@apex/shared-ui": "shared/ui",
     "@apex/shared-ui/components": "shared/ui/frontend/components",
     "@apex/workforce-leave": "platforms/workforce/leave/applications",
@@ -184,6 +185,20 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Intelligence Analytics overview frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/intelligence/analytics/overview/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts"
+        ],
+        "reason": "The analytics workspace carries exactly one legacy import, a multi-line statement pulling analyticsApi, dashboardApi and ticketsApi from the application-wide API module. analyticsApi is not exclusively this component's - core/users/profiles also calls getReviewerMetrics - and dashboardApi and ticketsApi belong to intelligence/dashboard and operations/tickets respectively, so none can follow this component. Everything else was already retired or moved: the screen consumes Skeleton through @apex/shared-ui/components/skeleton and useAuthStore through @apex/core-identity, and its two charts moved into this component because it is their only consumer repo-wide. Those charts import nothing but recharts and date-fns, so they add no debt of their own. The screen is read-only - it declares no mutation - so this exemption covers query wiring only.",
+        "removalConditions": [
+          "frontend/lib/api.ts: analyticsApi becomes an Intelligence-owned adapter once an app-wide API layer is compartmentalised; dashboardApi follows intelligence/dashboard and ticketsApi follows operations/tickets"
         ]
       },
       {

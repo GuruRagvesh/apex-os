@@ -2312,14 +2312,18 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 27) {
-    problems.push(`expected 27 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 26) {
+    problems.push(`expected 26 legacy auth-store consumers, found ${legacy.length}`);
   }
-  // The two that left must be thin adapters carrying no auth dependency at all.
-  for (const route of [
-    'frontend/app/(dashboard)/profile/page.tsx',
-    'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx',
-  ]) {
+  // Each one that left must be a thin adapter carrying no auth dependency at
+  // all, and must reach its screen through that component's public entry.
+  // 29 -> 27 was core/users/profiles; 27 -> 26 was intelligence/analytics.
+  const DEPARTED = {
+    'frontend/app/(dashboard)/profile/page.tsx': '@apex/core-users-profiles/screens/',
+    'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx': '@apex/core-users-profiles/screens/',
+    'frontend/app/(dashboard)/analytics/page.tsx': '@apex/intelligence-analytics',
+  };
+  for (const [route, entry] of Object.entries(DEPARTED)) {
     const src = codeOf(readRepo(route) ?? '');
     if (src === '') {
       problems.push(`${route} is missing - the route must survive as an adapter`);
@@ -2329,8 +2333,8 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
     if (src.includes('@apex/core-identity')) {
       problems.push(`${route} is an adapter; auth belongs in the screen, not the route`);
     }
-    if (!src.includes('@apex/core-users-profiles/screens/')) {
-      problems.push(`${route} must import its exact Profiles screen subpath`);
+    if (!src.includes(entry)) {
+      problems.push(`${route} must reach its screen through ${entry}`);
     }
   }
   return problems;
@@ -3061,6 +3065,260 @@ export const t = changeRequestsApi;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Intelligence Analytics: the /analytics workspace ───────────────────────
+// The second component in the intelligence platform, and the first to take
+// custody of the two charts the Dashboard phase declined. It is a read-only
+// screen: it declares no mutation, so its role checks gate views only.
+
+// 168. The /analytics route may consume the public entry.
+testCase(
+  'accepts the /analytics route consuming the Intelligence Analytics public entry',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const AnalyticsScreen = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/analytics/page.tsx',
+      `import { AnalyticsScreen } from '@apex/intelligence-analytics';
+export default AnalyticsScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 169. External code cannot reach Analytics internals.
+testCase(
+  'rejects external code importing Intelligence Analytics internals',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+      `import { CategoryChart } from '@apex/intelligence-analytics/frontend/components/category-chart';
+export default CategoryChart;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 170. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Intelligence Analytics internals',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `export const load = () => import('@apex/intelligence-analytics/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 171. ...and by require().
+testCase(
+  'detects require() of Intelligence Analytics internals',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `const S = require('@apex/intelligence-analytics/frontend/screens/AnalyticsScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 172. Analytics frontend must not import backend code.
+testCase(
+  'rejects Intelligence Analytics frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { AnalyticsService } from '../../backend/services/analytics.service';
+export default AnalyticsService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 173. Analytics must not reach into another platform's internals.
+testCase(
+  'rejects Intelligence Analytics importing another platform internals',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import ProjectsScreen from '@apex/operations-projects/frontend/screens/ProjectsScreen';
+export default ProjectsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 174. ...including its sibling Dashboard component in the same platform.
+//      analytics and dashboard are two components, not one intelligence blob.
+testCase(
+  'rejects Intelligence Analytics importing Intelligence Dashboard internals',
+  (root) => {
+    write(root, 'platforms/intelligence/dashboard/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { StatCard } from '@apex/intelligence-dashboard/frontend/components/stat-card';
+export default StatCard;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 175. Analytics may consume Core Identity through its public entry.
+testCase(
+  'accepts Intelligence Analytics consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 176. ...but a direct legacy auth-store import is rejected. DEBT-P10 names
+//      only lib/api.ts, so the screen cannot fall back to the legacy store.
+testCase(
+  'rejects Intelligence Analytics importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 177. Analytics may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Intelligence Analytics consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/skeleton.tsx', `export const Skeleton = () => null;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { cn } from '@apex/shared-utilities';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
+export default function S() { return [cn, Skeleton]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 178. shared/ must not import Analytics.
+testCase(
+  'rejects a shared module importing Intelligence Analytics',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/kpi-capsule.tsx',
+      `import { X } from '@apex/intelligence-analytics';
+export const A = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 179. The DEBT-P10 allowlist covers lib/api.ts...
+testCase(
+  'accepts the single allowlisted Intelligence Analytics legacy target',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { analyticsApi, dashboardApi, ticketsApi } from '@/lib/api';
+export default function S() { return [analyticsApi, dashboardApi, ticketsApi]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 180. ...and nothing else - notably not the old chart location, which is the
+//      import this component was created to retire.
+testCase(
+  'rejects Intelligence Analytics importing the legacy dashboard chart path',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { CategoryChart } from '@/components/dashboard/category-chart';
+export default CategoryChart;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 181. The exemption is scoped to frontend/ - a sibling folder cannot reuse it.
+testCase(
+  'rejects an Intelligence Analytics file outside frontend/ reusing the exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/shared/contracts/analytics.types.ts',
+      `import { analyticsApi } from '@/lib/api';
+export const t = analyticsApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 182. Dashboard must not borrow the Analytics allowlist, and vice versa -
+//      each intelligence component answers for its own legacy imports.
+testCase(
+  'rejects Intelligence Dashboard reusing the Analytics exemption scope',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/other-component/frontend/screen.tsx',
+      `import { analyticsApi } from '@/lib/api';
+export default analyticsApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -3117,6 +3375,7 @@ testRealRepoDebtCounts({
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
   'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 4,
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
+  'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────
@@ -3536,6 +3795,128 @@ assertContract('all three core/users components stay separately bounded', () => 
         if (src.includes(spec)) problems.push(`${f} reaches into a sibling component via ${spec}`);
       }
     }
+  }
+  return problems;
+});
+
+const ANALYTICS = 'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx';
+
+assertContract('the analytics screen reads auth through the Core Identity boundary', () => {
+  const raw = readRepo(ANALYTICS);
+  if (raw === null) return [`${ANALYTICS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes("from '@apex/core-identity'")) {
+    problems.push('does not consume @apex/core-identity');
+  }
+  if (src.includes('@/store/auth.store')) problems.push('still imports the legacy auth store');
+  // Import-path change only: the destructure must be untouched, and hasHydrated
+  // in particular - reading it before hydration is what logged users out once.
+  if (!src.includes('const { user, hasHydrated } = useAuthStore();')) {
+    problems.push('the useAuthStore destructure changed - it must remain { user, hasHydrated }');
+  }
+  return problems;
+});
+
+assertContract('the analytics charts moved with their only consumer', () => {
+  const problems = [];
+  const CHARTS = [
+    'platforms/intelligence/analytics/overview/frontend/components/category-chart.tsx',
+    'platforms/intelligence/analytics/overview/frontend/components/ticket-trend-chart.tsx',
+  ];
+  for (const chart of CHARTS) {
+    const raw = readRepo(chart);
+    if (raw === null) {
+      problems.push(`${chart} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    // They were pure presentational charts and must stay that way: no API, no
+    // store, no legacy path. That is why this component's debt is 1, not 3.
+    for (const forbidden of ['@/lib/', '@/store/', '@/components/', '@apex/core-identity']) {
+      if (src.includes(forbidden)) problems.push(`${chart} must not import ${forbidden}`);
+    }
+  }
+  // Nothing outside this component may still reference the old chart location.
+  for (const f of repoSources()) {
+    if (f === 'scripts/architecture/validate-boundaries.test.mjs') continue;
+    const src = codeOf(readRepo(f) ?? '');
+    for (const stale of ['@/components/dashboard/category-chart', '@/components/dashboard/ticket-trend-chart']) {
+      if (src.includes(stale)) problems.push(`${f} imports ${stale} from its old legacy path`);
+    }
+  }
+  return problems;
+});
+
+assertContract('the analytics screen stays read-only', () => {
+  // Its role checks gate which tabs and panels render. Because the screen
+  // declares no mutation, none of them can authorize an action - a property
+  // worth keeping true, since a future mutation here would need its own review.
+  const raw = readRepo(ANALYTICS);
+  if (raw === null) return [`${ANALYTICS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const forbidden of ['useMutation', 'mutationFn', 'invalidateQueries']) {
+    if (src.includes(forbidden)) problems.push(`analytics is read-only; found ${forbidden}`);
+  }
+  // The three access expressions must survive the move verbatim.
+  const GATES = [
+    "const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);",
+    "const isAdminPlus   = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);",
+    "const canAccess     = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);",
+  ];
+  for (const g of GATES) {
+    if (!src.includes(g)) problems.push(`view gate changed - missing: ${g}`);
+  }
+  return problems;
+});
+
+assertContract('the Analytics barrel publishes exactly one screen', () => {
+  const raw = readRepo('platforms/intelligence/analytics/overview/frontend/index.ts');
+  if (raw === null) return ['platforms/intelligence/analytics/overview/frontend/index.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes('AnalyticsScreen')) problems.push('the frontend barrel does not export AnalyticsScreen');
+  for (const internal of ['CategoryChart', 'TicketTrendChart', 'category-chart', 'ticket-trend-chart']) {
+    if (src.includes(internal)) problems.push(`the barrel must not publish ${internal}`);
+  }
+  const exportCount = (src.match(/^export /gm) ?? []).length;
+  if (exportCount !== 1) problems.push(`expected 1 export, found ${exportCount}`);
+  return problems;
+});
+
+assertContract('the /analytics route is a thin adapter', () => {
+  const ROUTE = 'frontend/app/(dashboard)/analytics/page.tsx';
+  const raw = readRepo(ROUTE);
+  if (raw === null) return [`${ROUTE} is missing - the route must survive as an adapter`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes("from '@apex/intelligence-analytics'")) {
+    problems.push('the route does not consume the Analytics public entry');
+  }
+  if (src.includes('@apex/intelligence-analytics/frontend')) {
+    problems.push('the route reaches into Analytics internals');
+  }
+  for (const forbidden of ['@/lib/api', 'useQuery', 'useAuthStore', 'recharts', 'useState']) {
+    if (src.includes(forbidden)) problems.push(`the adapter must not contain: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('stat-card was left where the evidence puts it', () => {
+  // The Dashboard phase found stat-card has no consumer anywhere. It was NOT
+  // absorbed into analytics just to empty frontend/components/dashboard/ -
+  // ownership follows consumers, and an unconsumed file has none to follow.
+  const problems = [];
+  if (readRepo('frontend/components/dashboard/stat-card.tsx') === null) {
+    problems.push('stat-card.tsx moved or was deleted; this phase must leave it in place');
+  }
+  const importers = repoSources().filter((f) => {
+    if (f === 'scripts/architecture/validate-boundaries.test.mjs') return false;
+    return codeOf(readRepo(f) ?? '').includes('components/dashboard/stat-card');
+  });
+  if (importers.length !== 0) {
+    problems.push(`stat-card gained ${importers.length} importer(s): ${importers.join(', ')}`);
   }
   return problems;
 });

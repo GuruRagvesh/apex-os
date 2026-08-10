@@ -43,7 +43,7 @@ with the reason it is deferred to a later phase.
 Exact tracked counts from `git ls-files`, not estimates. Runtime extensions
 only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
-**Last measured: 2026-08-07** (batch branch, Commit 3).
+**Last measured: 2026-08-07** (batch branch, Commit 4).
 
 Two figures, because they answer different questions. Every component we create
 adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
@@ -53,29 +53,30 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | Commit 1 | Commit 2 | Commit 3 |
-| --- | --- | --- | --- | --- |
-| Legacy relocated | 61 | 64 | 67 | **68** |
-| **Relocation** | **14.4%** | **15.1%** | **15.8%** | **16.1%** |
+| | Merged (`origin/main`) | C1 | C2 | C3 | C4 |
+| --- | --- | --- | --- | --- | --- |
+| Legacy relocated | 61 | 64 | 67 | 68 | **71** |
+| **Relocation** | **14.4%** | **15.1%** | **15.8%** | **16.1%** | **16.8%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Commit 1 | Commit 2 | Commit 3 |
-| --- | --- | --- | --- | --- |
-| Runtime files in new architecture | 91 | 96 | 101 | **104** |
-| of which barrels | 24 | 26 | 28 | 30 |
-| of which adapters / extracted modules | 6 | 6 | 6 | 6 |
-| Legacy remaining | 366 | 365 | 364 | 364 |
-| Total tracked runtime | 457 | 461 | 465 | 468 |
-| **Footprint** | **19.9%** | **20.8%** | **21.7%** | **22.2%** |
+| | Merged (`origin/main`) | C1 | C2 | C3 | C4 |
+| --- | --- | --- | --- | --- | --- |
+| Runtime files in new architecture | 91 | 96 | 101 | 104 | **109** |
+| of which barrels | 24 | 26 | 28 | 30 | 32 |
+| of which adapters / extracted modules | 6 | 6 | 6 | 6 | 6 |
+| Legacy remaining | 366 | 365 | 364 | 364 | 362 |
+| Total tracked runtime | 457 | 461 | 465 | 468 | 471 |
+| **Footprint** | **19.9%** | **20.8%** | **21.7%** | **22.2%** | **23.1%** |
 
-Commits 1 and 2 each relocate **3 legacy files**; Commit 3 relocates **1**.
+Commits 1, 2 and 4 each relocate **3 legacy files**; Commit 3 relocates **1**.
 Every commit adds **2 barrels**. Legacy remaining barely moves because most
-relocations leave a thin route adapter behind at the same path — Commit 3
-leaves it exactly flat, since its single move was a route screen. The two
-exceptions so far are `ApexLandingPage.tsx` and `activity-item.tsx`, which were
-not route files and left nothing behind. README files are excluded from both
-figures.
+relocations leave a thin route adapter behind at the same path — Commit 3 left
+it exactly flat, since its single move was a route screen. Commit 4 moved it by
+2 because two of its three files were components, not routes. The non-route
+relocations so far are `ApexLandingPage.tsx`, `activity-item.tsx`,
+`category-chart.tsx` and `ticket-trend-chart.tsx`. README files are excluded
+from both figures.
 
 **Counting method.** Architecture = `platforms/` + `shared/` + `apps/` +
 `database/`. Legacy = `frontend/` + `backend/`, excluding `backend/prisma/`
@@ -95,7 +96,7 @@ Batch branch included. **All six platforms now hold a compartment.**
 | --- | --- | --- |
 | `platforms/business` | 40 | Sales CRM Leads + shared |
 | `shared/ui` | 16 | Design-system primitives |
-| `platforms/intelligence` | 11 | Dashboard overview |
+| `platforms/intelligence` | 16 | Dashboard overview + **Analytics overview (batch Commit 4)** |
 | `platforms/core` | 15 | **`core/users` complete on the frontend** — administration + profiles + change-requests — plus the Identity auth boundary |
 | `platforms/workforce` | 6 | Leave applications |
 | `platforms/system` | 5 | Public site (batch Commit 1) |
@@ -834,6 +835,57 @@ created.** They are built when the features are built.
 
 > Per D10, `performance/` is **not** scaffolded — it has no dedicated code and
 > is currently part of analytics.
+
+> **Status update (2026-08-07) — Analytics frontend COMPARTMENTALISED**
+> (batch branch, Commit 4), giving `intelligence` its second compartment.
+>
+> 3 legacy files → `platforms/intelligence/analytics/overview/frontend/`:
+> `analytics/page.tsx` (988 ln) → `screens/AnalyticsScreen.tsx`, plus
+> `components/dashboard/{category-chart,ticket-trend-chart}.tsx` →
+> `components/`. Both charts are `R100`; the screen differs from its route file
+> by exactly four edits (three import paths and the identifier rename) and had
+> no trailing whitespace to normalise.
+>
+> **This settles the `components/dashboard/*` question the Dashboard phase
+> opened.** That phase predicted the two charts follow analytics; the evidence
+> confirmed it — each has exactly one importer repo-wide, this screen.
+> **`stat-card.tsx` was deliberately NOT absorbed**: it has zero consumers, and
+> ownership follows consumers. It stays put, and a self-test asserts this phase
+> left it alone. `frontend/components/dashboard/` is now down to that one file.
+>
+> **Target path is `analytics/overview`, not `analytics/`.** The row above is
+> depth-2, and `componentDepth` is 3 — `componentRootOf` returns `null` for a
+> path that shallow, so the component-privacy rules would not bind. Same gap the
+> Dashboard phase resolved with `dashboard/overview`; the alias mirrors it,
+> `@apex/intelligence-analytics`.
+>
+> Public entry publishes one screen and **no subpath** — one screen, one route,
+> so the barrel cannot force unused code on a consumer. Both charts stay
+> internal so `recharts` is not pulled into every consumer of the entry.
+> `/analytics` measured **117 kB / 263 kB, exactly its baseline** — and every
+> other route in the build was byte-identical too.
+>
+> `useAuthStore` migrated to `@apex/core-identity`, taking legacy auth-store
+> consumers 27 → 26. A self-test asserts the destructure is still
+> `{ user, hasHydrated }` — `hasHydrated` is the field whose mishandling once
+> logged users out on refresh.
+>
+> **The screen is read-only by construction** — no `useMutation`, no
+> `mutationFn`, no `invalidateQueries` — so its three role expressions
+> (`isManagerPlus`, `isAdminPlus`, `canAccess`) gate views only and cannot
+> authorize an action. All three are locked verbatim, and the test fails if a
+> mutation ever appears here.
+>
+> New tracked debt `DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND` —
+> **1 import**: a single multi-line statement for `analyticsApi`, `dashboardApi`
+> and `ticketsApi`. None can follow this component — `analyticsApi` is shared
+> with `core/users/profiles`, and the other two belong to sibling components.
+> **3 files relocated for 1 debt import, the best ratio so far.** Repository
+> debt 24 → 25. Self-tests 200 → 221.
+>
+> **No tab, role gate, period filter, query key, API call, chart rendering,
+> empty state, export behaviour, copy or style changed.** Frontend build 38/38,
+> 42 routes.
 
 ### intelligence/ai ✅
 
