@@ -5,7 +5,7 @@ import { useAnalyticsStore, canViewItem, getUserAnalyticsContext } from "@/lib/s
 import { useAuth } from "@apex/sales-crm-shared";
 import { Pin } from "lucide-react";
 import styles from "@/styles/sales-crm/analytics.module.css";
-import dash from "@/styles/sales-crm/dashboard.module.css";
+import dash from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function AnalyticsHome({

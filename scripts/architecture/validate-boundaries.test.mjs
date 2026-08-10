@@ -4234,6 +4234,64 @@ export default getCompanyNow;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Sales CRM Phase 2B: shared stylesheet exact-path boundary ──────────────
+// dashboard.module.css is consumed by three feature folders, so it lives in
+// shared/ and is published by EXACT PATH. Routing a CSS module through a JS
+// barrel moves it in the bundle graph and changes its cascade position against
+// the other stylesheets on the same nodes — which is a behaviour change.
+
+// 237. The exact stylesheet path is public.
+testCase(
+  'accepts the exact shared dashboard stylesheet path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/dashboard.module.css', `.x { color: red; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/LeadsScreen.tsx',
+      `import styles from '@apex/sales-crm-shared/styles/dashboard.module.css';
+export default styles;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 238. The same file addressed through the component's internal folder is not.
+testCase(
+  'rejects the shared dashboard stylesheet through an internal path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/dashboard.module.css', `.x { color: red; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/LeadsScreen.tsx',
+      `import styles from '@apex/sales-crm-shared/frontend/styles/dashboard.module.css';
+export default styles;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 239. An undeclared stylesheet beside it stays private — publication is an
+//      exact allowlist, not a directory grant.
+testCase(
+  'rejects an undeclared stylesheet in the shared styles folder',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/secret.module.css', `.x { color: red; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/LeadsScreen.tsx',
+      `import styles from '@apex/sales-crm-shared/styles/secret.module.css';
+export default styles;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the

@@ -6,7 +6,7 @@
 // consumer); a future Analytics-module port can reuse this same file.
 
 import React from "react";
-import styles from "@/styles/sales-crm/dashboard.module.css";
+import styles from "@apex/sales-crm-shared/styles/dashboard.module.css";
 
 export type ChartType = "bar" | "column" | "line" | "area" | "pie" | "donut";
 

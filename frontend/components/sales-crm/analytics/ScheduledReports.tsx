@@ -6,7 +6,7 @@ import { useAnalyticsStore, ReportSchedule, canViewItem, createAnalyticsId, getU
 import { useAuth } from "@apex/sales-crm-shared";
 import ScheduleModal from "./ScheduleModal";
 import styles from "@/styles/sales-crm/analytics.module.css";
-import dash from "@/styles/sales-crm/dashboard.module.css";
+import dash from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function ScheduledReports({ dashboardMode, userId }: { dashboardMode: "personal" | "team"; userId: string }) {

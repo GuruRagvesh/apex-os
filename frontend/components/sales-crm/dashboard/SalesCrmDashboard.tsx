@@ -21,7 +21,7 @@ import {
   createSharePackage,
   downloadReportExport,
 } from "@/lib/sales-crm/report-output";
-import styles from "@/styles/sales-crm/dashboard.module.css";
+import styles from "@apex/sales-crm-shared/styles/dashboard.module.css";
 
 export default function SalesCrmDashboard() {
   const { user } = useAuth();

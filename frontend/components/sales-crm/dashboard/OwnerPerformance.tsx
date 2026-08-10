@@ -1,7 +1,7 @@
 "use client";
 
 import { DashboardData } from "@/lib/sales-crm/dashboard-calculations";
-import styles from "@/styles/sales-crm/dashboard.module.css";
+import styles from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function OwnerPerformance({ data }: { data: DashboardData["ownerPerformance"] }) {

@@ -6,7 +6,7 @@ import { useAnalyticsStore, ReportProfile, createAnalyticsId } from "@/lib/sales
 import ProfileModal from "./ProfileModal";
 import ConfirmModal from "@/components/sales-crm/ui/ConfirmModal";
 import styles from "@/styles/sales-crm/analytics.module.css";
-import dash from "@/styles/sales-crm/dashboard.module.css";
+import dash from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function ReportManagement() {

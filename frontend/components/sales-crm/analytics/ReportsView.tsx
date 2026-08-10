@@ -9,7 +9,7 @@ import ExportModal from "@/components/sales-crm/dashboard/ExportModal";
 import Toast from "@/components/sales-crm/dashboard/Toast";
 import { ReportArtifact, downloadReportExport } from "@/lib/sales-crm/report-output";
 import styles from "@/styles/sales-crm/analytics.module.css";
-import dash from "@/styles/sales-crm/dashboard.module.css";
+import dash from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 type ReportFilters = {

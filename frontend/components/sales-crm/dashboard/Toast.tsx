@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import styles from "@/styles/sales-crm/dashboard.module.css";
+import styles from "@apex/sales-crm-shared/styles/dashboard.module.css";
 
 export default function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   useEffect(() => {

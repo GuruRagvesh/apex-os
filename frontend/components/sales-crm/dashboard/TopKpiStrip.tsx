@@ -1,7 +1,7 @@
 "use client";
 
 import { DashboardData, filterLeadsFromDashboard } from "@/lib/sales-crm/dashboard-calculations";
-import styles from "@/styles/sales-crm/dashboard.module.css";
+import styles from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 import { Users, Target, ClipboardList, Handshake, Plus, Percent, Briefcase, DollarSign } from "lucide-react";
 
