@@ -2312,13 +2312,13 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 21) {
-    problems.push(`expected 21 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 20) {
+    problems.push(`expected 20 legacy auth-store consumers, found ${legacy.length}`);
   }
   // Each one that left must be a thin adapter carrying no auth dependency at
   // all, and must reach its screen through that component's public entry.
   // 29 -> 27 core/users/profiles; -> 26 intelligence/analytics;
-  // -> 24 core/organization/departments; -> 23 workforce/calendar; -> 21 workforce/teams.
+  // -> 24 core/organization/departments; -> 23 workforce/calendar; -> 21 workforce/teams; -> 20 system/audit.
   const DEPARTED = {
     'frontend/app/(dashboard)/profile/page.tsx': '@apex/core-users-profiles/screens/',
     'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx': '@apex/core-users-profiles/screens/',
@@ -2328,6 +2328,7 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
     'frontend/app/(dashboard)/calendar/page.tsx': '@apex/workforce-calendar',
     'frontend/app/(dashboard)/(operations)/teams/page.tsx': '@apex/workforce-teams/screens/',
     'frontend/app/(dashboard)/(operations)/teams/[id]/page.tsx': '@apex/workforce-teams/screens/',
+    'frontend/app/(dashboard)/admin/activity/page.tsx': '@apex/system-audit',
   };
   for (const [route, entry] of Object.entries(DEPARTED)) {
     const src = codeOf(readRepo(route) ?? '');
@@ -4034,6 +4035,205 @@ export default function S() { return [teamApi, workdayApi]; }
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── System Audit: the activity log ─────────────────────────────────────────
+// Read-only. It renders events emitted by every other platform and owns none
+// of them, so the tests pin both the boundary and that read-only property.
+
+// 225. The /admin/activity route may consume the public entry.
+testCase(
+  'accepts the /admin/activity route consuming the System Audit public entry',
+  (root) => {
+    write(root, 'platforms/system/audit/index.ts', `export const ActivityLogScreen = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/admin/activity/page.tsx',
+      `import { ActivityLogScreen } from '@apex/system-audit';
+export default ActivityLogScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 226. External code cannot reach Audit internals.
+testCase(
+  'rejects external code importing System Audit internals',
+  (root) => {
+    write(root, 'platforms/system/audit/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { ActivityLogScreen } from '@apex/system-audit/frontend/screens/ActivityLogScreen';
+export default ActivityLogScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 227. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of System Audit internals',
+  (root) => {
+    write(root, 'platforms/system/audit/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/teams/team-management/frontend/screens/TeamsScreen.tsx',
+      `export const load = () => import('@apex/system-audit/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 228. ...and by require().
+testCase(
+  'detects require() of System Audit internals',
+  (root) => {
+    write(root, 'platforms/system/audit/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `const S = require('@apex/system-audit/frontend/screens/ActivityLogScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 229. Audit frontend must not import backend code.
+testCase(
+  'rejects System Audit frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/system/audit/frontend/screens/ActivityLogScreen.tsx',
+      `import { EventsService } from '../../backend/services/events.service';
+export default EventsService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 230. Audit renders other platforms' events but must not reach their internals.
+testCase(
+  'rejects System Audit importing another platform internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/system/audit/frontend/screens/ActivityLogScreen.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 231. Audit may consume Core Identity through its public entry.
+testCase(
+  'accepts System Audit consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/system/audit/frontend/screens/ActivityLogScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 232. ...and a direct legacy auth-store import is rejected.
+testCase(
+  'rejects System Audit importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/system/audit/frontend/screens/ActivityLogScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 233. shared/ must not import Audit.
+testCase(
+  'rejects a shared module importing System Audit',
+  (root) => {
+    write(root, 'platforms/system/audit/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/audit-helper.ts',
+      `import { X } from '@apex/system-audit';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 234. The DEBT-P14 allowlist covers lib/api.ts and lib/company-date.ts.
+testCase(
+  'accepts the two allowlisted System Audit legacy targets',
+  (root) => {
+    write(
+      root,
+      'platforms/system/audit/frontend/screens/ActivityLogScreen.tsx',
+      `import { eventsApi } from '@/lib/api';
+import { getCompanyNow } from '@/lib/company-date';
+export default function S() { return [eventsApi, getCompanyNow]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 235. ...and nothing else.
+testCase(
+  'rejects an unallowlisted legacy target from System Audit',
+  (root) => {
+    write(
+      root,
+      'platforms/system/audit/frontend/screens/ActivityLogScreen.tsx',
+      `import { cn } from '@/lib/utils';
+export default cn;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 236. System Public Site must not borrow the Audit exemption. company-date is
+//      shared with the scheduler and attendance, so only audit may reach it.
+testCase(
+  'rejects System Public Site reusing the Audit legacy allowlist',
+  (root) => {
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import { getCompanyNow } from '@/lib/company-date';
+export default getCompanyNow;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -4094,6 +4294,7 @@ testRealRepoDebtCounts({
   'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,
   'DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND': 1,
   'DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND': 2,
+  'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

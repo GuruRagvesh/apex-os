@@ -41,6 +41,7 @@
     "@apex/core-organization-departments/screens": "platforms/core/organization/departments/frontend/screens",
     "@apex/core-identity": "platforms/core/identity/authentication",
     "@apex/system-public-site": "platforms/system/public-site",
+    "@apex/system-audit": "platforms/system/audit",
     "@apex/system-public-site/screens": "platforms/system/public-site/frontend/screens"
   },
 
@@ -194,6 +195,22 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "System Audit frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/system/audit/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts",
+          "frontend/lib/company-date.ts"
+        ],
+        "reason": "The activity log carries two legacy imports. eventsApi lives in the application-wide API module; the events backend is a system component that has not migrated, so the adapter cannot come with it yet. company-date.ts supplies getCompanyNow, getCompanyTodayStart and getCompanyStartOfDay - the central company business-date source shared with the scheduler and attendance surfaces, so it is emphatically NOT audit-owned and must become a published contract rather than move here. Authentication was NOT carried over: the screen reads useAuthStore through @apex/core-identity. The screen is read-only - it declares no mutation - so this exemption covers query wiring and date formatting only.",
+        "removalConditions": [
+          "frontend/lib/api.ts: eventsApi becomes a System-owned adapter once the events component migrates",
+          "frontend/lib/company-date.ts: the company business-date helpers become a published shared contract consumed by audit, scheduler and attendance alike"
         ]
       },
       {
