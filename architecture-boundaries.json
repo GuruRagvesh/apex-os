@@ -28,6 +28,9 @@
     "@apex/shared-ui": "shared/ui",
     "@apex/shared-ui/components": "shared/ui/frontend/components",
     "@apex/workforce-leave": "platforms/workforce/leave/applications",
+    "@apex/workforce-calendar": "platforms/workforce/calendar/overview",
+    "@apex/workforce-teams": "platforms/workforce/teams/team-management",
+    "@apex/workforce-teams/screens": "platforms/workforce/teams/team-management/frontend/screens",
     "@apex/shared-utilities": "shared/utilities",
     "@apex/core-users": "platforms/core/users/administration",
     "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
@@ -38,6 +41,7 @@
     "@apex/core-organization-departments/screens": "platforms/core/organization/departments/frontend/screens",
     "@apex/core-identity": "platforms/core/identity/authentication",
     "@apex/system-public-site": "platforms/system/public-site",
+    "@apex/system-audit": "platforms/system/audit",
     "@apex/system-public-site/screens": "platforms/system/public-site/frontend/screens"
   },
 
@@ -73,6 +77,8 @@
       "@apex/core-users-profiles/screens/UserProfileScreen": "platforms/core/users/profiles/frontend/screens/UserProfileScreen",
       "@apex/core-organization-departments/screens/DepartmentsScreen": "platforms/core/organization/departments/frontend/screens/DepartmentsScreen",
       "@apex/core-organization-departments/screens/DepartmentDetailScreen": "platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen",
+      "@apex/workforce-teams/screens/TeamsScreen": "platforms/workforce/teams/team-management/frontend/screens/TeamsScreen",
+      "@apex/workforce-teams/screens/TeamDetailScreen": "platforms/workforce/teams/team-management/frontend/screens/TeamDetailScreen",
       "@apex/system-public-site/screens/ApexLandingPage": "platforms/system/public-site/frontend/screens/ApexLandingPage",
       "@apex/system-public-site/screens/PrivacyScreen": "platforms/system/public-site/frontend/screens/PrivacyScreen",
       "@apex/system-public-site/screens/TermsScreen": "platforms/system/public-site/frontend/screens/TermsScreen"
@@ -189,6 +195,50 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "System Audit frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/system/audit/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts",
+          "frontend/lib/company-date.ts"
+        ],
+        "reason": "The activity log carries two legacy imports. eventsApi lives in the application-wide API module; the events backend is a system component that has not migrated, so the adapter cannot come with it yet. company-date.ts supplies getCompanyNow, getCompanyTodayStart and getCompanyStartOfDay - the central company business-date source shared with the scheduler and attendance surfaces, so it is emphatically NOT audit-owned and must become a published contract rather than move here. Authentication was NOT carried over: the screen reads useAuthStore through @apex/core-identity. The screen is read-only - it declares no mutation - so this exemption covers query wiring and date formatting only.",
+        "removalConditions": [
+          "frontend/lib/api.ts: eventsApi becomes a System-owned adapter once the events component migrates",
+          "frontend/lib/company-date.ts: the company business-date helpers become a published shared contract consumed by audit, scheduler and attendance alike"
+        ]
+      },
+      {
+        "id": "DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Workforce Teams team-management frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/workforce/teams/team-management/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts"
+        ],
+        "reason": "The two team screens moved with one legacy import each, both naming the same target. teamsApi is not exclusively this component's - core/organization/departments also lists a department's teams - and departmentsApi and usersApi are application-wide. Authentication was NOT carried over: both screens read useAuthStore through @apex/core-identity. There is no lib/utils coupling, and the detail screen already consumed Breadcrumb through @apex/shared-ui/components/breadcrumb before this phase. Note the folder this component came from mixes two features: plural teams.* is team CRUD and belongs here, singular team.* is the reporting-lines surface and is a different component that has NOT migrated - it reads workdayApi and does timezone-sensitive formatting, so it was deliberately skipped.",
+        "removalConditions": [
+          "frontend/lib/api.ts: teamsApi becomes a Workforce Teams-owned adapter once an app-wide API layer is compartmentalised; departmentsApi follows core/organization/departments and usersApi follows core/users"
+        ]
+      },
+      {
+        "id": "DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Workforce Calendar overview frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/workforce/calendar/overview/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts"
+        ],
+        "reason": "The calendar screen carries exactly one legacy import, pulling ticketsApi and leaveApi from the application-wide API module. Per D11 this module aggregates data it does not own - approved leave from workforce/leave and scheduled tickets from operations/tickets - so neither API group can follow it here; that would invert the dependency the decision record establishes. Authentication was NOT carried over: the screen reads useAuthStore through @apex/core-identity. It has no lib/utils coupling - its status colour map is declared inline - and no shared/ui dependency. The FullCalendar plugins are dynamic imports of npm packages, not internal paths.",
+        "removalConditions": [
+          "frontend/lib/api.ts: ticketsApi and leaveApi become published contracts from operations/tickets and workforce/leave, which calendar then consumes through their public entries"
         ]
       },
       {

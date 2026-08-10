@@ -43,7 +43,7 @@ with the reason it is deferred to a later phase.
 Exact tracked counts from `git ls-files`, not estimates. Runtime extensions
 only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
-**Last measured: 2026-08-07** (batch branch, Commit 5).
+**Last measured: 2026-08-10** (batch branch `compartmentalize/architecture-batch-2026-08-10`, Commit 3).
 
 Two figures, because they answer different questions. Every component we create
 adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
@@ -53,30 +53,37 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | C1 | C2 | C3 | C4 | C5 |
-| --- | --- | --- | --- | --- | --- | --- |
-| Legacy relocated | 61 | 64 | 67 | 68 | 71 | **73** |
-| **Relocation** | **14.4%** | **15.1%** | **15.8%** | **16.1%** | **16.8%** | **17.3%** |
+| | 2026-08-07 start | after 08-07 batch | after 08-10 batch |
+| --- | --- | --- | --- |
+| Legacy relocated | 61 | 73 | **77** |
+| **Relocation** | **14.4%** | **17.3%** | **18.2%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | C1 | C2 | C3 | C4 | C5 |
-| --- | --- | --- | --- | --- | --- | --- |
-| Runtime files in new architecture | 91 | 96 | 101 | 104 | 109 | **113** |
-| of which barrels | 24 | 26 | 28 | 30 | 32 | 34 |
-| of which adapters / extracted modules | 6 | 6 | 6 | 6 | 6 | 6 |
-| Legacy remaining | 366 | 365 | 364 | 364 | 362 | 362 |
-| Total tracked runtime | 457 | 461 | 465 | 468 | 471 | 475 |
-| **Footprint** | **19.9%** | **20.8%** | **21.7%** | **22.2%** | **23.1%** | **23.8%** |
+| | 2026-08-07 start | after 08-07 batch | after 08-10 batch |
+| --- | --- | --- | --- |
+| Runtime files in new architecture | 91 | 113 | **123** |
+| of which barrels | 24 | 34 | 40 |
+| of which adapters / extracted modules | 6 | 6 | 6 |
+| Legacy remaining | 366 | 362 | 362 |
+| Total tracked runtime | 457 | 475 | 485 |
+| **Footprint** | **19.9%** | **23.8%** | **25.4%** |
 
-Commits 1, 2 and 4 each relocate **3 legacy files**; Commit 5 relocates **2**
-and Commit 3 **1**. Every commit adds **2 barrels**. Legacy remaining barely
-moves because most relocations leave a thin route adapter behind at the same
-path — Commits 3 and 5 left it exactly flat, since all of their moves were route
-screens. Commit 4 moved it by 2 because two of its three files were components,
-not routes. The non-route relocations so far are `ApexLandingPage.tsx`,
-`activity-item.tsx`, `category-chart.tsx` and `ticket-trend-chart.tsx`. README
-files are excluded from both figures.
+Legacy remaining barely moves because almost every relocation leaves a thin
+route adapter behind at the same path. The 08-10 batch left it exactly flat: all
+four of its moves were route screens. The only non-route relocations to date are
+`ApexLandingPage.tsx`, `activity-item.tsx`, `category-chart.tsx` and
+`ticket-trend-chart.tsx`. README files are excluded from both figures.
+
+**The 08-10 batch stopped at 3 components, not for lack of effort.** Every
+remaining frontend route screen over 100 lines now sits in an area excluded from
+architecture batches: the five `(auth)` screens (authentication implementation),
+`kanban` and the three `tickets` screens (lifecycle/SLA engine), `team/page.tsx`
+(reads `workdayApi`), `settings/page.tsx` (`authApi` plus workday policy), and
+`hrms/page.tsx` (attendance). The remaining large *component* block —
+`components/sales-crm/*` — is blocked on the superseded stylesheet rows below.
+Pushing relocation past ~18% requires clearing one of those gates, not finding
+more safe screens.
 
 **Counting method.** Architecture = `platforms/` + `shared/` + `apps/` +
 `database/`. Legacy = `frontend/` + `backend/`, excluding `backend/prisma/`
@@ -98,8 +105,8 @@ Batch branch included. **All six platforms now hold a compartment.**
 | `shared/ui` | 16 | Design-system primitives |
 | `platforms/intelligence` | 16 | Dashboard overview + **Analytics overview (batch Commit 4)** |
 | `platforms/core` | 19 | **`core/users` complete on the frontend** — administration + profiles + change-requests — plus **Organization departments (batch Commit 5)** and the Identity auth boundary |
-| `platforms/workforce` | 6 | Leave applications |
-| `platforms/system` | 5 | Public site (batch Commit 1) |
+| `platforms/workforce` | 15 | Leave applications + **Calendar (08-10)** + **Teams team-management (08-10)** |
+| `platforms/system` | 9 | Public site + **Audit (08-10)** |
 | `platforms/operations` | 4 | Projects frontend |
 | `shared/utilities` | 4 | `cn`, `formatDate`, `getInitials` |
 | `shared/auth` | 3 | Authenticated HTTP client |
@@ -707,6 +714,20 @@ created.** They are built when the features are built.
 > direction. It consumes published contracts from `leave/`, `attendance/` and
 > `teams/`.
 
+> **Status update (2026-08-10) — CALENDAR frontend COMPARTMENTALISED.**
+> 1 legacy file → `platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx`
+> (149 ln), two edits only: the `useAuthStore` path and the identifier. The
+> component path is `calendar/overview` because the row above is depth-2 while
+> `componentDepth` is 3 — the same resolution used for `dashboard/overview`.
+>
+> **D11's dependency direction is now enforced, not merely documented:** a
+> self-test rejects any reach into the Leave component's internals.
+> `CalendarView` stays inline so the five FullCalendar packages keep
+> lazy-loading via `import()`. Public entry `@apex/workforce-calendar`, no
+> subpath. New debt `DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND` — **1 import**
+> (`lib/api` for `ticketsApi` and `leaveApi`; moving either here would invert
+> D11).
+
 ### workforce/teams ✅
 
 | Current | Target |
@@ -725,6 +746,25 @@ created.** They are built when the features are built.
 > Note the confusing pair: `team.*` (singular, reporting lines) and `teams.*`
 > (plural, team CRUD) are different features in one folder. The split above is
 > a genuine improvement, not just relocation.
+
+> **Status update (2026-08-10) — TEAM-MANAGEMENT frontend COMPARTMENTALISED.**
+> 2 legacy files → `platforms/workforce/teams/team-management/frontend/screens/`:
+> `teams/page.tsx` (367 ln) → `TeamsScreen.tsx` and `teams/[id]/page.tsx`
+> (381 ln) → `TeamDetailScreen.tsx`. Two edits per screen; all seven mutations
+> preserved. Public entry `@apex/workforce-teams` plus two exact screen subpaths.
+>
+> **`reporting-lines` was deliberately NOT migrated.** `team/page.tsx` (850 ln)
+> imports `workdayApi` and formats via `formatInTimeZone` — attendance-engine
+> adjacent, so it needs its own review rather than an architecture batch. A
+> self-test proves it cannot borrow team-management's exemption later.
+>
+> ⚠️ **The `TeamPressurePanel.tsx` row above is STALE.** That file already moved
+> into `platforms/intelligence/dashboard/overview/frontend/components/` during
+> the Dashboard phase, which relocated all eight `components/home/*`.
+>
+> `frontend/modules/operations/team/team.api.ts` is a zero-importer re-export
+> shim; retained, not deleted. New debt
+> `DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND` — **2 imports**.
 
 ### workforce/employee-management ✅
 
@@ -1132,6 +1172,21 @@ created.** They are built when the features are built.
 | | `backend/src/shared/constants/events.ts` | `platforms/system/events/shared/` |
 | | `frontend/app/(dashboard)/admin/activity/page.tsx` | `platforms/system/audit/frontend/screens/` |
 | | `e2e/tests/wf6-super-admin-audit.spec.ts` | `platforms/system/audit/tests/e2e/` |
+
+> **Status update (2026-08-10) — SYSTEM AUDIT frontend COMPARTMENTALISED.**
+> 1 legacy file → `platforms/system/audit/frontend/screens/ActivityLogScreen.tsx`
+> (425 ln); one trailing-whitespace sequence removed, plus the `useAuthStore`
+> path and the identifier. Public entry `@apex/system-audit`, no subpath.
+> Read-only — the screen declares no mutation — and a self-test rejects any reach
+> into another platform's internals, since it renders events it does not own.
+>
+> New debt `DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND` — **2 imports**. `eventsApi`
+> stays because the events backend is unmigrated. **`frontend/lib/company-date.ts`
+> stays for a stronger reason:** it is the central company business-date source
+> shared with the scheduler and attendance surfaces, so moving it into audit would
+> make attendance depend on audit. It must become a published shared contract, and
+> a self-test proves no other component can borrow this exemption to reach it.
+
 | `websocket` | `backend/src/modules/platform/gateway/*` (2) | `platforms/system/websocket/backend/` |
 | | `frontend/hooks/useSocket.ts` | `platforms/system/websocket/frontend/hooks/` |
 | `scheduler` | `backend/src/modules/platform/scheduler/scheduler.module.ts` | `platforms/system/scheduler/backend/` **D7** |
