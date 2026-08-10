@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Download, Expand, LayoutGrid, Maximize2, Pin, RefreshCw, X } from "lucide-react";
-import Chart, { ChartDataPoint, ChartType } from "@/components/sales-crm/ui/Chart";
+import Chart, { ChartDataPoint, ChartType } from "@apex/sales-crm-shared/components/Chart";
 import { useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
 import { downloadReportExport } from "@/lib/sales-crm/report-output";
 import Toast from "@apex/sales-crm-shared/components/Toast";

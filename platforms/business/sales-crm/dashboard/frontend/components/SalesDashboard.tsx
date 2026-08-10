@@ -5,7 +5,7 @@ import LeadFunnel from "./LeadFunnel";
 import TodayActionBoard from "./TodayActionBoard";
 import OwnerPerformance from "./OwnerPerformance";
 import NeedsAttention from "./NeedsAttention";
-import Chart, { ChartDataPoint } from "@/components/sales-crm/ui/Chart";
+import Chart, { ChartDataPoint } from "@apex/sales-crm-shared/components/Chart";
 import styles from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 

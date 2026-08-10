@@ -7,7 +7,7 @@ import { useAuth, Role, ROLE_LABELS } from "@apex/sales-crm-shared";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
 import { SettingsUser } from "@/lib/sales-crm/types/settings";
 import UserFormModal from "./UserFormModal";
-import ConfirmModal from "@/components/sales-crm/ui/ConfirmModal";
+import ConfirmModal from "@apex/sales-crm-shared/components/ConfirmModal";
 import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 

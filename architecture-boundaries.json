@@ -63,6 +63,8 @@
       "@apex/sales-crm-shared/styles/dashboard.module.css": "platforms/business/sales-crm/shared/frontend/styles/dashboard.module.css",
       "@apex/sales-crm-shared/components/Toast": "platforms/business/sales-crm/shared/frontend/components/Toast",
       "@apex/sales-crm-shared/components/ExportModal": "platforms/business/sales-crm/shared/frontend/components/ExportModal",
+      "@apex/sales-crm-shared/components/Chart": "platforms/business/sales-crm/shared/frontend/components/Chart",
+      "@apex/sales-crm-shared/components/ConfirmModal": "platforms/business/sales-crm/shared/frontend/components/ConfirmModal",
       "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
       "@apex/operations-projects/screens/ProjectsScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectsScreen",
       "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen",
@@ -230,8 +232,8 @@
         "from": "platforms/business/sales-crm/settings/frontend/",
         "allowedTargets": [
           "frontend/lib/sales-crm/settings-store.ts",
-          "frontend/lib/sales-crm/types/settings.ts",
-          "frontend/components/sales-crm/ui/ConfirmModal.tsx"
+          "frontend/lib/sales-crm/types/settings.ts"
+
         ],
         "reason": "CRM-scoped settings only - CRM fields, CRM role permissions, integrations and CRM data import/backup. Verified to carry NO auth, workday, attendance or scheduler dependency, and it is not the Apex OS global settings route. settings.module.css (2128 ln) is exclusively settings-owned and moved byte-identically into the component, imported by relative path from its ten siblings so it never travels through a barrel. The remaining targets are scheduled: two lib/sales-crm modules resolved by the library split, and ui/ConfirmModal resolved by the ui-ownership commit.",
         "removalConditions": [
@@ -264,9 +266,8 @@
         "from": "platforms/business/sales-crm/analytics/frontend/",
         "allowedTargets": [
           "frontend/lib/sales-crm/analytics-store.ts",
-          "frontend/lib/sales-crm/report-output.ts",
-          "frontend/components/sales-crm/ui/Chart.tsx",
-          "frontend/components/sales-crm/ui/ConfirmModal.tsx"
+          "frontend/lib/sales-crm/report-output.ts"
+
         ],
         "reason": "Same scheduled pattern as the dashboard component: analytics moved ahead of frontend/lib/sales-crm and frontend/components/sales-crm/ui, both of which are resolved later in this phase because their ownership can only be read from consumers that have already migrated. analytics.module.css was NOT left behind - it is exclusively analytics-owned (no consumer outside this folder) so it moved into the component and is imported by relative path from its siblings, keeping it out of every barrel. Toast and ExportModal already arrive by exact public path from sales-crm/shared, and dashboard.module.css and primitives.module.css likewise, so this component reaches into no sibling component's internals.",
         "removalConditions": [
@@ -283,8 +284,8 @@
         "allowedTargets": [
           "frontend/lib/sales-crm/dashboard-calculations.ts",
           "frontend/lib/sales-crm/analytics-store.ts",
-          "frontend/lib/sales-crm/report-output.ts",
-          "frontend/components/sales-crm/ui/Chart.tsx"
+          "frontend/lib/sales-crm/report-output.ts"
+
         ],
         "reason": "The dashboard components moved ahead of the two blocks they depend on, by design: frontend/lib/sales-crm is split LAST because library ownership can only be read from consumers once those consumers have migrated, and frontend/components/sales-crm/ui has unresolved ownership that a later commit settles. All four targets are scheduled, not permanent. Nothing here is a shared-module or cross-platform dependency: both stylesheets already arrive by exact public path from sales-crm/shared, and Toast and ExportModal were published as shared components in this same commit because analytics consumes them too.",
         "removalConditions": [

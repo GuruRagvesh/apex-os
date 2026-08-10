@@ -3,7 +3,7 @@
 // SalesCRM — Reusable confirmation modal for destructive actions
 
 import { useState } from "react";
-import styles from "@/styles/sales-crm/confirm-modal.module.css";
+import styles from "../styles/confirm-modal.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface ConfirmModalProps {
