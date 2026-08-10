@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSettingsStore } from "@/lib/sales-crm/settings-store";
+import { useSettingsStore } from "../lib/settings-store";
 import { useAuth, Role } from "@apex/sales-crm-shared";
 import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";

@@ -4,8 +4,8 @@
 
 import { useState } from "react";
 import { useAuth } from "@apex/sales-crm-shared";
-import { useSettingsStore } from "@/lib/sales-crm/settings-store";
-import { CRMConfig } from "@/lib/sales-crm/types/settings";
+import { useSettingsStore } from "../lib/settings-store";
+import { CRMConfig } from "../lib/types/settings";
 import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 

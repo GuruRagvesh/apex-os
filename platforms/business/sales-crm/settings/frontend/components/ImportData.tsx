@@ -4,9 +4,9 @@
 
 import { useState, useRef } from "react";
 import { useAuth } from "@apex/sales-crm-shared";
-import { useSettingsStore, parseCSV, parseJSONImport, validateImportData } from "@/lib/sales-crm/settings-store";
-import { IMPORT_COLLECTIONS, IMPORT_SCHEMAS } from "@/lib/sales-crm/types/settings";
-import type { ImportCollection, ImportPreviewResult } from "@/lib/sales-crm/types/settings";
+import { useSettingsStore, parseCSV, parseJSONImport, validateImportData } from "../lib/settings-store";
+import { IMPORT_COLLECTIONS, IMPORT_SCHEMAS } from "../lib/types/settings";
+import type { ImportCollection, ImportPreviewResult } from "../lib/types/settings";
 import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 

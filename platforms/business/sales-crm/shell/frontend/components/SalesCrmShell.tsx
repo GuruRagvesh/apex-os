@@ -18,7 +18,7 @@
 import { Suspense, useCallback, useState } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
-import { ThemeProvider, useTheme } from '@/lib/sales-crm/theme';
+import { ThemeProvider, useTheme } from '../lib/theme';
 import tokens from '../styles/tokens.module.css';
 import shell from '../styles/shell.module.css';
 

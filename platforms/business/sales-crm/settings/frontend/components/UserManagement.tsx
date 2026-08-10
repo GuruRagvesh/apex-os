@@ -4,8 +4,8 @@
 
 import { useState } from "react";
 import { useAuth, Role, ROLE_LABELS } from "@apex/sales-crm-shared";
-import { useSettingsStore } from "@/lib/sales-crm/settings-store";
-import { SettingsUser } from "@/lib/sales-crm/types/settings";
+import { useSettingsStore } from "../lib/settings-store";
+import { SettingsUser } from "../lib/types/settings";
 import UserFormModal from "./UserFormModal";
 import ConfirmModal from "@apex/sales-crm-shared/components/ConfirmModal";
 import styles from "../styles/settings.module.css";

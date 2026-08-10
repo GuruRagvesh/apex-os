@@ -16,7 +16,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useAuth, ROLE_LABELS, Role, logAction, canImport } from '@apex/sales-crm-shared';
-import { useTheme } from '@/lib/sales-crm/theme';
+import { useTheme } from '../lib/theme';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { filterLeadsFromDashboard } from '@/lib/sales-crm/dashboard-calculations';
 import shell from '../styles/shell.module.css';

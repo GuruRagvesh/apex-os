@@ -219,42 +219,9 @@
         "removalPhase": "Phase 2B remaining commits (ui ownership, lib split)",
         "from": "platforms/business/sales-crm/shell/frontend/",
         "allowedTargets": [
-          "frontend/lib/sales-crm/theme.ts",
           "frontend/lib/sales-crm/dashboard-calculations.ts"
         ],
         "reason": "The CRM workspace chrome - sidebar, topbar and the placeholder pane. shell.module.css and tokens.module.css are both exclusively shell-owned, with no consumer anywhere outside this folder, so both moved into the component and are imported by relative path from their siblings. SalesCrmShell imports tokens BEFORE shell and that relative order is preserved exactly, because the two are applied to the same nodes. The two remaining targets are lib/sales-crm modules scheduled for the library split.",
-        "removalConditions": [
-          "frontend/lib/sales-crm/*: resolved by the Phase 2B library split, which classifies each file by its current consumers",
-          "frontend/components/sales-crm/ui/*: resolved by the Phase 2B ui-ownership commit"
-        ]
-      },
-      {
-        "id": "DEBT-P2B4-SALES-CRM-SETTINGS-LEGACY-FRONTEND",
-        "status": "temporary",
-        "introducedIn": "Sales CRM Phase 2B settings compartmentalisation",
-        "removalPhase": "Phase 2B remaining commits (ui ownership, lib split)",
-        "from": "platforms/business/sales-crm/settings/frontend/",
-        "allowedTargets": [
-          "frontend/lib/sales-crm/settings-store.ts",
-          "frontend/lib/sales-crm/types/settings.ts"
-
-        ],
-        "reason": "CRM-scoped settings only - CRM fields, CRM role permissions, integrations and CRM data import/backup. Verified to carry NO auth, workday, attendance or scheduler dependency, and it is not the Apex OS global settings route. settings.module.css (2128 ln) is exclusively settings-owned and moved byte-identically into the component, imported by relative path from its ten siblings so it never travels through a barrel. The remaining targets are scheduled: two lib/sales-crm modules resolved by the library split, and ui/ConfirmModal resolved by the ui-ownership commit.",
-        "removalConditions": [
-          "frontend/lib/sales-crm/*: resolved by the Phase 2B library split, which classifies each file by its current consumers",
-          "frontend/components/sales-crm/ui/*: resolved by the Phase 2B ui-ownership commit"
-        ]
-      },
-      {
-        "id": "DEBT-P2B3-SALES-CRM-DATABASE-LEGACY-FRONTEND",
-        "status": "temporary",
-        "introducedIn": "Sales CRM Phase 2B database compartmentalisation",
-        "removalPhase": "Phase 2B remaining commits (ui ownership, lib split)",
-        "from": "platforms/business/sales-crm/database/frontend/",
-        "allowedTargets": [
-          "frontend/lib/sales-crm/database-data.ts"
-        ],
-        "reason": "Same scheduled pattern as dashboard and analytics: the database components moved ahead of frontend/lib/sales-crm, which is split LAST in this phase because a library file's owner can only be read from consumers that have already migrated. database.module.css was NOT left behind - it is exclusively database-owned, with no consumer outside this folder, so it moved into the component and is imported by relative path from its five siblings, keeping it out of every barrel. primitives.module.css already arrives by exact public path from sales-crm/shared, so this component reaches into no sibling component's internals.",
         "removalConditions": [
           "frontend/lib/sales-crm/*: resolved by the Phase 2B library split, which classifies each file by its current consumers",
           "frontend/components/sales-crm/ui/*: resolved by the Phase 2B ui-ownership commit"

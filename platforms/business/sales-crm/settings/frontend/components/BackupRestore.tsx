@@ -4,7 +4,7 @@
 
 import { useState, useRef } from "react";
 import { useAuth } from "@apex/sales-crm-shared";
-import { useSettingsStore } from "@/lib/sales-crm/settings-store";
+import { useSettingsStore } from "../lib/settings-store";
 import ConfirmModal from "@apex/sales-crm-shared/components/ConfirmModal";
 import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
