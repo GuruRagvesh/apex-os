@@ -28,6 +28,7 @@
     "@apex/shared-ui": "shared/ui",
     "@apex/shared-ui/components": "shared/ui/frontend/components",
     "@apex/workforce-leave": "platforms/workforce/leave/applications",
+    "@apex/workforce-calendar": "platforms/workforce/calendar/overview",
     "@apex/shared-utilities": "shared/utilities",
     "@apex/core-users": "platforms/core/users/administration",
     "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
@@ -189,6 +190,20 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Workforce Calendar overview frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/workforce/calendar/overview/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts"
+        ],
+        "reason": "The calendar screen carries exactly one legacy import, pulling ticketsApi and leaveApi from the application-wide API module. Per D11 this module aggregates data it does not own - approved leave from workforce/leave and scheduled tickets from operations/tickets - so neither API group can follow it here; that would invert the dependency the decision record establishes. Authentication was NOT carried over: the screen reads useAuthStore through @apex/core-identity. It has no lib/utils coupling - its status colour map is declared inline - and no shared/ui dependency. The FullCalendar plugins are dynamic imports of npm packages, not internal paths.",
+        "removalConditions": [
+          "frontend/lib/api.ts: ticketsApi and leaveApi become published contracts from operations/tickets and workforce/leave, which calendar then consumes through their public entries"
         ]
       },
       {

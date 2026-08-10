@@ -2312,19 +2312,20 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 24) {
-    problems.push(`expected 24 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 23) {
+    problems.push(`expected 23 legacy auth-store consumers, found ${legacy.length}`);
   }
   // Each one that left must be a thin adapter carrying no auth dependency at
   // all, and must reach its screen through that component's public entry.
   // 29 -> 27 core/users/profiles; -> 26 intelligence/analytics;
-  // -> 24 core/organization/departments.
+  // -> 24 core/organization/departments; -> 23 workforce/calendar.
   const DEPARTED = {
     'frontend/app/(dashboard)/profile/page.tsx': '@apex/core-users-profiles/screens/',
     'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx': '@apex/core-users-profiles/screens/',
     'frontend/app/(dashboard)/analytics/page.tsx': '@apex/intelligence-analytics',
     'frontend/app/(dashboard)/(platform)/departments/page.tsx': '@apex/core-organization-departments/screens/',
     'frontend/app/(dashboard)/(platform)/departments/[id]/page.tsx': '@apex/core-organization-departments/screens/',
+    'frontend/app/(dashboard)/calendar/page.tsx': '@apex/workforce-calendar',
   };
   for (const [route, entry] of Object.entries(DEPARTED)) {
     const src = codeOf(readRepo(route) ?? '');
@@ -3609,6 +3610,191 @@ export default rolesApi;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Workforce Calendar: cross-workforce aggregation surface ────────────────
+// D11: its own module, not a leave sub-component. It aggregates approved leave
+// and scheduled tickets it does not own, so the key property is that it reaches
+// neither owner's internals.
+
+// 200. The /calendar route may consume the public entry.
+testCase(
+  'accepts the /calendar route consuming the Workforce Calendar public entry',
+  (root) => {
+    write(root, 'platforms/workforce/calendar/overview/index.ts', `export const CalendarScreen = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/calendar/page.tsx',
+      `import { CalendarScreen } from '@apex/workforce-calendar';
+export default CalendarScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 201. External code cannot reach Calendar internals.
+testCase(
+  'rejects external code importing Workforce Calendar internals',
+  (root) => {
+    write(root, 'platforms/workforce/calendar/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `import { CalendarScreen } from '@apex/workforce-calendar/frontend/screens/CalendarScreen';
+export default CalendarScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 202. ...by dynamic import() too. The screen legitimately uses import() for
+//      the FullCalendar npm packages, so the rule must still catch an internal.
+testCase(
+  'detects dynamic import() of Workforce Calendar internals',
+  (root) => {
+    write(root, 'platforms/workforce/calendar/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `export const load = () => import('@apex/workforce-calendar/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 203. ...and by require().
+testCase(
+  'detects require() of Workforce Calendar internals',
+  (root) => {
+    write(root, 'platforms/workforce/calendar/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx',
+      `const S = require('@apex/workforce-calendar/frontend/screens/CalendarScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 204. Calendar frontend must not import backend code.
+testCase(
+  'rejects Workforce Calendar frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `import { LeaveService } from '../../backend/services/leave.service';
+export default LeaveService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 205. D11's whole point: calendar consumes leave and tickets as published
+//      data, so it must not reach into either owner's internals.
+testCase(
+  'rejects Workforce Calendar reaching into the Leave component internals',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `import { LeaveScreen } from '@apex/workforce-leave/frontend/screens/LeaveScreen';
+export default LeaveScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 206. Calendar may consume Core Identity through its public entry.
+testCase(
+  'accepts Workforce Calendar consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 207. ...and a direct legacy auth-store import is rejected.
+testCase(
+  'rejects Workforce Calendar importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 208. shared/ must not import Calendar.
+testCase(
+  'rejects a shared module importing Workforce Calendar',
+  (root) => {
+    write(root, 'platforms/workforce/calendar/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/date-helper.ts',
+      `import { X } from '@apex/workforce-calendar';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 209. The DEBT-P12 allowlist covers lib/api.ts and nothing else.
+testCase(
+  'accepts the single allowlisted Workforce Calendar legacy target',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `import { ticketsApi, leaveApi } from '@/lib/api';
+export default function S() { return [ticketsApi, leaveApi]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 210. ...not lib/utils; the status colour map is declared inline.
+testCase(
+  'rejects lib/utils from Workforce Calendar',
+  (root) => {
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `import { STATUS_COLORS } from '@/lib/utils';
+export default STATUS_COLORS;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -3667,6 +3853,7 @@ testRealRepoDebtCounts({
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
   'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
   'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,
+  'DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND': 1,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────
