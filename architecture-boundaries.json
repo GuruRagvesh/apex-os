@@ -388,20 +388,6 @@
         ]
       },
       {
-        "id": "DEBT-P2B-LEADS-COMPANY-REPOSITORY",
-        "status": "temporary",
-        "introducedIn": "Phase 2B",
-        "removalPhase": "Phase 2D (Sales CRM company/database ownership)",
-        "from": "platforms/business/sales-crm/leads/frontend/components/CompanyAutocomplete.tsx",
-        "allowedTargets": ["frontend/lib/sales-crm/company/company-repository.ts"],
-        "reason": "Phase 2B moved CompanyAutocomplete into the Leads component because Leads is its only consumer. Its company lookup still calls LocalStorageCompanyRepository, which could not follow: the repository has a second importer (frontend/lib/sales-crm/storage.ts) and it reads MOCK_CLIENTS from frontend/lib/sales-crm/database-data.ts, which is owned by the unmigrated Sales CRM database component. Moving the repository into Leads would take a database-owned dependency with it; moving it into the shared component would make shared depend on a feature's mock data. Both invert ownership, so the repository stays where it is until the company/database concern gets an owner.",
-        "removalConditions": [
-          "The Sales CRM database component migrates, giving database-data.ts an owner",
-          "LocalStorageCompanyRepository and its normalization helper move to that owner or to the Sales CRM shared component",
-          "CompanyAutocomplete consumes it through a public entry point"
-        ]
-      },
-      {
         "id": "DEBT-P2C-LEADS-GLOBAL-USERS-API",
         "status": "temporary",
         "introducedIn": "Phase 2C",

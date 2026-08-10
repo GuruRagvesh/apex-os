@@ -614,7 +614,7 @@ testCase(
 
 // 35. The company-repository exemption applies to the exact adapter file only.
 testCase(
-  'accepts CompanyAutocomplete importing the legacy company repository',
+  'rejects CompanyAutocomplete importing the retired legacy company repository',
   (root) => {
     write(
       root,
@@ -622,12 +622,13 @@ testCase(
       `import { LocalStorageCompanyRepository } from '@/lib/sales-crm/company/company-repository';\nexport const C = () => LocalStorageCompanyRepository;\n`,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
-// 36. A sibling Leads component cannot reuse the company-repository exemption.
+// 36. No Leads component may reach the legacy company-repository path. Phase 2B
+//     moved the file into the component and retired its exemption entirely.
 testCase(
-  'rejects a sibling Leads component reusing the company-repository exemption',
+  'rejects any Leads component importing the legacy company-repository path',
   (root) => {
     write(
       root,
@@ -4480,7 +4481,6 @@ function testRealRepoDebtCounts(expected) {
 }
 
 testRealRepoDebtCounts({
-  'DEBT-P2B-LEADS-COMPANY-REPOSITORY': 1,
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 5,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
