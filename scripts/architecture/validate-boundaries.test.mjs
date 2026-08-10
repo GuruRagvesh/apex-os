@@ -2299,16 +2299,1315 @@ assertContract('no platform component imports the legacy auth store directly', (
   return problems;
 });
 
-assertContract('the legacy consumer set is unchanged by this phase', () => {
-  // The adapter phase deliberately left every legacy consumer alone. If this
-  // number moves, someone migrated legacy code without staging validation.
+assertContract('the legacy auth-store consumer set only shrinks by compartmentalisation', () => {
+  // The adapter phase left all 29 legacy consumers alone. Core Users Profiles
+  // then took 2 of them OUT of frontend/ entirely - the screens moved into
+  // platforms/ and now read the store through @apex/core-identity, so they are
+  // no longer legacy consumers at all. That is the only sanctioned way this
+  // number moves: a screen leaves frontend/ with its import rewritten to the
+  // public boundary. An in-place rewrite of a file that stays in frontend/
+  // would still be an unvalidated auth migration, and the route-adapter check
+  // below is what distinguishes the two.
+  const problems = [];
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  return legacy.length === 29
-    ? []
-    : [`expected 29 legacy auth-store consumers, found ${legacy.length}`];
+  if (legacy.length !== 24) {
+    problems.push(`expected 24 legacy auth-store consumers, found ${legacy.length}`);
+  }
+  // Each one that left must be a thin adapter carrying no auth dependency at
+  // all, and must reach its screen through that component's public entry.
+  // 29 -> 27 core/users/profiles; -> 26 intelligence/analytics;
+  // -> 24 core/organization/departments.
+  const DEPARTED = {
+    'frontend/app/(dashboard)/profile/page.tsx': '@apex/core-users-profiles/screens/',
+    'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx': '@apex/core-users-profiles/screens/',
+    'frontend/app/(dashboard)/analytics/page.tsx': '@apex/intelligence-analytics',
+    'frontend/app/(dashboard)/(platform)/departments/page.tsx': '@apex/core-organization-departments/screens/',
+    'frontend/app/(dashboard)/(platform)/departments/[id]/page.tsx': '@apex/core-organization-departments/screens/',
+  };
+  for (const [route, entry] of Object.entries(DEPARTED)) {
+    const src = codeOf(readRepo(route) ?? '');
+    if (src === '') {
+      problems.push(`${route} is missing - the route must survive as an adapter`);
+      continue;
+    }
+    if (src.includes('auth.store')) problems.push(`${route} must not import the auth store`);
+    if (src.includes('@apex/core-identity')) {
+      problems.push(`${route} is an adapter; auth belongs in the screen, not the route`);
+    }
+    if (!src.includes(entry)) {
+      problems.push(`${route} must reach its screen through ${entry}`);
+    }
+  }
+  return problems;
 });
+
+// ── System Public Site: unauthenticated surface ─────────────────────────────
+// D4: the marketing and legal screens. No backend, no legacy dependency, and
+// no debt - the only component so far that carries none.
+
+// 126. A thin route may import an exact declared screen subpath.
+testCase(
+  'accepts a thin public route importing an exact System screen subpath',
+  (root) => {
+    write(root, 'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx', `export const ApexLandingPage = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/page.tsx',
+      `import { ApexLandingPage } from '@apex/system-public-site/screens/ApexLandingPage';
+export default ApexLandingPage;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 127. An undeclared screen beside the declared ones stays private.
+testCase(
+  'rejects an undeclared System public-site screen subpath',
+  (root) => {
+    write(root, 'platforms/system/public-site/frontend/screens/SecretScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/page.tsx',
+      `import S from '@apex/system-public-site/screens/SecretScreen';
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 128. External code cannot reach System public-site internals.
+testCase(
+  'rejects external code importing System public-site internals',
+  (root) => {
+    write(root, 'platforms/system/public-site/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { ApexLandingPage } from '@apex/system-public-site/frontend/screens/ApexLandingPage';
+export default ApexLandingPage;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 129. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of System public-site internals',
+  (root) => {
+    write(root, 'platforms/system/public-site/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `export const load = () => import('@apex/system-public-site/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 130. ...and by require().
+testCase(
+  'detects require() of System public-site internals',
+  (root) => {
+    write(root, 'platforms/system/public-site/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `const S = require('@apex/system-public-site/frontend/screens/TermsScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 131. System frontend must not import backend code.
+testCase(
+  'rejects System frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import { HealthService } from '../../backend/services/health.service';
+export default HealthService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 132. System must not reach into another platform's internals.
+testCase(
+  'rejects System importing another platform internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 133. shared/ must not import System.
+testCase(
+  'rejects a shared module importing System public-site',
+  (root) => {
+    write(root, 'platforms/system/public-site/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/public-helper.ts',
+      `import { X } from '@apex/system-public-site';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 134. System may consume Shared UI, Shared Utilities and Core Identity
+//      through their public entries - it just does not need to today.
+testCase(
+  'accepts System consuming shared-ui, shared-utilities and core-identity publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/empty-state.tsx', `export const EmptyState = () => null;
+`);
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import { cn } from '@apex/shared-utilities';
+import { EmptyState } from '@apex/shared-ui/components/empty-state';
+import { useAuthStore } from '@apex/core-identity';
+export default function S() { return [cn, EmptyState, useAuthStore]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 135. System carries NO legacy exemption - any legacy import is rejected.
+testCase(
+  'rejects System public-site importing any legacy frontend path',
+  (root) => {
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `import { cn } from '@/lib/utils';
+export default cn;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// ── Core Users Profiles: the two profile surfaces ──────────────────────────
+// The second component in the core/users module. Its defining property is that
+// it is the FIRST component to consume authentication through @apex/core-identity
+// instead of importing frontend/store/auth.store.ts directly — so the tests
+// below lock that in rather than merely allowing it.
+
+// 136. The /profile route may import its exact declared screen subpath.
+testCase(
+  'accepts the /profile route importing the exact ProfileScreen subpath',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/profile/page.tsx',
+      `import ProfileScreen from '@apex/core-users-profiles/screens/ProfileScreen';
+export default ProfileScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 137. ...and /users/[id]/profile may import its own screen subpath.
+testCase(
+  'accepts the /users/[id]/profile route importing the exact UserProfileScreen subpath',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/users/[id]/profile/page.tsx',
+      `import UserProfileScreen from '@apex/core-users-profiles/screens/UserProfileScreen';
+export default UserProfileScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 138. An undeclared screen beside the two declared ones stays private.
+testCase(
+  'rejects an undeclared Core Users Profiles screen subpath',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/frontend/screens/PayrollScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/profile/page.tsx',
+      `import S from '@apex/core-users-profiles/screens/PayrollScreen';
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 139. External code cannot reach Profiles internals.
+testCase(
+  'rejects external code importing Core Users Profiles internals',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { ActivityItem } from '@apex/core-users-profiles/frontend/components/activity-item';
+export default ActivityItem;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 140. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Core Users Profiles internals',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `export const load = () => import('@apex/core-users-profiles/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 141. ...and by require().
+testCase(
+  'detects require() of Core Users Profiles internals',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `const S = require('@apex/core-users-profiles/frontend/screens/ProfileScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 142. Profiles frontend must not import backend code.
+testCase(
+  'rejects Core Users Profiles frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+      `import { UsersService } from '../../backend/services/users.service';
+export default UsersService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 143. Profiles must not reach into another platform's internals.
+testCase(
+  'rejects Core Users Profiles importing another platform internals',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import ProjectsScreen from '@apex/operations-projects/frontend/screens/ProjectsScreen';
+export default ProjectsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 144. Profiles reaches its SIBLING component only through its public entry —
+//      administration and profiles are two components, not one folder.
+testCase(
+  'rejects Core Users Profiles importing Core Users Administration internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 145. Profiles may consume Core Identity through its public entry.
+testCase(
+  'accepts Core Users Profiles consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 146. ...but ONLY through it — the adapter file itself stays private.
+testCase(
+  'rejects Core Users Profiles reaching past the Core Identity public entry',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity/frontend/state/auth-store.adapter';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 147. A direct legacy auth-store import from Profiles is rejected. The
+//      DEBT-P8 allowlist deliberately omits frontend/store/auth.store.ts, so
+//      the boundary cannot be re-crossed by a later edit to this component.
+testCase(
+  'rejects Core Users Profiles importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 148. Profiles may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Core Users Profiles consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const getInitials = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/skeleton.tsx', `export const Skeleton = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/components/activity-item.tsx',
+      `import { getInitials } from '@apex/shared-utilities';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
+export default function S() { return [getInitials, Skeleton]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 149. shared/ must not import Profiles.
+testCase(
+  'rejects a shared module importing Core Users Profiles',
+  (root) => {
+    write(root, 'platforms/core/users/profiles/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/user-avatar.tsx',
+      `import { X } from '@apex/core-users-profiles';
+export const A = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 150. The DEBT-P8 allowlist covers exactly its three targets...
+testCase(
+  'accepts the three allowlisted Core Users Profiles legacy targets',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { usersApi } from '@/lib/api';
+import { formatRelativeTime } from '@/lib/utils';
+import { TicketRow } from '@/components/tickets/ticket-row';
+export default function S() { return [usersApi, formatRelativeTime, TicketRow]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 151. ...and nothing else.
+testCase(
+  'rejects an unallowlisted legacy target from Core Users Profiles',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { Sidebar } from '@/components/layout/sidebar';
+export default Sidebar;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 152. The exemption is scoped to frontend/ — a sibling folder cannot reuse it.
+testCase(
+  'rejects a Core Users Profiles file outside frontend/ reusing the exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/profiles/shared/contracts/profile.types.ts',
+      `import { usersApi } from '@/lib/api';
+export const t = usersApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 153. Administration must not borrow the Profiles allowlist. Its own DEBT-P6
+//      entry names only lib/api.ts and lib/utils.ts, so ticket-row is out.
+testCase(
+  'rejects Core Users Administration reusing the Profiles legacy allowlist',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { TicketRow } from '@/components/tickets/ticket-row';
+export default TicketRow;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// ── Core Users Change Requests: the approvals queue ────────────────────────
+// The third component in the core/users module. It performs approve and reject
+// actions, so the tests below guard the boundary AND the authorization surface:
+// the screen has no client-side role check at all, and that must stay true —
+// queue scoping is backend-driven through listPendingApprovals.
+
+// 154. The /admin/approvals route may consume the public entry.
+testCase(
+  'accepts the /admin/approvals route consuming the Change Requests public entry',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const ApprovalsScreen = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/admin/approvals/page.tsx',
+      `import { ApprovalsScreen } from '@apex/core-users-change-requests';
+export default ApprovalsScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 155. External code cannot reach Change Requests internals.
+testCase(
+  'rejects external code importing Core Users Change Requests internals',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { ApprovalsScreen } from '@apex/core-users-change-requests/frontend/screens/ApprovalsScreen';
+export default ApprovalsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 156. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Core Users Change Requests internals',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `export const load = () => import('@apex/core-users-change-requests/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 157. ...and by require().
+testCase(
+  'detects require() of Core Users Change Requests internals',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `const S = require('@apex/core-users-change-requests/frontend/screens/ApprovalsScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 158. Change Requests frontend must not import backend code.
+testCase(
+  'rejects Core Users Change Requests frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { ChangeRequestsService } from '../../backend/services/change-requests.service';
+export default ChangeRequestsService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 159. Change Requests must not reach into another platform's internals.
+testCase(
+  'rejects Core Users Change Requests importing another platform internals',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { LeaveScreen } from '@apex/workforce-leave/frontend/screens/LeaveScreen';
+export default LeaveScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 160. ...including its two sibling components in the same module.
+testCase(
+  'rejects Core Users Change Requests importing its sibling components internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(root, 'platforms/core/users/profiles/index.ts', `export const Y = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+import ProfileScreen from '@apex/core-users-profiles/frontend/screens/ProfileScreen';
+export default function S() { return [UsersScreen, ProfileScreen]; }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 161. Change Requests may consume Core Identity through its public entry.
+testCase(
+  'accepts Core Users Change Requests consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 162. A direct legacy auth-store import from Change Requests is rejected. The
+//      screen carries no frontend auth dependency today, and the DEBT-P9
+//      allowlist names only lib/api.ts, so it cannot acquire one silently.
+testCase(
+  'rejects Core Users Change Requests importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 163. Change Requests may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Core Users Change Requests consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const formatDate = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/skeleton.tsx', `export const Skeleton = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { formatDate } from '@apex/shared-utilities';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
+export default function S() { return [formatDate, Skeleton]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 164. shared/ must not import Change Requests.
+testCase(
+  'rejects a shared module importing Core Users Change Requests',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/approval-helper.ts',
+      `import { X } from '@apex/core-users-change-requests';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 165. The DEBT-P9 allowlist covers lib/api.ts...
+testCase(
+  'accepts the single allowlisted Core Users Change Requests legacy target',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { changeRequestsApi, departmentsApi, usersApi, rolesApi } from '@/lib/api';
+export default function S() { return [changeRequestsApi, departmentsApi, usersApi, rolesApi]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 166. ...and nothing else - not even lib/utils, which siblings are allowed.
+testCase(
+  'rejects lib/utils from Core Users Change Requests despite siblings allowing it',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { formatDate } from '@/lib/utils';
+export default formatDate;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 167. The exemption is scoped to frontend/ - a sibling folder cannot reuse it.
+testCase(
+  'rejects a Core Users Change Requests file outside frontend/ reusing the exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/shared/contracts/change-request.types.ts',
+      `import { changeRequestsApi } from '@/lib/api';
+export const t = changeRequestsApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// ── Intelligence Analytics: the /analytics workspace ───────────────────────
+// The second component in the intelligence platform, and the first to take
+// custody of the two charts the Dashboard phase declined. It is a read-only
+// screen: it declares no mutation, so its role checks gate views only.
+
+// 168. The /analytics route may consume the public entry.
+testCase(
+  'accepts the /analytics route consuming the Intelligence Analytics public entry',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const AnalyticsScreen = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/analytics/page.tsx',
+      `import { AnalyticsScreen } from '@apex/intelligence-analytics';
+export default AnalyticsScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 169. External code cannot reach Analytics internals.
+testCase(
+  'rejects external code importing Intelligence Analytics internals',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+      `import { CategoryChart } from '@apex/intelligence-analytics/frontend/components/category-chart';
+export default CategoryChart;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 170. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Intelligence Analytics internals',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `export const load = () => import('@apex/intelligence-analytics/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 171. ...and by require().
+testCase(
+  'detects require() of Intelligence Analytics internals',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `const S = require('@apex/intelligence-analytics/frontend/screens/AnalyticsScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 172. Analytics frontend must not import backend code.
+testCase(
+  'rejects Intelligence Analytics frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { AnalyticsService } from '../../backend/services/analytics.service';
+export default AnalyticsService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 173. Analytics must not reach into another platform's internals.
+testCase(
+  'rejects Intelligence Analytics importing another platform internals',
+  (root) => {
+    write(root, 'platforms/operations/projects/project-management/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import ProjectsScreen from '@apex/operations-projects/frontend/screens/ProjectsScreen';
+export default ProjectsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 174. ...including its sibling Dashboard component in the same platform.
+//      analytics and dashboard are two components, not one intelligence blob.
+testCase(
+  'rejects Intelligence Analytics importing Intelligence Dashboard internals',
+  (root) => {
+    write(root, 'platforms/intelligence/dashboard/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { StatCard } from '@apex/intelligence-dashboard/frontend/components/stat-card';
+export default StatCard;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 175. Analytics may consume Core Identity through its public entry.
+testCase(
+  'accepts Intelligence Analytics consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 176. ...but a direct legacy auth-store import is rejected. DEBT-P10 names
+//      only lib/api.ts, so the screen cannot fall back to the legacy store.
+testCase(
+  'rejects Intelligence Analytics importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 177. Analytics may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Intelligence Analytics consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/skeleton.tsx', `export const Skeleton = () => null;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { cn } from '@apex/shared-utilities';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
+export default function S() { return [cn, Skeleton]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 178. shared/ must not import Analytics.
+testCase(
+  'rejects a shared module importing Intelligence Analytics',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/kpi-capsule.tsx',
+      `import { X } from '@apex/intelligence-analytics';
+export const A = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 179. The DEBT-P10 allowlist covers lib/api.ts...
+testCase(
+  'accepts the single allowlisted Intelligence Analytics legacy target',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { analyticsApi, dashboardApi, ticketsApi } from '@/lib/api';
+export default function S() { return [analyticsApi, dashboardApi, ticketsApi]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 180. ...and nothing else - notably not the old chart location, which is the
+//      import this component was created to retire.
+testCase(
+  'rejects Intelligence Analytics importing the legacy dashboard chart path',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `import { CategoryChart } from '@/components/dashboard/category-chart';
+export default CategoryChart;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 181. The exemption is scoped to frontend/ - a sibling folder cannot reuse it.
+testCase(
+  'rejects an Intelligence Analytics file outside frontend/ reusing the exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/shared/contracts/analytics.types.ts',
+      `import { analyticsApi } from '@/lib/api';
+export const t = analyticsApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 182. Dashboard must not borrow the Analytics allowlist, and vice versa -
+//      each intelligence component answers for its own legacy imports.
+testCase(
+  'rejects Intelligence Dashboard reusing the Analytics exemption scope',
+  (root) => {
+    write(
+      root,
+      'platforms/intelligence/analytics/other-component/frontend/screen.tsx',
+      `import { analyticsApi } from '@/lib/api';
+export default analyticsApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// ── Core Organization Departments: administration surface ──────────────────
+// The first core/organization compartment. Eight mutations across two screens,
+// all gated on the same ADMIN_ROLES expression, so the tests below guard the
+// boundary AND pin the authorization surface that gating depends on.
+
+// 183. The /departments route may import its exact declared screen subpath.
+testCase(
+  'accepts the /departments route importing the exact DepartmentsScreen subpath',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/departments/page.tsx',
+      `import DepartmentsScreen from '@apex/core-organization-departments/screens/DepartmentsScreen';
+export default DepartmentsScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 184. ...and /departments/[id] may import its own screen subpath.
+testCase(
+  'accepts the /departments/[id] route importing the exact DepartmentDetailScreen subpath',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/departments/[id]/page.tsx',
+      `import DepartmentDetailScreen from '@apex/core-organization-departments/screens/DepartmentDetailScreen';
+export default DepartmentDetailScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 185. An undeclared screen beside the two declared ones stays private.
+testCase(
+  'rejects an undeclared Departments screen subpath',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/frontend/screens/RolesScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/departments/page.tsx',
+      `import S from '@apex/core-organization-departments/screens/RolesScreen';
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 186. External code cannot reach Departments internals.
+testCase(
+  'rejects external code importing Core Organization Departments internals',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { Avatar } from '@apex/core-organization-departments/frontend/screens/DepartmentDetailScreen';
+export default Avatar;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 187. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Core Organization Departments internals',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `export const load = () => import('@apex/core-organization-departments/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 188. ...and by require().
+testCase(
+  'detects require() of Core Organization Departments internals',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `const S = require('@apex/core-organization-departments/frontend/screens/DepartmentsScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 189. Departments frontend must not import backend code.
+testCase(
+  'rejects Core Organization Departments frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx',
+      `import { DepartmentsService } from '../../backend/services/departments.service';
+export default DepartmentsService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 190. Departments must not reach into another platform's internals.
+testCase(
+  'rejects Core Organization Departments importing another platform internals',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import { AnalyticsScreen } from '@apex/intelligence-analytics/frontend/screens/AnalyticsScreen';
+export default AnalyticsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 191. ...including core/users, which is a different module in the same platform.
+testCase(
+  'rejects Core Organization Departments importing Core Users internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 192. Departments may consume Core Identity through its public entry.
+testCase(
+  'accepts Core Organization Departments consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 193. A direct legacy auth-store import from Departments is rejected. Every
+//      query on both screens is gated on hasHydrated && isAdmin, so the store
+//      must keep arriving through the boundary rather than the legacy path.
+testCase(
+  'rejects Core Organization Departments importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 194. Departments may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Core Organization Departments consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/breadcrumb.tsx', `export const Breadcrumb = () => null;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import { cn } from '@apex/shared-utilities';
+import { Breadcrumb } from '@apex/shared-ui/components/breadcrumb';
+export default function S() { return [cn, Breadcrumb]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 195. shared/ must not import Departments.
+testCase(
+  'rejects a shared module importing Core Organization Departments',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/breadcrumb.tsx',
+      `import { X } from '@apex/core-organization-departments';
+export const B = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 196. The DEBT-P11 allowlist covers lib/api.ts...
+testCase(
+  'accepts the single allowlisted Core Organization Departments legacy target',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import { departmentsApi, usersApi, rolesApi, teamsApi } from '@/lib/api';
+export default function S() { return [departmentsApi, usersApi, rolesApi, teamsApi]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 197. ...and nothing else - notably not lib/utils. The colour maps are
+//      declared locally in the detail screen, so this component never needed it.
+testCase(
+  'rejects lib/utils from Core Organization Departments',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import { STATUS_COLORS } from '@/lib/utils';
+export default STATUS_COLORS;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 198. The exemption is scoped to frontend/ - a sibling folder cannot reuse it.
+testCase(
+  'rejects a Core Organization Departments file outside frontend/ reusing the exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/shared/contracts/department.types.ts',
+      `import { departmentsApi } from '@/lib/api';
+export const t = departmentsApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 199. A future sibling component in the same module cannot borrow it either.
+testCase(
+  'rejects Core Organization Roles reusing the Departments exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/roles/frontend/screens/RolesScreen.tsx',
+      `import { rolesApi } from '@/lib/api';
+export default rolesApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
 
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
@@ -2364,6 +3663,10 @@ testRealRepoDebtCounts({
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 2,
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
+  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 4,
+  'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
+  'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
+  'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────
@@ -2566,5 +3869,484 @@ assertContract('frontend/lib/api.ts owns no client and no Sales CRM API', () => 
     if (src.includes(forbidden)) problems.push(`must no longer contain: ${forbidden}`);
   }
   if (!src.includes("from '@apex/shared-auth'")) problems.push('does not import the shared authenticated client');
+  return problems;
+});
+
+assertContract('both Profiles screens read auth through the Core Identity boundary', () => {
+  const problems = [];
+  for (const screen of [
+    'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+    'platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+  ]) {
+    const raw = readRepo(screen);
+    if (raw === null) {
+      problems.push(`${screen} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    if (!src.includes("from '@apex/core-identity'")) {
+      problems.push(`${screen} does not consume @apex/core-identity`);
+    }
+    if (src.includes('@/store/auth.store')) {
+      problems.push(`${screen} still imports the legacy auth store`);
+    }
+    // The migration is an import-path change only: the call shape is untouched.
+    if (!src.includes('useAuthStore()')) {
+      problems.push(`${screen} no longer calls useAuthStore() - the hook usage must be unchanged`);
+    }
+  }
+  return problems;
+});
+
+assertContract('ActivityItem stays internal to Core Users Profiles', () => {
+  // Its only consumer repo-wide is ProfileScreen. Publishing it through either
+  // barrel would pull it into every consumer of '@apex/core-users-profiles',
+  // and would also let another component depend on a Profiles-owned detail.
+  const problems = [];
+  const INTERNAL = 'platforms/core/users/profiles/frontend/components/activity-item.tsx';
+  if (readRepo(INTERNAL) === null) problems.push(`${INTERNAL} is missing`);
+
+  for (const barrel of [
+    'platforms/core/users/profiles/index.ts',
+    'platforms/core/users/profiles/frontend/index.ts',
+  ]) {
+    const raw = readRepo(barrel);
+    if (raw === null) {
+      problems.push(`${barrel} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    if (src.includes('ActivityItem') || src.includes('activity-item')) {
+      problems.push(`${barrel} must not publish ActivityItem`);
+    }
+  }
+  // No file outside this component may reference the old legacy path either.
+  for (const f of repoSources()) {
+    if (f.startsWith('platforms/core/users/profiles/')) continue;
+    if (f === 'scripts/architecture/validate-boundaries.test.mjs') continue;
+    const src = codeOf(readRepo(f) ?? '');
+    if (src.includes('@/components/dashboard/activity-item')) {
+      problems.push(`${f} imports activity-item from its old legacy path`);
+    }
+  }
+  return problems;
+});
+
+assertContract('the Profiles barrel publishes exactly the two screens', () => {
+  const raw = readRepo('platforms/core/users/profiles/frontend/index.ts');
+  if (raw === null) return ['platforms/core/users/profiles/frontend/index.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const screen of ['ProfileScreen', 'UserProfileScreen']) {
+    if (!src.includes(screen)) problems.push(`the frontend barrel does not export ${screen}`);
+  }
+  const exportCount = (src.match(/^export /gm) ?? []).length;
+  if (exportCount !== 2) problems.push(`expected 2 exports, found ${exportCount}`);
+  return problems;
+});
+
+const APPROVALS = 'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx';
+
+assertContract('the approvals screen kept its exact original import list', () => {
+  const raw = readRepo(APPROVALS);
+  if (raw === null) return [`${APPROVALS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  // Exactly the five the route file had, unchanged by the move.
+  const EXPECTED = [
+    "from '@tanstack/react-query'",
+    "from '@/lib/api'",
+    "from 'react'",
+    "from 'lucide-react'",
+    "from 'react-hot-toast'",
+  ];
+  for (const spec of EXPECTED) {
+    if (!src.includes(spec)) problems.push(`missing original import: ${spec}`);
+  }
+  const count = (src.match(/^import\s/gm) ?? []).length;
+  if (count !== EXPECTED.length) {
+    problems.push(`expected ${EXPECTED.length} imports, found ${count}`);
+  }
+  // It had no auth, no shared-ui and no lib/utils coupling, and must not gain one.
+  for (const forbidden of ['auth.store', '@apex/core-identity', '@apex/shared-ui', '@/lib/utils']) {
+    if (src.includes(forbidden)) problems.push(`must not contain: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('the approval and rejection contract is unchanged', () => {
+  // This screen approves and rejects user change requests. A relocation must
+  // not alter who can act, what is sent, or what is invalidated afterwards.
+  const raw = readRepo(APPROVALS);
+  if (raw === null) return [`${APPROVALS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  const REQUIRED = [
+    // endpoints and payloads
+    'changeRequestsApi.listPendingApprovals()',
+    'changeRequestsApi.approve(id)',
+    'changeRequestsApi.reject(data.id, data.reason)',
+    // query keys
+    "queryKey: ['pending-approvals']",
+    "queryKey: ['departments']",
+    "queryKey: ['users-list']",
+    "queryKey: ['roles']",
+    // cache invalidation after each action
+    "invalidateQueries({ queryKey: ['pending-approvals'] })",
+    // the ONLY client-side eligibility gate: a status guard, not a role check
+    "!['APPROVED', 'REJECTED', 'CANCELLED'].includes(req.status)",
+    // disabled states
+    'disabled={approveMutation.isPending && approveMutation.variables === req.id}',
+    'disabled={approveMutation.isPending}',
+    'disabled={rejectMutation.isPending}',
+    // toast copy
+    "toast.success('Request approved')",
+    "toast.success('Request rejected')",
+    "toast.error('This request has already been processed.')",
+    "toast.error(err.message || 'Failed to approve')",
+    "toast.error(err.message || 'Failed to reject')",
+  ];
+  for (const r of REQUIRED) {
+    if (!src.includes(r)) problems.push(`approval contract changed - missing: ${r}`);
+  }
+  return problems;
+});
+
+assertContract('the approvals screen introduces no client-side role check', () => {
+  // Queue scoping is backend-driven: listPendingApprovals returns only what the
+  // caller may act on. If a role check ever appears here it is either a real
+  // authorization change or a duplicate of a backend rule - both need review,
+  // not a silent commit.
+  const raw = readRepo(APPROVALS);
+  if (raw === null) return [`${APPROVALS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const marker of ['SUPER_ADMIN', "role?.name", 'isHR', 'canApprove', 'currentUser']) {
+    if (src.includes(marker)) problems.push(`unexpected authorization expression: ${marker}`);
+  }
+  return problems;
+});
+
+assertContract('the /admin/approvals route is a thin adapter', () => {
+  const ROUTE = 'frontend/app/(dashboard)/admin/approvals/page.tsx';
+  const raw = readRepo(ROUTE);
+  if (raw === null) return [`${ROUTE} is missing - the route must survive as an adapter`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes("from '@apex/core-users-change-requests'")) {
+    problems.push('the route does not consume the Change Requests public entry');
+  }
+  // It must not reach past the entry, and must not have kept any screen logic.
+  if (src.includes('@apex/core-users-change-requests/frontend')) {
+    problems.push('the route reaches into Change Requests internals');
+  }
+  for (const forbidden of ['@/lib/api', 'useQuery', 'useMutation', 'changeRequestsApi', 'useState']) {
+    if (src.includes(forbidden)) problems.push(`the adapter must not contain: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('the Change Requests barrel publishes exactly one screen', () => {
+  const raw = readRepo('platforms/core/users/change-requests/frontend/index.ts');
+  if (raw === null) return ['platforms/core/users/change-requests/frontend/index.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes('ApprovalsScreen')) problems.push('the frontend barrel does not export ApprovalsScreen');
+  const exportCount = (src.match(/^export /gm) ?? []).length;
+  if (exportCount !== 1) problems.push(`expected 1 export, found ${exportCount}`);
+  return problems;
+});
+
+assertContract('all three core/users components stay separately bounded', () => {
+  // administration, profiles and change-requests are three components in one
+  // module. Each must publish its own entry and none may import another's
+  // internals - the property that keeps the module from collapsing into one
+  // folder as more of it migrates.
+  const problems = [];
+  const COMPONENTS = {
+    administration: 'platforms/core/users/administration',
+    profiles: 'platforms/core/users/profiles',
+    'change-requests': 'platforms/core/users/change-requests',
+  };
+  for (const [name, root] of Object.entries(COMPONENTS)) {
+    if (readRepo(`${root}/index.ts`) === null) {
+      problems.push(`${name} has no public entry point`);
+    }
+  }
+  const OTHERS = {
+    'platforms/core/users/administration/': ['core-users-profiles', 'core-users-change-requests'],
+    'platforms/core/users/profiles/': ['@apex/core-users/frontend', 'core-users-change-requests'],
+    'platforms/core/users/change-requests/': ['@apex/core-users/frontend', 'core-users-profiles'],
+  };
+  for (const f of repoSources()) {
+    for (const [prefix, forbidden] of Object.entries(OTHERS)) {
+      if (!f.startsWith(prefix)) continue;
+      const src = codeOf(readRepo(f) ?? '');
+      for (const spec of forbidden) {
+        if (src.includes(spec)) problems.push(`${f} reaches into a sibling component via ${spec}`);
+      }
+    }
+  }
+  return problems;
+});
+
+const ANALYTICS = 'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx';
+
+assertContract('the analytics screen reads auth through the Core Identity boundary', () => {
+  const raw = readRepo(ANALYTICS);
+  if (raw === null) return [`${ANALYTICS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes("from '@apex/core-identity'")) {
+    problems.push('does not consume @apex/core-identity');
+  }
+  if (src.includes('@/store/auth.store')) problems.push('still imports the legacy auth store');
+  // Import-path change only: the destructure must be untouched, and hasHydrated
+  // in particular - reading it before hydration is what logged users out once.
+  if (!src.includes('const { user, hasHydrated } = useAuthStore();')) {
+    problems.push('the useAuthStore destructure changed - it must remain { user, hasHydrated }');
+  }
+  return problems;
+});
+
+assertContract('the analytics charts moved with their only consumer', () => {
+  const problems = [];
+  const CHARTS = [
+    'platforms/intelligence/analytics/overview/frontend/components/category-chart.tsx',
+    'platforms/intelligence/analytics/overview/frontend/components/ticket-trend-chart.tsx',
+  ];
+  for (const chart of CHARTS) {
+    const raw = readRepo(chart);
+    if (raw === null) {
+      problems.push(`${chart} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    // They were pure presentational charts and must stay that way: no API, no
+    // store, no legacy path. That is why this component's debt is 1, not 3.
+    for (const forbidden of ['@/lib/', '@/store/', '@/components/', '@apex/core-identity']) {
+      if (src.includes(forbidden)) problems.push(`${chart} must not import ${forbidden}`);
+    }
+  }
+  // Nothing outside this component may still reference the old chart location.
+  for (const f of repoSources()) {
+    if (f === 'scripts/architecture/validate-boundaries.test.mjs') continue;
+    const src = codeOf(readRepo(f) ?? '');
+    for (const stale of ['@/components/dashboard/category-chart', '@/components/dashboard/ticket-trend-chart']) {
+      if (src.includes(stale)) problems.push(`${f} imports ${stale} from its old legacy path`);
+    }
+  }
+  return problems;
+});
+
+assertContract('the analytics screen stays read-only', () => {
+  // Its role checks gate which tabs and panels render. Because the screen
+  // declares no mutation, none of them can authorize an action - a property
+  // worth keeping true, since a future mutation here would need its own review.
+  const raw = readRepo(ANALYTICS);
+  if (raw === null) return [`${ANALYTICS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const forbidden of ['useMutation', 'mutationFn', 'invalidateQueries']) {
+    if (src.includes(forbidden)) problems.push(`analytics is read-only; found ${forbidden}`);
+  }
+  // The three access expressions must survive the move verbatim.
+  const GATES = [
+    "const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);",
+    "const isAdminPlus   = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);",
+    "const canAccess     = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);",
+  ];
+  for (const g of GATES) {
+    if (!src.includes(g)) problems.push(`view gate changed - missing: ${g}`);
+  }
+  return problems;
+});
+
+assertContract('the Analytics barrel publishes exactly one screen', () => {
+  const raw = readRepo('platforms/intelligence/analytics/overview/frontend/index.ts');
+  if (raw === null) return ['platforms/intelligence/analytics/overview/frontend/index.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes('AnalyticsScreen')) problems.push('the frontend barrel does not export AnalyticsScreen');
+  for (const internal of ['CategoryChart', 'TicketTrendChart', 'category-chart', 'ticket-trend-chart']) {
+    if (src.includes(internal)) problems.push(`the barrel must not publish ${internal}`);
+  }
+  const exportCount = (src.match(/^export /gm) ?? []).length;
+  if (exportCount !== 1) problems.push(`expected 1 export, found ${exportCount}`);
+  return problems;
+});
+
+assertContract('the /analytics route is a thin adapter', () => {
+  const ROUTE = 'frontend/app/(dashboard)/analytics/page.tsx';
+  const raw = readRepo(ROUTE);
+  if (raw === null) return [`${ROUTE} is missing - the route must survive as an adapter`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes("from '@apex/intelligence-analytics'")) {
+    problems.push('the route does not consume the Analytics public entry');
+  }
+  if (src.includes('@apex/intelligence-analytics/frontend')) {
+    problems.push('the route reaches into Analytics internals');
+  }
+  for (const forbidden of ['@/lib/api', 'useQuery', 'useAuthStore', 'recharts', 'useState']) {
+    if (src.includes(forbidden)) problems.push(`the adapter must not contain: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('stat-card was left where the evidence puts it', () => {
+  // The Dashboard phase found stat-card has no consumer anywhere. It was NOT
+  // absorbed into analytics just to empty frontend/components/dashboard/ -
+  // ownership follows consumers, and an unconsumed file has none to follow.
+  const problems = [];
+  if (readRepo('frontend/components/dashboard/stat-card.tsx') === null) {
+    problems.push('stat-card.tsx moved or was deleted; this phase must leave it in place');
+  }
+  const importers = repoSources().filter((f) => {
+    if (f === 'scripts/architecture/validate-boundaries.test.mjs') return false;
+    return codeOf(readRepo(f) ?? '').includes('components/dashboard/stat-card');
+  });
+  if (importers.length !== 0) {
+    problems.push(`stat-card gained ${importers.length} importer(s): ${importers.join(', ')}`);
+  }
+  return problems;
+});
+
+const DEPT_LIST = 'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx';
+const DEPT_DETAIL = 'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx';
+
+assertContract('both department screens read auth through the Core Identity boundary', () => {
+  const problems = [];
+  for (const screen of [DEPT_LIST, DEPT_DETAIL]) {
+    const raw = readRepo(screen);
+    if (raw === null) {
+      problems.push(`${screen} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    if (!src.includes("from '@apex/core-identity'")) {
+      problems.push(`${screen} does not consume @apex/core-identity`);
+    }
+    if (src.includes('@/store/auth.store')) problems.push(`${screen} still imports the legacy auth store`);
+    // Import-path change only. hasHydrated gates every query on both screens;
+    // losing it would fire admin-only requests before the store rehydrates.
+    if (!src.includes('const { user, hasHydrated } = useAuthStore();')) {
+      problems.push(`${screen}: the useAuthStore destructure changed - it must remain { user, hasHydrated }`);
+    }
+  }
+  return problems;
+});
+
+assertContract('the department authorization gate is unchanged', () => {
+  // Both screens gate on the same expression and hide behind the same denial
+  // screen. A relocation must not widen, narrow or reorder any of it.
+  const problems = [];
+  for (const screen of [DEPT_LIST, DEPT_DETAIL]) {
+    const raw = readRepo(screen);
+    if (raw === null) {
+      problems.push(`${screen} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    const REQUIRED = [
+      "const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];",
+      "const isAdmin = ADMIN_ROLES.includes(user?.role?.name ?? '');",
+      'if (!hasHydrated) {',
+      'if (!isAdmin) {',
+      'enabled: hasHydrated && isAdmin',
+    ];
+    for (const r of REQUIRED) {
+      if (!src.includes(r)) problems.push(`${screen}: authorization gate changed - missing: ${r}`);
+    }
+  }
+  // The detail screen's manager candidate filter must keep matching the
+  // backend's MANAGER_ASSIGNABLE_ROLES, as its own comment requires.
+  const detail = codeOf(readRepo(DEPT_DETAIL) ?? '');
+  if (!detail.includes("['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(u.role?.name)")) {
+    problems.push('the manager candidate filter changed - it must match backend MANAGER_ASSIGNABLE_ROLES');
+  }
+  return problems;
+});
+
+assertContract('every department mutation survived the move', () => {
+  // Eight mutations across the two screens. Endpoints, payloads and the query
+  // keys they invalidate are all pinned: a relocation must not touch any.
+  const problems = [];
+  const list = codeOf(readRepo(DEPT_LIST) ?? '');
+  const detail = codeOf(readRepo(DEPT_DETAIL) ?? '');
+
+  const LIST_REQUIRED = [
+    'departmentsApi.create(data)',
+    'departmentsApi.remove(id)',
+    "queryKey: ['departments']",
+    "toast.success('Department created!')",
+    "toast.success('Department deleted')",
+    "toast.error(err?.message || 'Failed to create department')",
+  ];
+  for (const r of LIST_REQUIRED) {
+    if (!list.includes(r)) problems.push(`DepartmentsScreen: missing ${r}`);
+  }
+
+  const DETAIL_REQUIRED = [
+    'departmentsApi.patch(id, data)',
+    'usersApi.update(userId, { departmentId: id })',
+    'usersApi.update(userId, { departmentId: null })',
+    'usersApi.update(userId, { roleId: tlRole.id })',
+    'departmentsApi.addManager(id, userId)',
+    'departmentsApi.removeManager(id, userId)',
+    'departmentsApi.getManagers(id)',
+    "queryKey: ['department', id]",
+    "queryKey: ['department-managers', id]",
+    "toast.success('Department Head updated')",
+    "toast.success('Department Head removed')",
+    "toast.success('Member added')",
+    "toast.success('Member removed')",
+    "toast.success('Team lead set')",
+    "toast.success('Department updated')",
+  ];
+  for (const r of DETAIL_REQUIRED) {
+    if (!detail.includes(r)) problems.push(`DepartmentDetailScreen: missing ${r}`);
+  }
+
+  // Mutation count must not drift: 2 on the list screen, 6 on the detail screen.
+  const listCount = (list.match(/useMutation\(/g) ?? []).length;
+  const detailCount = (detail.match(/useMutation\(/g) ?? []).length;
+  if (listCount !== 2) problems.push(`DepartmentsScreen: expected 2 mutations, found ${listCount}`);
+  if (detailCount !== 6) problems.push(`DepartmentDetailScreen: expected 6 mutations, found ${detailCount}`);
+  return problems;
+});
+
+assertContract('the Departments barrel publishes exactly the two screens', () => {
+  const raw = readRepo('platforms/core/organization/departments/frontend/index.ts');
+  if (raw === null) return ['platforms/core/organization/departments/frontend/index.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const screen of ['DepartmentsScreen', 'DepartmentDetailScreen']) {
+    if (!src.includes(screen)) problems.push(`the frontend barrel does not export ${screen}`);
+  }
+  const exportCount = (src.match(/^export /gm) ?? []).length;
+  if (exportCount !== 2) problems.push(`expected 2 exports, found ${exportCount}`);
+  return problems;
+});
+
+assertContract('both department routes are thin adapters on their own subpath', () => {
+  const problems = [];
+  const ROUTES = {
+    'frontend/app/(dashboard)/(platform)/departments/page.tsx':
+      '@apex/core-organization-departments/screens/DepartmentsScreen',
+    'frontend/app/(dashboard)/(platform)/departments/[id]/page.tsx':
+      '@apex/core-organization-departments/screens/DepartmentDetailScreen',
+  };
+  for (const [route, subpath] of Object.entries(ROUTES)) {
+    const src = codeOf(readRepo(route) ?? '');
+    if (src === '') {
+      problems.push(`${route} is missing - the route must survive as an adapter`);
+      continue;
+    }
+    if (!src.includes(subpath)) problems.push(`${route} must import ${subpath}`);
+    for (const forbidden of ['@/lib/api', 'auth.store', 'useQuery', 'useMutation', 'useState', 'ADMIN_ROLES']) {
+      if (src.includes(forbidden)) problems.push(`the adapter ${route} must not contain: ${forbidden}`);
+    }
+  }
   return problems;
 });

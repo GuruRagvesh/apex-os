@@ -43,7 +43,7 @@ with the reason it is deferred to a later phase.
 Exact tracked counts from `git ls-files`, not estimates. Runtime extensions
 only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
-**Last measured: 2026-08-06.**
+**Last measured: 2026-08-07** (batch branch, Commit 5).
 
 Two figures, because they answer different questions. Every component we create
 adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
@@ -53,45 +53,56 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | Candidate (core/identity branch) |
-| --- | --- | --- |
-| Legacy relocated | 61 | **61** |
-| **Relocation** | **14.4%** | **14.4%** |
-
-**Unchanged on purpose.** The Core Identity phase moved **no legacy runtime
-file** — `frontend/store/auth.store.ts` stayed exactly where it was. It created
-a public boundary, not a relocation.
+| | Merged (`origin/main`) | C1 | C2 | C3 | C4 | C5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Legacy relocated | 61 | 64 | 67 | 68 | 71 | **73** |
+| **Relocation** | **14.4%** | **15.1%** | **15.8%** | **16.1%** | **16.8%** | **17.3%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | Candidate (core/identity branch) |
-| --- | --- | --- |
-| Runtime files in new architecture | 88 | **91** |
-| of which barrels | 22 | 24 |
-| of which adapters / extracted modules | 5 | 6 |
-| Legacy remaining | 366 | 366 |
-| Total tracked runtime | 454 | 457 |
-| **Footprint** | **19.4%** | **19.9%** |
+| | Merged (`origin/main`) | C1 | C2 | C3 | C4 | C5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Runtime files in new architecture | 91 | 96 | 101 | 104 | 109 | **113** |
+| of which barrels | 24 | 26 | 28 | 30 | 32 | 34 |
+| of which adapters / extracted modules | 6 | 6 | 6 | 6 | 6 | 6 |
+| Legacy remaining | 366 | 365 | 364 | 364 | 362 | 362 |
+| Total tracked runtime | 457 | 461 | 465 | 468 | 471 | 475 |
+| **Footprint** | **19.9%** | **20.8%** | **21.7%** | **22.2%** | **23.1%** | **23.8%** |
 
-Three new runtime files: the adapter plus two barrels. Legacy remaining is
-**unchanged** — nothing left `frontend/`. README files are excluded from both
-figures.
+Commits 1, 2 and 4 each relocate **3 legacy files**; Commit 5 relocates **2**
+and Commit 3 **1**. Every commit adds **2 barrels**. Legacy remaining barely
+moves because most relocations leave a thin route adapter behind at the same
+path — Commits 3 and 5 left it exactly flat, since all of their moves were route
+screens. Commit 4 moved it by 2 because two of its three files were components,
+not routes. The non-route relocations so far are `ApexLandingPage.tsx`,
+`activity-item.tsx`, `category-chart.tsx` and `ticket-trend-chart.tsx`. README
+files are excluded from both figures.
+
+**Counting method.** Architecture = `platforms/` + `shared/` + `apps/` +
+`database/`. Legacy = `frontend/` + `backend/`, excluding `backend/prisma/`
+(schema and migrations are database artifacts, not relocatable runtime files).
+`e2e/`, `scripts/`, `docs/` and root config are excluded from both.
+
+**Batch note:** `compartmentalize/architecture-batch-2026-08-07` holds several
+independently validated commits and pushes once at end of day. Per-commit
+deltas are measured against the previous commit; this table reconciles against
+`origin/main`.
 
 ### Platform and shared coverage
 
-Candidate branch included. Five of six platforms hold a compartment.
+Batch branch included. **All six platforms now hold a compartment.**
 
 | Module | Files | Status |
 | --- | --- | --- |
 | `platforms/business` | 40 | Sales CRM Leads + shared |
 | `shared/ui` | 16 | Design-system primitives |
-| `platforms/intelligence` | 11 | Dashboard overview |
-| `platforms/core` | 7 | Users administration + Identity auth boundary |
+| `platforms/intelligence` | 16 | Dashboard overview + **Analytics overview (batch Commit 4)** |
+| `platforms/core` | 19 | **`core/users` complete on the frontend** — administration + profiles + change-requests — plus **Organization departments (batch Commit 5)** and the Identity auth boundary |
 | `platforms/workforce` | 6 | Leave applications |
+| `platforms/system` | 5 | Public site (batch Commit 1) |
 | `platforms/operations` | 4 | Projects frontend |
 | `shared/utilities` | 4 | `cn`, `formatDate`, `getInitials` |
 | `shared/auth` | 3 | Authenticated HTTP client |
-| `platforms/system` | 0 | not started |
 | `database` / `apps` | 0 | not started |
 
 ### Largest remaining blocks
@@ -349,6 +360,101 @@ throughout this map.
 > endpoint, payload, query key, pagination, filter, sort, validation, copy,
 > style or defect changed.** Frontend build 38/38.
 
+> **Status update (2026-08-07) — Users PROFILES frontend COMPARTMENTALISED**
+> (batch branch `compartmentalize/architecture-batch-2026-08-07`, Commit 2),
+> giving `core/users` its second component.
+>
+> 3 legacy files → `platforms/core/users/profiles/frontend/`:
+> `(dashboard)/profile/page.tsx` (558 ln) → `screens/ProfileScreen.tsx`,
+> `users/[id]/profile/page.tsx` (833 ln) → `screens/UserProfileScreen.tsx`, and
+> `components/dashboard/activity-item.tsx` (29 ln) → `components/activity-item.tsx`.
+> `UserProfileScreen.tsx` and `activity-item.tsx` preserve their original
+> sources exactly apart from the import and identifier edits below;
+> `ProfileScreen.tsx` matched its original before trailing-whitespace
+> normalisation, with eleven pre-existing whitespace sequences (50 characters)
+> removed — logic, strings, class names, component behaviour and rendered
+> output unchanged.
+>
+> **`activity-item` was resolved as Profiles-owned**, settling the open question
+> left by the Dashboard phase note above. Its only importer repo-wide is
+> `ProfileScreen`, so leaving it in `frontend/components/dashboard/` would have
+> created a debt entry no future phase could ever retire. `ticket-row` was NOT
+> moved — it has four importers and belongs to `operations/tickets`.
+>
+> Public entry `@apex/core-users-profiles` plus two exact screen subpaths. Not
+> `core-user-profiles`: every alias is built from real directory names, and
+> `@apex/core-users` was already administration's. Both routes are unchanged and
+> use the subpaths, not the barrel — `/profile` measured 9.81 kB / 160 kB
+> against a 9.8 kB / 160 kB baseline and `/users/[id]/profile` 10.3 kB / 148 kB
+> against an identical baseline. `ActivityItem` stays internal.
+>
+> **First component to consume `@apex/core-identity`.** Both screens migrated
+> `useAuthStore` from `@/store/auth.store` to the public boundary — an
+> import-path change only, with the hook call and destructuring untouched. The
+> adapter had zero importers until now. Legacy auth-store consumers 29 → 27:
+> these two left `frontend/` entirely rather than being rewritten in place, and
+> a self-test enforces that distinction.
+>
+> New tracked debt `DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND` — **4 imports**
+> (`lib/api` ×2, `components/tickets/ticket-row`, `lib/utils` for
+> `formatRelativeTime`). `store/auth.store` is deliberately absent from the
+> allowlist so the boundary cannot be re-crossed. Repository debt 19 → 23.
+> Self-tests 159 → 180.
+>
+> `frontend/modules/core/users/users.api.ts` is assigned to `profiles/frontend/api/`
+> by the row above but remains a re-export shim with zero importers; retained,
+> not deleted — same call as administration.
+>
+> **No form, validation, upload, document, password, role, visibility, endpoint,
+> payload, query key, error handling, toast, copy or style changed.** Frontend
+> build 38/38, 42 routes.
+
+> **Status update (2026-08-07) — Users CHANGE-REQUESTS frontend COMPARTMENTALISED**
+> (batch branch, Commit 3). **`core/users` is now complete on the frontend:**
+> administration, profiles and change-requests all hold their own component and
+> public entry, and a self-test proves none can reach into another's internals.
+>
+> 1 legacy file → `platforms/core/users/change-requests/frontend/screens/`:
+> `(dashboard)/admin/approvals/page.tsx` (195 ln) → `ApprovalsScreen.tsx`. It
+> matched the original before trailing-whitespace normalisation, with eleven
+> pre-existing whitespace sequences (18 characters) removed; the only other
+> change is the identifier rename `ApprovalsPage` → `ApprovalsScreen`. **Not one
+> import path was rewritten** — the import list is byte-for-byte the original.
+>
+> Public entry `@apex/core-users-change-requests`. **No exact subpath**: one
+> screen behind the barrel consumed by one route cannot force a consumer to load
+> code it does not use, matching the Workforce Leave rule. `/admin/approvals`
+> measured 4.94 kB / 133 kB against a 4.96 kB / 133 kB baseline — the 20-byte
+> drop is the stripped whitespace, and **every other route in the build was
+> byte-identical**.
+>
+> **No Core Identity migration was needed.** This is the only migrated screen
+> with no frontend auth-state dependency at all: it never imported
+> `@/store/auth.store`. A self-test still rejects one, so it cannot acquire the
+> coupling silently.
+>
+> **The approvals surface has no client-side role check**, by design — queue
+> scoping is backend-driven through `listPendingApprovals()`. A self-test asserts
+> no authorization expression appears in the screen, so a future edit that adds
+> one is caught rather than merged quietly. Endpoints, payloads, query keys,
+> cache invalidation, the status eligibility guard, disabled states and all five
+> toast strings are locked by a contract test.
+>
+> `changeRequestsApi` stayed in `frontend/lib/api.ts`: it has **4 consumers** —
+> this screen, `core/users/profiles`, `intelligence/dashboard` and the legacy
+> `hrms` page — so moving it here would make three unrelated features import a
+> change-requests component.
+>
+> New tracked debt `DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND` —
+> **1 import**, the narrowest entry of any component that carries debt. It names
+> only `lib/api.ts`; `lib/utils.ts` is deliberately excluded even though both
+> siblings allow it. Repository debt 23 → 24. Self-tests 180 → 200.
+>
+> **No approval rule, rejection rule, status eligibility, button visibility,
+> disabled state, payload, endpoint, mutation callback, cache invalidation,
+> error handling, toast, label, icon or style changed.** Frontend build 38/38,
+> 42 routes.
+
 ### core/organization ✅
 
 | Current | Target |
@@ -358,6 +464,62 @@ throughout this map.
 | `backend/test/unit/departments.manager-access.spec.ts` | `platforms/core/organization/departments/tests/backend/` |
 | `backend/src/modules/core/roles/*` (3) | `platforms/core/organization/roles/backend/` |
 | `backend/src/common/services/hierarchy-approval.service.ts` | `platforms/core/organization/hierarchy/backend/services/` |
+
+> **Status update (2026-08-07) — DEPARTMENTS frontend COMPARTMENTALISED**
+> (batch branch, Commit 5), giving `core/organization` its first compartment.
+>
+> 2 legacy files → `platforms/core/organization/departments/frontend/screens/`:
+> `departments/page.tsx` (273 ln) → `DepartmentsScreen.tsx` and
+> `departments/[id]/page.tsx` (711 ln) → `DepartmentDetailScreen.tsx`. Each
+> differs from its route file by exactly **two edits** — the `useAuthStore`
+> import path and the component identifier. Neither had trailing whitespace, so
+> nothing else changed.
+>
+> **The most write-heavy component relocated so far — eight mutations** across
+> the two screens: create, delete, rename, add/remove member, set team lead, and
+> add/remove Department Head. A contract test pins every call, every invalidated
+> query key and every success toast, and fails if the mutation count drifts from
+> 2 on the list screen and 6 on the detail screen.
+>
+> **Authorization is pinned, not touched.** Both screens gate on
+> `ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN']`, render the same admin-only denial
+> card, and carry `enabled: hasHydrated && isAdmin` on every query — all five
+> expressions are required verbatim by a self-test. The detail screen's manager
+> candidate filter is pinned separately because its own comment requires it to
+> match the backend's `MANAGER_ASSIGNABLE_ROLES`.
+>
+> ⚠️ **Observed, not fixed:** the frontend restricts these screens to
+> ADMIN/SUPER_ADMIN while the backend carries `departments.manager-access.spec.ts`
+> — manager access exists server-side. The frontend is therefore *more*
+> restrictive than the backend, which is fail-safe rather than fail-open, so this
+> is a product/UX question rather than a security defect. It predates this phase
+> and was deliberately left alone.
+>
+> Public entry `@apex/core-organization-departments` plus two exact screen
+> subpaths; the routes use the subpaths, not the barrel. `/departments` measured
+> 6.54 kB / 144 kB against a 6.55 kB baseline and `/departments/[id]` was
+> **identical** at 9.2 kB / 147 kB.
+>
+> `useAuthStore` migrated to `@apex/core-identity`, taking legacy auth-store
+> consumers 26 → 24. `hasHydrated` is load-bearing here — every query is gated on
+> it — so a self-test requires the destructure verbatim on both screens.
+>
+> New tracked debt `DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND` —
+> **2 imports**, one per screen, both naming `lib/api.ts`. There is **no
+> `lib/utils.ts` coupling at all**: `STATUS_COLORS` and `PRIORITY_COLORS` are
+> declared locally in the detail screen, so unlike the `core/users` siblings this
+> component never needed it, and a self-test proves it is rejected. Repository
+> debt 25 → 27. Self-tests 221 → 243.
+>
+> `departmentsApi` stayed in `lib/api.ts` — **14 consumers** across tickets,
+> kanban, teams, settings, projects and three `core/users` components. `teamsApi`
+> belongs to `workforce/teams`. The roles registry and hierarchy approval service
+> remain assigned to their own sibling components, both unmigrated.
+>
+> **No view, create, edit, delete, manager assignment, role check, status
+> handling, query key, payload, invalidation, modal state, disabled state,
+> endpoint, toast, validation or navigation changed.** Frontend build 38/38,
+> 42 routes.
 
 ### core/settings ✅
 
@@ -730,6 +892,57 @@ created.** They are built when the features are built.
 > Per D10, `performance/` is **not** scaffolded — it has no dedicated code and
 > is currently part of analytics.
 
+> **Status update (2026-08-07) — Analytics frontend COMPARTMENTALISED**
+> (batch branch, Commit 4), giving `intelligence` its second compartment.
+>
+> 3 legacy files → `platforms/intelligence/analytics/overview/frontend/`:
+> `analytics/page.tsx` (988 ln) → `screens/AnalyticsScreen.tsx`, plus
+> `components/dashboard/{category-chart,ticket-trend-chart}.tsx` →
+> `components/`. Both charts are `R100`; the screen differs from its route file
+> by exactly four edits (three import paths and the identifier rename) and had
+> no trailing whitespace to normalise.
+>
+> **This settles the `components/dashboard/*` question the Dashboard phase
+> opened.** That phase predicted the two charts follow analytics; the evidence
+> confirmed it — each has exactly one importer repo-wide, this screen.
+> **`stat-card.tsx` was deliberately NOT absorbed**: it has zero consumers, and
+> ownership follows consumers. It stays put, and a self-test asserts this phase
+> left it alone. `frontend/components/dashboard/` is now down to that one file.
+>
+> **Target path is `analytics/overview`, not `analytics/`.** The row above is
+> depth-2, and `componentDepth` is 3 — `componentRootOf` returns `null` for a
+> path that shallow, so the component-privacy rules would not bind. Same gap the
+> Dashboard phase resolved with `dashboard/overview`; the alias mirrors it,
+> `@apex/intelligence-analytics`.
+>
+> Public entry publishes one screen and **no subpath** — one screen, one route,
+> so the barrel cannot force unused code on a consumer. Both charts stay
+> internal so `recharts` is not pulled into every consumer of the entry.
+> `/analytics` measured **117 kB / 263 kB, exactly its baseline** — and every
+> other route in the build was byte-identical too.
+>
+> `useAuthStore` migrated to `@apex/core-identity`, taking legacy auth-store
+> consumers 27 → 26. A self-test asserts the destructure is still
+> `{ user, hasHydrated }` — `hasHydrated` is the field whose mishandling once
+> logged users out on refresh.
+>
+> **The screen is read-only by construction** — no `useMutation`, no
+> `mutationFn`, no `invalidateQueries` — so its three role expressions
+> (`isManagerPlus`, `isAdminPlus`, `canAccess`) gate views only and cannot
+> authorize an action. All three are locked verbatim, and the test fails if a
+> mutation ever appears here.
+>
+> New tracked debt `DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND` —
+> **1 import**: a single multi-line statement for `analyticsApi`, `dashboardApi`
+> and `ticketsApi`. None can follow this component — `analyticsApi` is shared
+> with `core/users/profiles`, and the other two belong to sibling components.
+> **3 files relocated for 1 debt import, the best ratio so far.** Repository
+> debt 24 → 25. Self-tests 200 → 221.
+>
+> **No tab, role gate, period filter, query key, API call, chart rendering,
+> empty state, export behaviour, copy or style changed.** Frontend build 38/38,
+> 42 routes.
+
 ### intelligence/ai ✅
 
 | Current | Target |
@@ -943,6 +1156,33 @@ created.** They are built when the features are built.
 > **D4 — `public-site`** collects the unauthenticated marketing and legal
 > surfaces. They are real screens with no platform affiliation; putting them in
 > `apps/web` would leak page implementation into the composition shell.
+>
+> **Status update (2026-08-07) — public-site COMPARTMENTALISED**
+> (batch branch `compartmentalize/architecture-batch-2026-08-07`, Commit 1),
+> giving `system` its first compartment and completing coverage of **all six
+> platforms**.
+>
+> 3 legacy files → `platforms/system/public-site/frontend/screens/`:
+> `components/landing/ApexLandingPage.tsx` (474 ln, **byte-identical**),
+> plus the `/privacy` and `/terms` bodies as `PrivacyScreen.tsx` and
+> `TermsScreen.tsx`. `frontend/components/landing/` is now empty.
+>
+> **`metadata` stayed in the route files.** Next.js only honours
+> `export const metadata` in a route file, so `/privacy` and `/terms` keep
+> theirs with byte-identical values; only the JSX bodies moved.
+>
+> Published as `@apex/system-public-site` plus **three exact screen subpaths**.
+> All four routes — `/`, `/home-v2`, `/privacy`, `/terms` — use the subpaths and
+> measured **193 B / 94.5 kB**, identical to baseline. A barrel would have
+> pulled the 474-line landing page into two 193 B pages.
+>
+> **This component adds ZERO debt** — the first to do so. Its three screens
+> import only `next/link` and lucide icons, so there is no exemption entry at
+> all, and a self-test asserts any legacy import from it is rejected.
+> Repository debt unchanged at 19. Self-tests 149 → 159.
+>
+> **No rendered copy, layout, styling, animation, link, navigation, responsive
+> behaviour, route URL, route visibility or metadata value changed.**
 >
 > ⚠️ `notifications` currently sits under `operations/` and moves to `system/`.
 > Also carries open **BUG-H**: `events.gateway.ts` broadcasts ticket events to

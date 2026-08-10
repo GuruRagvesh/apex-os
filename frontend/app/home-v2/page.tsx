@@ -1,4 +1,4 @@
-import { ApexLandingPage } from '@/components/landing/ApexLandingPage';
+import { ApexLandingPage } from '@apex/system-public-site/screens/ApexLandingPage';
 
 // Kept as a review/alias route now that this content is promoted to /.
 // Renders the exact same shared component, with the preview banner enabled.
