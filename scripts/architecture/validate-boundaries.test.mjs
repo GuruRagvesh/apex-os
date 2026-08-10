@@ -2820,6 +2820,247 @@ export default TicketRow;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Core Users Change Requests: the approvals queue ────────────────────────
+// The third component in the core/users module. It performs approve and reject
+// actions, so the tests below guard the boundary AND the authorization surface:
+// the screen has no client-side role check at all, and that must stay true —
+// queue scoping is backend-driven through listPendingApprovals.
+
+// 154. The /admin/approvals route may consume the public entry.
+testCase(
+  'accepts the /admin/approvals route consuming the Change Requests public entry',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const ApprovalsScreen = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/admin/approvals/page.tsx',
+      `import { ApprovalsScreen } from '@apex/core-users-change-requests';
+export default ApprovalsScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 155. External code cannot reach Change Requests internals.
+testCase(
+  'rejects external code importing Core Users Change Requests internals',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { ApprovalsScreen } from '@apex/core-users-change-requests/frontend/screens/ApprovalsScreen';
+export default ApprovalsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 156. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Core Users Change Requests internals',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `export const load = () => import('@apex/core-users-change-requests/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 157. ...and by require().
+testCase(
+  'detects require() of Core Users Change Requests internals',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/system/public-site/frontend/screens/ApexLandingPage.tsx',
+      `const S = require('@apex/core-users-change-requests/frontend/screens/ApprovalsScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 158. Change Requests frontend must not import backend code.
+testCase(
+  'rejects Core Users Change Requests frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { ChangeRequestsService } from '../../backend/services/change-requests.service';
+export default ChangeRequestsService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 159. Change Requests must not reach into another platform's internals.
+testCase(
+  'rejects Core Users Change Requests importing another platform internals',
+  (root) => {
+    write(root, 'platforms/workforce/leave/applications/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { LeaveScreen } from '@apex/workforce-leave/frontend/screens/LeaveScreen';
+export default LeaveScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 160. ...including its two sibling components in the same module.
+testCase(
+  'rejects Core Users Change Requests importing its sibling components internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(root, 'platforms/core/users/profiles/index.ts', `export const Y = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+import ProfileScreen from '@apex/core-users-profiles/frontend/screens/ProfileScreen';
+export default function S() { return [UsersScreen, ProfileScreen]; }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 161. Change Requests may consume Core Identity through its public entry.
+testCase(
+  'accepts Core Users Change Requests consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 162. A direct legacy auth-store import from Change Requests is rejected. The
+//      screen carries no frontend auth dependency today, and the DEBT-P9
+//      allowlist names only lib/api.ts, so it cannot acquire one silently.
+testCase(
+  'rejects Core Users Change Requests importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 163. Change Requests may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Core Users Change Requests consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const formatDate = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/skeleton.tsx', `export const Skeleton = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { formatDate } from '@apex/shared-utilities';
+import { Skeleton } from '@apex/shared-ui/components/skeleton';
+export default function S() { return [formatDate, Skeleton]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 164. shared/ must not import Change Requests.
+testCase(
+  'rejects a shared module importing Core Users Change Requests',
+  (root) => {
+    write(root, 'platforms/core/users/change-requests/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/utilities/approval-helper.ts',
+      `import { X } from '@apex/core-users-change-requests';
+export const h = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 165. The DEBT-P9 allowlist covers lib/api.ts...
+testCase(
+  'accepts the single allowlisted Core Users Change Requests legacy target',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { changeRequestsApi, departmentsApi, usersApi, rolesApi } from '@/lib/api';
+export default function S() { return [changeRequestsApi, departmentsApi, usersApi, rolesApi]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 166. ...and nothing else - not even lib/utils, which siblings are allowed.
+testCase(
+  'rejects lib/utils from Core Users Change Requests despite siblings allowing it',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx',
+      `import { formatDate } from '@/lib/utils';
+export default formatDate;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 167. The exemption is scoped to frontend/ - a sibling folder cannot reuse it.
+testCase(
+  'rejects a Core Users Change Requests file outside frontend/ reusing the exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/users/change-requests/shared/contracts/change-request.types.ts',
+      `import { changeRequestsApi } from '@/lib/api';
+export const t = changeRequestsApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -2875,6 +3116,7 @@ testRealRepoDebtCounts({
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
   'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 4,
+  'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────
@@ -3150,5 +3392,150 @@ assertContract('the Profiles barrel publishes exactly the two screens', () => {
   }
   const exportCount = (src.match(/^export /gm) ?? []).length;
   if (exportCount !== 2) problems.push(`expected 2 exports, found ${exportCount}`);
+  return problems;
+});
+
+const APPROVALS = 'platforms/core/users/change-requests/frontend/screens/ApprovalsScreen.tsx';
+
+assertContract('the approvals screen kept its exact original import list', () => {
+  const raw = readRepo(APPROVALS);
+  if (raw === null) return [`${APPROVALS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  // Exactly the five the route file had, unchanged by the move.
+  const EXPECTED = [
+    "from '@tanstack/react-query'",
+    "from '@/lib/api'",
+    "from 'react'",
+    "from 'lucide-react'",
+    "from 'react-hot-toast'",
+  ];
+  for (const spec of EXPECTED) {
+    if (!src.includes(spec)) problems.push(`missing original import: ${spec}`);
+  }
+  const count = (src.match(/^import\s/gm) ?? []).length;
+  if (count !== EXPECTED.length) {
+    problems.push(`expected ${EXPECTED.length} imports, found ${count}`);
+  }
+  // It had no auth, no shared-ui and no lib/utils coupling, and must not gain one.
+  for (const forbidden of ['auth.store', '@apex/core-identity', '@apex/shared-ui', '@/lib/utils']) {
+    if (src.includes(forbidden)) problems.push(`must not contain: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('the approval and rejection contract is unchanged', () => {
+  // This screen approves and rejects user change requests. A relocation must
+  // not alter who can act, what is sent, or what is invalidated afterwards.
+  const raw = readRepo(APPROVALS);
+  if (raw === null) return [`${APPROVALS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  const REQUIRED = [
+    // endpoints and payloads
+    'changeRequestsApi.listPendingApprovals()',
+    'changeRequestsApi.approve(id)',
+    'changeRequestsApi.reject(data.id, data.reason)',
+    // query keys
+    "queryKey: ['pending-approvals']",
+    "queryKey: ['departments']",
+    "queryKey: ['users-list']",
+    "queryKey: ['roles']",
+    // cache invalidation after each action
+    "invalidateQueries({ queryKey: ['pending-approvals'] })",
+    // the ONLY client-side eligibility gate: a status guard, not a role check
+    "!['APPROVED', 'REJECTED', 'CANCELLED'].includes(req.status)",
+    // disabled states
+    'disabled={approveMutation.isPending && approveMutation.variables === req.id}',
+    'disabled={approveMutation.isPending}',
+    'disabled={rejectMutation.isPending}',
+    // toast copy
+    "toast.success('Request approved')",
+    "toast.success('Request rejected')",
+    "toast.error('This request has already been processed.')",
+    "toast.error(err.message || 'Failed to approve')",
+    "toast.error(err.message || 'Failed to reject')",
+  ];
+  for (const r of REQUIRED) {
+    if (!src.includes(r)) problems.push(`approval contract changed - missing: ${r}`);
+  }
+  return problems;
+});
+
+assertContract('the approvals screen introduces no client-side role check', () => {
+  // Queue scoping is backend-driven: listPendingApprovals returns only what the
+  // caller may act on. If a role check ever appears here it is either a real
+  // authorization change or a duplicate of a backend rule - both need review,
+  // not a silent commit.
+  const raw = readRepo(APPROVALS);
+  if (raw === null) return [`${APPROVALS} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const marker of ['SUPER_ADMIN', "role?.name", 'isHR', 'canApprove', 'currentUser']) {
+    if (src.includes(marker)) problems.push(`unexpected authorization expression: ${marker}`);
+  }
+  return problems;
+});
+
+assertContract('the /admin/approvals route is a thin adapter', () => {
+  const ROUTE = 'frontend/app/(dashboard)/admin/approvals/page.tsx';
+  const raw = readRepo(ROUTE);
+  if (raw === null) return [`${ROUTE} is missing - the route must survive as an adapter`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes("from '@apex/core-users-change-requests'")) {
+    problems.push('the route does not consume the Change Requests public entry');
+  }
+  // It must not reach past the entry, and must not have kept any screen logic.
+  if (src.includes('@apex/core-users-change-requests/frontend')) {
+    problems.push('the route reaches into Change Requests internals');
+  }
+  for (const forbidden of ['@/lib/api', 'useQuery', 'useMutation', 'changeRequestsApi', 'useState']) {
+    if (src.includes(forbidden)) problems.push(`the adapter must not contain: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('the Change Requests barrel publishes exactly one screen', () => {
+  const raw = readRepo('platforms/core/users/change-requests/frontend/index.ts');
+  if (raw === null) return ['platforms/core/users/change-requests/frontend/index.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  if (!src.includes('ApprovalsScreen')) problems.push('the frontend barrel does not export ApprovalsScreen');
+  const exportCount = (src.match(/^export /gm) ?? []).length;
+  if (exportCount !== 1) problems.push(`expected 1 export, found ${exportCount}`);
+  return problems;
+});
+
+assertContract('all three core/users components stay separately bounded', () => {
+  // administration, profiles and change-requests are three components in one
+  // module. Each must publish its own entry and none may import another's
+  // internals - the property that keeps the module from collapsing into one
+  // folder as more of it migrates.
+  const problems = [];
+  const COMPONENTS = {
+    administration: 'platforms/core/users/administration',
+    profiles: 'platforms/core/users/profiles',
+    'change-requests': 'platforms/core/users/change-requests',
+  };
+  for (const [name, root] of Object.entries(COMPONENTS)) {
+    if (readRepo(`${root}/index.ts`) === null) {
+      problems.push(`${name} has no public entry point`);
+    }
+  }
+  const OTHERS = {
+    'platforms/core/users/administration/': ['core-users-profiles', 'core-users-change-requests'],
+    'platforms/core/users/profiles/': ['@apex/core-users/frontend', 'core-users-change-requests'],
+    'platforms/core/users/change-requests/': ['@apex/core-users/frontend', 'core-users-profiles'],
+  };
+  for (const f of repoSources()) {
+    for (const [prefix, forbidden] of Object.entries(OTHERS)) {
+      if (!f.startsWith(prefix)) continue;
+      const src = codeOf(readRepo(f) ?? '');
+      for (const spec of forbidden) {
+        if (src.includes(spec)) problems.push(`${f} reaches into a sibling component via ${spec}`);
+      }
+    }
+  }
   return problems;
 });

@@ -43,7 +43,7 @@ with the reason it is deferred to a later phase.
 Exact tracked counts from `git ls-files`, not estimates. Runtime extensions
 only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
-**Last measured: 2026-08-07** (batch branch, Commit 2).
+**Last measured: 2026-08-07** (batch branch, Commit 3).
 
 Two figures, because they answer different questions. Every component we create
 adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
@@ -53,26 +53,29 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | After Commit 1 | After Commit 2 |
-| --- | --- | --- | --- |
-| Legacy relocated | 61 | 64 | **67** |
-| **Relocation** | **14.4%** | **15.1%** | **15.8%** |
+| | Merged (`origin/main`) | Commit 1 | Commit 2 | Commit 3 |
+| --- | --- | --- | --- | --- |
+| Legacy relocated | 61 | 64 | 67 | **68** |
+| **Relocation** | **14.4%** | **15.1%** | **15.8%** | **16.1%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | After Commit 1 | After Commit 2 |
-| --- | --- | --- | --- |
-| Runtime files in new architecture | 91 | 96 | **101** |
-| of which barrels | 24 | 26 | 28 |
-| of which adapters / extracted modules | 6 | 6 | 6 |
-| Legacy remaining | 366 | 365 | 364 |
-| Total tracked runtime | 457 | 461 | 465 |
-| **Footprint** | **19.9%** | **20.8%** | **21.7%** |
+| | Merged (`origin/main`) | Commit 1 | Commit 2 | Commit 3 |
+| --- | --- | --- | --- | --- |
+| Runtime files in new architecture | 91 | 96 | 101 | **104** |
+| of which barrels | 24 | 26 | 28 | 30 |
+| of which adapters / extracted modules | 6 | 6 | 6 | 6 |
+| Legacy remaining | 366 | 365 | 364 | 364 |
+| Total tracked runtime | 457 | 461 | 465 | 468 |
+| **Footprint** | **19.9%** | **20.8%** | **21.7%** | **22.2%** |
 
-Each commit relocates **3 legacy files** and adds **2 barrels**, and each moves
-legacy remaining by only 1 because two of its three moves leave a thin route
-adapter behind in `frontend/app/`. Commit 2's third file, `activity-item.tsx`,
-left nothing behind. README files are excluded from both figures.
+Commits 1 and 2 each relocate **3 legacy files**; Commit 3 relocates **1**.
+Every commit adds **2 barrels**. Legacy remaining barely moves because most
+relocations leave a thin route adapter behind at the same path — Commit 3
+leaves it exactly flat, since its single move was a route screen. The two
+exceptions so far are `ApexLandingPage.tsx` and `activity-item.tsx`, which were
+not route files and left nothing behind. README files are excluded from both
+figures.
 
 **Counting method.** Architecture = `platforms/` + `shared/` + `apps/` +
 `database/`. Legacy = `frontend/` + `backend/`, excluding `backend/prisma/`
@@ -93,7 +96,7 @@ Batch branch included. **All six platforms now hold a compartment.**
 | `platforms/business` | 40 | Sales CRM Leads + shared |
 | `shared/ui` | 16 | Design-system primitives |
 | `platforms/intelligence` | 11 | Dashboard overview |
-| `platforms/core` | 12 | Users administration + **Users profiles (batch Commit 2)** + Identity auth boundary |
+| `platforms/core` | 15 | **`core/users` complete on the frontend** — administration + profiles + change-requests — plus the Identity auth boundary |
 | `platforms/workforce` | 6 | Leave applications |
 | `platforms/system` | 5 | Public site (batch Commit 1) |
 | `platforms/operations` | 4 | Projects frontend |
@@ -404,6 +407,52 @@ throughout this map.
 > **No form, validation, upload, document, password, role, visibility, endpoint,
 > payload, query key, error handling, toast, copy or style changed.** Frontend
 > build 38/38, 42 routes.
+
+> **Status update (2026-08-07) — Users CHANGE-REQUESTS frontend COMPARTMENTALISED**
+> (batch branch, Commit 3). **`core/users` is now complete on the frontend:**
+> administration, profiles and change-requests all hold their own component and
+> public entry, and a self-test proves none can reach into another's internals.
+>
+> 1 legacy file → `platforms/core/users/change-requests/frontend/screens/`:
+> `(dashboard)/admin/approvals/page.tsx` (195 ln) → `ApprovalsScreen.tsx`. It
+> matched the original before trailing-whitespace normalisation, with eleven
+> pre-existing whitespace sequences (18 characters) removed; the only other
+> change is the identifier rename `ApprovalsPage` → `ApprovalsScreen`. **Not one
+> import path was rewritten** — the import list is byte-for-byte the original.
+>
+> Public entry `@apex/core-users-change-requests`. **No exact subpath**: one
+> screen behind the barrel consumed by one route cannot force a consumer to load
+> code it does not use, matching the Workforce Leave rule. `/admin/approvals`
+> measured 4.94 kB / 133 kB against a 4.96 kB / 133 kB baseline — the 20-byte
+> drop is the stripped whitespace, and **every other route in the build was
+> byte-identical**.
+>
+> **No Core Identity migration was needed.** This is the only migrated screen
+> with no frontend auth-state dependency at all: it never imported
+> `@/store/auth.store`. A self-test still rejects one, so it cannot acquire the
+> coupling silently.
+>
+> **The approvals surface has no client-side role check**, by design — queue
+> scoping is backend-driven through `listPendingApprovals()`. A self-test asserts
+> no authorization expression appears in the screen, so a future edit that adds
+> one is caught rather than merged quietly. Endpoints, payloads, query keys,
+> cache invalidation, the status eligibility guard, disabled states and all five
+> toast strings are locked by a contract test.
+>
+> `changeRequestsApi` stayed in `frontend/lib/api.ts`: it has **4 consumers** —
+> this screen, `core/users/profiles`, `intelligence/dashboard` and the legacy
+> `hrms` page — so moving it here would make three unrelated features import a
+> change-requests component.
+>
+> New tracked debt `DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND` —
+> **1 import**, the narrowest entry of any component that carries debt. It names
+> only `lib/api.ts`; `lib/utils.ts` is deliberately excluded even though both
+> siblings allow it. Repository debt 23 → 24. Self-tests 180 → 200.
+>
+> **No approval rule, rejection rule, status eligibility, button visibility,
+> disabled state, payload, endpoint, mutation callback, cache invalidation,
+> error handling, toast, label, icon or style changed.** Frontend build 38/38,
+> 42 routes.
 
 ### core/organization ✅
 

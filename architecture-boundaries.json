@@ -32,6 +32,7 @@
     "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
     "@apex/core-users-profiles": "platforms/core/users/profiles",
     "@apex/core-users-profiles/screens": "platforms/core/users/profiles/frontend/screens",
+    "@apex/core-users-change-requests": "platforms/core/users/change-requests",
     "@apex/core-identity": "platforms/core/identity/authentication",
     "@apex/system-public-site": "platforms/system/public-site",
     "@apex/system-public-site/screens": "platforms/system/public-site/frontend/screens"
@@ -183,6 +184,20 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Core Users change-requests frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/core/users/change-requests/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts"
+        ],
+        "reason": "The approvals screen moved with its import list untouched and carries exactly one legacy import, pulling changeRequestsApi, departmentsApi, usersApi and rolesApi from the application-wide API module. changeRequestsApi is NOT exclusively this component's: it has four consumers - this screen, core/users/profiles, intelligence/dashboard and the legacy hrms page - so relocating it here would make three unrelated features import a change-requests component. The screen carries no other legacy coupling at all: it does not import frontend/store/auth.store.ts (there is no frontend auth-state dependency on this surface - queue scoping is entirely backend-driven through listPendingApprovals), it does not import frontend/lib/utils.ts, and its loading state, reject modal and constant tables are inline rather than borrowed from frontend/components/. That is why this allowlist names a single target.",
+        "removalConditions": [
+          "frontend/lib/api.ts: changeRequestsApi becomes a Core Users-owned adapter once an app-wide API layer is compartmentalised, and its dashboard/profiles/hrms consumers move to that boundary"
         ]
       },
       {
