@@ -1,4 +1,4 @@
-import SalesCrmDashboard from '@/components/sales-crm/dashboard/SalesCrmDashboard';
+import { SalesCrmDashboard } from '@apex/sales-crm-dashboard';
 
 export default function SalesCrmDashboardPage() {
   return <SalesCrmDashboard />;

@@ -4292,6 +4292,112 @@ export default styles;
   { expectExit: 1, expectRule: 'component-public-entry' },
 );
 
+// ── Sales CRM Phase 2B: dashboard component ────────────────────────────────
+// D12 keeps dashboard and analytics as separate components. These tests pin
+// that separation and the shared-component publication that makes it possible.
+
+// 240. A route may consume the dashboard public entry.
+testCase(
+  'accepts a route consuming the Sales CRM dashboard public entry',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/dashboard/index.ts', `export const SalesCrmDashboard = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/sales-crm/page.tsx',
+      `import { SalesCrmDashboard } from '@apex/sales-crm-dashboard';
+export default SalesCrmDashboard;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 241. Its internals stay private.
+testCase(
+  'rejects external code importing Sales CRM dashboard internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/dashboard/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/LeadsScreen.tsx',
+      `import TopKpiStrip from '@apex/sales-crm-dashboard/frontend/components/TopKpiStrip';
+export default TopKpiStrip;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 242. D12: analytics must not reach into dashboard internals. This is the
+//      reason Toast and ExportModal moved to shared rather than staying put.
+testCase(
+  'rejects Sales CRM analytics importing dashboard internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/dashboard/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/analytics/frontend/components/ReportsView.tsx',
+      `import Toast from '@apex/sales-crm-dashboard/frontend/components/Toast';
+export default Toast;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 243. The two genuinely cross-feature components are published by exact path.
+testCase(
+  'accepts the exact shared Toast and ExportModal component paths',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/components/Toast.tsx', `export default function T() { return null; }
+`);
+    write(root, 'platforms/business/sales-crm/shared/frontend/components/ExportModal.tsx', `export default function E() { return null; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/dashboard/frontend/components/SalesCrmDashboard.tsx',
+      `import Toast from '@apex/sales-crm-shared/components/Toast';
+import ExportModal from '@apex/sales-crm-shared/components/ExportModal';
+export default function S() { return [Toast, ExportModal]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 244. An undeclared sibling shared component stays private.
+testCase(
+  'rejects an undeclared shared Sales CRM component path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/components/Secret.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/dashboard/frontend/components/SalesCrmDashboard.tsx',
+      `import Secret from '@apex/sales-crm-shared/components/Secret';
+export default Secret;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 245. The dashboard barrel must not re-export a stylesheet. Doing so would
+//      move the CSS module in the bundle graph and change its cascade order.
+assertContract('no Sales CRM barrel re-exports a stylesheet', () => {
+  const problems = [];
+  for (const f of repoSources()) {
+    if (!f.startsWith('platforms/business/sales-crm/')) continue;
+    if (!f.endsWith('index.ts')) continue;
+    const src = codeOf(readRepo(f) ?? '');
+    if (/\.css['"]/.test(src)) problems.push(`${f} routes a stylesheet through a JS barrel`);
+  }
+  return problems;
+});
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -4353,6 +4459,7 @@ testRealRepoDebtCounts({
   'DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND': 1,
   'DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND': 2,
   'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
+  'DEBT-P2B1-SALES-CRM-DASHBOARD-LEGACY-FRONTEND': 11,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

@@ -19,6 +19,8 @@
     "@apex/sales-crm-leads": "platforms/business/sales-crm/leads",
     "@apex/sales-crm-shared": "platforms/business/sales-crm/shared",
     "@apex/sales-crm-shared/styles": "platforms/business/sales-crm/shared/frontend/styles",
+    "@apex/sales-crm-shared/components": "platforms/business/sales-crm/shared/frontend/components",
+    "@apex/sales-crm-dashboard": "platforms/business/sales-crm/dashboard",
     "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
     "@apex/shared-auth": "shared/auth",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
@@ -55,6 +57,8 @@
     "specifiers": {
       "@apex/sales-crm-shared/styles/primitives.module.css": "platforms/business/sales-crm/shared/frontend/styles/primitives.module.css",
       "@apex/sales-crm-shared/styles/dashboard.module.css": "platforms/business/sales-crm/shared/frontend/styles/dashboard.module.css",
+      "@apex/sales-crm-shared/components/Toast": "platforms/business/sales-crm/shared/frontend/components/Toast",
+      "@apex/sales-crm-shared/components/ExportModal": "platforms/business/sales-crm/shared/frontend/components/ExportModal",
       "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
       "@apex/operations-projects/screens/ProjectsScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectsScreen",
       "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen",
@@ -196,6 +200,24 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P2B1-SALES-CRM-DASHBOARD-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Sales CRM Phase 2B dashboard compartmentalisation",
+        "removalPhase": "Phase 2B commits 7-8 (ui ownership, lib split)",
+        "from": "platforms/business/sales-crm/dashboard/frontend/",
+        "allowedTargets": [
+          "frontend/lib/sales-crm/dashboard-calculations.ts",
+          "frontend/lib/sales-crm/analytics-store.ts",
+          "frontend/lib/sales-crm/report-output.ts",
+          "frontend/components/sales-crm/ui/Chart.tsx"
+        ],
+        "reason": "The dashboard components moved ahead of the two blocks they depend on, by design: frontend/lib/sales-crm is split LAST because library ownership can only be read from consumers once those consumers have migrated, and frontend/components/sales-crm/ui has unresolved ownership that a later commit settles. All four targets are scheduled, not permanent. Nothing here is a shared-module or cross-platform dependency: both stylesheets already arrive by exact public path from sales-crm/shared, and Toast and ExportModal were published as shared components in this same commit because analytics consumes them too.",
+        "removalConditions": [
+          "frontend/components/sales-crm/ui/Chart.tsx: resolved by the Phase 2B ui-ownership commit",
+          "frontend/lib/sales-crm/*: resolved by the Phase 2B library split, which classifies each file by its current consumers"
         ]
       },
       {

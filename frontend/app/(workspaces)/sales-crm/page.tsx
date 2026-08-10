@@ -1,4 +1,4 @@
-import SalesCrmDashboard from '@/components/sales-crm/dashboard/SalesCrmDashboard';
+import { SalesCrmDashboard } from '@apex/sales-crm-dashboard';
 
 // /sales-crm is the main landing page for the workspace — it renders the
 // same dashboard as /sales-crm/dashboard (see instruction: "/sales-crm/dashboard

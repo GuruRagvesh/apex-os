@@ -12,10 +12,10 @@ import { useAuth, Role } from "@apex/sales-crm-shared";
 import DashboardHeader from "./DashboardHeader";
 import QuickAdd from "./QuickAdd";
 import SalesDashboard from "./SalesDashboard";
-import ExportModal from "./ExportModal";
+import ExportModal from "@apex/sales-crm-shared/components/ExportModal";
 import ShareModal from "./ShareModal";
 import { useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
-import Toast from "./Toast";
+import Toast from "@apex/sales-crm-shared/components/Toast";
 import {
   ReportArtifact,
   createSharePackage,
