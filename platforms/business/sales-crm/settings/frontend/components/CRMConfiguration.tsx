@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useAuth } from "@apex/sales-crm-shared";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
 import { CRMConfig } from "@/lib/sales-crm/types/settings";
-import styles from "@/styles/sales-crm/settings.module.css";
+import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface CollapsibleSectionProps {

@@ -23,6 +23,7 @@
     "@apex/sales-crm-dashboard": "platforms/business/sales-crm/dashboard",
     "@apex/sales-crm-analytics": "platforms/business/sales-crm/analytics",
     "@apex/sales-crm-database": "platforms/business/sales-crm/database",
+    "@apex/sales-crm-settings": "platforms/business/sales-crm/settings",
     "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
     "@apex/shared-auth": "shared/auth",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
@@ -202,6 +203,23 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P2B4-SALES-CRM-SETTINGS-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Sales CRM Phase 2B settings compartmentalisation",
+        "removalPhase": "Phase 2B remaining commits (ui ownership, lib split)",
+        "from": "platforms/business/sales-crm/settings/frontend/",
+        "allowedTargets": [
+          "frontend/lib/sales-crm/settings-store.ts",
+          "frontend/lib/sales-crm/types/settings.ts",
+          "frontend/components/sales-crm/ui/ConfirmModal.tsx"
+        ],
+        "reason": "CRM-scoped settings only - CRM fields, CRM role permissions, integrations and CRM data import/backup. Verified to carry NO auth, workday, attendance or scheduler dependency, and it is not the Apex OS global settings route. settings.module.css (2128 ln) is exclusively settings-owned and moved byte-identically into the component, imported by relative path from its ten siblings so it never travels through a barrel. The remaining targets are scheduled: two lib/sales-crm modules resolved by the library split, and ui/ConfirmModal resolved by the ui-ownership commit.",
+        "removalConditions": [
+          "frontend/lib/sales-crm/*: resolved by the Phase 2B library split, which classifies each file by its current consumers",
+          "frontend/components/sales-crm/ui/*: resolved by the Phase 2B ui-ownership commit"
         ]
       },
       {

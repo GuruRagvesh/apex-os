@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { Role, ROLE_LABELS } from "@apex/sales-crm-shared";
 import { SettingsUser } from "@/lib/sales-crm/types/settings";
-import styles from "@/styles/sales-crm/settings.module.css";
+import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 interface UserFormModalProps {

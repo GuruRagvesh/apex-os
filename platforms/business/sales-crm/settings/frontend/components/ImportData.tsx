@@ -7,7 +7,7 @@ import { useAuth } from "@apex/sales-crm-shared";
 import { useSettingsStore, parseCSV, parseJSONImport, validateImportData } from "@/lib/sales-crm/settings-store";
 import { IMPORT_COLLECTIONS, IMPORT_SCHEMAS } from "@/lib/sales-crm/types/settings";
 import type { ImportCollection, ImportPreviewResult } from "@/lib/sales-crm/types/settings";
-import styles from "@/styles/sales-crm/settings.module.css";
+import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 export default function ImportData() {

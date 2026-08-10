@@ -5,7 +5,7 @@
 import { useState, useMemo } from "react";
 import { useAuth, useAuditLogs, Role, AuditLogRecord } from "@apex/sales-crm-shared";
 import { useSettingsStore } from "@/lib/sales-crm/settings-store";
-import styles from "@/styles/sales-crm/settings.module.css";
+import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 const ITEMS_PER_PAGE = 20;

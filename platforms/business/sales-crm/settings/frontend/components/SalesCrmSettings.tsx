@@ -12,7 +12,7 @@ import ImportData from "./ImportData";
 import AuditLogs from "./AuditLogs";
 import BackupRestore from "./BackupRestore";
 import Integrations from "./Integrations";
-import styles from "@/styles/sales-crm/settings.module.css";
+import styles from "../styles/settings.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 type SettingsSection = "profile" | "users" | "roles" | "audit" | "integrations" | "backup" | "import" | "crm";
