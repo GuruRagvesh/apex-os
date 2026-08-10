@@ -34,6 +34,8 @@
     "@apex/core-users-profiles": "platforms/core/users/profiles",
     "@apex/core-users-profiles/screens": "platforms/core/users/profiles/frontend/screens",
     "@apex/core-users-change-requests": "platforms/core/users/change-requests",
+    "@apex/core-organization-departments": "platforms/core/organization/departments",
+    "@apex/core-organization-departments/screens": "platforms/core/organization/departments/frontend/screens",
     "@apex/core-identity": "platforms/core/identity/authentication",
     "@apex/system-public-site": "platforms/system/public-site",
     "@apex/system-public-site/screens": "platforms/system/public-site/frontend/screens"
@@ -69,6 +71,8 @@
       "@apex/core-users/screens/UserDetailScreen": "platforms/core/users/administration/frontend/screens/UserDetailScreen",
       "@apex/core-users-profiles/screens/ProfileScreen": "platforms/core/users/profiles/frontend/screens/ProfileScreen",
       "@apex/core-users-profiles/screens/UserProfileScreen": "platforms/core/users/profiles/frontend/screens/UserProfileScreen",
+      "@apex/core-organization-departments/screens/DepartmentsScreen": "platforms/core/organization/departments/frontend/screens/DepartmentsScreen",
+      "@apex/core-organization-departments/screens/DepartmentDetailScreen": "platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen",
       "@apex/system-public-site/screens/ApexLandingPage": "platforms/system/public-site/frontend/screens/ApexLandingPage",
       "@apex/system-public-site/screens/PrivacyScreen": "platforms/system/public-site/frontend/screens/PrivacyScreen",
       "@apex/system-public-site/screens/TermsScreen": "platforms/system/public-site/frontend/screens/TermsScreen"
@@ -185,6 +189,20 @@
           "The 27 remaining legacy consumers migrate to @apex/core-identity (29 at introduction; core/users/profiles took its 2 out of frontend/ when its screens moved)",
           "auth.store.ts moves byte-identical into platforms/core/identity/authentication/frontend/state/",
           "Staging validates login, refresh-hydration, logout, expired-token 401 redirect and the nexus_* key migration"
+        ]
+      },
+      {
+        "id": "DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND",
+        "status": "temporary",
+        "introducedIn": "Core Organization departments frontend compartmentalisation",
+        "removalPhase": "Per-target: see removalConditions",
+        "from": "platforms/core/organization/departments/frontend/",
+        "allowedTargets": [
+          "frontend/lib/api.ts"
+        ],
+        "reason": "The two department screens moved with one legacy import each, both naming the same target. None of the four API groups they pull is Departments-owned: departmentsApi has fourteen consumers across tickets, kanban, teams, settings, projects and three core/users components; usersApi and rolesApi are application-wide; teamsApi belongs to workforce/teams and is also used by the two teams screens. The authentication coupling was NOT carried over - both screens read useAuthStore through @apex/core-identity - and there is no lib/utils coupling at all, because STATUS_COLORS and PRIORITY_COLORS are declared locally in the detail screen rather than imported. Breadcrumb already came from @apex/shared-ui/components/breadcrumb before this phase.",
+        "removalConditions": [
+          "frontend/lib/api.ts: departmentsApi becomes a Core Organization-owned adapter once an app-wide API layer is compartmentalised; usersApi and rolesApi follow core/users and core/organization/roles, and teamsApi follows workforce/teams"
         ]
       },
       {

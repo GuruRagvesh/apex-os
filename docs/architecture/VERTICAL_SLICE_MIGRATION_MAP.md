@@ -43,7 +43,7 @@ with the reason it is deferred to a later phase.
 Exact tracked counts from `git ls-files`, not estimates. Runtime extensions
 only (`.ts .tsx .js .jsx .mjs .cjs .css .json .prisma`).
 
-**Last measured: 2026-08-07** (batch branch, Commit 4).
+**Last measured: 2026-08-07** (batch branch, Commit 5).
 
 Two figures, because they answer different questions. Every component we create
 adds 2-4 `index.ts` barrels regardless of how much legacy code moved, so the
@@ -53,30 +53,30 @@ adding scaffolding.
 
 ### Primary — legacy files relocated (denominator fixed at 423)
 
-| | Merged (`origin/main`) | C1 | C2 | C3 | C4 |
-| --- | --- | --- | --- | --- | --- |
-| Legacy relocated | 61 | 64 | 67 | 68 | **71** |
-| **Relocation** | **14.4%** | **15.1%** | **15.8%** | **16.1%** | **16.8%** |
+| | Merged (`origin/main`) | C1 | C2 | C3 | C4 | C5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Legacy relocated | 61 | 64 | 67 | 68 | 71 | **73** |
+| **Relocation** | **14.4%** | **15.1%** | **15.8%** | **16.1%** | **16.8%** | **17.3%** |
 
 ### Secondary — target-architecture footprint
 
-| | Merged (`origin/main`) | C1 | C2 | C3 | C4 |
-| --- | --- | --- | --- | --- | --- |
-| Runtime files in new architecture | 91 | 96 | 101 | 104 | **109** |
-| of which barrels | 24 | 26 | 28 | 30 | 32 |
-| of which adapters / extracted modules | 6 | 6 | 6 | 6 | 6 |
-| Legacy remaining | 366 | 365 | 364 | 364 | 362 |
-| Total tracked runtime | 457 | 461 | 465 | 468 | 471 |
-| **Footprint** | **19.9%** | **20.8%** | **21.7%** | **22.2%** | **23.1%** |
+| | Merged (`origin/main`) | C1 | C2 | C3 | C4 | C5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Runtime files in new architecture | 91 | 96 | 101 | 104 | 109 | **113** |
+| of which barrels | 24 | 26 | 28 | 30 | 32 | 34 |
+| of which adapters / extracted modules | 6 | 6 | 6 | 6 | 6 | 6 |
+| Legacy remaining | 366 | 365 | 364 | 364 | 362 | 362 |
+| Total tracked runtime | 457 | 461 | 465 | 468 | 471 | 475 |
+| **Footprint** | **19.9%** | **20.8%** | **21.7%** | **22.2%** | **23.1%** | **23.8%** |
 
-Commits 1, 2 and 4 each relocate **3 legacy files**; Commit 3 relocates **1**.
-Every commit adds **2 barrels**. Legacy remaining barely moves because most
-relocations leave a thin route adapter behind at the same path — Commit 3 left
-it exactly flat, since its single move was a route screen. Commit 4 moved it by
-2 because two of its three files were components, not routes. The non-route
-relocations so far are `ApexLandingPage.tsx`, `activity-item.tsx`,
-`category-chart.tsx` and `ticket-trend-chart.tsx`. README files are excluded
-from both figures.
+Commits 1, 2 and 4 each relocate **3 legacy files**; Commit 5 relocates **2**
+and Commit 3 **1**. Every commit adds **2 barrels**. Legacy remaining barely
+moves because most relocations leave a thin route adapter behind at the same
+path — Commits 3 and 5 left it exactly flat, since all of their moves were route
+screens. Commit 4 moved it by 2 because two of its three files were components,
+not routes. The non-route relocations so far are `ApexLandingPage.tsx`,
+`activity-item.tsx`, `category-chart.tsx` and `ticket-trend-chart.tsx`. README
+files are excluded from both figures.
 
 **Counting method.** Architecture = `platforms/` + `shared/` + `apps/` +
 `database/`. Legacy = `frontend/` + `backend/`, excluding `backend/prisma/`
@@ -97,7 +97,7 @@ Batch branch included. **All six platforms now hold a compartment.**
 | `platforms/business` | 40 | Sales CRM Leads + shared |
 | `shared/ui` | 16 | Design-system primitives |
 | `platforms/intelligence` | 16 | Dashboard overview + **Analytics overview (batch Commit 4)** |
-| `platforms/core` | 15 | **`core/users` complete on the frontend** — administration + profiles + change-requests — plus the Identity auth boundary |
+| `platforms/core` | 19 | **`core/users` complete on the frontend** — administration + profiles + change-requests — plus **Organization departments (batch Commit 5)** and the Identity auth boundary |
 | `platforms/workforce` | 6 | Leave applications |
 | `platforms/system` | 5 | Public site (batch Commit 1) |
 | `platforms/operations` | 4 | Projects frontend |
@@ -464,6 +464,62 @@ throughout this map.
 | `backend/test/unit/departments.manager-access.spec.ts` | `platforms/core/organization/departments/tests/backend/` |
 | `backend/src/modules/core/roles/*` (3) | `platforms/core/organization/roles/backend/` |
 | `backend/src/common/services/hierarchy-approval.service.ts` | `platforms/core/organization/hierarchy/backend/services/` |
+
+> **Status update (2026-08-07) — DEPARTMENTS frontend COMPARTMENTALISED**
+> (batch branch, Commit 5), giving `core/organization` its first compartment.
+>
+> 2 legacy files → `platforms/core/organization/departments/frontend/screens/`:
+> `departments/page.tsx` (273 ln) → `DepartmentsScreen.tsx` and
+> `departments/[id]/page.tsx` (711 ln) → `DepartmentDetailScreen.tsx`. Each
+> differs from its route file by exactly **two edits** — the `useAuthStore`
+> import path and the component identifier. Neither had trailing whitespace, so
+> nothing else changed.
+>
+> **The most write-heavy component relocated so far — eight mutations** across
+> the two screens: create, delete, rename, add/remove member, set team lead, and
+> add/remove Department Head. A contract test pins every call, every invalidated
+> query key and every success toast, and fails if the mutation count drifts from
+> 2 on the list screen and 6 on the detail screen.
+>
+> **Authorization is pinned, not touched.** Both screens gate on
+> `ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN']`, render the same admin-only denial
+> card, and carry `enabled: hasHydrated && isAdmin` on every query — all five
+> expressions are required verbatim by a self-test. The detail screen's manager
+> candidate filter is pinned separately because its own comment requires it to
+> match the backend's `MANAGER_ASSIGNABLE_ROLES`.
+>
+> ⚠️ **Observed, not fixed:** the frontend restricts these screens to
+> ADMIN/SUPER_ADMIN while the backend carries `departments.manager-access.spec.ts`
+> — manager access exists server-side. The frontend is therefore *more*
+> restrictive than the backend, which is fail-safe rather than fail-open, so this
+> is a product/UX question rather than a security defect. It predates this phase
+> and was deliberately left alone.
+>
+> Public entry `@apex/core-organization-departments` plus two exact screen
+> subpaths; the routes use the subpaths, not the barrel. `/departments` measured
+> 6.54 kB / 144 kB against a 6.55 kB baseline and `/departments/[id]` was
+> **identical** at 9.2 kB / 147 kB.
+>
+> `useAuthStore` migrated to `@apex/core-identity`, taking legacy auth-store
+> consumers 26 → 24. `hasHydrated` is load-bearing here — every query is gated on
+> it — so a self-test requires the destructure verbatim on both screens.
+>
+> New tracked debt `DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND` —
+> **2 imports**, one per screen, both naming `lib/api.ts`. There is **no
+> `lib/utils.ts` coupling at all**: `STATUS_COLORS` and `PRIORITY_COLORS` are
+> declared locally in the detail screen, so unlike the `core/users` siblings this
+> component never needed it, and a self-test proves it is rejected. Repository
+> debt 25 → 27. Self-tests 221 → 243.
+>
+> `departmentsApi` stayed in `lib/api.ts` — **14 consumers** across tickets,
+> kanban, teams, settings, projects and three `core/users` components. `teamsApi`
+> belongs to `workforce/teams`. The roles registry and hierarchy approval service
+> remain assigned to their own sibling components, both unmigrated.
+>
+> **No view, create, edit, delete, manager assignment, role check, status
+> handling, query key, payload, invalidation, modal state, disabled state,
+> endpoint, toast, validation or navigation changed.** Frontend build 38/38,
+> 42 routes.
 
 ### core/settings ✅
 

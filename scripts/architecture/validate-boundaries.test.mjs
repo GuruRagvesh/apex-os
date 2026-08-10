@@ -2312,16 +2312,19 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 26) {
-    problems.push(`expected 26 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 24) {
+    problems.push(`expected 24 legacy auth-store consumers, found ${legacy.length}`);
   }
   // Each one that left must be a thin adapter carrying no auth dependency at
   // all, and must reach its screen through that component's public entry.
-  // 29 -> 27 was core/users/profiles; 27 -> 26 was intelligence/analytics.
+  // 29 -> 27 core/users/profiles; -> 26 intelligence/analytics;
+  // -> 24 core/organization/departments.
   const DEPARTED = {
     'frontend/app/(dashboard)/profile/page.tsx': '@apex/core-users-profiles/screens/',
     'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx': '@apex/core-users-profiles/screens/',
     'frontend/app/(dashboard)/analytics/page.tsx': '@apex/intelligence-analytics',
+    'frontend/app/(dashboard)/(platform)/departments/page.tsx': '@apex/core-organization-departments/screens/',
+    'frontend/app/(dashboard)/(platform)/departments/[id]/page.tsx': '@apex/core-organization-departments/screens/',
   };
   for (const [route, entry] of Object.entries(DEPARTED)) {
     const src = codeOf(readRepo(route) ?? '');
@@ -3319,6 +3322,293 @@ export default analyticsApi;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Core Organization Departments: administration surface ──────────────────
+// The first core/organization compartment. Eight mutations across two screens,
+// all gated on the same ADMIN_ROLES expression, so the tests below guard the
+// boundary AND pin the authorization surface that gating depends on.
+
+// 183. The /departments route may import its exact declared screen subpath.
+testCase(
+  'accepts the /departments route importing the exact DepartmentsScreen subpath',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/departments/page.tsx',
+      `import DepartmentsScreen from '@apex/core-organization-departments/screens/DepartmentsScreen';
+export default DepartmentsScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 184. ...and /departments/[id] may import its own screen subpath.
+testCase(
+  'accepts the /departments/[id] route importing the exact DepartmentDetailScreen subpath',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/departments/[id]/page.tsx',
+      `import DepartmentDetailScreen from '@apex/core-organization-departments/screens/DepartmentDetailScreen';
+export default DepartmentDetailScreen;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 185. An undeclared screen beside the two declared ones stays private.
+testCase(
+  'rejects an undeclared Departments screen subpath',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/frontend/screens/RolesScreen.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'apps/web/app/departments/page.tsx',
+      `import S from '@apex/core-organization-departments/screens/RolesScreen';
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 186. External code cannot reach Departments internals.
+testCase(
+  'rejects external code importing Core Organization Departments internals',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { Avatar } from '@apex/core-organization-departments/frontend/screens/DepartmentDetailScreen';
+export default Avatar;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 187. ...by dynamic import() too.
+testCase(
+  'detects dynamic import() of Core Organization Departments internals',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/analytics/overview/frontend/screens/AnalyticsScreen.tsx',
+      `export const load = () => import('@apex/core-organization-departments/frontend/index');
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 188. ...and by require().
+testCase(
+  'detects require() of Core Organization Departments internals',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
+      `const S = require('@apex/core-organization-departments/frontend/screens/DepartmentsScreen');
+export default S;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 189. Departments frontend must not import backend code.
+testCase(
+  'rejects Core Organization Departments frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx',
+      `import { DepartmentsService } from '../../backend/services/departments.service';
+export default DepartmentsService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
+// 190. Departments must not reach into another platform's internals.
+testCase(
+  'rejects Core Organization Departments importing another platform internals',
+  (root) => {
+    write(root, 'platforms/intelligence/analytics/overview/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import { AnalyticsScreen } from '@apex/intelligence-analytics/frontend/screens/AnalyticsScreen';
+export default AnalyticsScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 191. ...including core/users, which is a different module in the same platform.
+testCase(
+  'rejects Core Organization Departments importing Core Users internals',
+  (root) => {
+    write(root, 'platforms/core/users/administration/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import UsersScreen from '@apex/core-users/frontend/screens/UsersScreen';
+export default UsersScreen;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 192. Departments may consume Core Identity through its public entry.
+testCase(
+  'accepts Core Organization Departments consuming Core Identity publicly',
+  (root) => {
+    write(root, 'platforms/core/identity/authentication/index.ts', `export const useAuthStore = () => null;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx',
+      `import { useAuthStore } from '@apex/core-identity';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 193. A direct legacy auth-store import from Departments is rejected. Every
+//      query on both screens is gated on hasHydrated && isAdmin, so the store
+//      must keep arriving through the boundary rather than the legacy path.
+testCase(
+  'rejects Core Organization Departments importing the legacy auth store directly',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx',
+      `import { useAuthStore } from '@/store/auth.store';
+export default function S() { return useAuthStore(); }
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 194. Departments may consume Shared UI and Shared Utilities publicly.
+testCase(
+  'accepts Core Organization Departments consuming shared-ui and shared-utilities publicly',
+  (root) => {
+    write(root, 'shared/utilities/index.ts', `export const cn = () => '';
+`);
+    write(root, 'shared/ui/frontend/components/breadcrumb.tsx', `export const Breadcrumb = () => null;
+`);
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import { cn } from '@apex/shared-utilities';
+import { Breadcrumb } from '@apex/shared-ui/components/breadcrumb';
+export default function S() { return [cn, Breadcrumb]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 195. shared/ must not import Departments.
+testCase(
+  'rejects a shared module importing Core Organization Departments',
+  (root) => {
+    write(root, 'platforms/core/organization/departments/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'shared/ui/frontend/components/breadcrumb.tsx',
+      `import { X } from '@apex/core-organization-departments';
+export const B = X;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-no-platforms' },
+);
+
+// 196. The DEBT-P11 allowlist covers lib/api.ts...
+testCase(
+  'accepts the single allowlisted Core Organization Departments legacy target',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import { departmentsApi, usersApi, rolesApi, teamsApi } from '@/lib/api';
+export default function S() { return [departmentsApi, usersApi, rolesApi, teamsApi]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 197. ...and nothing else - notably not lib/utils. The colour maps are
+//      declared locally in the detail screen, so this component never needed it.
+testCase(
+  'rejects lib/utils from Core Organization Departments',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx',
+      `import { STATUS_COLORS } from '@/lib/utils';
+export default STATUS_COLORS;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 198. The exemption is scoped to frontend/ - a sibling folder cannot reuse it.
+testCase(
+  'rejects a Core Organization Departments file outside frontend/ reusing the exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/departments/shared/contracts/department.types.ts',
+      `import { departmentsApi } from '@/lib/api';
+export const t = departmentsApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 199. A future sibling component in the same module cannot borrow it either.
+testCase(
+  'rejects Core Organization Roles reusing the Departments exemption',
+  (root) => {
+    write(
+      root,
+      'platforms/core/organization/roles/frontend/screens/RolesScreen.tsx',
+      `import { rolesApi } from '@/lib/api';
+export default rolesApi;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -3376,6 +3666,7 @@ testRealRepoDebtCounts({
   'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 4,
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
   'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
+  'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────
@@ -3917,6 +4208,145 @@ assertContract('stat-card was left where the evidence puts it', () => {
   });
   if (importers.length !== 0) {
     problems.push(`stat-card gained ${importers.length} importer(s): ${importers.join(', ')}`);
+  }
+  return problems;
+});
+
+const DEPT_LIST = 'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx';
+const DEPT_DETAIL = 'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx';
+
+assertContract('both department screens read auth through the Core Identity boundary', () => {
+  const problems = [];
+  for (const screen of [DEPT_LIST, DEPT_DETAIL]) {
+    const raw = readRepo(screen);
+    if (raw === null) {
+      problems.push(`${screen} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    if (!src.includes("from '@apex/core-identity'")) {
+      problems.push(`${screen} does not consume @apex/core-identity`);
+    }
+    if (src.includes('@/store/auth.store')) problems.push(`${screen} still imports the legacy auth store`);
+    // Import-path change only. hasHydrated gates every query on both screens;
+    // losing it would fire admin-only requests before the store rehydrates.
+    if (!src.includes('const { user, hasHydrated } = useAuthStore();')) {
+      problems.push(`${screen}: the useAuthStore destructure changed - it must remain { user, hasHydrated }`);
+    }
+  }
+  return problems;
+});
+
+assertContract('the department authorization gate is unchanged', () => {
+  // Both screens gate on the same expression and hide behind the same denial
+  // screen. A relocation must not widen, narrow or reorder any of it.
+  const problems = [];
+  for (const screen of [DEPT_LIST, DEPT_DETAIL]) {
+    const raw = readRepo(screen);
+    if (raw === null) {
+      problems.push(`${screen} is missing`);
+      continue;
+    }
+    const src = codeOf(raw);
+    const REQUIRED = [
+      "const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];",
+      "const isAdmin = ADMIN_ROLES.includes(user?.role?.name ?? '');",
+      'if (!hasHydrated) {',
+      'if (!isAdmin) {',
+      'enabled: hasHydrated && isAdmin',
+    ];
+    for (const r of REQUIRED) {
+      if (!src.includes(r)) problems.push(`${screen}: authorization gate changed - missing: ${r}`);
+    }
+  }
+  // The detail screen's manager candidate filter must keep matching the
+  // backend's MANAGER_ASSIGNABLE_ROLES, as its own comment requires.
+  const detail = codeOf(readRepo(DEPT_DETAIL) ?? '');
+  if (!detail.includes("['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(u.role?.name)")) {
+    problems.push('the manager candidate filter changed - it must match backend MANAGER_ASSIGNABLE_ROLES');
+  }
+  return problems;
+});
+
+assertContract('every department mutation survived the move', () => {
+  // Eight mutations across the two screens. Endpoints, payloads and the query
+  // keys they invalidate are all pinned: a relocation must not touch any.
+  const problems = [];
+  const list = codeOf(readRepo(DEPT_LIST) ?? '');
+  const detail = codeOf(readRepo(DEPT_DETAIL) ?? '');
+
+  const LIST_REQUIRED = [
+    'departmentsApi.create(data)',
+    'departmentsApi.remove(id)',
+    "queryKey: ['departments']",
+    "toast.success('Department created!')",
+    "toast.success('Department deleted')",
+    "toast.error(err?.message || 'Failed to create department')",
+  ];
+  for (const r of LIST_REQUIRED) {
+    if (!list.includes(r)) problems.push(`DepartmentsScreen: missing ${r}`);
+  }
+
+  const DETAIL_REQUIRED = [
+    'departmentsApi.patch(id, data)',
+    'usersApi.update(userId, { departmentId: id })',
+    'usersApi.update(userId, { departmentId: null })',
+    'usersApi.update(userId, { roleId: tlRole.id })',
+    'departmentsApi.addManager(id, userId)',
+    'departmentsApi.removeManager(id, userId)',
+    'departmentsApi.getManagers(id)',
+    "queryKey: ['department', id]",
+    "queryKey: ['department-managers', id]",
+    "toast.success('Department Head updated')",
+    "toast.success('Department Head removed')",
+    "toast.success('Member added')",
+    "toast.success('Member removed')",
+    "toast.success('Team lead set')",
+    "toast.success('Department updated')",
+  ];
+  for (const r of DETAIL_REQUIRED) {
+    if (!detail.includes(r)) problems.push(`DepartmentDetailScreen: missing ${r}`);
+  }
+
+  // Mutation count must not drift: 2 on the list screen, 6 on the detail screen.
+  const listCount = (list.match(/useMutation\(/g) ?? []).length;
+  const detailCount = (detail.match(/useMutation\(/g) ?? []).length;
+  if (listCount !== 2) problems.push(`DepartmentsScreen: expected 2 mutations, found ${listCount}`);
+  if (detailCount !== 6) problems.push(`DepartmentDetailScreen: expected 6 mutations, found ${detailCount}`);
+  return problems;
+});
+
+assertContract('the Departments barrel publishes exactly the two screens', () => {
+  const raw = readRepo('platforms/core/organization/departments/frontend/index.ts');
+  if (raw === null) return ['platforms/core/organization/departments/frontend/index.ts is missing'];
+  const src = codeOf(raw);
+  const problems = [];
+  for (const screen of ['DepartmentsScreen', 'DepartmentDetailScreen']) {
+    if (!src.includes(screen)) problems.push(`the frontend barrel does not export ${screen}`);
+  }
+  const exportCount = (src.match(/^export /gm) ?? []).length;
+  if (exportCount !== 2) problems.push(`expected 2 exports, found ${exportCount}`);
+  return problems;
+});
+
+assertContract('both department routes are thin adapters on their own subpath', () => {
+  const problems = [];
+  const ROUTES = {
+    'frontend/app/(dashboard)/(platform)/departments/page.tsx':
+      '@apex/core-organization-departments/screens/DepartmentsScreen',
+    'frontend/app/(dashboard)/(platform)/departments/[id]/page.tsx':
+      '@apex/core-organization-departments/screens/DepartmentDetailScreen',
+  };
+  for (const [route, subpath] of Object.entries(ROUTES)) {
+    const src = codeOf(readRepo(route) ?? '');
+    if (src === '') {
+      problems.push(`${route} is missing - the route must survive as an adapter`);
+      continue;
+    }
+    if (!src.includes(subpath)) problems.push(`${route} must import ${subpath}`);
+    for (const forbidden of ['@/lib/api', 'auth.store', 'useQuery', 'useMutation', 'useState', 'ADMIN_ROLES']) {
+      if (src.includes(forbidden)) problems.push(`the adapter ${route} must not contain: ${forbidden}`);
+    }
   }
   return problems;
 });
