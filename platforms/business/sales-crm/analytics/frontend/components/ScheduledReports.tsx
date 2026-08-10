@@ -5,7 +5,7 @@ import { Plus, Edit2, Pause, Trash2, Play } from "lucide-react";
 import { useAnalyticsStore, ReportSchedule, canViewItem, createAnalyticsId, getUserAnalyticsContext } from "@/lib/sales-crm/analytics-store";
 import { useAuth } from "@apex/sales-crm-shared";
 import ScheduleModal from "./ScheduleModal";
-import styles from "@/styles/sales-crm/analytics.module.css";
+import styles from "../styles/analytics.module.css";
 import dash from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 

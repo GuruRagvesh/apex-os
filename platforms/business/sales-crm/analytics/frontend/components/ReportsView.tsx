@@ -8,7 +8,7 @@ import Chart, { ChartDataPoint, ChartType } from "@/components/sales-crm/ui/Char
 import ExportModal from "@apex/sales-crm-shared/components/ExportModal";
 import Toast from "@apex/sales-crm-shared/components/Toast";
 import { ReportArtifact, downloadReportExport } from "@/lib/sales-crm/report-output";
-import styles from "@/styles/sales-crm/analytics.module.css";
+import styles from "../styles/analytics.module.css";
 import dash from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 

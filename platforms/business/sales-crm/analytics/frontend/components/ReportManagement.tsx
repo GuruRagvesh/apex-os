@@ -5,7 +5,7 @@ import { Plus, Edit2, Trash2 } from "lucide-react";
 import { useAnalyticsStore, ReportProfile, createAnalyticsId } from "@/lib/sales-crm/analytics-store";
 import ProfileModal from "./ProfileModal";
 import ConfirmModal from "@/components/sales-crm/ui/ConfirmModal";
-import styles from "@/styles/sales-crm/analytics.module.css";
+import styles from "../styles/analytics.module.css";
 import dash from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 

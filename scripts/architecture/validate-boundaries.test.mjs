@@ -4398,6 +4398,41 @@ assertContract('no Sales CRM barrel re-exports a stylesheet', () => {
   return problems;
 });
 
+
+// 246. D12 in the other direction: dashboard must not reach into analytics.
+testCase(
+  'rejects Sales CRM dashboard importing analytics internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/analytics/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/dashboard/frontend/components/SalesCrmDashboard.tsx',
+      `import ReportsView from '@apex/sales-crm-analytics/frontend/components/ReportsView';
+export default ReportsView;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 247. A route may consume the analytics public entry.
+testCase(
+  'accepts a route consuming the Sales CRM analytics public entry',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/analytics/index.ts', `export const SalesCrmAnalytics = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/sales-crm/analytics/page.tsx',
+      `import { SalesCrmAnalytics } from '@apex/sales-crm-analytics';
+export default SalesCrmAnalytics;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -4460,6 +4495,7 @@ testRealRepoDebtCounts({
   'DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND': 2,
   'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
   'DEBT-P2B1-SALES-CRM-DASHBOARD-LEGACY-FRONTEND': 11,
+  'DEBT-P2B2-SALES-CRM-ANALYTICS-LEGACY-FRONTEND': 12,
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

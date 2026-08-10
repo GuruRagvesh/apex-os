@@ -8,7 +8,7 @@ import DashboardGrid from "./DashboardGrid";
 import ReportsView from "./ReportsView";
 import ScheduledReports from "./ScheduledReports";
 import ReportManagement from "./ReportManagement";
-import styles from "@/styles/sales-crm/analytics.module.css";
+import styles from "../styles/analytics.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 
 type AnalyticsMode = "personal" | "team";
