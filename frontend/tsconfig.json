@@ -25,6 +25,7 @@
       "@apex/sales-crm-database": ["../platforms/business/sales-crm/database/index.ts"],
       "@apex/sales-crm-settings": ["../platforms/business/sales-crm/settings/index.ts"],
       "@apex/sales-crm-shell": ["../platforms/business/sales-crm/shell/index.ts"],
+      "@apex/sales-crm-shell/components/*": ["../platforms/business/sales-crm/shell/frontend/components/*"],
       "@apex/operations-projects": ["../platforms/operations/projects/project-management/index.ts"],
       "@apex/operations-projects/screens/*": ["../platforms/operations/projects/project-management/frontend/screens/*"],
       "@apex/intelligence-dashboard": ["../platforms/intelligence/dashboard/overview/index.ts"],
