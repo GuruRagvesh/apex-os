@@ -614,7 +614,7 @@ testCase(
 
 // 35. The company-repository exemption applies to the exact adapter file only.
 testCase(
-  'accepts CompanyAutocomplete importing the legacy company repository',
+  'rejects CompanyAutocomplete importing the retired legacy company repository',
   (root) => {
     write(
       root,
@@ -622,12 +622,13 @@ testCase(
       `import { LocalStorageCompanyRepository } from '@/lib/sales-crm/company/company-repository';\nexport const C = () => LocalStorageCompanyRepository;\n`,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
-// 36. A sibling Leads component cannot reuse the company-repository exemption.
+// 36. No Leads component may reach the legacy company-repository path. Phase 2B
+//     moved the file into the component and retired its exemption entirely.
 testCase(
-  'rejects a sibling Leads component reusing the company-repository exemption',
+  'rejects any Leads component importing the legacy company-repository path',
   (root) => {
     write(
       root,
@@ -4234,6 +4235,205 @@ export default getCompanyNow;
   { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
+// ── Sales CRM Phase 2B: shared stylesheet exact-path boundary ──────────────
+// dashboard.module.css is consumed by three feature folders, so it lives in
+// shared/ and is published by EXACT PATH. Routing a CSS module through a JS
+// barrel moves it in the bundle graph and changes its cascade position against
+// the other stylesheets on the same nodes — which is a behaviour change.
+
+// 237. The exact stylesheet path is public.
+testCase(
+  'accepts the exact shared dashboard stylesheet path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/dashboard.module.css', `.x { color: red; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/LeadsScreen.tsx',
+      `import styles from '@apex/sales-crm-shared/styles/dashboard.module.css';
+export default styles;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 238. The same file addressed through the component's internal folder is not.
+testCase(
+  'rejects the shared dashboard stylesheet through an internal path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/dashboard.module.css', `.x { color: red; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/LeadsScreen.tsx',
+      `import styles from '@apex/sales-crm-shared/frontend/styles/dashboard.module.css';
+export default styles;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 239. An undeclared stylesheet beside it stays private — publication is an
+//      exact allowlist, not a directory grant.
+testCase(
+  'rejects an undeclared stylesheet in the shared styles folder',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/styles/secret.module.css', `.x { color: red; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/LeadsScreen.tsx',
+      `import styles from '@apex/sales-crm-shared/styles/secret.module.css';
+export default styles;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// ── Sales CRM Phase 2B: dashboard component ────────────────────────────────
+// D12 keeps dashboard and analytics as separate components. These tests pin
+// that separation and the shared-component publication that makes it possible.
+
+// 240. A route may consume the dashboard public entry.
+testCase(
+  'accepts a route consuming the Sales CRM dashboard public entry',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/dashboard/index.ts', `export const SalesCrmDashboard = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/sales-crm/page.tsx',
+      `import { SalesCrmDashboard } from '@apex/sales-crm-dashboard';
+export default SalesCrmDashboard;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 241. Its internals stay private.
+testCase(
+  'rejects external code importing Sales CRM dashboard internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/dashboard/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/leads/frontend/screens/LeadsScreen.tsx',
+      `import TopKpiStrip from '@apex/sales-crm-dashboard/frontend/components/TopKpiStrip';
+export default TopKpiStrip;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 242. D12: analytics must not reach into dashboard internals. This is the
+//      reason Toast and ExportModal moved to shared rather than staying put.
+testCase(
+  'rejects Sales CRM analytics importing dashboard internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/dashboard/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/analytics/frontend/components/ReportsView.tsx',
+      `import Toast from '@apex/sales-crm-dashboard/frontend/components/Toast';
+export default Toast;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 243. The two genuinely cross-feature components are published by exact path.
+testCase(
+  'accepts the exact shared Toast and ExportModal component paths',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/components/Toast.tsx', `export default function T() { return null; }
+`);
+    write(root, 'platforms/business/sales-crm/shared/frontend/components/ExportModal.tsx', `export default function E() { return null; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/dashboard/frontend/components/SalesCrmDashboard.tsx',
+      `import Toast from '@apex/sales-crm-shared/components/Toast';
+import ExportModal from '@apex/sales-crm-shared/components/ExportModal';
+export default function S() { return [Toast, ExportModal]; }
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 244. An undeclared sibling shared component stays private.
+testCase(
+  'rejects an undeclared shared Sales CRM component path',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/shared/frontend/components/Secret.tsx', `export default function S() { return null; }
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/dashboard/frontend/components/SalesCrmDashboard.tsx',
+      `import Secret from '@apex/sales-crm-shared/components/Secret';
+export default Secret;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 245. The dashboard barrel must not re-export a stylesheet. Doing so would
+//      move the CSS module in the bundle graph and change its cascade order.
+assertContract('no Sales CRM barrel re-exports a stylesheet', () => {
+  const problems = [];
+  for (const f of repoSources()) {
+    if (!f.startsWith('platforms/business/sales-crm/')) continue;
+    if (!f.endsWith('index.ts')) continue;
+    const src = codeOf(readRepo(f) ?? '');
+    if (/\.css['"]/.test(src)) problems.push(`${f} routes a stylesheet through a JS barrel`);
+  }
+  return problems;
+});
+
+
+// 246. D12 in the other direction: dashboard must not reach into analytics.
+testCase(
+  'rejects Sales CRM dashboard importing analytics internals',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/analytics/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/business/sales-crm/dashboard/frontend/components/SalesCrmDashboard.tsx',
+      `import ReportsView from '@apex/sales-crm-analytics/frontend/components/ReportsView';
+export default ReportsView;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 247. A route may consume the analytics public entry.
+testCase(
+  'accepts a route consuming the Sales CRM analytics public entry',
+  (root) => {
+    write(root, 'platforms/business/sales-crm/analytics/index.ts', `export const SalesCrmAnalytics = () => null;
+`);
+    write(
+      root,
+      'apps/web/app/sales-crm/analytics/page.tsx',
+      `import { SalesCrmAnalytics } from '@apex/sales-crm-analytics';
+export default SalesCrmAnalytics;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -4281,7 +4481,6 @@ function testRealRepoDebtCounts(expected) {
 }
 
 testRealRepoDebtCounts({
-  'DEBT-P2B-LEADS-COMPANY-REPOSITORY': 1,
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 5,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
@@ -4295,6 +4494,7 @@ testRealRepoDebtCounts({
   'DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND': 1,
   'DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND': 2,
   'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
+
 });
 
 // ── Phase 2C behaviour lock ─────────────────────────────────────────────────

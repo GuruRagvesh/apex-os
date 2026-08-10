@@ -1,5 +1,5 @@
 import { Handshake } from 'lucide-react';
-import { PlannedPane } from '@/components/sales-crm/shell/PlannedPane';
+import { PlannedPane } from '@apex/sales-crm-shell/components/PlannedPane';
 
 export default function SalesCrmDealsPage() {
   return (

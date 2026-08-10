@@ -19,6 +19,14 @@
     "@apex/sales-crm-leads": "platforms/business/sales-crm/leads",
     "@apex/sales-crm-shared": "platforms/business/sales-crm/shared",
     "@apex/sales-crm-shared/styles": "platforms/business/sales-crm/shared/frontend/styles",
+    "@apex/sales-crm-shared/components": "platforms/business/sales-crm/shared/frontend/components",
+    "@apex/sales-crm-shared/lib": "platforms/business/sales-crm/shared/frontend/lib",
+    "@apex/sales-crm-dashboard": "platforms/business/sales-crm/dashboard",
+    "@apex/sales-crm-analytics": "platforms/business/sales-crm/analytics",
+    "@apex/sales-crm-database": "platforms/business/sales-crm/database",
+    "@apex/sales-crm-settings": "platforms/business/sales-crm/settings",
+    "@apex/sales-crm-shell": "platforms/business/sales-crm/shell",
+    "@apex/sales-crm-shell/components": "platforms/business/sales-crm/shell/frontend/components",
     "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
     "@apex/shared-auth": "shared/auth",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
@@ -54,6 +62,16 @@
     "description": "Entry points that are PUBLIC despite living under a component-internal folder, for things that must not travel through the component's root barrel. Two reasons arise in practice. (1) A CSS module re-exported through a JavaScript barrel changes position in the bundle graph and therefore its cascade order against other stylesheets applied to the same elements. (2) An HTTP API re-exported through the root barrel drags axios and the authenticated-client module into every consumer of that barrel, including screens that only want types or constants. Matching is on the ORIGINAL IMPORT SPECIFIER, not on the resolved path: several spellings can resolve to the same file, and only the canonical alias is public. '@apex/sales-crm-shared/api' passes; '@apex/sales-crm-shared/frontend/api/sales-crm-leads-api' addresses the same code through the component's internal folder and is REJECTED. Each entry maps the exact permitted specifier to the exact repository path it must resolve to — if the two disagree the import is rejected, so a drifting alias in frontend/tsconfig.json cannot silently widen this. Exact specifiers only: never a wildcard, never a directory prefix.",
     "specifiers": {
       "@apex/sales-crm-shared/styles/primitives.module.css": "platforms/business/sales-crm/shared/frontend/styles/primitives.module.css",
+      "@apex/sales-crm-shared/styles/dashboard.module.css": "platforms/business/sales-crm/shared/frontend/styles/dashboard.module.css",
+      "@apex/sales-crm-shared/components/Toast": "platforms/business/sales-crm/shared/frontend/components/Toast",
+      "@apex/sales-crm-shared/components/ExportModal": "platforms/business/sales-crm/shared/frontend/components/ExportModal",
+      "@apex/sales-crm-shared/components/Chart": "platforms/business/sales-crm/shared/frontend/components/Chart",
+      "@apex/sales-crm-shared/components/ConfirmModal": "platforms/business/sales-crm/shared/frontend/components/ConfirmModal",
+      "@apex/sales-crm-shell/components/PlannedPane": "platforms/business/sales-crm/shell/frontend/components/PlannedPane",
+      "@apex/sales-crm-shared/lib/database-data": "platforms/business/sales-crm/shared/frontend/lib/database-data",
+      "@apex/sales-crm-shared/lib/analytics-store": "platforms/business/sales-crm/shared/frontend/lib/analytics-store",
+      "@apex/sales-crm-shared/lib/dashboard-calculations": "platforms/business/sales-crm/shared/frontend/lib/dashboard-calculations",
+      "@apex/sales-crm-shared/lib/report-output": "platforms/business/sales-crm/shared/frontend/lib/report-output",
       "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
       "@apex/operations-projects/screens/ProjectsScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectsScreen",
       "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen",
@@ -367,20 +385,6 @@
           "frontend/lib/api.ts: projectsApi becomes a Projects-owned adapter once core/users and operations/tickets stop consuming it, or once an app-wide API layer is compartmentalised",
           "frontend/lib/utils.ts: PROJECT_STATUS_LABELS and PROJECT_STATUS_COLORS split out to this component (cn/formatDate/getInitials already moved to shared/utilities)",
           "frontend/components/tickets/ticket-row.tsx: operations/tickets is compartmentalised and TicketRow is consumed through its public entry"
-        ]
-      },
-      {
-        "id": "DEBT-P2B-LEADS-COMPANY-REPOSITORY",
-        "status": "temporary",
-        "introducedIn": "Phase 2B",
-        "removalPhase": "Phase 2D (Sales CRM company/database ownership)",
-        "from": "platforms/business/sales-crm/leads/frontend/components/CompanyAutocomplete.tsx",
-        "allowedTargets": ["frontend/lib/sales-crm/company/company-repository.ts"],
-        "reason": "Phase 2B moved CompanyAutocomplete into the Leads component because Leads is its only consumer. Its company lookup still calls LocalStorageCompanyRepository, which could not follow: the repository has a second importer (frontend/lib/sales-crm/storage.ts) and it reads MOCK_CLIENTS from frontend/lib/sales-crm/database-data.ts, which is owned by the unmigrated Sales CRM database component. Moving the repository into Leads would take a database-owned dependency with it; moving it into the shared component would make shared depend on a feature's mock data. Both invert ownership, so the repository stays where it is until the company/database concern gets an owner.",
-        "removalConditions": [
-          "The Sales CRM database component migrates, giving database-data.ts an owner",
-          "LocalStorageCompanyRepository and its normalization helper move to that owner or to the Sales CRM shared component",
-          "CompanyAutocomplete consumes it through a public entry point"
         ]
       },
       {
