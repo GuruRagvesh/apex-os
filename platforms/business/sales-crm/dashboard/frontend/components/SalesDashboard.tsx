@@ -1,5 +1,5 @@
 import React from "react";
-import { DashboardData } from "@/lib/sales-crm/dashboard-calculations";
+import { DashboardData } from "@apex/sales-crm-shared/lib/dashboard-calculations";
 import TopKpiStrip from "./TopKpiStrip";
 import LeadFunnel from "./LeadFunnel";
 import TodayActionBoard from "./TodayActionBoard";

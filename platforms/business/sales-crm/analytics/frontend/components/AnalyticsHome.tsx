@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAnalyticsStore, canViewItem, getUserAnalyticsContext } from "@/lib/sales-crm/analytics-store";
+import { useAnalyticsStore, canViewItem, getUserAnalyticsContext } from "@apex/sales-crm-shared/lib/analytics-store";
 import { useAuth } from "@apex/sales-crm-shared";
 import { Pin } from "lucide-react";
 import styles from "../styles/analytics.module.css";
@@ -68,7 +68,7 @@ export default function AnalyticsHome({
                   <span
                     className={styles["analytics-cursor-pointer"]}
                     onClick={() => {
-                      if ((r as import("@/lib/sales-crm/analytics-store").ReportConfig).type === "Saved") {
+                      if ((r as import("@apex/sales-crm-shared/lib/analytics-store").ReportConfig).type === "Saved") {
                         setUiState({ activeSavedReportId: r.id, activeReportId: null });
                       } else {
                         setUiState({ activeReportId: r.id, activeSavedReportId: null });

@@ -7,20 +7,20 @@
 // adapter, not intern's mock auth.
 
 import { useEffect, useState, useCallback } from "react";
-import { DashboardData, getDashboardData } from "@/lib/sales-crm/dashboard-calculations";
+import { DashboardData, getDashboardData } from "@apex/sales-crm-shared/lib/dashboard-calculations";
 import { useAuth, Role } from "@apex/sales-crm-shared";
 import DashboardHeader from "./DashboardHeader";
 import QuickAdd from "./QuickAdd";
 import SalesDashboard from "./SalesDashboard";
 import ExportModal from "@apex/sales-crm-shared/components/ExportModal";
 import ShareModal from "./ShareModal";
-import { useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
+import { useAnalyticsStore } from "@apex/sales-crm-shared/lib/analytics-store";
 import Toast from "@apex/sales-crm-shared/components/Toast";
 import {
   ReportArtifact,
   createSharePackage,
   downloadReportExport,
-} from "@/lib/sales-crm/report-output";
+} from "@apex/sales-crm-shared/lib/report-output";
 import styles from "@apex/sales-crm-shared/styles/dashboard.module.css";
 
 export default function SalesCrmDashboard() {

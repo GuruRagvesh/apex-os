@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Plus, Edit2, Trash2 } from "lucide-react";
-import { useAnalyticsStore, ReportProfile, createAnalyticsId } from "@/lib/sales-crm/analytics-store";
+import { useAnalyticsStore, ReportProfile, createAnalyticsId } from "@apex/sales-crm-shared/lib/analytics-store";
 import ProfileModal from "./ProfileModal";
 import ConfirmModal from "@apex/sales-crm-shared/components/ConfirmModal";
 import styles from "../styles/analytics.module.css";

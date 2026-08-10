@@ -1,6 +1,6 @@
 "use client";
 
-import { DashboardData } from "@/lib/sales-crm/dashboard-calculations";
+import { DashboardData } from "@apex/sales-crm-shared/lib/dashboard-calculations";
 import styles from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
 

@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { ArrowUpDown, Download, Filter, Pin, Plus, Search, X } from "lucide-react";
-import { ReportConfig, SavedReport, canViewItem, createAnalyticsId, getUserAnalyticsContext, useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
+import { ReportConfig, SavedReport, canViewItem, createAnalyticsId, getUserAnalyticsContext, useAnalyticsStore } from "@apex/sales-crm-shared/lib/analytics-store";
 import { useAuth } from "@apex/sales-crm-shared";
 import Chart, { ChartDataPoint, ChartType } from "@apex/sales-crm-shared/components/Chart";
 import ExportModal from "@apex/sales-crm-shared/components/ExportModal";
 import Toast from "@apex/sales-crm-shared/components/Toast";
-import { ReportArtifact, downloadReportExport } from "@/lib/sales-crm/report-output";
+import { ReportArtifact, downloadReportExport } from "@apex/sales-crm-shared/lib/report-output";
 import styles from "../styles/analytics.module.css";
 import dash from "@apex/sales-crm-shared/styles/dashboard.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";

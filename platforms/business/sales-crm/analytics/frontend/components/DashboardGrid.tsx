@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { Download, Expand, LayoutGrid, Maximize2, Pin, RefreshCw, X } from "lucide-react";
 import Chart, { ChartDataPoint, ChartType } from "@apex/sales-crm-shared/components/Chart";
-import { useAnalyticsStore } from "@/lib/sales-crm/analytics-store";
-import { downloadReportExport } from "@/lib/sales-crm/report-output";
+import { useAnalyticsStore } from "@apex/sales-crm-shared/lib/analytics-store";
+import { downloadReportExport } from "@apex/sales-crm-shared/lib/report-output";
 import Toast from "@apex/sales-crm-shared/components/Toast";
 import styles from "../styles/analytics.module.css";
 import ui from "@apex/sales-crm-shared/styles/primitives.module.css";
