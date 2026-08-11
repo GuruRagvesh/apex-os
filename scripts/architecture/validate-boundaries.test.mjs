@@ -1050,7 +1050,7 @@ testCase(
     write(
       root,
       'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
-      `import { projectsApi } from '@/lib/api';\nimport { cn } from '@/lib/utils';\nimport { TicketRow } from '@/components/tickets/ticket-row';\nexport default function S() { return null; }\n`,
+      `import { projectsApi } from '@/lib/api';\nimport { cn } from '@/lib/utils';\nexport default function S() { return null; }\n`,
     );
   },
   { expectExit: 0 },
@@ -2770,14 +2770,13 @@ export const A = X;
 
 // 150. The DEBT-P8 allowlist covers exactly its three targets...
 testCase(
-  'accepts the two allowlisted Core Users Profiles legacy targets',
+  'accepts the single allowlisted Core Users Profiles legacy target',
   (root) => {
     write(
       root,
       'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
       `import { usersApi } from '@/lib/api';
-import { TicketRow } from '@/components/tickets/ticket-row';
-export default function S() { return [usersApi, TicketRow]; }
+export default function S() { return usersApi; }
 `,
     );
   },
@@ -4606,12 +4605,13 @@ function testRealRepoDebtCounts(expected) {
 
 testRealRepoDebtCounts({
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
-  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 5,
+  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 4,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 1,
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
-  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 3,
+  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 2,
+  'DEBT-T1-TICKETS-LIFECYCLE-LEGACY-FRONTEND': 1,
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
   'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
   'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,

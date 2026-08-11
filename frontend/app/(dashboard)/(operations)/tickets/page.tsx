@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
-import { TicketRow } from '@/components/tickets/ticket-row';
+import { TicketRow } from '@apex/operations-tickets-lifecycle/components/ticket-row';
 import { SkeletonTicketRows } from '@apex/shared-ui/components/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSocket } from '@/hooks/useSocket';

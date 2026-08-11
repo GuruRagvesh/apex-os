@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, dashboardApi, leaveApi, projectsApi, changeRequestsApi, departmentsApi, usersApi, rolesApi } from '@/lib/api';
 import Link from 'next/link';
 import { Settings, Ticket, Clock, CalendarOff, FolderKanban, Network, Edit3, X, Plus, ArrowRight } from 'lucide-react';
-import { TicketRow } from '@/components/tickets/ticket-row';
+import { TicketRow } from '@apex/operations-tickets-lifecycle/components/ticket-row';
 import { ActivityItem } from '../components/activity-item';
 import { Skeleton } from '@apex/shared-ui/components/skeleton';
 import { useState, useMemo } from 'react';

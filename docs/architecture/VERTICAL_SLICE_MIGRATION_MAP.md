@@ -802,8 +802,8 @@ created.** They are built when the features are built.
 | `frontend/app/(dashboard)/(operations)/tickets/[id]/page.tsx` | `platforms/operations/tickets/lifecycle/frontend/screens/` ⚠️ also renders review/rework |
 | `frontend/app/(dashboard)/(operations)/kanban/page.tsx` | `platforms/operations/tickets/lifecycle/frontend/screens/` |
 | `frontend/components/tickets/OverdueTicker.tsx` | `platforms/operations/tickets/sla/frontend/components/` |
-| `frontend/components/tickets/ticket-row.tsx` | ❓ U1 — duplicate |
-| `frontend/modules/operations/tickets/components/TicketRow.tsx` | ❓ U1 — duplicate |
+| `frontend/components/tickets/ticket-row.tsx` | ✅ `platforms/operations/tickets/lifecycle/frontend/components/` — **U1 RESOLVED**, published as an exact subpath |
+| `frontend/modules/operations/tickets/components/TicketRow.tsx` | ✅ **U1 RESOLVED** — a zero-consumer re-export shim, not a second implementation. Retained in legacy, repointed at the new public subpath. |
 | `frontend/modules/operations/tickets/tickets.api.ts` | `platforms/operations/tickets/lifecycle/frontend/api/` |
 | `frontend/modules/operations/tickets/tickets.types.ts` | `platforms/operations/tickets/shared/contracts/` |
 | `frontend/lib/ticket-timing.ts` | `platforms/operations/tickets/sla/shared/` |
@@ -813,6 +813,39 @@ created.** They are built when the features are built.
 | `e2e/tests/wf1-ticket-execution.spec.ts` | `platforms/operations/tickets/lifecycle/tests/e2e/` |
 | `e2e/tests/wf2-team-lead-review.spec.ts` | `platforms/operations/tickets/review-rework/tests/e2e/` |
 | `e2e/tests/wf4-cross-department-block.spec.ts` | `platforms/operations/tickets/blocking/tests/e2e/` |
+
+> **Status update (2026-08-11) — U1 RESOLVED; ticket-row is lifecycle-owned.**
+>
+> Evidence: `frontend/components/tickets/ticket-row.tsx` (225 ln) had **4 consumers**
+> — the tickets list, the `modules/` shim, `core/users/profiles` and
+> `operations/projects`. `frontend/modules/operations/tickets/components/TicketRow.tsx`
+> is a **5-line re-export with zero consumers**. They are not two implementations,
+> so U1 was never a canonicity question — it was an ownership question.
+>
+> **Decision: ticket-row is ticket-domain presentation and belongs to `lifecycle`.**
+> It renders ticket status, priority, visibility and the SLA ticker; it is not
+> generic enterprise UI. Projects and Core Users *consume* ticket presentation,
+> and cross-feature consumption does not make a component generic — that is
+> exactly what a public boundary is for.
+>
+> Published as the exact subpath
+> `@apex/operations-tickets-lifecycle/components/ticket-row`, **never through the
+> lifecycle barrel**: the barrel carries the pure visibility contract, and routing
+> a React component through it would pull ticket presentation into every consumer
+> that only wants the contract.
+>
+> The `modules/` shim was **retained, not deleted** — same treatment as the other
+> zero-importer shims (`projects.api.ts`, `leave.api.ts`, `team.api.ts`) — and
+> repointed at the new public subpath. Deleting it is a separate decision.
+>
+> Debt 29 → 28: `DEBT-P8` 3→2 and `DEBT-P3` 5→4 both lose their ticket-row
+> import, and new `DEBT-T1-TICKETS-LIFECYCLE-LEGACY-FRONTEND` (1) covers the
+> `lib/utils.ts` vocabulary ticket-row still renders. That vocabulary was
+> deliberately left behind: `PRIORITY_COLORS`, `STATUS_COLORS` and
+> `PRIORITY_LABELS` have Projects and Core Users consumers, so their ownership is
+> a separate unresolved question and must not be forced to retire a file.
+>
+> `frontend/components/tickets/` is now empty.
 
 ### operations/projects ✅
 
@@ -1355,7 +1388,7 @@ made now.
 
 | # | Item | Why deferred | Phase |
 | --- | --- | --- | --- |
-| U1 | `frontend/components/tickets/ticket-row.tsx` vs `frontend/modules/operations/tickets/components/TicketRow.tsx` | Two implementations of the same concept in the two competing frontend styles. Which is canonical, and whether they are behaviourally identical, requires reading both against their call sites. Migrating both would preserve duplication inside a structure that claims to have none. | 4 |
+| ~~U1~~ | ~~`ticket-row.tsx` vs `TicketRow.tsx`~~ | **RESOLVED 2026-08-11.** The premise was wrong: these were never two implementations. `components/tickets/ticket-row.tsx` (225 ln) is the only one, with 4 consumers; `modules/.../TicketRow.tsx` is a 5-line re-export with **zero** consumers. The real question was ownership, answered below. | — |
 | U2 | Attendance policy source of truth | The live `AppSetting` `workday_policy` record and the fully-migrated but entirely unwired `AttendancePolicy` / `ShiftPolicy` / `EmployeeAttendanceProfile` / `WeeklyOffPolicy` / `HolidayCalendar` models are two competing systems. A grep for those model names across `backend/src` returns zero files. The `policies/` component boundary cannot be settled until the transition is decided — and that is a product decision, not a structural one. | 5 |
 | U3 | `tickets/attachments/` boundary | No dedicated backend file exists; attachment handling is split between `tickets.service.ts` and `system/uploads`. Defining the boundary requires tracing the actual call paths. | 4 |
 | U4 | `staging` HRMS backend | `backend/src/modules/platform/hrms-attendance/` exists only on `staging`, which is 19 commits behind `main`. It cannot be assigned a target until `staging` is reconstructed and its content reconciled with `main`. | 5 |
