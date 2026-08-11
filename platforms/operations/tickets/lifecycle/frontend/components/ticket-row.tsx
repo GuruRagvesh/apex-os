@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
-import { STATUS_COLORS, STATUS_LABELS, DEPT_COLORS, formatRelativeTime } from '@/lib/utils';
-import { cn, formatDate, getInitials } from '@apex/shared-utilities';
+import { STATUS_COLORS, STATUS_LABELS, DEPT_COLORS } from '../../shared/ticket-vocabulary';
+import { cn, formatDate, getInitials, formatRelativeTime } from '@apex/shared-utilities';
 import { getTicketVisibility, PRIORITY_DOT } from '../../shared/ticket-visibility';
 import { TimingTicker } from '@apex/operations-tickets-sla/components/OverdueTicker';
 import { Clock, Copy, AlertTriangle } from 'lucide-react';

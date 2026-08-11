@@ -33,6 +33,7 @@
       "@apex/operations-tickets-sla/components/*": ["../platforms/operations/tickets/sla/frontend/components/*"],
       "@apex/operations-tickets-lifecycle": ["../platforms/operations/tickets/lifecycle/index.ts"],
       "@apex/operations-tickets-lifecycle/components/*": ["../platforms/operations/tickets/lifecycle/frontend/components/*"],
+      "@apex/operations-tickets-lifecycle/shared/*": ["../platforms/operations/tickets/lifecycle/shared/*"],
       "@apex/intelligence-dashboard": ["../platforms/intelligence/dashboard/overview/index.ts"],
       "@apex/intelligence-analytics": ["../platforms/intelligence/analytics/overview/index.ts"],
       "@apex/shared-auth": ["../shared/auth/index.ts"],

@@ -1320,6 +1320,23 @@ created.** They are built when the features are built.
 > authorities. Its de-duplication is a separate decision.
 | `shared/observability/` | `backend/src/instrument.ts` |
 | `shared/utilities/` | `frontend/lib/utils.ts`, `download-screenshot.ts`, `frontend/hooks/{useDebounce,useTheme}.ts` |
+
+> **Status update (2026-08-11) — `frontend/lib/utils.ts` is RETIRED.** The row
+> above is now historical: the file did not move to `shared/utilities` wholesale,
+> it was split by ownership across four destinations, which is the rule this
+> migration settled on rather than the one the row assumed.
+>
+> | Symbols | Went to |
+> | --- | --- |
+> | `cn`, `formatDate`, `getInitials`, `formatRelativeTime` | `shared/utilities` |
+> | `PROJECT_STATUS_*` | `operations/projects/project-management` |
+> | `LEAVE_STATUS_*` | `workforce/leave/applications` |
+> | `PRIORITY_LABELS`, `PRIORITY_COLORS` | `shared/configuration` — cross-domain enum |
+> | `STATUS_*`, `CATEGORY_*`, `DEPT_COLORS`, `ROLE_LABELS`, `formatRole` | `operations/tickets/lifecycle` |
+>
+> Zero runtime importers remained, so the file was deleted. That is +1 original
+> runtime file relocated, and it retired `DEBT-T1-TICKETS-LIFECYCLE-LEGACY-FRONTEND`
+> outright while narrowing `DEBT-P6` and `DEBT-P3` to `lib/api.ts` only.
 | `shared/testing/` | `backend/test/helpers/{app,auth}.helper.ts`, `backend/test/jest.env.ts`, `e2e/tests/utils.ts` |
 
 > **D1 — `shared/time/` is the Time/Value Authority's home.** Attendance,

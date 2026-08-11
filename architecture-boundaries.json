@@ -35,6 +35,7 @@
     "@apex/operations-tickets-sla/components": "platforms/operations/tickets/sla/frontend/components",
     "@apex/operations-tickets-lifecycle": "platforms/operations/tickets/lifecycle",
     "@apex/operations-tickets-lifecycle/components": "platforms/operations/tickets/lifecycle/frontend/components",
+    "@apex/operations-tickets-lifecycle/shared": "platforms/operations/tickets/lifecycle/shared",
     "@apex/intelligence-dashboard": "platforms/intelligence/dashboard/overview",
     "@apex/intelligence-analytics": "platforms/intelligence/analytics/overview",
     "@apex/shared-ui": "shared/ui",
@@ -82,6 +83,7 @@
       "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen",
       "@apex/operations-tickets-sla/components/OverdueTicker": "platforms/operations/tickets/sla/frontend/components/OverdueTicker",
       "@apex/operations-tickets-lifecycle/components/ticket-row": "platforms/operations/tickets/lifecycle/frontend/components/ticket-row",
+      "@apex/operations-tickets-lifecycle/shared/ticket-vocabulary": "platforms/operations/tickets/lifecycle/shared/ticket-vocabulary",
       "@apex/shared-ui/components/breadcrumb": "shared/ui/frontend/components/breadcrumb",
       "@apex/shared-ui/components/empty-state": "shared/ui/frontend/components/empty-state",
       "@apex/shared-ui/components/user-avatar": "shared/ui/frontend/components/user-avatar",
@@ -309,20 +311,6 @@
         ]
       },
       {
-        "id": "DEBT-T1-TICKETS-LIFECYCLE-LEGACY-FRONTEND",
-        "status": "temporary",
-        "introducedIn": "Operations Tickets T1 - ticket-row ownership (U1)",
-        "removalPhase": "When the cross-component ownership of PRIORITY/STATUS vocabulary is settled",
-        "from": "platforms/operations/tickets/lifecycle/frontend/",
-        "allowedTargets": [
-          "frontend/lib/utils.ts"
-        ],
-        "reason": "ticket-row renders ticket status, priority and department vocabulary that still lives in frontend/lib/utils.ts. Those constants were deliberately NOT moved with it: PRIORITY_COLORS, STATUS_COLORS and PRIORITY_LABELS have consumers in operations/projects and core/users as well as ticket surfaces, so assigning them to a ticket component is an unsettled ownership question that must not be forced through in order to retire a file. Everything else this component needs already arrives publicly - the SLA ticker through @apex/operations-tickets-sla/components/OverdueTicker, and cn/formatDate/getInitials/formatRelativeTime through @apex/shared-utilities. This exemption names exactly one target.",
-        "removalConditions": [
-          "frontend/lib/utils.ts: the ticket status/priority/department vocabulary finds an authorised owner, which requires resolving whether it is ticket-owned or generic enterprise vocabulary"
-        ]
-      },
-      {
         "id": "DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND",
         "status": "temporary",
         "introducedIn": "Core Users profiles frontend compartmentalisation",
@@ -345,8 +333,7 @@
         "removalPhase": "Per-target: see removalConditions",
         "from": "platforms/core/users/administration/frontend/",
         "allowedTargets": [
-          "frontend/lib/api.ts",
-          "frontend/lib/utils.ts"
+          "frontend/lib/api.ts"
         ],
         "reason": "The two admin screens moved verbatim and carry legacy imports across three targets. None is Core Users-owned: lib/api.ts holds application-wide API groups (usersApi, rolesApi, departmentsApi, ticketsApi, leaveApi, projectsApi, workdayApi, dashboardApi); lib/utils.ts supplies the ticket-owned STATUS_COLORS and PRIORITY_COLORS used to render a user's ticket list; auth.store.ts is the application-wide identity store. Note this component administers users but does NOT own identity - the auth store belongs to core/identity, and moving it here would invert that. Both screens already consume cn/formatDate/getInitials from @apex/shared-utilities, so that coupling is already retired.",
         "removalConditions": [

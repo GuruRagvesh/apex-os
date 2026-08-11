@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { PRIORITY_COLORS } from '@apex/shared-configuration';
-import { STATUS_COLORS } from '@/lib/utils';
+import { STATUS_COLORS } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn, formatDate } from '@apex/shared-utilities';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@apex/core-identity';

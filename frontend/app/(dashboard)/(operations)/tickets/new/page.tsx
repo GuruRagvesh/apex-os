@@ -7,7 +7,7 @@ import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi, taskTypesApi,
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Sparkles, Loader2, Clock, Plus, Copy, Trash2, Download, Upload, X } from 'lucide-react';
-import { formatRole } from '@/lib/utils';
+import { formatRole } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn } from '@apex/shared-utilities';
 import { MultiSelect } from '@apex/shared-ui/components/multi-select';
 

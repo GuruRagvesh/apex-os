@@ -1998,13 +1998,12 @@ export default function S() { return [cn, Skeleton]; }
 
 // 112. The Core Users exemption covers its three allowlisted targets only.
 testCase(
-  'accepts a Core Users screen importing its allowlisted legacy dependencies',
+  'accepts a Core Users screen importing its allowlisted legacy dependency',
   (root) => {
     write(
       root,
       'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
       `import { usersApi } from '@/lib/api';
-import { STATUS_COLORS } from '@/lib/utils';
 export default function S() { return null; }
 `,
     );
@@ -4608,10 +4607,9 @@ testRealRepoDebtCounts({
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 2,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 1,
-  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
+  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 2,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
   'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 2,
-  'DEBT-T1-TICKETS-LIFECYCLE-LEGACY-FRONTEND': 1,
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
   'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
   'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,

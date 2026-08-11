@@ -9,7 +9,7 @@ import { TicketRow } from '@apex/operations-tickets-lifecycle/components/ticket-
 import { SkeletonTicketRows } from '@apex/shared-ui/components/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSocket } from '@/hooks/useSocket';
-import { STATUS_LABELS } from '@/lib/utils';
+import { STATUS_LABELS } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn } from '@apex/shared-utilities';
 import { Plus, Search, RefreshCw, Download, AlertTriangle, UserCheck } from 'lucide-react';
 import Link from 'next/link';
