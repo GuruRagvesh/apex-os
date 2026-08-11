@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { PRIORITY_COLORS, STATUS_COLORS, STATUS_LABELS, PRIORITY_LABELS, DEPT_COLORS, formatRelativeTime } from '@/lib/utils';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
-import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
+import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
 import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { Clock, Copy, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';

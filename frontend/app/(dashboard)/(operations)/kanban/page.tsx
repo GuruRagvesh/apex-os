@@ -18,7 +18,7 @@ import { ticketsApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { PRIORITY_COLORS, PRIORITY_LABELS, DEPT_COLORS } from '@/lib/utils';
 import { cn, getInitials, formatDate } from '@apex/shared-utilities';
-import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
+import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
 import { TimingTicker } from '@/components/tickets/OverdueTicker';
 import { SkeletonKanbanColumn } from '@apex/shared-ui/components/skeleton';
 import { Plus, Clock, AlertTriangle, Loader2 } from 'lucide-react';

@@ -11,8 +11,8 @@ import {
   formatRelativeTime, formatRole,
 } from '@/lib/utils';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
-import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { computeClientTimingState } from '@/lib/ticket-timing';
+import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
+import { computeClientTimingState } from '@apex/operations-tickets-sla';
 import { SkeletonTicketDetail } from '@apex/shared-ui/components/skeleton';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
