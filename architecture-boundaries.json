@@ -78,6 +78,7 @@
       "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
       "@apex/operations-projects/screens/ProjectsScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectsScreen",
       "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen",
+      "@apex/operations-tickets-sla/components/OverdueTicker": "platforms/operations/tickets/sla/frontend/components/OverdueTicker",
       "@apex/shared-ui/components/breadcrumb": "shared/ui/frontend/components/breadcrumb",
       "@apex/shared-ui/components/empty-state": "shared/ui/frontend/components/empty-state",
       "@apex/shared-ui/components/user-avatar": "shared/ui/frontend/components/user-avatar",
