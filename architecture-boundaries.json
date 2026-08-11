@@ -309,7 +309,6 @@
         "from": "platforms/core/users/profiles/frontend/",
         "allowedTargets": [
           "frontend/lib/api.ts",
-          "frontend/lib/utils.ts",
           "frontend/components/tickets/ticket-row.tsx"
         ],
         "reason": "The two profile screens and the activity-item component moved and carry four legacy imports across three targets. None is Profiles-owned: lib/api.ts holds application-wide API groups (usersApi, rolesApi, departmentsApi, ticketsApi, leaveApi, projectsApi, dashboardApi, analyticsApi) plus changeRequestsApi, which belongs to the unmigrated core/users/change-requests component; lib/utils.ts supplies formatRelativeTime, consumed by activity-item; components/tickets/ticket-row.tsx is owned by operations/tickets and has four importers, so it cannot follow Profiles. The authentication coupling was NOT carried over - both screens consume useAuthStore through @apex/core-identity, making Profiles the first real consumer of that boundary. Skeleton comes from @apex/shared-ui/components/skeleton and getInitials from @apex/shared-utilities, so those couplings are already retired.",
