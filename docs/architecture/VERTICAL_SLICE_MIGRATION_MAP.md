@@ -804,7 +804,7 @@ created.** They are built when the features are built.
 | `frontend/components/tickets/OverdueTicker.tsx` | `platforms/operations/tickets/sla/frontend/components/` |
 | `frontend/components/tickets/ticket-row.tsx` | ✅ `platforms/operations/tickets/lifecycle/frontend/components/` — **U1 RESOLVED**, published as an exact subpath |
 | `frontend/modules/operations/tickets/components/TicketRow.tsx` | ✅ **U1 RESOLVED** — a zero-consumer re-export shim, not a second implementation. Retained in legacy, repointed at the new public subpath. |
-| `frontend/modules/operations/tickets/tickets.api.ts` | `platforms/operations/tickets/lifecycle/frontend/api/` |
+| `frontend/modules/operations/tickets/tickets.api.ts` | ✅ **DONE** — a zero-consumer re-export shim, like `TicketRow.tsx` above. The real `ticketsApi` implementation lived in `frontend/lib/api.ts` and is what actually moved to `platforms/operations/tickets/lifecycle/frontend/api/`. Shim retained in legacy. |
 | `frontend/modules/operations/tickets/tickets.types.ts` | `platforms/operations/tickets/shared/contracts/` |
 | `frontend/lib/ticket-timing.ts` | `platforms/operations/tickets/sla/shared/` |
 | `frontend/lib/ticket-visibility.ts` | `platforms/operations/tickets/lifecycle/shared/` |
@@ -814,6 +814,43 @@ created.** They are built when the features are built.
 | `e2e/tests/wf2-team-lead-review.spec.ts` | `platforms/operations/tickets/review-rework/tests/e2e/` |
 | `e2e/tests/wf4-cross-department-block.spec.ts` | `platforms/operations/tickets/blocking/tests/e2e/` |
 
+> **Status update (2026-08-11) — the ticket HTTP API is lifecycle-owned.**
+>
+> `ticketsApi` (**29 methods, 101 lines**) moved verbatim from `frontend/lib/api.ts`
+> to `platforms/operations/tickets/lifecycle/frontend/api/tickets-api.ts` and is
+> published as the exact subpath `@apex/operations-tickets-lifecycle/api` — never
+> through the component root barrel, which stays presentation-only so a consumer
+> wanting a status label does not load the authenticated client. Same reasoning,
+> and the same exact-subpath mechanism, as `@apex/sales-crm-shared/api`.
+>
+> **The map row above named the wrong source.** It listed
+> `frontend/modules/operations/tickets/tickets.api.ts`, which is a zero-consumer
+> re-export shim — the same shape as the `TicketRow.tsx` shim resolved in U1. The
+> implementation was always in `frontend/lib/api.ts`. The row is corrected above.
+>
+> `frontend/lib/api.ts` **survives and still owns 18 other API groups**, so this
+> retires **no original runtime file**: primary stays **150 / 423**. It re-exports
+> `ticketsApi` as a compatibility façade for the six legacy consumers (ticket
+> detail, creation, list, kanban, command palette, `useApprovalReminders`). The
+> façade is compatibility, not authority. Unlike the Sales CRM case, the façade is
+> safe here because the extracted module's only import is `@apex/shared-auth`,
+> which `lib/api.ts` already imports — no new module graph reaches its consumers.
+>
+> Five migrated consumers now import the component boundary directly:
+> `UserDetailScreen`, `ProfileScreen`, `AnalyticsScreen`, `DashboardScreen`,
+> `CalendarScreen`. **Debt is unchanged at 24** — every one of those five also
+> imports other groups from the same `@/lib/api` statement, and debt counts
+> statements, not symbols.
+>
+> **Carried-over transport exceptions, reported not fixed.** `fetchAttachmentBlob`,
+> `exportCsv` and `downloadImportTemplate` return binary bodies, so they bypass the
+> JSON axios instance: they use raw `fetch()` and read `apex_token` from
+> `localStorage` themselves, and `exportCsv` recomputes its own base URL from
+> `process.env.NEXT_PUBLIC_API_URL` instead of using `API_URL`. All of that predates
+> the move and was preserved byte-for-byte under R100. It is a latent inconsistency
+> — if `API_BASE_URL` and that recomputation ever diverge, `exportCsv` alone would
+> call a different host — and retiring it is a behaviour change owed its own phase.
+>
 > **Status update (2026-08-11) — U1 RESOLVED; ticket-row is lifecycle-owned.**
 >
 > Evidence: `frontend/components/tickets/ticket-row.tsx` (225 ln) had **4 consumers**
