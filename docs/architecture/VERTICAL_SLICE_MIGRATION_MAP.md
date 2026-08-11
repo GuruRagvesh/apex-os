@@ -1313,11 +1313,26 @@ created.** They are built when the features are built.
 > platforms" allowance — the opposite of its "feature-specific constants"
 > exclusion.
 >
-> `frontend/lib/constants.ts` itself was **NOT** migrated. It has zero consumers
-> and duplicates five symbols that already have owners
-> (`PROJECT_STATUS_LABELS`, `LEAVE_STATUS_LABELS`, `PRIORITY_LABELS`,
-> `STATUS_LABELS`, `DEPT_COLORS`). Moving it wholesale would create parallel
-> authorities. Its de-duplication is a separate decision.
+> **`frontend/lib/constants.ts` was RETIRED, not migrated (2026-08-11).** Its
+> map row above targeted `shared/configuration`, but moving it wholesale would
+> have recreated duplicate authorities: by the time this phase reached it, every
+> one of its exports already had a live owner elsewhere, and the file itself had
+> **zero consumers** — no static import, no dynamic `import()`, no `require()`.
+>
+> | Export | Live authority |
+> | --- | --- |
+> | `STATUS_LABELS`, `DEPT_COLORS` | `operations/tickets/lifecycle/shared/ticket-vocabulary.ts` |
+> | `PRIORITY_LABELS` | `shared/configuration/priority.ts` |
+> | `PROJECT_STATUS_LABELS` | `operations/projects/project-management/frontend/lib/project-status.ts` |
+> | `LEAVE_STATUS_LABELS` | `workforce/leave/applications/frontend/lib/leave-status.ts` |
+> | `ROLE_NAMES`, `RoleName` | `frontend/lib/roles.ts` (`ROLES`) — identical content, and the map already schedules that file for `shared/auth/roles.ts` |
+>
+> `ROLE_NAMES` is the one that matched by **content rather than name**: `ROLES` in
+> `roles.ts` is the same six keys, same values, same `as const`. `constants.ts`
+> held the duplicate; `roles.ts` is the mapped canonical source.
+>
+> Retiring the obsolete file rather than relocating a set of duplicates is
+> recorded here as the resolved decision for this row.
 | `shared/observability/` | `backend/src/instrument.ts` |
 | `shared/utilities/` | `frontend/lib/utils.ts`, `download-screenshot.ts`, `frontend/hooks/{useDebounce,useTheme}.ts` |
 
