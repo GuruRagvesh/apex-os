@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { computeClientTimingState, getTimingColorClasses } from '@/lib/ticket-timing';
+import { computeClientTimingState, getTimingColorClasses } from '../../shared/ticket-timing';
 
 // ── TimingTicker ─────────────────────────────────────────────────────────────
 // The canonical timing badge component.

@@ -7,7 +7,7 @@ import { Bell, Plus, CheckCheck, RefreshCw, Search, Loader2, User, Palette, Slid
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi, workdayApi } from '@/lib/api';
-import { formatRelativeTime } from '@/lib/utils';
+import { formatRelativeTime } from '@apex/shared-utilities';
 import { useSocket } from '@/hooks/useSocket';
 import { CommandPalette } from '@/components/ui/command-palette';
 import { UserAvatar } from '@apex/shared-ui/components/user-avatar';

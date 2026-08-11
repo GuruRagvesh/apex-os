@@ -10,7 +10,8 @@ import {
   CreditCard, ShieldCheck, Download, Plus, Shield, RefreshCw, CheckCircle2, XCircle
 } from 'lucide-react';
 import Link from 'next/link';
-import { STATUS_COLORS, PRIORITY_COLORS } from '@/lib/utils';
+import { PRIORITY_COLORS } from '@apex/shared-configuration';
+import { STATUS_COLORS } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn, formatDate } from '@apex/shared-utilities';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@apex/core-identity';

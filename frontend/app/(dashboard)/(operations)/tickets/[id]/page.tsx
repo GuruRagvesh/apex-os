@@ -5,14 +5,11 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, commentsApi, usersApi, aiApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import {
-  PRIORITY_COLORS, STATUS_COLORS,
-  STATUS_LABELS, PRIORITY_LABELS,
-  formatRelativeTime, formatRole,
-} from '@/lib/utils';
-import { cn, formatDate, getInitials } from '@apex/shared-utilities';
-import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { computeClientTimingState } from '@/lib/ticket-timing';
+import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
+import { STATUS_COLORS, STATUS_LABELS, formatRole } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
+import { cn, formatDate, getInitials, formatRelativeTime } from '@apex/shared-utilities';
+import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
+import { computeClientTimingState } from '@apex/operations-tickets-sla';
 import { SkeletonTicketDetail } from '@apex/shared-ui/components/skeleton';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';

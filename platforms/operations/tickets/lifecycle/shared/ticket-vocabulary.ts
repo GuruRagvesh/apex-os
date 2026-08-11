@@ -1,25 +1,16 @@
-// Apex OS — feature vocabulary and formatters.
+// Ticket presentation vocabulary — owned by this component.
 //
-// cn, formatDate, getInitials and formatRelativeTime moved to shared/utilities:
-// they are used by
-// three platforms and carry no feature rules. Import them from
-// '@apex/shared-utilities'.
+// Moved verbatim from frontend/lib/utils.ts, which is retired by this change.
+// Every one of these presents TICKET data: status, category, department accent
+// and the requester's role, as rendered by the ticket screens, ticket-row and
+// the ticket rollup on the user detail screen.
 //
-// What remains is deliberately NOT utilities — it is domain vocabulary owned by
-// the features that use it (ticket priority/status/category, project status,
-// leave status, role and department labels). Each moves with its feature.
-
-// formatRelativeTime moved to shared/utilities beside formatDate, which it falls
-// back to. Re-exported here so legacy consumers keep working — there is exactly
-// ONE implementation, and it is not this file's.
-export { formatRelativeTime } from '@apex/shared-utilities';
-
-export const PRIORITY_COLORS: Record<string, string> = {
-  LOW: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-  MEDIUM: 'apex-status-open',
-  HIGH: 'apex-status-progress',
-  URGENT: 'bg-red-600 text-white shadow-[0_0_8px_rgba(220,38,38,0.4)]',
-};
+// Priority vocabulary is deliberately NOT here: the Prisma Priority enum backs
+// Project as well as Ticket, so it lives in shared/configuration.
+//
+// CATEGORY_LABELS, CATEGORY_COLORS and ROLE_LABELS currently have no consumer.
+// They moved with their vocabulary rather than being orphaned in legacy, and are
+// published only because they belong to the same contract.
 
 export const STATUS_COLORS: Record<string, string> = {
   PENDING_APPROVAL: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -49,14 +40,6 @@ export const STATUS_LABELS: Record<string, string> = {
   TODO: 'To Do',
 };
 
-export const PRIORITY_LABELS: Record<string, string> = {
-  LOW: 'Low',
-  MEDIUM: 'Medium',
-  HIGH: 'High',
-  URGENT: 'Urgent',
-};
-
-// Clean, human role labels — never show raw enums like TEAM_LEAD in the UI.
 export const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: 'Super Admin',
   ADMIN: 'Admin',
@@ -65,12 +48,6 @@ export const ROLE_LABELS: Record<string, string> = {
   EMPLOYEE: 'Employee',
   INTERN: 'Intern',
 };
-
-export function formatRole(role?: string | { name?: string } | null): string {
-  const name = typeof role === 'string' ? role : role?.name ?? '';
-  if (!name) return '';
-  return ROLE_LABELS[name] ?? name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 export const CATEGORY_LABELS: Record<string, string> = {
   IT: 'IT',
@@ -81,7 +58,6 @@ export const CATEGORY_LABELS: Record<string, string> = {
   ADMIN: 'Admin',
 };
 
-// Department accent colours — used for left-border on ticket rows & top-border on kanban cards
 export const DEPT_COLORS: Record<string, string> = {
   'IT':                     '#3b82f6',
   'Facilities':             '#f59e0b',
@@ -98,3 +74,9 @@ export const DEPT_COLORS: Record<string, string> = {
   'Corporate Training':     '#f59e0b',
   'AI & Media Production':  '#8b5cf6',
 };
+
+export function formatRole(role?: string | { name?: string } | null): string {
+  const name = typeof role === 'string' ? role : role?.name ?? '';
+  if (!name) return '';
+  return ROLE_LABELS[name] ?? name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}

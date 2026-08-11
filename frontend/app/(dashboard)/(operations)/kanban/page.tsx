@@ -16,10 +16,11 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ticketsApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import { PRIORITY_COLORS, PRIORITY_LABELS, DEPT_COLORS } from '@/lib/utils';
+import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
+import { DEPT_COLORS } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn, getInitials, formatDate } from '@apex/shared-utilities';
-import { getTicketVisibility, PRIORITY_DOT } from '@/lib/ticket-visibility';
-import { TimingTicker } from '@/components/tickets/OverdueTicker';
+import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
+import { TimingTicker } from '@apex/operations-tickets-sla/components/OverdueTicker';
 import { SkeletonKanbanColumn } from '@apex/shared-ui/components/skeleton';
 import { Plus, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';

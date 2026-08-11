@@ -31,6 +31,11 @@
     "@apex/shared-auth": "shared/auth",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
     "@apex/operations-projects/screens": "platforms/operations/projects/project-management/frontend/screens",
+    "@apex/operations-tickets-sla": "platforms/operations/tickets/sla",
+    "@apex/operations-tickets-sla/components": "platforms/operations/tickets/sla/frontend/components",
+    "@apex/operations-tickets-lifecycle": "platforms/operations/tickets/lifecycle",
+    "@apex/operations-tickets-lifecycle/components": "platforms/operations/tickets/lifecycle/frontend/components",
+    "@apex/operations-tickets-lifecycle/shared": "platforms/operations/tickets/lifecycle/shared",
     "@apex/intelligence-dashboard": "platforms/intelligence/dashboard/overview",
     "@apex/intelligence-analytics": "platforms/intelligence/analytics/overview",
     "@apex/shared-ui": "shared/ui",
@@ -40,6 +45,7 @@
     "@apex/workforce-teams": "platforms/workforce/teams/team-management",
     "@apex/workforce-teams/screens": "platforms/workforce/teams/team-management/frontend/screens",
     "@apex/shared-utilities": "shared/utilities",
+    "@apex/shared-configuration": "shared/configuration",
     "@apex/core-users": "platforms/core/users/administration",
     "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
     "@apex/core-users-profiles": "platforms/core/users/profiles",
@@ -55,7 +61,7 @@
 
   "sharedModulePublicEntry": {
     "description": "Modules under shared/ that have migrated real code and therefore publish a public entry point. Anything outside the module may import the module root or its index file only — reaching into its internal frontend/, backend/, shared/ or tests/ folders is a boundary violation, exactly as for a platform component. Only modules listed here are enforced; the remaining shared/ folders are still Phase 0 scaffolds with nothing to protect.",
-    "modules": ["shared/auth", "shared/ui", "shared/utilities"]
+    "modules": ["shared/auth", "shared/ui", "shared/utilities", "shared/configuration"]
   },
 
   "publicSubpaths": {
@@ -75,6 +81,9 @@
       "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
       "@apex/operations-projects/screens/ProjectsScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectsScreen",
       "@apex/operations-projects/screens/ProjectDetailScreen": "platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen",
+      "@apex/operations-tickets-sla/components/OverdueTicker": "platforms/operations/tickets/sla/frontend/components/OverdueTicker",
+      "@apex/operations-tickets-lifecycle/components/ticket-row": "platforms/operations/tickets/lifecycle/frontend/components/ticket-row",
+      "@apex/operations-tickets-lifecycle/shared/ticket-vocabulary": "platforms/operations/tickets/lifecycle/shared/ticket-vocabulary",
       "@apex/shared-ui/components/breadcrumb": "shared/ui/frontend/components/breadcrumb",
       "@apex/shared-ui/components/empty-state": "shared/ui/frontend/components/empty-state",
       "@apex/shared-ui/components/user-avatar": "shared/ui/frontend/components/user-avatar",
@@ -308,8 +317,7 @@
         "removalPhase": "Per-target: see removalConditions",
         "from": "platforms/core/users/profiles/frontend/",
         "allowedTargets": [
-          "frontend/lib/api.ts",
-          "frontend/components/tickets/ticket-row.tsx"
+          "frontend/lib/api.ts"
         ],
         "reason": "The two profile screens and the activity-item component moved and carry four legacy imports across three targets. None is Profiles-owned: lib/api.ts holds application-wide API groups (usersApi, rolesApi, departmentsApi, ticketsApi, leaveApi, projectsApi, dashboardApi, analyticsApi) plus changeRequestsApi, which belongs to the unmigrated core/users/change-requests component; lib/utils.ts supplies formatRelativeTime, consumed by activity-item; components/tickets/ticket-row.tsx is owned by operations/tickets and has four importers, so it cannot follow Profiles. The authentication coupling was NOT carried over - both screens consume useAuthStore through @apex/core-identity, making Profiles the first real consumer of that boundary. Skeleton comes from @apex/shared-ui/components/skeleton and getInitials from @apex/shared-utilities, so those couplings are already retired.",
         "removalConditions": [
@@ -325,8 +333,7 @@
         "removalPhase": "Per-target: see removalConditions",
         "from": "platforms/core/users/administration/frontend/",
         "allowedTargets": [
-          "frontend/lib/api.ts",
-          "frontend/lib/utils.ts"
+          "frontend/lib/api.ts"
         ],
         "reason": "The two admin screens moved verbatim and carry legacy imports across three targets. None is Core Users-owned: lib/api.ts holds application-wide API groups (usersApi, rolesApi, departmentsApi, ticketsApi, leaveApi, projectsApi, workdayApi, dashboardApi); lib/utils.ts supplies the ticket-owned STATUS_COLORS and PRIORITY_COLORS used to render a user's ticket list; auth.store.ts is the application-wide identity store. Note this component administers users but does NOT own identity - the auth store belongs to core/identity, and moving it here would invert that. Both screens already consume cn/formatDate/getInitials from @apex/shared-utilities, so that coupling is already retired.",
         "removalConditions": [
@@ -374,9 +381,7 @@
         "removalPhase": "Per-target: see removalConditions",
         "from": "platforms/operations/projects/project-management/frontend/screens/",
         "allowedTargets": [
-          "frontend/lib/api.ts",
-          "frontend/lib/utils.ts",
-          "frontend/components/tickets/ticket-row.tsx"
+          "frontend/lib/api.ts"
         ],
         "reason": "The two Projects screens moved verbatim and carry 9 legacy imports across 6 targets. None of the six is Projects-owned, so none could follow: projectsApi has 5 consumers of which 4 are not Projects (tickets/new, users/[id], profile, command-palette); lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also happens to hold the PROJECT_STATUS_* constants; auth.store.ts is the application-wide identity store; TicketRow is owned by operations/tickets and has three consumers. Splitting any of them would restructure unrelated shared code, which this phase explicitly does not do. The exemption is scoped to the screens folder only.",
         "removalConditions": [

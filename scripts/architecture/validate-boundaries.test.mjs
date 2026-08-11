@@ -1050,7 +1050,7 @@ testCase(
     write(
       root,
       'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
-      `import { projectsApi } from '@/lib/api';\nimport { cn } from '@/lib/utils';\nimport { TicketRow } from '@/components/tickets/ticket-row';\nexport default function S() { return null; }\n`,
+      `import { projectsApi } from '@/lib/api';\nexport default function S() { return null; }\n`,
     );
   },
   { expectExit: 0 },
@@ -1998,13 +1998,12 @@ export default function S() { return [cn, Skeleton]; }
 
 // 112. The Core Users exemption covers its three allowlisted targets only.
 testCase(
-  'accepts a Core Users screen importing its allowlisted legacy dependencies',
+  'accepts a Core Users screen importing its allowlisted legacy dependency',
   (root) => {
     write(
       root,
       'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
       `import { usersApi } from '@/lib/api';
-import { STATUS_COLORS } from '@/lib/utils';
 export default function S() { return null; }
 `,
     );
@@ -2770,14 +2769,13 @@ export const A = X;
 
 // 150. The DEBT-P8 allowlist covers exactly its three targets...
 testCase(
-  'accepts the two allowlisted Core Users Profiles legacy targets',
+  'accepts the single allowlisted Core Users Profiles legacy target',
   (root) => {
     write(
       root,
       'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
       `import { usersApi } from '@/lib/api';
-import { TicketRow } from '@/components/tickets/ticket-row';
-export default function S() { return [usersApi, TicketRow]; }
+export default function S() { return usersApi; }
 `,
     );
   },
@@ -4432,6 +4430,132 @@ export default SalesCrmAnalytics;
   { expectExit: 0 },
 );
 
+// ── Operations Tickets T1: timing + visibility contracts ───────────────────
+// The first ticket compartments. Both are PRESENTATION over backend-computed
+// state. The backend keeps sole authority for transitions, SLA and permissions,
+// and the contract tests at the end of this file enforce that these components
+// never grow a second copy of it.
+
+// 248. A consumer may import the SLA timing contract publicly.
+testCase(
+  'accepts a consumer importing the ticket SLA timing contract',
+  (root) => {
+    write(root, 'platforms/operations/tickets/sla/shared/ticket-timing.ts', `export const computeClientTimingState = () => null;
+`);
+    write(root, 'platforms/operations/tickets/sla/index.ts', `export * from './shared/ticket-timing';
+`);
+    write(
+      root,
+      'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
+      `import { computeClientTimingState } from '@apex/operations-tickets-sla';
+export default computeClientTimingState;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 249. ...and the lifecycle visibility contract.
+testCase(
+  'accepts a consumer importing the ticket lifecycle visibility contract',
+  (root) => {
+    write(root, 'platforms/operations/tickets/lifecycle/shared/ticket-visibility.ts', `export const getTicketVisibility = () => null;
+`);
+    write(root, 'platforms/operations/tickets/lifecycle/index.ts', `export * from './shared/ticket-visibility';
+`);
+    write(
+      root,
+      'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
+      `import { getTicketVisibility } from '@apex/operations-tickets-lifecycle';
+export default getTicketVisibility;
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+// 250. Internals stay private.
+testCase(
+  'rejects external code importing ticket SLA internals',
+  (root) => {
+    write(root, 'platforms/operations/tickets/sla/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx',
+      `import { x } from '@apex/operations-tickets-sla/shared/ticket-timing';
+export default x;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 251. ...including the lifecycle component.
+testCase(
+  'rejects external code importing ticket lifecycle internals',
+  (root) => {
+    write(root, 'platforms/operations/tickets/lifecycle/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/workforce/calendar/overview/frontend/screens/CalendarScreen.tsx',
+      `import { x } from '@apex/operations-tickets-lifecycle/shared/ticket-visibility';
+export default x;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 252. sla and lifecycle are SEPARATE components — neither reaches the other's
+//      internals, which is what keeps the eventual five-way ticket split viable.
+testCase(
+  'rejects the ticket SLA component reaching into lifecycle internals',
+  (root) => {
+    write(root, 'platforms/operations/tickets/lifecycle/index.ts', `export const X = 1;
+`);
+    write(
+      root,
+      'platforms/operations/tickets/sla/frontend/components/OverdueTicker.tsx',
+      `import { x } from '@apex/operations-tickets-lifecycle/shared/ticket-visibility';
+export default x;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'component-public-entry' },
+);
+
+// 253. Neither component carries a legacy exemption: any legacy import fails.
+testCase(
+  'rejects a ticket T1 component importing any legacy frontend path',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/tickets/sla/shared/ticket-timing.ts',
+      `import { api } from '@/lib/api';
+export default api;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
+);
+
+// 254. Ticket frontend must not import backend.
+testCase(
+  'rejects ticket SLA frontend importing backend code',
+  (root) => {
+    write(
+      root,
+      'platforms/operations/tickets/sla/frontend/components/OverdueTicker.tsx',
+      `import { TicketTimingService } from '../../backend/services/ticket-timing.service';
+export default TicketTimingService;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'frontend-no-backend' },
+);
+
 // ── real-repository debt counts ─────────────────────────────────────────────
 // Every case above runs against a throwaway fixture. These run against THIS
 // repository, so a new exempted import cannot be added without updating the
@@ -4480,12 +4604,12 @@ function testRealRepoDebtCounts(expected) {
 
 testRealRepoDebtCounts({
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
-  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 5,
+  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 2,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 1,
-  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
+  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 2,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
-  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 3,
+  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 2,
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
   'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
   'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,
@@ -5175,4 +5299,72 @@ assertContract('both department routes are thin adapters on their own subpath', 
     }
   }
   return problems;
+});
+
+// ── Operations Tickets: authority must stay in the backend ─────────────────
+// The single most important invariant of the ticket migration. The frontend
+// RENDERS backend-computed state; it must never grow a second copy of the
+// transition matrix, the SLA clock, or the permission rules. If one of these
+// fails, a ticket compartment has started duplicating authority.
+
+assertContract('the ticket frontend declares no allowed-transition matrix', () => {
+  const problems = [];
+  for (const f of repoSources()) {
+    if (!f.startsWith('platforms/operations/tickets/')) continue;
+    const src = codeOf(readRepo(f) ?? '');
+    // A transition matrix maps a status to the statuses reachable from it.
+    if (/\b(IN_PROGRESS|REVIEW)\b\s*:\s*\[/.test(src)) {
+      problems.push(`${f} appears to declare a status transition map`);
+    }
+    for (const marker of ['assertCanTransition', 'allowedTransitions', 'ALLOWED_TRANSITIONS']) {
+      if (src.includes(marker)) problems.push(`${f} contains transition authority: ${marker}`);
+    }
+  }
+  return problems;
+});
+
+assertContract('the ticket frontend computes no SLA and renders backend timing', () => {
+  const TIMING = 'platforms/operations/tickets/sla/shared/ticket-timing.ts';
+  const raw = readRepo(TIMING);
+  if (raw === null) return [`${TIMING} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  // It must keep reading the state the backend put on the ticket...
+  for (const required of ['backendTiming', 'timerType', 'isOverdue']) {
+    if (!src.includes(required)) {
+      problems.push(`ticket-timing no longer reads backend state: ${required}`);
+    }
+  }
+  // ...and must not start deriving due dates itself.
+  for (const forbidden of ['getSlaConfig', 'slaHours', 'addHours', 'setHours(']) {
+    if (src.includes(forbidden)) problems.push(`ticket-timing computes SLA: ${forbidden}`);
+  }
+  return problems;
+});
+
+assertContract('the ticket frontend declares no permission or scope rules', () => {
+  const problems = [];
+  for (const f of repoSources()) {
+    if (!f.startsWith('platforms/operations/tickets/')) continue;
+    const src = codeOf(readRepo(f) ?? '');
+    for (const marker of [
+      'buildTicketWhereForUser', 'isTicketInUserScope', 'visibleUserIdsForWorkload',
+      'assertCanUpdateTicket', 'assertCanAssignTicket', 'isSelfAssigned',
+    ]) {
+      if (src.includes(marker)) problems.push(`${f} duplicates backend permission logic: ${marker}`);
+    }
+  }
+  return problems;
+});
+
+assertContract('DONE and CLOSED still suppress the overdue display', () => {
+  // Preserved behaviour, checked at its new home. A ticket that is finished must
+  // never render as overdue — the rule exists on both sides and neither moved.
+  const V = 'platforms/operations/tickets/lifecycle/shared/ticket-visibility.ts';
+  const raw = readRepo(V);
+  if (raw === null) return [`${V} is missing`];
+  const src = codeOf(raw);
+  return src.includes("['DONE', 'CLOSED'].includes(status)")
+    ? []
+    : ['the DONE/CLOSED overdue suppression is no longer present in ticket-visibility'];
 });

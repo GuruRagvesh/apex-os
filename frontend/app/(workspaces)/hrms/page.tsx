@@ -6,8 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import { usersApi, leaveApi, changeRequestsApi } from '@/lib/api';
-import { formatRelativeTime } from '@/lib/utils';
-import { cn } from '@apex/shared-utilities';
+
+import { cn, formatRelativeTime } from '@apex/shared-utilities';
 import { motion } from 'motion/react';
 import {
   type LucideIcon,
