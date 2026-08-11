@@ -838,7 +838,7 @@ created.** They are built when the features are built.
 | `frontend/app/(dashboard)/(operations)/tickets/page.tsx` | `platforms/operations/tickets/lifecycle/frontend/screens/` |
 | `frontend/app/(dashboard)/(operations)/tickets/new/page.tsx` | `platforms/operations/tickets/creation/frontend/screens/` |
 | `frontend/app/(dashboard)/(operations)/tickets/[id]/page.tsx` | `platforms/operations/tickets/lifecycle/frontend/screens/` ⚠️ also renders review/rework |
-| `frontend/app/(dashboard)/(operations)/kanban/page.tsx` | `platforms/operations/tickets/lifecycle/frontend/screens/` |
+| `frontend/app/(dashboard)/(operations)/kanban/page.tsx` | ✅ **DONE** — `platforms/operations/tickets/lifecycle/frontend/screens/KanbanScreen.tsx`, published as the exact subpath `@apex/operations-tickets-lifecycle/screens/KanbanScreen`; the route survives as a thin adapter |
 | `frontend/components/tickets/OverdueTicker.tsx` | `platforms/operations/tickets/sla/frontend/components/` |
 | `frontend/components/tickets/ticket-row.tsx` | ✅ `platforms/operations/tickets/lifecycle/frontend/components/` — **U1 RESOLVED**, published as an exact subpath |
 | `frontend/modules/operations/tickets/components/TicketRow.tsx` | ✅ **U1 RESOLVED** — a zero-consumer re-export shim, not a second implementation. Retained in legacy, repointed at the new public subpath. |
@@ -852,6 +852,47 @@ created.** They are built when the features are built.
 | `e2e/tests/wf2-team-lead-review.spec.ts` | `platforms/operations/tickets/review-rework/tests/e2e/` |
 | `e2e/tests/wf4-cross-department-block.spec.ts` | `platforms/operations/tickets/blocking/tests/e2e/` |
 
+> **Status update (2026-08-11) — KANBAN MIGRATED to lifecycle.**
+>
+> `kanban/page.tsx` (493 ln) → `lifecycle/frontend/screens/KanbanScreen.tsx`,
+> published as the exact subpath
+> `@apex/operations-tickets-lifecycle/screens/KanbanScreen`. **Not** through the
+> component root barrel: the screen pulls the ticket API, `@dnd-kit` and the auth
+> boundary, none of which a consumer wanting a visibility helper should load.
+>
+> **The migrated screen carries ZERO legacy architecture edges** — the first ticket
+> screen to reach that state. `ticketsApi` resolves relatively to `../api` (same
+> component), `departmentsApi` to `@apex/core-organization-departments/api`, and
+> auth to `@apex/core-identity`. The three preceding boundary batches existed to
+> make exactly this possible.
+>
+> **The whole diff against the route file is five import lines and the function
+> name.** Every other line is byte-identical, which is what makes the mutation
+> claim checkable rather than asserted: the single `useMutation` calling
+> `ticketsApi.updateStatus(id, status)`, the drag/drop entry points, the optimistic
+> `setLocalKanban`, the `onError` revert-and-toast, the five `invalidateQueries`
+> keys and the `refetchInterval: 30000` are all unchanged.
+>
+> **`canMoveCard` moved verbatim and is worth naming.** It is a client-side
+> expression over role, ownership and assignment that gates the drag affordance.
+> It now lives under `platforms/operations/tickets/`, and the "no permission or
+> scope rules" contract still passes because it matches none of that test's
+> markers. It mirrors backend rules rather than replacing them — the backend
+> remains the sole transition authority — but it is frontend permission-shaped
+> code inside the ticket platform, and the contract test would not catch it
+> drifting from the backend.
+>
+> **Retires no original runtime file:** the route survives as an 8-line adapter, so
+> primary stays **150 / 423** and remaining stays **273**. Debt stays 24 — Kanban's
+> legacy imports were the ones being removed, and they were never allowlisted.
+>
+> Bundle: **zero First Load increases**, two decreases — `/kanban` 170 → 167 kB and
+> `/tickets/[id]` 180 → 179 kB, both re-attribution out of shared chunks into the
+> page chunk. Shared-by-all unchanged at 87.5 kB.
+>
+> **Merge gate: authenticated drag/drop browser validation on the preview.** This
+> is the first migrated screen that performs a real ticket-status mutation.
+>
 > **Status update (2026-08-11) — the ticket HTTP API is lifecycle-owned.**
 >
 > `ticketsApi` (**29 methods, 101 lines**) moved verbatim from `frontend/lib/api.ts`

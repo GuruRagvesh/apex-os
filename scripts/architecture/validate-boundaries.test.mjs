@@ -2311,13 +2311,14 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 20) {
-    problems.push(`expected 20 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 19) {
+    problems.push(`expected 19 legacy auth-store consumers, found ${legacy.length}`);
   }
   // Each one that left must be a thin adapter carrying no auth dependency at
   // all, and must reach its screen through that component's public entry.
   // 29 -> 27 core/users/profiles; -> 26 intelligence/analytics;
-  // -> 24 core/organization/departments; -> 23 workforce/calendar; -> 21 workforce/teams; -> 20 system/audit.
+  // -> 24 core/organization/departments; -> 23 workforce/calendar; -> 21 workforce/teams; -> 20 system/audit;
+  // -> 19 operations/tickets/lifecycle (kanban).
   const DEPARTED = {
     'frontend/app/(dashboard)/profile/page.tsx': '@apex/core-users-profiles/screens/',
     'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx': '@apex/core-users-profiles/screens/',
@@ -2328,6 +2329,7 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
     'frontend/app/(dashboard)/(operations)/teams/page.tsx': '@apex/workforce-teams/screens/',
     'frontend/app/(dashboard)/(operations)/teams/[id]/page.tsx': '@apex/workforce-teams/screens/',
     'frontend/app/(dashboard)/admin/activity/page.tsx': '@apex/system-audit',
+    'frontend/app/(dashboard)/(operations)/kanban/page.tsx': '@apex/operations-tickets-lifecycle/screens/',
   };
   for (const [route, entry] of Object.entries(DEPARTED)) {
     const src = codeOf(readRepo(route) ?? '');
