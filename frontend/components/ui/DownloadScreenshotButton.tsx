@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Camera, Loader2 } from 'lucide-react';
-import { downloadScreenshot } from '@/lib/download-screenshot';
+import { downloadScreenshot } from '@apex/shared-utilities/download-screenshot';
 import toast from 'react-hot-toast';
 import { usePathname } from 'next/navigation';
 

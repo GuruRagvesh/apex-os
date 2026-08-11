@@ -224,7 +224,7 @@ throughout this map.
 | `backend/src/shared/decorators/roles.decorator.ts`, `current-user.decorator.ts` | `shared/auth/decorators/` |
 | `backend/src/shared/constants/roles.ts` | `shared/auth/constants/` |
 | `backend/src/shared/interfaces/user-payload.interface.ts` | `shared/auth/types/` |
-| `frontend/lib/roles.ts` | `shared/auth/roles.ts` |
+| ~~`frontend/lib/roles.ts`~~ | ⛔ **SUPERSEDED 2026-08-11** — retired as zero-consumer dead code, NOT relocated. See the note under `shared/auth/` below. |
 | `backend/test/unit/p0.access-policy.spec.ts`, `roles.guard.spec.ts` | `platforms/core/identity/authorization/tests/backend/` |
 
 > Guards, decorators and the role constant are used by every platform. They go
@@ -1290,7 +1290,28 @@ created.** They are built when the features are built.
 | | `backend/test/unit/tva-date-authority.spec.ts`, `tva-sla-authority.spec.ts` |
 | `shared/ui/` | `frontend/components/ui/*` (20), `frontend/components/layout/{sidebar,topbar}.tsx` |
 | `shared/ui/styles/` | `frontend/app/globals.css`, `frontend/styles/dashboard.module.css` |
-| `shared/auth/` | guards (3), decorators (2), `roles.ts` constants, `user-payload.interface.ts`, `frontend/lib/roles.ts` |
+| `shared/auth/` | guards (3), decorators (2), `roles.ts` constants, `user-payload.interface.ts` |
+
+> **Role vocabulary — corrected 2026-08-11.** `frontend/lib/roles.ts` was removed
+> from this row and **retired**, not migrated here.
+>
+> It had **zero consumers** repo-wide — no static import, no dynamic `import()`,
+> no `require()`, no barrel re-export, and none for any of its five exports
+> (`ROLES`, `RoleName`, `ROLE_HIERARCHY`, `roleAtLeast`, `getRoleName`).
+> Meanwhile `backend/src/shared/constants/roles.ts` exports the same `ROLES` and
+> has **19 live backend consumers**.
+>
+> Moving the dead frontend copy into `shared/auth` would have manufactured a
+> **second runtime role authority** beside a live one. `ROLE_HIERARCHY`,
+> `roleAtLeast()` and `getRoleName()` were retired with it rather than preserved:
+> relocating unused permission helpers would suggest an auth policy authority
+> that no runtime path actually exercises.
+>
+> **`backend/src/shared/constants/roles.ts` remains the current live role
+> authority** and is still the intended future source for `shared/auth/roles.ts`.
+> It has NOT migrated. Cross-stack convergence is deferred to the backend
+> structural phase, which is itself blocked until the Render deployment root
+> moves.
 | `shared/contracts/` | `frontend/modules/**/*.types.ts` not owned by one component |
 | `shared/configuration/` | `frontend/lib/constants.ts` |
 
