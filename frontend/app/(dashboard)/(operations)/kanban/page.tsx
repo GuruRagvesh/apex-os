@@ -16,7 +16,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ticketsApi, departmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import { PRIORITY_COLORS, PRIORITY_LABELS, DEPT_COLORS } from '@/lib/utils';
+import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
+import { DEPT_COLORS } from '@/lib/utils';
 import { cn, getInitials, formatDate } from '@apex/shared-utilities';
 import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
 import { TimingTicker } from '@apex/operations-tickets-sla/components/OverdueTicker';

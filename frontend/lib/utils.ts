@@ -1,4 +1,4 @@
-// Apex OS — feature vocabulary and formatters.
+// Apex OS — ticket vocabulary and formatters.
 //
 // cn, formatDate, getInitials and formatRelativeTime moved to shared/utilities:
 // they are used by
@@ -13,13 +13,6 @@
 // back to. Re-exported here so legacy consumers keep working — there is exactly
 // ONE implementation, and it is not this file's.
 export { formatRelativeTime } from '@apex/shared-utilities';
-
-export const PRIORITY_COLORS: Record<string, string> = {
-  LOW: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-  MEDIUM: 'apex-status-open',
-  HIGH: 'apex-status-progress',
-  URGENT: 'bg-red-600 text-white shadow-[0_0_8px_rgba(220,38,38,0.4)]',
-};
 
 export const STATUS_COLORS: Record<string, string> = {
   PENDING_APPROVAL: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -47,13 +40,6 @@ export const STATUS_LABELS: Record<string, string> = {
   DONE: 'Done',
   CLOSED: 'Closed',
   TODO: 'To Do',
-};
-
-export const PRIORITY_LABELS: Record<string, string> = {
-  LOW: 'Low',
-  MEDIUM: 'Medium',
-  HIGH: 'High',
-  URGENT: 'Urgent',
 };
 
 // Clean, human role labels — never show raw enums like TEAM_LEAD in the UI.

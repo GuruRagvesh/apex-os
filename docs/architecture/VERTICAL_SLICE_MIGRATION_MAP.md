@@ -1293,6 +1293,31 @@ created.** They are built when the features are built.
 | `shared/auth/` | guards (3), decorators (2), `roles.ts` constants, `user-payload.interface.ts`, `frontend/lib/roles.ts` |
 | `shared/contracts/` | `frontend/modules/**/*.types.ts` not owned by one component |
 | `shared/configuration/` | `frontend/lib/constants.ts` |
+
+> **Status update (2026-08-11) — shared/configuration OPENED for cross-domain
+> presentation constants.** `PRIORITY_LABELS` and `PRIORITY_COLORS` moved here
+> from `frontend/lib/utils.ts`, published as `@apex/shared-configuration`.
+>
+> **Why not `operations/tickets`:** the Prisma `Priority` enum
+> (LOW/MEDIUM/HIGH/URGENT) backs **both** the `Ticket` and the `Project` model —
+> `schema.prisma` lines 170 and 230. Projects do not borrow ticket vocabulary;
+> they have their own first-class `priority` field on the same enum, rendered at
+> `ProjectDetailScreen.tsx:183` beside the projects-owned `PROJECT_STATUS_*`.
+> Publishing these from a ticket component would assert that Projects renders
+> ticket data, which the schema contradicts.
+>
+> **Why not `shared/contracts`:** that module is types only, no runtime code.
+> These are runtime `Record<string,string>` maps of Tailwind classes.
+>
+> This is the `shared/configuration` README's own "constants used across
+> platforms" allowance — the opposite of its "feature-specific constants"
+> exclusion.
+>
+> `frontend/lib/constants.ts` itself was **NOT** migrated. It has zero consumers
+> and duplicates five symbols that already have owners
+> (`PROJECT_STATUS_LABELS`, `LEAVE_STATUS_LABELS`, `PRIORITY_LABELS`,
+> `STATUS_LABELS`, `DEPT_COLORS`). Moving it wholesale would create parallel
+> authorities. Its de-duplication is a separate decision.
 | `shared/observability/` | `backend/src/instrument.ts` |
 | `shared/utilities/` | `frontend/lib/utils.ts`, `download-screenshot.ts`, `frontend/hooks/{useDebounce,useTheme}.ts` |
 | `shared/testing/` | `backend/test/helpers/{app,auth}.helper.ts`, `backend/test/jest.env.ts`, `e2e/tests/utils.ts` |

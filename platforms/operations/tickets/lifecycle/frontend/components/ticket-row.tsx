@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { PRIORITY_COLORS, STATUS_COLORS, STATUS_LABELS, PRIORITY_LABELS, DEPT_COLORS, formatRelativeTime } from '@/lib/utils';
+import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
+import { STATUS_COLORS, STATUS_LABELS, DEPT_COLORS, formatRelativeTime } from '@/lib/utils';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
 import { getTicketVisibility, PRIORITY_DOT } from '../../shared/ticket-visibility';
 import { TimingTicker } from '@apex/operations-tickets-sla/components/OverdueTicker';

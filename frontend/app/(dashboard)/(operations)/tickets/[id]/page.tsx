@@ -5,11 +5,8 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi, commentsApi, usersApi, aiApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import {
-  PRIORITY_COLORS, STATUS_COLORS,
-  STATUS_LABELS, PRIORITY_LABELS,
-  formatRelativeTime, formatRole,
-} from '@/lib/utils';
+import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
+import { STATUS_COLORS, STATUS_LABELS, formatRelativeTime, formatRole } from '@/lib/utils';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
 import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
 import { computeClientTimingState } from '@apex/operations-tickets-sla';

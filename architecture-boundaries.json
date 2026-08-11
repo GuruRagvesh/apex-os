@@ -44,6 +44,7 @@
     "@apex/workforce-teams": "platforms/workforce/teams/team-management",
     "@apex/workforce-teams/screens": "platforms/workforce/teams/team-management/frontend/screens",
     "@apex/shared-utilities": "shared/utilities",
+    "@apex/shared-configuration": "shared/configuration",
     "@apex/core-users": "platforms/core/users/administration",
     "@apex/core-users/screens": "platforms/core/users/administration/frontend/screens",
     "@apex/core-users-profiles": "platforms/core/users/profiles",
@@ -59,7 +60,7 @@
 
   "sharedModulePublicEntry": {
     "description": "Modules under shared/ that have migrated real code and therefore publish a public entry point. Anything outside the module may import the module root or its index file only — reaching into its internal frontend/, backend/, shared/ or tests/ folders is a boundary violation, exactly as for a platform component. Only modules listed here are enforced; the remaining shared/ folders are still Phase 0 scaffolds with nothing to protect.",
-    "modules": ["shared/auth", "shared/ui", "shared/utilities"]
+    "modules": ["shared/auth", "shared/ui", "shared/utilities", "shared/configuration"]
   },
 
   "publicSubpaths": {
@@ -393,8 +394,7 @@
         "removalPhase": "Per-target: see removalConditions",
         "from": "platforms/operations/projects/project-management/frontend/screens/",
         "allowedTargets": [
-          "frontend/lib/api.ts",
-          "frontend/lib/utils.ts"
+          "frontend/lib/api.ts"
         ],
         "reason": "The two Projects screens moved verbatim and carry 9 legacy imports across 6 targets. None of the six is Projects-owned, so none could follow: projectsApi has 5 consumers of which 4 are not Projects (tickets/new, users/[id], profile, command-palette); lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also happens to hold the PROJECT_STATUS_* constants; auth.store.ts is the application-wide identity store; TicketRow is owned by operations/tickets and has three consumers. Splitting any of them would restructure unrelated shared code, which this phase explicitly does not do. The exemption is scoped to the screens folder only.",
         "removalConditions": [

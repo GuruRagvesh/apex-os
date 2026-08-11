@@ -1050,7 +1050,7 @@ testCase(
     write(
       root,
       'platforms/operations/projects/project-management/frontend/screens/ProjectsScreen.tsx',
-      `import { projectsApi } from '@/lib/api';\nimport { cn } from '@/lib/utils';\nexport default function S() { return null; }\n`,
+      `import { projectsApi } from '@/lib/api';\nexport default function S() { return null; }\n`,
     );
   },
   { expectExit: 0 },
@@ -4605,7 +4605,7 @@ function testRealRepoDebtCounts(expected) {
 
 testRealRepoDebtCounts({
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
-  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 4,
+  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 2,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 1,
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
