@@ -1623,13 +1623,12 @@ export default EmptyState;
 
 // 90. The Leave exemption covers its three allowlisted targets only.
 testCase(
-  'accepts a Leave screen importing its allowlisted legacy dependencies',
+  'accepts a Leave screen importing its allowlisted legacy dependency',
   (root) => {
     write(
       root,
       'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
       `import { leaveApi } from '@/lib/api';
-import { cn } from '@/lib/utils';
 export default function S() { return null; }
 `,
     );
@@ -2771,15 +2770,14 @@ export const A = X;
 
 // 150. The DEBT-P8 allowlist covers exactly its three targets...
 testCase(
-  'accepts the three allowlisted Core Users Profiles legacy targets',
+  'accepts the two allowlisted Core Users Profiles legacy targets',
   (root) => {
     write(
       root,
       'platforms/core/users/profiles/frontend/screens/ProfileScreen.tsx',
       `import { usersApi } from '@/lib/api';
-import { formatRelativeTime } from '@/lib/utils';
 import { TicketRow } from '@/components/tickets/ticket-row';
-export default function S() { return [usersApi, formatRelativeTime, TicketRow]; }
+export default function S() { return [usersApi, TicketRow]; }
 `,
     );
   },
@@ -4484,10 +4482,10 @@ testRealRepoDebtCounts({
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 5,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
-  'DEBT-P5-LEAVE-LEGACY-FRONTEND': 2,
+  'DEBT-P5-LEAVE-LEGACY-FRONTEND': 1,
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
-  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 4,
+  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 3,
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
   'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
   'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,

@@ -1,6 +1,7 @@
 // Apex OS — feature vocabulary and formatters.
 //
-// cn, formatDate and getInitials moved to shared/utilities: they are used by
+// cn, formatDate, getInitials and formatRelativeTime moved to shared/utilities:
+// they are used by
 // three platforms and carry no feature rules. Import them from
 // '@apex/shared-utilities'.
 //
@@ -8,9 +9,10 @@
 // the features that use it (ticket priority/status/category, project status,
 // leave status, role and department labels). Each moves with its feature.
 
-// formatRelativeTime falls back to formatDate for anything older than a week,
-// so this file consumes the extracted helper rather than keeping a second copy.
-import { formatDate } from '@apex/shared-utilities';
+// formatRelativeTime moved to shared/utilities beside formatDate, which it falls
+// back to. Re-exported here so legacy consumers keep working — there is exactly
+// ONE implementation, and it is not this file's.
+export { formatRelativeTime } from '@apex/shared-utilities';
 
 export const PRIORITY_COLORS: Record<string, string> = {
   LOW: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
@@ -78,49 +80,6 @@ export const CATEGORY_LABELS: Record<string, string> = {
   PROJECT: 'Project',
   ADMIN: 'Admin',
 };
-
-export const PROJECT_STATUS_LABELS: Record<string, string> = {
-  ACTIVE: 'Active',
-  ON_HOLD: 'On Hold',
-  COMPLETED: 'Completed',
-  CANCELLED: 'Cancelled',
-};
-
-export const LEAVE_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Pending',
-  APPROVED: 'Approved',
-  REJECTED: 'Rejected',
-  CANCELLED: 'Cancelled',
-};
-
-export const PROJECT_STATUS_COLORS: Record<string, string> = {
-  ACTIVE: 'apex-status-open',
-  ON_HOLD: 'apex-status-progress',
-  COMPLETED: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-  CANCELLED: 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500',
-};
-
-export const LEAVE_STATUS_COLORS: Record<string, string> = {
-  PENDING: 'apex-badge-warning',
-  APPROVED: 'apex-badge-success',
-  REJECTED: 'apex-badge-danger',
-  CANCELLED: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-};
-
-export function formatRelativeTime(date: string | Date): string {
-  const now = new Date();
-  const d = new Date(date);
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return formatDate(date);
-}
 
 // Department accent colours — used for left-border on ticket rows & top-border on kanban cards
 export const DEPT_COLORS: Record<string, string> = {

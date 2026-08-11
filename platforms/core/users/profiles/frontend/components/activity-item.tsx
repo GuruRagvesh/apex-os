@@ -1,5 +1,4 @@
-import { formatRelativeTime } from '@/lib/utils';
-import { getInitials } from '@apex/shared-utilities';
+import { formatRelativeTime, getInitials } from '@apex/shared-utilities';
 
 const ACTION_LABELS: Record<string, string> = {
   CREATED: 'created',
