@@ -102,18 +102,12 @@ export const rolesApi = {
   remove: (id: string) => r(api.delete(`/roles/${id}`)),
 };
 
-// Departments
-export const departmentsApi = {
-  getAll: () => r(api.get('/departments')),
-  getOne: (id: string) => r(api.get(`/departments/${id}`)),
-  create: (data: any) => r(api.post('/departments', data)),
-  update: (id: string, data: any) => r(api.put(`/departments/${id}`, data)),
-  patch: (id: string, data: any) => r(api.patch(`/departments/${id}`, data)),
-  remove: (id: string) => r(api.delete(`/departments/${id}`)),
-  getManagers: (id: string) => r(api.get(`/departments/${id}/managers`)),
-  addManager: (id: string, userId: string) => r(api.post(`/departments/${id}/managers`, { userId })),
-  removeManager: (id: string, userId: string) => r(api.delete(`/departments/${id}/managers/${userId}`)),
-};
+// Departments — implementation now owned by the Core Organization Departments
+// component and re-exported here for the legacy consumers that still import it
+// from this file. Temporary compatibility, not authority: the component holds
+// the implementation, and migrated consumers import
+// '@apex/core-organization-departments/api' directly.
+export { departmentsApi } from '@apex/core-organization-departments/api';
 
 // Projects
 export const projectsApi = {

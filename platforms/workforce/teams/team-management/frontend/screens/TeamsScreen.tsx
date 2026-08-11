@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { teamsApi, departmentsApi, usersApi } from '@/lib/api';
+import { teamsApi, usersApi } from '@/lib/api';
+import { departmentsApi } from '@apex/core-organization-departments/api';
 import { useAuthStore } from '@apex/core-identity';
 import toast from 'react-hot-toast';
 import { Plus, Users, Building2, MoreVertical, Trash2, Pencil, ChevronRight, ChevronDown, Crown } from 'lucide-react';
