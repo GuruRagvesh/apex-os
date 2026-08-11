@@ -4902,10 +4902,16 @@ assertContract('the approvals screen kept its exact original import list', () =>
   if (raw === null) return [`${APPROVALS} is missing`];
   const src = codeOf(raw);
   const problems = [];
-  // Exactly the five the route file had, unchanged by the move.
+  // The five the route file had, unchanged by the move, plus one added
+  // deliberately when departmentsApi became departments-owned: this screen calls
+  // departmentsApi.getAll() and now reaches it through the component's public
+  // boundary instead of the app-wide lib/api façade. It still imports
+  // changeRequestsApi, usersApi and rolesApi from '@/lib/api', so that specifier
+  // stays required.
   const EXPECTED = [
     "from '@tanstack/react-query'",
     "from '@/lib/api'",
+    "from '@apex/core-organization-departments/api'",
     "from 'react'",
     "from 'lucide-react'",
     "from 'react-hot-toast'",

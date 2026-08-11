@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, usersApi, rolesApi, teamsApi } from '@/lib/api';
+import { usersApi, rolesApi, teamsApi } from '@/lib/api';
+import { departmentsApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
 import {
   ArrowLeft,

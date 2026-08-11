@@ -2,7 +2,8 @@
 
 import { useAuthStore } from '@apex/core-identity';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { dashboardApi, leaveApi, projectsApi, changeRequestsApi, departmentsApi, usersApi, rolesApi } from '@/lib/api';
+import { dashboardApi, leaveApi, projectsApi, changeRequestsApi, usersApi, rolesApi } from '@/lib/api';
+import { departmentsApi } from '@apex/core-organization-departments/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import Link from 'next/link';
 import { Settings, Ticket, Clock, CalendarOff, FolderKanban, Network, Edit3, X, Plus, ArrowRight } from 'lucide-react';

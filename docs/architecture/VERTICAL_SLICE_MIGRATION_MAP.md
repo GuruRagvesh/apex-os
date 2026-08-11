@@ -469,9 +469,47 @@ throughout this map.
 | `backend/src/modules/core/departments/*` (3) | `platforms/core/organization/departments/backend/` |
 | `frontend/app/(dashboard)/(platform)/departments/page.tsx`, `[id]/page.tsx` | `platforms/core/organization/departments/frontend/screens/` |
 | `backend/test/unit/departments.manager-access.spec.ts` | `platforms/core/organization/departments/tests/backend/` |
+| **(from `frontend/lib/api.ts`)** `departmentsApi` group | ✅ `platforms/core/organization/departments/frontend/api/` — published as the exact subpath `@apex/core-organization-departments/api`; `lib/api.ts` keeps a compatibility re-export |
 | `backend/src/modules/core/roles/*` (3) | `platforms/core/organization/roles/backend/` |
 | `backend/src/common/services/hierarchy-approval.service.ts` | `platforms/core/organization/hierarchy/backend/services/` |
 
+> **Status update (2026-08-11) — the department HTTP API is departments-owned.**
+>
+> This supersedes the earlier note (below, under `core/users`) that
+> `departmentsApi` "stayed in `lib/api.ts` — 14 consumers". That recorded a
+> deferral, not an ownership ruling; ownership is now decided on evidence.
+>
+> **The evidence.** `departmentsApi` has **9 methods**. This component's own two
+> screens use **8 of them** — `getOne`, `getManagers`, `patch`, `addManager`,
+> `removeManager` in `DepartmentDetailScreen`, and `getAll`, `create`, `remove`
+> in `DepartmentsScreen` — which is **every mutation the group has**. All eleven
+> other consumers call **only `getAll()`**, to fill a department dropdown or
+> filter. Department administration is the authority; everything else is
+> cross-component read, which is exactly what a public boundary is for. The
+> backend departments module is already mapped to this same component.
+>
+> Moved verbatim (**11 lines, 9 methods**) from `frontend/lib/api.ts` to
+> `platforms/core/organization/departments/frontend/api/departments-api.ts`,
+> published as `@apex/core-organization-departments/api` — never through the
+> component root barrel, which exports the two screens and must not drag the
+> authenticated client into consumers that only want a screen. Same mechanism as
+> `@apex/sales-crm-shared/api` and `@apex/operations-tickets-lifecycle/api`.
+>
+> `frontend/lib/api.ts` **survives and still owns 17 other API groups**, so this
+> retires **no original runtime file**: primary stays **150 / 423**. It keeps a
+> compatibility re-export for the four legacy consumers (kanban, ticket list,
+> ticket creation, settings) plus the zero-consumer `modules/core/users/users.api.ts`
+> shim. The façade is compatibility, not authority.
+>
+> Eight migrated consumers repointed. The two screens in this component use a
+> **relative** `../api` import because they are inside it; the six cross-component
+> consumers — `UsersScreen`, `ApprovalsScreen`, `ProfileScreen`, `ProjectsScreen`,
+> `ProjectDetailScreen`, `TeamsScreen` — use the public alias.
+>
+> **Reported, not fixed:** `update()` (`PUT /departments/:id`) has **zero
+> consumers** — the detail screen calls `patch()`. It was preserved verbatim under
+> R100 rather than dropped; retiring it is a separate decision.
+>
 > **Status update (2026-08-07) — DEPARTMENTS frontend COMPARTMENTALISED**
 > (batch branch, Commit 5), giving `core/organization` its first compartment.
 >
