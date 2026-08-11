@@ -11,7 +11,7 @@ import { formatRelativeTime } from '@apex/shared-utilities';
 import { useSocket } from '@/hooks/useSocket';
 import { CommandPalette } from '@/components/ui/command-palette';
 import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
-import { downloadScreenshot } from '@/lib/download-screenshot';
+import { downloadScreenshot } from '@apex/shared-utilities/download-screenshot';
 import toast from 'react-hot-toast';
 
 // /hrms and /sales-crm are standalone workspace pages (frontend/app/(workspaces)) —

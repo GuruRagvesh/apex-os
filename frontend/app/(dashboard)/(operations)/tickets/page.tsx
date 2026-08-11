@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { TicketRow } from '@apex/operations-tickets-lifecycle/components/ticket-row';
 import { SkeletonTicketRows } from '@apex/shared-ui/components/skeleton';
-import { useDebounce } from '@/hooks/useDebounce';
+import { useDebounce } from '@apex/shared-utilities/use-debounce';
 import { useSocket } from '@/hooks/useSocket';
 import { STATUS_LABELS } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn } from '@apex/shared-utilities';
