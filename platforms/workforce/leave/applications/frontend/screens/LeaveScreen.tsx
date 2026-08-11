@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveApi } from '@/lib/api';
 import { useAuthStore } from '@apex/core-identity';
-import { LEAVE_STATUS_COLORS } from '@/lib/utils';
+import { LEAVE_STATUS_COLORS } from '../lib/leave-status';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
 import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, Info, ChevronDown } from 'lucide-react';
 import { EmptyState } from '@apex/shared-ui/components/empty-state';

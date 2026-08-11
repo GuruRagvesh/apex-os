@@ -1623,13 +1623,12 @@ export default EmptyState;
 
 // 90. The Leave exemption covers its three allowlisted targets only.
 testCase(
-  'accepts a Leave screen importing its allowlisted legacy dependencies',
+  'accepts a Leave screen importing its allowlisted legacy dependency',
   (root) => {
     write(
       root,
       'platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx',
       `import { leaveApi } from '@/lib/api';
-import { cn } from '@/lib/utils';
 export default function S() { return null; }
 `,
     );
@@ -4483,7 +4482,7 @@ testRealRepoDebtCounts({
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 5,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
-  'DEBT-P5-LEAVE-LEGACY-FRONTEND': 2,
+  'DEBT-P5-LEAVE-LEGACY-FRONTEND': 1,
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 3,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
   'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 3,

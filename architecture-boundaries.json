@@ -341,8 +341,7 @@
         "removalPhase": "Per-target: see removalConditions",
         "from": "platforms/workforce/leave/applications/frontend/",
         "allowedTargets": [
-          "frontend/lib/api.ts",
-          "frontend/lib/utils.ts"
+          "frontend/lib/api.ts"
         ],
         "reason": "The Leave screen moved verbatim and carries three legacy imports. None is Leave-owned: leaveApi lives in frontend/lib/api.ts among ~20 application-wide API groups; lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also holds LEAVE_STATUS_COLORS; auth.store.ts is the application-wide identity store. The screen's global UI dependency was already retired - it consumes EmptyState through @apex/shared-ui/components/empty-state, not the legacy path.",
         "removalConditions": [

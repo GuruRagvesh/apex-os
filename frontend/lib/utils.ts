@@ -81,34 +81,6 @@ export const CATEGORY_LABELS: Record<string, string> = {
   ADMIN: 'Admin',
 };
 
-export const PROJECT_STATUS_LABELS: Record<string, string> = {
-  ACTIVE: 'Active',
-  ON_HOLD: 'On Hold',
-  COMPLETED: 'Completed',
-  CANCELLED: 'Cancelled',
-};
-
-export const LEAVE_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Pending',
-  APPROVED: 'Approved',
-  REJECTED: 'Rejected',
-  CANCELLED: 'Cancelled',
-};
-
-export const PROJECT_STATUS_COLORS: Record<string, string> = {
-  ACTIVE: 'apex-status-open',
-  ON_HOLD: 'apex-status-progress',
-  COMPLETED: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-  CANCELLED: 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500',
-};
-
-export const LEAVE_STATUS_COLORS: Record<string, string> = {
-  PENDING: 'apex-badge-warning',
-  APPROVED: 'apex-badge-success',
-  REJECTED: 'apex-badge-danger',
-  CANCELLED: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-};
-
 // Department accent colours — used for left-border on ticket rows & top-border on kanban cards
 export const DEPT_COLORS: Record<string, string> = {
   'IT':                     '#3b82f6',
