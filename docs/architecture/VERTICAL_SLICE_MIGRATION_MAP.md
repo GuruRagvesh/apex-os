@@ -33,6 +33,49 @@ changes no import, and touches no configuration.
 | `frontend/` root | 9 |
 | `e2e/` | 20 |
 
+> **Status update (2026-08-12) — three dead legacy frontend files RETIRED.**
+>
+> Unlike the shim tree below, these were **real implementations** — they were
+> deleted because nothing imports them, not because they were compatibility
+> seams.
+>
+> | Retired | Ln | Evidence |
+> | --- | --- | --- |
+> | `frontend/components/ui/DownloadScreenshotButton.tsx` | 55 | zero references repo-wide |
+> | `frontend/components/ui/HighPriorityTicketsPreview.tsx` | 156 | zero references repo-wide |
+> | `frontend/lib/date-utils.ts` | 71 | zero path imports; all five exports unreferenced |
+>
+> **`shared/utilities/download-screenshot` is not orphaned.** It had two callers;
+> `frontend/components/layout/topbar.tsx` is the surviving one, so the utility
+> published in PR #30 keeps a live consumer.
+>
+> **`date-utils.ts` needed a second look.** A symbol scan showed `timeAgo` with
+> two references — both turned out to be a `timeAgo` **declared locally** inside
+> `platforms/intelligence/dashboard/overview/frontend/components/RecentActivityFeed.tsx`,
+> not an import. The other four exports (`formatDateIST`, `formatDateTimeIST`,
+> `formatTimeIST`, `normalizeDateInput`) had zero references. It is unrelated to
+> `frontend/lib/company-date.ts`, which remains the protected business-date
+> authority and was not touched.
+>
+> Primary **162 → 165 / 423**. Debt unchanged at 24 — nothing imported these.
+>
+> **Deliberately excluded from this batch, and why:**
+>
+> - `frontend/app/(dashboard)/(operations)/team/page.tsx` (850 ln) — the largest
+>   remaining single relocation, but the `reporting-lines` note below already
+>   defers it: it imports `workdayApi` and `formatInTimeZone`, so it is
+>   attendance-engine adjacent and needs its own review.
+> - `frontend/components/dashboard/stat-card.tsx` — also unconsumed, but a
+>   self-test explicitly requires it to stay in place. Retiring it is a separate
+>   decision, exactly as the shim retirements were.
+> - `frontend/components/workday/{IdlePopup,IdleWarningToast,SessionRecoveryModal}.tsx`
+>   and `frontend/hooks/useIdleDetection.ts` — these also appear unreferenced, but
+>   they are attendance/workday files and are out of scope for an architecture
+>   batch. **Recorded here as a finding for the workday review, not acted on.**
+> - `command-palette.tsx`, `cold-start-banner.tsx`, `QuickActionDock.tsx`,
+>   `useTheme.ts` — live consumers, but no proven owner yet; `QuickActionDock`
+>   additionally imports `workdayApi` and a workday modal.
+>
 > **Status update (2026-08-12) — the dead `frontend/modules/` shim tree is RETIRED.**
 >
 > **12 of the 15 files were deleted.** All were proven dead before deletion: zero

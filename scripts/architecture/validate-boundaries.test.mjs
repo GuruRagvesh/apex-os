@@ -5398,6 +5398,14 @@ assertContract('the retired frontend/modules shims are not recreated', () => {
     'frontend/modules/operations/tickets/tickets.api.ts',
     'frontend/modules/operations/tickets/tickets.types.ts',
     'frontend/modules/platform/reports/reports.api.ts',
+    // Real implementations, not shims — deleted because nothing imported them.
+    // DownloadScreenshotButton was the second caller of downloadScreenshot;
+    // topbar.tsx is the surviving one, so shared/utilities keeps its consumer.
+    // date-utils.ts exported five formatters with zero references (the timeAgo
+    // used by RecentActivityFeed is declared locally in that file, not imported).
+    'frontend/components/ui/DownloadScreenshotButton.tsx',
+    'frontend/components/ui/HighPriorityTicketsPreview.tsx',
+    'frontend/lib/date-utils.ts',
   ];
   return RETIRED.filter((f) => readRepo(f) !== null).map((f) => `${f} was retired and must not be recreated`);
 });
