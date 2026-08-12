@@ -5376,3 +5376,39 @@ assertContract('DONE and CLOSED still suppress the overdue display', () => {
     ? []
     : ['the DONE/CLOSED overdue suppression is no longer present in ticket-visibility'];
 });
+
+// ── The retired frontend/modules shim tree ──────────────────────────────────
+// 12 zero-importer files were deleted once their authority existed elsewhere:
+// nine `export … from '@/lib/api'` re-export shims, the TicketRow re-export left
+// behind by U1, and two dead type-only files. Recreating any of them would
+// reintroduce a second path to an API group that a component already owns, and
+// relocating one into its mapped component would manufacture a legacy edge —
+// the component would import '@/lib/api' purely to re-export it.
+assertContract('the retired frontend/modules shims are not recreated', () => {
+  const RETIRED = [
+    'frontend/modules/ai/ai.api.ts',
+    'frontend/modules/core/auth/auth.api.ts',
+    'frontend/modules/core/auth/auth.types.ts',
+    'frontend/modules/core/users/users.api.ts',
+    'frontend/modules/operations/leave/leave.api.ts',
+    'frontend/modules/operations/notifications/notifications.api.ts',
+    'frontend/modules/operations/projects/projects.api.ts',
+    'frontend/modules/operations/team/team.api.ts',
+    'frontend/modules/operations/tickets/components/TicketRow.tsx',
+    'frontend/modules/operations/tickets/tickets.api.ts',
+    'frontend/modules/operations/tickets/tickets.types.ts',
+    'frontend/modules/platform/reports/reports.api.ts',
+  ];
+  return RETIRED.filter((f) => readRepo(f) !== null).map((f) => `${f} was retired and must not be recreated`);
+});
+
+// D10 keeps these three intentional placeholders until they have content. They
+// are empty `export {}` stubs, deliberately NOT deleted alongside the shims.
+assertContract('the D10 placeholder stubs are still present', () => {
+  const STUBS = [
+    'frontend/modules/business/finance/index.ts',
+    'frontend/modules/business/sales-crm/index.ts',
+    'frontend/modules/business/training-delivery/index.ts',
+  ];
+  return STUBS.filter((f) => readRepo(f) === null).map((f) => `${f} is a D10 stub and must stay until it has content`);
+});

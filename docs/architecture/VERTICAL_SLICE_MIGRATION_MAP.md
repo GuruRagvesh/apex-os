@@ -33,6 +33,46 @@ changes no import, and touches no configuration.
 | `frontend/` root | 9 |
 | `e2e/` | 20 |
 
+> **Status update (2026-08-12) — the dead `frontend/modules/` shim tree is RETIRED.**
+>
+> **12 of the 15 files were deleted.** All were proven dead before deletion: zero
+> external importers anywhere in the repository — static imports, dynamic
+> `import()`, `require()`, path aliases, relative paths, re-exports, tests,
+> scripts, `tsconfig` paths and `next.config` all searched — and zero runtime
+> side effects (the only non-export lines in the whole tree were type members and
+> one `'use client'` directive).
+>
+> | Retired | What it was |
+> | --- | --- |
+> | `ai.api.ts`, `core/auth/auth.api.ts`, `core/users/users.api.ts`, `operations/leave/leave.api.ts`, `operations/notifications/notifications.api.ts`, `operations/projects/projects.api.ts`, `operations/team/team.api.ts`, `operations/tickets/tickets.api.ts`, `platform/reports/reports.api.ts` | 9 one-line `export … from '@/lib/api'` re-export shims |
+> | `operations/tickets/components/TicketRow.tsx` | 5-line re-export of the U1-resolved canonical component |
+> | `core/auth/auth.types.ts`, `operations/tickets/tickets.types.ts` | 2 dead type-only files |
+>
+> **Why the earlier "retained, not deleted" decisions are superseded.** Those
+> rows were written when `frontend/lib/api.ts` was still the only home for these
+> API groups, so a shim was at least a plausible future seam. That is no longer
+> true: `ticketsApi` moved to `operations/tickets/lifecycle/frontend/api/` (PR #33)
+> and `departmentsApi` to `core/organization/departments/frontend/api/` (PR #34),
+> and the remaining groups are reachable directly from `lib/api.ts`. A shim with
+> zero importers now provides **no compatibility value**, and **relocating one
+> into its mapped component would manufacture a new legacy edge** — the component
+> would import `@/lib/api` purely to re-export it. Deleting is the only action
+> that neither strands dead code nor creates debt.
+>
+> `tickets.types.ts` was additionally **stale**: its `TicketStatus` declared
+> `PENDING_APPROVAL` and `REJECTED`, which do not exist in the live union, and
+> omitted `REVIEW`, which does. A dead and incorrect contract is safer removed
+> than preserved.
+>
+> **3 files were KEPT** — `business/{finance,sales-crm,training-delivery}/index.ts`,
+> the intentional empty `export {}` stubs. **D10 stands unchanged:** they stay
+> until they have content. `sales-crm/index.ts` is not named in D10, but it is the
+> same intentional-stub category, so it was kept for consistency rather than
+> deleted to improve a metric; retiring it needs its own decision.
+>
+> Primary **150 → 162 / 423**. Debt unchanged at 24 — nothing imported these, so
+> no exemption existed to retire. All 42 route First Load values byte-identical.
+
 Every one is assigned below, or listed in [Unresolved assignments](#unresolved-assignments)
 with the reason it is deferred to a later phase.
 
@@ -175,8 +215,8 @@ throughout this map.
 | `backend/src/modules/core/auth/dto/login.dto.ts` | `platforms/core/identity/authentication/backend/dto/` |
 | `backend/src/modules/core/auth/strategies/jwt.strategy.ts` | `platforms/core/identity/authentication/backend/strategies/` |
 | `frontend/app/(auth)/login/page.tsx` | `platforms/core/identity/authentication/frontend/screens/` + route adapter |
-| `frontend/modules/core/auth/auth.api.ts` | `platforms/core/identity/authentication/frontend/api/` |
-| `frontend/modules/core/auth/auth.types.ts` | `platforms/core/identity/authentication/shared/contracts/` |
+| `frontend/modules/core/auth/auth.api.ts` | ✅ **RETIRED** — zero-importer `@/lib/api` re-export shim, deleted. |
+| `frontend/modules/core/auth/auth.types.ts` | ✅ **RETIRED** — zero-importer dead types, deleted. |
 | `frontend/store/auth.store.ts` | `platforms/core/identity/authentication/frontend/state/` ⚠️ **not yet moved — see below** |
 | `backend/test/unit/auth.otp.spec.ts`, `auth.throttle.spec.ts` | `platforms/core/identity/authentication/tests/backend/` |
 
@@ -320,7 +360,7 @@ throughout this map.
 | `frontend/app/(dashboard)/(platform)/users/page.tsx`, `[id]/page.tsx` | `platforms/core/users/administration/frontend/screens/` |
 | `frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx`, `(dashboard)/profile/page.tsx` | `platforms/core/users/profiles/frontend/screens/` |
 | `frontend/app/(dashboard)/admin/approvals/page.tsx` | `platforms/core/users/change-requests/frontend/screens/` |
-| `frontend/modules/core/users/users.api.ts` | `platforms/core/users/profiles/frontend/api/` |
+| `frontend/modules/core/users/users.api.ts` | ✅ **RETIRED** — zero-importer `@/lib/api` re-export shim, deleted. |
 | `backend/test/unit/users.profile.spec.ts` | `platforms/core/users/profiles/tests/backend/` |
 | `backend/test/unit/users.change-requests.spec.ts` | `platforms/core/users/change-requests/tests/backend/` |
 | `backend/test/unit/users.admin-correction.spec.ts` | `platforms/core/users/administration/tests/backend/` |
@@ -688,7 +728,7 @@ created.** They are built when the features are built.
 | `backend/src/common/services/leave-access.service.ts` | `platforms/workforce/leave/approvals/backend/policies/` |
 | **(from `scheduler.service.ts`)** `setLeaveStatuses` | `platforms/workforce/leave/applications/backend/jobs/` **D7** |
 | `frontend/app/(dashboard)/(operations)/leave/page.tsx` | `platforms/workforce/leave/applications/frontend/screens/` |
-| `frontend/modules/operations/leave/leave.api.ts` | `platforms/workforce/leave/applications/frontend/api/` |
+| `frontend/modules/operations/leave/leave.api.ts` | ✅ **RETIRED** — zero-importer `@/lib/api` re-export shim, deleted. Supersedes the earlier "Retained, not deleted". |
 | `frontend/modules/operations/leave/leave.types.ts` | `platforms/workforce/leave/shared/contracts/` |
 | `frontend/components/ui/LeavesApprover.tsx` | `platforms/workforce/leave/approvals/frontend/components/` |
 | `backend/test/unit/leave.rules.spec.ts` | `platforms/workforce/leave/applications/tests/backend/` |
@@ -776,7 +816,7 @@ created.** They are built when the features are built.
 | `backend/src/modules/operations/team/dto/*` (4) | `platforms/workforce/teams/team-management/backend/dto/` |
 | `frontend/app/(dashboard)/(operations)/teams/page.tsx`, `[id]/page.tsx` | `platforms/workforce/teams/team-management/frontend/screens/` |
 | `frontend/app/(dashboard)/(operations)/team/page.tsx` | `platforms/workforce/teams/reporting-lines/frontend/screens/` |
-| `frontend/modules/operations/team/team.api.ts` | `platforms/workforce/teams/team-management/frontend/api/` |
+| `frontend/modules/operations/team/team.api.ts` | ✅ **RETIRED** — zero-importer `@/lib/api` re-export shim, deleted. |
 | `frontend/components/home/TeamPressurePanel.tsx` | `platforms/workforce/teams/reporting-lines/frontend/components/` |
 | `backend/test/unit/teams.service.spec.ts` | `platforms/workforce/teams/team-management/tests/backend/` |
 | `e2e/tests/wf3-manager-oversight.spec.ts` | `platforms/workforce/teams/reporting-lines/tests/e2e/` |
@@ -841,9 +881,9 @@ created.** They are built when the features are built.
 | `frontend/app/(dashboard)/(operations)/kanban/page.tsx` | ✅ **DONE** — `platforms/operations/tickets/lifecycle/frontend/screens/KanbanScreen.tsx`, published as the exact subpath `@apex/operations-tickets-lifecycle/screens/KanbanScreen`; the route survives as a thin adapter |
 | `frontend/components/tickets/OverdueTicker.tsx` | `platforms/operations/tickets/sla/frontend/components/` |
 | `frontend/components/tickets/ticket-row.tsx` | ✅ `platforms/operations/tickets/lifecycle/frontend/components/` — **U1 RESOLVED**, published as an exact subpath |
-| `frontend/modules/operations/tickets/components/TicketRow.tsx` | ✅ **U1 RESOLVED** — a zero-consumer re-export shim, not a second implementation. Retained in legacy, repointed at the new public subpath. |
-| `frontend/modules/operations/tickets/tickets.api.ts` | ✅ **DONE** — a zero-consumer re-export shim, like `TicketRow.tsx` above. The real `ticketsApi` implementation lived in `frontend/lib/api.ts` and is what actually moved to `platforms/operations/tickets/lifecycle/frontend/api/`. Shim retained in legacy. |
-| `frontend/modules/operations/tickets/tickets.types.ts` | `platforms/operations/tickets/shared/contracts/` |
+| `frontend/modules/operations/tickets/components/TicketRow.tsx` | ✅ **RETIRED** — U1 resolved the canonical implementation to `lifecycle/frontend/components/`; the zero-importer shim left behind has now been deleted. |
+| `frontend/modules/operations/tickets/tickets.api.ts` | ✅ **RETIRED** — the real `ticketsApi` moved to `platforms/operations/tickets/lifecycle/frontend/api/` in PR #33; the zero-importer shim left behind has now been deleted. |
+| `frontend/modules/operations/tickets/tickets.types.ts` | ✅ **RETIRED** — zero-importer dead types, deleted. Its `TicketStatus` was also stale (declared `PENDING_APPROVAL`/`REJECTED`, omitted `REVIEW`). |
 | `frontend/lib/ticket-timing.ts` | `platforms/operations/tickets/sla/shared/` |
 | `frontend/lib/ticket-visibility.ts` | `platforms/operations/tickets/lifecycle/shared/` |
 | `backend/test/unit/ticket*.spec.ts`, `tickets.*.spec.ts` (17 files) | distribute across component `tests/backend/` |
@@ -969,7 +1009,7 @@ created.** They are built when the features are built.
 | --- | --- |
 | `backend/src/modules/operations/projects/*` (3) | `platforms/operations/projects/project-management/backend/` |
 | `frontend/app/(dashboard)/(operations)/projects/page.tsx`, `[id]/page.tsx` | `platforms/operations/projects/project-management/frontend/screens/` |
-| `frontend/modules/operations/projects/projects.api.ts` | `platforms/operations/projects/project-management/frontend/api/` |
+| `frontend/modules/operations/projects/projects.api.ts` | ✅ **RETIRED** — zero-importer `@/lib/api` re-export shim, deleted. |
 | `backend/test/unit/fp14b.project-stages.spec.ts` | `platforms/operations/projects/stages/tests/backend/` |
 | `backend/test/unit/p0.project-access.spec.ts` | `platforms/operations/projects/project-management/tests/backend/` |
 
@@ -1076,7 +1116,7 @@ created.** They are built when the features are built.
 | `frontend/app/(dashboard)/analytics/page.tsx` | `platforms/intelligence/analytics/frontend/screens/` |
 | `backend/test/unit/analytics.spec.ts` | `platforms/intelligence/analytics/tests/backend/` |
 | `frontend/app/(dashboard)/(platform)/reports/page.tsx` | `platforms/intelligence/reports/frontend/screens/` |
-| `frontend/modules/platform/reports/reports.api.ts` | `platforms/intelligence/reports/frontend/api/` |
+| `frontend/modules/platform/reports/reports.api.ts` | ✅ **RETIRED** — zero-importer `@/lib/api` re-export shim, deleted. |
 
 > Per D10, `performance/` is **not** scaffolded — it has no dedicated code and
 > is currently part of analytics.
@@ -1137,7 +1177,7 @@ created.** They are built when the features are built.
 | Current | Target |
 | --- | --- |
 | `backend/src/modules/ai/*` (4) | `platforms/intelligence/ai/backend/` |
-| `frontend/modules/ai/ai.api.ts` | `platforms/intelligence/ai/frontend/api/` |
+| `frontend/modules/ai/ai.api.ts` | ✅ **RETIRED** — zero-importer `@/lib/api` re-export shim, deleted. |
 
 ---
 
@@ -1310,7 +1350,7 @@ created.** They are built when the features are built.
 | `notifications` | `backend/src/modules/operations/notifications/*` (4) | `platforms/system/notifications/backend/` |
 | | `frontend/components/notifications/DesktopNotificationManager.tsx` | `platforms/system/notifications/frontend/components/` |
 | | `frontend/hooks/useDesktopNotifications.ts`, `useApprovalReminders.ts` | `platforms/system/notifications/frontend/hooks/` |
-| | `frontend/modules/operations/notifications/notifications.api.ts` | `platforms/system/notifications/frontend/api/` |
+| | `frontend/modules/operations/notifications/notifications.api.ts` | ✅ **RETIRED** — zero-importer `@/lib/api` re-export shim, deleted. |
 | | `backend/test/unit/p1.notification-event.spec.ts`, `p1d.notification-monitoring.spec.ts` | `platforms/system/notifications/tests/backend/` |
 | `email` | `backend/src/modules/platform/email/*` (2) | `platforms/system/email/backend/` |
 | `uploads` | `backend/src/modules/platform/uploads/*` (2) | `platforms/system/uploads/backend/` |
