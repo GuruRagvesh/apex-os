@@ -5152,23 +5152,10 @@ assertContract('the /analytics route is a thin adapter', () => {
   return problems;
 });
 
-assertContract('stat-card was left where the evidence puts it', () => {
-  // The Dashboard phase found stat-card has no consumer anywhere. It was NOT
-  // absorbed into analytics just to empty frontend/components/dashboard/ -
-  // ownership follows consumers, and an unconsumed file has none to follow.
-  const problems = [];
-  if (readRepo('frontend/components/dashboard/stat-card.tsx') === null) {
-    problems.push('stat-card.tsx moved or was deleted; this phase must leave it in place');
-  }
-  const importers = repoSources().filter((f) => {
-    if (f === 'scripts/architecture/validate-boundaries.test.mjs') return false;
-    return codeOf(readRepo(f) ?? '').includes('components/dashboard/stat-card');
-  });
-  if (importers.length !== 0) {
-    problems.push(`stat-card gained ${importers.length} importer(s): ${importers.join(', ')}`);
-  }
-  return problems;
-});
+// stat-card's "must stay in place" assertion was retired with the file itself.
+// Its purpose — stopping an unconsumed file being absorbed into analytics on
+// filename grounds — was served, and the file never gained a consumer. The
+// anti-recreation list above now guards the path instead.
 
 const DEPT_LIST = 'platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx';
 const DEPT_DETAIL = 'platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx';
@@ -5406,6 +5393,16 @@ assertContract('the retired frontend/modules shims are not recreated', () => {
     'frontend/components/ui/DownloadScreenshotButton.tsx',
     'frontend/components/ui/HighPriorityTicketsPreview.tsx',
     'frontend/lib/date-utils.ts',
+    // stat-card was held back by an earlier assertion that required it to STAY,
+    // on the reasoning that ownership follows consumers and an unconsumed file
+    // has none to follow. That kept it from being absorbed into analytics on
+    // filename grounds, which was right. It never gained a consumer, so the
+    // remaining choice was retire-or-keep-forever; retirement was authorised
+    // and that assertion is superseded by this line. The three StatCard-shaped
+    // symbols elsewhere are unrelated: sales-crm declares its own in Card.tsx,
+    // AnalyticsScreen declares LegacyStatCard locally, and shared/ui has
+    // SkeletonStatCard. None ever imported this file.
+    'frontend/components/dashboard/stat-card.tsx',
   ];
   return RETIRED.filter((f) => readRepo(f) !== null).map((f) => `${f} was retired and must not be recreated`);
 });
