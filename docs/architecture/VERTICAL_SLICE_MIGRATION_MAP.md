@@ -65,9 +65,8 @@ changes no import, and touches no configuration.
 >   remaining single relocation, but the `reporting-lines` note below already
 >   defers it: it imports `workdayApi` and `formatInTimeZone`, so it is
 >   attendance-engine adjacent and needs its own review.
-> - `frontend/components/dashboard/stat-card.tsx` — also unconsumed, but a
->   self-test explicitly requires it to stay in place. Retiring it is a separate
->   decision, exactly as the shim retirements were.
+> - ~~`frontend/components/dashboard/stat-card.tsx`~~ — **RETIRED 2026-08-12**;
+>   see the status note under `intelligence/analytics`.
 > - `frontend/components/workday/{IdlePopup,IdleWarningToast,SessionRecoveryModal}.tsx`
 >   and `frontend/hooks/useIdleDetection.ts` — these also appear unreferenced, but
 >   they are attendance/workday files and are out of scope for an architecture
@@ -1183,6 +1182,36 @@ created.** They are built when the features are built.
 > **`stat-card.tsx` was deliberately NOT absorbed**: it has zero consumers, and
 > ownership follows consumers. It stays put, and a self-test asserts this phase
 > left it alone. `frontend/components/dashboard/` is now down to that one file.
+>
+> > **Status update (2026-08-12) — `stat-card.tsx` is RETIRED, and the
+> > "must stay in place" decision above is SUPERSEDED.**
+> >
+> > That decision was correct for its phase: it stopped an unconsumed file being
+> > absorbed into analytics on filename grounds, when ownership follows consumers
+> > and an unconsumed file has none to follow. What it could not do was decide the
+> > file's fate — it only deferred it. The file never gained a consumer, so the
+> > real choice was retire or keep forever. **Retirement was explicitly
+> > authorised** and is recorded here rather than inferred.
+> >
+> > **Zero-consumer proof, re-run at `c4f5771` across four mechanisms:** no static
+> > import by path or alias; no `StatCard` symbol import — the three similarly
+> > named symbols elsewhere are unrelated declarations (`Card.tsx` in sales-crm,
+> > `LegacyStatCard` declared locally inside `AnalyticsScreen`, `SkeletonStatCard`
+> > in `shared/ui`); no dynamic `import()`, `React.lazy` or `require()`; no
+> > string-based reference outside documentation and the architecture test's own
+> > synthetic fixture. The file had **no module-scope side effects** — its only
+> > statements were imports, an interface and one exported function — so deleting
+> > it cannot change evaluation order.
+> >
+> > **Retired as dead code, NOT migrated into analytics.** The original reasoning
+> > holds: it was never analytics-owned. `frontend/components/dashboard/` is now
+> > empty and gone.
+> >
+> > The old assertion is replaced by the established anti-recreation pattern — the
+> > path joins the same `RETIRED` list used for the PR #36 shim and PR #37 dead
+> > component retirements, so recreating it fails the suite. Self-test count moves
+> > 304 → 303 because one bespoke assertion was replaced by a line in an existing
+> > list, not because coverage was lost.
 >
 > **Target path is `analytics/overview`, not `analytics/`.** The row above is
 > depth-2, and `componentDepth` is 3 — `componentRootOf` returns `null` for a
