@@ -72,9 +72,12 @@ changes no import, and touches no configuration.
 >   and `frontend/hooks/useIdleDetection.ts` — these also appear unreferenced, but
 >   they are attendance/workday files and are out of scope for an architecture
 >   batch. **Recorded here as a finding for the workday review, not acted on.**
-> - `command-palette.tsx`, `cold-start-banner.tsx`, `QuickActionDock.tsx`,
->   `useTheme.ts` — live consumers, but no proven owner yet; `QuickActionDock`
->   additionally imports `workdayApi` and a workday modal.
+> - `command-palette.tsx`, `cold-start-banner.tsx`, `QuickActionDock.tsx` — live
+>   consumers, but no proven owner yet; `QuickActionDock` additionally imports
+>   `workdayApi` and a workday modal.
+>   `useTheme.ts` was listed here in error — the `shared/` table already assigned
+>   it to `shared/utilities`. **It has since MOVED there**; see the status note on
+>   that row.
 >
 > **Status update (2026-08-12) — the dead `frontend/modules/` shim tree is RETIRED.**
 >
@@ -1554,7 +1557,36 @@ created.** They are built when the features are built.
 > Retiring the obsolete file rather than relocating a set of duplicates is
 > recorded here as the resolved decision for this row.
 | `shared/observability/` | `backend/src/instrument.ts` |
-| `shared/utilities/` | `frontend/lib/utils.ts`, `download-screenshot.ts`, `frontend/hooks/{useDebounce,useTheme}.ts` |
+| `shared/utilities/` | `frontend/lib/utils.ts`, `download-screenshot.ts`, `frontend/hooks/{useDebounce,useTheme}.ts` — ✅ `useDebounce` and `useTheme` both DONE |
+
+> **Status update (2026-08-12) — `useTheme` MOVED to `shared/utilities`.**
+>
+> `frontend/hooks/useTheme.ts` (87 ln) → `shared/utilities/use-theme.ts` via
+> `git mv`; the blob hash is unchanged, so the relocation is byte-identical.
+> Published as the exact subpath `@apex/shared-utilities/use-theme`, mirroring
+> `use-debounce` from this same row — **not** added to the root barrel, which
+> stays at its four dependency-light exports.
+>
+> This is the second and last file from this row: `useDebounce` moved in PR #32
+> under the identical pattern. The whole module imports only `react`, so the move
+> introduces no legacy edge and the original **fully retires** — no adapter, no
+> façade. Its single consumer, `(dashboard)/settings/page.tsx`, changed by one
+> import specifier.
+>
+> **`applyTheme` is exported but unconsumed**, and `settings/page.tsx` defines its
+> own local `applyTheme` for a different concern (light/dark/system, versus the
+> module's `applyTheme(theme, accent)`). The names collide but nothing imports the
+> exported one. It was preserved verbatim under R100 rather than pruned during a
+> relocation; retiring it is a separate decision.
+>
+> The unresolved-assignments list above previously named `useTheme.ts` as having
+> "no proven owner yet", which contradicted this row. That entry is corrected.
+>
+> Preserved exactly: `useTheme`, `applyTheme`, `ThemeId`, `AccentId`, the
+> `apex-theme`/`apex-accent` storage keys, the `data-theme`/`data-accent`
+> attributes, the `typeof localStorage === 'undefined'` guards and every default.
+> `frontend/app/layout.tsx`'s anti-flash script reads the same keys independently
+> and was not touched.
 
 > **Status update (2026-08-11) — `frontend/lib/utils.ts` is RETIRED.** The row
 > above is now historical: the file did not move to `shared/utilities` wholesale,

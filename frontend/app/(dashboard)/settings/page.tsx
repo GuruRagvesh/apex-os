@@ -11,7 +11,7 @@ import {
   CalendarDays, Mail, Eye, EyeOff, Lock, Tags,
 } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
-import { useTheme, type ThemeId, type AccentId } from '@/hooks/useTheme';
+import { useTheme, type ThemeId, type AccentId } from '@apex/shared-utilities/use-theme';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
 const inputCls  = 'apex-input';

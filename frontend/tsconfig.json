@@ -43,6 +43,7 @@
       "@apex/shared-ui/components/*": ["../shared/ui/frontend/components/*"],
       "@apex/shared-utilities": ["../shared/utilities/index.ts"],
       "@apex/shared-utilities/use-debounce": ["../shared/utilities/use-debounce.ts"],
+      "@apex/shared-utilities/use-theme": ["../shared/utilities/use-theme.ts"],
       "@apex/shared-utilities/download-screenshot": ["../shared/utilities/download-screenshot.ts"],
       "@apex/shared-configuration": ["../shared/configuration/index.ts"],
       "@apex/core-users": ["../platforms/core/users/administration/index.ts"],
