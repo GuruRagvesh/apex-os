@@ -71,9 +71,45 @@ changes no import, and touches no configuration.
 >   and `frontend/hooks/useIdleDetection.ts` — these also appear unreferenced, but
 >   they are attendance/workday files and are out of scope for an architecture
 >   batch. **Recorded here as a finding for the workday review, not acted on.**
-> - `command-palette.tsx`, `cold-start-banner.tsx`, `QuickActionDock.tsx` — live
->   consumers, but no proven owner yet; `QuickActionDock` additionally imports
->   `workdayApi` and a workday modal.
+> - `command-palette.tsx`, `QuickActionDock.tsx`, `sidebar.tsx` — live consumers,
+>   but no proven owner yet. `QuickActionDock` **and `sidebar`** both import
+>   `workdayApi`, so both are workday-coupled, not merely unowned.
+>   `cold-start-banner.tsx` left this list on 2026-08-12 — see the `apps/web`
+>   note below.
+>
+> **Status update (2026-08-12) — `apps/web` ESTABLISHED; `cold-start-banner`
+> is its first occupant.**
+>
+> `frontend/components/ui/cold-start-banner.tsx` (46 ln) →
+> `apps/web/components/cold-start-banner.tsx`. `git mv`, blob hash unchanged, so
+> the body is byte-identical; the **only** edit inside the file is its import
+> edge, `@/lib/api` → `@apex/shared-auth`. Published as the exact subpath
+> `@apex/apps-web/components/cold-start-banner`. **No root barrel** was created
+> here and none should be — a barrel would let a consumer pull unrelated shell
+> code, the bundle trap this repository has hit repeatedly.
+>
+> **Owner is `apps/web`, and `shared/ui` is correctly excluded.** `shared/ui`'s
+> own README blocks this file under *rule 2 — feature logic*, because it calls
+> `api.get('/auth/me')`. That module holds presentation primitives with no
+> behaviour, and the exclusion stands regardless of where the API client lives.
+> The banner belongs to no feature: it detects a sleeping backend and shows a
+> global notice, mounted once in the dashboard layout beside the other shell
+> chrome. That is app-shell infrastructure UX.
+>
+> **No architecture rule was added or broadened.** The validator already enforced
+> the full `apps` model — `shared → apps`, `database → apps` and
+> `platforms → apps` are each forbidden, plus app-internal isolation. Only an
+> alias was registered so the validator resolves the new specifier instead of
+> treating it as a bare package. `apps/` now enters the scan: 205 → 206 files.
+>
+> **The original retires with no façade**: primary **167 → 168 / 423**, debt
+> unchanged at 24. Its single consumer, `(dashboard)/layout.tsx`, changed by one
+> import specifier.
+>
+> **Side finding, recorded not acted on:** this was the **last consumer of the raw
+> `api` re-export** from `frontend/lib/api.ts`. That `export { api }` now has zero
+> consumers. Removing it is a separate decision and was deliberately not bundled
+> into this relocation; the comment there has been corrected to say so.
 >   `useTheme.ts` was listed here in error — the `shared/` table already assigned
 >   it to `shared/utilities`. **It has since MOVED there**; see the status note on
 >   that row.

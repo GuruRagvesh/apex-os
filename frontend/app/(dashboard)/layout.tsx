@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/topbar';
-import { ColdStartBanner } from '@/components/ui/cold-start-banner';
+import { ColdStartBanner } from '@apex/apps-web/components/cold-start-banner';
 import { QuickActionDock } from '@/components/ui/QuickActionDock';
 import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalette';
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
