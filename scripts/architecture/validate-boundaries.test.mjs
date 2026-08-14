@@ -4817,7 +4817,11 @@ assertContract('frontend/lib/api.ts owns no client and no Sales CRM API', () => 
   if (raw === null) return [`${LEGACY_API} is missing`];
   const src = codeOf(raw);
   const problems = [];
-  for (const forbidden of ['axios.create', "from 'axios'", 'interceptors.', 'salesCrmLeadsApi']) {
+  // 'export { api }' joined this list on 2026-08-12: the raw-instance re-export
+  // had zero consumers once cold-start-banner moved to apps/web, and this file
+  // is a domain-API facade, not a transport surface. Anything needing the raw
+  // client imports it from '@apex/shared-auth'.
+  for (const forbidden of ['axios.create', "from 'axios'", 'interceptors.', 'salesCrmLeadsApi', 'export { api }']) {
     if (src.includes(forbidden)) problems.push(`must no longer contain: ${forbidden}`);
   }
   if (!src.includes("from '@apex/shared-auth'")) problems.push('does not import the shared authenticated client');
