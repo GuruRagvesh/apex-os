@@ -5,17 +5,16 @@
 // slices can make authenticated requests without importing this legacy module.
 // This file still owns every application-wide API group below, unchanged.
 //
-// `api` is re-exported here for callers that want the raw instance. It is the
-// same singleton — this file does not create one.
-//
-// As of 2026-08-12 this re-export has NO consumers: the last one,
+// This file no longer re-exports the raw axios instance. That re-export existed
+// so callers could reach the client through the legacy path; its last consumer,
 // cold-start-banner, moved to apps/web and now imports `api` from
-// '@apex/shared-auth' directly. Removing the re-export is a separate
-// decision from that relocation and was deliberately not bundled into it.
+// '@apex/shared-auth' directly. Anything needing the raw instance must do the
+// same — this module is a domain-API façade, not a transport surface.
+//
+// `api` is still imported below because every group here issues requests
+// through it. It remains the same singleton; this file does not create one.
 
 import { api, unwrap as r, API_BASE_URL as API_URL } from '@apex/shared-auth';
-
-export { api };
 
 // Auth
 export const authApi = {
