@@ -50,5 +50,32 @@ apps/web → shared/ui, shared/auth, shared/utilities, shared/time
 
 ## Migration status
 
-Empty. Populated during Phases 1–5 as each component migrates. Browser URLs
-must not change during any migration.
+**First occupant: `components/cold-start-banner.tsx` (2026-08-12).**
+
+`frontend/` remains the live Next.js root and still owns routing, rendering and
+build config. This folder now holds one piece of genuine app-shell chrome, and
+grows one migrated item at a time. Browser URLs have not changed.
+
+### Why a `components/` folder exists here
+
+The "must not live here" rule above excludes components *belonging to a
+feature*. The cold-start banner belongs to none: it detects a sleeping backend
+and shows a global notice, mounted once in the dashboard layout beside the other
+shell chrome. It is infrastructure UX, so it falls under "the genuine app shell".
+
+It is deliberately **not** in `shared/ui`. That module's own README blocks it
+under *rule 2 — feature logic*, because it calls `api.get('/auth/me')`.
+`shared/ui` holds presentation primitives with no behaviour, and that exclusion
+still stands regardless of where the API client lives.
+
+Published as the exact subpath `@apex/apps-web/components/cold-start-banner`.
+There is no root barrel here, and one should not be added: a barrel would let a
+consumer pull unrelated shell code, which is the bundle trap this repository has
+hit repeatedly.
+
+### Dependency direction is already enforced
+
+`shared/`, `platforms/` and `database/` may not import `apps/` — the validator
+enforces all three, plus app-internal isolation. `apps/web` composes downward
+through public entry points only. No rule change was needed to establish this
+folder; the boundary model already existed.

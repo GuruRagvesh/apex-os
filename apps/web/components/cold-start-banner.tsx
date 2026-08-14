@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api } from '@apex/shared-auth';
 
 /**
  * Shows a non-blocking banner when the backend hasn't responded within 3 seconds.

@@ -5,9 +5,13 @@
 // slices can make authenticated requests without importing this legacy module.
 // This file still owns every application-wide API group below, unchanged.
 //
-// `api` is re-exported because callers import the raw instance from here
-// (e.g. components/ui/cold-start-banner.tsx). It is the same singleton — this
-// file does not create one.
+// `api` is re-exported here for callers that want the raw instance. It is the
+// same singleton — this file does not create one.
+//
+// As of 2026-08-12 this re-export has NO consumers: the last one,
+// cold-start-banner, moved to apps/web and now imports `api` from
+// '@apex/shared-auth' directly. Removing the re-export is a separate
+// decision from that relocation and was deliberately not bundled into it.
 
 import { api, unwrap as r, API_BASE_URL as API_URL } from '@apex/shared-auth';
 

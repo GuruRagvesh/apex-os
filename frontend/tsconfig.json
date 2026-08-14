@@ -39,6 +39,7 @@
       "@apex/intelligence-dashboard": ["../platforms/intelligence/dashboard/overview/index.ts"],
       "@apex/intelligence-analytics": ["../platforms/intelligence/analytics/overview/index.ts"],
       "@apex/shared-auth": ["../shared/auth/index.ts"],
+      "@apex/apps-web/components/*": ["../apps/web/components/*"],
       "@apex/shared-ui": ["../shared/ui/index.ts"],
       "@apex/shared-ui/components/*": ["../shared/ui/frontend/components/*"],
       "@apex/shared-utilities": ["../shared/utilities/index.ts"],

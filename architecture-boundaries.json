@@ -29,6 +29,7 @@
     "@apex/sales-crm-shell/components": "platforms/business/sales-crm/shell/frontend/components",
     "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
     "@apex/shared-auth": "shared/auth",
+    "@apex/apps-web/components": "apps/web/components",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
     "@apex/operations-projects/screens": "platforms/operations/projects/project-management/frontend/screens",
     "@apex/operations-tickets-sla": "platforms/operations/tickets/sla",
