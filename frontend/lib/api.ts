@@ -112,17 +112,6 @@ export const rolesApi = {
 // '@apex/core-organization-departments/api' directly.
 export { departmentsApi } from '@apex/core-organization-departments/api';
 
-// Projects
-export const projectsApi = {
-  getAll: (params?: any) => r(api.get('/projects', { params })),
-  getOne: (id: string) => r(api.get(`/projects/${id}`)),
-  create: (data: any) => r(api.post('/projects', data)),
-  update: (id: string, data: any) => r(api.put(`/projects/${id}`, data)),
-  addMember: (id: string, userId: string, role?: string) => r(api.post(`/projects/${id}/members`, { userId, role })),
-  removeMember: (id: string, userId: string) => r(api.delete(`/projects/${id}/members/${userId}`)),
-  remove: (id: string) => r(api.delete(`/projects/${id}`)),
-  getStats: () => r(api.get('/projects/stats')),
-};
 
 // Tickets — implementation now owned by the Operations Tickets Lifecycle
 // component and re-exported here for the legacy consumers that still import it
