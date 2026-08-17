@@ -1113,6 +1113,50 @@ created.** They are built when the features are built.
 > barrel each route loaded both, taking `/projects` 153 → 161 kB and
 > `/projects/[id]` 158 → 161 kB. The subpaths returned both to baseline exactly.
 >
+> **Status update (2026-08-12) — `projectsApi` is now Projects-owned.** The
+> paragraph below is superseded for that one target; the rest of it still holds.
+>
+> `projectsApi` (**8 methods, 10 lines**) moved from `frontend/lib/api.ts` to
+> `platforms/operations/projects/project-management/frontend/api/projects-api.ts`,
+> byte-identical, published as the exact subpath `@apex/operations-projects/api`
+> — never through the component root barrel, which exports screens.
+>
+> **The "4 of 5 consumers are not Projects" objection is resolved the same way it
+> was for `ticketsApi` (PR #33) and `departmentsApi` (PR #34):** cross-component
+> consumption through a public boundary is what a public boundary is for, and it
+> does not make project data generic. The recorded removal condition —
+> *"once core/users and operations/tickets stop consuming it"* — was written
+> before that rule was settled and is not the condition that applied.
+>
+> **No compatibility façade was created**, unlike the ticket and department
+> extractions. Those each left six legacy consumers behind; this one had only
+> two (ticket creation and the command palette), so all six consumers were
+> repointed and `frontend/lib/api.ts` sheds the group outright. It survives with
+> **16** API groups.
+>
+> **Real debt reduction: 24 → 23.** `ProjectsScreen` imported *nothing else* from
+> `@/lib/api`, so repointing it removed the whole statement and
+> `DEBT-P3-PROJECTS-LEGACY-FRONTEND` fell 2 → 1. `ProjectDetailScreen` keeps one
+> edge for `eventsApi` and `usersApi`, neither Projects-owned. This is the first
+> API extraction in the programme to actually lower debt — the ticket and
+> department extractions each moved it by zero.
+>
+> Bundle: `/projects` **152 → 149 kB**, because the screen no longer drags the
+> 16-group façade into its First Load. `/tickets/new` shows 149 → 150 kB, a
+> rounding-boundary crossing on a **+0.1 kB** page delta — it now imports from two
+> modules where it previously imported from one.
+>
+> **`teamApi` was examined in the same pass and deliberately NOT moved.** Its two
+> methods span two domains: `getDirectory()` calls `GET /users/directory`
+> (`core/users/users.controller.ts`) and `sendRequest()` calls `POST /team/request`
+> (`operations/team/team.controller.ts`, the reporting-lines controller). It is a
+> composite façade group, not a domain API, and `platforms/workforce/teams/reporting-lines/`
+> **does not exist**. Splitting it would change the exported object shape; moving
+> it whole would put a users-directory call inside a teams component. It stays in
+> `frontend/lib/api.ts` until `reporting-lines` exists — and note `teamApi` is
+> **not** `teamsApi`, which is genuine `/teams/*` CRUD already owned by
+> `workforce/teams/team-management`.
+>
 > **Nothing else was Projects-owned.** `projectsApi` has 5 consumers of which 4
 > are not Projects (tickets/new, users/[id], profile, command-palette);
 > `lib/utils.ts`, `auth.store.ts`, `EmptyState`, `Breadcrumb` are shared or

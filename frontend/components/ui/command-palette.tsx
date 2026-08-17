@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
-import { ticketsApi, projectsApi, teamApi } from '@/lib/api';
+import { ticketsApi, teamApi } from '@/lib/api';
+import { projectsApi } from '@apex/operations-projects/api';
 import { Search, Ticket, FolderKanban, Users, ArrowRight, X } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
 

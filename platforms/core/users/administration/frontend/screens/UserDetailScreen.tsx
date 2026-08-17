@@ -3,7 +3,8 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useMemo } from 'react';
-import { usersApi, leaveApi, projectsApi, workdayApi, dashboardApi } from '@/lib/api';
+import { usersApi, leaveApi, workdayApi, dashboardApi } from '@/lib/api';
+import { projectsApi } from '@apex/operations-projects/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import {
   ArrowLeft, Mail, Building2, BadgeCheck, Calendar, Ticket, ExternalLink,

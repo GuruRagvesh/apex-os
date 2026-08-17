@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ticketsApi, projectsApi, departmentsApi, usersApi, aiApi, taskTypesApi, workdayApi } from '@/lib/api';
+import { ticketsApi, departmentsApi, usersApi, aiApi, taskTypesApi, workdayApi } from '@/lib/api';
+import { projectsApi } from '@apex/operations-projects/api';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Sparkles, Loader2, Clock, Plus, Copy, Trash2, Download, Upload, X } from 'lucide-react';

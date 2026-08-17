@@ -4606,7 +4606,11 @@ function testRealRepoDebtCounts(expected) {
 
 testRealRepoDebtCounts({
   'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
-  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 2,
+  // 2 -> 1 on 2026-08-12: projectsApi moved to the Projects component's own
+  // frontend/api, so ProjectsScreen (which imported nothing else from
+  // '@/lib/api') lost its legacy edge entirely. ProjectDetailScreen keeps one
+  // for eventsApi and usersApi, neither of which is Projects-owned.
+  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 1,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
   'DEBT-P5-LEAVE-LEGACY-FRONTEND': 1,
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 2,

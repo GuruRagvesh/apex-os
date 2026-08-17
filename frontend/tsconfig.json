@@ -28,6 +28,7 @@
       "@apex/sales-crm-shell": ["../platforms/business/sales-crm/shell/index.ts"],
       "@apex/sales-crm-shell/components/*": ["../platforms/business/sales-crm/shell/frontend/components/*"],
       "@apex/operations-projects": ["../platforms/operations/projects/project-management/index.ts"],
+      "@apex/operations-projects/api": ["../platforms/operations/projects/project-management/frontend/api/index.ts"],
       "@apex/operations-projects/screens/*": ["../platforms/operations/projects/project-management/frontend/screens/*"],
       "@apex/operations-tickets-sla": ["../platforms/operations/tickets/sla/index.ts"],
       "@apex/operations-tickets-sla/components/*": ["../platforms/operations/tickets/sla/frontend/components/*"],
