@@ -437,7 +437,8 @@ throughout this map.
 | Current | Target |
 | --- | --- |
 | `backend/src/modules/core/users/users.controller.ts`, `users.service.ts`, `users.module.ts` | `platforms/core/users/profiles/backend/` ⚠️ backend only — see the note below |
-| **(from `frontend/lib/api.ts`)** `usersApi` group | ✅ **DONE** — `platforms/core/users/administration/frontend/api/`, published as `@apex/core-users/api`; `lib/api.ts` keeps a compatibility re-export |
+| **(from `frontend/lib/api.ts`)** `usersApi` group | ✅ **DONE** — `platforms/core/users/administration/frontend/api/`, published as `@apex/core-users/api`; **25 methods** incl. `getDirectory`; `lib/api.ts` keeps a compatibility re-export |
+| **(from `frontend/lib/api.ts`)** `teamApi.getDirectory` → `GET /users/directory` | ✅ **DONE** — canonicalised into `usersApi.getDirectory()`; `teamApi.getDirectory()` remains as a delegating compatibility shim |
 | `backend/src/modules/core/users/change-requests.controller.ts`, `change-requests.service.ts` | `platforms/core/users/change-requests/backend/` |
 | `frontend/app/(dashboard)/(platform)/users/page.tsx`, `[id]/page.tsx` | `platforms/core/users/administration/frontend/screens/` |
 | `frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx`, `(dashboard)/profile/page.tsx` | `platforms/core/users/profiles/frontend/screens/` |
@@ -481,6 +482,40 @@ throughout this map.
 > and calls `GET /users/directory`, which this API should own — but moving it
 > touches `teamApi` and is a separate batch, kept out so this relocation could be
 > proved on its own.
+> **↑ SUPERSEDED 2026-08-17 — see the directory note below.**
+
+> **Status update (2026-08-17) — `GET /users/directory` is canonically owned by
+> Core Users Administration.**
+>
+> `usersApi` goes **24 → 25 methods**. `getDirectory` was added using the exact
+> transport line `teamApi` had been using, placed next to `getAll` as its
+> sibling read; the other 24 keep their relative order.
+>
+> `teamApi.getDirectory()` now **delegates**:
+>
+> ```ts
+> getDirectory: () => usersApi.getDirectory(),
+> ```
+>
+> so `/users/directory` has exactly **one** transport implementation in the
+> frontend and the façade no longer issues the request itself. The re-export at
+> the top of `lib/api.ts` became `import` + `export` of the same binding —
+> `export … from` creates no local binding to delegate to — which leaves the
+> exported surface identical.
+>
+> **`teamApi` is not retired and was not moved**, and `sendRequest`
+> (`POST /team/request`) is byte-identical. The reporting-lines reasoning below
+> still holds for that method: the two methods span two domains and only the
+> users-directory half had a canonical home to move to. `team/page.tsx` was not
+> migrated and is unchanged.
+>
+> Primary, remaining and debt are all unmoved (168/423, 255, 23): this is a
+> transport-ownership change inside two files that both already existed.
+>
+> With the directory public, **`command-palette` now has a public owner for all
+> four data dependencies** — projects, tickets, auth, directory — making it
+> eligible for a separate `apps/web` move. It still imports the legacy paths
+> today; that is a repoint, not a blocker.
 >
 > 🔒 `users.service.ts` calls the OneDrive backup vault during
 > deactivation/anonymisation and refuses to anonymise on failure. That
@@ -1192,6 +1227,14 @@ created.** They are built when the features are built.
 > `frontend/lib/api.ts` until `reporting-lines` exists — and note `teamApi` is
 > **not** `teamsApi`, which is genuine `/teams/*` CRUD already owned by
 > `workforce/teams/team-management`.
+>
+> **Update 2026-08-17 — half of it resolved, the composite verdict stands.**
+> `getDirectory` was canonicalised into `usersApi` and now delegates from here,
+> so the users-directory call no longer has a second implementation. `teamApi`
+> itself is still **not moved and not retired**, and `sendRequest` still waits on
+> `reporting-lines`, which still does not exist. Splitting the object was never
+> the problem — moving it wholesale was; delegating one method changes neither
+> the exported shape nor its location.
 >
 > **Nothing else was Projects-owned.** `projectsApi` has 5 consumers of which 4
 > are not Projects (tickets/new, users/[id], profile, command-palette);

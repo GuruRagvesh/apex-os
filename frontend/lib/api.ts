@@ -15,6 +15,7 @@
 // through it. It remains the same singleton; this file does not create one.
 
 import { api, unwrap as r } from '@apex/shared-auth';
+import { usersApi } from '@apex/core-users/api';
 
 // Auth
 export const authApi = {
@@ -32,7 +33,11 @@ export const authApi = {
 // this file. Temporary compatibility, not authority: the component holds the
 // implementation, and migrated consumers import '@apex/core-users/api'
 // directly.
-export { usersApi } from '@apex/core-users/api';
+//
+// Imported rather than re-exported straight through, because teamApi below
+// delegates getDirectory to it and a bare `export ... from` creates no local
+// binding. The exported surface is identical either way.
+export { usersApi };
 
 // Change Requests
 export const changeRequestsApi = {
@@ -138,7 +143,7 @@ export const aiApi = {
 
 // Team — legacy directory/request flow (notification-only, no durable model)
 export const teamApi = {
-  getDirectory: () => r(api.get('/users/directory')),
+  getDirectory: () => usersApi.getDirectory(),
   sendRequest: (targetUserId: string, reason?: string) =>
     r(api.post('/team/request', { targetUserId, reason })),
 };

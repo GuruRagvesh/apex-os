@@ -9,9 +9,14 @@
 // All three core/users components agree in their own docs that administration
 // owns /users, /users/[id] and "the user directory"; profiles explicitly
 // disclaims it and change-requests is scoped to the approvals queue. 13 of
-// these 24 methods are administration operations, including every destructive
+// these 25 methods are administration operations, including every destructive
 // one — permanentDelete, archiveAfterBackup, deactivate, resetPassword and
 // adminCorrectEmail.
+//
+// getDirectory (GET /users/directory) joined on 2026-08-17, using the exact
+// transport line teamApi had been issuing. teamApi.getDirectory() still
+// exists in frontend/lib/api.ts but now delegates here, so the endpoint has
+// exactly one implementation.
 //
 // Published as '@apex/core-users/api', never through the component root
 // barrel: that barrel exports screens, and routing an HTTP module through it
@@ -29,6 +34,7 @@ import { api, unwrap as r, API_BASE_URL as API_URL } from '@apex/shared-auth';
 
 export const usersApi = {
   getAll: (params?: any) => r(api.get('/users', { params })),
+  getDirectory: () => r(api.get('/users/directory')),
   getMe: () => r(api.get('/users/me')),
   getMyTeam: () => r(api.get('/users/my-team')),
   updateMe: (data: any) => r(api.patch('/users/me', data)),
