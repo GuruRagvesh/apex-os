@@ -64,7 +64,7 @@ did, so no prop contract was introduced.
 | `@apex/core-users` | Component entry — exports both screens |
 | `@apex/core-users/screens/UsersScreen` | Exact screen subpath |
 | `@apex/core-users/screens/UserDetailScreen` | Exact screen subpath |
-| `@apex/core-users/api` | **Canonical `usersApi`** — exact subpath, never the barrel |
+| `@apex/core-users/api` | **Canonical `usersApi`** (25 methods, incl. `getDirectory`) — exact subpath, never the barrel |
 
 ### This component owns the canonical frontend `usersApi` (2026-08-12)
 
@@ -88,8 +88,39 @@ still exists, still exposes `usersApi`, and still counts as an original runtime
 file. Primary does not move for this batch, and debt stays at 23 because every
 one of those 16 consumers also imports other groups from the same statement.
 
-`getDirectory` (`GET /users/directory`) is **not** here yet. It currently lives
-in `teamApi` and belongs with this API; moving it is a separate, later batch.
+### `GET /users/directory` is canonically owned here (2026-08-17)
+
+`getDirectory` has now moved in, taking the method count to **25**. The
+transport line is the one `teamApi` used, unchanged:
+
+```ts
+getDirectory: () => r(api.get('/users/directory')),
+```
+
+It sits next to `getAll` because they are siblings — `getAll` is the paginated
+admin list, `getDirectory` the flat active-user directory the backend already
+scopes by role. The other 24 methods keep their relative order.
+
+`teamApi.getDirectory()` in `frontend/lib/api.ts` still exists and now
+**delegates** here:
+
+```ts
+getDirectory: () => usersApi.getDirectory(),
+```
+
+That is temporary compatibility, not a second owner. There is exactly one
+transport implementation of `/users/directory` in the frontend, and the façade
+no longer issues the request itself.
+
+`teamApi` is **not retired** and was **not moved**. `sendRequest`
+(`POST /team/request`) stays exactly where it is — it belongs to a
+reporting-lines domain that does not exist yet, so the two methods keep
+different fates. `team/page.tsx` was not migrated and is byte-identical.
+
+With the directory now public, `command-palette` has a public owner for all
+four of its data dependencies — projects, tickets, auth and directory — so it
+becomes eligible for a separate `apps/web` move. That move is not part of this
+batch.
 
 **Binary/multipart exceptions carried over, not introduced:** `downloadBackup`,
 `uploadPhoto` and `uploadDocument` bypass the JSON axios instance, reading
