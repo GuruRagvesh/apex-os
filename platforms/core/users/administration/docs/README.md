@@ -64,6 +64,38 @@ did, so no prop contract was introduced.
 | `@apex/core-users` | Component entry — exports both screens |
 | `@apex/core-users/screens/UsersScreen` | Exact screen subpath |
 | `@apex/core-users/screens/UserDetailScreen` | Exact screen subpath |
+| `@apex/core-users/api` | **Canonical `usersApi`** — exact subpath, never the barrel |
+
+### This component owns the canonical frontend `usersApi` (2026-08-12)
+
+All 24 methods moved verbatim from `frontend/lib/api.ts` to
+`frontend/api/users-api.ts`. There is now exactly **one** implementation.
+
+The ruling rests on all three `core/users` components agreeing in their own
+docs: this one owns `/users`, `/users/[id]` and "the user directory"; `profiles`
+explicitly disclaims the directory; `change-requests` is scoped to the approvals
+queue. Semantics agree — 13 of the 24 methods are administration operations,
+including every destructive one (`permanentDelete`, `archiveAfterBackup`,
+`deactivate`, `resetPassword`, `adminCorrectEmail`).
+
+**`frontend/lib/api.ts` remains a compatibility surface, temporarily.** It
+re-exports `usersApi` from here so its **16** existing consumers keep working
+untouched. That is compatibility, not authority: the implementation lives here,
+and consumers will be repointed to `@apex/core-users/api` incrementally.
+
+**Canonical ownership is not full legacy retirement.** `frontend/lib/api.ts`
+still exists, still exposes `usersApi`, and still counts as an original runtime
+file. Primary does not move for this batch, and debt stays at 23 because every
+one of those 16 consumers also imports other groups from the same statement.
+
+`getDirectory` (`GET /users/directory`) is **not** here yet. It currently lives
+in `teamApi` and belongs with this API; moving it is a separate, later batch.
+
+**Binary/multipart exceptions carried over, not introduced:** `downloadBackup`,
+`uploadPhoto` and `uploadDocument` bypass the JSON axios instance, reading
+`apex_token` from `localStorage` to build their own Authorization header. That
+predates the move and was preserved byte-for-byte. It is not a pattern for new
+code.
 
 **The routes use the subpaths, not the barrel** — the same rule the Projects
 component follows. Two screens behind one barrel means importing either loads

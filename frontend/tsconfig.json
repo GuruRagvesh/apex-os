@@ -49,6 +49,7 @@
       "@apex/shared-utilities/download-screenshot": ["../shared/utilities/download-screenshot.ts"],
       "@apex/shared-configuration": ["../shared/configuration/index.ts"],
       "@apex/core-users": ["../platforms/core/users/administration/index.ts"],
+      "@apex/core-users/api": ["../platforms/core/users/administration/frontend/api/index.ts"],
       "@apex/core-users/screens/*": ["../platforms/core/users/administration/frontend/screens/*"],
       "@apex/core-users-profiles": ["../platforms/core/users/profiles/index.ts"],
       "@apex/core-users-profiles/screens/*": ["../platforms/core/users/profiles/frontend/screens/*"],
