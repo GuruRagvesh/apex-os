@@ -436,7 +436,8 @@ throughout this map.
 
 | Current | Target |
 | --- | --- |
-| `backend/src/modules/core/users/users.controller.ts`, `users.service.ts`, `users.module.ts` | `platforms/core/users/profiles/backend/` |
+| `backend/src/modules/core/users/users.controller.ts`, `users.service.ts`, `users.module.ts` | `platforms/core/users/profiles/backend/` ⚠️ backend only — see the note below |
+| **(from `frontend/lib/api.ts`)** `usersApi` group | ✅ **DONE** — `platforms/core/users/administration/frontend/api/`, published as `@apex/core-users/api`; `lib/api.ts` keeps a compatibility re-export |
 | `backend/src/modules/core/users/change-requests.controller.ts`, `change-requests.service.ts` | `platforms/core/users/change-requests/backend/` |
 | `frontend/app/(dashboard)/(platform)/users/page.tsx`, `[id]/page.tsx` | `platforms/core/users/administration/frontend/screens/` |
 | `frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx`, `(dashboard)/profile/page.tsx` | `platforms/core/users/profiles/frontend/screens/` |
@@ -446,6 +447,41 @@ throughout this map.
 | `backend/test/unit/users.change-requests.spec.ts` | `platforms/core/users/change-requests/tests/backend/` |
 | `backend/test/unit/users.admin-correction.spec.ts` | `platforms/core/users/administration/tests/backend/` |
 
+> **Status update (2026-08-12) — the frontend `usersApi` is administration-owned.**
+>
+> All **24 methods** moved verbatim from `frontend/lib/api.ts` to
+> `platforms/core/users/administration/frontend/api/users-api.ts`, byte-identical
+> and in the same order, published as the exact subpath `@apex/core-users/api` —
+> never through the component root barrel, which exports screens.
+>
+> **The ruling is triple-attested.** Each of the three `core/users` components
+> states in its own docs that `administration` owns `/users`, `/users/[id]` and
+> "the user directory"; `profiles` explicitly disclaims the directory;
+> `change-requests` is scoped to `/admin/approvals`. Semantics agree: 13 of 24
+> methods are administration operations, including every destructive one.
+>
+> ⚠️ **Frontend ownership and backend ownership are separate questions.** The row
+> above sends `users.controller.ts` / `users.service.ts` / `users.module.ts` to
+> `profiles/backend/`. **That backend row is unchanged and was not re-decided
+> here** — the backend has not migrated at all and is blocked by the Render
+> `rootDir` constraint. Frontend `usersApi` ownership is `administration`;
+> backend users-module ownership remains a separate pending decision that needs
+> its own audit.
+>
+> **`frontend/lib/api.ts` keeps a compatibility re-export** so all **16**
+> consumers stay untouched — including the protected `team/page.tsx`. Canonical
+> ownership is not legacy retirement: the façade survives, primary stays
+> **168 / 423**, and debt stays **23** because every one of those 16 consumers
+> also imports other groups from the same `@/lib/api` statement.
+>
+> The `API_BASE_URL as API_URL` alias left `lib/api.ts` with the group:
+> `usersApi.downloadBackup` was its only user in that file.
+>
+> **`getDirectory` was deliberately NOT added.** It currently lives in `teamApi`
+> and calls `GET /users/directory`, which this API should own — but moving it
+> touches `teamApi` and is a separate batch, kept out so this relocation could be
+> proved on its own.
+>
 > 🔒 `users.service.ts` calls the OneDrive backup vault during
 > deactivation/anonymisation and refuses to anonymise on failure. That
 > cross-component dependency must become a published contract from
