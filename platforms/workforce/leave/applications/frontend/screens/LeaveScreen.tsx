@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { leaveApi } from '@/lib/api';
+import { leaveApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
 import { LEAVE_STATUS_COLORS } from '../lib/leave-status';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';

@@ -100,20 +100,6 @@ export const eventsApi = {
   getAll: (params?: any) => r(api.get('/events', { params })),
 };
 
-// Leave
-export const leaveApi = {
-  getAll: (params?: any) => r(api.get('/leave', { params })),
-  getOne: (id: string) => r(api.get(`/leave/${id}`)),
-  create: (data: any) => r(api.post('/leave', data)),
-  approve: (id: string) => r(api.patch(`/leave/${id}/approve`)),
-  reject: (id: string) => r(api.patch(`/leave/${id}/reject`)),
-  cancel: (id: string) => r(api.patch(`/leave/${id}/cancel`)),
-  getStats: () => r(api.get('/leave/stats')),
-  getBalance: (userId?: string) => r(api.get(userId ? `/leave/balance/${userId}` : '/leave/balance')),
-  getDuration: (startDate: string, endDate: string, isHalfDay: boolean) =>
-    r(api.get('/leave/duration', { params: { startDate, endDate, isHalfDay } })),
-};
-
 // AI Assistant
 export const aiApi = {
   suggestPriority: (title: string, description: string) =>

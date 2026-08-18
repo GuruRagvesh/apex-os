@@ -1627,9 +1627,10 @@ export default EmptyState;
   { expectExit: 0 },
 );
 
-// 90. The Leave exemption covers its three allowlisted targets only.
+// 90. The Leave exemption is RETIRED: leaveApi is Leave-owned now, so the
+// default platforms-no-legacy-frontend rule applies to this screen again.
 testCase(
-  'accepts a Leave screen importing its allowlisted legacy dependency',
+  'rejects a Leave screen importing the retired legacy leave API',
   (root) => {
     write(
       root,
@@ -1639,7 +1640,7 @@ export default function S() { return null; }
 `,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 91. An unallowlisted legacy path is still rejected for Leave.
@@ -3799,9 +3800,10 @@ export const h = X;
   { expectExit: 1, expectRule: 'shared-no-platforms' },
 );
 
-// 209. The DEBT-P12 allowlist covers lib/api.ts and nothing else.
+// 209. The DEBT-P12 allowlist is RETIRED: ticketsApi and leaveApi are both
+// published contracts now, and Calendar consumes them through public entries.
 testCase(
-  'accepts the single allowlisted Workforce Calendar legacy target',
+  'rejects the retired Workforce Calendar legacy target',
   (root) => {
     write(
       root,
@@ -3811,7 +3813,7 @@ export default function S() { return [ticketsApi, leaveApi]; }
 `,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 210. ...not lib/utils; the status colour map is declared inline.
@@ -4643,7 +4645,10 @@ testRealRepoDebtCounts({
   // for eventsApi and usersApi, neither of which is Projects-owned.
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 1,
   'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
-  'DEBT-P5-LEAVE-LEGACY-FRONTEND': 1,
+  // RETIRED 2026-08-18: leaveApi moved to the Leave component's own
+  // frontend/api and LeaveScreen imports it relatively, so its last legacy
+  // edge is gone. Both recorded conditions were met -- LEAVE_STATUS_COLORS
+  // had already split out to frontend/lib/leave-status.ts. Object deleted.
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 2,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
   'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 2,
@@ -4654,7 +4659,10 @@ testRealRepoDebtCounts({
   // '@/lib/api', so its legacy edge disappeared with the statement.
   // DepartmentDetailScreen keeps one for rolesApi and teamsApi.
   'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 1,
-  'DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND': 1,
+  // RETIRED 2026-08-18: its condition named ticketsApi and leaveApi becoming
+  // published contracts. Both now are, and CalendarScreen consumes leaveApi
+  // through '@apex/workforce-leave/api' -- its whole '@/lib/api' statement
+  // disappeared. Object deleted rather than parked at zero.
   'DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND': 2,
   'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
 

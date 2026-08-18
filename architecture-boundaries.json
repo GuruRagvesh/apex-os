@@ -45,6 +45,7 @@
     "@apex/shared-ui": "shared/ui",
     "@apex/shared-ui/components": "shared/ui/frontend/components",
     "@apex/workforce-leave": "platforms/workforce/leave/applications",
+    "@apex/workforce-leave/api": "platforms/workforce/leave/applications/frontend/api",
     "@apex/workforce-calendar": "platforms/workforce/calendar/overview",
     "@apex/workforce-teams": "platforms/workforce/teams/team-management",
     "@apex/workforce-teams/screens": "platforms/workforce/teams/team-management/frontend/screens",
@@ -114,6 +115,7 @@
       "@apex/shared-ui/components/multi-select": "shared/ui/frontend/components/multi-select",
       "@apex/shared-ui/components/status-badge": "shared/ui/frontend/components/status-badge",
       "@apex/core-users/api": "platforms/core/users/administration/frontend/api",
+      "@apex/workforce-leave/api": "platforms/workforce/leave/applications/frontend/api",
       "@apex/core-users/screens/UsersScreen": "platforms/core/users/administration/frontend/screens/UsersScreen",
       "@apex/core-users/screens/UserDetailScreen": "platforms/core/users/administration/frontend/screens/UserDetailScreen",
       "@apex/core-users-profiles/screens/ProfileScreen": "platforms/core/users/profiles/frontend/screens/ProfileScreen",
@@ -272,20 +274,6 @@
         ]
       },
       {
-        "id": "DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND",
-        "status": "temporary",
-        "introducedIn": "Workforce Calendar overview frontend compartmentalisation",
-        "removalPhase": "Per-target: see removalConditions",
-        "from": "platforms/workforce/calendar/overview/frontend/",
-        "allowedTargets": [
-          "frontend/lib/api.ts"
-        ],
-        "reason": "The calendar screen carries exactly one legacy import, pulling ticketsApi and leaveApi from the application-wide API module. Per D11 this module aggregates data it does not own - approved leave from workforce/leave and scheduled tickets from operations/tickets - so neither API group can follow it here; that would invert the dependency the decision record establishes. Authentication was NOT carried over: the screen reads useAuthStore through @apex/core-identity. It has no lib/utils coupling - its status colour map is declared inline - and no shared/ui dependency. The FullCalendar plugins are dynamic imports of npm packages, not internal paths.",
-        "removalConditions": [
-          "frontend/lib/api.ts: ticketsApi and leaveApi become published contracts from operations/tickets and workforce/leave, which calendar then consumes through their public entries"
-        ]
-      },
-      {
         "id": "DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND",
         "status": "temporary",
         "introducedIn": "Core Organization departments frontend compartmentalisation",
@@ -356,21 +344,6 @@
         "removalConditions": [
           "frontend/lib/utils.ts: STATUS_COLORS and PRIORITY_COLORS move with operations/tickets",
           "frontend/lib/api.ts: usersApi becomes a Core Users-owned adapter once an app-wide API layer is compartmentalised"
-        ]
-      },
-      {
-        "id": "DEBT-P5-LEAVE-LEGACY-FRONTEND",
-        "status": "temporary",
-        "introducedIn": "Workforce Leave frontend compartmentalisation",
-        "removalPhase": "Per-target: see removalConditions",
-        "from": "platforms/workforce/leave/applications/frontend/",
-        "allowedTargets": [
-          "frontend/lib/api.ts"
-        ],
-        "reason": "The Leave screen moved verbatim and carries three legacy imports. None is Leave-owned: leaveApi lives in frontend/lib/api.ts among ~20 application-wide API groups; lib/utils.ts is a broad shared module (cn, formatDate, getInitials) that also holds LEAVE_STATUS_COLORS; auth.store.ts is the application-wide identity store. The screen's global UI dependency was already retired - it consumes EmptyState through @apex/shared-ui/components/empty-state, not the legacy path.",
-        "removalConditions": [
-          "frontend/lib/utils.ts: LEAVE_STATUS_COLORS splits out to this component (cn/formatDate/getInitials already moved to shared/utilities)",
-          "frontend/lib/api.ts: leaveApi becomes a Leave-owned adapter once an app-wide API layer is compartmentalised"
         ]
       },
       {
