@@ -39,19 +39,6 @@ export const authApi = {
 // binding. The exported surface is identical either way.
 export { usersApi };
 
-// Change Requests
-export const changeRequestsApi = {
-  getHierarchySummary: (id: string) => r(api.get(`/users/${id}/hierarchy-summary`)),
-  create: (id: string, requestType: string, changes: any[], reason?: string) =>
-    r(api.post(`/users/${id}/change-requests`, { requestType, changes, reason })),
-  listMyRequests: () => r(api.get('/users/me/change-requests')),
-  listPendingApprovals: () => r(api.get('/users/change-requests/pending')),
-  getOne: (requestId: string) => r(api.get(`/users/change-requests/${requestId}`)),
-  approve: (requestId: string, note?: string) => r(api.patch(`/users/change-requests/${requestId}/approve`, { note })),
-  reject: (requestId: string, reason: string) => r(api.patch(`/users/change-requests/${requestId}/reject`, { reason })),
-  cancel: (requestId: string) => r(api.patch(`/users/change-requests/${requestId}/cancel`)),
-};
-
 // Roles
 export const rolesApi = {
   getAll: () => r(api.get('/roles')),

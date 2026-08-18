@@ -1,7 +1,8 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { changeRequestsApi, rolesApi } from '@/lib/api';
+import { rolesApi } from '@/lib/api';
+import { changeRequestsApi } from '../api';
 import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import { useState } from 'react';

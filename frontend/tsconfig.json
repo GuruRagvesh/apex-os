@@ -54,6 +54,7 @@
       "@apex/core-users-profiles": ["../platforms/core/users/profiles/index.ts"],
       "@apex/core-users-profiles/screens/*": ["../platforms/core/users/profiles/frontend/screens/*"],
       "@apex/core-users-change-requests": ["../platforms/core/users/change-requests/index.ts"],
+      "@apex/core-users-change-requests/api": ["../platforms/core/users/change-requests/frontend/api/index.ts"],
       "@apex/core-organization-departments": ["../platforms/core/organization/departments/index.ts"],
       "@apex/core-organization-departments/api": ["../platforms/core/organization/departments/frontend/api/index.ts"],
       "@apex/core-organization-departments/screens/*": ["../platforms/core/organization/departments/frontend/screens/*"],

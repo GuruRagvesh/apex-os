@@ -5,7 +5,7 @@ import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
-import { changeRequestsApi } from '@/lib/api';
+import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 import { leaveApi } from '@apex/workforce-leave/api';
 import { usersApi } from '@apex/core-users/api';
 

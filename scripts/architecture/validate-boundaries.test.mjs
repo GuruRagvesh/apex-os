@@ -4966,6 +4966,7 @@ assertContract('the approvals screen kept its exact original import list', () =>
     "from '@/lib/api'",
     "from '@apex/core-organization-departments/api'",
     "from '@apex/core-users/api'",
+    "from '../api'",
     "from 'react'",
     "from 'lucide-react'",
     "from 'react-hot-toast'",
@@ -5070,8 +5071,20 @@ assertContract('the Change Requests barrel publishes exactly one screen', () => 
 assertContract('all three core/users components stay separately bounded', () => {
   // administration, profiles and change-requests are three components in one
   // module. Each must publish its own entry and none may import another's
-  // internals - the property that keeps the module from collapsing into one
+  // INTERNALS - the property that keeps the module from collapsing into one
   // folder as more of it migrates.
+  //
+  // 2026-08-18: the check used to reject the sibling's name anywhere in the
+  // source, which also caught its PUBLIC entry. That overshot the rule above
+  // and contradicts component-public-entry, which exists precisely so that
+  // cross-component imports have a legal route. Declared public specifiers
+  // are now stripped before the check; internals still fail.
+  //
+  // The case that forced this: ProfileScreen has always called
+  // changeRequestsApi (create, listMyRequests, cancel, getHierarchySummary).
+  // That coupling predates the migration -- the app-wide facade merely hid
+  // it. Routing it through '@apex/core-users-change-requests/api' does not
+  // create a dependency, it makes an existing one visible and enforceable.
   const problems = [];
   const COMPONENTS = {
     administration: 'platforms/core/users/administration',
@@ -5091,7 +5104,13 @@ assertContract('all three core/users components stay separately bounded', () => 
   for (const f of repoSources()) {
     for (const [prefix, forbidden] of Object.entries(OTHERS)) {
       if (!f.startsWith(prefix)) continue;
-      const src = codeOf(readRepo(f) ?? '');
+      // Strip the declared public entries, matching COMPLETE quoted specifiers
+      // only. A deeper path such as '@apex/core-users-profiles/frontend/...'
+      // does not match and still trips the check below, which is the point:
+      // public entry allowed, internals never.
+      const src = codeOf(readRepo(f) ?? '')
+        .replace(/['\"]@apex\/core-users-change-requests\/api['\"]/g, "''")
+        .replace(/['\"]@apex\/core-users-profiles(?:\/screens\/[A-Za-z0-9_]+)?['\"]/g, "''");
       for (const spec of forbidden) {
         if (src.includes(spec)) problems.push(`${f} reaches into a sibling component via ${spec}`);
       }
@@ -5423,6 +5442,32 @@ assertContract('DONE and CLOSED still suppress the overdue display', () => {
 // reintroduce a second path to an API group that a component already owns, and
 // relocating one into its mapped component would manufacture a legacy edge —
 // the component would import '@/lib/api' purely to re-export it.
+// ── Route completion: /hrms ─────────────────────────────────────────────────
+// The first route to reach zero facade imports. Every API it needs now has a
+// component that owns it, so there is nothing left for '@/lib/api' to supply.
+// It could only regress by someone re-adding a group that has an owner, which
+// is exactly what this catches.
+//
+// It is reachable because /hrms sits under (workspaces), which has no layout.
+// The (dashboard) shell mounts Sidebar, TopBar and QuickActionDock, all three
+// of which import workdayApi from '@/lib/api', so every (dashboard) route is
+// pinned to the facade regardless of its own screen. Do not copy this
+// assertion to a (dashboard) route until that shell migrates.
+assertContract('the HRMS route imports no legacy API facade', () => {
+  const rel = 'frontend/app/(workspaces)/hrms/page.tsx';
+  const raw = readRepo(rel);
+  if (raw === null) return [`${rel} is missing`];
+  const src = codeOf(raw);
+  const problems = [];
+  if (/from\s*['"]@\/lib\/api['"]/.test(src)) {
+    problems.push(`${rel} must not import '@/lib/api' -- it is route-complete`);
+  }
+  if (/from\s*['"]@\/store\/auth\.store['"]/.test(src)) {
+    problems.push(`${rel} must reach auth through '@apex/core-identity'`);
+  }
+  return problems;
+});
+
 assertContract('the retired frontend/modules shims are not recreated', () => {
   const RETIRED = [
     'frontend/modules/ai/ai.api.ts',
