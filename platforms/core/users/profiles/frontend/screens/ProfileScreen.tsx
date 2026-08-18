@@ -2,7 +2,9 @@
 
 import { useAuthStore } from '@apex/core-identity';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { dashboardApi, leaveApi, changeRequestsApi, rolesApi } from '@/lib/api';
+import { dashboardApi, rolesApi } from '@/lib/api';
+import { changeRequestsApi } from '@apex/core-users-change-requests/api';
+import { leaveApi } from '@apex/workforce-leave/api';
 import { usersApi } from '@apex/core-users/api';
 import { projectsApi } from '@apex/operations-projects/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';

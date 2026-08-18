@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@apex/core-identity';
-import { leaveApi } from '@/lib/api';
+import { leaveApi } from '@apex/workforce-leave/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 
 function CalendarView({ events, router }: { events: any[]; router: any }) {

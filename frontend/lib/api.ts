@@ -39,19 +39,6 @@ export const authApi = {
 // binding. The exported surface is identical either way.
 export { usersApi };
 
-// Change Requests
-export const changeRequestsApi = {
-  getHierarchySummary: (id: string) => r(api.get(`/users/${id}/hierarchy-summary`)),
-  create: (id: string, requestType: string, changes: any[], reason?: string) =>
-    r(api.post(`/users/${id}/change-requests`, { requestType, changes, reason })),
-  listMyRequests: () => r(api.get('/users/me/change-requests')),
-  listPendingApprovals: () => r(api.get('/users/change-requests/pending')),
-  getOne: (requestId: string) => r(api.get(`/users/change-requests/${requestId}`)),
-  approve: (requestId: string, note?: string) => r(api.patch(`/users/change-requests/${requestId}/approve`, { note })),
-  reject: (requestId: string, reason: string) => r(api.patch(`/users/change-requests/${requestId}/reject`, { reason })),
-  cancel: (requestId: string) => r(api.patch(`/users/change-requests/${requestId}/cancel`)),
-};
-
 // Roles
 export const rolesApi = {
   getAll: () => r(api.get('/roles')),
@@ -98,20 +85,6 @@ export const analyticsApi = {
 // Events
 export const eventsApi = {
   getAll: (params?: any) => r(api.get('/events', { params })),
-};
-
-// Leave
-export const leaveApi = {
-  getAll: (params?: any) => r(api.get('/leave', { params })),
-  getOne: (id: string) => r(api.get(`/leave/${id}`)),
-  create: (data: any) => r(api.post('/leave', data)),
-  approve: (id: string) => r(api.patch(`/leave/${id}/approve`)),
-  reject: (id: string) => r(api.patch(`/leave/${id}/reject`)),
-  cancel: (id: string) => r(api.patch(`/leave/${id}/cancel`)),
-  getStats: () => r(api.get('/leave/stats')),
-  getBalance: (userId?: string) => r(api.get(userId ? `/leave/balance/${userId}` : '/leave/balance')),
-  getDuration: (startDate: string, endDate: string, isHalfDay: boolean) =>
-    r(api.get('/leave/duration', { params: { startDate, endDate, isHalfDay } })),
 };
 
 // AI Assistant
