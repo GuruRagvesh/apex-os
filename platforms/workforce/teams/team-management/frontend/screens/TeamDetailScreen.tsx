@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { teamsApi, usersApi } from '@/lib/api';
+import { teamsApi } from '@/lib/api';
+import { usersApi } from '@apex/core-users/api';
 import { useAuthStore } from '@apex/core-identity';
 import {
   ArrowLeft, Users, Building2, Edit2, Check, X, UserPlus, UserMinus,

@@ -406,19 +406,6 @@
           "frontend/lib/utils.ts: PROJECT_STATUS_LABELS and PROJECT_STATUS_COLORS split out to this component (cn/formatDate/getInitials already moved to shared/utilities)",
           "frontend/components/tickets/ticket-row.tsx: operations/tickets is compartmentalised and TicketRow is consumed through its public entry"
         ]
-      },
-      {
-        "id": "DEBT-P2C-LEADS-GLOBAL-USERS-API",
-        "status": "temporary",
-        "introducedIn": "Phase 2C",
-        "removalPhase": "Phase 3 (core/users platform slice)",
-        "from": "platforms/business/sales-crm/leads/frontend/screens/SalesCrmLeads.tsx",
-        "allowedTargets": ["frontend/lib/api.ts"],
-        "reason": "Phase 2C moved salesCrmLeadsApi out of frontend/lib/api.ts and eliminated 5 of the 6 imports it carried. The sixth line imported two symbols: salesCrmLeadsApi AND usersApi. usersApi is an application-wide API group used by 20 files across attendance, tickets, projects and admin; it is not a Sales CRM concern and must not move into a Sales CRM component. The Leads screen calls usersApi.getAll() once, to populate the assignable lead-owner list. Re-implementing GET /users inside Sales CRM would duplicate an existing application API to satisfy a boundary, which is worse than recording the dependency.",
-        "removalConditions": [
-          "core/users migrates to platforms/core/users with a public entry point",
-          "The Leads screen resolves assignable owners through that entry point"
-        ]
       }
     ]
   },

@@ -60,21 +60,6 @@ export const rolesApi = {
   remove: (id: string) => r(api.delete(`/roles/${id}`)),
 };
 
-// Departments — implementation now owned by the Core Organization Departments
-// component and re-exported here for the legacy consumers that still import it
-// from this file. Temporary compatibility, not authority: the component holds
-// the implementation, and migrated consumers import
-// '@apex/core-organization-departments/api' directly.
-export { departmentsApi } from '@apex/core-organization-departments/api';
-
-
-// Tickets — implementation now owned by the Operations Tickets Lifecycle
-// component and re-exported here for the legacy consumers that still import it
-// from this file. Temporary compatibility, not authority: the component holds
-// the implementation, and migrated consumers import
-// '@apex/operations-tickets-lifecycle/api' directly.
-export { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
-
 // Comments
 export const commentsApi = {
   getAll: (ticketId: string) => r(api.get(`/tickets/${ticketId}/comments`)),

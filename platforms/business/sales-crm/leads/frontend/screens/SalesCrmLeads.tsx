@@ -7,7 +7,7 @@ import { Lead, Role, LeadStage, ColumnConfig, MOCK_LEADS, MOCK_USERS, logAction,
 import { salesCrmLeadsApi } from "@apex/sales-crm-shared/api";
 import { getLeadsStats, filterAndSearchLeads, LeadFilterState, LeadSortState } from "../api/lead-calculations";
 import { mapBackendLead, buildCreatePayload } from "../api/lead-adapter";
-import { usersApi } from "@/lib/api";
+import { usersApi } from "@apex/core-users/api";
 import LeadCreate from "../components/LeadCreate";
 import LeadStats from "../components/LeadStats";
 import LeadFilters from "../components/LeadFilters";

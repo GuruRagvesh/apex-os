@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { notificationsApi, ticketsApi } from '@/lib/api';
+import { notificationsApi } from '@/lib/api';
+import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useDesktopNotifications } from './useDesktopNotifications';
 
