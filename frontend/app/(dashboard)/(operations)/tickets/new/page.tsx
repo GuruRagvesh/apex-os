@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { usersApi, aiApi, taskTypesApi, workdayApi } from '@/lib/api';
+import { aiApi, taskTypesApi, workdayApi } from '@/lib/api';
+import { usersApi } from '@apex/core-users/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import { projectsApi } from '@apex/operations-projects/api';

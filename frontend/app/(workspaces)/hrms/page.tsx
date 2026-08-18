@@ -5,7 +5,8 @@ import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
-import { usersApi, leaveApi, changeRequestsApi } from '@/lib/api';
+import { leaveApi, changeRequestsApi } from '@/lib/api';
+import { usersApi } from '@apex/core-users/api';
 
 import { cn, formatRelativeTime } from '@apex/shared-utilities';
 import { motion } from 'motion/react';
