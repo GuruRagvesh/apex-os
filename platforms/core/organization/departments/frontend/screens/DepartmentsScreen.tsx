@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { usersApi } from '@/lib/api';
+import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
 import { Plus, Users, Ticket, FolderKanban, MoreVertical, Trash2, ChevronRight, UserCircle2, ShieldAlert } from 'lucide-react';

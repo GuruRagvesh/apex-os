@@ -255,13 +255,19 @@ testCase(
 // platforms/** -> frontend/** is forbidden by default. Phase 2C retired the
 // API-client exemption, leaving three narrow ones, each scoped to one file:
 //   DEBT-P2B-LEADS-COMPANY-REPOSITORY  (CompanyAutocomplete -> company-repository)
-//   DEBT-P2C-LEADS-GLOBAL-USERS-API    (SalesCrmLeads screen -> usersApi)
+// DEBT-P2C-LEADS-GLOBAL-USERS-API was RETIRED on 2026-08-18. Both removal
+// conditions came true: core/users publishes '@apex/core-users/api', and the
+// Leads screen resolves assignable owners through it. The exemption object was
+// deleted rather than left at zero, and case 11 below was inverted so the edge
+// cannot quietly return.
 //   DEBT-P2A-SALES-CRM-AUTH-STORE      (auth-adapter -> auth.store.ts)
 // These prove each is genuinely narrow and has not weakened the rule.
 
-// 11. The Leads screen may still reach the application-wide users API.
+// 11. The Leads screen may NO LONGER reach the legacy users API. Its exemption
+// was retired once '@apex/core-users/api' existed and the screen was repointed,
+// so the default platforms-no-legacy-frontend rule applies to it again.
 testCase(
-  'accepts the Leads screen importing the application-wide users API',
+  'rejects the Leads screen importing the legacy users API after its exemption was retired',
   (root) => {
     write(
       root,
@@ -269,7 +275,7 @@ testCase(
       `import { usersApi } from '@/lib/api';\nexport default function S() { return usersApi; }\n`,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 12. Another platform importing the SAME frontend path is rejected.
@@ -4611,7 +4617,6 @@ function testRealRepoDebtCounts(expected) {
 }
 
 testRealRepoDebtCounts({
-  'DEBT-P2C-LEADS-GLOBAL-USERS-API': 1,
   // 2 -> 1 on 2026-08-12: projectsApi moved to the Projects component's own
   // frontend/api, so ProjectsScreen (which imported nothing else from
   // '@/lib/api') lost its legacy edge entirely. ProjectDetailScreen keeps one
@@ -4624,7 +4629,11 @@ testRealRepoDebtCounts({
   'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 2,
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
   'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
-  'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 2,
+  // 2 -> 1 on 2026-08-18: usersApi consumers were repointed to
+  // '@apex/core-users/api', and DepartmentsScreen imported nothing else from
+  // '@/lib/api', so its legacy edge disappeared with the statement.
+  // DepartmentDetailScreen keeps one for rolesApi and teamsApi.
+  'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 1,
   'DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND': 1,
   'DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND': 2,
   'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
@@ -4918,16 +4927,17 @@ assertContract('the approvals screen kept its exact original import list', () =>
   if (raw === null) return [`${APPROVALS} is missing`];
   const src = codeOf(raw);
   const problems = [];
-  // The five the route file had, unchanged by the move, plus one added
-  // deliberately when departmentsApi became departments-owned: this screen calls
-  // departmentsApi.getAll() and now reaches it through the component's public
-  // boundary instead of the app-wide lib/api façade. It still imports
-  // changeRequestsApi, usersApi and rolesApi from '@/lib/api', so that specifier
-  // stays required.
+  // The five the route file had, unchanged by the move, plus two added
+  // deliberately as API groups gained owners. departmentsApi came first,
+  // usersApi followed on 2026-08-18, so this screen now reaches both through
+  // their components' public boundaries instead of the app-wide lib/api
+  // façade. It still imports changeRequestsApi and rolesApi from '@/lib/api'
+  // -- neither has an owner yet -- so that specifier stays required.
   const EXPECTED = [
     "from '@tanstack/react-query'",
     "from '@/lib/api'",
     "from '@apex/core-organization-departments/api'",
+    "from '@apex/core-users/api'",
     "from 'react'",
     "from 'lucide-react'",
     "from 'react-hot-toast'",
