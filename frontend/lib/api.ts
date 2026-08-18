@@ -55,33 +55,6 @@ export const commentsApi = {
   remove: (ticketId: string, id: string) => r(api.delete(`/tickets/${ticketId}/comments/${id}`)),
 };
 
-// Dashboard
-export const dashboardApi = {
-  getOverview: () => r(api.get('/dashboard/overview')),
-  getTicketsByCategory: () => r(api.get('/dashboard/tickets-by-category')),
-  getTicketsByDepartment: () => r(api.get('/dashboard/tickets-by-department')),
-  getActivityFeed: (limit?: number, userId?: string) => r(api.get('/dashboard/activity-feed', { params: { limit, userId } })),
-  getWorkload: () => r(api.get('/dashboard/workload')),
-  getTicketTrend: (days?: number) => r(api.get('/dashboard/ticket-trend', { params: { days } })),
-  getHomeSummary: () => r(api.get('/home/summary')),
-};
-
-// Analytics — ledger-based evaluation engine (FP-13.3)
-export const analyticsApi = {
-  getCommandCenter: (period: 'today' | 'week' | 'month' = 'today') =>
-    r(api.get('/analytics/command-center', { params: { period } })),
-  getEmployeeMetrics: (userId?: string) =>
-    r(api.get(userId ? `/analytics/employee/${userId}` : '/analytics/employee')),
-  getReviewerMetrics: (userId?: string) =>
-    r(api.get(userId ? `/analytics/reviewer/${userId}` : '/analytics/reviewer')),
-  getManagerMetrics: () =>
-    r(api.get('/analytics/manager')),
-  getSlaAnalytics: () =>
-    r(api.get('/analytics/sla')),
-  getReworkAnalytics: () =>
-    r(api.get('/analytics/rework')),
-};
-
 // Events
 export const eventsApi = {
   getAll: (params?: any) => r(api.get('/events', { params })),

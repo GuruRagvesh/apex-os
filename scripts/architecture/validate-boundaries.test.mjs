@@ -3296,9 +3296,11 @@ export const A = X;
   { expectExit: 1, expectRule: 'shared-no-platforms' },
 );
 
-// 179. The DEBT-P10 allowlist covers lib/api.ts...
+// 179. The DEBT-P10 allowlist is RETIRED: analyticsApi, dashboardApi and
+// ticketsApi are all canonical now, so this component has no sanctioned
+// legacy target left and the default rule applies again.
 testCase(
-  'accepts the single allowlisted Intelligence Analytics legacy target',
+  'rejects the retired Intelligence Analytics legacy target',
   (root) => {
     write(
       root,
@@ -3308,7 +3310,7 @@ export default function S() { return [analyticsApi, dashboardApi, ticketsApi]; }
 `,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 180. ...and nothing else - notably not the old chart location, which is the
@@ -4644,16 +4646,31 @@ testRealRepoDebtCounts({
   // '@/lib/api') lost its legacy edge entirely. ProjectDetailScreen keeps one
   // for eventsApi and usersApi, neither of which is Projects-owned.
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 1,
-  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
+  // 6 -> 5 on 2026-08-18: dashboardApi moved to the Dashboard component's own
+  // frontend/api, and DashboardScreen imported nothing else from '@/lib/api',
+  // so its legacy statement disappeared. The object cannot retire: its other
+  // recorded conditions still name frontend/components/workday/ (WorkdayBar,
+  // WorkdayHistoryStrip) and frontend/lib/company-date.ts, and TeamPressurePanel
+  // plus RecentActivityFeed keep edges for workdayApi and eventsApi.
+  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 5,
   // RETIRED 2026-08-18: leaveApi moved to the Leave component's own
   // frontend/api and LeaveScreen imports it relatively, so its last legacy
   // edge is gone. Both recorded conditions were met -- LEAVE_STATUS_COLORS
   // had already split out to frontend/lib/leave-status.ts. Object deleted.
   'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 2,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
-  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 2,
+  // 2 -> 1 on 2026-08-18: analyticsApi became Intelligence-owned and
+  // UserProfileScreen imported nothing else from '@/lib/api', so its legacy
+  // statement disappeared. Not retired: ProfileScreen still imports rolesApi,
+  // which has no owner, and two other recorded conditions remain unchecked.
+  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 1,
   'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
-  'DEBT-P10-INTELLIGENCE-ANALYTICS-LEGACY-FRONTEND': 1,
+  // RETIRED 2026-08-18: its single condition named three APIs becoming
+  // canonical -- ticketsApi (operations/tickets), dashboardApi
+  // (intelligence/dashboard) and analyticsApi (intelligence/analytics).
+  // All three now are, AnalyticsScreen consumes them through public entries
+  // and its own '../api', and the component has zero legacy edges left.
+  // Object deleted rather than parked at zero.
   // 2 -> 1 on 2026-08-18: usersApi consumers were repointed to
   // '@apex/core-users/api', and DepartmentsScreen imported nothing else from
   // '@/lib/api', so its legacy edge disappeared with the statement.

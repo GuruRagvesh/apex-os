@@ -1,7 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { dashboardApi, workdayApi } from '@/lib/api';
+import { workdayApi } from '@/lib/api';
+import { dashboardApi } from '../api';
 import { useRouter } from 'next/navigation';
 import { ArrowUpRight, Users } from 'lucide-react';
 
