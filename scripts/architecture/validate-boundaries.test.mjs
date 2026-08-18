@@ -5424,6 +5424,13 @@ assertContract('the retired frontend/modules shims are not recreated', () => {
     // legacy one could only get its data by importing '@/lib/api' and
     // '@/store/auth.store' again — the exact legacy edges this move removed.
     'frontend/components/ui/command-palette.tsx',
+    // providers.tsx was the React Query client and Toaster wrapper for the
+    // whole app. apps/web/README.md already named root layout, providers and
+    // not-found as genuine app shell that may live there, so this was a move
+    // to a documented owner rather than a new claim. It is byte-identical at
+    // apps/web/components/providers.tsx; recreating the old path would give
+    // the tree two QueryClient providers to choose between.
+    'frontend/app/providers.tsx',
   ];
   return RETIRED.filter((f) => readRepo(f) !== null).map((f) => `${f} was retired and must not be recreated`);
 });
