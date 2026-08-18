@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi, workdayApi } from '@/lib/api';
 import { formatRelativeTime } from '@apex/shared-utilities';
 import { useSocket } from '@/hooks/useSocket';
-import { CommandPalette } from '@/components/ui/command-palette';
+import { CommandPalette } from '@apex/apps-web/components/command-palette';
 import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
 import { downloadScreenshot } from '@apex/shared-utilities/download-screenshot';
 import toast from 'react-hot-toast';

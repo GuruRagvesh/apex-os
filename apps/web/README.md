@@ -51,6 +51,7 @@ apps/web → shared/ui, shared/auth, shared/utilities, shared/time
 ## Migration status
 
 **First occupant: `components/cold-start-banner.tsx` (2026-08-12).**
+**Second: `components/command-palette.tsx` (2026-08-17).**
 
 `frontend/` remains the live Next.js root and still owns routing, rendering and
 build config. This folder now holds one piece of genuine app-shell chrome, and
@@ -72,6 +73,39 @@ Published as the exact subpath `@apex/apps-web/components/cold-start-banner`.
 There is no root barrel here, and one should not be added: a barrel would let a
 consumer pull unrelated shell code, which is the bundle trap this repository has
 hit repeatedly.
+
+### `command-palette.tsx` — the cross-domain shell feature (2026-08-17)
+
+Ctrl+K search over tickets, projects and people. It moved here from
+`frontend/components/ui/command-palette.tsx`, which is now **retired** — no
+re-export, no compatibility shim, and the retired-path guard in the
+architecture suite holds the old path shut.
+
+It qualifies under the same reasoning as the banner, from the opposite
+direction. The banner belongs to no feature; the palette belongs to *four*
+and therefore to none of them. It composes three platform APIs plus identity
+in one surface, so no single business platform can own it without importing
+its three peers. It is mounted once in the topbar as shell chrome, and it is
+not a `shared/ui` primitive — it issues HTTP requests and reads auth state,
+which that module's README excludes as feature logic.
+
+All four data dependencies cross public boundaries:
+
+| Capability | Public entry |
+| --- | --- |
+| tickets | `@apex/operations-tickets-lifecycle/api` → `ticketsApi.getAll` |
+| projects | `@apex/operations-projects/api` → `projectsApi.getAll` |
+| directory | `@apex/core-users/api` → `usersApi.getDirectory` |
+| auth | `@apex/core-identity` → `useAuthStore` |
+
+`@/lib/api`, `@/store/auth.store`, `teamApi` and workday imports are all
+**zero**. The move took the legacy auth-store consumer count from 19 to 18 —
+the first departure that is not a route, so no adapter survives behind it.
+
+Published as the exact subpath `@apex/apps-web/components/command-palette`.
+No config change was needed: the `@apex/apps-web/components/*` wildcard the
+banner established already resolves it, and `component-public-entry` is
+scoped to `platforms/`, not `apps/`. Still no root barrel.
 
 ### Dependency direction is already enforced
 

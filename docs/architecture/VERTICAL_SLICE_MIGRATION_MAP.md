@@ -71,11 +71,10 @@ changes no import, and touches no configuration.
 >   and `frontend/hooks/useIdleDetection.ts` — these also appear unreferenced, but
 >   they are attendance/workday files and are out of scope for an architecture
 >   batch. **Recorded here as a finding for the workday review, not acted on.**
-> - `command-palette.tsx`, `QuickActionDock.tsx`, `sidebar.tsx` — live consumers,
->   but no proven owner yet. `QuickActionDock` **and `sidebar`** both import
->   `workdayApi`, so both are workday-coupled, not merely unowned.
->   `cold-start-banner.tsx` left this list on 2026-08-12 — see the `apps/web`
->   note below.
+> - `QuickActionDock.tsx`, `sidebar.tsx` — live consumers, but no proven owner
+>   yet. Both import `workdayApi`, so both are workday-coupled, not merely
+>   unowned. `cold-start-banner.tsx` left this list on 2026-08-12 and
+>   `command-palette.tsx` on 2026-08-17 — see the `apps/web` notes below.
 >
 > **Status update (2026-08-12) — `apps/web` ESTABLISHED; `cold-start-banner`
 > is its first occupant.**
@@ -95,6 +94,58 @@ changes no import, and touches no configuration.
 > The banner belongs to no feature: it detects a sleeping backend and shows a
 > global notice, mounted once in the dashboard layout beside the other shell
 > chrome. That is app-shell infrastructure UX.
+>
+> **Status update (2026-08-17) — `command-palette` is the second `apps/web`
+> occupant, and the original file is RETIRED.**
+>
+> `frontend/components/ui/command-palette.tsx` (311 ln) →
+> `apps/web/components/command-palette.tsx` by `git mv`. **The old path is
+> gone**: no re-export, no compatibility shim, and it is now listed in the
+> generic retired-path guard, which was actively proven — recreating the file
+> fails the suite, removing it passes.
+>
+> **Old owner:** legacy frontend shell (`frontend/components/ui/`).
+> **New owner:** `apps/web`.
+>
+> | Capability | Before | After |
+> | --- | --- | --- |
+> | tickets | `ticketsApi` from `@/lib/api` | `@apex/operations-tickets-lifecycle/api` → `getAll` |
+> | projects | `@apex/operations-projects/api` (already public) | unchanged → `getAll` |
+> | directory | `teamApi.getDirectory()` from `@/lib/api` | `@apex/core-users/api` → `usersApi.getDirectory` |
+> | auth | `useAuthStore` from `@/store/auth.store` | `@apex/core-identity` → `useAuthStore` |
+>
+> Every one of those was already the **same object** behind the legacy path:
+> `lib/api.ts` re-exported `ticketsApi` straight from the lifecycle API,
+> `teamApi.getDirectory` already delegated to `usersApi.getDirectory` after
+> PR #44, and `@apex/core-identity` is a pure re-export of the same Zustand
+> store — no second store. So the repoint changed the import graph, not the
+> runtime graph.
+>
+> **R100:** 305 non-import lines in, 305 out, with exactly **one** body line
+> differing — `teamApi.getDirectory()` → `usersApi.getDirectory()`, which the
+> repoint requires and which resolves to the identical function one hop
+> earlier. Markup, classes, keyboard handling, grouping order, role gate,
+> hrefs, debounce, loading and empty states are all unchanged.
+>
+> **Why `apps/web` and not a platform.** It composes tickets, projects, users
+> and identity in one surface, so any single business platform that owned it
+> would have to import its three peers. It is mounted once in the topbar as
+> shell chrome, and it is not a `shared/ui` primitive — it issues HTTP
+> requests and reads auth state, which that module excludes as feature logic.
+> Cross-domain composition with no single domain owner is precisely what
+> `apps/web` is for.
+>
+> `@/lib/api`, `@/store/auth.store`, `teamApi` and workday imports are all
+> **zero** in the moved file. The legacy auth-store consumer ledger moved
+> **19 → 18** — the first departure that is not a route, so no thin adapter
+> survives behind it and it is absent from that check's `DEPARTED` map.
+>
+> **No config was added.** The `@apex/apps-web/components/*` wildcard the
+> banner established already resolves the new path, and
+> `component-public-entry` is scoped to `platforms/`. Still no root barrel.
+>
+> **Real retirement: primary 168 → 169 / 423, remaining 255 → 254.** Debt
+> unchanged at 23.
 >
 > **No architecture rule was added or broadened.** The validator already enforced
 > the full `apps` model — `shared → apps`, `database → apps` and
@@ -407,7 +458,9 @@ throughout this map.
 > import the legacy frontend root (`shared-no-legacy-frontend`, no exemption
 > mechanism by design). Extracting `cn` to `shared/utilities` is the unlock.
 > `QuickActionDock`, `cold-start-banner` and `command-palette` stay for feature
-> logic; `HighPriorityTicketsPreview`, `LeavesApprover` and
+> logic (the latter two later moved to `apps/web` — 2026-08-12 and 2026-08-17
+> respectively — which is a different owner, not a reversal: neither belongs
+> in `shared/ui`); `HighPriorityTicketsPreview`, `LeavesApprover` and
 > `DownloadScreenshotButton` are feature-specific or lib-coupled and unused —
 > retained, not deleted.
 >
