@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: 'bg-purple-500/20 text-purple-300 border-purple-500/30',

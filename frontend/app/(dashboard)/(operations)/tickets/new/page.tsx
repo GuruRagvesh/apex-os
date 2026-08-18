@@ -3,11 +3,12 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { usersApi, aiApi, taskTypesApi, workdayApi } from '@/lib/api';
+import { aiApi, taskTypesApi, workdayApi } from '@/lib/api';
+import { usersApi } from '@apex/core-users/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import { projectsApi } from '@apex/operations-projects/api';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Sparkles, Loader2, Clock, Plus, Copy, Trash2, Download, Upload, X } from 'lucide-react';
 import { formatRole } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';

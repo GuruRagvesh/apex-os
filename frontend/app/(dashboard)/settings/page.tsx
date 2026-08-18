@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/store/auth.store';
-import { authApi, usersApi, settingsApi, taskTypesApi } from '@/lib/api';
+import { useAuthStore } from '@apex/core-identity';
+import { authApi, settingsApi, taskTypesApi } from '@/lib/api';
+import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
 import toast from 'react-hot-toast';

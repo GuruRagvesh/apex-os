@@ -2308,17 +2308,37 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   // The adapter phase left all 29 legacy consumers alone. Core Users Profiles
   // then took 2 of them OUT of frontend/ entirely - the screens moved into
   // platforms/ and now read the store through @apex/core-identity, so they are
-  // no longer legacy consumers at all. That is the only sanctioned way this
-  // number moves: a screen leaves frontend/ with its import rewritten to the
-  // public boundary. An in-place rewrite of a file that stays in frontend/
-  // would still be an unvalidated auth migration, and the route-adapter check
-  // below is what distinguishes the two.
+  // no longer legacy consumers at all. For a long time that was the only
+  // sanctioned way this number moved, because an in-place rewrite of a file
+  // that stays in frontend/ was an UNVALIDATED auth migration.
+  //
+  // 2026-08-18: in-place repointing is now sanctioned, but only against a
+  // proof of exact object identity. @apex/core-identity re-exports the very
+  // same Zustand store -- the adapter is a single `export ... from` line, the
+  // component creates no store of its own, and the self-test above already
+  // rejects create(, persist(, useState and useEffect there. Swapping the
+  // specifier therefore cannot change state shape, persistence key or
+  // hydration timing: it is the same object reached by a different name.
+  //
+  // What stays forbidden is what the original wording protected -- repointing
+  // a consumer whose auth behaviour is load-bearing without validating it.
+  // (dashboard)/layout.tsx is the standing example: it gates redirects on
+  // hasHydrated, and getting that wrong logged every user out on refresh.
+  // It, team/page.tsx, the workday components and the workdayApi-coupled
+  // shell files all deliberately keep the legacy import. The route-adapter
+  // check below still distinguishes real departures.
+  //
+  // 18 -> 14: the four (auth) routes. 14 -> 7: tickets list/new/detail,
+  // settings, hrms, the sales-crm layout and useApprovalReminders. The seven
+  // that remain are exactly the ones held back on purpose -- team/page.tsx,
+  // (dashboard)/layout.tsx, sidebar, topbar, QuickActionDock,
+  // WorkdayHistoryStrip and useWorkdayReminders.
   const problems = [];
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 18) {
-    problems.push(`expected 18 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 7) {
+    problems.push(`expected 7 legacy auth-store consumers, found ${legacy.length}`);
   }
   // Each one that left must be a thin adapter carrying no auth dependency at
   // all, and must reach its screen through that component's public entry.
