@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import { leaveApi, changeRequestsApi } from '@/lib/api';
 import { usersApi } from '@apex/core-users/api';
 

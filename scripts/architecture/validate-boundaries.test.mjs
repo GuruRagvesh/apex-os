@@ -2327,12 +2327,18 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   // It, team/page.tsx, the workday components and the workdayApi-coupled
   // shell files all deliberately keep the legacy import. The route-adapter
   // check below still distinguishes real departures.
+  //
+  // 18 -> 14: the four (auth) routes. 14 -> 7: tickets list/new/detail,
+  // settings, hrms, the sales-crm layout and useApprovalReminders. The seven
+  // that remain are exactly the ones held back on purpose -- team/page.tsx,
+  // (dashboard)/layout.tsx, sidebar, topbar, QuickActionDock,
+  // WorkdayHistoryStrip and useWorkdayReminders.
   const problems = [];
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 14) {
-    problems.push(`expected 14 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 7) {
+    problems.push(`expected 7 legacy auth-store consumers, found ${legacy.length}`);
   }
   // Each one that left must be a thin adapter carrying no auth dependency at
   // all, and must reach its screen through that component's public entry.

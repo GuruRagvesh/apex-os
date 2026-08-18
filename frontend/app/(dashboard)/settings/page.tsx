@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import { authApi, settingsApi, taskTypesApi } from '@/lib/api';
 import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
