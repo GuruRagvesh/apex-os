@@ -4,7 +4,7 @@ import { useState, useMemo, createContext, useContext } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
-import { analyticsApi } from '@/lib/api';
+import { analyticsApi } from '@apex/intelligence-analytics/api';
 import { usersApi } from '@apex/core-users/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
