@@ -3,7 +3,8 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ticketsApi, commentsApi, usersApi, aiApi } from '@/lib/api';
+import { commentsApi, usersApi, aiApi } from '@/lib/api';
+import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { useAuthStore } from '@/store/auth.store';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
 import { STATUS_COLORS, STATUS_LABELS, formatRole } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
