@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/store/auth.store';
-import { ticketsApi, teamApi } from '@/lib/api';
+import { useAuthStore } from '@apex/core-identity';
+import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { projectsApi } from '@apex/operations-projects/api';
+import { usersApi } from '@apex/core-users/api';
 import { Search, Ticket, FolderKanban, Users, ArrowRight, X } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
 
@@ -86,7 +87,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         const [ticketRes, projectRes, peopleRes] = await Promise.allSettled([
           ticketsApi.getAll(params) as Promise<any>,
           projectsApi.getAll(params) as Promise<any>,
-          canSearchPeople ? (teamApi.getDirectory() as Promise<any[]>) : Promise.resolve([]),
+          canSearchPeople ? (usersApi.getDirectory() as Promise<any[]>) : Promise.resolve([]),
         ]);
 
         if (cancelled) return;

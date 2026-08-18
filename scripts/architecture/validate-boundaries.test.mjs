@@ -2311,14 +2311,20 @@ assertContract('the legacy auth-store consumer set only shrinks by compartmental
   const legacy = repoSources()
     .filter((f) => f.startsWith('frontend/'))
     .filter((f) => /from\s*['"]@\/store\/auth\.store['"]/.test(codeOf(readRepo(f) ?? '')));
-  if (legacy.length !== 19) {
-    problems.push(`expected 19 legacy auth-store consumers, found ${legacy.length}`);
+  if (legacy.length !== 18) {
+    problems.push(`expected 18 legacy auth-store consumers, found ${legacy.length}`);
   }
   // Each one that left must be a thin adapter carrying no auth dependency at
   // all, and must reach its screen through that component's public entry.
   // 29 -> 27 core/users/profiles; -> 26 intelligence/analytics;
   // -> 24 core/organization/departments; -> 23 workforce/calendar; -> 21 workforce/teams; -> 20 system/audit;
-  // -> 19 operations/tickets/lifecycle (kanban).
+  // -> 19 operations/tickets/lifecycle (kanban); -> 18 apps/web (command-palette).
+  //
+  // command-palette is the first departure that is NOT a route, so it has no
+  // surviving adapter and is absent from DEPARTED below. It left frontend/
+  // outright for apps/web/components/, reading auth through @apex/core-identity
+  // and its three data APIs through their public entries. Nothing remains at
+  // the old path to check — the retired-path guard is what holds that shut.
   const DEPARTED = {
     'frontend/app/(dashboard)/profile/page.tsx': '@apex/core-users-profiles/screens/',
     'frontend/app/(dashboard)/(platform)/users/[id]/profile/page.tsx': '@apex/core-users-profiles/screens/',
@@ -5411,6 +5417,13 @@ assertContract('the retired frontend/modules shims are not recreated', () => {
     // AnalyticsScreen declares LegacyStatCard locally, and shared/ui has
     // SkeletonStatCard. None ever imported this file.
     'frontend/components/dashboard/stat-card.tsx',
+    // command-palette differs from everything above: it was MOVED, not
+    // deleted. It lives at apps/web/components/command-palette.tsx and is
+    // reached as '@apex/apps-web/components/command-palette'. Recreating the
+    // old path would mean a SECOND CommandPalette implementation, and the
+    // legacy one could only get its data by importing '@/lib/api' and
+    // '@/store/auth.store' again — the exact legacy edges this move removed.
+    'frontend/components/ui/command-palette.tsx',
   ];
   return RETIRED.filter((f) => readRepo(f) !== null).map((f) => `${f} was retired and must not be recreated`);
 });
