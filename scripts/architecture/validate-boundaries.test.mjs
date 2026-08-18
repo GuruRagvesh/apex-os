@@ -4644,7 +4644,13 @@ testRealRepoDebtCounts({
   // '@/lib/api') lost its legacy edge entirely. ProjectDetailScreen keeps one
   // for eventsApi and usersApi, neither of which is Projects-owned.
   'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 1,
-  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 6,
+  // 6 -> 5 on 2026-08-18: dashboardApi moved to the Dashboard component's own
+  // frontend/api, and DashboardScreen imported nothing else from '@/lib/api',
+  // so its legacy statement disappeared. The object cannot retire: its other
+  // recorded conditions still name frontend/components/workday/ (WorkdayBar,
+  // WorkdayHistoryStrip) and frontend/lib/company-date.ts, and TeamPressurePanel
+  // plus RecentActivityFeed keep edges for workdayApi and eventsApi.
+  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 5,
   // RETIRED 2026-08-18: leaveApi moved to the Leave component's own
   // frontend/api and LeaveScreen imports it relatively, so its last legacy
   // edge is gone. Both recorded conditions were met -- LEAVE_STATUS_COLORS

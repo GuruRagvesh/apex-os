@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import Link from 'next/link';
 import { cn } from '@apex/shared-utilities';
-import { dashboardApi } from '@/lib/api';
+import { dashboardApi } from '../api';
 import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';

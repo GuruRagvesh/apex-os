@@ -2,9 +2,8 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  analyticsApi, dashboardApi,
-} from '@/lib/api';
+import { analyticsApi } from '@/lib/api';
+import { dashboardApi } from '@apex/intelligence-dashboard/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { TicketTrendChart } from '../components/ticket-trend-chart';
 import { CategoryChart } from '../components/category-chart';

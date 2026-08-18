@@ -3,7 +3,8 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useMemo } from 'react';
-import { workdayApi, dashboardApi } from '@/lib/api';
+import { workdayApi } from '@/lib/api';
+import { dashboardApi } from '@apex/intelligence-dashboard/api';
 import { leaveApi } from '@apex/workforce-leave/api';
 import { usersApi } from '@apex/core-users/api';
 import { projectsApi } from '@apex/operations-projects/api';
