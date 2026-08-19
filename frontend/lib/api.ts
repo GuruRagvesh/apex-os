@@ -39,14 +39,6 @@ export const authApi = {
 // binding. The exported surface is identical either way.
 export { usersApi };
 
-// Roles
-export const rolesApi = {
-  getAll: () => r(api.get('/roles')),
-  create: (data: any) => r(api.post('/roles', data)),
-  update: (id: string, data: any) => r(api.put(`/roles/${id}`, data)),
-  remove: (id: string) => r(api.delete(`/roles/${id}`)),
-};
-
 // Comments
 export const commentsApi = {
   getAll: (ticketId: string) => r(api.get(`/tickets/${ticketId}/comments`)),
