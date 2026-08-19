@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@apex/core-identity';
-import { authApi } from '@/lib/api';
+import { authApi } from '@apex/core-identity/api';
 import toast from 'react-hot-toast';
 import { ShieldAlert, Eye, EyeOff, Lock } from 'lucide-react';
 
