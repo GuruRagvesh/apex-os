@@ -79,19 +79,6 @@ export const teamApi = {
     r(api.post('/team/request', { targetUserId, reason })),
 };
 
-// Teams — real Team/TeamMember CRUD (D3). Distinct from the legacy teamApi above.
-export const teamsApi = {
-  getAll: (departmentId?: string) => r(api.get('/teams', { params: departmentId ? { departmentId } : undefined })),
-  getOne: (id: string) => r(api.get(`/teams/${id}`)),
-  create: (data: { name: string; departmentId: string; teamLeadId?: string }) => r(api.post('/teams', data)),
-  update: (id: string, data: { name?: string; teamLeadId?: string | null }) => r(api.patch(`/teams/${id}`, data)),
-  remove: (id: string) => r(api.delete(`/teams/${id}`)),
-  addMember: (id: string, data: { userId: string; role?: string }) => r(api.post(`/teams/${id}/members`, data)),
-  updateMember: (id: string, userId: string, data: { role: string }) =>
-    r(api.patch(`/teams/${id}/members/${userId}`, data)),
-  removeMember: (id: string, userId: string) => r(api.delete(`/teams/${id}/members/${userId}`)),
-};
-
 // Settings
 export const settingsApi = {
   getCompany:          ()         => r(api.get('/settings/company')),
