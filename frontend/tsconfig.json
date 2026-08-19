@@ -67,6 +67,7 @@
       "@apex/system-public-site": ["../platforms/system/public-site/index.ts"],
       "@apex/system-public-site/screens/*": ["../platforms/system/public-site/frontend/screens/*"],
       "@apex/system-audit": ["../platforms/system/audit/index.ts"],
+      "@apex/system-audit/api": ["../platforms/system/audit/frontend/api/index.ts"],
       "@apex/workforce-leave": ["../platforms/workforce/leave/applications/index.ts"],
       "@apex/workforce-leave/api": ["../platforms/workforce/leave/applications/frontend/api/index.ts"],
       "@apex/workforce-calendar": ["../platforms/workforce/calendar/overview/index.ts"],

@@ -6,7 +6,7 @@ import { useAuthStore } from '@apex/core-identity';
 import { useRouter } from 'next/navigation';
 import { ArrowUpRight, Activity } from 'lucide-react';
 import Link from 'next/link';
-import { eventsApi } from '@/lib/api';
+import { eventsApi } from '../api';
 import { getCompanyNow, getCompanyTodayStart, getCompanyStartOfDay } from '@/lib/company-date';
 
 // ── Timestamp helpers ─────────────────────────────────────────────────────────

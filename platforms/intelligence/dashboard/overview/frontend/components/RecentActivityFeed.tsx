@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { useRouter } from 'next/navigation';
-import { eventsApi } from '@/lib/api';
+import { eventsApi } from '@apex/system-audit/api';
 
 function timeAgo(iso: string) {
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);

@@ -36,11 +36,6 @@ export const commentsApi = {
   remove: (ticketId: string, id: string) => r(api.delete(`/tickets/${ticketId}/comments/${id}`)),
 };
 
-// Events
-export const eventsApi = {
-  getAll: (params?: any) => r(api.get('/events', { params })),
-};
-
 // AI Assistant
 export const aiApi = {
   suggestPriority: (title: string, description: string) =>
