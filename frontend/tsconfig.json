@@ -58,6 +58,7 @@
       "@apex/core-users-change-requests": ["../platforms/core/users/change-requests/index.ts"],
       "@apex/core-users-change-requests/api": ["../platforms/core/users/change-requests/frontend/api/index.ts"],
       "@apex/core-organization-departments": ["../platforms/core/organization/departments/index.ts"],
+      "@apex/core-organization-roles": ["../platforms/core/organization/roles/index.ts"],
       "@apex/core-organization-departments/api": ["../platforms/core/organization/departments/frontend/api/index.ts"],
       "@apex/core-organization-departments/screens/*": ["../platforms/core/organization/departments/frontend/screens/*"],
       "@apex/core-identity": ["../platforms/core/identity/authentication/index.ts"],

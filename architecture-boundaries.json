@@ -65,6 +65,7 @@
     "@apex/core-users-change-requests": "platforms/core/users/change-requests",
     "@apex/core-users-change-requests/api": "platforms/core/users/change-requests/frontend/api",
     "@apex/core-organization-departments": "platforms/core/organization/departments",
+    "@apex/core-organization-roles": "platforms/core/organization/roles",
     "@apex/core-organization-departments/api": "platforms/core/organization/departments/frontend/api",
     "@apex/core-organization-departments/screens": "platforms/core/organization/departments/frontend/screens",
     "@apex/core-identity": "platforms/core/identity/authentication",
