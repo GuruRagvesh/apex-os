@@ -1049,9 +1049,11 @@ testCase(
   { expectExit: 1, expectRule: 'shared-no-platforms' },
 );
 
-// 57. The Projects legacy exemption is scoped to the screens folder only.
+// 57. The DEBT-P3 allowlist is RETIRED: projectsApi, the PROJECT_STATUS_*
+// maps and TicketRow are all canonical now, so this component has no
+// sanctioned legacy target left and the default rule applies to it again.
 testCase(
-  'accepts a Projects screen importing its allowlisted legacy dependencies',
+  'rejects the retired Operations Projects legacy target',
   (root) => {
     write(
       root,
@@ -1059,7 +1061,7 @@ testCase(
       `import { projectsApi } from '@/lib/api';\nexport default function S() { return null; }\n`,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 58. A Projects file OUTSIDE the screens folder cannot reuse that exemption.
@@ -4224,16 +4226,17 @@ export const h = X;
   { expectExit: 1, expectRule: 'shared-no-platforms' },
 );
 
-// 234. The DEBT-P14 allowlist covers lib/api.ts and lib/company-date.ts.
+// 234. The DEBT-P14 allowlist now covers lib/company-date.ts ALONE: eventsApi
+// moved into this component as its own api/ folder and lib/api.ts was struck
+// from the allowlist, so that edge is rejected by the default rule from here on.
 testCase(
-  'accepts the two allowlisted System Audit legacy targets',
+  'accepts the one allowlisted System Audit legacy target',
   (root) => {
     write(
       root,
       'platforms/system/audit/frontend/screens/ActivityLogScreen.tsx',
-      `import { eventsApi } from '@/lib/api';
-import { getCompanyNow } from '@/lib/company-date';
-export default function S() { return [eventsApi, getCompanyNow]; }
+      `import { getCompanyNow } from '@/lib/company-date';
+export default function S() { return getCompanyNow; }
 `,
     );
   },
@@ -4643,18 +4646,27 @@ function testRealRepoDebtCounts(expected) {
 }
 
 testRealRepoDebtCounts({
-  // 2 -> 1 on 2026-08-12: projectsApi moved to the Projects component's own
-  // frontend/api, so ProjectsScreen (which imported nothing else from
-  // '@/lib/api') lost its legacy edge entirely. ProjectDetailScreen keeps one
-  // for eventsApi and usersApi, neither of which is Projects-owned.
-  'DEBT-P3-PROJECTS-LEGACY-FRONTEND': 1,
+  // RETIRED 2026-08-19: all THREE conditions were re-proven from source, not
+  // just the api one. projectsApi is canonical and every consumer reaches it
+  // through '@apex/operations-projects/api' or '../api'; PROJECT_STATUS_LABELS
+  // and PROJECT_STATUS_COLORS live in the component's own lib/project-status.ts
+  // (frontend/lib/utils.ts no longer exists); ticket-row.tsx is gone from
+  // frontend/components/tickets/ and ProjectDetailScreen reaches TicketRow at
+  // '@apex/operations-tickets-lifecycle/components/ticket-row'. eventsApi was
+  // the last facade edge and ProjectDetailScreen now has zero.
+  // Object deleted rather than parked at zero.
   // 6 -> 5 on 2026-08-18: dashboardApi moved to the Dashboard component's own
   // frontend/api, and DashboardScreen imported nothing else from '@/lib/api',
   // so its legacy statement disappeared. The object cannot retire: its other
   // recorded conditions still name frontend/components/workday/ (WorkdayBar,
   // WorkdayHistoryStrip) and frontend/lib/company-date.ts, and TeamPressurePanel
   // plus RecentActivityFeed keep edges for workdayApi and eventsApi.
-  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 5,
+  // 5 -> 4 on 2026-08-19: eventsApi became System Audit-owned and
+  // RecentActivityFeed imported nothing else from the facade, so its whole
+  // statement disappeared. Still active: TeamPressurePanel keeps workdayApi,
+  // UpcomingEvents keeps company-date, and DashboardScreen keeps both
+  // frontend/components/workday/ imports.
+  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 4,
   // RETIRED 2026-08-18: leaveApi moved to the Leave component's own
   // frontend/api and LeaveScreen imports it relatively, so its last legacy
   // edge is gone. Both recorded conditions were met -- LEAVE_STATUS_COLORS
@@ -4701,7 +4713,13 @@ testRealRepoDebtCounts({
   // TeamDetailScreen imported nothing else from the facade, so both legacy
   // statements disappeared and the component has zero legacy edges left.
   // Object deleted rather than parked at zero.
-  'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
+  // 2 -> 1 on 2026-08-19: eventsApi moved into this component as
+  // frontend/api/events-api.ts, published as '@apex/system-audit/api', and
+  // ActivityLogScreen now imports it relatively. lib/api.ts was struck from
+  // the allowlist rather than left sanctioned-but-unused. NOT retired: the
+  // company-date helpers are still legacy and are emphatically not
+  // audit-owned -- they must become a published shared contract instead.
+  'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 1,
 
 });
 

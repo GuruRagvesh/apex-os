@@ -2,7 +2,7 @@
 
 **Status:** Frontend compartmentalised. Backend deferred.
 **Compartmentalised:** 2026-08-10
-**Debt identifier:** `DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND` (2 imports)
+**Debt identifier:** `DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND` (1 import)
 
 The second `system` compartment, after `public-site`.
 
@@ -20,12 +20,22 @@ events emitted across the platform.
 | Area | Contents |
 | --- | --- |
 | `frontend/screens/ActivityLogScreen.tsx` | 425 lines — filters, grouping, event rendering |
+| `frontend/api/events-api.ts` | `eventsApi.getAll` — the cross-domain event READ adapter |
 
-### It renders other platforms' events and owns none of them
+### It renders every platform's events and owns no producer
 
 Every platform emits into the event stream; this component displays it. That
-makes it a consumer of everything and an owner of nothing, so a self-test
-rejects any reach into another platform's internals.
+makes it a consumer of everything, so a self-test rejects any reach into
+another platform's internals.
+
+It owns the READ adapter for that stream and nothing more. `GET /events` is a
+single cross-domain aggregate whose backend controller has no service of its
+own: it queries `OperationalEvent`, scopes per request through
+`AccessPolicyService` and enriches at read time — it *is* the read model.
+Event **production** stays with the domains that emit it. Tickets, projects,
+workday, leave, auth, settings, users, comments and sales all write through
+`EventLoggerService` and keep ownership of their own events. Nothing here may
+emit an event, and owning the adapter confers no claim over any producer.
 
 ## Browser route
 
@@ -41,8 +51,10 @@ string, no `metadata` export.
 | Specifier | Purpose |
 | --- | --- |
 | `@apex/system-audit` | Component entry — exports `ActivityLogScreen` |
+| `@apex/system-audit/api` | `eventsApi` — deliberately **not** through the root barrel |
 
-**No exact subpath**: one screen, one route.
+The HTTP surface is an exact subpath so a consumer that wants the screen never
+loads the authenticated client, and vice versa.
 
 ## Read-only by construction
 
@@ -53,7 +65,6 @@ would need updating before a write could be added here, which is the intent.
 
 | Kept | Owner |
 | --- | --- |
-| `eventsApi` in `lib/api.ts` | The events backend is a `system` component that has not migrated |
 | `frontend/lib/company-date.ts` | **Emphatically not audit-owned** — the central company business-date source, shared with the scheduler and attendance surfaces |
 
 `company-date.ts` is the important one. It supplies `getCompanyNow`,
@@ -65,8 +76,9 @@ exemption to reach it.
 
 ### `DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND`
 
-**2 imports** — `lib/api.ts` and `lib/company-date.ts`, each with its own removal
-condition.
+**1 import** — `lib/company-date.ts`. The `lib/api.ts` target was discharged when
+`eventsApi` moved here, and was struck from the allowlist rather than left
+sanctioned-but-unused. The events **backend** has still not migrated.
 
 ## Behaviour — preserved, not touched
 
