@@ -66,6 +66,7 @@
     "@apex/core-users-change-requests/api": "platforms/core/users/change-requests/frontend/api",
     "@apex/core-organization-departments": "platforms/core/organization/departments",
     "@apex/core-organization-roles": "platforms/core/organization/roles",
+    "@apex/core-organization-roles/api": "platforms/core/organization/roles/frontend/api",
     "@apex/core-organization-departments/api": "platforms/core/organization/departments/frontend/api",
     "@apex/core-organization-departments/screens": "platforms/core/organization/departments/frontend/screens",
     "@apex/core-identity": "platforms/core/identity/authentication",
@@ -130,6 +131,7 @@
       "@apex/core-users-profiles/screens/ProfileScreen": "platforms/core/users/profiles/frontend/screens/ProfileScreen",
       "@apex/core-users-profiles/screens/UserProfileScreen": "platforms/core/users/profiles/frontend/screens/UserProfileScreen",
       "@apex/core-organization-departments/api": "platforms/core/organization/departments/frontend/api",
+      "@apex/core-organization-roles/api": "platforms/core/organization/roles/frontend/api",
       "@apex/core-organization-departments/screens/DepartmentsScreen": "platforms/core/organization/departments/frontend/screens/DepartmentsScreen",
       "@apex/core-organization-departments/screens/DepartmentDetailScreen": "platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen",
       "@apex/workforce-teams/screens/TeamsScreen": "platforms/workforce/teams/team-management/frontend/screens/TeamsScreen",
@@ -266,50 +268,6 @@
         "removalConditions": [
           "frontend/lib/api.ts: eventsApi becomes a System-owned adapter once the events component migrates",
           "frontend/lib/company-date.ts: the company business-date helpers become a published shared contract consumed by audit, scheduler and attendance alike"
-        ]
-      },
-      {
-        "id": "DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND",
-        "status": "temporary",
-        "introducedIn": "Core Organization departments frontend compartmentalisation",
-        "removalPhase": "Per-target: see removalConditions",
-        "from": "platforms/core/organization/departments/frontend/",
-        "allowedTargets": [
-          "frontend/lib/api.ts"
-        ],
-        "reason": "The two department screens moved with one legacy import each, both naming the same target. None of the four API groups they pull is Departments-owned: departmentsApi has fourteen consumers across tickets, kanban, teams, settings, projects and three core/users components; usersApi and rolesApi are application-wide; teamsApi belongs to workforce/teams and is also used by the two teams screens. The authentication coupling was NOT carried over - both screens read useAuthStore through @apex/core-identity - and there is no lib/utils coupling at all, because STATUS_COLORS and PRIORITY_COLORS are declared locally in the detail screen rather than imported. Breadcrumb already came from @apex/shared-ui/components/breadcrumb before this phase.",
-        "removalConditions": [
-          "frontend/lib/api.ts: departmentsApi becomes a Core Organization-owned adapter once an app-wide API layer is compartmentalised; usersApi and rolesApi follow core/users and core/organization/roles, and teamsApi follows workforce/teams"
-        ]
-      },
-      {
-        "id": "DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND",
-        "status": "temporary",
-        "introducedIn": "Core Users change-requests frontend compartmentalisation",
-        "removalPhase": "Per-target: see removalConditions",
-        "from": "platforms/core/users/change-requests/frontend/",
-        "allowedTargets": [
-          "frontend/lib/api.ts"
-        ],
-        "reason": "The approvals screen moved with its import list untouched and carries exactly one legacy import, pulling changeRequestsApi, departmentsApi, usersApi and rolesApi from the application-wide API module. changeRequestsApi is NOT exclusively this component's: it has four consumers - this screen, core/users/profiles, intelligence/dashboard and the legacy hrms page - so relocating it here would make three unrelated features import a change-requests component. The screen carries no other legacy coupling at all: it does not import frontend/store/auth.store.ts (there is no frontend auth-state dependency on this surface - queue scoping is entirely backend-driven through listPendingApprovals), it does not import frontend/lib/utils.ts, and its loading state, reject modal and constant tables are inline rather than borrowed from frontend/components/. That is why this allowlist names a single target.",
-        "removalConditions": [
-          "frontend/lib/api.ts: changeRequestsApi becomes a Core Users-owned adapter once an app-wide API layer is compartmentalised, and its dashboard/profiles/hrms consumers move to that boundary"
-        ]
-      },
-      {
-        "id": "DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND",
-        "status": "temporary",
-        "introducedIn": "Core Users profiles frontend compartmentalisation",
-        "removalPhase": "Per-target: see removalConditions",
-        "from": "platforms/core/users/profiles/frontend/",
-        "allowedTargets": [
-          "frontend/lib/api.ts"
-        ],
-        "reason": "The two profile screens and the activity-item component moved and carry four legacy imports across three targets. None is Profiles-owned: lib/api.ts holds application-wide API groups (usersApi, rolesApi, departmentsApi, ticketsApi, leaveApi, projectsApi, dashboardApi, analyticsApi) plus changeRequestsApi, which belongs to the unmigrated core/users/change-requests component; lib/utils.ts supplies formatRelativeTime, consumed by activity-item; components/tickets/ticket-row.tsx is owned by operations/tickets and has four importers, so it cannot follow Profiles. The authentication coupling was NOT carried over - both screens consume useAuthStore through @apex/core-identity, making Profiles the first real consumer of that boundary. Skeleton comes from @apex/shared-ui/components/skeleton and getInitials from @apex/shared-utilities, so those couplings are already retired.",
-        "removalConditions": [
-          "frontend/components/tickets/ticket-row.tsx: moves with operations/tickets, which also owns its three other importers",
-          "frontend/lib/utils.ts: formatRelativeTime joins shared/utilities once its formatDate dependency no longer round-trips through the legacy module",
-          "frontend/lib/api.ts: usersApi becomes a Core Users-owned adapter once an app-wide API layer is compartmentalised, and changeRequestsApi follows core/users/change-requests"
         ]
       },
       {

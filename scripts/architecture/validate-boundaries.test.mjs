@@ -2804,7 +2804,7 @@ export const A = X;
 
 // 150. The DEBT-P8 allowlist covers exactly its three targets...
 testCase(
-  'accepts the single allowlisted Core Users Profiles legacy target',
+  'rejects the retired Core Users Profiles legacy target',
   (root) => {
     write(
       root,
@@ -2814,7 +2814,7 @@ export default function S() { return usersApi; }
 `,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 151. ...and nothing else.
@@ -3061,7 +3061,7 @@ export const h = X;
 
 // 165. The DEBT-P9 allowlist covers lib/api.ts...
 testCase(
-  'accepts the single allowlisted Core Users Change Requests legacy target',
+  'rejects the retired Core Users Change Requests legacy target',
   (root) => {
     write(
       root,
@@ -3071,7 +3071,7 @@ export default function S() { return [changeRequestsApi, departmentsApi, usersAp
 `,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 166. ...and nothing else - not even lib/utils, which siblings are allowed.
@@ -3588,7 +3588,7 @@ export const B = X;
 
 // 196. The DEBT-P11 allowlist covers lib/api.ts...
 testCase(
-  'accepts the single allowlisted Core Organization Departments legacy target',
+  'rejects the retired Core Organization Departments legacy target',
   (root) => {
     write(
       root,
@@ -3598,7 +3598,7 @@ export default function S() { return [departmentsApi, usersApi, rolesApi, teamsA
 `,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 197. ...and nothing else - notably not lib/utils. The colour maps are
@@ -4659,14 +4659,24 @@ testRealRepoDebtCounts({
   // frontend/api and LeaveScreen imports it relatively, so its last legacy
   // edge is gone. Both recorded conditions were met -- LEAVE_STATUS_COLORS
   // had already split out to frontend/lib/leave-status.ts. Object deleted.
-  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 2,
+  // 2 -> 1 on 2026-08-19: rolesApi became Core Organization-owned and
+  // UsersScreen imported nothing else from the facade. Not retired:
+  // UserDetailScreen still imports workdayApi, which is protected.
+  'DEBT-P6-CORE-USERS-LEGACY-FRONTEND': 1,
   'DEBT-P7-CORE-IDENTITY-AUTH-STORE': 1,
   // 2 -> 1 on 2026-08-18: analyticsApi became Intelligence-owned and
   // UserProfileScreen imported nothing else from '@/lib/api', so its legacy
   // statement disappeared. Not retired: ProfileScreen still imports rolesApi,
   // which has no owner, and two other recorded conditions remain unchecked.
-  'DEBT-P8-CORE-USERS-PROFILES-LEGACY-FRONTEND': 1,
-  'DEBT-P9-CORE-USERS-CHANGE-REQUESTS-LEGACY-FRONTEND': 1,
+  // RETIRED 2026-08-19: all THREE of its conditions were re-proven, not just
+  // the api one. ticket-row.tsx is gone from frontend/components/tickets/ and
+  // ProfileScreen reaches it at '@apex/operations-tickets-lifecycle/components/
+  // ticket-row'; formatRelativeTime is gone from frontend/lib/utils.ts and lives
+  // in shared/utilities; usersApi and changeRequestsApi are both canonical.
+  // rolesApi was the last facade edge and ProfileScreen now has zero.
+  // RETIRED 2026-08-19: changeRequestsApi is canonical and its dashboard,
+  // profiles and hrms consumers all moved to that boundary. rolesApi was the
+  // last remaining edge; ApprovalsScreen now has zero.
   // RETIRED 2026-08-18: its single condition named three APIs becoming
   // canonical -- ticketsApi (operations/tickets), dashboardApi
   // (intelligence/dashboard) and analyticsApi (intelligence/analytics).
@@ -4677,7 +4687,10 @@ testRealRepoDebtCounts({
   // '@apex/core-users/api', and DepartmentsScreen imported nothing else from
   // '@/lib/api', so its legacy edge disappeared with the statement.
   // DepartmentDetailScreen keeps one for rolesApi and teamsApi.
-  'DEBT-P11-CORE-ORGANIZATION-DEPARTMENTS-LEGACY-FRONTEND': 1,
+  // RETIRED 2026-08-19: its condition named four APIs -- departmentsApi,
+  // usersApi, teamsApi and rolesApi following core/organization/roles. All four
+  // are canonical now, that last one landing with this component.
+  // DepartmentDetailScreen has zero legacy edges.
   // RETIRED 2026-08-18: its condition named ticketsApi and leaveApi becoming
   // published contracts. Both now are, and CalendarScreen consumes leaveApi
   // through '@apex/workforce-leave/api' -- its whole '@/lib/api' statement
@@ -4979,15 +4992,18 @@ assertContract('the approvals screen kept its exact original import list', () =>
   if (raw === null) return [`${APPROVALS} is missing`];
   const src = codeOf(raw);
   const problems = [];
-  // The five the route file had, unchanged by the move, plus two added
-  // deliberately as API groups gained owners. departmentsApi came first,
-  // usersApi followed on 2026-08-18, so this screen now reaches both through
-  // their components' public boundaries instead of the app-wide lib/api
-  // façade. It still imports changeRequestsApi and rolesApi from '@/lib/api'
-  // -- neither has an owner yet -- so that specifier stays required.
+  // The five the route file had, unchanged by the move, plus the API groups
+  // this screen consumes -- each reached through its owning component rather
+  // than the app-wide facade. departmentsApi came first, usersApi followed
+  // on 2026-08-18, changeRequestsApi became this component's own '../api',
+  // and rolesApi landed at core/organization/roles on 2026-08-19.
+  //
+  // '@/lib/api' is now ABSENT and must stay absent: rolesApi was the last
+  // group this screen took from the facade, so it is fully compartmentalised.
+  // The forbidden list below enforces that.
   const EXPECTED = [
     "from '@tanstack/react-query'",
-    "from '@/lib/api'",
+    "from '@apex/core-organization-roles/api'",
     "from '@apex/core-organization-departments/api'",
     "from '@apex/core-users/api'",
     "from '../api'",
@@ -5003,7 +5019,7 @@ assertContract('the approvals screen kept its exact original import list', () =>
     problems.push(`expected ${EXPECTED.length} imports, found ${count}`);
   }
   // It had no auth, no shared-ui and no lib/utils coupling, and must not gain one.
-  for (const forbidden of ['auth.store', '@apex/core-identity', '@apex/shared-ui', '@/lib/utils']) {
+  for (const forbidden of ['auth.store', '@apex/core-identity', '@apex/shared-ui', '@/lib/utils', '@/lib/api']) {
     if (src.includes(forbidden)) problems.push(`must not contain: ${forbidden}`);
   }
   return problems;

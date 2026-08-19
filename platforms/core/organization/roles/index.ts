@@ -9,11 +9,10 @@
 // concern and stays in shared/auth (roles.guard.ts, constants/roles.ts).
 // Assigning a role to a user belongs to core/users. See ./docs/README.md.
 //
-// The component is established ahead of its content, exactly as the migration
-// map schedules it. There are no screens: no roles administration UI exists.
-// The HTTP surface arrives next as '@apex/core-organization-roles/api', which
-// is published as an exact subpath rather than through this barrel so that
-// consumers wanting the registry never load an authenticated client they do
-// not use.
+// There are no screens: no roles administration UI exists. The HTTP surface
+// is published as the exact subpath '@apex/core-organization-roles/api'
+// rather than through this barrel, so a consumer wanting the registry never
+// loads an authenticated client it does not use. That is why this entry
+// intentionally exports nothing: everything real is behind /api.
 
 export {};
