@@ -63,6 +63,7 @@
       "@apex/core-organization-departments/api": ["../platforms/core/organization/departments/frontend/api/index.ts"],
       "@apex/core-organization-departments/screens/*": ["../platforms/core/organization/departments/frontend/screens/*"],
       "@apex/core-identity": ["../platforms/core/identity/authentication/index.ts"],
+      "@apex/core-identity/api": ["../platforms/core/identity/authentication/frontend/api/index.ts"],
       "@apex/system-public-site": ["../platforms/system/public-site/index.ts"],
       "@apex/system-public-site/screens/*": ["../platforms/system/public-site/frontend/screens/*"],
       "@apex/system-audit": ["../platforms/system/audit/index.ts"],

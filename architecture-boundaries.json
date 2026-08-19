@@ -70,6 +70,7 @@
     "@apex/core-organization-departments/api": "platforms/core/organization/departments/frontend/api",
     "@apex/core-organization-departments/screens": "platforms/core/organization/departments/frontend/screens",
     "@apex/core-identity": "platforms/core/identity/authentication",
+    "@apex/core-identity/api": "platforms/core/identity/authentication/frontend/api",
     "@apex/system-public-site": "platforms/system/public-site",
     "@apex/system-audit": "platforms/system/audit",
     "@apex/system-public-site/screens": "platforms/system/public-site/frontend/screens"
@@ -132,6 +133,7 @@
       "@apex/core-users-profiles/screens/UserProfileScreen": "platforms/core/users/profiles/frontend/screens/UserProfileScreen",
       "@apex/core-organization-departments/api": "platforms/core/organization/departments/frontend/api",
       "@apex/core-organization-roles/api": "platforms/core/organization/roles/frontend/api",
+      "@apex/core-identity/api": "platforms/core/identity/authentication/frontend/api",
       "@apex/core-organization-departments/screens/DepartmentsScreen": "platforms/core/organization/departments/frontend/screens/DepartmentsScreen",
       "@apex/core-organization-departments/screens/DepartmentDetailScreen": "platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen",
       "@apex/workforce-teams/screens/TeamsScreen": "platforms/workforce/teams/team-management/frontend/screens/TeamsScreen",

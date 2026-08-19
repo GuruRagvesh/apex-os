@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { authApi } from '@/lib/api';
+import { authApi } from '@apex/core-identity/api';
 import toast from 'react-hot-toast';
 import { Mail, KeyRound, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 

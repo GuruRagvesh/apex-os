@@ -17,17 +17,6 @@
 import { api, unwrap as r } from '@apex/shared-auth';
 import { usersApi } from '@apex/core-users/api';
 
-// Auth
-export const authApi = {
-  login: (email: string, password: string) => r(api.post('/auth/login', { email, password })),
-  me: () => r(api.get('/auth/me')),
-  changePassword: (currentPassword: string, newPassword: string) =>
-    r(api.patch('/auth/change-password', { currentPassword, newPassword })),
-  forgotPassword: (email: string) => r(api.post('/auth/forgot-password', { email })),
-  resetPassword: (email: string, otp: string, newPassword: string) =>
-    r(api.post('/auth/reset-password', { email, otp, newPassword })),
-};
-
 // Users — implementation now owned by the Core Users Administration component
 // and re-exported here for the 16 legacy consumers that still import it from
 // this file. Temporary compatibility, not authority: the component holds the
