@@ -68,6 +68,7 @@
       "@apex/workforce-leave/api": ["../platforms/workforce/leave/applications/frontend/api/index.ts"],
       "@apex/workforce-calendar": ["../platforms/workforce/calendar/overview/index.ts"],
       "@apex/workforce-teams": ["../platforms/workforce/teams/team-management/index.ts"],
+      "@apex/workforce-teams/api": ["../platforms/workforce/teams/team-management/frontend/api/index.ts"],
       "@apex/workforce-teams/screens/*": ["../platforms/workforce/teams/team-management/frontend/screens/*"]
     }
   },

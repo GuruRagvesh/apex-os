@@ -4023,9 +4023,11 @@ export const A = X;
   { expectExit: 1, expectRule: 'shared-no-platforms' },
 );
 
-// 222. The DEBT-P13 allowlist covers lib/api.ts and nothing else.
+// 222. The DEBT-P13 allowlist is RETIRED: teamsApi, departmentsApi and
+// usersApi are all canonical now, so this component has no sanctioned legacy
+// target left and the default rule applies to it again.
 testCase(
-  'accepts the single allowlisted Workforce Teams legacy target',
+  'rejects the retired Workforce Teams legacy target',
   (root) => {
     write(
       root,
@@ -4035,7 +4037,7 @@ export default function S() { return [teamsApi, departmentsApi, usersApi]; }
 `,
     );
   },
-  { expectExit: 0 },
+  { expectExit: 1, expectRule: 'platforms-no-legacy-frontend' },
 );
 
 // 223. ...not lib/utils.
@@ -4680,7 +4682,12 @@ testRealRepoDebtCounts({
   // published contracts. Both now are, and CalendarScreen consumes leaveApi
   // through '@apex/workforce-leave/api' -- its whole '@/lib/api' statement
   // disappeared. Object deleted rather than parked at zero.
-  'DEBT-P13-WORKFORCE-TEAMS-LEGACY-FRONTEND': 2,
+  // RETIRED 2026-08-19: its condition named three APIs becoming canonical --
+  // teamsApi (workforce/teams), departmentsApi (core/organization/departments)
+  // and usersApi (core/users). All three now are. TeamsScreen and
+  // TeamDetailScreen imported nothing else from the facade, so both legacy
+  // statements disappeared and the component has zero legacy edges left.
+  // Object deleted rather than parked at zero.
   'DEBT-P14-SYSTEM-AUDIT-LEGACY-FRONTEND': 2,
 
 });
