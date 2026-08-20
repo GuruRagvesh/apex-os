@@ -104,6 +104,17 @@ export class PunchEvidenceController {
     }
   }
 
+  /**
+   * Whether Attendance V2 punching is enabled for this deployment.
+   *
+   * Read-only and cheap: the client calls it to decide whether to render the
+   * punch flow or leave the legacy workday controls exactly as they are.
+   */
+  @Get('status')
+  async status() {
+    return this.punchEvidence.featureStatus();
+  }
+
   /** The authenticated employee's own evidence. Scoped by JWT, not by query. */
   @Get('me')
   async listMine(@CurrentUser() user: any, @Query('limit') limit?: string) {

@@ -6,6 +6,7 @@ import { PunchEvidenceController } from './punch-evidence.controller';
 import { PunchPhotoController } from './punch-photo.controller';
 import { DailyContextModule } from '../context/daily-context.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { WorkdayModule } from '../../workday/workday.module';
 
 /**
  * Punch Evidence (PE-1).
@@ -15,7 +16,7 @@ import { SettingsModule } from '../../settings/settings.module';
  * authenticated employee, and the feature flag defaults OFF.
  */
 @Module({
-  imports: [DailyContextModule, SettingsModule],
+  imports: [DailyContextModule, SettingsModule, WorkdayModule],
   controllers: [PunchEvidenceController, PunchPhotoController],
   providers: [PunchEvidenceService, PunchPhotoService, PunchPhotoStorage],
   exports: [PunchEvidenceService, PunchPhotoService],

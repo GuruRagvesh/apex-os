@@ -7,6 +7,7 @@ import {
   OperationalAction,
 } from '../../../../common/services/event-logger.service';
 import { DailyContextService } from '../context/daily-context.service';
+import { WorkdayService } from '../../workday/workday.service';
 import {
   ATTENDANCE_V2_DEFAULTS,
   ATTENDANCE_V2_SETTING_KEY,
@@ -16,6 +17,7 @@ import {
   PunchLocationRequiredError,
   PunchNotApplicableError,
   PunchContextInvariantError,
+  PunchNoOpenWorkdayError,
   PunchPhotoRequiredError,
   PunchValidationError,
   SubmitPunchEvidenceInput,
@@ -48,12 +50,24 @@ export class PunchEvidenceService {
     private readonly settings: SettingsService,
     private readonly eventLogger: EventLoggerService,
     private readonly dailyContext: DailyContextService,
+    private readonly workday: WorkdayService,
   ) {}
 
   /** Feature flag, defaulting OFF. */
   private async isEnabled(): Promise<boolean> {
     const cfg = await this.settings.get(ATTENDANCE_V2_SETTING_KEY);
     return (cfg?.punchEvidenceEnabled ?? ATTENDANCE_V2_DEFAULTS.punchEvidenceEnabled) === true;
+  }
+
+  /**
+   * Whether the employee-facing punch flow is switched on.
+   *
+   * Exposed so the client can render the legacy workday controls untouched when
+   * the feature is off, instead of showing a punch button that would only fail
+   * at submit time.
+   */
+  async featureStatus(): Promise<{ enabled: boolean }> {
+    return { enabled: await this.isEnabled() };
   }
 
   /**
@@ -313,43 +327,107 @@ export class PunchEvidenceService {
     // this very photo, which would otherwise look like reuse.
     const photo = await this.resolvePhotoAsset(userId, input.photoAssetId);
 
-    const evidence = await this.prisma.attendancePunchEvidence.create({
-      data: {
-        userId,
-        type: input.type as any,
-        businessDate,
-        serverOccurredAt,
-        receivedAt,
-        clientCapturedAt: input.clientCapturedAt ? new Date(input.clientCapturedAt as any) : null,
-        latitude: input.latitude ?? null,
-        longitude: input.longitude ?? null,
-        accuracyMeters: input.accuracyMeters ?? null,
-        // Server-decided, never accepted from the client, and final at the
-        // moment of insert.
-        locationVerification: decision.verdict as any,
-        attendanceLocationId: location?.id ?? null,
-        distanceFromLocationMeters: decision.distanceMeters,
-        geofenceRadiusMeters: decision.radiusMeters,
-        accuracyThresholdMeters: decision.accuracyThresholdMeters,
-        // Server-decided and final at insert. CAPTURED, never FACE_VERIFIED:
-        // the server can prove this user uploaded these bytes recently and has
-        // not reused them, but it cannot prove biometric liveness.
-        photoVerification: 'CAPTURED' as any,
-        photoAssetId: photo.id,
-        photoObjectKey: photo.objectKey,
-        photoHash: photo.sha256,
-        source: (input.source ?? 'WEB') as any,
-        deviceMetadata: (input.deviceMetadata ?? undefined) as any,
-        ipAddress: meta.ipAddress ?? null,
-        employeeProfileId: context.sources.employeeProfileId,
-        shiftPolicyId: context.sources.shiftPolicyId,
-        shiftPolicyVersion: context.sources.shiftPolicyVersion,
-        attendancePolicyId: context.sources.attendancePolicyId,
-        attendancePolicyVersion: context.sources.attendancePolicyVersion,
-        contextResolverVersion: context.resolverVersion,
-        idempotencyKey: input.idempotencyKey,
-      },
+    // ── ATOMIC BOUNDARY ──────────────────────────────────────────────────
+    // The workday mutation and the immutable evidence commit together or not
+    // at all. A started session with no evidence would be an unexplained
+    // workday; evidence with no session would be a punch that did nothing.
+    //
+    // Everything above this line is validation: by the time the transaction
+    // opens, the context, GPS, geofence and photo have all been accepted, so
+    // the only work left is the pair of writes.
+    const { evidence, workdayAfter } = await this.prisma.$transaction(async (tx) => {
+      let workSessionId: string | null = null;
+      let after: (() => Promise<void>) | null = null;
+
+      if (input.type === 'PUNCH_IN') {
+        const started = await this.workday.startWorkInTransaction(tx, userId);
+        workSessionId = started.session.id;
+        after = () => this.workday.afterWorkStarted(userId, started.session, started.wasAutoClosed);
+      } else {
+        // Resolve the session to close through the same query the workday
+        // engine uses, rather than inventing a second notion of "current".
+        const open = await tx.workSession.findFirst({
+          where: { userId, date: businessDate },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (!open || open.logoutAt || ['LOGGED_OUT', 'AUTO_CLOSED'].includes(open.status)) {
+          throw new PunchNoOpenWorkdayError();
+        }
+
+        // The existing finalizer, unchanged. It closes any open break, freezes
+        // the totals and pauses ticket logs exactly as End Day does today --
+        // none of that arithmetic is duplicated here.
+        const txResult = await this.workday.finalizeWorkSessionInTransaction(tx, open.id, {
+          effectiveEndAt: serverOccurredAt,
+          terminalStatus: 'LOGGED_OUT',
+          closureReason: 'ENDED_BY_PUNCH_OUT',
+          actorUserId: userId,
+          eventSource: 'manual',
+          attendanceEventType: 'LOGOUT',
+          ticketPauseReason: 'LOGOUT',
+        });
+        workSessionId = txResult.session.id;
+        after = async () => {
+          await this.workday.afterWorkSessionFinalized(txResult, {
+            effectiveEndAt: serverOccurredAt,
+            terminalStatus: 'LOGGED_OUT',
+            closureReason: 'ENDED_BY_PUNCH_OUT',
+            actorUserId: userId,
+            eventSource: 'manual',
+            attendanceEventType: 'LOGOUT',
+            ticketPauseReason: 'LOGOUT',
+          });
+          // Same authority, same point in the sequence as End Day.
+          await this.workday.markUserLoggedOut(userId);
+        };
+      }
+
+      const row = await tx.attendancePunchEvidence.create({
+        data: {
+          workSessionId,
+          userId,
+          type: input.type as any,
+          businessDate,
+          serverOccurredAt,
+          receivedAt,
+          clientCapturedAt: input.clientCapturedAt ? new Date(input.clientCapturedAt as any) : null,
+          latitude: input.latitude ?? null,
+          longitude: input.longitude ?? null,
+          accuracyMeters: input.accuracyMeters ?? null,
+          // Server-decided, never accepted from the client, and final at the
+          // moment of insert.
+          locationVerification: decision.verdict as any,
+          attendanceLocationId: location?.id ?? null,
+          distanceFromLocationMeters: decision.distanceMeters,
+          geofenceRadiusMeters: decision.radiusMeters,
+          accuracyThresholdMeters: decision.accuracyThresholdMeters,
+          // Server-decided and final at insert. CAPTURED, never FACE_VERIFIED:
+          // the server can prove this user uploaded these bytes recently and has
+          // not reused them, but it cannot prove biometric liveness.
+          photoVerification: 'CAPTURED' as any,
+          photoAssetId: photo.id,
+          photoObjectKey: photo.objectKey,
+          photoHash: photo.sha256,
+          source: (input.source ?? 'WEB') as any,
+          deviceMetadata: (input.deviceMetadata ?? undefined) as any,
+          ipAddress: meta.ipAddress ?? null,
+          employeeProfileId: context.sources.employeeProfileId,
+          shiftPolicyId: context.sources.shiftPolicyId,
+          shiftPolicyVersion: context.sources.shiftPolicyVersion,
+          attendancePolicyId: context.sources.attendancePolicyId,
+          attendancePolicyVersion: context.sources.attendancePolicyVersion,
+          contextResolverVersion: context.resolverVersion,
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+
+      return { evidence: row, workdayAfter: after };
     });
+
+    // Post-commit only. Workday's own notification and audit fire here, after
+    // the punch is genuinely real, exactly as the public startWork/endWork
+    // paths do.
+    await workdayAfter?.().catch(() => {});
 
     // Audit deliberately carries no coordinates, no photo reference and no
     // device payload. The precise evidence lives in the evidence record; the
@@ -381,6 +459,12 @@ export class PunchEvidenceService {
 
     return evidence;
   }
+
+  /**
+   * Mirrors what endWork() does after a manual End Day: the user's presence
+   * status follows the closed session. Kept post-commit so a rolled-back punch
+   * never leaves someone marked logged out.
+   */
 
   /**
    * The authenticated employee's own evidence.

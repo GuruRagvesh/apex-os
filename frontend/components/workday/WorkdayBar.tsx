@@ -8,6 +8,8 @@ import { AlertTriangle } from 'lucide-react';
 import { BreakModal } from './BreakModal';
 import { EndDayModal } from './EndDayModal';
 import { AutoCloseConsentModal } from './AutoCloseConsentModal';
+import { PunchModal } from '../attendance/PunchModal';
+import { useAttendanceV2 } from '../attendance/useAttendanceV2';
 
 const STATUS_COLORS: Record<string, string> = {
   WORKING: 'bg-green-500',
@@ -33,6 +35,10 @@ export function WorkdayBar() {
   const [breakElapsed, setBreakElapsed] = useState(0);
   const [loading, setLoading] = useState<string | null>(null);
   const [consentDismissed, setConsentDismissed] = useState(false);
+  // PE-4: when Attendance V2 punching is off this stays null forever and every
+  // control below behaves exactly as it does today.
+  const [punchType, setPunchType] = useState<'PUNCH_IN' | 'PUNCH_OUT' | null>(null);
+  const { punchEnabled } = useAttendanceV2();
 
   const { data: todayData, dataUpdatedAt, refetch } = useQuery({
     queryKey: ['workday-today'],
@@ -99,6 +105,13 @@ export function WorkdayBar() {
     sessionDate !== today;
 
   const handleStartWork = async () => {
+    // With V2 on, starting the day IS a punch: the modal collects the photo and
+    // location, and the server starts the workday inside the same transaction
+    // that records the evidence.
+    if (punchEnabled) {
+      setPunchType('PUNCH_IN');
+      return;
+    }
     setLoading('start');
     try {
       await workdayApi.startWork();
@@ -109,6 +122,22 @@ export function WorkdayBar() {
       refetch();
     }
     finally { setLoading(null); }
+  };
+
+  /**
+   * Ends today's workday.
+   *
+   * With V2 on this becomes a punch out; otherwise it opens the existing End
+   * Day modal untouched. The stale-session banner deliberately does NOT use
+   * this: that session belongs to an earlier business date, and a punch out
+   * only ever closes today's.
+   */
+  const openEndDay = () => {
+    if (punchEnabled) {
+      setPunchType('PUNCH_OUT');
+      return;
+    }
+    setShowEndModal(true);
   };
 
   const handleResumeWork = async () => {
@@ -140,6 +169,16 @@ export function WorkdayBar() {
     }
     finally { setLoading(null); }
   };
+
+  // PE-4: rendered by whichever branch owns the button that opened it. Null
+  // whenever Attendance V2 punching is off, so the legacy layout is identical.
+  const punchOverlay = punchType ? (
+    <PunchModal
+      type={punchType}
+      onClose={() => setPunchType(null)}
+      onPunched={() => { setPunchType(null); refetch(); }}
+    />
+  ) : null;
 
   const dotCls = `w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[status] ?? 'bg-gray-400'}`;
 
@@ -224,78 +263,87 @@ export function WorkdayBar() {
   if (status === 'LOGGED_OUT') {
     const isImpossible = session?.totalWorkMinutes != null && session.totalWorkMinutes > 16 * 60;
     return (
-      <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className={dotCls} />
-          <span className="text-sm text-gray-600 dark:text-gray-400">
-            Workday ended {session?.logoutAt && `at ${new Date(session.logoutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-          </span>
-          {session?.totalWorkMinutes != null && !isImpossible && session.totalWorkMinutes > 0 && (
-            <span className="text-xs text-gray-400 dark:text-gray-500">
-              · {formatMinutes(session.totalWorkMinutes)} worked · {breakLogs.length} breaks
+      <>
+        <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4">
+          <div className="flex items-center gap-2">
+            <span className={dotCls} />
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              Workday ended {session?.logoutAt && `at ${new Date(session.logoutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
             </span>
-          )}
-          {isImpossible && (
-            <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-md font-medium" title="Session may not have been closed correctly">
-              Needs review
-            </span>
-          )}
-          {session?.totalWorkMinutes == null && (
-            <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-md font-medium">
-              Not calculated
-            </span>
-          )}
+            {session?.totalWorkMinutes != null && !isImpossible && session.totalWorkMinutes > 0 && (
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                · {formatMinutes(session.totalWorkMinutes)} worked · {breakLogs.length} breaks
+              </span>
+            )}
+            {isImpossible && (
+              <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-md font-medium" title="Session may not have been closed correctly">
+                Needs review
+              </span>
+            )}
+            {session?.totalWorkMinutes == null && (
+              <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-md font-medium">
+                Not calculated
+              </span>
+            )}
+          </div>
+          <button
+            onClick={handleStartWork}
+            disabled={loading === 'start'}
+            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            {loading === 'start' ? 'Starting...' : 'Start Work'}
+          </button>
         </div>
-        <button
-          onClick={handleStartWork}
-          disabled={loading === 'start'}
-          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-        >
-          {loading === 'start' ? 'Starting...' : 'Start Work'}
-        </button>
-      </div>
+        {punchOverlay}
+      </>
     );
   }
 
   if (!session || status === 'OFFLINE') {
     return (
-      <div className="flex items-center justify-between bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4 shadow-sm">
-        <div className="flex items-center gap-2">
-          <span className={dotCls} />
-          <div>
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Not started</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Click to begin your workday</p>
+      <>
+        <div className="flex items-center justify-between bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className={dotCls} />
+            <div>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Not started</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Click to begin your workday</p>
+            </div>
           </div>
+          <button
+            onClick={handleStartWork}
+            disabled={loading === 'start'}
+            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            {loading === 'start' ? 'Starting...' : 'Start Work'}
+          </button>
         </div>
-        <button
-          onClick={handleStartWork}
-          disabled={loading === 'start'}
-          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-        >
-          {loading === 'start' ? 'Starting...' : 'Start Work'}
-        </button>
-      </div>
+        {punchOverlay}
+      </>
     );
   }
 
   if (status === 'LOGGED_IN') {
     return (
-      <div className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className={dotCls} />
-          <div>
-            <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Ready to start</p>
-            <p className="text-xs text-yellow-600 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
+      <>
+        <div className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4">
+          <div className="flex items-center gap-2">
+            <span className={dotCls} />
+            <div>
+              <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Ready to start</p>
+              <p className="text-xs text-yellow-600 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
+            </div>
           </div>
+          <button
+            onClick={handleStartWork}
+            disabled={loading === 'start'}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+          >
+            {loading === 'start' ? 'Starting...' : 'Start Work'}
+          </button>
         </div>
-        <button
-          onClick={handleStartWork}
-          disabled={loading === 'start'}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
-        >
-          {loading === 'start' ? 'Starting...' : 'Start Work'}
-        </button>
-      </div>
+        {punchOverlay}
+      </>
     );
   }
 
@@ -341,17 +389,20 @@ export function WorkdayBar() {
 
   if (status === 'IDLE') {
     return (
-      <div className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className={dotCls} />
-          <span className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Idle</span>
+      <>
+        <div className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4">
+          <div className="flex items-center gap-2">
+            <span className={dotCls} />
+            <span className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Idle</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleResumeWork} disabled={!!loading} className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50">Resume</button>
+            <button onClick={() => setShowBreakModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50">Take Break</button>
+            <button onClick={openEndDay} disabled={!!loading} className="px-3 py-1.5 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 disabled:opacity-50">End Day</button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={handleResumeWork} disabled={!!loading} className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50">Resume</button>
-          <button onClick={() => setShowBreakModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50">Take Break</button>
-          <button onClick={() => setShowEndModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 disabled:opacity-50">End Day</button>
-        </div>
-      </div>
+        {punchOverlay}
+      </>
     );
   }
 
@@ -387,7 +438,7 @@ export function WorkdayBar() {
             Break
           </button>
           <button
-            onClick={() => setShowEndModal(true)}
+            onClick={openEndDay}
             disabled={!!loading}
             className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
           >
@@ -417,6 +468,7 @@ export function WorkdayBar() {
           onClose={() => { setConsentDismissed(true); refetch(); }}
         />
       )}
+      {punchOverlay}
     </>
   );
 }

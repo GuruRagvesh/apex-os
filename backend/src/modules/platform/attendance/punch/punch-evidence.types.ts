@@ -152,6 +152,23 @@ export class PunchPhotoRequiredError extends Error {
   }
 }
 
+/**
+ * Raised when a PUNCH_OUT arrives with no open workday to close.
+ *
+ * Deliberately a rejection rather than a fabricated session: inventing a
+ * workday to close would put a made-up start time into payroll-relevant
+ * evidence. Missing-punch correction is a separate, audited workflow.
+ */
+export class PunchNoOpenWorkdayError extends Error {
+  constructor() {
+    super(
+      'There is no open workday to punch out of. ' +
+        'If you forgot to punch in, raise a correction request.',
+    );
+    this.name = 'PunchNoOpenWorkdayError';
+  }
+}
+
 export class PunchValidationError extends Error {
   constructor(message: string) {
     super(message);

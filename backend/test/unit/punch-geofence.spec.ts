@@ -73,6 +73,26 @@ const northOf = (m: number) => ({
   longitude: PUNE_OFFICE.longitude,
 });
 
+// PE-4: the punch composes the workday engine inside one transaction.
+function makeWorkdayMock() {
+  return {
+    startWorkInTransaction: jest.fn().mockResolvedValue({
+      session: { id: 'ws-1', userId: 'emp-1' },
+      wasAutoClosed: false,
+    }),
+    afterWorkStarted: jest.fn().mockResolvedValue(undefined),
+    finalizeWorkSessionInTransaction: jest.fn().mockResolvedValue({
+      session: { id: 'ws-1' },
+      totalWorkMinutes: 480,
+      totalBreakMinutes: 30,
+      didClose: true,
+      userId: 'emp-1',
+    }),
+    afterWorkSessionFinalized: jest.fn().mockResolvedValue(undefined),
+    markUserLoggedOut: jest.fn().mockResolvedValue(undefined),
+  } as any;
+}
+
 function build(
   opts: {
     enabled?: boolean;
@@ -84,6 +104,7 @@ function build(
 ) {
   const created: any[] = [];
   const prisma: any = {
+    $transaction: jest.fn((fn: any) => fn(prisma)),
     attendancePunchEvidence: {
       findUnique: jest.fn().mockResolvedValue(opts.existing ?? null),
       findMany: jest.fn().mockResolvedValue([]),
@@ -114,11 +135,12 @@ function build(
   const dailyContext = {
     resolveDailyContext: jest.fn().mockResolvedValue(opts.context ?? REQUIRED_CONTEXT),
   };
+  const workday = makeWorkdayMock();
   const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
   const service = new PunchEvidenceService(
-    prisma, tva, settings as any, eventLogger as any, dailyContext as any,
+    prisma, tva, settings as any, eventLogger as any, dailyContext as any, workday,
   );
-  return { service, prisma, created, eventLogger };
+  return { service, prisma, created, eventLogger, workday };
 }
 
 describe('Geofence maths (PE-2)', () => {

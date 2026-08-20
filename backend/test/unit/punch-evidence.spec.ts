@@ -63,9 +63,30 @@ const VALID = {
   photoAssetId: 'photo-1',
 };
 
+// PE-4: the punch composes the workday engine inside one transaction.
+function makeWorkdayMock() {
+  return {
+    startWorkInTransaction: jest.fn().mockResolvedValue({
+      session: { id: 'ws-1', userId: 'emp-1' },
+      wasAutoClosed: false,
+    }),
+    afterWorkStarted: jest.fn().mockResolvedValue(undefined),
+    finalizeWorkSessionInTransaction: jest.fn().mockResolvedValue({
+      session: { id: 'ws-1' },
+      totalWorkMinutes: 480,
+      totalBreakMinutes: 30,
+      didClose: true,
+      userId: 'emp-1',
+    }),
+    afterWorkSessionFinalized: jest.fn().mockResolvedValue(undefined),
+    markUserLoggedOut: jest.fn().mockResolvedValue(undefined),
+  } as any;
+}
+
 function build(opts: { enabled?: boolean; context?: any; existing?: any; now?: Date } = {}) {
   const created: any[] = [];
   const prisma: any = {
+    $transaction: jest.fn((fn: any) => fn(prisma)),
     attendancePunchEvidence: {
       findUnique: jest.fn().mockResolvedValue(opts.existing ?? null),
       findMany: jest.fn().mockResolvedValue([]),
@@ -97,6 +118,7 @@ function build(opts: { enabled?: boolean; context?: any; existing?: any; now?: D
     resolveDailyContext: jest.fn().mockResolvedValue(opts.context ?? REQUIRED_CONTEXT),
   };
 
+  const workday = makeWorkdayMock();
   const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
   if (opts.now) jest.spyOn(tva, 'now').mockReturnValue(opts.now);
 
@@ -106,8 +128,9 @@ function build(opts: { enabled?: boolean; context?: any; existing?: any; now?: D
     settings as any,
     eventLogger as any,
     dailyContext as any,
+    workday,
   );
-  return { service, prisma, settings, eventLogger, dailyContext, created, tva };
+  return { service, prisma, settings, eventLogger, dailyContext, created, tva, workday };
 }
 
 describe('PunchEvidenceService (PE-1)', () => {
@@ -386,7 +409,7 @@ describe('PunchEvidenceService (PE-1)', () => {
 
     it('20/21b. the controller exposes no update or delete route', () => {
       const surface = Object.getOwnPropertyNames(PunchEvidenceController.prototype);
-      expect(surface.sort()).toEqual(['constructor', 'listMine', 'ownPhoto', 'submit']);
+      expect(surface.sort()).toEqual(['constructor', 'listMine', 'ownPhoto', 'status', 'submit']);
     });
 
     it('never calls a Prisma update or delete on the evidence table', async () => {

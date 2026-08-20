@@ -28,9 +28,30 @@ const pdf = () => Buffer.concat([Buffer.from('%PDF-1.7'), Buffer.alloc(32)]);
 
 const file = (buffer: Buffer, mimetype: string) => ({ buffer, mimetype, size: buffer.length });
 
+// PE-4: the punch composes the workday engine inside one transaction.
+function makeWorkdayMock() {
+  return {
+    startWorkInTransaction: jest.fn().mockResolvedValue({
+      session: { id: 'ws-1', userId: 'emp-1' },
+      wasAutoClosed: false,
+    }),
+    afterWorkStarted: jest.fn().mockResolvedValue(undefined),
+    finalizeWorkSessionInTransaction: jest.fn().mockResolvedValue({
+      session: { id: 'ws-1' },
+      totalWorkMinutes: 480,
+      totalBreakMinutes: 30,
+      didClose: true,
+      userId: 'emp-1',
+    }),
+    afterWorkSessionFinalized: jest.fn().mockResolvedValue(undefined),
+    markUserLoggedOut: jest.fn().mockResolvedValue(undefined),
+  } as any;
+}
+
 function photoRig(opts: { enabled?: boolean; configured?: boolean } = {}) {
   const created: any[] = [];
   const prisma: any = {
+    $transaction: jest.fn((fn: any) => fn(prisma)),
     attendancePunchPhoto: {
       create: jest.fn(({ data }: any) => {
         const row = { id: 'photo-1', ...data };
@@ -48,6 +69,7 @@ function photoRig(opts: { enabled?: boolean; configured?: boolean } = {}) {
     upload: jest.fn().mockResolvedValue('cloudinary:authenticated:image:apex/attendance/x:jpg'),
     signedUrl: jest.fn(() => 'https://res.cloudinary.com/signed?sig=abc&expires=123'),
   };
+  const workday = makeWorkdayMock();
   const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
   return {
     service: new PunchPhotoService(prisma, tva, settings as any, storage as any),
@@ -263,6 +285,7 @@ const PUNCH = {
 function punchRig(opts: { context?: any; photo?: any; existing?: any } = {}) {
   const created: any[] = [];
   const prisma: any = {
+    $transaction: jest.fn((fn: any) => fn(prisma)),
     attendancePunchEvidence: {
       findUnique: jest.fn().mockResolvedValue(opts.existing ?? null),
       create: jest.fn(({ data }: any) => {
@@ -275,7 +298,7 @@ function punchRig(opts: { context?: any; photo?: any; existing?: any } = {}) {
       findUnique: jest.fn().mockResolvedValue('photo' in opts ? opts.photo : FRESH_PHOTO),
     },
     attendanceLocation: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
-    workSession: { create: jest.fn(), update: jest.fn() },
+    workSession: { create: jest.fn(), update: jest.fn(), findFirst: jest.fn()},
     dailyAttendance: { create: jest.fn(), update: jest.fn(), upsert: jest.fn() },
   };
   const settings = { get: jest.fn().mockResolvedValue({ punchEvidenceEnabled: true }) };
@@ -283,9 +306,11 @@ function punchRig(opts: { context?: any; photo?: any; existing?: any } = {}) {
   const dailyContext = {
     resolveDailyContext: jest.fn().mockResolvedValue(opts.context ?? REQUIRED_CONTEXT),
   };
+  const workday = makeWorkdayMock();
   const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
   return {
-    service: new PunchEvidenceService(prisma, tva, settings as any, eventLogger as any, dailyContext as any),
+    workday,
+    service: new PunchEvidenceService(prisma, tva, settings as any, eventLogger as any, dailyContext as any, workday),
     prisma, created, eventLogger,
   };
 }
@@ -481,6 +506,10 @@ describe('Punch requires a live photo (PE-3)', () => {
       'constructor',
       'listMine',
       'ownPhoto',
+      // PE-4 added a read-only feature-flag probe so the client can leave the
+      // legacy workday controls alone when punching is off. Still no mutation
+      // route beyond submit.
+      'status',
       'submit',
     ]);
   });
