@@ -917,6 +917,38 @@ model Holiday {
   @@map("holidays")
 }
 
+// A single-date, company-wide exception to the ordinary calendar.
+//
+// An override changes what the company EXPECTS of a date; it never erases the
+// underlying calendar facts. A SPECIAL_WORKING_DAY on a Sunday leaves that date
+// still a Sunday and still a weekly off — BusinessCalendarService reports both,
+// and only expectedCompanyWorkingDay flips.
+//
+// Overrides are withdrawn by setting revokedAt, never by deletion, so a past
+// attendance result can always be re-explained with the calendar that applied
+// at the time.
+//
+// Deliberately company-wide: no employee, department or location fields, and no
+// attendance-result or payroll fields. Those belong to later layers.
+model BusinessDayOverride {
+  id           String                  @id @default(cuid())
+  date         DateTime                @db.Date
+  type         BusinessDayOverrideType
+  reason       String
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  revokedById  String?
+  revokedAt    DateTime?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@unique([date])
+  @@index([type])
+  @@index([revokedAt])
+  @@map("business_day_overrides")
+}
+
 model LeavePolicy {
   id                              String                      @id @default(cuid())
   financialYear                   String
@@ -1249,4 +1281,9 @@ enum RegularizationStatus {
   MANAGER_APPROVED
   HR_APPROVED
   REJECTED
+}
+
+enum BusinessDayOverrideType {
+  SPECIAL_WORKING_DAY
+  COMPANY_CLOSURE
 }
