@@ -45,6 +45,9 @@ export enum OperationalAction {
   WORKDAY_CONTINUED = 'WORKDAY_CONTINUED',
   WORKDAY_ENDED = 'WORKDAY_ENDED',
 
+  // ── Attendance (PE-1) ─────────────────────────────────────────────────────
+  ATTENDANCE_PUNCH_RECORDED = 'ATTENDANCE_PUNCH_RECORDED',
+
   // ── Leave ─────────────────────────────────────────────────────────────────
   LEAVE_REQUESTED = 'LEAVE_REQUESTED',
   LEAVE_APPROVED = 'LEAVE_APPROVED',

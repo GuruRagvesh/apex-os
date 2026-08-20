@@ -14,6 +14,11 @@ const DEFAULTS: Record<string, any> = {
     quotas: { EMPLOYEE: 12, TEAM_LEAD: 12, MANAGER: 15, INTERN: 6 },
     workingDays: 'Mon–Sat',
   },
+  // Attendance V2 (PE-1). Every flag defaults OFF: the punch pipeline must be
+  // enabled deliberately, never by deploying code.
+  attendance_v2: {
+    punchEvidenceEnabled: false,
+  },
   sla: { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 },
   review_sla: { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 },
   smtp: { host: '', port: '587', email: '', password: '' },

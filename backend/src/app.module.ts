@@ -37,6 +37,7 @@ import { SettingsModule } from './modules/platform/settings/settings.module';
 import { SchedulerModule } from './modules/platform/scheduler/scheduler.module';
 import { TaskTypesModule } from './modules/platform/task-types/task-types.module';
 import { WorkdayModule } from './modules/platform/workday/workday.module';
+import { PunchEvidenceModule } from './modules/platform/attendance/punch/punch-evidence.module';
 import { EventsModule } from './modules/platform/events/events.module';
 import { AnalyticsModule } from './modules/platform/analytics/analytics.module';
 
@@ -83,6 +84,7 @@ const isTest = process.env.NODE_ENV === 'test';
     SchedulerModule,
     TaskTypesModule,
     WorkdayModule,
+    PunchEvidenceModule,
     EventsModule,
     AnalyticsModule,
   ],

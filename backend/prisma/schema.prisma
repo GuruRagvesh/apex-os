@@ -67,6 +67,7 @@ model User {
   activityLogs              ActivityLog[]
   attendanceEvents          AttendanceEvent[]
   attendanceProfiles        EmployeeAttendanceProfile[]
+  punchEvidence             AttendancePunchEvidence[]
   attendanceRegularizations AttendanceRegularization[]
   breakLogs                 BreakLog[]
   comments                  Comment[]
@@ -493,29 +494,30 @@ model AppSetting {
 }
 
 model WorkSession {
-  id                      String            @id @default(cuid())
+  id                      String                    @id @default(cuid())
   userId                  String
-  date                    DateTime          @db.Date
+  date                    DateTime                  @db.Date
   loginAt                 DateTime?
   startWorkAt             DateTime?
   logoutAt                DateTime?
-  status                  String            @default("LOGGED_IN")
-  totalLoggedMinutes      Int               @default(0)
-  totalBreakMinutes       Int               @default(0)
-  totalIdleMinutes        Int               @default(0)
-  totalWorkMinutes        Int               @default(0)
+  status                  String                    @default("LOGGED_IN")
+  totalLoggedMinutes      Int                       @default(0)
+  totalBreakMinutes       Int                       @default(0)
+  totalIdleMinutes        Int                       @default(0)
+  totalWorkMinutes        Int                       @default(0)
   leaveId                 String?
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
-  autoClosed              Boolean           @default(false)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  autoClosed              Boolean                   @default(false)
   autoClosedAt            DateTime?
   closureReason           String?
   continuationOfSessionId String?
   attendanceEvents        AttendanceEvent[]
+  punchEvidence           AttendancePunchEvidence[]
   breakLogs               BreakLog[]
   ticketTimeLogs          TicketTimeLog[]
-  leaveRequest            LeaveRequest?     @relation(fields: [leaveId], references: [id])
-  user                    User              @relation(fields: [userId], references: [id])
+  leaveRequest            LeaveRequest?             @relation(fields: [leaveId], references: [id])
+  user                    User                      @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([date])
@@ -1003,6 +1005,80 @@ model Holiday {
 //
 // Deliberately company-wide: no employee, department or location fields, and no
 // attendance-result or payroll fields. Those belong to later layers.
+// Immutable, append-only record of a single punch. RAW FACT ONLY.
+//
+// This is evidence, not a conclusion: it never stores Present, Absent, Half
+// Day, Leave, LWP or any payroll consequence. Those are decided far later, by a
+// different layer, FROM this evidence.
+//
+// Deliberately separate from AttendanceEvent. That table is the live Workday
+// engine's audit stream -- nine call sites across auth and workday write LOGIN,
+// START_WORK, BREAK_START and so on. Mixing legally-significant punch evidence
+// into it would make the contract ambiguous by shape, and an append-only
+// database trigger would then also bind the production Workday engine's audit
+// writes. This table is new, has no readers, and can carry that guarantee
+// safely.
+//
+// Server-authoritative fields (userId, businessDate, serverOccurredAt,
+// receivedAt, all policy provenance, both verification states) are derived
+// backend-side and are never accepted from the client.
+model AttendancePunchEvidence {
+  id     String    @id @default(cuid())
+  userId String
+  type   PunchType
+
+  // Company business date, derived server-side through the BL-1 TVA contract.
+  businessDate DateTime @db.Date
+
+  // Three distinct instants, never collapsed: when the server considers the
+  // punch to have happened, when the client says it captured it, and when the
+  // request actually arrived. A retry, a slow network or a wrong device clock
+  // are all visible in the gap between them.
+  serverOccurredAt DateTime
+  clientCapturedAt DateTime?
+  receivedAt       DateTime  @default(now())
+
+  latitude             Float?
+  longitude            Float?
+  accuracyMeters       Float?
+  locationVerification PunchLocationVerification @default(PENDING)
+
+  photoObjectKey    String?
+  photoHash         String?
+  photoVerification PunchPhotoVerification @default(PENDING)
+
+  source         PunchSource @default(WEB)
+  deviceMetadata Json?
+  ipAddress      String?
+
+  // Linked in PE-4, when punches begin driving the Workday engine.
+  workSessionId String?
+
+  // Provenance from the BL-5 daily context, captured at punch time so the
+  // evidence can be re-explained under the rules that actually applied.
+  employeeProfileId       String?
+  shiftPolicyId           String?
+  shiftPolicyVersion      Int?
+  attendancePolicyId      String?
+  attendancePolicyVersion Int?
+  contextResolverVersion  Int?
+
+  // Retry safety. A repeated submission with the same key returns the original
+  // record rather than creating a second punch.
+  idempotencyKey String
+
+  createdAt DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id])
+  workSession WorkSession? @relation(fields: [workSessionId], references: [id])
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, businessDate])
+  @@index([businessDate])
+  @@index([type])
+  @@map("attendance_punch_evidence")
+}
+
 model BusinessDayOverride {
   id           String                  @id @default(cuid())
   date         DateTime                @db.Date
@@ -1378,6 +1454,39 @@ enum RegularizationStatus {
 enum BusinessDayOverrideType {
   SPECIAL_WORKING_DAY
   COMPANY_CLOSURE
+}
+
+enum PunchType {
+  PUNCH_IN
+  PUNCH_OUT
+}
+
+// Set by the server. PE-1 always records PENDING; PE-2 adds the geofence
+// calculation that resolves it.
+enum PunchLocationVerification {
+  PENDING
+  VERIFIED
+  OUTSIDE_GEOFENCE
+  LOW_ACCURACY
+  UNAVAILABLE
+  NEEDS_REVIEW
+}
+
+// Set by the server. PE-1 always records PENDING; PE-3 adds live capture and
+// storage that resolves it.
+enum PunchPhotoVerification {
+  PENDING
+  CAPTURED
+  MISSING
+  REJECTED
+  NEEDS_REVIEW
+}
+
+enum PunchSource {
+  WEB
+  PWA
+  MOBILE
+  MANUAL_APPROVED
 }
 
 // Lifecycle shared by every versioned attendance policy record.
