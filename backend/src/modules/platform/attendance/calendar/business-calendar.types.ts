@@ -15,6 +15,54 @@
  * any employee-specific policy.
  */
 
+/**
+ * Which calendar records a caller wants applied.
+ *
+ * Set from an employee's attendance profile (BL-3 assignedHolidayCalendarId /
+ * assignedWeeklyOffPolicyId) so two employees can genuinely sit on different
+ * calendars. Omitted entirely, the globally active records are used, which is
+ * the original behaviour and keeps pre-BL-3 callers working.
+ */
+export interface BusinessCalendarSources {
+  holidayCalendarId?: string | null;
+  weeklyOffPolicyId?: string | null;
+  /**
+   * Opt-in strict source selection.
+   *
+   * Off (the default) preserves the original behaviour: with no assignment,
+   * the globally active record is taken via findFirst. That is fine for a
+   * company with exactly one calendar, and it keeps every pre-BL-5 caller
+   * working unchanged.
+   *
+   * On, an unassigned source is resolved by COUNTING candidates instead:
+   * exactly one is adopted as the company default, zero or several are
+   * reported as NONE / AMBIGUOUS and no record is chosen. BL-5 turns this on
+   * so a covered employee can never be silently attached to an arbitrary
+   * calendar when the company has more than one.
+   */
+  strict?: boolean;
+}
+
+/**
+ * How a calendar source was selected, retained so the choice can be audited
+ * and reconstructed later.
+ *
+ *   ASSIGNED         the employee's profile named it
+ *   COMPANY_DEFAULT  no assignment, and exactly one candidate existed
+ *   NONE             no assignment and no candidate
+ *   AMBIGUOUS        no assignment and several candidates -- nothing chosen
+ */
+export type CalendarSourceResolution =
+  | 'ASSIGNED'
+  | 'COMPANY_DEFAULT'
+  | 'NONE'
+  | 'AMBIGUOUS';
+
+export interface CalendarSourceResolutions {
+  holidayCalendar: CalendarSourceResolution;
+  weeklyOffPolicy: CalendarSourceResolution;
+}
+
 export type WeeklyOffReason = 'SUNDAY' | 'SECOND_SATURDAY' | 'FOURTH_SATURDAY';
 
 export type BusinessDayOverrideKind = 'SPECIAL_WORKING_DAY' | 'COMPANY_CLOSURE';
@@ -78,6 +126,9 @@ export interface BusinessDayFacts {
    * dates, which belong to the employee timeline layer (BL-3).
    */
   expectedCompanyWorkingDay: boolean;
+
+  /** How each calendar source was selected. See CalendarSourceResolution. */
+  resolution: CalendarSourceResolutions;
 
   sources: BusinessDaySources;
 }
