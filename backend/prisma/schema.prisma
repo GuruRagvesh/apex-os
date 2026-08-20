@@ -806,23 +806,49 @@ model EmployeeProfileChangeRequest {
 // ════════════════════════════════════════════════════════════════════════════
 
 model AttendancePolicy {
-  id                      String        @id @default(cuid())
+  id                      String               @id @default(cuid())
   financialYear           String
   name                    String
-  isActive                Boolean       @default(true)
-  minimumWorkingMinutes   Int           @default(540)
-  lateExemptionEnabled    Boolean       @default(true)
-  faceCaptureRequired     Boolean       @default(false)
-  locationCaptureRequired Boolean       @default(false)
-  geoFenceEnabled         Boolean       @default(false)
-  regularizationEnabled   Boolean       @default(true)
-  createdAt               DateTime      @default(now())
-  updatedAt               DateTime      @updatedAt
+  isActive                Boolean              @default(true)
+  minimumWorkingMinutes   Int                  @default(540)
+  lateExemptionEnabled    Boolean              @default(true)
+  faceCaptureRequired     Boolean              @default(false)
+  locationCaptureRequired Boolean              @default(false)
+  geoFenceEnabled         Boolean              @default(false)
+  regularizationEnabled   Boolean              @default(true)
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
   updatedById             String?
+  // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
+  // policy share it; a different series (e.g. Team Leader shift vs Regular
+  // Employee shift) has its own. Never derived from the mutable display name.
+  policyKey               String
+  // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
+  // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
+  // pre-existing readers and seed keep working; PolicyVersionService writes both.
+  version                 Int                  @default(1)
+  status                  PolicyStatus         @default(DRAFT)
+  effectiveFrom           DateTime             @default(now())
+  effectiveTo             DateTime?
+  approvedById            String?
+  approvedAt              DateTime?
+  createdById             String?
+  supersededById          String?
+  // ── Configurable management rules (BL-4) ───────────────────────────────
+  // Safe defaults: anything undecided REQUIRES REVIEW rather than silently
+  // deducting leave or marking absence. Management changes these by issuing a
+  // NEW policy version, which never rewrites historical attendance.
+  afterPunchWindowAction  PolicyDecisionAction @default(REQUIRE_REVIEW)
+  insufficientHoursAction PolicyDecisionAction @default(REQUIRE_REVIEW)
+  automaticHalfDayEnabled Boolean              @default(false)
   shiftPolicies           ShiftPolicy[]
 
+  @@unique([policyKey, version])
   @@index([financialYear])
   @@index([isActive])
+  @@index([policyKey])
+  @@index([status])
+  @@index([effectiveFrom])
   @@map("attendance_policies")
 }
 
@@ -838,11 +864,30 @@ model ShiftPolicy {
   isActive              Boolean                     @default(true)
   createdAt             DateTime                    @default(now())
   updatedAt             DateTime                    @updatedAt
+  // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
+  // policy share it; a different series (e.g. Team Leader shift vs Regular
+  // Employee shift) has its own. Never derived from the mutable display name.
+  policyKey             String
+  // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
+  // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
+  // pre-existing readers and seed keep working; PolicyVersionService writes both.
+  version               Int                         @default(1)
+  status                PolicyStatus                @default(DRAFT)
+  effectiveFrom         DateTime                    @default(now())
+  effectiveTo           DateTime?
+  approvedById          String?
+  approvedAt            DateTime?
+  createdById           String?
+  supersededById        String?
   attendancePolicy      AttendancePolicy            @relation(fields: [attendancePolicyId], references: [id], onDelete: Cascade)
   employeeProfiles      EmployeeAttendanceProfile[]
 
+  @@unique([policyKey, version])
   @@index([attendancePolicyId])
   @@index([category])
+  @@index([policyKey])
+  @@index([status])
+  @@index([effectiveFrom])
   @@map("shift_policies")
 }
 
@@ -904,10 +949,29 @@ model HolidayCalendar {
   isActive         Boolean                     @default(true)
   createdAt        DateTime                    @default(now())
   updatedAt        DateTime                    @updatedAt
+  // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
+  // policy share it; a different series (e.g. Team Leader shift vs Regular
+  // Employee shift) has its own. Never derived from the mutable display name.
+  policyKey        String
+  // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
+  // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
+  // pre-existing readers and seed keep working; PolicyVersionService writes both.
+  version          Int                         @default(1)
+  status           PolicyStatus                @default(DRAFT)
+  effectiveFrom    DateTime                    @default(now())
+  effectiveTo      DateTime?
+  approvedById     String?
+  approvedAt       DateTime?
+  createdById      String?
+  supersededById   String?
   holidays         Holiday[]
   employeeProfiles EmployeeAttendanceProfile[]
 
+  @@unique([policyKey, version])
   @@index([financialYear])
+  @@index([policyKey])
+  @@index([status])
+  @@index([effectiveFrom])
   @@map("holiday_calendars")
 }
 
@@ -971,9 +1035,28 @@ model LeavePolicy {
   isActive                        Boolean                     @default(true)
   createdAt                       DateTime                    @default(now())
   updatedAt                       DateTime                    @updatedAt
+  // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
+  // policy share it; a different series (e.g. Team Leader shift vs Regular
+  // Employee shift) has its own. Never derived from the mutable display name.
+  policyKey                       String
+  // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
+  // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
+  // pre-existing readers and seed keep working; PolicyVersionService writes both.
+  version                         Int                         @default(1)
+  status                          PolicyStatus                @default(DRAFT)
+  effectiveFrom                   DateTime                    @default(now())
+  effectiveTo                     DateTime?
+  approvedById                    String?
+  approvedAt                      DateTime?
+  createdById                     String?
+  supersededById                  String?
   employeeProfiles                EmployeeAttendanceProfile[]
 
+  @@unique([policyKey, version])
   @@index([financialYear])
+  @@index([policyKey])
+  @@index([status])
+  @@index([effectiveFrom])
   @@map("leave_policies")
 }
 
@@ -1295,4 +1378,27 @@ enum RegularizationStatus {
 enum BusinessDayOverrideType {
   SPECIAL_WORKING_DAY
   COMPANY_CLOSURE
+}
+
+// Lifecycle shared by every versioned attendance policy record.
+// A record that has ever been ACTIVE is never edited in place; it is
+// SUPERSEDED by a new version, so historical meaning is preserved.
+enum PolicyStatus {
+  DRAFT
+  APPROVED
+  ACTIVE
+  SUPERSEDED
+}
+
+// What a policy version says to do about a situation whose business rule
+// management has not yet settled. REQUIRE_REVIEW is the safe default: produce
+// no automatic payroll-affecting outcome and escalate to HR instead.
+enum PolicyDecisionAction {
+  REQUIRE_REVIEW
+  NO_ACTION
+  MARK_HALF_DAY
+  MARK_ABSENT
+  DEDUCT_HALF_PAID_LEAVE
+  DEDUCT_FULL_PAID_LEAVE
+  MARK_LWP
 }
