@@ -38,6 +38,7 @@ model User {
   employmentType            String?                        @default("Full-time")
   workMode                  String?                        @default("Office")
   joiningDate               DateTime?
+  lastWorkingDate           DateTime?
   probationPeriod           String?
   reportingManager          String?
   teamLeadName              String?
@@ -65,7 +66,7 @@ model User {
   bio                       String?
   activityLogs              ActivityLog[]
   attendanceEvents          AttendanceEvent[]
-  attendanceProfile         EmployeeAttendanceProfile?
+  attendanceProfiles        EmployeeAttendanceProfile[]
   attendanceRegularizations AttendanceRegularization[]
   breakLogs                 BreakLog[]
   comments                  Comment[]
@@ -849,23 +850,29 @@ model ShiftPolicy {
 // User.teamLeadName (free-text fields) — those stay untouched until a later
 // phase confirms nothing in the frontend still depends on them.
 model EmployeeAttendanceProfile {
-  id                    String             @id @default(cuid())
-  userId                String             @unique
-  category              AttendanceCategory
-  attendanceRequired    Boolean            @default(true)
-  assignedShiftId       String?
-  assignedLeavePolicyId String?
-  reportingManagerId    String?
-  hrReviewerId          String?
-  effectiveFrom         DateTime           @default(now())
-  effectiveTo           DateTime?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  updatedById           String?
-  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedShift         ShiftPolicy?       @relation(fields: [assignedShiftId], references: [id])
-  assignedLeavePolicy   LeavePolicy?       @relation(fields: [assignedLeavePolicyId], references: [id])
+  id                        String             @id @default(cuid())
+  userId                    String
+  category                  AttendanceCategory
+  attendanceRequired        Boolean            @default(true)
+  assignedShiftId           String?
+  assignedLeavePolicyId     String?
+  assignedHolidayCalendarId String?
+  assignedWeeklyOffPolicyId String?
+  reportingManagerId        String?
+  hrReviewerId              String?
+  effectiveFrom             DateTime           @default(now())
+  effectiveTo               DateTime?
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+  updatedById               String?
+  user                      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedShift             ShiftPolicy?       @relation(fields: [assignedShiftId], references: [id])
+  assignedLeavePolicy       LeavePolicy?       @relation(fields: [assignedLeavePolicyId], references: [id])
+  assignedHolidayCalendar   HolidayCalendar?   @relation(fields: [assignedHolidayCalendarId], references: [id])
+  assignedWeeklyOffPolicy   WeeklyOffPolicy?   @relation(fields: [assignedWeeklyOffPolicyId], references: [id])
 
+  @@index([userId, effectiveFrom])
+  @@index([userId, effectiveTo])
   @@index([category])
   @@index([assignedShiftId])
   @@index([assignedLeavePolicyId])
@@ -874,29 +881,31 @@ model EmployeeAttendanceProfile {
 }
 
 model WeeklyOffPolicy {
-  id             String    @id @default(cuid())
-  name           String
-  everySunday    Boolean   @default(true)
-  secondSaturday Boolean   @default(true)
-  fourthSaturday Boolean   @default(true)
-  isActive       Boolean   @default(true)
-  effectiveFrom  DateTime  @default(now())
-  effectiveTo    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id               String                      @id @default(cuid())
+  name             String
+  everySunday      Boolean                     @default(true)
+  secondSaturday   Boolean                     @default(true)
+  fourthSaturday   Boolean                     @default(true)
+  isActive         Boolean                     @default(true)
+  effectiveFrom    DateTime                    @default(now())
+  effectiveTo      DateTime?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  employeeProfiles EmployeeAttendanceProfile[]
 
   @@index([isActive])
   @@map("weekly_off_policies")
 }
 
 model HolidayCalendar {
-  id            String    @id @default(cuid())
-  financialYear String
-  name          String
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  holidays      Holiday[]
+  id               String                      @id @default(cuid())
+  financialYear    String
+  name             String
+  isActive         Boolean                     @default(true)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  holidays         Holiday[]
+  employeeProfiles EmployeeAttendanceProfile[]
 
   @@index([financialYear])
   @@map("holiday_calendars")
