@@ -4,21 +4,32 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  NotFoundException,
+  Param,
   Post,
   Query,
   Req,
   ServiceUnavailableException,
   UnprocessableEntityException,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../../shared/decorators/current-user.decorator';
 import { PunchEvidenceService } from './punch-evidence.service';
+import { PunchPhotoService, MAX_PHOTO_BYTES } from './punch-photo.service';
 import {
+  PunchContextInvariantError,
   PunchFeatureDisabledError,
   PunchIdempotencyConflictError,
+  PunchLocationConfigurationError,
+  PunchLocationRequiredError,
   PunchNotApplicableError,
+  PunchPhotoRequiredError,
+  PunchPhotoValidationError,
   PunchValidationError,
   SubmitPunchEvidenceInput,
 } from './punch-evidence.types';
@@ -37,7 +48,10 @@ import {
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class PunchEvidenceController {
-  constructor(private readonly punchEvidence: PunchEvidenceService) {}
+  constructor(
+    private readonly punchEvidence: PunchEvidenceService,
+    private readonly punchPhoto: PunchPhotoService,
+  ) {}
 
   /**
    * Records a punch for the AUTHENTICATED employee.
@@ -64,8 +78,17 @@ export class PunchEvidenceController {
       if (err instanceof PunchFeatureDisabledError) {
         throw new ServiceUnavailableException(err.message);
       }
-      if (err instanceof PunchValidationError) {
+      if (err instanceof PunchValidationError || err instanceof PunchPhotoValidationError) {
         throw new BadRequestException(err.message);
+      }
+      if (err instanceof PunchLocationRequiredError || err instanceof PunchPhotoRequiredError) {
+        throw new UnprocessableEntityException(err.message);
+      }
+      if (
+        err instanceof PunchLocationConfigurationError ||
+        err instanceof PunchContextInvariantError
+      ) {
+        throw new UnprocessableEntityException(err.message);
       }
       if (err instanceof PunchNotApplicableError) {
         throw new UnprocessableEntityException({
@@ -86,5 +109,20 @@ export class PunchEvidenceController {
   async listMine(@CurrentUser() user: any, @Query('limit') limit?: string) {
     const userId = user?.id ?? user?.sub;
     return this.punchEvidence.listMine(userId, limit ? Number(limit) : undefined);
+  }
+
+  /**
+   * A short-lived signed URL for the employee's OWN punch photo.
+   *
+   * Scoped by the JWT subject inside the query, so another employee's evidence
+   * simply does not match and returns 404. Manager and HR access arrives with
+   * the HR authorization wave.
+   */
+  @Get(':id/photo')
+  async ownPhoto(@CurrentUser() user: any, @Param('id') id: string) {
+    const userId = user?.id ?? user?.sub;
+    const url = await this.punchPhoto.signedUrlForOwnEvidence(userId, id);
+    if (!url) throw new NotFoundException('No photo is available for this punch');
+    return { url };
   }
 }

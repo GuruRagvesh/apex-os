@@ -39,6 +39,20 @@ const LOCATION = {
   isActive: true,
 };
 
+
+// PE-3 made a live photo mandatory for every punch, so these fixtures now stage
+// one. Everything else about these suites is unchanged.
+const FRESH_PHOTO = {
+  id: 'photo-1',
+  userId: 'emp-1',
+  objectKey: 'cloudinary:authenticated:image:x:jpg',
+  sha256: 'a'.repeat(64),
+  // Fixed and far future: several tests pin tva.now() to an explicit instant,
+  // and a relative expiry would fall behind those mocked clocks.
+  expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+  punchEvidence: null,
+};
+
 const VALID = {
   type: 'PUNCH_IN' as const,
   idempotencyKey: 'idem-1',
@@ -46,6 +60,7 @@ const VALID = {
   latitude: OFFICE.latitude,
   longitude: OFFICE.longitude,
   accuracyMeters: 12,
+  photoAssetId: 'photo-1',
 };
 
 function build(opts: { enabled?: boolean; context?: any; existing?: any; now?: Date } = {}) {
@@ -59,6 +74,9 @@ function build(opts: { enabled?: boolean; context?: any; existing?: any; now?: D
         created.push(row);
         return Promise.resolve(row);
       }),
+    },
+    attendancePunchPhoto: {
+      findUnique: jest.fn(() => Promise.resolve({ ...FRESH_PHOTO })),
     },
     attendanceLocation: {
       findUnique: jest.fn().mockResolvedValue(LOCATION),
@@ -122,7 +140,7 @@ describe('PunchEvidenceService (PE-1)', () => {
       expect(created[0].businessDate.toISOString()).toBe('2026-08-17T00:00:00.000Z');
       // Server-decided from the real coordinates, not the forged claim.
       expect(created[0].locationVerification).toBe('VERIFIED');
-      expect(created[0].photoVerification).toBe('PENDING');
+      expect(created[0].photoVerification).toBe('CAPTURED');
       expect(created[0].serverOccurredAt.toISOString()).toBe('2026-08-17T06:00:00.000Z');
     });
 
@@ -368,7 +386,7 @@ describe('PunchEvidenceService (PE-1)', () => {
 
     it('20/21b. the controller exposes no update or delete route', () => {
       const surface = Object.getOwnPropertyNames(PunchEvidenceController.prototype);
-      expect(surface.sort()).toEqual(['constructor', 'listMine', 'submit']);
+      expect(surface.sort()).toEqual(['constructor', 'listMine', 'ownPhoto', 'submit']);
     });
 
     it('never calls a Prisma update or delete on the evidence table', async () => {
@@ -474,15 +492,18 @@ describe('PunchEvidenceService (PE-1)', () => {
   });
 
   describe('photo state', () => {
-    it('records PENDING and accepts no photo input in PE-1', async () => {
+    it('records CAPTURED from the staged asset, ignoring any client-supplied photo fields', async () => {
       const { service, created } = build();
       await service.submit('emp-1', {
         ...VALID,
         photoObjectKey: 'https://evil.example/pic.jpg',
-        photoVerification: 'CAPTURED',
+        photoHash: 'forged',
+        photoVerification: 'REJECTED',
       } as any);
-      expect(created[0].photoVerification).toBe('PENDING');
-      expect(created[0].photoObjectKey).toBeUndefined();
+      expect(created[0].photoVerification).toBe('CAPTURED');
+      // Taken from the server-owned asset, never from the request body.
+      expect(created[0].photoObjectKey).toBe('cloudinary:authenticated:image:x:jpg');
+      expect(created[0].photoHash).toBe('a'.repeat(64));
     });
   });
 });

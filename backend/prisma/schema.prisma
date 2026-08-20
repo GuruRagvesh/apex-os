@@ -68,6 +68,7 @@ model User {
   attendanceEvents          AttendanceEvent[]
   attendanceProfiles        EmployeeAttendanceProfile[]
   punchEvidence             AttendancePunchEvidence[]
+  punchPhotos               AttendancePunchPhoto[]
   attendanceRegularizations AttendanceRegularization[]
   breakLogs                 BreakLog[]
   comments                  Comment[]
@@ -1008,6 +1009,41 @@ model Holiday {
 //
 // Deliberately company-wide: no employee, department or location fields, and no
 // attendance-result or payroll fields. Those belong to later layers.
+// A camera capture uploaded by an employee, held server-side until a punch
+// consumes it. SERVER-OWNED.
+//
+// Punch evidence is immutable, so the photo must exist and be validated BEFORE
+// the evidence row is inserted. This table is that staging step.
+//
+// Bytes live in private object storage, never in Postgres and never as base64.
+// Only the storage reference and a server-computed hash are kept here.
+//
+// Short-lived and single-use: expiresAt is a technical anti-replay window, and
+// the one-to-one relation to AttendancePunchEvidence means a capture can back
+// exactly one punch. The uniqueness is enforced by the database, so two
+// concurrent punches cannot both claim the same photo.
+model AttendancePunchPhoto {
+  id               String    @id @default(cuid())
+  userId           String
+  /// Private storage reference, e.g. cloudinary:authenticated:image:<id>:<fmt>.
+  /// Never a public URL, and never accepted from the client.
+  objectKey        String
+  /// SHA-256 of the bytes the server actually received.
+  sha256           String
+  mimeType         String
+  byteSize         Int
+  clientCapturedAt DateTime?
+  receivedAt       DateTime  @default(now())
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+
+  user          User                     @relation(fields: [userId], references: [id])
+  punchEvidence AttendancePunchEvidence?
+
+  @@index([userId, expiresAt])
+  @@map("attendance_punch_photos")
+}
+
 // A physical place attendance may be punched from. SERVER CONFIGURATION.
 //
 // Coordinates, radius and the accuracy threshold are administrative settings.
@@ -1078,6 +1114,9 @@ model AttendancePunchEvidence {
   geofenceRadiusMeters       Int?
   accuracyThresholdMeters    Int?
 
+  /// One-use link to the staged capture. Unique, so the database itself
+  /// prevents two punches sharing one photo.
+  photoAssetId      String?                @unique
   photoObjectKey    String?
   photoHash         String?
   photoVerification PunchPhotoVerification @default(PENDING)
@@ -1104,9 +1143,10 @@ model AttendancePunchEvidence {
 
   createdAt DateTime @default(now())
 
-  user               User                @relation(fields: [userId], references: [id])
-  workSession        WorkSession?        @relation(fields: [workSessionId], references: [id])
-  attendanceLocation AttendanceLocation? @relation(fields: [attendanceLocationId], references: [id])
+  user               User                  @relation(fields: [userId], references: [id])
+  workSession        WorkSession?          @relation(fields: [workSessionId], references: [id])
+  attendanceLocation AttendanceLocation?   @relation(fields: [attendanceLocationId], references: [id])
+  photoAsset         AttendancePunchPhoto? @relation(fields: [photoAssetId], references: [id])
 
   @@unique([userId, idempotencyKey])
   @@index([userId, businessDate])

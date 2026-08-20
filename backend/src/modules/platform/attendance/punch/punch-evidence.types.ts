@@ -34,6 +34,8 @@ export interface SubmitPunchEvidenceInput {
   accuracyMeters?: number | null;
   source?: 'WEB' | 'PWA' | 'MOBILE';
   deviceMetadata?: Record<string, any> | null;
+  /** Opaque id returned by POST /attendance/punch-photo. */
+  photoAssetId?: string | null;
 }
 
 /**
@@ -100,6 +102,53 @@ export class PunchNotApplicableError extends Error {
         : `Punch is not applicable for this employee on this date (${applicability}).`,
     );
     this.name = 'PunchNotApplicableError';
+  }
+}
+
+/**
+ * Raised when the daily context says attendance is REQUIRED but no attendance
+ * policy resolved.
+ *
+ * BL-5 should make this state unreachable -- REQUIRED already implies a
+ * resolved policy. This is defence in depth: without it, a null policy would
+ * read as geoFenceEnabled === false and quietly downgrade an office punch to
+ * NOT_ENFORCED. Failing loudly is the only safe interpretation.
+ */
+export class PunchContextInvariantError extends Error {
+  constructor() {
+    super(
+      'Attendance context reported REQUIRED without a resolved attendance policy. ' +
+        'This is a configuration invariant violation and requires HR review.',
+    );
+    this.name = 'PunchContextInvariantError';
+  }
+}
+
+export class PunchPhotoValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PunchPhotoValidationError';
+  }
+}
+
+/** Why a staged capture cannot back this punch. */
+export type PunchPhotoRejection =
+  | 'PHOTO_REQUIRED'
+  | 'PHOTO_NOT_FOUND'
+  | 'PHOTO_EXPIRED'
+  | 'PHOTO_ALREADY_USED';
+
+export class PunchPhotoRequiredError extends Error {
+  constructor(readonly rejection: PunchPhotoRejection) {
+    super(
+      {
+        PHOTO_REQUIRED: 'A live photo is required to punch.',
+        PHOTO_NOT_FOUND: 'That photo is not available for this punch.',
+        PHOTO_EXPIRED: 'That photo has expired. Please retake it and try again.',
+        PHOTO_ALREADY_USED: 'That photo has already been used for another punch.',
+      }[rejection],
+    );
+    this.name = 'PunchPhotoRequiredError';
   }
 }
 

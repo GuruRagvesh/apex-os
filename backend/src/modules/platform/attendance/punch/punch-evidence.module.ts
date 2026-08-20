@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PunchEvidenceService } from './punch-evidence.service';
+import { PunchPhotoService } from './punch-photo.service';
+import { PunchPhotoStorage } from './punch-photo.storage';
 import { PunchEvidenceController } from './punch-evidence.controller';
+import { PunchPhotoController } from './punch-photo.controller';
 import { DailyContextModule } from '../context/daily-context.module';
 import { SettingsModule } from '../../settings/settings.module';
 
@@ -13,8 +16,8 @@ import { SettingsModule } from '../../settings/settings.module';
  */
 @Module({
   imports: [DailyContextModule, SettingsModule],
-  controllers: [PunchEvidenceController],
-  providers: [PunchEvidenceService],
-  exports: [PunchEvidenceService],
+  controllers: [PunchEvidenceController, PunchPhotoController],
+  providers: [PunchEvidenceService, PunchPhotoService, PunchPhotoStorage],
+  exports: [PunchEvidenceService, PunchPhotoService],
 })
 export class PunchEvidenceModule {}

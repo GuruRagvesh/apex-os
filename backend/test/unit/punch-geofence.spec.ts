@@ -44,12 +44,27 @@ const REQUIRED_CONTEXT = {
   },
 };
 
+
+// PE-3 made a live photo mandatory for every punch, so these fixtures now stage
+// one. Everything else about these suites is unchanged.
+const FRESH_PHOTO = {
+  id: 'photo-1',
+  userId: 'emp-1',
+  objectKey: 'cloudinary:authenticated:image:x:jpg',
+  sha256: 'a'.repeat(64),
+  // Fixed and far future: several tests pin tva.now() to an explicit instant,
+  // and a relative expiry would fall behind those mocked clocks.
+  expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+  punchEvidence: null,
+};
+
 const AT_OFFICE = {
   type: 'PUNCH_IN' as const,
   idempotencyKey: 'idem-1',
   latitude: PUNE_OFFICE.latitude,
   longitude: PUNE_OFFICE.longitude,
   accuracyMeters: 12,
+  photoAssetId: 'photo-1',
 };
 
 /** Moves north by a given number of metres. 1 deg latitude ~ 111.2 km. */
@@ -77,6 +92,9 @@ function build(
         created.push(row);
         return Promise.resolve(row);
       }),
+    },
+    attendancePunchPhoto: {
+      findUnique: jest.fn(() => Promise.resolve({ ...FRESH_PHOTO })),
     },
     attendanceLocation: {
       findUnique: jest.fn(({ where }: any) =>
@@ -297,7 +315,7 @@ describe('PunchEvidenceService geofence integration (PE-2)', () => {
       const byId = { 'loc-pune': LOCATION, 'loc-mumbai': mumbai };
 
       const a = build({ locationById: byId });
-      await a.service.submit('emp-a', AT_OFFICE);
+      await a.service.submit('emp-1', AT_OFFICE);
 
       const b = build({
         locationById: byId,
@@ -306,7 +324,7 @@ describe('PunchEvidenceService geofence integration (PE-2)', () => {
           sources: { ...REQUIRED_CONTEXT.sources, assignedAttendanceLocationId: 'loc-mumbai' },
         },
       });
-      await b.service.submit('emp-b', AT_OFFICE);
+      await b.service.submit('emp-1', AT_OFFICE);
 
       // Same coordinates: at the Pune office, and ~120 km from Mumbai.
       expect(a.created[0].locationVerification).toBe('VERIFIED');
@@ -667,14 +685,15 @@ describe('geoFenceEnabled governs enforcement, never capture (PE-2 policy wiring
     expect(created[0].locationVerification).toBe('NOT_ENFORCED');
   });
 
-  it('an absent attendancePolicy is treated as NOT enforced, never as enforced', async () => {
-    // Fail-safe rather than fail-closed-with-a-wrong-claim: with no policy
-    // resolvable there is nothing to enforce against, so the reading is stored
-    // unenforced rather than asserted VERIFIED.
+  it('an absent attendancePolicy THROWS rather than silently downgrading', async () => {
+    // Superseded by the PE-3 invariant. Treating a null policy as
+    // geoFenceEnabled === false would quietly turn an office punch into
+    // NOT_ENFORCED, so REQUIRED-without-a-policy is now a loud failure.
+    // BL-5 should make the state unreachable; this is defence in depth.
     const { service, created } = build({
       context: { ...REQUIRED_CONTEXT, attendancePolicy: null },
     });
-    await service.submit('emp-1', AT_OFFICE);
-    expect(created[0].locationVerification).toBe('NOT_ENFORCED');
+    await expect(service.submit('emp-1', AT_OFFICE)).rejects.toThrow(/invariant violation/);
+    expect(created).toHaveLength(0);
   });
 });

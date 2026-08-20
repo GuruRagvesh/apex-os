@@ -15,6 +15,8 @@ import {
   PunchLocationConfigurationError,
   PunchLocationRequiredError,
   PunchNotApplicableError,
+  PunchContextInvariantError,
+  PunchPhotoRequiredError,
   PunchValidationError,
   SubmitPunchEvidenceInput,
 } from './punch-evidence.types';
@@ -166,6 +168,42 @@ export class PunchEvidenceService {
   }
 
   /**
+   * Resolves the staged capture backing this punch.
+   *
+   * Every check is an ownership or freshness question the server answers for
+   * itself: the asset must exist, belong to this employee, be unexpired, and be
+   * unconsumed.
+   *
+   * The unconsumed check here is a friendly early rejection, not the guarantee.
+   * The guarantee is the unique index on AttendancePunchEvidence.photoAssetId,
+   * which is what actually stops two concurrent punches claiming one capture --
+   * a check-then-insert alone would leave that race open.
+   */
+  private async resolvePhotoAsset(userId: string, photoAssetId?: string | null) {
+    if (!photoAssetId) {
+      throw new PunchPhotoRequiredError('PHOTO_REQUIRED');
+    }
+
+    const photo = await this.prisma.attendancePunchPhoto.findUnique({
+      where: { id: photoAssetId },
+      include: { punchEvidence: { select: { id: true } } },
+    });
+
+    // Not-found and wrong-owner deliberately return the same rejection: telling
+    // a caller that someone else's asset id exists is itself a small leak.
+    if (!photo || photo.userId !== userId) {
+      throw new PunchPhotoRequiredError('PHOTO_NOT_FOUND');
+    }
+    if (photo.expiresAt.getTime() <= this.tva.now().getTime()) {
+      throw new PunchPhotoRequiredError('PHOTO_EXPIRED');
+    }
+    if (photo.punchEvidence) {
+      throw new PunchPhotoRequiredError('PHOTO_ALREADY_USED');
+    }
+    return photo;
+  }
+
+  /**
    * Records one punch.
    *
    * @param userId taken from the verified JWT by the controller, never from
@@ -195,6 +233,14 @@ export class PunchEvidenceService {
         context.attendanceApplicability,
         context.blockingReasons,
       );
+    }
+
+    // Defence in depth. REQUIRED already implies a resolved policy, so this
+    // should be unreachable -- but if it ever were reached, treating a null
+    // policy as geoFenceEnabled === false would silently downgrade an office
+    // punch to NOT_ENFORCED. Fail loudly instead.
+    if (!context.attendancePolicy) {
+      throw new PunchContextInvariantError();
     }
 
     // Retry safety, checked before the write so a repeat returns the original.
@@ -258,6 +304,15 @@ export class PunchEvidenceService {
       );
     }
 
+    // A live capture is required, and must be resolved BEFORE the insert --
+    // punch evidence is append-only, so photoVerification is never written
+    // PENDING and corrected later.
+    //
+    // Deliberately after the idempotency check above: an exact retry must
+    // return the original punch even though that punch has already consumed
+    // this very photo, which would otherwise look like reuse.
+    const photo = await this.resolvePhotoAsset(userId, input.photoAssetId);
+
     const evidence = await this.prisma.attendancePunchEvidence.create({
       data: {
         userId,
@@ -276,9 +331,13 @@ export class PunchEvidenceService {
         distanceFromLocationMeters: decision.distanceMeters,
         geofenceRadiusMeters: decision.radiusMeters,
         accuracyThresholdMeters: decision.accuracyThresholdMeters,
-        // Still PENDING until PE-3 adds live capture, which will likewise
-        // resolve before the insert rather than updating afterwards.
-        photoVerification: 'PENDING' as any,
+        // Server-decided and final at insert. CAPTURED, never FACE_VERIFIED:
+        // the server can prove this user uploaded these bytes recently and has
+        // not reused them, but it cannot prove biometric liveness.
+        photoVerification: 'CAPTURED' as any,
+        photoAssetId: photo.id,
+        photoObjectKey: photo.objectKey,
+        photoHash: photo.sha256,
         source: (input.source ?? 'WEB') as any,
         deviceMetadata: (input.deviceMetadata ?? undefined) as any,
         ipAddress: meta.ipAddress ?? null,
@@ -313,6 +372,9 @@ export class PunchEvidenceService {
           // employee's precise position.
           distanceFromLocationMeters: evidence.distanceFromLocationMeters,
           attendanceLocationId: evidence.attendanceLocationId,
+          // The asset id only. Never the storage reference, the signed URL, or
+          // the hash -- an operational log is not evidence storage.
+          photoAssetId: evidence.photoAssetId,
         },
       })
       .catch(() => {});
