@@ -897,28 +897,31 @@ model ShiftPolicy {
 // User.teamLeadName (free-text fields) — those stay untouched until a later
 // phase confirms nothing in the frontend still depends on them.
 model EmployeeAttendanceProfile {
-  id                        String             @id @default(cuid())
-  userId                    String
-  category                  AttendanceCategory
-  attendanceRequired        Boolean            @default(true)
-  assignedShiftId           String?
-  assignedLeavePolicyId     String?
-  assignedHolidayCalendarId String?
-  assignedWeeklyOffPolicyId String?
-  reportingManagerId        String?
-  hrReviewerId              String?
-  effectiveFrom             DateTime           @default(now())
-  effectiveTo               DateTime?
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
-  updatedById               String?
-  user                      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedShift             ShiftPolicy?       @relation(fields: [assignedShiftId], references: [id])
-  assignedLeavePolicy       LeavePolicy?       @relation(fields: [assignedLeavePolicyId], references: [id])
-  assignedHolidayCalendar   HolidayCalendar?   @relation(fields: [assignedHolidayCalendarId], references: [id])
-  assignedWeeklyOffPolicy   WeeklyOffPolicy?   @relation(fields: [assignedWeeklyOffPolicyId], references: [id])
+  id                           String              @id @default(cuid())
+  userId                       String
+  category                     AttendanceCategory
+  attendanceRequired           Boolean             @default(true)
+  assignedShiftId              String?
+  assignedLeavePolicyId        String?
+  assignedHolidayCalendarId    String?
+  assignedWeeklyOffPolicyId    String?
+  assignedAttendanceLocationId String?
+  reportingManagerId           String?
+  hrReviewerId                 String?
+  effectiveFrom                DateTime            @default(now())
+  effectiveTo                  DateTime?
+  createdAt                    DateTime            @default(now())
+  updatedAt                    DateTime            @updatedAt
+  updatedById                  String?
+  user                         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedShift                ShiftPolicy?        @relation(fields: [assignedShiftId], references: [id])
+  assignedLeavePolicy          LeavePolicy?        @relation(fields: [assignedLeavePolicyId], references: [id])
+  assignedHolidayCalendar      HolidayCalendar?    @relation(fields: [assignedHolidayCalendarId], references: [id])
+  assignedWeeklyOffPolicy      WeeklyOffPolicy?    @relation(fields: [assignedWeeklyOffPolicyId], references: [id])
+  assignedAttendanceLocation   AttendanceLocation? @relation(fields: [assignedAttendanceLocationId], references: [id])
 
   @@index([userId, effectiveFrom])
+  @@index([assignedAttendanceLocationId])
   @@index([userId, effectiveTo])
   @@index([category])
   @@index([assignedShiftId])
@@ -1005,6 +1008,32 @@ model Holiday {
 //
 // Deliberately company-wide: no employee, department or location fields, and no
 // attendance-result or payroll fields. Those belong to later layers.
+// A physical place attendance may be punched from. SERVER CONFIGURATION.
+//
+// Coordinates, radius and the accuracy threshold are administrative settings.
+// An employee's device never submits any of them -- it submits only where it
+// thinks it is, and the server decides whether that is acceptable.
+model AttendanceLocation {
+  id                    String   @id @default(cuid())
+  name                  String
+  latitude              Float
+  longitude             Float
+  /// Acceptance radius in metres. A punch at or within this distance passes.
+  radiusMeters          Int      @default(150)
+  /// Worst GPS accuracy still trusted. A reading vaguer than this is treated
+  /// as LOW_ACCURACY even if its coordinate happens to land inside the radius.
+  minimumAccuracyMeters Int      @default(100)
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  employeeProfiles EmployeeAttendanceProfile[]
+  punchEvidence    AttendancePunchEvidence[]
+
+  @@index([isActive])
+  @@map("attendance_locations")
+}
+
 // Immutable, append-only record of a single punch. RAW FACT ONLY.
 //
 // This is evidence, not a conclusion: it never stores Present, Absent, Half
@@ -1038,10 +1067,16 @@ model AttendancePunchEvidence {
   clientCapturedAt DateTime?
   receivedAt       DateTime  @default(now())
 
-  latitude             Float?
-  longitude            Float?
-  accuracyMeters       Float?
-  locationVerification PunchLocationVerification @default(PENDING)
+  latitude                   Float?
+  longitude                  Float?
+  accuracyMeters             Float?
+  locationVerification       PunchLocationVerification @default(PENDING)
+  // Why the server reached that verdict. Storing only VERIFIED/OUTSIDE would
+  // make a past decision unexplainable once the location config changes.
+  attendanceLocationId       String?
+  distanceFromLocationMeters Float?
+  geofenceRadiusMeters       Int?
+  accuracyThresholdMeters    Int?
 
   photoObjectKey    String?
   photoHash         String?
@@ -1069,8 +1104,9 @@ model AttendancePunchEvidence {
 
   createdAt DateTime @default(now())
 
-  user        User         @relation(fields: [userId], references: [id])
-  workSession WorkSession? @relation(fields: [workSessionId], references: [id])
+  user               User                @relation(fields: [userId], references: [id])
+  workSession        WorkSession?        @relation(fields: [workSessionId], references: [id])
+  attendanceLocation AttendanceLocation? @relation(fields: [attendanceLocationId], references: [id])
 
   @@unique([userId, idempotencyKey])
   @@index([userId, businessDate])
@@ -1466,6 +1502,11 @@ enum PunchType {
 enum PunchLocationVerification {
   PENDING
   VERIFIED
+  /// Geofencing is switched off by the governing AttendancePolicy. GPS was
+  /// still captured and stored; it simply was not enforced against a location.
+  /// Deliberately NOT reported as VERIFIED, which would falsely imply the
+  /// employee was inside an approved location.
+  NOT_ENFORCED
   OUTSIDE_GEOFENCE
   LOW_ACCURACY
   UNAVAILABLE

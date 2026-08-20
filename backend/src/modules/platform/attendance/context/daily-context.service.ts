@@ -135,6 +135,7 @@ export class DailyContextService {
               minimumWorkingMinutes: apRow.minimumWorkingMinutes,
               lateExemptionEnabled: apRow.lateExemptionEnabled,
               regularizationEnabled: apRow.regularizationEnabled,
+              geoFenceEnabled: apRow.geoFenceEnabled,
               afterPunchWindowAction: apRow.afterPunchWindowAction,
               insufficientHoursAction: apRow.insufficientHoursAction,
               automaticHalfDayEnabled: apRow.automaticHalfDayEnabled,
@@ -206,6 +207,7 @@ export class DailyContextService {
       sources: {
         assignedHolidayCalendarId: employee.profile?.assignedHolidayCalendarId ?? null,
         assignedWeeklyOffPolicyId: employee.profile?.assignedWeeklyOffPolicyId ?? null,
+        assignedAttendanceLocationId: employee.profile?.assignedAttendanceLocationId ?? null,
         resolvedHolidayCalendarId: calendar.sources.holidayCalendarId,
         resolvedWeeklyOffPolicyId: calendar.sources.weeklyOffPolicyId,
         holidayCalendarResolution: calendar.resolution.holidayCalendar,

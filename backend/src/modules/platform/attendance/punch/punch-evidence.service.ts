@@ -12,10 +12,13 @@ import {
   ATTENDANCE_V2_SETTING_KEY,
   PunchFeatureDisabledError,
   PunchIdempotencyConflictError,
+  PunchLocationConfigurationError,
+  PunchLocationRequiredError,
   PunchNotApplicableError,
   PunchValidationError,
   SubmitPunchEvidenceInput,
 } from './punch-evidence.types';
+import { evaluateGeofence } from './geofence';
 
 /**
  * Punch Evidence (PE-1).
@@ -127,6 +130,42 @@ export class PunchEvidenceService {
   }
 
   /**
+   * Resolves which attendance location this punch is judged against.
+   *
+   * Mirrors the BL-5 integrity rule exactly: an explicit assignment wins;
+   * with none, candidates are COUNTED, and zero or several is a configuration
+   * error rather than a guess.
+   *
+   * An assigned-but-inactive location is a configuration error too. Silently
+   * falling back to some other office would move an employee's workplace
+   * without anyone deciding to.
+   */
+  private async resolveAttendanceLocation(assignedId: string | null | undefined) {
+    if (assignedId) {
+      const assigned = await this.prisma.attendanceLocation.findUnique({
+        where: { id: assignedId },
+      });
+      if (!assigned || !assigned.isActive) {
+        throw new PunchLocationConfigurationError('MISSING_ATTENDANCE_LOCATION');
+      }
+      return assigned;
+    }
+
+    // take: 2 is enough to distinguish 0 from 1 from many.
+    const candidates = await this.prisma.attendanceLocation.findMany({
+      where: { isActive: true },
+      take: 2,
+    });
+    if (candidates.length === 0) {
+      throw new PunchLocationConfigurationError('MISSING_ATTENDANCE_LOCATION');
+    }
+    if (candidates.length > 1) {
+      throw new PunchLocationConfigurationError('AMBIGUOUS_ATTENDANCE_LOCATION');
+    }
+    return candidates[0];
+  }
+
+  /**
    * Records one punch.
    *
    * @param userId taken from the verified JWT by the controller, never from
@@ -169,6 +208,56 @@ export class PunchEvidenceService {
       return existing;
     }
 
+    // A normal employee punch must carry a position. PE-1 allowed evidence
+    // without one because it was a bare evidence layer; from here the punch is
+    // geofenced, and a punch that cannot be geofenced is not acceptable.
+    if (
+      input.latitude === null || input.latitude === undefined ||
+      input.longitude === null || input.longitude === undefined
+    ) {
+      throw new PunchLocationRequiredError();
+    }
+
+    // geoFenceEnabled governs ENFORCEMENT, never capture. GPS is mandatory
+    // either way and is always stored; the policy decides only whether that
+    // reading is checked against an approved location.
+    const geoFenceEnabled = context.attendancePolicy?.geoFenceEnabled === true;
+
+    let location: { id: string; latitude: number; longitude: number; radiusMeters: number; minimumAccuracyMeters: number } | null = null;
+    let decision = {
+      // Not VERIFIED. Calling an unenforced reading verified would falsely
+      // assert the employee was inside an approved location.
+      verdict: 'NOT_ENFORCED' as string,
+      distanceMeters: null as number | null,
+      radiusMeters: null as number | null,
+      accuracyThresholdMeters: null as number | null,
+    };
+
+    if (geoFenceEnabled) {
+      // Configuration problems block BEFORE anything is written. Being outside
+      // the fence does not -- see below. With enforcement off, a missing or
+      // ambiguous location is simply irrelevant and must not block.
+      location = await this.resolveAttendanceLocation(
+        context.sources.assignedAttendanceLocationId,
+      );
+
+      // The verdict is computed here, server-side, and inserted with the row.
+      // Evidence is append-only: nothing is written PENDING and corrected later.
+      decision = evaluateGeofence(
+        {
+          latitude: input.latitude,
+          longitude: input.longitude,
+          accuracyMeters: input.accuracyMeters,
+        },
+        {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          radiusMeters: location.radiusMeters,
+          minimumAccuracyMeters: location.minimumAccuracyMeters,
+        },
+      );
+    }
+
     const evidence = await this.prisma.attendancePunchEvidence.create({
       data: {
         userId,
@@ -180,9 +269,15 @@ export class PunchEvidenceService {
         latitude: input.latitude ?? null,
         longitude: input.longitude ?? null,
         accuracyMeters: input.accuracyMeters ?? null,
-        // Both stay PENDING in PE-1. PE-2 resolves location, PE-3 resolves
-        // photo. Neither is ever accepted from the client.
-        locationVerification: 'PENDING' as any,
+        // Server-decided, never accepted from the client, and final at the
+        // moment of insert.
+        locationVerification: decision.verdict as any,
+        attendanceLocationId: location?.id ?? null,
+        distanceFromLocationMeters: decision.distanceMeters,
+        geofenceRadiusMeters: decision.radiusMeters,
+        accuracyThresholdMeters: decision.accuracyThresholdMeters,
+        // Still PENDING until PE-3 adds live capture, which will likewise
+        // resolve before the insert rather than updating afterwards.
         photoVerification: 'PENDING' as any,
         source: (input.source ?? 'WEB') as any,
         deviceMetadata: (input.deviceMetadata ?? undefined) as any,
@@ -213,6 +308,11 @@ export class PunchEvidenceService {
           locationVerification: evidence.locationVerification,
           photoVerification: evidence.photoVerification,
           source: evidence.source,
+          // The outcome and how far off it was, but never the coordinates
+          // themselves -- an operational log is not the place for an
+          // employee's precise position.
+          distanceFromLocationMeters: evidence.distanceFromLocationMeters,
+          attendanceLocationId: evidence.attendanceLocationId,
         },
       })
       .catch(() => {});

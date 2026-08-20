@@ -69,6 +69,7 @@ export interface AttendanceProfileFacts {
   assignedLeavePolicyId: string | null;
   assignedHolidayCalendarId: string | null;
   assignedWeeklyOffPolicyId: string | null;
+  assignedAttendanceLocationId: string | null;
   reportingManagerId: string | null;
   hrReviewerId: string | null;
   effectiveFrom: string;

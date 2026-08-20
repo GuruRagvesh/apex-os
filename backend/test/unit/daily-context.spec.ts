@@ -206,6 +206,7 @@ describe('DailyContextService (BL-5)', () => {
       expect(c.sources).toEqual({
         assignedHolidayCalendarId: 'cal-1',
         assignedWeeklyOffPolicyId: 'wop-1',
+        assignedAttendanceLocationId: null,
         resolvedHolidayCalendarId: 'cal-1',
         resolvedWeeklyOffPolicyId: 'wop-1',
         holidayCalendarResolution: 'ASSIGNED',

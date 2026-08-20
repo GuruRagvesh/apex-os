@@ -167,6 +167,7 @@ export class EmployeeTimelineService {
       assignedLeavePolicyId: profile.assignedLeavePolicyId ?? null,
       assignedHolidayCalendarId: profile.assignedHolidayCalendarId ?? null,
       assignedWeeklyOffPolicyId: profile.assignedWeeklyOffPolicyId ?? null,
+      assignedAttendanceLocationId: profile.assignedAttendanceLocationId ?? null,
       reportingManagerId: profile.reportingManagerId ?? null,
       hrReviewerId: profile.hrReviewerId ?? null,
       effectiveFrom: this.tva.companyBusinessDate(profile.effectiveFrom),

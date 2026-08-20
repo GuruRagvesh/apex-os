@@ -16,21 +16,35 @@ const REQUIRED_CONTEXT = {
   attendanceApplicability: 'REQUIRED',
   blockingReasons: [],
   resolverVersion: 1,
+  attendancePolicy: { geoFenceEnabled: true },
   sources: {
     employeeProfileId: 'prof-1',
     shiftPolicyId: 'shift-1',
     shiftPolicyVersion: 2,
     attendancePolicyId: 'ap-1',
     attendancePolicyVersion: 3,
+    assignedAttendanceLocationId: 'loc-1',
   },
+};
+
+// PE-2 judges every punch against a configured location, so VALID now sits at
+// the office and the mock resolves that location.
+const OFFICE = { latitude: 18.5204, longitude: 73.8567 };
+const LOCATION = {
+  id: 'loc-1',
+  name: 'Office',
+  ...OFFICE,
+  radiusMeters: 150,
+  minimumAccuracyMeters: 100,
+  isActive: true,
 };
 
 const VALID = {
   type: 'PUNCH_IN' as const,
   idempotencyKey: 'idem-1',
   clientCapturedAt: '2026-08-17T04:00:00.000Z',
-  latitude: 18.52,
-  longitude: 73.85,
+  latitude: OFFICE.latitude,
+  longitude: OFFICE.longitude,
   accuracyMeters: 12,
 };
 
@@ -45,6 +59,10 @@ function build(opts: { enabled?: boolean; context?: any; existing?: any; now?: D
         created.push(row);
         return Promise.resolve(row);
       }),
+    },
+    attendanceLocation: {
+      findUnique: jest.fn().mockResolvedValue(LOCATION),
+      findMany: jest.fn().mockResolvedValue([LOCATION]),
     },
     // Present so tests can prove PE-1 never touches them.
     workSession: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
@@ -102,7 +120,8 @@ describe('PunchEvidenceService (PE-1)', () => {
         serverOccurredAt: '1999-01-01T00:00:00.000Z',
       } as any);
       expect(created[0].businessDate.toISOString()).toBe('2026-08-17T00:00:00.000Z');
-      expect(created[0].locationVerification).toBe('PENDING');
+      // Server-decided from the real coordinates, not the forged claim.
+      expect(created[0].locationVerification).toBe('VERIFIED');
       expect(created[0].photoVerification).toBe('PENDING');
       expect(created[0].serverOccurredAt.toISOString()).toBe('2026-08-17T06:00:00.000Z');
     });
@@ -200,27 +219,36 @@ describe('PunchEvidenceService (PE-1)', () => {
       expect(prisma.attendancePunchEvidence.create).not.toHaveBeenCalled();
     });
 
-    it('boundary values are accepted', async () => {
-      const { service } = build();
+    it('boundary coordinates are accepted as valid input', async () => {
+      // Valid input, just nowhere near the office -- so it is recorded as an
+      // exception rather than refused.
+      const { service, created } = build();
       await expect(
         service.submit('emp-1', { ...VALID, latitude: -90, longitude: 180, accuracyMeters: 0.1 }),
       ).resolves.toBeDefined();
+      expect(created[0].locationVerification).toBe('OUTSIDE_GEOFENCE');
     });
 
-    it('stores coordinates and leaves the verdict to PE-2', async () => {
+    it('stores the raw coordinates alongside the server verdict', async () => {
       const { service, created } = build();
       await service.submit('emp-1', VALID);
-      expect(created[0].latitude).toBe(18.52);
-      expect(created[0].longitude).toBe(73.85);
+      expect(created[0].latitude).toBe(OFFICE.latitude);
+      expect(created[0].longitude).toBe(OFFICE.longitude);
       expect(created[0].accuracyMeters).toBe(12);
-      expect(created[0].locationVerification).toBe('PENDING');
+      // PE-2 resolves this before the insert; it is never written PENDING and
+      // corrected later, because the row is append-only.
+      expect(created[0].locationVerification).toBe('VERIFIED');
     });
 
-    it('a punch with no GPS at all is still valid evidence', async () => {
-      const { service, created } = build();
-      await service.submit('emp-1', { type: 'PUNCH_IN', idempotencyKey: 'k' });
-      expect(created[0].latitude).toBeNull();
-      expect(created[0].locationVerification).toBe('PENDING');
+    it('a punch with no GPS is REJECTED from PE-2 onward', async () => {
+      // PE-1 accepted evidence without coordinates because it was a bare
+      // evidence layer. PE-2 geofences every normal punch, so a punch that
+      // cannot be located is no longer acceptable.
+      const { service, prisma } = build();
+      await expect(
+        service.submit('emp-1', { type: 'PUNCH_IN', idempotencyKey: 'k' }),
+      ).rejects.toThrow(/Location is required/);
+      expect(prisma.attendancePunchEvidence.create).not.toHaveBeenCalled();
     });
   });
 
@@ -230,8 +258,8 @@ describe('PunchEvidenceService (PE-1)', () => {
         id: 'ev-existing',
         type: 'PUNCH_IN',
         clientCapturedAt: new Date('2026-08-17T04:00:00.000Z'),
-        latitude: 18.52,
-        longitude: 73.85,
+        latitude: OFFICE.latitude,
+        longitude: OFFICE.longitude,
         accuracyMeters: 12,
       };
       const { service, prisma } = build({ existing });
@@ -245,8 +273,8 @@ describe('PunchEvidenceService (PE-1)', () => {
         id: 'ev-existing',
         type: 'PUNCH_IN',
         clientCapturedAt: new Date('2026-08-17T04:00:00.000Z'),
-        latitude: 18.52,
-        longitude: 73.85,
+        latitude: OFFICE.latitude,
+        longitude: OFFICE.longitude,
         accuracyMeters: 12,
       };
       const { service, prisma } = build({ existing });
@@ -261,8 +289,8 @@ describe('PunchEvidenceService (PE-1)', () => {
         id: 'ev-existing',
         type: 'PUNCH_IN',
         clientCapturedAt: new Date('2026-08-17T04:00:00.000Z'),
-        latitude: 18.52,
-        longitude: 73.85,
+        latitude: OFFICE.latitude,
+        longitude: OFFICE.longitude,
         accuracyMeters: 12,
       };
       const { service } = build({ existing });
@@ -434,8 +462,8 @@ describe('PunchEvidenceService (PE-1)', () => {
         expect(meta).not.toHaveProperty(banned);
       }
       const serialised = JSON.stringify(meta);
-      expect(serialised).not.toContain('18.52');
-      expect(serialised).not.toContain('73.85');
+      expect(serialised).not.toContain(String(OFFICE.latitude));
+      expect(serialised).not.toContain(String(OFFICE.longitude));
     });
 
     it('a failing audit write never fails the punch', async () => {

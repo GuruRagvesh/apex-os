@@ -36,6 +36,45 @@ export interface SubmitPunchEvidenceInput {
   deviceMetadata?: Record<string, any> | null;
 }
 
+/**
+ * Why an attendance location could not be resolved for a punch.
+ *
+ * Same integrity philosophy as BL-5: with no assignment and several active
+ * locations, the server refuses rather than picking one. Attaching an employee
+ * to an arbitrary office would make the geofence meaningless.
+ */
+export type PunchLocationBlockingReason =
+  | 'MISSING_ATTENDANCE_LOCATION'
+  | 'AMBIGUOUS_ATTENDANCE_LOCATION';
+
+export class PunchLocationConfigurationError extends Error {
+  constructor(readonly reason: PunchLocationBlockingReason) {
+    super(
+      reason === 'AMBIGUOUS_ATTENDANCE_LOCATION'
+        ? 'Several active attendance locations exist and this employee is assigned to none. ' +
+          'HR must assign one before punches can be recorded.'
+        : 'No active attendance location is configured for this employee. ' +
+          'HR must configure one before punches can be recorded.',
+    );
+    this.name = 'PunchLocationConfigurationError';
+  }
+}
+
+/**
+ * Raised when a normal employee punch arrives with no usable GPS.
+ *
+ * PE-1 accepted evidence without coordinates because it was a pure evidence
+ * layer. From PE-2 the employee self-punch flow requires location: a punch with
+ * no position cannot be geofenced, and Apex attendance requires it. HR manual
+ * correction is a separate workflow.
+ */
+export class PunchLocationRequiredError extends Error {
+  constructor() {
+    super('Location is required to punch. Enable location access and try again.');
+    this.name = 'PunchLocationRequiredError';
+  }
+}
+
 export class PunchFeatureDisabledError extends Error {
   constructor() {
     super('Attendance punch evidence is not enabled.');

@@ -91,6 +91,8 @@ export interface AttendancePolicyContext {
   minimumWorkingMinutes: number;
   lateExemptionEnabled: boolean;
   regularizationEnabled: boolean;
+  /** Whether the governing policy enforces geofencing (PE-2). */
+  geoFenceEnabled: boolean;
   afterPunchWindowAction: string;
   insufficientHoursAction: string;
   automaticHalfDayEnabled: boolean;
@@ -124,6 +126,8 @@ export interface DailyContextSources {
   /** What the employee's profile named, or null if it named nothing. */
   assignedHolidayCalendarId: string | null;
   assignedWeeklyOffPolicyId: string | null;
+  /** The attendance location assigned for geofencing (PE-2). */
+  assignedAttendanceLocationId: string | null;
   /** What was actually used, and how it was chosen. */
   resolvedHolidayCalendarId: string | null;
   resolvedWeeklyOffPolicyId: string | null;
