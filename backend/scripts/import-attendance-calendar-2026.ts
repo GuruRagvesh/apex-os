@@ -24,7 +24,8 @@
  *    They are not deduplicated by name.
  */
 
-import { PrismaClient, Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
+import { PolicyStatus, PrismaClient, Prisma } from '@prisma/client';
 import {
   OFFICIAL_HOLIDAYS_2026,
   OFFICIAL_HOLIDAY_CALENDAR_NAME,
@@ -88,6 +89,25 @@ function assertStaging() {
 /** UTC-midnight encoding, matching TVAService.companyDateOnly for @db.Date. */
 function businessDate(iso: string): Date {
   return new Date(`${iso}T00:00:00.000Z`);
+}
+
+/**
+ * BL-4 first-version convention: a V1 policy is the root of its own series,
+ * so its immutable family key is its id. This imported calendar is immediately
+ * live, therefore ACTIVE is authoritative and isActive mirrors it.
+ */
+export function buildFirstVersionCalendarCreateInput(
+  id: string,
+): Prisma.HolidayCalendarUncheckedCreateInput {
+  return {
+    id,
+    policyKey: id,
+    version: 1,
+    status: PolicyStatus.ACTIVE,
+    isActive: true,
+    financialYear: OFFICIAL_HOLIDAY_FINANCIAL_YEAR,
+    name: OFFICIAL_HOLIDAY_CALENDAR_NAME,
+  };
 }
 
 async function main() {
@@ -189,11 +209,7 @@ async function main() {
       const target =
         calendar ??
         (await tx.holidayCalendar.create({
-          data: {
-            financialYear: OFFICIAL_HOLIDAY_FINANCIAL_YEAR,
-            name: OFFICIAL_HOLIDAY_CALENDAR_NAME,
-            isActive: true,
-          } as Prisma.HolidayCalendarUncheckedCreateInput,
+          data: buildFirstVersionCalendarCreateInput(randomUUID()),
         }));
 
       let created = 0;
@@ -237,7 +253,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('\nImport failed:', err?.message ?? err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('\nImport failed:', err?.message ?? err);
+    process.exit(1);
+  });
+}
