@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { RequestCorrectionForm } from './RequestCorrectionForm';
+import { getMyRegularizations, stageLabel } from './regularization-api';
 import { getMyAttendanceRange, type AttendanceDay } from './attendance-api';
 import {
   exceptionText,
@@ -36,6 +38,16 @@ export function AttendanceCalendar() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [selected, setSelected] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState(false);
+
+  // AR-1: the employee's own correction requests, so a reviewable day can show
+  // its stage instead of inviting a duplicate request.
+  const { data: corrections } = useQuery({
+    queryKey: ['my-regularizations'],
+    queryFn: getMyRegularizations,
+    staleTime: 60_000,
+    retry: false,
+  });
 
   const { from, to, firstWeekday, daysInMonth } = useMemo(
     () => monthBounds(year, month),
@@ -68,6 +80,7 @@ export function AttendanceCalendar() {
   });
 
   const detail = selected ? byDate.get(selected) : undefined;
+  const correction = corrections?.find((c) => c.date?.slice(0, 10) === selected) ?? null;
 
   return (
     <div className="space-y-4">
@@ -125,7 +138,10 @@ export function AttendanceCalendar() {
                 return (
                   <button
                     key={date}
-                    onClick={() => setSelected(date)}
+                    onClick={() => {
+                      setSelected(date);
+                      setRequesting(false);
+                    }}
                     className={[
                       'flex min-h-[64px] flex-col items-start rounded-lg border p-2 text-left transition-colors',
                       look.cell || 'bg-transparent',
@@ -233,6 +249,32 @@ export function AttendanceCalendar() {
                     ))}
                   </ul>
                 </div>
+              )}
+
+              {correction && (
+                <div className="mt-4 rounded-lg border border-[var(--border-secondary)] p-3">
+                  <p className="apex-text text-xs font-semibold">
+                    Correction requested · {stageLabel(correction.status)}
+                  </p>
+                  <p className="apex-text-muted mt-0.5 text-xs">{correction.reason}</p>
+                </div>
+              )}
+
+              {detail.requiresReview && !correction && !requesting && (
+                <button
+                  onClick={() => setRequesting(true)}
+                  className="mt-4 rounded-lg border border-[var(--border-secondary)] px-3 py-1.5 text-sm font-medium apex-text"
+                >
+                  Request correction
+                </button>
+              )}
+
+              {requesting && selected && (
+                <RequestCorrectionForm
+                  businessDate={selected}
+                  onDone={() => setRequesting(false)}
+                  onCancel={() => setRequesting(false)}
+                />
               )}
             </>
           )}

@@ -88,7 +88,17 @@ export interface AttendancePolicyContext {
   policyId: string;
   policyKey: string;
   version: number;
+  /**
+   * Required PRESENCE SPAN in minutes, despite the column's historical name.
+   * The accompanying shift window (10:00-19:00) is exactly this long, which is
+   * only achievable with breaks inside the span -- so it was never an
+   * effective-work threshold. See permittedBreakMinutes below.
+   */
   minimumWorkingMinutes: number;
+  /** Break time the span may contain. */
+  permittedBreakMinutes: number;
+  /** Effective-work floor, checked only when explicitly configured. */
+  minimumEffectiveWorkMinutes: number | null;
   lateExemptionEnabled: boolean;
   regularizationEnabled: boolean;
   /** Whether the governing policy enforces geofencing (PE-2). */

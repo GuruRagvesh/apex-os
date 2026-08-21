@@ -825,42 +825,53 @@ model EmployeeProfileChangeRequest {
 // ════════════════════════════════════════════════════════════════════════════
 
 model AttendancePolicy {
-  id                      String               @id @default(cuid())
-  financialYear           String
-  name                    String
-  isActive                Boolean              @default(true)
-  minimumWorkingMinutes   Int                  @default(540)
-  lateExemptionEnabled    Boolean              @default(true)
-  faceCaptureRequired     Boolean              @default(false)
-  locationCaptureRequired Boolean              @default(false)
-  geoFenceEnabled         Boolean              @default(false)
-  regularizationEnabled   Boolean              @default(true)
-  createdAt               DateTime             @default(now())
-  updatedAt               DateTime             @updatedAt
-  updatedById             String?
+  id                          String               @id @default(cuid())
+  financialYear               String
+  name                        String
+  isActive                    Boolean              @default(true)
+  minimumWorkingMinutes       Int                  @default(540)
+  lateExemptionEnabled        Boolean              @default(true)
+  faceCaptureRequired         Boolean              @default(false)
+  locationCaptureRequired     Boolean              @default(false)
+  geoFenceEnabled             Boolean              @default(false)
+  regularizationEnabled       Boolean              @default(true)
+  createdAt                   DateTime             @default(now())
+  updatedAt                   DateTime             @updatedAt
+  updatedById                 String?
   // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
   // policy share it; a different series (e.g. Team Leader shift vs Regular
   // Employee shift) has its own. Never derived from the mutable display name.
-  policyKey               String
+  policyKey                   String
   // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
   // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
   // pre-existing readers and seed keep working; PolicyVersionService writes both.
-  version                 Int                  @default(1)
-  status                  PolicyStatus         @default(DRAFT)
-  effectiveFrom           DateTime             @default(now())
-  effectiveTo             DateTime?
-  approvedById            String?
-  approvedAt              DateTime?
-  createdById             String?
-  supersededById          String?
+  version                     Int                  @default(1)
+  status                      PolicyStatus         @default(DRAFT)
+  effectiveFrom               DateTime             @default(now())
+  effectiveTo                 DateTime?
+  approvedById                String?
+  approvedAt                  DateTime?
+  createdById                 String?
+  supersededById              String?
   // ── Configurable management rules (BL-4) ───────────────────────────────
   // Safe defaults: anything undecided REQUIRES REVIEW rather than silently
   // deducting leave or marking absence. Management changes these by issuing a
   // NEW policy version, which never rewrites historical attendance.
-  afterPunchWindowAction  PolicyDecisionAction @default(REQUIRE_REVIEW)
-  insufficientHoursAction PolicyDecisionAction @default(REQUIRE_REVIEW)
-  automaticHalfDayEnabled Boolean              @default(false)
-  shiftPolicies           ShiftPolicy[]
+  afterPunchWindowAction      PolicyDecisionAction @default(REQUIRE_REVIEW)
+  insufficientHoursAction     PolicyDecisionAction @default(REQUIRE_REVIEW)
+  automaticHalfDayEnabled     Boolean              @default(false)
+  // ── Duration semantics (AR-1) ──────────────────────────────────────────
+  // minimumWorkingMinutes above is the required PRESENCE SPAN, not effective
+  // work: it defaults to 540, and ShiftPolicy's own 10:00-19:00 window spans
+  // exactly 540 minutes, which only holds if breaks are inside it. The two
+  // fields below are the pieces that never existed, so span and effective work
+  // stopped being distinguishable.
+  /// Break time the span is allowed to contain, in minutes.
+  permittedBreakMinutes       Int                  @default(60)
+  /// Effective work floor, checked only when explicitly configured. Left unset
+  /// so enabling AR-1 cannot newly fail anyone on a threshold nobody chose.
+  minimumEffectiveWorkMinutes Int?
+  shiftPolicies               ShiftPolicy[]
 
   @@unique([policyKey, version])
   @@index([financialYear])
@@ -1271,6 +1282,12 @@ model DailyAttendance {
   punchInEvidenceId       String?
   punchOutEvidenceId      String?
   workSessionIds          String[]                       @default([])
+  // ── Correction provenance (AR-1) ────────────────────────────────────────
+  /// Bumped every time an approved regularization revises this official fact.
+  /// 0 means the evaluator's own answer has never been corrected.
+  revision                Int                            @default(0)
+  /// The approved regularization behind the CURRENT official values, if any.
+  lastRegularizationId    String?
   createdAt               DateTime                       @default(now())
   updatedAt               DateTime                       @updatedAt
   user                    User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1284,24 +1301,33 @@ model DailyAttendance {
 }
 
 model AttendanceRegularization {
-  id                String                    @id @default(cuid())
-  userId            String
-  date              DateTime                  @db.Date
-  requestType       RegularizationRequestType
-  reason            String
-  requestedPunchIn  DateTime?
-  requestedPunchOut DateTime?
-  status            RegularizationStatus      @default(PENDING)
-  managerApproverId String?
-  managerDecisionAt DateTime?
-  hrApproverId      String?
-  hrDecisionAt      DateTime?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
-  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String                    @id @default(cuid())
+  userId             String
+  date               DateTime                  @db.Date
+  requestType        RegularizationRequestType
+  reason             String
+  requestedPunchIn   DateTime?
+  requestedPunchOut  DateTime?
+  // ── AR-1 ──────────────────────────────────────────────────────────────────
+  /// The official result's sourceFingerprint when this request was raised.
+  /// Compared at final approval so a correction written against a stale view of
+  /// the day cannot silently overwrite a newer official result.
+  basedOnFingerprint String?
+  /// Explicit official status the approver is granting, for corrections that
+  /// are not expressible as a punch time (e.g. approved manual attendance).
+  proposedStatus     DailyAttendanceStatus?
+  status             RegularizationStatus      @default(PENDING)
+  managerApproverId  String?
+  managerDecisionAt  DateTime?
+  hrApproverId       String?
+  hrDecisionAt       DateTime?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, date])
   @@index([status])
+  @@index([status, date])
   @@map("attendance_regularizations")
 }
 

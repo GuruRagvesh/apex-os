@@ -28,6 +28,11 @@ export const ATTENDANCE_V2_DEFAULTS = {
    * as production behaves today.
    */
   leaveApprovalEnabled: false,
+  /**
+   * AR-1. Employee-raised attendance corrections with Manager -> HR review.
+   * Off means the endpoints refuse and no correction can alter an official fact.
+   */
+  regularizationEnabled: false,
 };
 
 /**

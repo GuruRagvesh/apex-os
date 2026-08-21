@@ -39,6 +39,7 @@ import { TaskTypesModule } from './modules/platform/task-types/task-types.module
 import { WorkdayModule } from './modules/platform/workday/workday.module';
 import { PunchEvidenceModule } from './modules/platform/attendance/punch/punch-evidence.module';
 import { DailyAttendanceModule } from './modules/platform/attendance/evaluation/daily-attendance.module';
+import { RegularizationModule } from './modules/platform/attendance/regularization/regularization.module';
 import { EventsModule } from './modules/platform/events/events.module';
 import { AnalyticsModule } from './modules/platform/analytics/analytics.module';
 
@@ -87,6 +88,7 @@ const isTest = process.env.NODE_ENV === 'test';
     WorkdayModule,
     PunchEvidenceModule,
     DailyAttendanceModule,
+    RegularizationModule,
     EventsModule,
     AnalyticsModule,
   ],

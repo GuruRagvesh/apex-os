@@ -127,6 +127,7 @@ interface RigOptions {
   evidence?: any[];
   sessions?: any[];
   existingRecord?: any;
+  correction?: any;
 }
 
 function rig(opts: RigOptions = {}) {
@@ -150,6 +151,11 @@ function rig(opts: RigOptions = {}) {
       update: jest.fn(),
       updateMany: jest.fn(),
       create: jest.fn(),
+    },
+    // AR-1 added an approved-correction lookup to the evaluator. Null here, so
+    // every AE-1 case below describes an UNCORRECTED day, exactly as before.
+    attendanceRegularization: {
+      findFirst: jest.fn().mockResolvedValue(opts.correction ?? null),
     },
     dailyAttendance: {
       findUnique: jest.fn().mockResolvedValue(opts.existingRecord ?? null),
@@ -507,7 +513,7 @@ describe('AE-1 undecided policy rules', () => {
     expect(r.status).toBe('PRESENT');
   });
 
-  it('23. a short day with REQUIRE_REVIEW defers to review', async () => {
+  it('23. a short PRESENCE SPAN with REQUIRE_REVIEW defers to review', async () => {
     const { service } = rig({
       evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
       sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
@@ -515,7 +521,7 @@ describe('AE-1 undecided policy rules', () => {
 
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.exceptionFlags).toContain('INSUFFICIENT_HOURS');
+    expect(r.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
     expect(r.evaluationState).toBe('NEEDS_REVIEW');
     expect(r.status).not.toBe('HALF_DAY');
     expect(r.status).not.toBe('ABSENT');

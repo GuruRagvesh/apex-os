@@ -61,11 +61,27 @@ export type AttendanceExceptionFlag =
   | 'PHOTO_MISSING'
   // Policy questions management has not answered yet
   | 'LATE_BEYOND_PUNCH_WINDOW'
-  | 'INSUFFICIENT_HOURS'
+  // Three distinct duration questions. Collapsing them into one was the bug:
+  // an ordinary lunch break made effective work look like a short day.
+  | 'INSUFFICIENT_PRESENCE_SPAN'
+  | 'BREAK_EXCEEDS_ALLOWANCE'
+  | 'INSUFFICIENT_EFFECTIVE_WORK'
   // Data problems
   | 'AMBIGUOUS_APPROVED_LEAVE'
   | 'LEAVE_ON_NON_WORKING_DAY'
-  | 'PARTIALLY_FUNDED_LEAVE';
+  | 'PARTIALLY_FUNDED_LEAVE'
+  // AR-1. Informational, NOT a reason to review: an approved correction is a
+  // decision that has already been made, not an open question.
+  | 'CORRECTED_BY_REGULARIZATION';
+
+/**
+ * Flags that explain a result without demanding a human look at it again.
+ *
+ * Everything else in AttendanceExceptionFlag routes the day to NEEDS_REVIEW, so
+ * this list is what stops an approved correction from re-opening the very day
+ * it just settled.
+ */
+export const NON_REVIEW_FLAGS: AttendanceExceptionFlag[] = ['CORRECTED_BY_REGULARIZATION'];
 
 /** Machine-readable summary of how the status was reached. */
 export type AttendanceCalculationReason =
@@ -82,6 +98,7 @@ export type AttendanceCalculationReason =
   | 'NO_EVIDENCE_ON_WORKING_DAY'
   | 'INCOMPLETE_PUNCH_PAIR'
   | 'POLICY_DECISION_DEFERRED'
+  | 'CORRECTED_WORKDAY'
   | 'AMBIGUOUS_LEAVE'
   // Non-classifications: attendance simply does not apply.
   | 'NOT_APPLICABLE_EXEMPT'

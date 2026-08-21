@@ -133,6 +133,8 @@ export class DailyContextService {
               policyKey: apRow.policyKey,
               version: apRow.version,
               minimumWorkingMinutes: apRow.minimumWorkingMinutes,
+              permittedBreakMinutes: apRow.permittedBreakMinutes ?? 60,
+              minimumEffectiveWorkMinutes: apRow.minimumEffectiveWorkMinutes ?? null,
               lateExemptionEnabled: apRow.lateExemptionEnabled,
               regularizationEnabled: apRow.regularizationEnabled,
               geoFenceEnabled: apRow.geoFenceEnabled,

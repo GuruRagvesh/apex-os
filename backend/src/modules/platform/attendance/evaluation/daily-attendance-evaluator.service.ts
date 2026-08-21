@@ -8,6 +8,7 @@ import { LeaveFactsService } from './leave-facts.service';
 import type { DailyAttendanceContext } from '../context/daily-context.types';
 import {
   EVALUATOR_VERSION,
+  NON_REVIEW_FLAGS,
   type AttendanceCalculationReason,
   type AttendanceExceptionFlag,
   type DailyAttendanceResult,
@@ -53,7 +54,11 @@ export class DailyAttendanceEvaluatorService {
    * look like right now?" for a live UI, where writing a provisional row on
    * every page load would be wrong.
    */
-  async evaluate(userId: string, businessDate: string): Promise<DailyAttendanceResult> {
+  async evaluate(
+    userId: string,
+    businessDate: string,
+    client: any = this.prisma,
+  ): Promise<DailyAttendanceResult> {
     const at = new Date(`${businessDate}T00:00:00.000Z`);
     const context = await this.dailyContext.resolveDailyContext(userId, at);
 
@@ -93,7 +98,7 @@ export class DailyAttendanceEvaluatorService {
     }
 
     // ── Working day: punch and workday facts ─────────────────────────────
-    return this.workingDay(userId, businessDate, context, leave, flags);
+    return this.workingDay(userId, businessDate, context, leave, flags, client);
   }
 
   /**
@@ -136,6 +141,80 @@ export class DailyAttendanceEvaluatorService {
     });
 
     return { result, persisted: true, reason: 'WRITTEN' as const, record };
+  }
+
+  /**
+   * Rewrites the official record after an approved correction.
+   *
+   * This is the ONLY path allowed to write over a FINALIZED day, and it exists
+   * precisely so that "finalized" can mean something: the ordinary evaluator
+   * refuses, and only an approved, audited correction may revise the fact.
+   *
+   * Runs inside the approver's transaction so the correction and the revised
+   * official result commit together.
+   */
+  async reviseForApprovedCorrection(
+    tx: any,
+    userId: string,
+    businessDate: string,
+    regularizationId: string,
+  ): Promise<{ before: any; after: any; result: DailyAttendanceResult }> {
+    const date = this.tva.companyDateOnly(new Date(`${businessDate}T00:00:00.000Z`));
+    const before = await tx.dailyAttendance.findUnique({
+      where: { userId_date: { userId, date } },
+    });
+
+    // Re-evaluated through the SAME evaluator, now seeing the approved
+    // correction. The corrected day stays explainable by the ordinary rules
+    // rather than being hand-patched into shape.
+    const result = await this.evaluate(userId, businessDate, tx);
+    const data = this.toRow(result);
+
+    const after = await tx.dailyAttendance.upsert({
+      where: { userId_date: { userId, date } },
+      create: {
+        userId,
+        date,
+        ...data,
+        revision: (before?.revision ?? 0) + 1,
+        lastRegularizationId: regularizationId,
+      },
+      update: {
+        ...data,
+        revision: (before?.revision ?? 0) + 1,
+        lastRegularizationId: regularizationId,
+      },
+    });
+
+    return { before, after, result };
+  }
+
+  /**
+   * Marks a day's official result final.
+   *
+   * Deliberately a separate, explicit action: nothing in the read path or the
+   * ordinary evaluation path may finalize, because finalization is what removes
+   * the day from routine recalculation.
+   */
+  async finalize(userId: string, businessDate: string) {
+    const date = this.tva.companyDateOnly(new Date(`${businessDate}T00:00:00.000Z`));
+    const existing = await this.prisma.dailyAttendance.findUnique({
+      where: { userId_date: { userId, date } },
+    });
+    if (!existing) return { finalized: false, reason: 'NO_RECORD' as const };
+    if (existing.evaluationState === 'NEEDS_REVIEW') {
+      // A day with open questions is not payroll-final by definition.
+      return { finalized: false, reason: 'NEEDS_REVIEW' as const, record: existing };
+    }
+    if (existing.evaluationState === 'FINALIZED') {
+      return { finalized: false, reason: 'ALREADY_FINAL' as const, record: existing };
+    }
+
+    const record = await this.prisma.dailyAttendance.update({
+      where: { userId_date: { userId, date } },
+      data: { evaluationState: 'FINALIZED', locked: true, lockedAt: this.tva.now() },
+    });
+    return { finalized: true, reason: 'FINALIZED' as const, record };
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -256,17 +335,25 @@ export class DailyAttendanceEvaluatorService {
     context: DailyAttendanceContext,
     leave: LeaveDayFacts,
     flags: AttendanceExceptionFlag[],
+    client: any = this.prisma,
   ): Promise<DailyAttendanceResult> {
     const date = this.tva.companyDateOnly(new Date(`${businessDate}T00:00:00.000Z`));
 
-    const [evidence, sessions] = await Promise.all([
-      this.prisma.attendancePunchEvidence.findMany({
+    const [evidence, sessions, correction] = await Promise.all([
+      client.attendancePunchEvidence.findMany({
         where: { userId, businessDate: date },
         orderBy: { serverOccurredAt: 'asc' },
       }),
-      this.prisma.workSession.findMany({
+      client.workSession.findMany({
         where: { userId, date },
         orderBy: { createdAt: 'asc' },
+      }),
+      // AR-1: the approved correction for this day, if one exists. Corrections
+      // change the official INTERPRETATION of the day; the punch rows and work
+      // sessions above are read exactly as recorded and never rewritten.
+      client.attendanceRegularization.findFirst({
+        where: { userId, date, status: 'HR_APPROVED' },
+        orderBy: { hrDecisionAt: 'desc' },
       }),
     ]);
 
@@ -274,13 +361,22 @@ export class DailyAttendanceEvaluatorService {
     const punchOut = [...evidence].reverse().find((e) => e.type === 'PUNCH_OUT') ?? null;
     const workSessionIds = sessions.map((s) => s.id);
 
+    // An approved correction supplies the official punch times the raw evidence
+    // could not. Applied HERE, before the branches, so a supplied punch-out
+    // simply is not missing any more -- rather than being flagged missing and
+    // then contradicted further down.
+    const correctedIn = correction?.requestedPunchIn ?? null;
+    const correctedOut = correction?.requestedPunchOut ?? null;
+    const isCorrected = !!correction && (!!correctedIn || !!correctedOut || !!correction.proposedStatus);
+    if (isCorrected) flags.push('CORRECTED_BY_REGULARIZATION');
+
     this.collectEvidenceExceptions(evidence, flags);
 
     // ── No evidence at all ───────────────────────────────────────────────
     // No punch, no session, no approved leave, on a day the company expected
     // work. That is a factual exception, and there is no policy field today
     // that authorises turning it into an automatic ABSENT.
-    if (!punchIn && sessions.length === 0) {
+    if (!punchIn && sessions.length === 0 && !isCorrected) {
       flags.push('NO_ATTENDANCE_EVIDENCE');
       return this.build({
         userId,
@@ -298,11 +394,21 @@ export class DailyAttendanceEvaluatorService {
     const closed = sessions.filter((s) => !!s.logoutAt);
 
     // Workday totals come from the workday engine, never recomputed here.
-    const workedMinutes = closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0);
+    let workedMinutes = closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0);
     const breakMinutes = closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0);
 
-    const punchInAt = punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null;
-    const punchOutAt = punchOut?.serverOccurredAt ?? null;
+    const punchInAt = correctedIn ?? punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null;
+    const punchOutAt = correctedOut ?? punchOut?.serverOccurredAt ?? null;
+    // The ONE place official worked time is derived rather than read. A
+    // correction is a statement that the recorded session is wrong, so there is
+    // no engine total to trust -- the corrected span minus the breaks the
+    // workday DID record is the best available official answer, and the raw
+    // session totals remain reachable through workSessionIds.
+    if (isCorrected && punchInAt && punchOutAt) {
+      const span = Math.floor((punchOutAt.getTime() - punchInAt.getTime()) / 60_000);
+      workedMinutes = Math.max(0, span - breakMinutes);
+    }
+
     const lateMinutes = this.lateMinutes(context, punchInAt);
 
     // ── Still working ────────────────────────────────────────────────────
@@ -331,7 +437,7 @@ export class DailyAttendanceEvaluatorService {
     // ── Incomplete punch pair ────────────────────────────────────────────
     // The session closed (possibly by the auto-close scheduler) but the
     // employee never punched out. No end time is fabricated.
-    if (punchIn && !punchOut) {
+    if (punchIn && !punchOut && !correctedOut) {
       flags.push('MISSING_PUNCH_OUT');
       return this.build({
         userId,
@@ -367,7 +473,28 @@ export class DailyAttendanceEvaluatorService {
     let lwpDeducted = 0;
 
     const policy = context.attendancePolicy;
-    const required = context.shift?.minimumWorkingMinutes ?? policy?.minimumWorkingMinutes ?? 540;
+
+    // ── Three distinct measures, three distinct policy fields ─────────────
+    //
+    //   presence span      how long the employee was at work, breaks included
+    //   break minutes      how much of that span was break
+    //   effective work     span minus non-meeting breaks (the workday's own total)
+    //
+    // The required 540 is a SPAN requirement: the shift window it accompanies
+    // (10:00-19:00) is exactly 540 minutes, which is only reachable if breaks
+    // sit inside it. Comparing effective work against 540 would fail everyone
+    // who takes a normal lunch, which is what this replaces.
+    const requiredSpan = context.shift?.minimumWorkingMinutes ?? policy?.minimumWorkingMinutes ?? 540;
+    const permittedBreak = policy?.permittedBreakMinutes ?? 60;
+    const minimumEffectiveWork = policy?.minimumEffectiveWorkMinutes ?? null;
+
+    const presenceSpanMinutes =
+      punchInAt && punchOutAt
+        ? Math.max(0, Math.floor((punchOutAt.getTime() - punchInAt.getTime()) / 60_000))
+        : closed.reduce((n, sess) => {
+            if (!sess.startWorkAt || !sess.logoutAt) return n;
+            return n + Math.max(0, Math.floor((sess.logoutAt.getTime() - sess.startWorkAt.getTime()) / 60_000));
+          }, 0);
 
     // Late beyond the punch window.
     if (lateMinutes > 0) {
@@ -384,9 +511,17 @@ export class DailyAttendanceEvaluatorService {
       if (decision.status || decision.review) reason = 'POLICY_DECISION_DEFERRED';
     }
 
-    // Short day.
-    if (workedMinutes < required) {
-      flags.push('INSUFFICIENT_HOURS');
+    // Each duration question is asked separately, and each routes through the
+    // one configured action for duration shortfalls.
+    const durationShortfalls: AttendanceExceptionFlag[] = [];
+    if (presenceSpanMinutes < requiredSpan) durationShortfalls.push('INSUFFICIENT_PRESENCE_SPAN');
+    if (breakMinutes > permittedBreak) durationShortfalls.push('BREAK_EXCEEDS_ALLOWANCE');
+    if (minimumEffectiveWork !== null && workedMinutes < minimumEffectiveWork) {
+      durationShortfalls.push('INSUFFICIENT_EFFECTIVE_WORK');
+    }
+
+    if (durationShortfalls.length > 0) {
+      for (const f of durationShortfalls) flags.push(f);
       const decision = this.applyPolicyAction(
         policy?.insufficientHoursAction,
         policy?.automaticHalfDayEnabled === true,
@@ -401,6 +536,14 @@ export class DailyAttendanceEvaluatorService {
     if (context.calendar.override?.type === 'SPECIAL_WORKING_DAY' && reason === 'COMPLETE_WORKDAY') {
       reason = 'SPECIAL_WORKING_DAY_WORKED';
     }
+
+    // An explicitly granted status is an approved decision and outranks the
+    // evaluator's own reading, including any deferred policy question above.
+    if (correction?.proposedStatus) {
+      status = correction.proposedStatus as DailyAttendanceStatus;
+      forceReview = false;
+    }
+    if (isCorrected) reason = 'CORRECTED_WORKDAY';
 
     return this.build({
       userId,
@@ -581,7 +724,8 @@ export class DailyAttendanceEvaluatorService {
   }): DailyAttendanceResult {
     // Any exception at all means a human should look. Review is the safe
     // direction: it delays a decision instead of inventing one.
-    const requiresReview = input.forceReview === true || input.flags.length > 0;
+    const openQuestions = input.flags.filter((f) => !NON_REVIEW_FLAGS.includes(f));
+    const requiresReview = input.forceReview === true || openQuestions.length > 0;
     const evaluationState: EvaluationState = requiresReview ? 'NEEDS_REVIEW' : 'CALCULATED';
 
     const provenance = this.provenanceOf(input.context, {

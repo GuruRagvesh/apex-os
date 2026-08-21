@@ -24,6 +24,8 @@ const DEFAULTS: Record<string, any> = {
     // LH-2. Manager -> HR approval chain with funding settlement at final
     // approval. Off keeps today's single-approver behaviour.
     leaveApprovalEnabled: false,
+    // AR-1. Employee attendance corrections, Manager -> HR reviewed.
+    regularizationEnabled: false,
   },
   sla: { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 },
   review_sla: { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 },
