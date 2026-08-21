@@ -222,6 +222,15 @@ export class DailyAttendanceEvaluatorService {
         reason = 'APPROVED_HALF_DAY_LEAVE';
         lwpDeducted = 0.5;
         break;
+      case 'PARTIALLY_FUNDED':
+        // The company funded part of this leave and not the rest, but the
+        // request records only totals -- not which dates were unpaid. Marking
+        // this date LEAVE or LWP would be a guess with a pay consequence, so
+        // the day is recorded as leave and sent for review instead.
+        status = 'LEAVE';
+        reason = 'APPROVED_PARTIALLY_FUNDED_LEAVE';
+        flags.push('PARTIALLY_FUNDED_LEAVE');
+        break;
       default:
         status = 'LEAVE';
         reason = 'APPROVED_PAID_LEAVE';

@@ -377,28 +377,44 @@ model Attachment {
 }
 
 model LeaveRequest {
-  id           String        @id @default(cuid())
-  userId       String
-  type         LeaveType
-  startDate    DateTime
-  endDate      DateTime
-  reason       String
-  status       LeaveStatus   @default(PENDING)
-  approvedBy   String?
-  approvedAt   DateTime?
-  rejectedBy   String?
-  rejectedAt   DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  isHalfDay    Boolean       @default(false)
-  halfDayType  String?
-  user         User          @relation(fields: [userId], references: [id])
-  workSessions WorkSession[]
+  id          String      @id @default(cuid())
+  userId      String
+  type        LeaveType
+  startDate   DateTime
+  endDate     DateTime
+  reason      String
+  status      LeaveStatus @default(PENDING)
+  approvedBy  String?
+  approvedAt  DateTime?
+  rejectedBy  String?
+  rejectedAt  DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  isHalfDay   Boolean     @default(false)
+  halfDayType String?
+
+  // ── Approval lifecycle + funding settlement (LH-2) ────────────────────────
+  // approvedBy/approvedAt above remain as COMPATIBILITY fields and carry the
+  // FINAL approval once HR completes the request, so existing readers are
+  // unaffected. rejectedBy/rejectedAt are reused for a rejection at either stage.
+  approvalStage       LeaveApprovalStage   @default(MANAGER_REVIEW)
+  managerApprovedById String?
+  managerApprovedAt   DateTime?
+  hrApprovedById      String?
+  hrApprovedAt        DateTime?
+  /// Null on historical rows: their settlement was never recorded, and it must
+  /// not be invented by recalculating against today's calendar or balance.
+  fundingOutcome      LeaveFundingOutcome?
+  paidDays            Float?
+  unpaidDays          Float?
+  user                User                 @relation(fields: [userId], references: [id])
+  workSessions        WorkSession[]
 
   @@index([userId])
   @@index([status])
   @@index([startDate])
   @@index([userId, status])
+  @@index([approvalStage])
   @@map("leave_requests")
 }
 
@@ -1500,6 +1516,29 @@ enum LeaveType {
   EMERGENCY
   UNPAID
   OTHER
+}
+
+/// Where a leave request sits in the Manager -> HR chain (LH-2).
+///
+/// Deliberately SEPARATE from LeaveStatus rather than adding new status values.
+/// Every existing reader that checks `status === PENDING` keeps working while a
+/// request moves between review stages; only the final HR approval flips the
+/// status to APPROVED.
+enum LeaveApprovalStage {
+  MANAGER_REVIEW
+  HR_REVIEW
+  COMPLETE
+}
+
+/// How an approved leave was actually funded (LH-2).
+///
+/// Recorded ALONGSIDE the requested `type`, never in place of it: the employee
+/// asked for annual leave, and the company settled some or all of it as unpaid.
+/// Rewriting the request type would destroy that distinction.
+enum LeaveFundingOutcome {
+  PAID
+  UNPAID
+  PARTIAL
 }
 
 enum LeaveStatus {

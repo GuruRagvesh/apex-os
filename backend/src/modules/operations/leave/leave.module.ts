@@ -7,6 +7,7 @@ import { EmailModule } from '../../platform/email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../../platform/settings/settings.module';
 import { LeaveWorkingDayService } from './leave-working-day.service';
+import { LeaveSettlementService } from './leave-settlement.service';
 import { EmployeeTimelineModule } from '../../platform/attendance/timeline/employee-timeline.module';
 import { BusinessCalendarModule } from '../../platform/attendance/calendar/business-calendar.module';
 
@@ -21,8 +22,8 @@ import { BusinessCalendarModule } from '../../platform/attendance/calendar/busin
     EmployeeTimelineModule,
     BusinessCalendarModule,
   ],
-  providers: [LeaveService, LeaveBalanceService, LeaveWorkingDayService],
+  providers: [LeaveService, LeaveBalanceService, LeaveWorkingDayService, LeaveSettlementService],
   controllers: [LeaveController],
-  exports: [LeaveService, LeaveBalanceService, LeaveWorkingDayService],
+  exports: [LeaveService, LeaveBalanceService, LeaveWorkingDayService, LeaveSettlementService],
 })
 export class LeaveModule {}

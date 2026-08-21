@@ -22,6 +22,12 @@ export const ATTENDANCE_V2_DEFAULTS = {
    * role quota table. Off by default so live leave behaviour is unchanged.
    */
   leaveAuthorityEnabled: false,
+  /**
+   * LH-2. Turns on the Manager -> HR approval chain and funding settlement.
+   * Off means one approver still moves a request straight to APPROVED, exactly
+   * as production behaves today.
+   */
+  leaveApprovalEnabled: false,
 };
 
 /**

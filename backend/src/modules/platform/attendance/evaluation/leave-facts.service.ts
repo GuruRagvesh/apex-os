@@ -43,10 +43,12 @@ export class LeaveFactsService {
     const covering = await this.prisma.leaveRequest.findMany({
       where: {
         userId,
-        // APPROVED is the terminal approved state in the current Leave model.
-        // There is no separate HR stage in the schema today (see the AE-1
-        // report); if one is added, this single predicate is what changes.
+        // FINAL approval only. status flips to APPROVED at the HR step, and
+        // approvalStage is asserted alongside it so a future path that sets
+        // APPROVED without completing the chain still cannot reach attendance.
+        // Historical rows were backfilled to COMPLETE by the LH-2 migration.
         status: LeaveStatus.APPROVED,
+        approvalStage: 'COMPLETE',
         startDate: { lte: dayEnd },
         endDate: { gte: dayStart },
       },
@@ -68,12 +70,41 @@ export class LeaveFactsService {
 
     const leave = covering[0];
 
-    // Explicit unpaid leave is the ONLY thing in the current model that proves
-    // loss of pay. LeavePolicy.lwpAfterBalanceExhausted exists, but the request
-    // flow rejects a submission that exceeds the balance, so an over-balance
-    // approved leave cannot arise through the normal path — and guessing LWP
-    // from a balance calculation would be exactly the inference this wave
-    // forbids.
+    // LH-2: an explicit settlement, when one was recorded, is the authority.
+    // It says how the company actually funded the leave, which is exactly the
+    // question attendance needs answered, and it is a recorded decision rather
+    // than an inference from a balance read at some other moment.
+    if (leave.fundingOutcome) {
+      if (leave.fundingOutcome === 'PARTIAL') {
+        // Totals are known; which dates were unpaid is not. Routed to review
+        // rather than attributing the unpaid day to an arbitrary date.
+        return {
+          hasApprovedLeave: true,
+          kind: 'PARTIALLY_FUNDED',
+          leaveRequestId: leave.id,
+          leaveType: leave.type,
+          halfDayType: leave.halfDayType ?? null,
+        };
+      }
+      const unpaid = leave.fundingOutcome === 'UNPAID';
+      return {
+        hasApprovedLeave: true,
+        kind: leave.isHalfDay
+          ? unpaid
+            ? 'HALF_DAY_UNPAID'
+            : 'HALF_DAY_PAID'
+          : unpaid
+            ? 'UNPAID'
+            : 'PAID',
+        leaveRequestId: leave.id,
+        leaveType: leave.type,
+        halfDayType: leave.halfDayType ?? null,
+      };
+    }
+
+    // Legacy rows approved before LH-2 carry no settlement. The requested type
+    // is then the only proof available: explicit unpaid leave is LWP, anything
+    // else is paid. A balance is never consulted to invent one.
     if (leave.type === 'UNPAID') {
       return {
         hasApprovedLeave: true,

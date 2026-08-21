@@ -25,6 +25,12 @@ export type LeaveDayKind =
   | 'UNPAID'
   | 'HALF_DAY_PAID'
   | 'HALF_DAY_UNPAID'
+  /**
+   * LH-2: approved, but funded partly paid and partly unpaid. The model records
+   * totals for the whole request, not which individual dates were unpaid, so a
+   * per-date paid/unpaid answer cannot be proven here.
+   */
+  | 'PARTIALLY_FUNDED'
   /** More than one approved leave covers the date. A human must settle it. */
   | 'AMBIGUOUS';
 
@@ -58,7 +64,8 @@ export type AttendanceExceptionFlag =
   | 'INSUFFICIENT_HOURS'
   // Data problems
   | 'AMBIGUOUS_APPROVED_LEAVE'
-  | 'LEAVE_ON_NON_WORKING_DAY';
+  | 'LEAVE_ON_NON_WORKING_DAY'
+  | 'PARTIALLY_FUNDED_LEAVE';
 
 /** Machine-readable summary of how the status was reached. */
 export type AttendanceCalculationReason =
@@ -69,6 +76,7 @@ export type AttendanceCalculationReason =
   | 'APPROVED_PAID_LEAVE'
   | 'APPROVED_UNPAID_LEAVE'
   | 'APPROVED_HALF_DAY_LEAVE'
+  | 'APPROVED_PARTIALLY_FUNDED_LEAVE'
   | 'COMPLETE_WORKDAY'
   | 'WORKDAY_IN_PROGRESS'
   | 'NO_EVIDENCE_ON_WORKING_DAY'

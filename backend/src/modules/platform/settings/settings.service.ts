@@ -21,6 +21,9 @@ const DEFAULTS: Record<string, any> = {
     // LH-1. Makes the attendance foundation the authority for leave duration
     // and paid-leave allocation. Off means the legacy leave rules answer.
     leaveAuthorityEnabled: false,
+    // LH-2. Manager -> HR approval chain with funding settlement at final
+    // approval. Off keeps today's single-approver behaviour.
+    leaveApprovalEnabled: false,
   },
   sla: { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 },
   review_sla: { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 },
