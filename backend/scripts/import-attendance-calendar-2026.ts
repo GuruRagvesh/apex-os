@@ -110,6 +110,40 @@ export function buildFirstVersionCalendarCreateInput(
   };
 }
 
+/**
+ * Executes the already conflict-checked write as a bounded batch transaction.
+ * Prisma runs both statements in one database transaction without keeping an
+ * interactive transaction context alive across 17 sequential round trips.
+ */
+export async function writeHolidayImport(
+  prisma: PrismaClient,
+  existingCalendarId: string | null,
+  holidays: typeof OFFICIAL_HOLIDAYS_2026,
+) {
+  const calendarId = existingCalendarId ?? randomUUID();
+  const holidayWrite = prisma.holiday.createMany({
+    data: holidays.map((holiday) => ({
+      calendarId,
+      date: businessDate(holiday.date),
+      name: holiday.name,
+      isOptional: false,
+    })),
+  });
+
+  if (existingCalendarId) {
+    const [inserted] = await prisma.$transaction([holidayWrite]);
+    return { calendarId, created: inserted.count };
+  }
+
+  const [, inserted] = await prisma.$transaction([
+    prisma.holidayCalendar.create({
+      data: buildFirstVersionCalendarCreateInput(calendarId),
+    }),
+    holidayWrite,
+  ]);
+  return { calendarId, created: inserted.count };
+}
+
 async function main() {
   console.log('── Official 2026 holiday import ───────────────────────────────');
   console.log(`  mode            : ${APPLY ? 'APPLY (writes)' : 'DRY RUN (no writes)'}`);
@@ -204,28 +238,8 @@ async function main() {
       return;
     }
 
-    // One transaction: either the whole approved calendar lands, or none of it.
-    const result = await prisma.$transaction(async (tx) => {
-      const target =
-        calendar ??
-        (await tx.holidayCalendar.create({
-          data: buildFirstVersionCalendarCreateInput(randomUUID()),
-        }));
-
-      let created = 0;
-      for (const holiday of toCreate) {
-        await tx.holiday.create({
-          data: {
-            calendarId: target.id,
-            date: businessDate(holiday.date),
-            name: holiday.name,
-            isOptional: false,
-          },
-        });
-        created += 1;
-      }
-      return { calendarId: target.id, created };
-    });
+    // One bounded batch transaction: calendar + all approved rows, or none.
+    const result = await writeHolidayImport(prisma, calendar?.id ?? null, toCreate);
 
     // Read back rather than trusting the write.
     const finalRows = await prisma.holiday.findMany({
