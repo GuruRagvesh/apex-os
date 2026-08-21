@@ -26,6 +26,12 @@ const DEFAULTS: Record<string, any> = {
     leaveApprovalEnabled: false,
     // AR-1. Employee attendance corrections, Manager -> HR reviewed.
     regularizationEnabled: false,
+    // SS-1. Automated evaluation, shadow calculation, and permission to write
+    // the official record. All three off: attendance must be switched on
+    // deliberately, never by deploying code.
+    shadowEnabled: false,
+    automaticEvaluationEnabled: false,
+    officialWriteEnabled: false,
   },
   sla: { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 },
   review_sla: { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 },

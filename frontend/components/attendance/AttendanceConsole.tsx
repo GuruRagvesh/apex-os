@@ -176,6 +176,21 @@ export function AttendanceConsole() {
       )}
 
       {summary && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {/* Unknown and zero are shown differently on purpose: a dash means no
+              evaluation has run for this date yet, not that nobody is blocked. */}
+          <Kpi
+            label="Config blocked"
+            value={summary.exceptions.configurationBlocked}
+            tone={summary.exceptions.configurationBlocked ? 'warn' : 'muted'}
+          />
+          <Kpi label="Finalized" value={summary.finalized} tone="muted" />
+          <Kpi label="Corrections pending" value={summary.exceptions.regularizationPending} tone="muted" />
+          <Kpi label="Employees" value={summary.expectedEmployees} tone="muted" />
+        </div>
+      )}
+
+      {summary && (
         <div className="apex-card">
           <p className="apex-text text-sm font-semibold">Exceptions</p>
           <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
@@ -323,7 +338,8 @@ function Kpi({
   tone = 'normal',
 }: {
   label: string;
-  value: number;
+  /** null renders as a dash: "not worked out", which is not the same as zero. */
+  value: number | null;
   tone?: 'normal' | 'warn' | 'muted';
 }) {
   const colour =
@@ -335,7 +351,7 @@ function Kpi({
   return (
     <div className="apex-card">
       <p className="apex-text-subtle text-[11px] uppercase tracking-wide">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${colour}`}>{value}</p>
+      <p className={`mt-1 text-2xl font-semibold ${colour}`}>{value ?? '—'}</p>
     </div>
   );
 }

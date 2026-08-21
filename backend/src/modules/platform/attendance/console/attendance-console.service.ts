@@ -5,6 +5,7 @@ import { AccessPolicyService } from '../../../../common/services/access-policy.s
 import { HierarchyApprovalService } from '../../../../common/services/hierarchy-approval.service';
 import { EventLoggerService, OperationalAction } from '../../../../common/services/event-logger.service';
 import { DailyAttendanceEvaluatorService } from '../evaluation/daily-attendance-evaluator.service';
+import { AttendanceProcessingService } from '../processing/attendance-processing.service';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -55,6 +56,7 @@ export class AttendanceConsoleService {
     private readonly hierarchy: HierarchyApprovalService,
     private readonly eventLogger: EventLoggerService,
     private readonly evaluator: DailyAttendanceEvaluatorService,
+    private readonly processing: AttendanceProcessingService,
   ) {}
 
   // ───────────────────────────────────────────────────────────────────────
@@ -165,11 +167,10 @@ export class AttendanceConsoleService {
       missingPunchOut: 0,
       outsideGeofence: 0,
       lowAccuracy: 0,
-      // null, never 0. A blocked context produces no DailyAttendance row at
-      // all, so this cannot be counted from stored results -- and reporting 0
-      // would read to HR as "nobody is blocked" when the truth is "we have not
-      // worked it out". Populated from evaluation failures in the scheduler
-      // wave; until then it is honestly unavailable.
+      // null means "not worked out yet", never "nobody is blocked". A blocked
+      // context produces no DailyAttendance row, so this cannot be counted from
+      // stored results; it comes from the last processing run instead, and
+      // stays null until one has happened.
       configurationBlocked: null as number | null,
       partialLeaveFunding: 0,
       regularizationPending: pendingRegularizations,
@@ -196,6 +197,17 @@ export class AttendanceConsoleService {
     // are UNKNOWN, not absent.
     const evaluatedUserIds = new Set(records.map((r) => r.userId));
     const notEvaluated = employees.filter((e) => !evaluatedUserIds.has(e.id)).length;
+
+    // Blocked employees come from the last processing run for this date, not
+    // from a fresh 56-way context sweep the console would have to run to render
+    // a card. Null when no run has happened, so the UI can say "unknown"
+    // instead of implying zero. Filtered through the caller's scope, so a
+    // manager never sees a company-wide count.
+    const blocked = await this.processing.blockedFromLastRun(date);
+    if (blocked !== null) {
+      const visible = new Set(employees.map((e) => e.id));
+      exceptions.configurationBlocked = blocked.filter((b) => visible.has(b.userId)).length;
+    }
 
     return {
       businessDate: date,

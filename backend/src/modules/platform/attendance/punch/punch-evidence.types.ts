@@ -33,6 +33,19 @@ export const ATTENDANCE_V2_DEFAULTS = {
    * Off means the endpoints refuse and no correction can alter an official fact.
    */
   regularizationEnabled: false,
+  /**
+   * SS-1. Shadow mode: the evaluator runs for real, but its answer is recorded
+   * for comparison only. Nothing about legacy Workday or Leave changes.
+   */
+  shadowEnabled: false,
+  /** SS-1. Lets the scheduler run evaluation at all. */
+  automaticEvaluationEnabled: false,
+  /**
+   * SS-1. Permits evaluateAndPersist() to write the official record. With this
+   * off, evaluation is diagnostic: results are computed and reported, never
+   * stored. Still never touches payroll either way.
+   */
+  officialWriteEnabled: false,
 };
 
 /**

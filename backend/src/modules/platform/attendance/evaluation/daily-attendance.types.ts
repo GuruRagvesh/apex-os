@@ -158,6 +158,12 @@ export interface DailyAttendanceResult {
   lwpDeducted: number;
 
   requiresReview: boolean;
+  /**
+   * Why the foundation could not explain this day, when it could not.
+   * Empty for every official result; populated only when official is false and
+   * the reason is CONTEXT_BLOCKED, so an operator can see what to configure.
+   */
+  blockingReasons: string[];
   provenance: EvaluationProvenance;
   /** Digest of the source facts, used to make re-evaluation idempotent. */
   sourceFingerprint: string;

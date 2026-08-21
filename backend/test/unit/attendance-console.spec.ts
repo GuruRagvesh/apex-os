@@ -41,6 +41,7 @@ interface Fixtures {
   evaluateOutcome?: any;
   evaluateThrows?: Record<string, string>;
   finalizeOutcome?: any;
+  blockedFromLastRun?: any[] | null;
 }
 
 function rig(f: Fixtures = {}) {
@@ -101,6 +102,9 @@ function rig(f: Fixtures = {}) {
     { isApproverFor: jest.fn().mockResolvedValue(true) } as any,
     { log: jest.fn((e: any) => { audit.push(e); return Promise.resolve(undefined); }) } as any,
     evaluator,
+    // SS-1: blocked employees come from the last processing run. Null here
+    // means "no run yet", which every pre-SS-1 case below assumes.
+    { blockedFromLastRun: jest.fn().mockResolvedValue(f.blockedFromLastRun ?? null) } as any,
   );
 
   return { service, prisma, evaluator, audit };
@@ -448,6 +452,36 @@ describe('HC-1 summary counts stored facts, never recalculates', () => {
     // is a deliberate signal rather than a broken summary.
     expect(typeof s.exceptions.missingPunch).toBe('number');
     expect(typeof s.notEvaluated).toBe('number');
+  });
+
+  it('25b. once a processing run has happened, the blocked count is real', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1'), employee('e2')],
+      records: [record('e1')],
+      blockedFromLastRun: [
+        { userId: 'e2', blockingReasons: ['MISSING_SHIFT_ASSIGNMENT'] },
+      ],
+    });
+
+    const s = await service.todaySummary(HR, DATE);
+    expect(s.exceptions.configurationBlocked).toBe(1);
+  });
+
+  it('25c. a manager never sees blocked employees outside their scope', async () => {
+    const { service } = rig({
+      isHr: false,
+      reports: [{ id: 'emp-1' }],
+      employees: [employee('emp-1')],
+      blockedFromLastRun: [
+        { userId: 'emp-1', blockingReasons: ['MISSING_SHIFT_ASSIGNMENT'] },
+        { userId: 'someone-else', blockingReasons: ['MISSING_SHIFT_ASSIGNMENT'] },
+      ],
+    });
+
+    const s = await service.todaySummary(MANAGER, DATE);
+    // Only their own report counts; the company-wide run is not a leak.
+    expect(s.exceptions.configurationBlocked).toBe(1);
   });
 
   it('25. an invalid date is refused rather than silently defaulted', async () => {

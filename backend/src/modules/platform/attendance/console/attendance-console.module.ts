@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AttendanceConsoleService } from './attendance-console.service';
 import { AttendanceConsoleController } from './attendance-console.controller';
 import { DailyAttendanceModule } from '../evaluation/daily-attendance.module';
+import { AttendanceProcessingModule } from '../processing/attendance-processing.module';
 
 /**
  * HR attendance console (HC-1).
@@ -11,7 +12,7 @@ import { DailyAttendanceModule } from '../evaluation/daily-attendance.module';
  * access policy and audit come from the global CommonModule.
  */
 @Module({
-  imports: [DailyAttendanceModule],
+  imports: [DailyAttendanceModule, AttendanceProcessingModule],
   controllers: [AttendanceConsoleController],
   providers: [AttendanceConsoleService],
   exports: [AttendanceConsoleService],
