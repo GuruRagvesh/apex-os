@@ -1228,14 +1228,42 @@ model DailyAttendance {
   locked            Boolean               @default(false)
   lockedAt          DateTime?
   policyVersion     String?
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // ── Evaluation layer (AE-1) ─────────────────────────────────────────────
+  // Provenance ids are stored WITHOUT foreign keys on purpose. This is a
+  // historical explanation of a past decision, and it must survive the later
+  // deletion or supersession of any policy, calendar or leave row it names --
+  // exactly like an audit record.
+  evaluationState         DailyAttendanceEvaluationState @default(CALCULATED)
+  evaluatorVersion        Int                            @default(1)
+  resolverVersion         Int?
+  evaluatedAt             DateTime?
+  exceptionFlags          String[]                       @default([])
+  /// Digest of the source facts this result was computed from. Lets a repeat
+  /// evaluation recognise "nothing changed" without rewriting the row.
+  sourceFingerprint       String?
+  employeeProfileId       String?
+  attendancePolicyId      String?
+  attendancePolicyVersion Int?
+  shiftPolicyId           String?
+  shiftPolicyVersion      Int?
+  holidayCalendarId       String?
+  weeklyOffPolicyId       String?
+  holidayId               String?
+  businessDayOverrideId   String?
+  leaveRequestId          String?
+  punchInEvidenceId       String?
+  punchOutEvidenceId      String?
+  workSessionIds          String[]                       @default([])
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+  user                    User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([userId])
   @@index([date])
   @@index([status])
+  @@index([evaluationState])
   @@map("daily_attendance")
 }
 
@@ -1510,6 +1538,17 @@ enum DailyAttendanceStatus {
   PENDING_REGULARIZATION
   GEO_MISMATCH
   FACE_MISSING
+}
+
+/// Lifecycle of a daily attendance RESULT, distinct from its classification.
+///
+/// status answers "what happened that day"; this answers "can we trust it yet".
+/// A PRESENT day with a geofence exception is still PRESENT -- it is the state
+/// that says a human must look, not the status.
+enum DailyAttendanceEvaluationState {
+  CALCULATED
+  NEEDS_REVIEW
+  FINALIZED
 }
 
 enum RegularizationRequestType {

@@ -10,6 +10,8 @@ import { EndDayModal } from './EndDayModal';
 import { AutoCloseConsentModal } from './AutoCloseConsentModal';
 import { PunchModal } from '../attendance/PunchModal';
 import { useAttendanceV2 } from '../attendance/useAttendanceV2';
+import { getMyAttendanceToday } from '../attendance/attendance-api';
+import { todaySummary } from '../attendance/attendance-status';
 
 const STATUS_COLORS: Record<string, string> = {
   WORKING: 'bg-green-500',
@@ -39,6 +41,17 @@ export function WorkdayBar() {
   // control below behaves exactly as it does today.
   const [punchType, setPunchType] = useState<'PUNCH_IN' | 'PUNCH_OUT' | null>(null);
   const { punchEnabled } = useAttendanceV2();
+
+  // AE-1: today's official/provisional attendance, shown alongside the live
+  // workday. Failing quietly is deliberate -- the workday controls must keep
+  // working even if the evaluation layer is unavailable.
+  const { data: todayAttendance } = useQuery({
+    queryKey: ['my-attendance-today'],
+    queryFn: getMyAttendanceToday,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const attendanceLine = todaySummary(todayAttendance);
 
   const { data: todayData, dataUpdatedAt, refetch } = useQuery({
     queryKey: ['workday-today'],
@@ -172,6 +185,12 @@ export function WorkdayBar() {
 
   // PE-4: rendered by whichever branch owns the button that opened it. Null
   // whenever Attendance V2 punching is off, so the legacy layout is identical.
+  const attendanceBadge = attendanceLine ? (
+    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+      Today: {attendanceLine}
+    </span>
+  ) : null;
+
   const punchOverlay = punchType ? (
     <PunchModal
       type={punchType}
@@ -270,6 +289,7 @@ export function WorkdayBar() {
             <span className="text-sm text-gray-600 dark:text-gray-400">
               Workday ended {session?.logoutAt && `at ${new Date(session.logoutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
             </span>
+            {attendanceBadge}
             {session?.totalWorkMinutes != null && !isImpossible && session.totalWorkMinutes > 0 && (
               <span className="text-xs text-gray-400 dark:text-gray-500">
                 · {formatMinutes(session.totalWorkMinutes)} worked · {breakLogs.length} breaks
@@ -418,6 +438,7 @@ export function WorkdayBar() {
               Working <span className="text-gray-400 font-normal">·</span> 
               <span className="text-green-600 dark:text-green-400">{formatMinutes(elapsed)} active</span>
               {isResumed && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-md">Resumed</span>}
+              {attendanceBadge}
             </p>
             <p className="text-xs text-gray-400 dark:text-gray-500">
               {todayData?.sessionCount > 1 && `${todayData.sessionCount} sessions · `}

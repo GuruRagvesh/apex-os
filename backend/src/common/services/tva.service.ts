@@ -85,6 +85,35 @@ export class TVAService {
   }
 
   /**
+   * The instant a wall-clock company time falls on for a given business date.
+   *
+   * Shift policies store times as plain strings ("09:00") because a shift is a
+   * wall-clock fact, not an instant. Turning one into a comparable instant is a
+   * company-time question, so it belongs here rather than in each caller --
+   * the offset is taken from the target date itself, so a timezone with DST
+   * resolves correctly instead of assuming a fixed offset.
+   */
+  companyInstantAt(businessDate: string, hhmm: string): Date | null {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm?.trim() ?? '');
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours > 23 || minutes > 59) return null;
+
+    const anchor = new Date(`${businessDate}T12:00:00.000Z`);
+    if (Number.isNaN(anchor.getTime())) return null;
+
+    const hh = String(hours).padStart(2, '0');
+    const mm = String(minutes).padStart(2, '0');
+    const iso = formatInTimeZone(
+      anchor,
+      this.companyTimezone(),
+      `yyyy-MM-dd'T'${hh}:${mm}:00.000XXX`,
+    );
+    return new Date(iso);
+  }
+
+  /**
    * Returns the company-timezone calendar date as a Date safe for @db.Date
    * columns (e.g. WorkSession.date). companyDayStart() returns the real
    * midnight-IST instant, which for IST (UTC+5:30) falls on the *previous*
