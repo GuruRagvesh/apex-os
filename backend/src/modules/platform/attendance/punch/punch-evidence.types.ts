@@ -15,6 +15,13 @@ export const ATTENDANCE_V2_SETTING_KEY = 'attendance_v2';
 /** Safe default: the punch pipeline is OFF until deliberately enabled. */
 export const ATTENDANCE_V2_DEFAULTS = {
   punchEvidenceEnabled: false,
+  /**
+   * LH-1. When on, leave duration and paid-leave allocation are answered by the
+   * attendance foundation (business calendar + versioned LeavePolicy) instead
+   * of the leave module's own hardcoded holiday list, `workingDays` setting and
+   * role quota table. Off by default so live leave behaviour is unchanged.
+   */
+  leaveAuthorityEnabled: false,
 };
 
 /**

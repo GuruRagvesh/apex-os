@@ -3,6 +3,11 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../../platform/settings/settings.service';
 import { LeaveStatus } from '@prisma/client';
 import { TVAService } from '../../../common/services/tva.service';
+import { LeaveWorkingDayService } from './leave-working-day.service';
+import {
+  ATTENDANCE_V2_DEFAULTS,
+  ATTENDANCE_V2_SETTING_KEY,
+} from '../../platform/attendance/punch/punch-evidence.types';
 
 @Injectable()
 export class LeaveBalanceService {
@@ -10,9 +15,21 @@ export class LeaveBalanceService {
     private prisma: PrismaService,
     private settings: SettingsService,
     private tva: TVAService,
+    private workingDays: LeaveWorkingDayService,
   ) {}
 
-  // Standard public holidays for 2026 (YYYY-MM-DD)
+  /**
+   * Legacy holiday list.
+   *
+   * COMPATIBILITY DATA ONLY as of LH-1. It disagrees with the official 2026
+   * calendar the company approved (it contains Good Friday, which the official
+   * calendar deliberately excludes, and is missing several supplied holidays).
+   * It is consulted only when the Attendance V2 leave authority is OFF, and is
+   * kept solely so live behaviour is unchanged until that flag is switched on.
+   *
+   * Do not add to it. The authority is HolidayCalendar + Holiday +
+   * BusinessDayOverride, reached through LeaveWorkingDayService.
+   */
   private readonly holidays = [
     '2026-01-01', // New Year's Day
     '2026-01-26', // Republic Day
@@ -26,7 +43,30 @@ export class LeaveBalanceService {
     '2026-12-25', // Christmas
   ];
 
+  /** Whether the attendance foundation is the authority for leave maths. */
+  private async v2AuthorityEnabled(): Promise<boolean> {
+    const cfg = await this.settings.get(ATTENDANCE_V2_SETTING_KEY);
+    return (
+      (cfg?.leaveAuthorityEnabled ?? ATTENDANCE_V2_DEFAULTS.leaveAuthorityEnabled) === true
+    );
+  }
+
+  /**
+   * Paid-leave allocation for a year.
+   *
+   * V2 takes it from the employee's effective versioned LeavePolicy, which is
+   * where the approved 14-leave policy actually lives. The legacy role-quota
+   * table remains as compatibility configuration and still answers when the
+   * flag is off.
+   */
   async getYearlyAllocation(userId: string, year = 2026): Promise<number> {
+    if (await this.v2AuthorityEnabled()) {
+      const fromPolicy = await this.allocationFromLeavePolicy(userId, year);
+      if (fromPolicy !== null) return fromPolicy;
+      // No effective policy assigned: fall through to the legacy quota rather
+      // than inventing a number. Reported, not silently zeroed.
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { role: true },
@@ -36,54 +76,134 @@ export class LeaveBalanceService {
     return quotas[user.role.name] ?? 12;
   }
 
+  /** totalPaidLeaves from the employee's effective-dated LeavePolicy, if any. */
+  private async allocationFromLeavePolicy(userId: string, year: number): Promise<number | null> {
+    // Mid-year is a safe probe for "the policy that governs this year": it sits
+    // inside every sane effective window for the year.
+    const profile = await this.prisma.employeeAttendanceProfile.findFirst({
+      where: {
+        userId,
+        effectiveFrom: { lte: this.tva.companyDayEnd(new Date(`${year}-07-01T00:00:00.000Z`)) },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: this.tva.companyDayStart(new Date(`${year}-07-01T00:00:00.000Z`)) } },
+        ],
+      },
+      orderBy: { effectiveFrom: 'desc' },
+      include: { assignedLeavePolicy: true },
+    });
+
+    const policy = profile?.assignedLeavePolicy;
+    if (!policy) return null;
+    return typeof policy.totalPaidLeaves === 'number' ? policy.totalPaidLeaves : null;
+  }
+
+  /**
+   * Working days in a leave range.
+   *
+   * `userId` is optional so every existing caller keeps compiling, but it is
+   * what makes an employee-specific calendar possible — without it the V2
+   * authority cannot be used and the legacy path answers.
+   */
   async calculateLeaveDuration(
     startDate: Date | string,
     endDate: Date | string,
     isHalfDay = false,
-    workingDays = 'Mon–Sat',
+    workingDaysSetting = 'Mon–Sat',
+    userId?: string,
   ): Promise<number> {
     if (isHalfDay) return 0.5;
 
+    if (userId && (await this.v2AuthorityEnabled())) {
+      return this.workingDays.countWorkingDays(userId, startDate, endDate);
+    }
+
+    return this.legacyDuration(startDate, endDate, workingDaysSetting);
+  }
+
+  /**
+   * Canonical form of a `workingDays` setting value.
+   *
+   * The stored value has historically been written with two different dashes:
+   * `company.workingDays` defaults to an ASCII hyphen, `leave_policy.workingDays`
+   * to an en-dash. Comparing the raw string against one spelling meant the other
+   * matched NEITHER branch, so every calendar day -- Sundays included -- counted
+   * as a working day and leave durations were silently inflated.
+   *
+   * Normalising once here is deliberate: adding a second literal to each
+   * comparison would fix today's two spellings and quietly fail on the next
+   * one (an em-dash pasted from a document, a stray space).
+   */
+  private normalizeWorkingDays(value: string | null | undefined): string {
+    return (value ?? 'Mon-Sat')
+      // Every Unicode dash variant, plus the minus sign, becomes a hyphen.
+      .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+      .replace(/\s+/g, '')
+      .toLowerCase();
+  }
+
+  /**
+   * The pre-LH-1 rule set, with its company-date defect fixed.
+   *
+   * The correctness fix is deliberately NOT flag-gated. The old code derived
+   * the comparison date from `companyDayStart(d).toISOString().split('T')[0]`,
+   * which in IST yields the PREVIOUS calendar day, so 26 January never matched
+   * the holiday list and 27 January did. It also called `Date.getDay()`, which
+   * reads the SERVER's timezone — on a UTC host an IST Monday reports as
+   * Sunday and was excluded from a Mon–Sat week. Both produced silently wrong
+   * leave durations, and preserving a defect is not the same as preserving
+   * behaviour.
+   *
+   * Which holiday list and which weekly-off rule are consulted is still
+   * flag-gated; only the date arithmetic changed here.
+   */
+  private legacyDuration(
+    startDate: Date | string,
+    endDate: Date | string,
+    workingDaysSetting: string,
+  ): number {
     let duration = 0;
-    // Normalize times to start of day in company timezone
-    const current = this.tva.companyDayStart(new Date(startDate));
-    const end = this.tva.companyDayStart(new Date(endDate));
+    const schedule = this.normalizeWorkingDays(workingDaysSetting);
 
-    while (current <= end) {
-      const dayOfWeek = current.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-      const dateString = current.toISOString().split('T')[0];
+    for (const businessDate of this.workingDays.enumerateBusinessDates(startDate, endDate)) {
+      // A yyyy-MM-dd parsed as UTC midnight has a stable weekday that equals
+      // the company-local weekday for that business date, whatever the server
+      // timezone happens to be.
+      const dayOfWeek = new Date(`${businessDate}T00:00:00.000Z`).getUTCDay();
 
-      // Check if it's a holiday
-      const isHoliday = this.holidays.includes(dateString);
+      // Compared as business-date strings on both sides. No timezone shifting.
+      const isHoliday = this.holidays.includes(businessDate);
 
-      // Check if it's a working day
       let isWorkingDay = true;
-      if (workingDays === 'Mon–Fri') {
-        isWorkingDay = dayOfWeek !== 0 && dayOfWeek !== 6; // exclude Sunday (0) and Saturday (6)
-      } else if (workingDays === 'Mon–Sat') {
-        isWorkingDay = dayOfWeek !== 0; // exclude Sunday (0)
+      if (schedule === 'mon-fri') {
+        isWorkingDay = dayOfWeek !== 0 && dayOfWeek !== 6;
+      } else if (schedule === 'mon-sat') {
+        isWorkingDay = dayOfWeek !== 0;
       }
 
-      if (isWorkingDay && !isHoliday) {
-        duration++;
-      }
-
-      current.setDate(current.getDate() + 1);
+      if (isWorkingDay && !isHoliday) duration++;
     }
 
     return duration;
   }
 
-  async getDurationForRequest(startDate: Date | string, endDate: Date | string, isHalfDay = false): Promise<number> {
+  async getDurationForRequest(
+    startDate: Date | string,
+    endDate: Date | string,
+    isHalfDay = false,
+    userId?: string,
+  ): Promise<number> {
     const policy = await this.settings.get('leave_policy');
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
-    return this.calculateLeaveDuration(startDate, endDate, isHalfDay, workingDaysSetting);
+    return this.calculateLeaveDuration(startDate, endDate, isHalfDay, workingDaysSetting, userId);
   }
 
-  async getLeaveBalance(userId: string, year = 2026): Promise<{ allocation: number; approved: number; pending: number; balance: number }> {
+  async getLeaveBalance(
+    userId: string,
+    year = 2026,
+  ): Promise<{ allocation: number; approved: number; pending: number; balance: number }> {
     const allocation = await this.getYearlyAllocation(userId, year);
 
-    // Fetch approved/pending leaves in this year
     const startOfYear = this.tva.companyDayStart(new Date(year, 0, 1));
     const endOfYear = this.tva.companyDayEnd(new Date(year, 11, 31));
 
@@ -107,6 +227,7 @@ export class LeaveBalanceService {
         leave.endDate,
         leave.isHalfDay,
         workingDaysSetting,
+        userId,
       );
       if (leave.status === LeaveStatus.APPROVED) {
         approvedDays += duration;
@@ -117,15 +238,15 @@ export class LeaveBalanceService {
 
     const balance = Math.max(0, allocation - approvedDays);
 
-    return {
-      allocation,
-      approved: approvedDays,
-      pending: pendingDays,
-      balance,
-    };
+    return { allocation, approved: approvedDays, pending: pendingDays, balance };
   }
 
-  async validateLeaveRequest(userId: string, startDate: Date | string, endDate: Date | string, isHalfDay = false): Promise<void> {
+  async validateLeaveRequest(
+    userId: string,
+    startDate: Date | string,
+    endDate: Date | string,
+    isHalfDay = false,
+  ): Promise<void> {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
@@ -152,12 +273,24 @@ export class LeaveBalanceService {
     const policy = await this.settings.get('leave_policy');
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
 
-    const requestDuration = await this.calculateLeaveDuration(start, end, isHalfDay, workingDaysSetting);
+    const requestDuration = await this.calculateLeaveDuration(
+      start,
+      end,
+      isHalfDay,
+      workingDaysSetting,
+      userId,
+    );
 
     if (requestDuration === 0) {
       throw new ForbiddenException('Selected range contains no working days.');
     }
 
+    // NOTE (LH-1): this rejection is what makes LeavePolicy.lwpAfterBalanceExhausted
+    // unreachable through the normal flow — a request that would exhaust the
+    // balance never gets created, so it can never be approved as LWP. Changing
+    // it needs a way to record "requested paid, settled as unpaid" without
+    // rewriting what the employee asked for. Reported in the LH-1 findings; not
+    // changed here, because doing so silently would alter live leave outcomes.
     if (balance < requestDuration) {
       throw new ForbiddenException(`Insufficient leave balance. Remaining: ${balance} days, Requested: ${requestDuration} days.`);
     }

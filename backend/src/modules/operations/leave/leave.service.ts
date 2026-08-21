@@ -47,7 +47,7 @@ export class LeaveService {
     ]);
 
     const items = await Promise.all(dbItems.map(async (item) => {
-      const duration = await this.leaveBalance.getDurationForRequest(item.startDate, item.endDate, item.isHalfDay);
+      const duration = await this.leaveBalance.getDurationForRequest(item.startDate, item.endDate, item.isHalfDay, item.userId);
       return { ...item, duration };
     }));
 
@@ -63,12 +63,14 @@ export class LeaveService {
       include,
     });
     if (!leave) throw new NotFoundException('Leave request not found');
-    const duration = await this.leaveBalance.getDurationForRequest(leave.startDate, leave.endDate, leave.isHalfDay);
+    const duration = await this.leaveBalance.getDurationForRequest(leave.startDate, leave.endDate, leave.isHalfDay, leave.userId);
     return { ...leave, duration };
   }
 
-  async getDurationForRequest(startDate: string, endDate: string, isHalfDay: boolean) {
-    return this.leaveBalance.getDurationForRequest(startDate, endDate, isHalfDay);
+  // userId is optional so the existing public surface is unchanged, but
+  // passing it is what lets the employee's own calendar decide the duration.
+  async getDurationForRequest(startDate: string, endDate: string, isHalfDay: boolean, userId?: string) {
+    return this.leaveBalance.getDurationForRequest(startDate, endDate, isHalfDay, userId);
   }
 
   async create(data: any, userId: string) {

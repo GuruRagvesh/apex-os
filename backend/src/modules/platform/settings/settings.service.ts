@@ -18,6 +18,9 @@ const DEFAULTS: Record<string, any> = {
   // enabled deliberately, never by deploying code.
   attendance_v2: {
     punchEvidenceEnabled: false,
+    // LH-1. Makes the attendance foundation the authority for leave duration
+    // and paid-leave allocation. Off means the legacy leave rules answer.
+    leaveAuthorityEnabled: false,
   },
   sla: { URGENT: 4, HIGH: 8, MEDIUM: 24, LOW: 72 },
   review_sla: { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48 },
