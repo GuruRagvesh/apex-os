@@ -25,6 +25,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { OFFICIAL_HOLIDAYS_2026 } from '../src/modules/platform/attendance/calendar/official-holidays-2026';
 
 // ── Production Guard ──────────────────────────────────────────────────────────
 function guardAgainstProduction() {
@@ -70,29 +71,10 @@ const prisma = new PrismaClient();
 
 const FY = '2026-2027';
 
-// Corrected against the official TechnoEdge 2026 holiday list (Phase 0 audit
-// found the previous hardcoded list in leave-balance.service.ts had a wrong
-// date for Holi and was missing 7 holidays — this list is not read by any
-// service yet, so fixing it here has no runtime effect until a later phase).
-const HOLIDAYS_2026: { date: string; name: string }[] = [
-  { date: '2026-01-01', name: "New Year's Day" },
-  { date: '2026-01-26', name: 'Republic Day' },
-  { date: '2026-02-15', name: 'Maha Shivaratri/Shivaratri' },
-  { date: '2026-03-03', name: 'Holi' },
-  { date: '2026-03-19', name: 'Gudi Padwa' },
-  { date: '2026-05-01', name: 'Maharashtra Day/Labour Day' },
-  { date: '2026-08-15', name: 'Independence Day' },
-  { date: '2026-08-28', name: 'Raksha Bandhan' },
-  { date: '2026-09-14', name: 'Ganesh Chaturthi/Vinayaka Chaturthi' },
-  { date: '2026-09-25', name: 'Ganesh Visharjan' },
-  { date: '2026-10-02', name: 'Mahatma Gandhi Jayanti' },
-  { date: '2026-10-20', name: 'Dussehra' },
-  { date: '2026-11-08', name: 'Diwali/Deepavali' },
-  { date: '2026-11-09', name: 'Govardhan Puja' },
-  { date: '2026-11-10', name: 'Bhai Duj' },
-  { date: '2026-11-11', name: 'Bhai Duj' },
-  { date: '2026-12-25', name: 'Christmas' },
-];
+// The approved 2026 holiday source now lives in ONE place, shared with the
+// staging importer. Keeping a second copy here is how a company ends up with
+// two holiday calendars that disagree.
+const HOLIDAYS_2026 = OFFICIAL_HOLIDAYS_2026;
 
 async function main() {
   // ── AttendancePolicy ─────────────────────────────────────────────────────
