@@ -13,7 +13,12 @@ describe('TVA Date Authority', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
+        // Use the REAL TVAService. This spec previously supplied a stub whose
+        // companyDayStart/companyDayEnd ignored their argument and returned
+        // new Date(), so the two conversion assertions below could never pass.
+        // CompanyDateService is a pure delegating facade, so exercising it
+        // through the real service is what actually verifies the contract.
+        TVAService,
         CompanyDateService,
         {
           provide: ConfigService,

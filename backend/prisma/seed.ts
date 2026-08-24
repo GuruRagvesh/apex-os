@@ -23,6 +23,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
+import { CANONICAL_ROLES } from '../src/shared/constants/roles';
 
 // ── Production Guard ──────────────────────────────────────────────────────────
 function guardAgainstProduction() {
@@ -202,14 +203,9 @@ async function main() {
 
   // ── Roles ──────────────────────────────────────────────────────────────────
   console.log('📌 Upserting roles...');
-  const roleData = [
-    { name: 'SUPER_ADMIN', level: 0, description: 'Super administrator — unrestricted access' },
-    { name: 'ADMIN',       level: 1, description: 'Full system access' },
-    { name: 'MANAGER',     level: 2, description: 'Department management access' },
-    { name: 'TEAM_LEAD',   level: 3, description: 'Team oversight and task management' },
-    { name: 'EMPLOYEE',    level: 4, description: 'Standard employee access' },
-    { name: 'INTERN',      level: 5, description: 'Intern access' },
-  ];
+  // One definition, shared with the staging RBAC initializer, so the two can
+  // never disagree about what MANAGER outranks.
+  const roleData = CANONICAL_ROLES;
 
   const roles: Record<string, string> = {};
   for (const r of roleData) {
