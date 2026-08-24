@@ -9,6 +9,7 @@ import { ColdStartBanner } from '@apex/apps-web/components/cold-start-banner';
 import { QuickActionDock } from '@/components/ui/QuickActionDock';
 import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalette';
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
+import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
   Calendar, Activity, LogIn,
@@ -148,6 +149,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
+        {/* Workday controls. With Attendance V2 on, Start Work and End Day go
+            through the punch flow (photo + location) instead of starting a
+            session directly. */}
+        <WorkdayBar />
         <main id="apex-main-content" className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
       <ColdStartBanner />
