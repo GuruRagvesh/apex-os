@@ -179,6 +179,126 @@ async function main() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Profile readiness applicability
+//
+// A missing assignment is only a blocker where the runtime would actually look
+// for it. The attendance context resolver reads assignedShift, holiday calendar
+// and weekly-off ONLY inside its `coverage === 'COVERED'` branch, and an EXEMPT
+// employee never enters that branch — so demanding those rows from an exempt
+// profile invents a blocker the runtime does not have.
+//
+// assignedLeavePolicyId is weaker still: it blocks NOBODY. There is no
+// MISSING_LEAVE_POLICY in ContextBlockedReason, and daily-context.service marks
+// its lookup "deliberately NOT blocking", because a day with no leave request is
+// finalizable without a leave policy. It is reported here for COVERED employees
+// as readiness for the leave features, never as an attendance blocker.
+//
+// The rules below mirror EmployeeTimelineService.resolveCoverage exactly. If
+// that resolver changes, this must change with it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ProfileApplicability = 'COVERED' | 'EXEMPT' | 'NO_PROFILE';
+
+export interface ProfileReadinessRow {
+  email: string;
+  userName: string;
+  roleName: string | null;
+  hasProfile: boolean;
+  category: string | null;
+  attendanceRequired: boolean | null;
+  assignedShiftId: string | null;
+  assignedHolidayCalendarId: string | null;
+  assignedWeeklyOffPolicyId: string | null;
+  assignedLeavePolicyId: string | null;
+  assignedAttendanceLocationId: string | null;
+}
+
+/** Mirrors EmployeeTimelineService.resolveCoverage for an employed user. */
+export function classifyProfile(row: ProfileReadinessRow): ProfileApplicability {
+  if (!row.hasProfile) return 'NO_PROFILE';
+  if (row.category === 'MANAGEMENT_EXEMPT') return 'EXEMPT';
+  if (row.attendanceRequired === false) return 'EXEMPT';
+  return 'COVERED';
+}
+
+export interface ReadinessAssessment {
+  total: number;
+  covered: number;
+  exempt: number;
+  missingProfile: number;
+  /** Counted over COVERED profiles only — the ones the runtime interrogates. */
+  missing: {
+    shift: number;
+    calendar: number;
+    weeklyOff: number;
+    leavePolicy: number;
+    location: number;
+  };
+  /** Exempt profiles lacking each assignment. Reported, never blocking. */
+  exemptWithout: {
+    shift: number;
+    calendar: number;
+    weeklyOff: number;
+    leavePolicy: number;
+  };
+  /** Identity of every profile with no leave policy, so the operator can see who. */
+  withoutLeavePolicy: Array<{
+    email: string;
+    userName: string;
+    roleName: string | null;
+    applicability: ProfileApplicability;
+    category: string | null;
+    attendanceRequired: boolean | null;
+  }>;
+}
+
+export function assessProfileReadiness(rows: ProfileReadinessRow[]): ReadinessAssessment {
+  const out: ReadinessAssessment = {
+    total: rows.length,
+    covered: 0,
+    exempt: 0,
+    missingProfile: 0,
+    missing: { shift: 0, calendar: 0, weeklyOff: 0, leavePolicy: 0, location: 0 },
+    exemptWithout: { shift: 0, calendar: 0, weeklyOff: 0, leavePolicy: 0 },
+    withoutLeavePolicy: [],
+  };
+
+  for (const row of rows) {
+    const applicability = classifyProfile(row);
+
+    if (applicability === 'NO_PROFILE') {
+      out.missingProfile += 1;
+    } else if (applicability === 'EXEMPT') {
+      out.exempt += 1;
+      if (!row.assignedShiftId) out.exemptWithout.shift += 1;
+      if (!row.assignedHolidayCalendarId) out.exemptWithout.calendar += 1;
+      if (!row.assignedWeeklyOffPolicyId) out.exemptWithout.weeklyOff += 1;
+      if (!row.assignedLeavePolicyId) out.exemptWithout.leavePolicy += 1;
+    } else {
+      out.covered += 1;
+      if (!row.assignedShiftId) out.missing.shift += 1;
+      if (!row.assignedHolidayCalendarId) out.missing.calendar += 1;
+      if (!row.assignedWeeklyOffPolicyId) out.missing.weeklyOff += 1;
+      if (!row.assignedLeavePolicyId) out.missing.leavePolicy += 1;
+      if (!row.assignedAttendanceLocationId) out.missing.location += 1;
+    }
+
+    if (applicability !== 'NO_PROFILE' && !row.assignedLeavePolicyId) {
+      out.withoutLeavePolicy.push({
+        email: row.email,
+        userName: row.userName,
+        roleName: row.roleName,
+        applicability,
+        category: row.category,
+        attendanceRequired: row.attendanceRequired,
+      });
+    }
+  }
+
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Read-only data preflight
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -257,47 +377,108 @@ async function dataPreflight(prisma: PrismaClient) {
     overlaps.length > 0 ? `${overlaps.length} employee(s)` : 'none',
   );
 
-  // D-G. Per-employee readiness. Counted, not listed, so this stays readable.
-  const readiness = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT
-       COUNT(*) FILTER (WHERE p.id IS NULL)::int                      AS missing_profile,
-       COUNT(*) FILTER (WHERE p.id IS NOT NULL
-                          AND p."assignedShiftId" IS NULL)::int       AS missing_shift,
-       COUNT(*) FILTER (WHERE p.id IS NOT NULL
-                          AND p."assignedHolidayCalendarId" IS NULL)::int AS missing_calendar,
-       COUNT(*) FILTER (WHERE p.id IS NOT NULL
-                          AND p."assignedWeeklyOffPolicyId" IS NULL)::int AS missing_weeklyoff,
-       COUNT(*) FILTER (WHERE p.id IS NOT NULL
-                          AND p."assignedLeavePolicyId" IS NULL)::int AS missing_leavepolicy,
-       COUNT(*) FILTER (WHERE p.id IS NOT NULL
-                          AND p."assignedAttendanceLocationId" IS NULL)::int AS missing_location,
-       COUNT(*)::int                                                  AS total
-     FROM "users" u
-     LEFT JOIN LATERAL (
-       SELECT * FROM "employee_attendance_profiles" ep
-        WHERE ep."userId" = u.id
-        ORDER BY ep."effectiveFrom" DESC
-        LIMIT 1
-     ) p ON true
-     WHERE u."isActive" = true`,
+  // D-G. Per-employee readiness.
+  //
+  // Read row by row rather than as one aggregate COUNT, because whether an
+  // assignment is required depends on the profile's own coverage, and because
+  // "2 profiles are missing a leave policy" is not actionable without knowing
+  // which two.
+  const profileRows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT u.email                          AS email,
+            u.name                           AS user_name,
+            r.name                           AS role_name,
+            (p.id IS NOT NULL)               AS has_profile,
+            p."category"                     AS category,
+            p."attendanceRequired"           AS attendance_required,
+            p."assignedShiftId"              AS assigned_shift_id,
+            p."assignedHolidayCalendarId"    AS assigned_holiday_calendar_id,
+            p."assignedWeeklyOffPolicyId"    AS assigned_weekly_off_policy_id,
+            p."assignedLeavePolicyId"        AS assigned_leave_policy_id,
+            p."assignedAttendanceLocationId" AS assigned_attendance_location_id
+       FROM "users" u
+       LEFT JOIN "roles" r ON r.id = u."roleId"
+       LEFT JOIN LATERAL (
+         SELECT * FROM "employee_attendance_profiles" ep
+          WHERE ep."userId" = u.id
+          ORDER BY ep."effectiveFrom" DESC
+          LIMIT 1
+       ) p ON true
+      WHERE u."isActive" = true`,
   );
-  const r = readiness[0];
+
+  const assessment = assessProfileReadiness(
+    profileRows.map((x) => ({
+      email: x.email,
+      userName: x.user_name,
+      roleName: x.role_name ?? null,
+      hasProfile: Boolean(x.has_profile),
+      category: x.category ?? null,
+      attendanceRequired: x.attendance_required ?? null,
+      assignedShiftId: x.assigned_shift_id ?? null,
+      assignedHolidayCalendarId: x.assigned_holiday_calendar_id ?? null,
+      assignedWeeklyOffPolicyId: x.assigned_weekly_off_policy_id ?? null,
+      assignedLeavePolicyId: x.assigned_leave_policy_id ?? null,
+      assignedAttendanceLocationId: x.assigned_attendance_location_id ?? null,
+    })),
+  );
+
   record(
-    r.missing_profile > 0 ? 'BLOCKER' : 'PASS',
+    assessment.missingProfile > 0 ? 'BLOCKER' : 'PASS',
     'Employees without an attendance profile',
-    `${r.missing_profile} of ${r.total} active`,
+    `${assessment.missingProfile} of ${assessment.total} active`,
   );
+  record(
+    'PASS',
+    'Profile coverage split',
+    `${assessment.covered} covered, ${assessment.exempt} exempt, ` +
+      `${assessment.missingProfile} without a profile`,
+  );
+
+  // Shift, calendar and weekly-off block only a COVERED employee: those are the
+  // three the context resolver demands, and only inside its COVERED branch.
   for (const [label, value] of [
-    ['shift', r.missing_shift],
-    ['holiday calendar', r.missing_calendar],
-    ['weekly-off policy', r.missing_weeklyoff],
-    ['leave policy', r.missing_leavepolicy],
+    ['shift', assessment.missing.shift],
+    ['holiday calendar', assessment.missing.calendar],
+    ['weekly-off policy', assessment.missing.weeklyOff],
   ] as const) {
     record(
       value > 0 ? 'BLOCKER' : 'PASS',
-      `Profiles without an assigned ${label}`,
-      `${value}`,
+      `Covered profiles without an assigned ${label}`,
+      `${value} of ${assessment.covered} covered`,
     );
+  }
+
+  // Leave policy blocks nobody. A covered employee without one cannot use the
+  // V2 leave entitlement path, so entitlement functionality would be incomplete
+  // -- worth a warning. BL-5 attendance itself still resolves, so it is not a
+  // reason to hold activation.
+  record(
+    assessment.missing.leavePolicy > 0 ? 'WARNING' : 'PASS',
+    'Covered profiles without an assigned leave policy',
+    `${assessment.missing.leavePolicy} of ${assessment.covered} covered` +
+      ' (not blocking: no MISSING_LEAVE_POLICY exists in the context resolver)',
+  );
+
+  if (assessment.exemptWithout.leavePolicy > 0) {
+    record(
+      'PASS',
+      'Exempt profiles without a leave policy',
+      `${assessment.exemptWithout.leavePolicy} — expected; exempt profiles are ` +
+        'never asked for one',
+    );
+  }
+
+  // Section 1 of the brief: say WHICH profiles, not just how many. Identity
+  // fields only, no secrets.
+  if (assessment.withoutLeavePolicy.length > 0) {
+    console.log('\n  Profiles with no assigned leave policy:');
+    for (const x of assessment.withoutLeavePolicy) {
+      console.log(
+        `    ${x.applicability.padEnd(10)} ${x.email}  (${x.userName})  ` +
+          `role=${x.roleName ?? 'none'}  category=${x.category ?? 'none'}  ` +
+          `attendanceRequired=${x.attendanceRequired}`,
+      );
+    }
   }
   // Only a problem where geofencing is actually enforced.
   const geofenced = await prisma.$queryRawUnsafe<any[]>(
@@ -305,9 +486,9 @@ async function dataPreflight(prisma: PrismaClient) {
       WHERE "geoFenceEnabled" = true AND "status" = 'ACTIVE'`,
   );
   record(
-    geofenced[0].n > 0 && r.missing_location > 0 ? 'BLOCKER' : 'PASS',
-    'Profiles without a location while geofencing is on',
-    `${r.missing_location} without location, ${geofenced[0].n} geofenced polic(ies)`,
+    geofenced[0].n > 0 && assessment.missing.location > 0 ? 'BLOCKER' : 'PASS',
+    'Covered profiles without a location while geofencing is on',
+    `${assessment.missing.location} without location, ${geofenced[0].n} geofenced polic(ies)`,
   );
 
   // H-J. Existing volumes, so a migration backfill's blast radius is known
@@ -354,14 +535,22 @@ async function dataPreflight(prisma: PrismaClient) {
   const warnings = findings.filter((f) => f.severity === 'WARNING').length;
 
   console.log(`\n  ${blockers} blocker(s), ${warnings} warning(s)`);
+  // Deliberately says nothing about migrations. This script checks configuration
+  // readiness; whether migrations are outstanding is a separate question with a
+  // separate answer (`npx prisma migrate status`). Conflating the two made this
+  // line misleading as soon as the migrations were already applied.
   console.log(
     blockers === 0
-      ? '\nPREFLIGHT: CLEAR to run prisma migrate deploy against this staging database.'
-      : '\nPREFLIGHT: BLOCKED. Resolve the blockers above before migrating.',
+      ? '\nPREFLIGHT: CLEAR.\nAttendance staging configuration passes readiness checks.'
+      : '\nPREFLIGHT: BLOCKED. Resolve the blockers above before activating attendance.',
   );
 }
 
-main().catch((err) => {
-  console.error('\nPreflight failed to complete:', err?.message ?? err);
-  process.exit(1);
-});
+// Only run when invoked directly, so the applicability layer above can be unit
+// tested without this script connecting to anything.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('\nPreflight failed to complete:', err?.message ?? err);
+    process.exit(1);
+  });
+}
