@@ -215,7 +215,12 @@ export function buildPolicyObjects(input: {
   hrId: string;
   geofenceEnabled: boolean;
 }) {
-  const lifecycle = (id: string) => ({
+  type PolicyLifecycle = Pick<
+    Prisma.AttendancePolicyUncheckedCreateInput,
+    | 'id' | 'policyKey' | 'version' | 'status' | 'isActive'
+    | 'effectiveFrom' | 'effectiveTo' | 'createdById' | 'approvedById' | 'approvedAt'
+  >;
+  const lifecycle = (id: string): PolicyLifecycle => ({
     id,
     policyKey: id,
     version: 1,
@@ -243,7 +248,7 @@ export function buildPolicyObjects(input: {
       afterPunchWindowAction: PolicyDecisionAction.REQUIRE_REVIEW,
       insufficientHoursAction: PolicyDecisionAction.REQUIRE_REVIEW,
       automaticHalfDayEnabled: false,
-    },
+    } satisfies Prisma.AttendancePolicyUncheckedCreateInput,
     shift: {
       ...lifecycle(input.shiftId),
       attendancePolicyId: input.attendancePolicyId,
@@ -253,7 +258,7 @@ export function buildPolicyObjects(input: {
       endTime: '18:30',
       graceMinutes: 60,
       minimumWorkingMinutes: 540,
-    },
+    } satisfies Prisma.ShiftPolicyUncheckedCreateInput,
     leavePolicy: {
       ...lifecycle(input.leavePolicyId),
       name: STAGING_E2E.leavePolicyName,
@@ -262,8 +267,6 @@ export function buildPolicyObjects(input: {
       casualLeaveAllocation: 10,
       emergencyLeaveAllocation: 4,
       combinedPoolTypes: [],
-      carryForwardEnabled: false,
-      maxCarryForward: 0,
       holidaysExcluded: true,
       weeklyOffExcluded: true,
       firstHalfInEarliest: '09:30',
@@ -273,7 +276,7 @@ export function buildPolicyObjects(input: {
       secondHalfInLatest: '14:30',
       secondHalfOutTime: '18:30',
       compOffExpiryDays: 30,
-    },
+    } satisfies Prisma.LeavePolicyUncheckedCreateInput,
   };
 }
 
@@ -533,7 +536,10 @@ async function main() {
     const shift = compatibleShifts[0] ?? null;
     if (shift) ids.shift = shift.id;
 
-    const weeklyDesired = {
+    const weeklyDesired: Pick<
+      Prisma.WeeklyOffPolicyUncheckedCreateInput,
+      'everySunday' | 'secondSaturday' | 'fourthSaturday'
+    > = {
       everySunday: true,
       secondSaturday: true,
       fourthSaturday: true,
@@ -554,8 +560,7 @@ async function main() {
 
     const leaveFields = [
       'financialYear', 'totalPaidLeaves', 'casualLeaveAllocation',
-      'emergencyLeaveAllocation', 'combinedPoolTypes', 'carryForwardEnabled',
-      'maxCarryForward', 'holidaysExcluded', 'weeklyOffExcluded',
+      'emergencyLeaveAllocation', 'combinedPoolTypes', 'holidaysExcluded', 'weeklyOffExcluded',
       'firstHalfInEarliest', 'firstHalfInLatest', 'firstHalfRequiredPresenceMinutes',
       'secondHalfInEarliest', 'secondHalfInLatest', 'secondHalfOutTime',
       'compOffExpiryDays',
@@ -572,11 +577,17 @@ async function main() {
     if (leavePolicy) ids.leavePolicy = leavePolicy.id;
 
     const currentSetting = (setting?.value as Record<string, unknown> | null) ?? null;
+    // Every key of STAGING_ATTENDANCE_V2 is also a key of ATTENDANCE_V2_DEFAULTS,
+    // so the effective value of an absent key is its shipped default. Typed as a
+    // narrowed lookup rather than `any`, so a renamed flag is a compile error
+    // instead of a silent `undefined` that compares unequal and blocks the run.
+    const effective = (key: keyof typeof STAGING_ATTENDANCE_V2): unknown =>
+      currentSetting?.[key] ?? ATTENDANCE_V2_DEFAULTS[key];
     let settingAction: 'CREATE' | 'UPDATE_SAFE_DEFAULTS' | 'REUSE' = 'CREATE';
     let nextSetting: Record<string, unknown> = { ...STAGING_ATTENDANCE_V2 };
     if (currentSetting) {
       const alreadyDesired = Object.entries(STAGING_ATTENDANCE_V2).every(
-        ([key, value]) => (currentSetting[key] ?? (ATTENDANCE_V2_DEFAULTS as any)[key]) === value,
+        ([key, value]) => effective(key as keyof typeof STAGING_ATTENDANCE_V2) === value,
       );
       if (alreadyDesired) {
         settingAction = 'REUSE';
@@ -584,8 +595,8 @@ async function main() {
       } else {
         const safeDefaults = Object.keys(STAGING_ATTENDANCE_V2).every(
           (key) =>
-            (currentSetting[key] ?? (ATTENDANCE_V2_DEFAULTS as any)[key]) ===
-            (ATTENDANCE_V2_DEFAULTS as any)[key],
+            effective(key as keyof typeof STAGING_ATTENDANCE_V2) ===
+            ATTENDANCE_V2_DEFAULTS[key as keyof typeof STAGING_ATTENDANCE_V2],
         );
         if (!safeDefaults) {
           conflicts.push('attendance_v2 contains non-default values that conflict with the E2E plan.');
@@ -607,7 +618,12 @@ async function main() {
       conflicts.push('Existing manager department access is not FULL.');
     }
 
-    const profileBase = {
+    const profileBase: Pick<
+      Prisma.EmployeeAttendanceProfileUncheckedCreateInput,
+      | 'attendanceRequired' | 'assignedShiftId' | 'assignedLeavePolicyId'
+      | 'assignedHolidayCalendarId' | 'assignedWeeklyOffPolicyId'
+      | 'assignedAttendanceLocationId' | 'effectiveFrom' | 'effectiveTo' | 'updatedById'
+    > = {
       attendanceRequired: true,
       assignedShiftId: ids.shift,
       assignedLeavePolicyId: ids.leavePolicy,
@@ -647,7 +663,7 @@ async function main() {
         reportingManagerId: null,
         hrReviewerId: ids.hr,
       },
-    ];
+    ] satisfies Prisma.EmployeeAttendanceProfileUncheckedCreateInput[];
     const profileFields = [
       'userId', 'category', 'attendanceRequired', 'assignedShiftId', 'assignedLeavePolicyId',
       'assignedHolidayCalendarId', 'assignedWeeklyOffPolicyId', 'assignedAttendanceLocationId',
@@ -742,6 +758,11 @@ async function main() {
         },
       }));
     }
+    if (!managerAccess) {
+      operations.push(prisma.managerDeptAccess.create({
+        data: { managerId: ids.manager, departmentId: ids.department, accessLevel: 'FULL' },
+      }));
+    }
     if (!attendancePolicy) {
       operations.push(prisma.attendancePolicy.create({
         data: { ...policyObjects.attendancePolicy, id: ids.attendancePolicy, policyKey: ids.attendancePolicy },
@@ -772,14 +793,6 @@ async function main() {
         },
       }));
     }
-    if (!managerAccess) {
-      operations.push(prisma.managerDeptAccess.create({
-        data: { managerId: ids.manager, departmentId: ids.department, accessLevel: 'FULL' },
-      }));
-    }
-    for (const profile of profilesToCreate) {
-      operations.push(prisma.employeeAttendanceProfile.create({ data: profile }));
-    }
     if (settingAction === 'CREATE') {
       operations.push(prisma.appSetting.create({
         data: { key: 'attendance_v2', value: nextSetting as Prisma.InputJsonValue, updatedBy: ids.hr },
@@ -789,6 +802,10 @@ async function main() {
         where: { key: 'attendance_v2' },
         data: { value: nextSetting as Prisma.InputJsonValue, updatedBy: ids.hr },
       }));
+    }
+
+    for (const profile of profilesToCreate) {
+      operations.push(prisma.employeeAttendanceProfile.create({ data: profile }));
     }
 
     await prisma.$transaction(operations);

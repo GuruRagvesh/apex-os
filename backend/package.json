@@ -7,6 +7,7 @@
   "license": "MIT",
   "scripts": {
     "postinstall": "npx prisma generate",
+    "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
     "build": "npx prisma generate && npx tsc -p tsconfig.json",
     "format": "prettier --write \"src/**/*.ts\"",
     "start": "node dist/main.js",

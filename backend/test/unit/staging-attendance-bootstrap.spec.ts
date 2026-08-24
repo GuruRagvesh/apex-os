@@ -216,3 +216,123 @@ describe('bootstrap authority resolution', () => {
     expect(source).not.toMatch(/email\)\?\.id \?\? randomUUID\(\)/);
   });
 });
+
+const BOOTSTRAP_SRC = readFileSync(
+  resolve(__dirname, '../../scripts/bootstrap-staging-attendance-e2e.ts'),
+  'utf8',
+);
+const BOOTSTRAP_CODE = BOOTSTRAP_SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+describe('bootstrap runtime contract', () => {
+  // The apply failed on `carryForwardEnabled` / `maxCarryForward`: fields that
+  // exist in no Prisma model. They compiled because the payload builder returned
+  // an unannotated literal AND scripts/ sat outside the typechecked program, so
+  // nothing ever compared the payload against the real create input.
+  it('writes no field the LeavePolicy model does not have', () => {
+    const schema = readFileSync(resolve(__dirname, '../../prisma/schema.prisma'), 'utf8');
+    const model = /model LeavePolicy \{([\s\S]*?)\n\}/.exec(schema);
+    expect(model).not.toBeNull();
+    const columns = new Set(
+      model![1]
+        .split('\n')
+        .map((line) => line.trim().split(/\s+/)[0])
+        .filter((name) => /^[a-z][A-Za-z0-9]*$/.test(name)),
+    );
+    expect(columns.has('totalPaidLeaves')).toBe(true); // the extractor really works
+
+    const objects = buildPolicyObjects({
+      financialYear: '2026-2027',
+      effectiveFrom: new Date('2026-08-21T00:00:00.000Z'),
+      attendancePolicyId: 'a',
+      shiftId: 's',
+      leavePolicyId: 'l',
+      managerId: 'm',
+      hrId: 'h',
+      geofenceEnabled: false,
+    });
+
+    const unknown = Object.keys(objects.leavePolicy).filter((k) => !columns.has(k));
+    expect(unknown).toEqual([]);
+  });
+
+  it('does not reintroduce the carry-forward fields management never confirmed', () => {
+    expect(BOOTSTRAP_CODE).not.toMatch(/carryForwardEnabled/);
+    expect(BOOTSTRAP_CODE).not.toMatch(/maxCarryForward/);
+  });
+
+  // `satisfies` restores excess-property checking on a literal, but NOT on
+  // properties arriving through a spread -- verified directly against tsc. So
+  // every partial that gets spread into a payload is annotated at its own
+  // definition site, and every complete payload carries `satisfies`.
+  it('statically pins every payload to its real Prisma create input', () => {
+    for (const pin of [
+      /satisfies Prisma\.AttendancePolicyUncheckedCreateInput/,
+      /satisfies Prisma\.ShiftPolicyUncheckedCreateInput/,
+      /satisfies Prisma\.LeavePolicyUncheckedCreateInput/,
+      /satisfies Prisma\.EmployeeAttendanceProfileUncheckedCreateInput\[\]/,
+      /lifecycle = \(id: string\): PolicyLifecycle/,
+      /profileBase: Pick<\s*Prisma\.EmployeeAttendanceProfileUncheckedCreateInput/,
+      /weeklyDesired: Pick<\s*Prisma\.WeeklyOffPolicyUncheckedCreateInput/,
+    ]) {
+      expect(BOOTSTRAP_SRC).toMatch(pin);
+    }
+    expect(BOOTSTRAP_CODE).not.toMatch(/as any/);
+  });
+
+  it('is inside a typechecked program, which is what actually catches this', () => {
+    // The `satisfies` above is inert unless something actually compiles scripts/.
+    const cfg = JSON.parse(
+      readFileSync(resolve(__dirname, '../../tsconfig.scripts.json'), 'utf8'),
+    );
+    expect(cfg.include).toContain('scripts/**/*');
+    expect(cfg.compilerOptions.noEmit).toBe(true);
+
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8'));
+    expect(pkg.scripts['typecheck:scripts']).toContain('tsconfig.scripts.json');
+
+    // The main build still excludes scripts/, which is why the second program exists.
+    const main = JSON.parse(readFileSync(resolve(__dirname, '../../tsconfig.json'), 'utf8'));
+    expect(main.include).toEqual(['src/**/*']);
+  });
+
+  it('queues writes so every foreign key already exists when it is used', () => {
+    const order = [...BOOTSTRAP_CODE.matchAll(/operations\.push\(prisma\.(\w+)\./g)].map(
+      (m) => m[1],
+    );
+    expect(order).toEqual([
+      'department',
+      'user',
+      'managerDeptAccess',
+      'attendancePolicy',
+      'shiftPolicy',
+      'weeklyOffPolicy',
+      'leavePolicy',
+      'appSetting',
+      'appSetting',
+      'employeeAttendanceProfile',
+    ]);
+    // Users need the department; ManagerDeptAccess needs the manager and the
+    // department; the profiles need every policy above them.
+    expect(order.indexOf('user')).toBeGreaterThan(order.indexOf('department'));
+    expect(order.indexOf('managerDeptAccess')).toBeGreaterThan(order.indexOf('user'));
+    expect(order.indexOf('shiftPolicy')).toBeGreaterThan(order.indexOf('attendancePolicy'));
+    expect(order.indexOf('employeeAttendanceProfile')).toBe(order.length - 1);
+  });
+
+  it('builds the payloads once, so a dry run cannot differ from the apply', () => {
+    // Both paths read the same `policyObjects` / `desiredProfiles`; the apply adds
+    // no second builder that could drift from what the dry run printed.
+    expect(BOOTSTRAP_CODE.match(/export function buildPolicyObjects\(/g) ?? []).toHaveLength(1);
+    expect(BOOTSTRAP_CODE.match(/buildPolicyObjects\(\{/g) ?? []).toHaveLength(1);
+    expect(BOOTSTRAP_CODE.match(/const desiredProfiles = \[/g) ?? []).toHaveLength(1);
+    expect(BOOTSTRAP_CODE).toMatch(/const operations: Prisma\.PrismaPromise<unknown>\[\] = \[\]/);
+  });
+
+  it('still refuses to write without passwords, before any row is queued', () => {
+    const gate = BOOTSTRAP_CODE.indexOf('must be supplied with at least 12 characters');
+    const firstWrite = BOOTSTRAP_CODE.indexOf('operations.push(');
+    expect(gate).toBeGreaterThan(-1);
+    expect(firstWrite).toBeGreaterThan(gate);
+    expect(BOOTSTRAP_CODE).toMatch(/password\.length < 12/);
+  });
+});
