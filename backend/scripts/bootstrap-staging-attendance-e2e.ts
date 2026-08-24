@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { v5 as uuidv5 } from 'uuid';
 import * as bcrypt from 'bcryptjs';
 import {
   AttendanceCategory,
@@ -35,29 +36,134 @@ export const STAGING_E2E = {
   weeklyOffName: 'Staging Attendance E2E Weekly Off',
   leavePolicyName: 'Staging Attendance E2E Leave Policy',
   users: {
+    // Each actor declares the AUTHORITY it needs, never a role name. Apex
+    // decides authority from three separate things -- the role's position in
+    // the level ladder, the isHR flag, and department access -- and only the
+    // first of those is a role at all.
     employee: {
       email: 'attendance-e2e-employee@apex.local',
       name: 'Staging Attendance Employee',
       employeeId: 'STG-ATT-E2E-EMP',
-      role: 'EMPLOYEE',
+      authority: 'BASELINE' as const,
       isHR: false,
     },
     manager: {
+      // Reporting-manager authority comes from User.reportingManager plus
+      // ManagerDeptAccess. The role only has to clear LeaveAccessService's
+      // approver gate and sit ABOVE the employee on the level ladder.
       email: 'attendance-e2e-manager@apex.local',
       name: 'Staging Attendance Manager',
       employeeId: 'STG-ATT-E2E-MGR',
-      role: 'MANAGER',
+      authority: 'APPROVER' as const,
       isHR: false,
     },
     hr: {
+      // HR authority is isHR=true. isHrOrAdmin() returns true on that flag
+      // alone, so no ADMIN role is required -- but every user needs SOME role
+      // because User.roleId is non-nullable.
       email: 'attendance-e2e-hr@apex.local',
       name: 'Staging Attendance HR Admin',
       employeeId: 'STG-ATT-E2E-HR',
-      role: 'ADMIN',
+      authority: 'HR' as const,
       isHR: true,
     },
   },
 } as const;
+
+/**
+ * Role names that clear LeaveAccessService's approver gate. Anything outside
+ * this set cannot approve leave however senior it looks.
+ */
+const APPROVER_ROLE_NAMES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'TEAM_LEAD'];
+
+export interface RoleRow {
+  id: string;
+  name: string;
+  level: number;
+}
+
+export interface ResolvedAuthority {
+  baselineRole: RoleRow | null;
+  approverRole: RoleRow | null;
+  hrRole: RoleRow | null;
+  problems: string[];
+}
+
+/**
+ * Maps the three E2E actors onto whatever roles this database actually has.
+ *
+ * The previous version required roles literally named EMPLOYEE, MANAGER and
+ * ADMIN, which is why the dry run failed closed on staging. Apex does not
+ * define authority that way:
+ *
+ *   employee  any role, provided it sits BELOW the approver on the ladder --
+ *             LeaveAccessService refuses when approver.level >= target.level
+ *   manager   a role in APPROVER_ROLE_NAMES, strictly above the employee.
+ *             The reporting relationship itself comes from
+ *             User.reportingManager and ManagerDeptAccess, not from the role
+ *   HR        isHR = true. isHrOrAdmin() is satisfied by that flag alone
+ *
+ * Preferences are honoured when present so a conventionally-seeded database
+ * still gets conventional roles, but nothing is REQUIRED by name. It never
+ * silently takes the first row: if no role can satisfy a capability, the
+ * problem is reported and the caller fails closed.
+ */
+export function resolveAuthorityRoles(roles: RoleRow[]): ResolvedAuthority {
+  const problems: string[] = [];
+  if (roles.length === 0) {
+    return { baselineRole: null, approverRole: null, hrRole: null, problems: ['No roles exist in this database.'] };
+  }
+
+  const byName = new Map(roles.map((r) => [r.name.toUpperCase(), r]));
+  const pick = (names: string[]) => names.map((n) => byName.get(n)).find(Boolean) ?? null;
+
+  // Least privileged first: highest level number is furthest from SUPER_ADMIN.
+  const byLeastPrivileged = [...roles].sort((a, b) => b.level - a.level);
+  const baselineRole = pick(['EMPLOYEE', 'INTERN']) ?? byLeastPrivileged[0] ?? null;
+
+  // Must clear the approver gate AND outrank the employee on the ladder.
+  const approverCandidates = roles
+    .filter((r) => APPROVER_ROLE_NAMES.includes(r.name.toUpperCase()))
+    .filter((r) => !baselineRole || r.level < baselineRole.level);
+
+  // Prefer the closest thing to a reporting manager; fall back to the least
+  // privileged role that still qualifies, never simply the first row.
+  const approverPreference = ['MANAGER', 'TEAM_LEAD', 'ADMIN', 'SUPER_ADMIN'];
+  const approverRole =
+    approverPreference
+      .map((name) => approverCandidates.find((r) => r.name.toUpperCase() === name))
+      .find(Boolean) ??
+    [...approverCandidates].sort((a, b) => b.level - a.level)[0] ??
+    null;
+
+  // HR needs a role only because roleId is non-nullable; the authority is isHR.
+  const hrRole = pick(['ADMIN', 'SUPER_ADMIN']) ?? approverRole ?? baselineRole ?? null;
+
+  if (!baselineRole) problems.push('No role could serve as the employee baseline.');
+  if (!approverRole) {
+    problems.push(
+      'No role can act as reporting manager. One of ' +
+        APPROVER_ROLE_NAMES.join(', ') +
+        ` must exist with a level below the employee baseline (${baselineRole?.name ?? 'unknown'} ` +
+        `level ${baselineRole?.level ?? '?'}).`,
+    );
+  }
+  if (!hrRole) problems.push('No role exists to assign to the HR user.');
+
+  return { baselineRole, approverRole, hrRole, problems };
+}
+
+/**
+ * Stable namespace for this bootstrap's generated ids.
+ *
+ * Ids are derived from a natural key rather than randomised, so two dry runs of
+ * an unchanged database produce an identical plan. With randomUUID() the report
+ * showed different "identities" on every run, which made a dry run impossible
+ * to compare against the apply that followed it -- and made an id look like an
+ * existing staging user when it was really a proposal invented moments earlier.
+ */
+const BOOTSTRAP_ID_NAMESPACE = '6f1b7c2e-9f3a-4a5b-8c1d-2e4f6a8b0c2d';
+const stableId = (key: string) => uuidv5(`apex-attendance-e2e:${key}`, BOOTSTRAP_ID_NAMESPACE);
 
 export const STAGING_ATTENDANCE_V2 = {
   punchEvidenceEnabled: true,
@@ -212,7 +318,9 @@ async function main() {
     const targetEmails = Object.values(STAGING_E2E.users).map((u) => u.email);
     const [roles, department, targetUsers, safeCandidates, setting, calendars, locations] =
       await Promise.all([
-        prisma.role.findMany({ where: { name: { in: ['EMPLOYEE', 'MANAGER', 'ADMIN'] } } }),
+        // Every role, so authority can be resolved against what exists rather
+        // than demanding three specific names.
+        prisma.role.findMany({ orderBy: { level: 'asc' } }),
         prisma.department.findUnique({ where: { name: STAGING_E2E.departmentName } }),
         prisma.user.findMany({
           where: { email: { in: targetEmails } },
@@ -241,10 +349,28 @@ async function main() {
       ]);
 
     const conflicts: string[] = [];
-    const roleByName = new Map(roles.map((r) => [r.name, r]));
-    for (const name of ['EMPLOYEE', 'MANAGER', 'ADMIN']) {
-      if (!roleByName.has(name)) conflicts.push(`Required role ${name} does not exist.`);
+
+    // ── Authority resolution ────────────────────────────────────────────
+    // Discovery output first, so a failure here is diagnosable from the dry
+    // run alone rather than needing a second query.
+    console.log('\n  Roles present in this database:');
+    for (const r of roles) {
+      console.log(`    ${String(r.level).padStart(2)}  ${r.name}`);
     }
+    if (roles.length === 0) console.log('    (none)');
+
+    const authority = resolveAuthorityRoles(roles);
+    for (const problem of authority.problems) conflicts.push(problem);
+
+    console.log('\n  Resolved authority for the three E2E actors:');
+    console.log(`    employee baseline : ${authority.baselineRole?.name ?? 'UNRESOLVED'}`);
+    console.log(
+      `    reporting manager : ${authority.approverRole?.name ?? 'UNRESOLVED'}` +
+        ' (+ ManagerDeptAccess FULL, + User.reportingManager)',
+    );
+    console.log(
+      `    HR                : isHR=true, carrying role ${authority.hrRole?.name ?? 'UNRESOLVED'}`,
+    );
 
     if (calendars.length !== 1) {
       conflicts.push(
@@ -290,14 +416,17 @@ async function main() {
       weeklyOff: string;
       leavePolicy: string;
     } = {
-      department: department?.id ?? randomUUID(),
-      employee: targetUsers.find((u) => u.email === STAGING_E2E.users.employee.email)?.id ?? randomUUID(),
-      manager: targetUsers.find((u) => u.email === STAGING_E2E.users.manager.email)?.id ?? randomUUID(),
-      hr: targetUsers.find((u) => u.email === STAGING_E2E.users.hr.email)?.id ?? randomUUID(),
-      attendancePolicy: randomUUID(),
-      shift: randomUUID(),
-      weeklyOff: randomUUID(),
-      leavePolicy: randomUUID(),
+      department: department?.id ?? stableId('department'),
+      employee: targetUsers.find((u) => u.email === STAGING_E2E.users.employee.email)?.id ??
+        stableId(STAGING_E2E.users.employee.email),
+      manager: targetUsers.find((u) => u.email === STAGING_E2E.users.manager.email)?.id ??
+        stableId(STAGING_E2E.users.manager.email),
+      hr: targetUsers.find((u) => u.email === STAGING_E2E.users.hr.email)?.id ??
+        stableId(STAGING_E2E.users.hr.email),
+      attendancePolicy: stableId('attendance-policy'),
+      shift: stableId('shift-policy'),
+      weeklyOff: stableId('weekly-off-policy'),
+      leavePolicy: stableId('leave-policy'),
     };
 
     const userByEmail = new Map(targetUsers.map((u) => [u.email, u]));
@@ -305,21 +434,21 @@ async function main() {
       employee: {
         ...STAGING_E2E.users.employee,
         id: ids.employee,
-        roleId: roleByName.get('EMPLOYEE')?.id,
+        roleId: authority.baselineRole?.id,
         departmentId: ids.department,
         reportingManager: STAGING_E2E.users.manager.employeeId,
       },
       manager: {
         ...STAGING_E2E.users.manager,
         id: ids.manager,
-        roleId: roleByName.get('MANAGER')?.id,
+        roleId: authority.approverRole?.id,
         departmentId: ids.department,
         reportingManager: null,
       },
       hr: {
         ...STAGING_E2E.users.hr,
         id: ids.hr,
-        roleId: roleByName.get('ADMIN')?.id,
+        roleId: authority.hrRole?.id,
         departmentId: ids.department,
         reportingManager: null,
       },

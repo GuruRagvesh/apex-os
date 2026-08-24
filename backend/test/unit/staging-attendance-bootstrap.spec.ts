@@ -108,3 +108,111 @@ describe('staging Attendance E2E bootstrap', () => {
     expect(source).not.toMatch(/prisma\.compOffCredit\.create/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Authority resolution.
+//
+// The dry run failed closed on staging with "Required role EMPLOYEE does not
+// exist". That was the bootstrap demanding role NAMES, when Apex decides
+// authority from three separate things — the level ladder, the isHR flag, and
+// department access — only the first of which is a role at all.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { resolveAuthorityRoles } from '../../scripts/bootstrap-staging-attendance-e2e';
+
+const LADDER = [
+  { id: 'r0', name: 'SUPER_ADMIN', level: 0 },
+  { id: 'r1', name: 'ADMIN', level: 1 },
+  { id: 'r2', name: 'MANAGER', level: 2 },
+  { id: 'r3', name: 'TEAM_LEAD', level: 3 },
+  { id: 'r4', name: 'EMPLOYEE', level: 4 },
+  { id: 'r5', name: 'INTERN', level: 5 },
+];
+
+describe('bootstrap authority resolution', () => {
+  it('uses the conventional roles when a conventionally seeded database has them', () => {
+    const a = resolveAuthorityRoles(LADDER);
+    expect(a.problems).toEqual([]);
+    expect(a.baselineRole?.name).toBe('EMPLOYEE');
+    expect(a.approverRole?.name).toBe('MANAGER');
+    expect(a.hrRole?.name).toBe('ADMIN');
+  });
+
+  it('works without an EMPLOYEE role by taking the least privileged that exists', () => {
+    const a = resolveAuthorityRoles([
+      { id: 'r1', name: 'ADMIN', level: 1 },
+      { id: 'r2', name: 'MANAGER', level: 2 },
+      { id: 'r9', name: 'STAFF', level: 9 },
+    ]);
+    expect(a.problems).toEqual([]);
+    expect(a.baselineRole?.name).toBe('STAFF');
+    expect(a.approverRole?.name).toBe('MANAGER');
+  });
+
+  it('needs no ADMIN role, because HR authority is the isHR flag', () => {
+    const a = resolveAuthorityRoles([
+      { id: 'r3', name: 'TEAM_LEAD', level: 3 },
+      { id: 'r4', name: 'EMPLOYEE', level: 4 },
+    ]);
+    // The HR user still needs SOME role because User.roleId is non-nullable,
+    // but isHrOrAdmin() is satisfied by isHR=true alone.
+    expect(a.problems).toEqual([]);
+    expect(a.hrRole).not.toBeNull();
+    expect(a.approverRole?.name).toBe('TEAM_LEAD');
+  });
+
+  it('picks an approver that outranks the employee on the level ladder', () => {
+    const a = resolveAuthorityRoles(LADDER);
+    // LeaveAccessService throws when approver.level >= target.level, so an
+    // approver at or below the employee would be refused at approval time.
+    expect(a.approverRole!.level).toBeLessThan(a.baselineRole!.level);
+  });
+
+  it('fails closed when no role can approve, instead of taking the first row', () => {
+    const a = resolveAuthorityRoles([
+      { id: 'x1', name: 'CONTRACTOR', level: 4 },
+      { id: 'x2', name: 'VISITOR', level: 5 },
+    ]);
+    expect(a.approverRole).toBeNull();
+    expect(a.problems.join(' ')).toMatch(/No role can act as reporting manager/);
+    // Neither unqualified role was quietly promoted into the approver slot.
+    expect(a.problems.length).toBeGreaterThan(0);
+  });
+
+  it('refuses an approver-named role that does not outrank the employee', () => {
+    // A MANAGER sitting at or below the employee cannot approve, whatever it
+    // is called.
+    const a = resolveAuthorityRoles([
+      { id: 'm', name: 'MANAGER', level: 4 },
+      { id: 'e', name: 'EMPLOYEE', level: 4 },
+    ]);
+    expect(a.approverRole).toBeNull();
+    expect(a.problems.join(' ')).toMatch(/level below the employee baseline/);
+  });
+
+  it('reports a clear problem for an empty roles table', () => {
+    const a = resolveAuthorityRoles([]);
+    expect(a.baselineRole).toBeNull();
+    expect(a.problems).toEqual(['No roles exist in this database.']);
+  });
+
+  it('no longer demands roles literally named EMPLOYEE, MANAGER or ADMIN', () => {
+    const source = readFileSync(
+      resolve(__dirname, '../../scripts/bootstrap-staging-attendance-e2e.ts'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/Required role \$\{name\} does not exist/);
+    expect(source).not.toMatch(/roleByName\.get\('(EMPLOYEE|MANAGER|ADMIN)'\)/);
+  });
+
+  it('generates the same plan twice, so a dry run can be compared to the apply', () => {
+    const source = readFileSync(
+      resolve(__dirname, '../../scripts/bootstrap-staging-attendance-e2e.ts'),
+      'utf8',
+    );
+    // randomUUID() made every dry run report different "identities" for users
+    // that did not exist yet.
+    expect(source).toMatch(/const stableId = /);
+    expect(source).not.toMatch(/email\)\?\.id \?\? randomUUID\(\)/);
+  });
+});
