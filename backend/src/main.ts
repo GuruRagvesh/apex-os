@@ -70,9 +70,23 @@ async function bootstrap() {
     console.error(`\n❌ FATAL: Missing required env vars: ${missing.join(', ')}\n`);
     process.exit(1);
   }
-  ['OPENAI_API_KEY', 'CLOUDINARY_CLOUD_NAME']
+  ['OPENAI_API_KEY']
     .filter((k) => !process.env[k])
     .forEach((k) => console.warn(`⚠️  WARN: ${k} not set — related features disabled`));
+
+  // Attendance photo storage needs all three, and PunchPhotoStorage fails
+  // closed unless it has them. Warning on CLOUDINARY_CLOUD_NAME alone was
+  // misleading: setting just that name silenced this line while every punch
+  // still returned 503. Names only -- never their values.
+  const cloudinaryKeys = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+  const missingCloudinary = cloudinaryKeys.filter((k) => !process.env[k]);
+  if (missingCloudinary.length) {
+    console.warn(
+      `⚠️  WARN: Attendance photo storage is not fully configured — missing ` +
+        `${missingCloudinary.join(', ')}. Punch photo capture will be refused. ` +
+        `Check /health -> attendancePhotoStorage.configured for the runtime answer.`,
+    );
+  }
 
   // ── Start ─────────────────────────────────────────────────────────────────
   const port = process.env.PORT || 3001;

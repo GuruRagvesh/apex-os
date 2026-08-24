@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PunchEvidenceService } from './punch-evidence.service';
 import { PunchPhotoService } from './punch-photo.service';
-import { PunchPhotoStorage } from './punch-photo.storage';
+import { PunchPhotoStorageModule } from './punch-photo-storage.module';
 import { PunchEvidenceController } from './punch-evidence.controller';
 import { PunchPhotoController } from './punch-photo.controller';
 import { DailyContextModule } from '../context/daily-context.module';
@@ -16,9 +16,9 @@ import { WorkdayModule } from '../../workday/workday.module';
  * authenticated employee, and the feature flag defaults OFF.
  */
 @Module({
-  imports: [DailyContextModule, SettingsModule, WorkdayModule],
+  imports: [DailyContextModule, SettingsModule, WorkdayModule, PunchPhotoStorageModule],
   controllers: [PunchEvidenceController, PunchPhotoController],
-  providers: [PunchEvidenceService, PunchPhotoService, PunchPhotoStorage],
+  providers: [PunchEvidenceService, PunchPhotoService],
   exports: [PunchEvidenceService, PunchPhotoService],
 })
 export class PunchEvidenceModule {}
