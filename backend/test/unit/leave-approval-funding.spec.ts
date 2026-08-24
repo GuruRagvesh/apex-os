@@ -25,10 +25,13 @@ const LEAVE = {
 };
 
 interface SettleFixtures {
+  /** How many unexpired credits the employee holds, for multi-day comp off. */
+  compOffCreditsAvailable?: number;
   leave?: any;
   allocation?: number;
   requestedDays?: number;
   otherApproved?: any[];
+  compOffCredit?: any;
 }
 
 function settlementRig(f: SettleFixtures = {}) {
@@ -68,8 +71,23 @@ function settlementRig(f: SettleFixtures = {}) {
     }),
   };
 
-  const service = new LeaveSettlementService(prisma, tvaOf(), balance);
-  return { service, prisma, tx, lockOrder, updates, balance, balanceCalls };
+  const compOff: any = {
+    consumeAvailable: jest.fn().mockResolvedValue(f.compOffCredit ?? null),
+    // Multi-day: N qualifying leave-days costs N credits, all-or-nothing.
+    consumeForDays: jest.fn((_tx: any, _employeeId: string, _leaveId: string, days: number) =>
+      Promise.resolve(
+        f.compOffCreditsAvailable !== undefined
+          ? f.compOffCreditsAvailable >= days
+            ? Array.from({ length: days }, (_, i) => `credit-${i + 1}`)
+            : null
+          : f.compOffCredit
+            ? Array.from({ length: days }, (_, i) => `credit-${i + 1}`)
+            : null,
+      ),
+    ),
+  };
+  const service = new LeaveSettlementService(prisma, tvaOf(), balance, compOff);
+  return { service, prisma, tx, lockOrder, updates, balance, balanceCalls, compOff };
 }
 
 describe('LH-2 funding split', () => {
@@ -675,6 +693,98 @@ describe('LH-2 migration invents no history', () => {
     // record "HR approved by X" about somebody who may never have been HR.
     expect(assignsTo('hrApprovedById')).toBe(false);
     expect(assignsTo('hrApprovedAt')).toBe(false);
+  });
+
+  it.each([
+    ['CASUAL', 10],
+    ['EMERGENCY', 4],
+  ])('16. %s settlement reads only its own entitlement pool', async (type, allocation) => {
+    const { service, balance, tx } = settlementRig({
+      leave: { ...LEAVE, type },
+      allocation,
+      requestedDays: 1,
+    });
+    await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
+    expect(balance.getYearlyAllocation).toHaveBeenCalledWith('emp-1', 2026, type);
+    expect(tx.leaveRequest.findMany.mock.calls[0][0].where.type).toBe(type);
+  });
+
+  it('17. COMP_OFF final approval atomically consumes one locked credit', async () => {
+    const { service, compOff, updates } = settlementRig({
+      leave: { ...LEAVE, type: 'COMP_OFF', endDate: LEAVE.startDate },
+      requestedDays: 1,
+      compOffCredit: { id: 'credit-1' },
+    });
+    const result = await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
+    expect(compOff.consumeForDays).toHaveBeenCalledWith(expect.anything(), 'emp-1', 'lv-1', 1);
+    expect(result.settlement).toMatchObject({ fundingOutcome: 'PAID', paidDays: 1, unpaidDays: 0 });
+    expect(updates[0].status).toBe('APPROVED');
+  });
+
+  it('17a. a two-day COMP_OFF request consumes two credits', async () => {
+    const { service, compOff, updates } = settlementRig({
+      leave: { ...LEAVE, type: 'COMP_OFF' },
+      requestedDays: 2,
+      compOffCreditsAvailable: 2,
+    });
+
+    const result = await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
+
+    expect(compOff.consumeForDays).toHaveBeenCalledWith(expect.anything(), 'emp-1', 'lv-1', 2);
+    // Comp off is its own entitlement: fully funded by credits, never drawn
+    // from a paid-leave balance.
+    expect(result.settlement).toMatchObject({ fundingOutcome: 'PAID', paidDays: 2, unpaidDays: 0 });
+    expect(updates[0].status).toBe('APPROVED');
+  });
+
+  it('17b. a two-day COMP_OFF request with one credit is not partly funded', async () => {
+    const { service, updates } = settlementRig({
+      leave: { ...LEAVE, type: 'COMP_OFF' },
+      requestedDays: 2,
+      compOffCreditsAvailable: 1,
+    });
+
+    // It must not settle as PARTIAL and must not fall back to Casual or
+    // Emergency: those are separate management entitlements.
+    await expect(service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' }))
+      .rejects.toThrow(/needs 2 unexpired Comp Off credit/);
+    expect(updates).toEqual([]);
+  });
+
+  it('18. COMP_OFF approval refuses when no unexpired credit can be locked', async () => {
+    const { service, updates } = settlementRig({
+      leave: { ...LEAVE, type: 'COMP_OFF', endDate: LEAVE.startDate },
+      requestedDays: 1,
+    });
+    await expect(service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' }))
+      .rejects.toThrow(/needs 1 unexpired Comp Off credit/);
+    expect(updates).toEqual([]);
+  });
+
+  it('18a. half-day COMP_OFF is refused rather than given an invented half credit', async () => {
+    const { service, updates } = settlementRig({
+      leave: { ...LEAVE, type: 'COMP_OFF', isHalfDay: true },
+      requestedDays: 0.5,
+      compOffCreditsAvailable: 5,
+    });
+
+    await expect(service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' }))
+      .rejects.toThrow(/whole working days/);
+    expect(updates).toEqual([]);
+  });
+
+  it.each([
+    ['CASUAL', 1, 2, 'PARTIAL'],
+    ['EMERGENCY', 0, 2, 'UNPAID'],
+    ['CASUAL', 2, 2, 'PAID'],
+  ])('19. %s with %s available for %s requested settles %s', async (type, allocation, requestedDays, outcome) => {
+    const { service } = settlementRig({
+      leave: { ...LEAVE, type },
+      allocation,
+      requestedDays,
+    });
+    const result = await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
+    expect(result.settlement.fundingOutcome).toBe(outcome);
   });
 
   it('40. no historical row is given a fabricated manager approver', () => {

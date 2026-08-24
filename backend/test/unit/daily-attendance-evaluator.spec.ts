@@ -59,6 +59,19 @@ const BASE_POLICY = {
   automaticHalfDayEnabled: false,
 };
 
+const BASE_LEAVE_POLICY = {
+  policyId: 'lp-1',
+  policyKey: 'lp',
+  version: 1,
+  firstHalfInEarliest: '09:30',
+  firstHalfInLatest: '10:30',
+  firstHalfRequiredPresenceMinutes: 240,
+  secondHalfInEarliest: '14:00',
+  secondHalfInLatest: '14:30',
+  secondHalfOutTime: '18:30',
+  compOffExpiryDays: 30,
+};
+
 function context(overrides: any = {}) {
   return {
     employeeId: 'emp-1',
@@ -83,7 +96,7 @@ function context(overrides: any = {}) {
     attendancePolicy: overrides.attendancePolicy === null
       ? null
       : { ...BASE_POLICY, ...(overrides.attendancePolicy ?? {}) },
-    leavePolicy: { policyId: 'lp-1', policyKey: 'lp', version: 1 },
+    leavePolicy: { ...BASE_LEAVE_POLICY, ...(overrides.leavePolicy ?? {}) },
     contextResolved: true,
     attendanceApplicability: 'REQUIRED',
     requiresHrReview: false,
@@ -335,13 +348,137 @@ describe('AE-1 leave integration', () => {
   });
 
   it('10. an approved half-day leave is HALF_DAY even with automatic half-day off', async () => {
-    const { service } = rig({ leaves: [approved({ isHalfDay: true, halfDayType: 'FIRST_HALF' })] });
+    const { service } = rig({
+      leaves: [approved({ isHalfDay: true, halfDayType: 'FIRST_HALF' })],
+      evidence: [punch('PUNCH_IN', ist('09:30')), punch('PUNCH_OUT', ist('13:30'))],
+    });
 
     const r = await service.evaluate('emp-1', DATE);
 
     // Proven by an approval, not manufactured from a threshold.
     expect(r.status).toBe('HALF_DAY');
     expect(r.leaveDeducted).toBe(0.5);
+    expect(r.evaluationState).toBe('CALCULATED');
+  });
+
+  it.each(['09:30', '10:00', '10:30'])(
+    '10a. FIRST_HALF accepts inclusive Punch In boundary %s with four hours from actual In',
+    async (punchIn) => {
+      const [hour, minute] = punchIn.split(':').map(Number);
+      const outMinutes = hour * 60 + minute + 240;
+      const punchOut = `${String(Math.floor(outMinutes / 60)).padStart(2, '0')}:${String(outMinutes % 60).padStart(2, '0')}`;
+      const { service } = rig({
+        leaves: [approved({ isHalfDay: true, halfDaySession: 'FIRST_HALF', halfDayType: 'FIRST_HALF' })],
+        evidence: [punch('PUNCH_IN', ist(punchIn)), punch('PUNCH_OUT', ist(punchOut))],
+      });
+      const r = await service.evaluate('emp-1', DATE);
+      expect(r.status).toBe('HALF_DAY');
+      expect(r.evaluationState).toBe('CALCULATED');
+    },
+  );
+
+  it('10b. FIRST_HALF short presence remains HALF_DAY but requires review', async () => {
+    const { service } = rig({
+      leaves: [approved({ isHalfDay: true, halfDaySession: 'FIRST_HALF' })],
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('13:59'))],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+    expect(r.status).toBe('HALF_DAY');
+    expect(r.exceptionFlags).toContain('HALF_DAY_INSUFFICIENT_PRESENCE');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+  });
+
+  it('10b1. FIRST_HALF Punch In at 09:29 is outside the window and needs review', async () => {
+    // The window is inclusive at BOTH ends. Arriving a minute early is as much
+    // a deviation from the approved half day as arriving a minute late.
+    const { service } = rig({
+      leaves: [approved({ isHalfDay: true, halfDaySession: 'FIRST_HALF' })],
+      evidence: [punch('PUNCH_IN', ist('09:29')), punch('PUNCH_OUT', ist('13:29'))],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.exceptionFlags).toContain('HALF_DAY_PUNCH_IN_OUTSIDE_WINDOW');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    // Still a half day, and still no manufactured penalty.
+    expect(r.status).toBe('HALF_DAY');
+    expect(r.status).not.toBe('ABSENT');
+    expect(r.lwpDeducted).toBe(0);
+  });
+
+  it('10b2. FIRST_HALF Punch In at 10:31 requires review for the window', async () => {
+    const { service } = rig({
+      leaves: [approved({ isHalfDay: true, halfDaySession: 'FIRST_HALF' })],
+      evidence: [punch('PUNCH_IN', ist('10:31')), punch('PUNCH_OUT', ist('14:31'))],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+    expect(r.exceptionFlags).toContain('HALF_DAY_PUNCH_IN_OUTSIDE_WINDOW');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+  });
+
+  it.each(['14:00', '14:15', '14:30'])(
+    '10c. SECOND_HALF accepts inclusive Punch In boundary %s and fixed 18:30 Out',
+    async (punchIn) => {
+      const { service } = rig({
+        leaves: [approved({ isHalfDay: true, halfDaySession: 'SECOND_HALF' })],
+        evidence: [punch('PUNCH_IN', ist(punchIn)), punch('PUNCH_OUT', ist('18:30'))],
+      });
+      const r = await service.evaluate('emp-1', DATE);
+      expect(r.status).toBe('HALF_DAY');
+      expect(r.evaluationState).toBe('CALCULATED');
+    },
+  );
+
+  it('10d. SECOND_HALF before 18:30 remains HALF_DAY but requires review', async () => {
+    const { service } = rig({
+      leaves: [approved({ isHalfDay: true, halfDaySession: 'SECOND_HALF' })],
+      evidence: [punch('PUNCH_IN', ist('14:00')), punch('PUNCH_OUT', ist('18:29'))],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+    expect(r.exceptionFlags).toContain('HALF_DAY_EARLY_PUNCH_OUT');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+  });
+
+  it('10d1. SECOND_HALF Punch In at 13:59 is outside the window and needs review', async () => {
+    const { service } = rig({
+      leaves: [approved({ isHalfDay: true, halfDaySession: 'SECOND_HALF' })],
+      evidence: [punch('PUNCH_IN', ist('13:59')), punch('PUNCH_OUT', ist('18:30'))],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.exceptionFlags).toContain('HALF_DAY_PUNCH_IN_OUTSIDE_WINDOW');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    expect(r.status).toBe('HALF_DAY');
+    expect(r.lwpDeducted).toBe(0);
+  });
+
+  it('10d2. SECOND_HALF Punch In at 14:31 requires review for the window', async () => {
+    const { service } = rig({
+      leaves: [approved({ isHalfDay: true, halfDaySession: 'SECOND_HALF' })],
+      evidence: [punch('PUNCH_IN', ist('14:31')), punch('PUNCH_OUT', ist('18:30'))],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+    expect(r.exceptionFlags).toContain('HALF_DAY_PUNCH_IN_OUTSIDE_WINDOW');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+  });
+
+  it('10e. never guesses HALF_DAY from short hours when automatic half-day is off', async () => {
+    const { service } = rig({
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('14:00'))],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+    expect(r.status).not.toBe('HALF_DAY');
+    expect(r.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
+  });
+
+  it('10f. an approved half day without a validated session cannot bypass punch review', async () => {
+    const { service } = rig({
+      leaves: [approved({ isHalfDay: true, halfDayType: 'legacy-unknown' })],
+      evidence: [punch('PUNCH_IN', ist('09:30')), punch('PUNCH_OUT', ist('13:30'))],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+    expect(r.status).toBe('HALF_DAY');
+    expect(r.exceptionFlags).toContain('HALF_DAY_SESSION_UNRESOLVED');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
   });
 
   it('11. approved leave on a non-working day deducts nothing', async () => {
@@ -573,6 +710,82 @@ describe('AE-1 undecided policy rules', () => {
     expect(r.evaluationState).toBe('NEEDS_REVIEW');
     expect(r.leaveDeducted).toBe(0);
     expect(prisma.leaveRequest.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('staging 09:30-10:30 punch-in window and employee-relative span', () => {
+  const stagingContext = () => context({
+    shift: {
+      startTime: '09:30',
+      endTime: '18:30',
+      graceMinutes: 60,
+      minimumWorkingMinutes: 540,
+    },
+    attendancePolicy: {
+      lateExemptionEnabled: true,
+      afterPunchWindowAction: 'REQUIRE_REVIEW',
+      insufficientHoursAction: 'REQUIRE_REVIEW',
+      automaticHalfDayEnabled: false,
+    },
+  });
+
+  const evaluateSpan = async (punchIn: string, punchOut: string) => {
+    const { service } = rig({
+      ctx: stagingContext(),
+      evidence: [punch('PUNCH_IN', ist(punchIn)), punch('PUNCH_OUT', ist(punchOut))],
+      sessions: [{
+        ...COMPLETE_SESSION,
+        startWorkAt: ist(punchIn),
+        logoutAt: ist(punchOut),
+        totalWorkMinutes: 480,
+        totalBreakMinutes: 60,
+      }],
+    });
+    return service.evaluate('emp-1', DATE);
+  };
+
+  it.each([
+    ['09:30', '18:30'],
+    ['10:00', '19:00'],
+    ['10:30', '19:30'],
+  ])('%s Punch In is not late through the inclusive 10:30 cutoff', async (punchIn, punchOut) => {
+    const result = await evaluateSpan(punchIn, punchOut);
+
+    expect(result.lateMinutes).toBe(0);
+    expect(result.exceptionFlags).not.toContain('LATE_BEYOND_PUNCH_WINDOW');
+    expect(result.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
+    expect(result.evaluationState).toBe('CALCULATED');
+  });
+
+  it('10:31 Punch In routes only to REQUIRE_REVIEW without an automatic penalty', async () => {
+    const result = await evaluateSpan('10:31', '19:31');
+
+    expect(result.lateMinutes).toBe(1);
+    expect(result.exceptionFlags).toContain('LATE_BEYOND_PUNCH_WINDOW');
+    expect(result.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
+    expect(result.evaluationState).toBe('NEEDS_REVIEW');
+    expect(result.calculationReason).toBe('POLICY_DECISION_DEFERRED');
+    expect(result.leaveDeducted).toBe(0);
+    expect(result.lwpDeducted).toBe(0);
+    expect(result.status).not.toBe('HALF_DAY');
+    expect(result.status).not.toBe('ABSENT');
+  });
+
+  it('10:00 to 19:00 satisfies the 540-minute presence span', async () => {
+    const result = await evaluateSpan('10:00', '19:00');
+
+    expect(result.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
+    expect(result.evaluationState).toBe('CALCULATED');
+  });
+
+  it('10:00 to 18:30 does not falsely satisfy the 540-minute presence span', async () => {
+    const result = await evaluateSpan('10:00', '18:30');
+
+    expect(result.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
+    expect(result.evaluationState).toBe('NEEDS_REVIEW');
+    expect(result.status).not.toBe('HALF_DAY');
+    expect(result.leaveDeducted).toBe(0);
+    expect(result.lwpDeducted).toBe(0);
   });
 });
 

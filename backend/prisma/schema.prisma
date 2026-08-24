@@ -78,6 +78,7 @@ model User {
   changeRequestsCreated     EmployeeProfileChangeRequest[] @relation("ChangeRequestRequester")
   changeRequestsTarget      EmployeeProfileChangeRequest[] @relation("ChangeRequestTarget")
   leaveRequests             LeaveRequest[]
+  compOffCredits            CompOffCredit[]
   managedDepts              ManagerDeptAccess[]            @relation("ManagerAccess")
   notifications             Notification[]
   operationalEvents         OperationalEvent[]             @relation("EventActor")
@@ -377,21 +378,24 @@ model Attachment {
 }
 
 model LeaveRequest {
-  id          String      @id @default(cuid())
-  userId      String
-  type        LeaveType
-  startDate   DateTime
-  endDate     DateTime
-  reason      String
-  status      LeaveStatus @default(PENDING)
-  approvedBy  String?
-  approvedAt  DateTime?
-  rejectedBy  String?
-  rejectedAt  DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  isHalfDay   Boolean     @default(false)
-  halfDayType String?
+  id             String          @id @default(cuid())
+  userId         String
+  type           LeaveType
+  startDate      DateTime
+  endDate        DateTime
+  reason         String
+  status         LeaveStatus     @default(PENDING)
+  approvedBy     String?
+  approvedAt     DateTime?
+  rejectedBy     String?
+  rejectedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  isHalfDay      Boolean         @default(false)
+  halfDayType    String?
+  /// Typed authority for new half-day requests. halfDayType remains as a
+  /// compatibility mirror for historical readers and existing rows.
+  halfDaySession HalfDaySession?
 
   // ── Approval lifecycle + funding settlement (LH-2) ────────────────────────
   // approvedBy/approvedAt above remain as COMPATIBILITY fields and carry the
@@ -409,6 +413,9 @@ model LeaveRequest {
   unpaidDays          Float?
   user                User                 @relation(fields: [userId], references: [id])
   workSessions        WorkSession[]
+  /// Many, not one. A two-day COMP_OFF request consumes two credits, so a
+  /// one-to-one link would have made multi-day comp off structurally impossible.
+  compOffCredits      CompOffCredit[]
 
   @@index([userId])
   @@index([status])
@@ -535,6 +542,7 @@ model WorkSession {
   ticketTimeLogs          TicketTimeLog[]
   leaveRequest            LeaveRequest?             @relation(fields: [leaveId], references: [id])
   user                    User                      @relation(fields: [userId], references: [id])
+  compOffCredits          CompOffCredit[]
 
   @@index([userId])
   @@index([date])
@@ -1202,34 +1210,47 @@ model BusinessDayOverride {
 }
 
 model LeavePolicy {
-  id                              String                      @id @default(cuid())
-  financialYear                   String
-  name                            String
-  totalPaidLeaves                 Int                         @default(14)
-  combinedPoolTypes               Json                        @default("[]")
-  lwpAfterBalanceExhausted        Boolean                     @default(true)
-  approvedLeavePriorityOverAbsent Boolean                     @default(true)
-  weeklyOffExcluded               Boolean                     @default(true)
-  holidaysExcluded                Boolean                     @default(true)
-  isActive                        Boolean                     @default(true)
-  createdAt                       DateTime                    @default(now())
-  updatedAt                       DateTime                    @updatedAt
+  id                               String                      @id @default(cuid())
+  financialYear                    String
+  name                             String
+  totalPaidLeaves                  Int                         @default(14)
+  combinedPoolTypes                Json                        @default("[]")
+  lwpAfterBalanceExhausted         Boolean                     @default(true)
+  approvedLeavePriorityOverAbsent  Boolean                     @default(true)
+  weeklyOffExcluded                Boolean                     @default(true)
+  holidaysExcluded                 Boolean                     @default(true)
+  /// Separate management-confirmed authorities. totalPaidLeaves remains for
+  /// historical/legacy leave types; new CASUAL/EMERGENCY funding never pools.
+  casualLeaveAllocation            Int                         @default(10)
+  emergencyLeaveAllocation         Int                         @default(4)
+  /// Explicit approved half-day attendance expectations.
+  firstHalfInEarliest              String                      @default("09:30")
+  firstHalfInLatest                String                      @default("10:30")
+  firstHalfRequiredPresenceMinutes Int                         @default(240)
+  secondHalfInEarliest             String                      @default("14:00")
+  secondHalfInLatest               String                      @default("14:30")
+  secondHalfOutTime                String                      @default("18:30")
+  /// Comp Off credits are independent of annual paid-leave allocations.
+  compOffExpiryDays                Int                         @default(30)
+  isActive                         Boolean                     @default(true)
+  createdAt                        DateTime                    @default(now())
+  updatedAt                        DateTime                    @updatedAt
   // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
   // policy share it; a different series (e.g. Team Leader shift vs Regular
   // Employee shift) has its own. Never derived from the mutable display name.
-  policyKey                       String
+  policyKey                        String
   // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
   // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
   // pre-existing readers and seed keep working; PolicyVersionService writes both.
-  version                         Int                         @default(1)
-  status                          PolicyStatus                @default(DRAFT)
-  effectiveFrom                   DateTime                    @default(now())
-  effectiveTo                     DateTime?
-  approvedById                    String?
-  approvedAt                      DateTime?
-  createdById                     String?
-  supersededById                  String?
-  employeeProfiles                EmployeeAttendanceProfile[]
+  version                          Int                         @default(1)
+  status                           PolicyStatus                @default(DRAFT)
+  effectiveFrom                    DateTime                    @default(now())
+  effectiveTo                      DateTime?
+  approvedById                     String?
+  approvedAt                       DateTime?
+  createdById                      String?
+  supersededById                   String?
+  employeeProfiles                 EmployeeAttendanceProfile[]
 
   @@unique([policyKey, version])
   @@index([financialYear])
@@ -1237,6 +1258,34 @@ model LeavePolicy {
   @@index([status])
   @@index([effectiveFrom])
   @@map("leave_policies")
+}
+
+/// Manually granted Comp Off entitlement. No WorkSession automatically creates
+/// this row: management has not defined a qualifying work-duration threshold.
+model CompOffCredit {
+  id                      String              @id @default(cuid())
+  employeeId              String
+  earnedFromBusinessDate  DateTime            @db.Date
+  earnedFromWorkSessionId String?
+  earnedAt                DateTime            @default(now())
+  expiresAt               DateTime            @db.Date
+  usedAt                  DateTime?
+  leaveRequestId          String?
+  status                  CompOffCreditStatus @default(AVAILABLE)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  employee                User                @relation(fields: [employeeId], references: [id])
+  earnedFromWorkSession   WorkSession?        @relation(fields: [earnedFromWorkSessionId], references: [id], onDelete: SetNull)
+  leaveRequest            LeaveRequest?       @relation(fields: [leaveRequestId], references: [id], onDelete: SetNull)
+
+  /// One credit per employee per source day. Enforced here rather than by a
+  /// service check, so a concurrent double-grant fails on the constraint.
+  @@unique([employeeId, earnedFromBusinessDate])
+  @@index([employeeId, status, expiresAt])
+  @@index([earnedFromBusinessDate])
+  @@index([earnedFromWorkSessionId])
+  @@index([leaveRequestId])
+  @@map("comp_off_credits")
 }
 
 model DailyAttendance {
@@ -1540,8 +1589,22 @@ enum LeaveType {
   ANNUAL
   SICK
   EMERGENCY
+  CASUAL
+  COMP_OFF
   UNPAID
   OTHER
+}
+
+enum HalfDaySession {
+  FIRST_HALF
+  SECOND_HALF
+}
+
+enum CompOffCreditStatus {
+  AVAILABLE
+  USED
+  EXPIRED
+  CANCELLED
 }
 
 /// Where a leave request sits in the Manager -> HR chain (LH-2).

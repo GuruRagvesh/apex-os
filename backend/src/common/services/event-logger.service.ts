@@ -59,6 +59,10 @@ export enum OperationalAction {
   ATTENDANCE_SHADOW_RUN = 'ATTENDANCE_SHADOW_RUN',
   ATTENDANCE_CONFIGURATION_ERROR = 'ATTENDANCE_CONFIGURATION_ERROR',
 
+  // ── Comp off ──────────────────────────────────────────────────────────────
+  COMP_OFF_GRANTED = 'COMP_OFF_GRANTED',
+  COMP_OFF_CONSUMED = 'COMP_OFF_CONSUMED',
+
   // ── Leave ─────────────────────────────────────────────────────────────────
   LEAVE_REQUESTED = 'LEAVE_REQUESTED',
   LEAVE_APPROVED = 'LEAVE_APPROVED',

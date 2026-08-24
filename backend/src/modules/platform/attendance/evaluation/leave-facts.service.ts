@@ -69,6 +69,11 @@ export class LeaveFactsService {
     }
 
     const leave = covering[0];
+    const halfDaySession =
+      leave.halfDaySession ??
+      (leave.halfDayType === 'FIRST_HALF' || leave.halfDayType === 'SECOND_HALF'
+        ? leave.halfDayType
+        : null);
 
     // LH-2: an explicit settlement, when one was recorded, is the authority.
     // It says how the company actually funded the leave, which is exactly the
@@ -83,6 +88,7 @@ export class LeaveFactsService {
           kind: 'PARTIALLY_FUNDED',
           leaveRequestId: leave.id,
           leaveType: leave.type,
+          halfDaySession,
           halfDayType: leave.halfDayType ?? null,
         };
       }
@@ -98,6 +104,7 @@ export class LeaveFactsService {
             : 'PAID',
         leaveRequestId: leave.id,
         leaveType: leave.type,
+        halfDaySession,
         halfDayType: leave.halfDayType ?? null,
       };
     }
@@ -111,6 +118,7 @@ export class LeaveFactsService {
         kind: leave.isHalfDay ? 'HALF_DAY_UNPAID' : 'UNPAID',
         leaveRequestId: leave.id,
         leaveType: leave.type,
+        halfDaySession,
         halfDayType: leave.halfDayType ?? null,
       };
     }
@@ -120,6 +128,7 @@ export class LeaveFactsService {
       kind: leave.isHalfDay ? 'HALF_DAY_PAID' : 'PAID',
       leaveRequestId: leave.id,
       leaveType: leave.type,
+      halfDaySession,
       halfDayType: leave.halfDayType ?? null,
     };
   }

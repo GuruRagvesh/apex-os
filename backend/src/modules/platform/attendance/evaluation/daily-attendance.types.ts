@@ -1,4 +1,4 @@
-import type { DailyAttendanceStatus, LeaveType } from '@prisma/client';
+import type { DailyAttendanceStatus, HalfDaySession, LeaveType } from '@prisma/client';
 
 /**
  * Daily attendance evaluation contract (AE-1).
@@ -39,6 +39,7 @@ export interface LeaveDayFacts {
   kind: LeaveDayKind;
   leaveRequestId: string | null;
   leaveType?: LeaveType;
+  halfDaySession?: HalfDaySession | null;
   halfDayType?: string | null;
 }
 
@@ -70,6 +71,10 @@ export type AttendanceExceptionFlag =
   | 'AMBIGUOUS_APPROVED_LEAVE'
   | 'LEAVE_ON_NON_WORKING_DAY'
   | 'PARTIALLY_FUNDED_LEAVE'
+  | 'HALF_DAY_SESSION_UNRESOLVED'
+  | 'HALF_DAY_PUNCH_IN_OUTSIDE_WINDOW'
+  | 'HALF_DAY_INSUFFICIENT_PRESENCE'
+  | 'HALF_DAY_EARLY_PUNCH_OUT'
   // AR-1. Informational, NOT a reason to review: an approved correction is a
   // decision that has already been made, not an open question.
   | 'CORRECTED_BY_REGULARIZATION';

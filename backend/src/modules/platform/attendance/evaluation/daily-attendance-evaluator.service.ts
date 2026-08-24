@@ -93,7 +93,12 @@ export class DailyAttendanceEvaluatorService {
     }
 
     // ── Working day with proven leave ────────────────────────────────────
-    if (leave.hasApprovedLeave && leave.kind !== 'AMBIGUOUS') {
+    if (
+      leave.hasApprovedLeave &&
+      leave.kind !== 'AMBIGUOUS' &&
+      leave.kind !== 'HALF_DAY_PAID' &&
+      leave.kind !== 'HALF_DAY_UNPAID'
+    ) {
       return this.leaveDay(userId, businessDate, context, leave, flags);
     }
 
@@ -371,6 +376,30 @@ export class DailyAttendanceEvaluatorService {
     if (isCorrected) flags.push('CORRECTED_BY_REGULARIZATION');
 
     this.collectEvidenceExceptions(evidence, flags);
+
+    // An approved half day is an explicit expectation, not an hours-based
+    // guess. Validate its own session-specific punches before the ordinary
+    // full-day lateness and duration rules can classify the day.
+    if (leave.kind === 'HALF_DAY_PAID' || leave.kind === 'HALF_DAY_UNPAID') {
+      return this.explicitHalfDay({
+        userId,
+        businessDate,
+        context,
+        leave,
+        flags,
+        punchInAt: correctedIn ?? punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null,
+        punchOutAt: correctedOut ?? punchOut?.serverOccurredAt ?? null,
+        punchInEvidenceId: punchIn?.id ?? null,
+        punchOutEvidenceId: punchOut?.id ?? null,
+        workSessionIds,
+        workedMinutes: sessions
+          .filter((session) => !!session.logoutAt)
+          .reduce((total, session) => total + (session.totalWorkMinutes ?? 0), 0),
+        breakMinutes: sessions
+          .filter((session) => !!session.logoutAt)
+          .reduce((total, session) => total + (session.totalBreakMinutes ?? 0), 0),
+      });
+    }
 
     // ── No evidence at all ───────────────────────────────────────────────
     // No punch, no session, no approved leave, on a day the company expected
@@ -825,5 +854,85 @@ export class DailyAttendanceEvaluatorService {
           ? String(r.provenance.attendancePolicyVersion)
           : null,
     };
+  }
+  private explicitHalfDay(input: {
+    userId: string;
+    businessDate: string;
+    context: DailyAttendanceContext;
+    leave: LeaveDayFacts;
+    flags: AttendanceExceptionFlag[];
+    punchInAt: Date | null;
+    punchOutAt: Date | null;
+    punchInEvidenceId: string | null;
+    punchOutEvidenceId: string | null;
+    workSessionIds: string[];
+    workedMinutes: number;
+    breakMinutes: number;
+  }): DailyAttendanceResult {
+    const { context, leave, punchInAt, punchOutAt } = input;
+    const flags = [...input.flags];
+    const policy = context.leavePolicy;
+    const session = leave.halfDaySession;
+    let presenceMinutes = 0;
+
+    if (!punchInAt) flags.push('MISSING_PUNCH');
+    if (!punchOutAt) flags.push('MISSING_PUNCH_OUT');
+    if (!policy || !session) flags.push('HALF_DAY_SESSION_UNRESOLVED');
+
+    if (policy && session && punchInAt) {
+      const earliest = this.tva.companyInstantAt(
+        input.businessDate,
+        session === 'FIRST_HALF' ? policy.firstHalfInEarliest : policy.secondHalfInEarliest,
+      );
+      const latest = this.tva.companyInstantAt(
+        input.businessDate,
+        session === 'FIRST_HALF' ? policy.firstHalfInLatest : policy.secondHalfInLatest,
+      );
+      if (!earliest || !latest || punchInAt < earliest || punchInAt > latest) {
+        flags.push('HALF_DAY_PUNCH_IN_OUTSIDE_WINDOW');
+      }
+
+      if (punchOutAt) {
+        presenceMinutes = Math.max(
+          0,
+          Math.floor((punchOutAt.getTime() - punchInAt.getTime()) / 60_000),
+        );
+        if (
+          session === 'FIRST_HALF' &&
+          presenceMinutes < policy.firstHalfRequiredPresenceMinutes
+        ) {
+          flags.push('HALF_DAY_INSUFFICIENT_PRESENCE');
+        }
+        if (session === 'SECOND_HALF') {
+          const requiredOut = this.tva.companyInstantAt(
+            input.businessDate,
+            policy.secondHalfOutTime,
+          );
+          if (!requiredOut || punchOutAt < requiredOut) {
+            flags.push('HALF_DAY_EARLY_PUNCH_OUT');
+          }
+        }
+      }
+    }
+
+    return this.build({
+      userId: input.userId,
+      businessDate: input.businessDate,
+      context,
+      status: 'HALF_DAY',
+      reason: 'APPROVED_HALF_DAY_LEAVE',
+      flags,
+      forceReview: flags.length > 0,
+      punchInAt,
+      punchOutAt,
+      workedMinutes: input.workedMinutes,
+      breakMinutes: input.breakMinutes,
+      leaveDeducted: leave.kind === 'HALF_DAY_PAID' ? 0.5 : 0,
+      lwpDeducted: leave.kind === 'HALF_DAY_UNPAID' ? 0.5 : 0,
+      punchInEvidenceId: input.punchInEvidenceId,
+      punchOutEvidenceId: input.punchOutEvidenceId,
+      workSessionIds: input.workSessionIds,
+      leaveRequestId: leave.leaveRequestId,
+    });
   }
 }

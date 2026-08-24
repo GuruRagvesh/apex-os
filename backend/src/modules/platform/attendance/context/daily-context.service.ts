@@ -158,6 +158,13 @@ export class DailyContextService {
             policyId: lpRow.id,
             policyKey: lpRow.policyKey,
             version: lpRow.version,
+            firstHalfInEarliest: lpRow.firstHalfInEarliest,
+            firstHalfInLatest: lpRow.firstHalfInLatest,
+            firstHalfRequiredPresenceMinutes: lpRow.firstHalfRequiredPresenceMinutes,
+            secondHalfInEarliest: lpRow.secondHalfInEarliest,
+            secondHalfInLatest: lpRow.secondHalfInLatest,
+            secondHalfOutTime: lpRow.secondHalfOutTime,
+            compOffExpiryDays: lpRow.compOffExpiryDays,
           };
         }
       }

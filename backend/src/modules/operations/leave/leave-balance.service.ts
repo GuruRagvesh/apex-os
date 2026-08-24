@@ -1,7 +1,7 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../../platform/settings/settings.service';
-import { LeaveStatus } from '@prisma/client';
+import { LeaveStatus, LeaveType } from '@prisma/client';
 import { TVAService } from '../../../common/services/tva.service';
 import { LeaveWorkingDayService } from './leave-working-day.service';
 import {
@@ -51,6 +51,14 @@ export class LeaveBalanceService {
     );
   }
 
+  /** LH-2 final approval may settle a request as paid, partial, or unpaid. */
+  private async approvalSettlementEnabled(): Promise<boolean> {
+    const cfg = await this.settings.get(ATTENDANCE_V2_SETTING_KEY);
+    return (
+      (cfg?.leaveApprovalEnabled ?? ATTENDANCE_V2_DEFAULTS.leaveApprovalEnabled) === true
+    );
+  }
+
   /**
    * Paid-leave allocation for a year.
    *
@@ -59,9 +67,13 @@ export class LeaveBalanceService {
    * table remains as compatibility configuration and still answers when the
    * flag is off.
    */
-  async getYearlyAllocation(userId: string, year = 2026): Promise<number> {
+  async getYearlyAllocation(
+    userId: string,
+    year = 2026,
+    leaveType?: LeaveType,
+  ): Promise<number> {
     if (await this.v2AuthorityEnabled()) {
-      const fromPolicy = await this.allocationFromLeavePolicy(userId, year);
+      const fromPolicy = await this.allocationFromLeavePolicy(userId, year, leaveType);
       if (fromPolicy !== null) return fromPolicy;
       // No effective policy assigned: fall through to the legacy quota rather
       // than inventing a number. Reported, not silently zeroed.
@@ -77,7 +89,11 @@ export class LeaveBalanceService {
   }
 
   /** totalPaidLeaves from the employee's effective-dated LeavePolicy, if any. */
-  private async allocationFromLeavePolicy(userId: string, year: number): Promise<number | null> {
+  private async allocationFromLeavePolicy(
+    userId: string,
+    year: number,
+    leaveType?: LeaveType,
+  ): Promise<number | null> {
     // Mid-year is a safe probe for "the policy that governs this year": it sits
     // inside every sane effective window for the year.
     const profile = await this.prisma.employeeAttendanceProfile.findFirst({
@@ -95,6 +111,9 @@ export class LeaveBalanceService {
 
     const policy = profile?.assignedLeavePolicy;
     if (!policy) return null;
+    if (leaveType === LeaveType.CASUAL) return policy.casualLeaveAllocation;
+    if (leaveType === LeaveType.EMERGENCY) return policy.emergencyLeaveAllocation;
+    if (leaveType === LeaveType.COMP_OFF) return 0;
     return typeof policy.totalPaidLeaves === 'number' ? policy.totalPaidLeaves : null;
   }
 
@@ -201,15 +220,25 @@ export class LeaveBalanceService {
   async getLeaveBalance(
     userId: string,
     year = 2026,
+    leaveType?: LeaveType,
   ): Promise<{ allocation: number; approved: number; pending: number; balance: number }> {
-    const allocation = await this.getYearlyAllocation(userId, year);
+    const allocation = await this.getYearlyAllocation(userId, year, leaveType);
 
-    const startOfYear = this.tva.companyDayStart(new Date(year, 0, 1));
-    const endOfYear = this.tva.companyDayEnd(new Date(year, 11, 31));
+    const v2 = await this.v2AuthorityEnabled();
+    const fy = v2 ? this.tva.financialYearBounds(`${year}-${year + 1}`) : null;
+    // Flag OFF preserves the historical calendar-year reader. The management
+    // policy authority uses TVA's April-to-March financial-year bounds.
+    const startOfYear = this.tva.companyDayStart(
+      fy?.start ?? new Date(`${year}-01-01T00:00:00.000Z`),
+    );
+    const endOfYear = this.tva.companyDayEnd(
+      fy?.end ?? new Date(`${year}-12-31T00:00:00.000Z`),
+    );
 
     const leaves = await this.prisma.leaveRequest.findMany({
       where: {
         userId,
+        ...(leaveType ? { type: leaveType } : {}),
         startDate: { gte: startOfYear, lte: endOfYear },
         status: { in: [LeaveStatus.APPROVED, LeaveStatus.PENDING] },
       },
@@ -246,6 +275,7 @@ export class LeaveBalanceService {
     startDate: Date | string,
     endDate: Date | string,
     isHalfDay = false,
+    leaveType?: LeaveType,
   ): Promise<void> {
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -269,7 +299,10 @@ export class LeaveBalanceService {
     }
 
     // 2. Validate leave balance
-    const { balance } = await this.getLeaveBalance(userId, start.getFullYear());
+    const balanceYear = (await this.v2AuthorityEnabled())
+      ? this.tva.financialYear(start).startYear
+      : start.getFullYear();
+    const { balance } = await this.getLeaveBalance(userId, balanceYear, leaveType);
     const policy = await this.settings.get('leave_policy');
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
 
@@ -285,13 +318,23 @@ export class LeaveBalanceService {
       throw new ForbiddenException('Selected range contains no working days.');
     }
 
-    // NOTE (LH-1): this rejection is what makes LeavePolicy.lwpAfterBalanceExhausted
-    // unreachable through the normal flow — a request that would exhaust the
-    // balance never gets created, so it can never be approved as LWP. Changing
-    // it needs a way to record "requested paid, settled as unpaid" without
-    // rewriting what the employee asked for. Reported in the LH-1 findings; not
-    // changed here, because doing so silently would alter live leave outcomes.
+    if (leaveType === LeaveType.COMP_OFF) {
+      if (isHalfDay || requestDuration !== 1) {
+        throw new ForbiddenException('A Comp Off request must cover exactly one full working day.');
+      }
+      // Availability is serialized at final HR approval. Submission never
+      // reserves a credit and never falls through to another entitlement.
+      return;
+    }
+
+    // Legacy rejects an underfunded request here. LH-2 deliberately permits it
+    // so final HR approval can record PAID/PARTIAL/UNPAID without rewriting the
+    // employee's requested leave type.
     if (balance < requestDuration) {
+      // Under LH-2, submission records what was requested; the serialized HR
+      // approval transaction is the authority that settles PAID/PARTIAL/UNPAID.
+      // The legacy path keeps its original pre-submission rejection.
+      if (await this.approvalSettlementEnabled()) return;
       throw new ForbiddenException(`Insufficient leave balance. Remaining: ${balance} days, Requested: ${requestDuration} days.`);
     }
   }

@@ -1,8 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { LeaveStatus, Prisma } from '@prisma/client';
+import { ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { LeaveStatus, LeaveType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { LeaveBalanceService } from './leave-balance.service';
+import { CompOffService } from './comp-off.service';
 
 /**
  * Funding settlement for an approved leave (LH-2).
@@ -37,6 +38,7 @@ export class LeaveSettlementService {
     private readonly prisma: PrismaService,
     private readonly tva: TVAService,
     private readonly balance: LeaveBalanceService,
+    @Optional() private readonly compOff?: CompOffService,
   ) {}
 
   /**
@@ -76,16 +78,19 @@ export class LeaveSettlementService {
     userId: string,
     year: number,
     excludeLeaveId?: string,
+    leaveType?: LeaveType,
   ): Promise<number> {
+    const bounds = this.tva.financialYearBounds(`${year}-${year + 1}`);
     const approved = await tx.leaveRequest.findMany({
       where: {
         userId,
         status: LeaveStatus.APPROVED,
         startDate: {
-          gte: this.tva.companyDayStart(new Date(`${year}-01-01T00:00:00.000Z`)),
-          lte: this.tva.companyDayEnd(new Date(`${year}-12-31T00:00:00.000Z`)),
+          gte: this.tva.companyDayStart(bounds.start),
+          lte: this.tva.companyDayEnd(bounds.end),
         },
         ...(excludeLeaveId ? { id: { not: excludeLeaveId } } : {}),
+        ...(leaveType ? { type: leaveType } : {}),
       },
     });
 
@@ -145,9 +150,6 @@ export class LeaveSettlementService {
       // 3. Serialize every balance decision for this employee.
       await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${leave.userId} FOR UPDATE`;
 
-      const year = new Date(leave.startDate).getUTCFullYear();
-      const allocation = await this.balance.getYearlyAllocation(leave.userId, year);
-      const consumed = await this.consumedPaidDays(tx, leave.userId, year, leave.id);
       const requestedDays = await this.balance.getDurationForRequest(
         leave.startDate,
         leave.endDate,
@@ -155,7 +157,62 @@ export class LeaveSettlementService {
         leave.userId,
       );
 
-      const settlement = this.split(requestedDays, allocation - consumed);
+      let settlement: Settlement;
+      if (leave.type === LeaveType.COMP_OFF) {
+        // Half-day comp off is refused because management defined comp off in
+        // whole earned days and never defined a half credit. Inventing one here
+        // would quietly become policy.
+        if (leave.isHalfDay) {
+          throw new ForbiddenException('Comp Off requests must cover whole working days');
+        }
+        if (requestedDays < 1) {
+          throw new ForbiddenException('Comp Off requests must cover at least one working day');
+        }
+        if (!this.compOff) {
+          throw new ForbiddenException('Comp Off settlement is unavailable');
+        }
+
+        // N qualifying leave-days costs N credits. All-or-nothing: an employee
+        // with one credit cannot have a two-day request settled as fully funded,
+        // and no credit is spent unless the whole request can be covered.
+        const consumed = await this.compOff.consumeForDays(
+          tx,
+          leave.userId,
+          leave.id,
+          requestedDays,
+        );
+        if (!consumed) {
+          throw new ForbiddenException(
+            `This request needs ${requestedDays} unexpired Comp Off credit(s), ` +
+              'and the employee does not have enough. There is no fallback to ' +
+              'Casual or Emergency leave.',
+          );
+        }
+        // Comp off is its own entitlement: fully funded by credits, never drawn
+        // from a paid-leave balance.
+        settlement = this.split(requestedDays, requestedDays);
+      } else {
+        const year = this.tva.financialYear(leave.startDate).startYear;
+        // Casual and Emergency are independent management entitlements. All
+        // legacy leave types retain the pre-extension shared-pool behaviour.
+        const entitlementType =
+          leave.type === LeaveType.CASUAL || leave.type === LeaveType.EMERGENCY
+            ? leave.type
+            : undefined;
+        const allocation = await this.balance.getYearlyAllocation(
+          leave.userId,
+          year,
+          entitlementType,
+        );
+        const consumed = await this.consumedPaidDays(
+          tx,
+          leave.userId,
+          year,
+          leave.id,
+          entitlementType,
+        );
+        settlement = this.split(requestedDays, allocation - consumed);
+      }
       const now = this.tva.now();
 
       const updated = await tx.leaveRequest.update({

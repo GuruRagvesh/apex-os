@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { LeaveStatus, NotificationType } from '@prisma/client';
+import { HalfDaySession, LeaveStatus, LeaveType, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
@@ -84,7 +84,14 @@ export class LeaveService {
   }
 
   async create(data: any, userId: string) {
-    const { startDate, endDate, isHalfDay, halfDayType, ...rest } = data;
+    const {
+      startDate,
+      endDate,
+      isHalfDay,
+      halfDayType,
+      halfDaySession: requestedHalfDaySession,
+      ...rest
+    } = data;
     const start = new Date(startDate);
     const end = new Date(endDate);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -94,8 +101,36 @@ export class LeaveService {
       throw new ForbiddenException('Leave start date cannot be after end date');
     }
 
-    // Validate balance and check overlaps
-    await this.leaveBalance.validateLeaveRequest(userId, start, end, !!isHalfDay);
+    const leaveType = rest.type as LeaveType;
+    if (!Object.values(LeaveType).includes(leaveType)) {
+      throw new ForbiddenException('Invalid leave type');
+    }
+    let halfDaySession: HalfDaySession | null = null;
+    if (isHalfDay) {
+      if (
+        requestedHalfDaySession &&
+        halfDayType &&
+        requestedHalfDaySession !== halfDayType
+      ) {
+        throw new ForbiddenException('halfDaySession and halfDayType must agree');
+      }
+      const requestedSession = requestedHalfDaySession ?? halfDayType;
+      if (!Object.values(HalfDaySession).includes(requestedSession as HalfDaySession)) {
+        throw new ForbiddenException('Half-day requests require FIRST_HALF or SECOND_HALF');
+      }
+      halfDaySession = requestedSession as HalfDaySession;
+    } else if (halfDayType || requestedHalfDaySession) {
+      throw new ForbiddenException('halfDaySession is valid only for a half-day request');
+    }
+
+    // Validate the requested entitlement's own balance and check overlaps.
+    await this.leaveBalance.validateLeaveRequest(
+      userId,
+      start,
+      end,
+      !!isHalfDay,
+      leaveType,
+    );
 
     const leave = await this.prisma.leaveRequest.create({
       data: {
@@ -104,7 +139,9 @@ export class LeaveService {
         startDate: start.toISOString(),
         endDate: end.toISOString(),
         isHalfDay: !!isHalfDay,
-        halfDayType: halfDayType || null,
+        // New typed authority plus the old compatibility mirror.
+        halfDaySession,
+        halfDayType: halfDaySession,
       },
       include: { user: { select: { id: true, name: true, departmentId: true } } },
     });
@@ -147,7 +184,7 @@ export class LeaveService {
     return leave;
   }
 
-  async getUserBalance(userId: string, requester: any) {
+  async getUserBalance(userId: string, requester: any, leaveType?: LeaveType) {
     if (requester.id !== userId) {
       const targetUser = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -157,7 +194,11 @@ export class LeaveService {
       const canView = await this.accessPolicy.canViewUser(requester, targetUser);
       if (!canView) throw new ForbiddenException('You do not have permission to view this user\'s leave balance');
     }
-    return this.leaveBalance.getLeaveBalance(userId);
+    return this.leaveBalance.getLeaveBalance(
+      userId,
+      this.tva.financialYear().startYear,
+      leaveType,
+    );
   }
 
   /** Whether the two-stage Manager -> HR approval chain is switched on. */

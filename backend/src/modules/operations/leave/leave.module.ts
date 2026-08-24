@@ -10,6 +10,7 @@ import { LeaveWorkingDayService } from './leave-working-day.service';
 import { LeaveSettlementService } from './leave-settlement.service';
 import { EmployeeTimelineModule } from '../../platform/attendance/timeline/employee-timeline.module';
 import { BusinessCalendarModule } from '../../platform/attendance/calendar/business-calendar.module';
+import { CompOffService } from './comp-off.service';
 
 @Module({
   imports: [
@@ -22,8 +23,8 @@ import { BusinessCalendarModule } from '../../platform/attendance/calendar/busin
     EmployeeTimelineModule,
     BusinessCalendarModule,
   ],
-  providers: [LeaveService, LeaveBalanceService, LeaveWorkingDayService, LeaveSettlementService],
+  providers: [LeaveService, LeaveBalanceService, LeaveWorkingDayService, LeaveSettlementService, CompOffService],
   controllers: [LeaveController],
-  exports: [LeaveService, LeaveBalanceService, LeaveWorkingDayService, LeaveSettlementService],
+  exports: [LeaveService, LeaveBalanceService, LeaveWorkingDayService, LeaveSettlementService, CompOffService],
 })
 export class LeaveModule {}

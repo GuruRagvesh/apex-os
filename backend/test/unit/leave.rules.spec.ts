@@ -154,4 +154,41 @@ describe('LeaveService — approval rules', () => {
     const result = await service.cancel('leave1', 'emp1');
     expect(result.status).toBe('CANCELLED');
   });
+
+  it('writes the typed half-day session and the historical compatibility mirror', async () => {
+    mockPrisma.leaveRequest.create.mockImplementation(({ data }: any) => Promise.resolve({
+      id: 'leave-half',
+      ...data,
+      user: { id: 'emp1', name: 'Employee', departmentId: null },
+    }));
+
+    await service.create({
+      type: 'CASUAL',
+      startDate: '2026-08-24',
+      endDate: '2026-08-24',
+      isHalfDay: true,
+      halfDaySession: 'FIRST_HALF',
+    }, 'emp1');
+
+    expect(mockPrisma.leaveRequest.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        type: 'CASUAL',
+        halfDaySession: 'FIRST_HALF',
+        halfDayType: 'FIRST_HALF',
+      }),
+    }));
+    expect(mockLeaveBalance.validateLeaveRequest).toHaveBeenCalledWith(
+      'emp1', expect.any(Date), expect.any(Date), true, 'CASUAL',
+    );
+  });
+
+  it('refuses a half-day request without FIRST_HALF or SECOND_HALF', async () => {
+    await expect(service.create({
+      type: 'CASUAL',
+      startDate: '2026-08-24',
+      endDate: '2026-08-24',
+      isHalfDay: true,
+    }, 'emp1')).rejects.toThrow(/FIRST_HALF or SECOND_HALF/);
+    expect(mockPrisma.leaveRequest.create).not.toHaveBeenCalled();
+  });
 });

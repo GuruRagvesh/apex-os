@@ -116,6 +116,13 @@ export interface LeavePolicyContext {
   policyId: string;
   policyKey: string;
   version: number;
+  firstHalfInEarliest: string;
+  firstHalfInLatest: string;
+  firstHalfRequiredPresenceMinutes: number;
+  secondHalfInEarliest: string;
+  secondHalfInLatest: string;
+  secondHalfOutTime: string;
+  compOffExpiryDays: number;
 }
 
 export interface ProfileContext {
