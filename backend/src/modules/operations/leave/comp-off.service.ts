@@ -59,6 +59,19 @@ export class CompOffService {
     private readonly eventLogger: EventLoggerService,
   ) {}
 
+  /**
+   * The single HR/Admin gate for comp off.
+   *
+   * grantManual applies it internally; read endpoints that expose another
+   * employee's credits call this so the rule is stated once rather than
+   * re-derived in a controller.
+   */
+  assertHrOrAdmin(actor: any) {
+    if (!this.accessPolicy.isHrOrAdmin(actor)) {
+      throw new ForbiddenException('Only HR can view or grant comp off for another employee');
+    }
+  }
+
   /** Calendar qualification only. No WorkSession automatically grants credit. */
   async qualifyingSourceDay(employeeId: string, businessDate: string) {
     const profile = await this.timeline.findProfileOn(employeeId, businessDate);
