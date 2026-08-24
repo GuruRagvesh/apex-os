@@ -1,4 +1,5 @@
 import { WorkdayService } from '../../src/modules/platform/workday/workday.service';
+import { createTvaDouble } from '../helpers/tva-double';
 
 describe('WorkdayService Release A corruption guards', () => {
   const today = new Date('2026-06-10T00:00:00.000Z');
@@ -23,6 +24,14 @@ describe('WorkdayService Release A corruption guards', () => {
       },
     };
 
+    // The service runs startWork/finalize inside a transaction. Hand the
+    // callback this same mock so the existing assertions still observe the
+    // calls made inside it.
+    prisma.$transaction = jest.fn((fn: any) => fn(prisma));
+    // finalize takes a `SELECT ... FOR UPDATE` row lock before writing
+    // terminal fields; the double just has to answer it.
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+
     attendanceAuthority = {
       setUserStatus: jest.fn().mockResolvedValue({}),
       createWorkSession: jest.fn().mockImplementation(async (data) => ({ id: 'new-session', ...data })),
@@ -42,10 +51,7 @@ describe('WorkdayService Release A corruption guards', () => {
       ticketLedger,
       { sendNotification: jest.fn().mockResolvedValue({}) } as any,
       attendanceAuthority,
-      {
-        now: jest.fn(() => now),
-        companyDayStart: jest.fn(() => today),
-      } as any,
+      createTvaDouble(now) as any,
     );
   });
 
@@ -93,6 +99,9 @@ describe('WorkdayService Release A corruption guards', () => {
         status: 'WORKING',
         continuationOfSessionId: 'closed-session',
       }),
+      // The service now runs this inside its transaction and forwards the
+      // client as a second argument. Field expectations above are unchanged.
+      expect.anything(),
     );
   });
 
