@@ -9,6 +9,7 @@
     "install:all": "cd backend && npm install && cd ../frontend && npm install",
     "architecture:check": "node scripts/architecture/validate-boundaries.mjs",
     "architecture:test": "node scripts/architecture/validate-boundaries.test.mjs",
+    "frontend:verify-workday-surface": "node scripts/frontend/verify-single-workday-surface.mjs",
     "backend:build": "npm --prefix backend run build",
     "backend:start": "npm --prefix backend run start:prod",
     "backend:verify-deployment-layout": "node scripts/deployment/verify-backend-root-layout.mjs",
