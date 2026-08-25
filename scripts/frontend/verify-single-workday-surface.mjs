@@ -21,7 +21,14 @@
  *
  * Node built-ins only. Reads files, touches nothing else.
  *
- * Exit 0 = exactly one mount. Exit 1 = none, or more than one.
+ * It also checks the second half of the same rule: QuickActionDock must not
+ * call the Workday lifecycle mutations itself. The dock is present on every
+ * page, so running those there created a second independent action path for
+ * one lifecycle -- and a second place the punch requirement would have to be
+ * re-enforced correctly. It navigates to the dashboard instead.
+ *
+ * Exit 0 = exactly one mount AND no lifecycle mutation in the dock.
+ * Exit 1 = anything else.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -71,9 +78,57 @@ for (const root of ROOTS) {
 
 const total = mounts.reduce((sum, m) => sum + m.count, 0);
 
-if (total === 1) {
+// ── rule 2: the dock must not mutate the Workday lifecycle ──────────────────
+const DOCK = join(REPO_ROOT, 'frontend', 'components', 'ui', 'QuickActionDock.tsx');
+
+/**
+ * Lifecycle mutations, by the call the dock would have to make.
+ *
+ * Reads are not listed: asking what the workday currently is stays fine. Only
+ * changing it is reserved to WorkdayBar.
+ */
+const FORBIDDEN_IN_DOCK = [
+  /workdayApi\.startWork\s*\(/,
+  /workdayApi\.endWork\s*\(/,
+  /workdayApi\.resumeWork\s*\(/,
+  /workdayApi\.startBreak\s*\(/,
+  /workdayApi\.endBreak\s*\(/,
+  // Punching is the same lifecycle wearing a different name.
+  /<PunchModal/,
+  /submitPunch\s*\(/,
+  /uploadPunchPhoto\s*\(/,
+];
+
+const dockViolations = [];
+let dockSource = '';
+try {
+  dockSource = readFileSync(DOCK, 'utf8');
+} catch {
+  dockViolations.push('QuickActionDock.tsx not found at its expected path');
+}
+
+if (dockSource) {
+  // Comments explain why these calls are absent; they are not the calls.
+  const code = dockSource
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  for (const pattern of FORBIDDEN_IN_DOCK) {
+    if (pattern.test(code)) dockViolations.push(String(pattern));
+  }
+}
+
+if (total === 1 && dockViolations.length === 0) {
   console.log(`[workday] OK — one Workday control surface: ${mounts[0].file}`);
+  console.log('[workday] OK — QuickActionDock performs no lifecycle mutation');
   process.exit(0);
+}
+
+if (dockViolations.length > 0) {
+  console.error('[workday] QuickActionDock executes Workday lifecycle actions:');
+  for (const v of dockViolations) console.error(`  ${v}`);
+  console.error('[workday] Only WorkdayBar may do that -- it is what enforces the');
+  console.error('[workday] punch requirement. The dock should navigate to /dashboard.');
+  process.exit(1);
 }
 
 if (total === 0) {
