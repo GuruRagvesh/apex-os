@@ -7,4 +7,5 @@
 // Deliberately separate from the component root barrel so consumers that want
 // only a screen never load the authenticated client.
 
-export { leaveApi } from './leave-api';
+export { leaveApi, compOffApi } from './leave-api';
+export type { CompOffCredit } from './leave-api';

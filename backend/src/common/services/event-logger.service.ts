@@ -45,6 +45,24 @@ export enum OperationalAction {
   WORKDAY_CONTINUED = 'WORKDAY_CONTINUED',
   WORKDAY_ENDED = 'WORKDAY_ENDED',
 
+  // ── Attendance (PE-1) ─────────────────────────────────────────────────────
+  ATTENDANCE_PUNCH_RECORDED = 'ATTENDANCE_PUNCH_RECORDED',
+
+  // ── Attendance regularization (AR-1) ──────────────────────────────────────
+  REGULARIZATION_REQUESTED = 'REGULARIZATION_REQUESTED',
+  REGULARIZATION_MANAGER_APPROVED = 'REGULARIZATION_MANAGER_APPROVED',
+  REGULARIZATION_HR_APPROVED = 'REGULARIZATION_HR_APPROVED',
+  REGULARIZATION_REJECTED = 'REGULARIZATION_REJECTED',
+  ATTENDANCE_OFFICIAL_REVISED = 'ATTENDANCE_OFFICIAL_REVISED',
+  ATTENDANCE_FINALIZED = 'ATTENDANCE_FINALIZED',
+  ATTENDANCE_EVALUATION_RUN = 'ATTENDANCE_EVALUATION_RUN',
+  ATTENDANCE_SHADOW_RUN = 'ATTENDANCE_SHADOW_RUN',
+  ATTENDANCE_CONFIGURATION_ERROR = 'ATTENDANCE_CONFIGURATION_ERROR',
+
+  // ── Comp off ──────────────────────────────────────────────────────────────
+  COMP_OFF_GRANTED = 'COMP_OFF_GRANTED',
+  COMP_OFF_CONSUMED = 'COMP_OFF_CONSUMED',
+
   // ── Leave ─────────────────────────────────────────────────────────────────
   LEAVE_REQUESTED = 'LEAVE_REQUESTED',
   LEAVE_APPROVED = 'LEAVE_APPROVED',
@@ -97,6 +115,10 @@ export class EventLoggerService {
     metadata?: Record<string, any>;
     ip?: string;
     device?: string;
+    // Present on OperationalEvent since before AR-1, but never exposed here.
+    // A correction has to record what the official fact was and what it became.
+    beforeValue?: Record<string, any> | null;
+    afterValue?: Record<string, any> | null;
   }) {
     try {
       await (this.prisma as any).operationalEvent.create({ data: params });

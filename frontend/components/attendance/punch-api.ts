@@ -1,0 +1,69 @@
+import { api } from '@apex/shared-auth';
+
+/**
+ * Attendance punch transport (PE-4).
+ *
+ * Uses the shared authenticated client directly rather than adding a group to
+ * frontend/lib/api.ts — that façade is being drained, and new code should not
+ * grow it.
+ */
+
+export type PunchType = 'PUNCH_IN' | 'PUNCH_OUT';
+
+export interface SubmitPunchInput {
+  type: PunchType;
+  idempotencyKey: string;
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number | null;
+  clientCapturedAt?: string | null;
+  photoAssetId: string;
+}
+
+export interface PunchResult {
+  id: string;
+  type: PunchType;
+  workSessionId: string | null;
+  businessDate: string;
+  serverOccurredAt: string;
+  locationVerification: string;
+  photoVerification: string;
+}
+
+/** Whether Attendance V2 punching is switched on for this deployment. */
+export async function getPunchStatus(): Promise<{ enabled: boolean }> {
+  const res = await api.get('/attendance/punch-evidence/status');
+  return res.data;
+}
+
+/**
+ * Submits one punch.
+ *
+ * Every derived fact — business date, server time, geofence verdict, the linked
+ * work session — is decided by the server. This sends only what the client
+ * legitimately owns: intent, position, the photo asset and the retry key.
+ */
+export async function submitPunch(input: SubmitPunchInput): Promise<PunchResult> {
+  const res = await api.post('/attendance/punch-evidence', input);
+  return res.data;
+}
+
+/**
+ * A key for one deliberate punch attempt.
+ *
+ * Deliberately random per attempt and reused across network retries of that
+ * same attempt, so a dropped response can be safely resent. Never derived from
+ * the clock: two taps in the same millisecond would collide, and a retry a
+ * second later would read as a brand-new punch.
+ */
+export function newIdempotencyKey(): string {
+  const c: any = (globalThis as any).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  // Older Safari/WebView: still random, just assembled by hand.
+  const bytes = new Uint8Array(16);
+  c.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

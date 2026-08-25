@@ -11,6 +11,7 @@ import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
   Users, UsersRound, Building2, BarChart3, LogOut, Zap, Settings,
   Calendar, Activity, ArrowRight, ChevronDown, Handshake,
+  CalendarCheck, ClipboardCheck,
   PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -62,12 +63,19 @@ const BASE_NAV = [
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban          },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban    },
   { href: '/teams',     label: 'Manage Teams',   icon: UsersRound      },
+  { href: '/attendance', label: 'My Attendance', icon: CalendarCheck  },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff     },
   { href: '/calendar',  label: 'Calendar',       icon: Calendar        },
 ];
 
-const TEAMLEAD_NAV  = [{ href: '/team',    label: 'My Team',       icon: Users    }];
-const MANAGER_NAV   = [{ href: '/analytics', label: 'Analytics',   icon: BarChart3 }];
+const TEAMLEAD_NAV  = [
+  { href: '/team',                 label: 'My Team',              icon: Users          },
+  { href: '/attendance/reviews',   label: 'Attendance Reviews',   icon: ClipboardCheck },
+];
+const MANAGER_NAV   = [
+  { href: '/analytics',        label: 'Analytics',         icon: BarChart3    },
+  { href: '/attendance/admin', label: 'Attendance Console', icon: CalendarCheck },
+];
 const ADMIN_NAV     = [
   { href: '/users',       label: 'Users & Roles',  icon: Users     },
   { href: '/departments', label: 'Departments',     icon: Building2 },
@@ -83,6 +91,7 @@ const TEAMLEAD_MODE_NAV = [
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban        },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban  },
   { href: '/teams',     label: 'Teams',          icon: UsersRound    },
+  { href: '/attendance', label: 'My Attendance', icon: CalendarCheck },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff   },
 ];
 
