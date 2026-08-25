@@ -1,21 +1,14 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { HalfDaySession, LeaveStatus, LeaveType, NotificationType } from '@prisma/client';
+import { LeaveStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
 import { LeaveBalanceService } from './leave-balance.service';
-import { LeaveSettlementService } from './leave-settlement.service';
-import {
-  ATTENDANCE_V2_DEFAULTS,
-  ATTENDANCE_V2_SETTING_KEY,
-} from '../../platform/attendance/punch/punch-evidence.types';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { TVAService } from '../../../common/services/tva.service';
-import { SettingsService } from '../../platform/settings/settings.service';
-import { HierarchyApprovalService } from '../../../common/services/hierarchy-approval.service';
 
 @Injectable()
 export class LeaveService {
@@ -27,11 +20,8 @@ export class LeaveService {
     private eventLogger: EventLoggerService,
     private leaveAccess: LeaveAccessService,
     private leaveBalance: LeaveBalanceService,
-    private leaveSettlement: LeaveSettlementService,
     private accessPolicy: AccessPolicyService,
     private tva: TVAService,
-    private settings: SettingsService,
-    private hierarchy: HierarchyApprovalService,
   ) {}
 
   private get frontendUrl() {
@@ -57,7 +47,7 @@ export class LeaveService {
     ]);
 
     const items = await Promise.all(dbItems.map(async (item) => {
-      const duration = await this.leaveBalance.getDurationForRequest(item.startDate, item.endDate, item.isHalfDay, item.userId);
+      const duration = await this.leaveBalance.getDurationForRequest(item.startDate, item.endDate, item.isHalfDay);
       return { ...item, duration };
     }));
 
@@ -73,25 +63,16 @@ export class LeaveService {
       include,
     });
     if (!leave) throw new NotFoundException('Leave request not found');
-    const duration = await this.leaveBalance.getDurationForRequest(leave.startDate, leave.endDate, leave.isHalfDay, leave.userId);
+    const duration = await this.leaveBalance.getDurationForRequest(leave.startDate, leave.endDate, leave.isHalfDay);
     return { ...leave, duration };
   }
 
-  // userId is optional so the existing public surface is unchanged, but
-  // passing it is what lets the employee's own calendar decide the duration.
-  async getDurationForRequest(startDate: string, endDate: string, isHalfDay: boolean, userId?: string) {
-    return this.leaveBalance.getDurationForRequest(startDate, endDate, isHalfDay, userId);
+  async getDurationForRequest(startDate: string, endDate: string, isHalfDay: boolean) {
+    return this.leaveBalance.getDurationForRequest(startDate, endDate, isHalfDay);
   }
 
   async create(data: any, userId: string) {
-    const {
-      startDate,
-      endDate,
-      isHalfDay,
-      halfDayType,
-      halfDaySession: requestedHalfDaySession,
-      ...rest
-    } = data;
+    const { startDate, endDate, isHalfDay, halfDayType, ...rest } = data;
     const start = new Date(startDate);
     const end = new Date(endDate);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -101,36 +82,8 @@ export class LeaveService {
       throw new ForbiddenException('Leave start date cannot be after end date');
     }
 
-    const leaveType = rest.type as LeaveType;
-    if (!Object.values(LeaveType).includes(leaveType)) {
-      throw new ForbiddenException('Invalid leave type');
-    }
-    let halfDaySession: HalfDaySession | null = null;
-    if (isHalfDay) {
-      if (
-        requestedHalfDaySession &&
-        halfDayType &&
-        requestedHalfDaySession !== halfDayType
-      ) {
-        throw new ForbiddenException('halfDaySession and halfDayType must agree');
-      }
-      const requestedSession = requestedHalfDaySession ?? halfDayType;
-      if (!Object.values(HalfDaySession).includes(requestedSession as HalfDaySession)) {
-        throw new ForbiddenException('Half-day requests require FIRST_HALF or SECOND_HALF');
-      }
-      halfDaySession = requestedSession as HalfDaySession;
-    } else if (halfDayType || requestedHalfDaySession) {
-      throw new ForbiddenException('halfDaySession is valid only for a half-day request');
-    }
-
-    // Validate the requested entitlement's own balance and check overlaps.
-    await this.leaveBalance.validateLeaveRequest(
-      userId,
-      start,
-      end,
-      !!isHalfDay,
-      leaveType,
-    );
+    // Validate balance and check overlaps
+    await this.leaveBalance.validateLeaveRequest(userId, start, end, !!isHalfDay);
 
     const leave = await this.prisma.leaveRequest.create({
       data: {
@@ -139,9 +92,7 @@ export class LeaveService {
         startDate: start.toISOString(),
         endDate: end.toISOString(),
         isHalfDay: !!isHalfDay,
-        // New typed authority plus the old compatibility mirror.
-        halfDaySession,
-        halfDayType: halfDaySession,
+        halfDayType: halfDayType || null,
       },
       include: { user: { select: { id: true, name: true, departmentId: true } } },
     });
@@ -184,7 +135,7 @@ export class LeaveService {
     return leave;
   }
 
-  async getUserBalance(userId: string, requester: any, leaveType?: LeaveType) {
+  async getUserBalance(userId: string, requester: any) {
     if (requester.id !== userId) {
       const targetUser = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -194,19 +145,7 @@ export class LeaveService {
       const canView = await this.accessPolicy.canViewUser(requester, targetUser);
       if (!canView) throw new ForbiddenException('You do not have permission to view this user\'s leave balance');
     }
-    return this.leaveBalance.getLeaveBalance(
-      userId,
-      this.tva.financialYear().startYear,
-      leaveType,
-    );
-  }
-
-  /** Whether the two-stage Manager -> HR approval chain is switched on. */
-  private async approvalLifecycleEnabled(): Promise<boolean> {
-    const cfg = await this.settings.get(ATTENDANCE_V2_SETTING_KEY);
-    return (
-      (cfg?.leaveApprovalEnabled ?? ATTENDANCE_V2_DEFAULTS.leaveApprovalEnabled) === true
-    );
+    return this.leaveBalance.getLeaveBalance(userId);
   }
 
   async approve(id: string, approverId: string, user?: any) {
@@ -218,13 +157,6 @@ export class LeaveService {
     const actor = user ?? await this.prisma.user.findUnique({ where: { id: approverId }, include: { role: true, department: true } });
     if (!actor) throw new ForbiddenException('Not authorized');
     await this.leaveAccess.assertCanApproveReject(actor, leave, 'approve');
-
-    // ── Two-stage chain (LH-2) ────────────────────────────────────────────
-    // With the flag off this whole block is skipped and the original
-    // single-approval behaviour below runs exactly as it does today.
-    if (await this.approvalLifecycleEnabled()) {
-      return this.approveThroughLifecycle(leave, actor, approverId);
-    }
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },
@@ -255,123 +187,6 @@ export class LeaveService {
     } catch (_e) { /* never crash main op */ }
 
     return updated;
-  }
-
-  /**
-   * Manager -> HR approval, on the existing LeaveRequest.
-   *
-   * The request stays PENDING for the whole chain; only HR's approval flips the
-   * status. That is what keeps every existing reader of `status` correct while a
-   * request is mid-review.
-   */
-  private async approveThroughLifecycle(leave: any, actor: any, approverId: string) {
-    const isHr = this.accessPolicy.isHrOrAdmin(actor);
-
-    if (leave.approvalStage === 'MANAGER_REVIEW') {
-      // Stage one must be THIS employee's reporting authority, not merely
-      // somebody who happens to hold a MANAGER or TEAM_LEAD role. The chain
-      // comes from the existing Apex hierarchy (User.teamLeadName /
-      // User.reportingManager -> employeeId), the same one ticket approval
-      // uses -- leave must not answer "who reports to whom" differently.
-      //
-      // The employee is structurally excluded from their own chain, so this
-      // also makes self-approval impossible at this stage.
-      const chain = await this.hierarchy.resolveApproverChainFor(leave.userId);
-      const entry = chain.find((c) => c.id === approverId);
-      if (!entry) {
-        throw new ForbiddenException(
-          "Only this employee's reporting hierarchy can approve their leave request",
-        );
-      }
-
-      // Admin/SuperAdmin escalation is an established Apex convention and is
-      // preserved -- but recorded, so an override is visible in the audit trail
-      // rather than indistinguishable from a manager acting normally.
-      const viaAdminOverride = entry.tier === 'ADMIN';
-
-      // HR approving at the manager stage would skip a review the company
-      // requires, so the chain always advances one step at a time.
-      const updated = await this.prisma.leaveRequest.update({
-        where: { id: leave.id },
-        data: {
-          approvalStage: 'HR_REVIEW',
-          managerApprovedById: approverId,
-          managerApprovedAt: this.tva.now(),
-        },
-      });
-
-      this.eventLogger.log({
-        actorId: approverId,
-        entityType: 'LeaveRequest',
-        entityId: leave.id,
-        action: OperationalAction.LEAVE_APPROVED,
-        fromState: 'MANAGER_REVIEW',
-        toState: viaAdminOverride ? 'HR_REVIEW (admin override)' : 'HR_REVIEW',
-      }).catch(() => {});
-
-      // The employee is told it moved, not that it was granted -- it has not
-      // been, and saying so would be a promise the company has not made.
-      try {
-        await this.notificationEventService.sendNotification(leave.userId, 'leaveApproved', {
-          title: 'Leave request sent to HR',
-          message: 'Your reporting manager approved your leave. It is now with HR for final approval.',
-          type: NotificationType.INFO,
-          link: '/leave',
-          entityId: leave.id,
-          entityType: 'LEAVE',
-        });
-      } catch (_e) { /* never crash main op */ }
-
-      return updated;
-    }
-
-    if (leave.approvalStage === 'HR_REVIEW') {
-      if (!isHr) {
-        throw new ForbiddenException('Only HR can give final approval for leave');
-      }
-
-      // Everything that decides the outcome happens inside this call, under a
-      // lock: stage re-check, balance read, split, and the final write.
-      const { leave: updated, settlement } = await this.leaveSettlement.settleAndApprove({
-        leaveId: leave.id,
-        hrApproverId: approverId,
-      });
-
-      this.eventLogger.log({
-        actorId: approverId,
-        entityType: 'LeaveRequest',
-        entityId: leave.id,
-        action: OperationalAction.LEAVE_APPROVED,
-        fromState: 'HR_REVIEW',
-        toState: 'APPROVED',
-      }).catch(() => {});
-
-      this.gateway.emitLeaveStatusChanged(leave.id, 'APPROVED', leave.userId);
-
-      const startStr = new Date(leave.startDate).toISOString().split('T')[0];
-      const endStr = new Date(leave.endDate).toISOString().split('T')[0];
-      const funding =
-        settlement.fundingOutcome === 'PAID'
-          ? ''
-          : settlement.fundingOutcome === 'UNPAID'
-            ? ' It is recorded as leave without pay, as your paid balance is exhausted.'
-            : ` ${settlement.paidDays} day(s) are paid and ${settlement.unpaidDays} day(s) are without pay.`;
-
-      try {
-        await this.notificationEventService.sendNotification(leave.userId, 'leaveApproved', {
-          title: 'Leave request approved',
-          message: `Your ${leave.type} leave (${startStr} to ${endStr}) has been approved.${funding}`,
-          type: NotificationType.SUCCESS,
-          link: '/leave',
-          entityId: leave.id,
-          entityType: 'LEAVE',
-        });
-      } catch (_e) { /* never crash main op */ }
-
-      return updated;
-    }
-
-    throw new ForbiddenException('This leave request has already completed its approval chain');
   }
 
   async reject(id: string, rejectorId: string, user?: any) {

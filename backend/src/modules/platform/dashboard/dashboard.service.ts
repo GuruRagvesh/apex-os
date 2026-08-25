@@ -480,7 +480,7 @@ export class DashboardService {
     const activeProjects = activeProjectsList.map((p) => `${p.projectId}: ${p.name}`);
 
     const pendingLeave = await Promise.all(pendingLeaveList.map(async (l) => {
-      const dur = await this.leaveBalance.getDurationForRequest(l.startDate, l.endDate, l.isHalfDay, l.userId);
+      const dur = await this.leaveBalance.getDurationForRequest(l.startDate, l.endDate, l.isHalfDay);
       return `${l.user.name}: ${l.type} (${dur}d)`;
     }));
 

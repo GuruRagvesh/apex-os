@@ -38,7 +38,6 @@ model User {
   employmentType            String?                        @default("Full-time")
   workMode                  String?                        @default("Office")
   joiningDate               DateTime?
-  lastWorkingDate           DateTime?
   probationPeriod           String?
   reportingManager          String?
   teamLeadName              String?
@@ -66,9 +65,7 @@ model User {
   bio                       String?
   activityLogs              ActivityLog[]
   attendanceEvents          AttendanceEvent[]
-  attendanceProfiles        EmployeeAttendanceProfile[]
-  punchEvidence             AttendancePunchEvidence[]
-  punchPhotos               AttendancePunchPhoto[]
+  attendanceProfile         EmployeeAttendanceProfile?
   attendanceRegularizations AttendanceRegularization[]
   breakLogs                 BreakLog[]
   comments                  Comment[]
@@ -78,7 +75,6 @@ model User {
   changeRequestsCreated     EmployeeProfileChangeRequest[] @relation("ChangeRequestRequester")
   changeRequestsTarget      EmployeeProfileChangeRequest[] @relation("ChangeRequestTarget")
   leaveRequests             LeaveRequest[]
-  compOffCredits            CompOffCredit[]
   managedDepts              ManagerDeptAccess[]            @relation("ManagerAccess")
   notifications             Notification[]
   operationalEvents         OperationalEvent[]             @relation("EventActor")
@@ -378,50 +374,28 @@ model Attachment {
 }
 
 model LeaveRequest {
-  id             String          @id @default(cuid())
-  userId         String
-  type           LeaveType
-  startDate      DateTime
-  endDate        DateTime
-  reason         String
-  status         LeaveStatus     @default(PENDING)
-  approvedBy     String?
-  approvedAt     DateTime?
-  rejectedBy     String?
-  rejectedAt     DateTime?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  isHalfDay      Boolean         @default(false)
-  halfDayType    String?
-  /// Typed authority for new half-day requests. halfDayType remains as a
-  /// compatibility mirror for historical readers and existing rows.
-  halfDaySession HalfDaySession?
-
-  // ── Approval lifecycle + funding settlement (LH-2) ────────────────────────
-  // approvedBy/approvedAt above remain as COMPATIBILITY fields and carry the
-  // FINAL approval once HR completes the request, so existing readers are
-  // unaffected. rejectedBy/rejectedAt are reused for a rejection at either stage.
-  approvalStage       LeaveApprovalStage   @default(MANAGER_REVIEW)
-  managerApprovedById String?
-  managerApprovedAt   DateTime?
-  hrApprovedById      String?
-  hrApprovedAt        DateTime?
-  /// Null on historical rows: their settlement was never recorded, and it must
-  /// not be invented by recalculating against today's calendar or balance.
-  fundingOutcome      LeaveFundingOutcome?
-  paidDays            Float?
-  unpaidDays          Float?
-  user                User                 @relation(fields: [userId], references: [id])
-  workSessions        WorkSession[]
-  /// Many, not one. A two-day COMP_OFF request consumes two credits, so a
-  /// one-to-one link would have made multi-day comp off structurally impossible.
-  compOffCredits      CompOffCredit[]
+  id           String        @id @default(cuid())
+  userId       String
+  type         LeaveType
+  startDate    DateTime
+  endDate      DateTime
+  reason       String
+  status       LeaveStatus   @default(PENDING)
+  approvedBy   String?
+  approvedAt   DateTime?
+  rejectedBy   String?
+  rejectedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  isHalfDay    Boolean       @default(false)
+  halfDayType  String?
+  user         User          @relation(fields: [userId], references: [id])
+  workSessions WorkSession[]
 
   @@index([userId])
   @@index([status])
   @@index([startDate])
   @@index([userId, status])
-  @@index([approvalStage])
   @@map("leave_requests")
 }
 
@@ -518,31 +492,29 @@ model AppSetting {
 }
 
 model WorkSession {
-  id                      String                    @id @default(cuid())
+  id                      String            @id @default(cuid())
   userId                  String
-  date                    DateTime                  @db.Date
+  date                    DateTime          @db.Date
   loginAt                 DateTime?
   startWorkAt             DateTime?
   logoutAt                DateTime?
-  status                  String                    @default("LOGGED_IN")
-  totalLoggedMinutes      Int                       @default(0)
-  totalBreakMinutes       Int                       @default(0)
-  totalIdleMinutes        Int                       @default(0)
-  totalWorkMinutes        Int                       @default(0)
+  status                  String            @default("LOGGED_IN")
+  totalLoggedMinutes      Int               @default(0)
+  totalBreakMinutes       Int               @default(0)
+  totalIdleMinutes        Int               @default(0)
+  totalWorkMinutes        Int               @default(0)
   leaveId                 String?
-  createdAt               DateTime                  @default(now())
-  updatedAt               DateTime                  @updatedAt
-  autoClosed              Boolean                   @default(false)
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  autoClosed              Boolean           @default(false)
   autoClosedAt            DateTime?
   closureReason           String?
   continuationOfSessionId String?
   attendanceEvents        AttendanceEvent[]
-  punchEvidence           AttendancePunchEvidence[]
   breakLogs               BreakLog[]
   ticketTimeLogs          TicketTimeLog[]
-  leaveRequest            LeaveRequest?             @relation(fields: [leaveId], references: [id])
-  user                    User                      @relation(fields: [userId], references: [id])
-  compOffCredits          CompOffCredit[]
+  leaveRequest            LeaveRequest?     @relation(fields: [leaveId], references: [id])
+  user                    User              @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([date])
@@ -833,60 +805,23 @@ model EmployeeProfileChangeRequest {
 // ════════════════════════════════════════════════════════════════════════════
 
 model AttendancePolicy {
-  id                          String               @id @default(cuid())
-  financialYear               String
-  name                        String
-  isActive                    Boolean              @default(true)
-  minimumWorkingMinutes       Int                  @default(540)
-  lateExemptionEnabled        Boolean              @default(true)
-  faceCaptureRequired         Boolean              @default(false)
-  locationCaptureRequired     Boolean              @default(false)
-  geoFenceEnabled             Boolean              @default(false)
-  regularizationEnabled       Boolean              @default(true)
-  createdAt                   DateTime             @default(now())
-  updatedAt                   DateTime             @updatedAt
-  updatedById                 String?
-  // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
-  // policy share it; a different series (e.g. Team Leader shift vs Regular
-  // Employee shift) has its own. Never derived from the mutable display name.
-  policyKey                   String
-  // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
-  // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
-  // pre-existing readers and seed keep working; PolicyVersionService writes both.
-  version                     Int                  @default(1)
-  status                      PolicyStatus         @default(DRAFT)
-  effectiveFrom               DateTime             @default(now())
-  effectiveTo                 DateTime?
-  approvedById                String?
-  approvedAt                  DateTime?
-  createdById                 String?
-  supersededById              String?
-  // ── Configurable management rules (BL-4) ───────────────────────────────
-  // Safe defaults: anything undecided REQUIRES REVIEW rather than silently
-  // deducting leave or marking absence. Management changes these by issuing a
-  // NEW policy version, which never rewrites historical attendance.
-  afterPunchWindowAction      PolicyDecisionAction @default(REQUIRE_REVIEW)
-  insufficientHoursAction     PolicyDecisionAction @default(REQUIRE_REVIEW)
-  automaticHalfDayEnabled     Boolean              @default(false)
-  // ── Duration semantics (AR-1) ──────────────────────────────────────────
-  // minimumWorkingMinutes above is the required PRESENCE SPAN, not effective
-  // work: it defaults to 540, and ShiftPolicy's own 10:00-19:00 window spans
-  // exactly 540 minutes, which only holds if breaks are inside it. The two
-  // fields below are the pieces that never existed, so span and effective work
-  // stopped being distinguishable.
-  /// Break time the span is allowed to contain, in minutes.
-  permittedBreakMinutes       Int                  @default(60)
-  /// Effective work floor, checked only when explicitly configured. Left unset
-  /// so enabling AR-1 cannot newly fail anyone on a threshold nobody chose.
-  minimumEffectiveWorkMinutes Int?
-  shiftPolicies               ShiftPolicy[]
+  id                      String        @id @default(cuid())
+  financialYear           String
+  name                    String
+  isActive                Boolean       @default(true)
+  minimumWorkingMinutes   Int           @default(540)
+  lateExemptionEnabled    Boolean       @default(true)
+  faceCaptureRequired     Boolean       @default(false)
+  locationCaptureRequired Boolean       @default(false)
+  geoFenceEnabled         Boolean       @default(false)
+  regularizationEnabled   Boolean       @default(true)
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  updatedById             String?
+  shiftPolicies           ShiftPolicy[]
 
-  @@unique([policyKey, version])
   @@index([financialYear])
   @@index([isActive])
-  @@index([policyKey])
-  @@index([status])
-  @@index([effectiveFrom])
   @@map("attendance_policies")
 }
 
@@ -902,30 +837,11 @@ model ShiftPolicy {
   isActive              Boolean                     @default(true)
   createdAt             DateTime                    @default(now())
   updatedAt             DateTime                    @updatedAt
-  // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
-  // policy share it; a different series (e.g. Team Leader shift vs Regular
-  // Employee shift) has its own. Never derived from the mutable display name.
-  policyKey             String
-  // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
-  // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
-  // pre-existing readers and seed keep working; PolicyVersionService writes both.
-  version               Int                         @default(1)
-  status                PolicyStatus                @default(DRAFT)
-  effectiveFrom         DateTime                    @default(now())
-  effectiveTo           DateTime?
-  approvedById          String?
-  approvedAt            DateTime?
-  createdById           String?
-  supersededById        String?
   attendancePolicy      AttendancePolicy            @relation(fields: [attendancePolicyId], references: [id], onDelete: Cascade)
   employeeProfiles      EmployeeAttendanceProfile[]
 
-  @@unique([policyKey, version])
   @@index([attendancePolicyId])
   @@index([category])
-  @@index([policyKey])
-  @@index([status])
-  @@index([effectiveFrom])
   @@map("shift_policies")
 }
 
@@ -933,32 +849,23 @@ model ShiftPolicy {
 // User.teamLeadName (free-text fields) — those stay untouched until a later
 // phase confirms nothing in the frontend still depends on them.
 model EmployeeAttendanceProfile {
-  id                           String              @id @default(cuid())
-  userId                       String
-  category                     AttendanceCategory
-  attendanceRequired           Boolean             @default(true)
-  assignedShiftId              String?
-  assignedLeavePolicyId        String?
-  assignedHolidayCalendarId    String?
-  assignedWeeklyOffPolicyId    String?
-  assignedAttendanceLocationId String?
-  reportingManagerId           String?
-  hrReviewerId                 String?
-  effectiveFrom                DateTime            @default(now())
-  effectiveTo                  DateTime?
-  createdAt                    DateTime            @default(now())
-  updatedAt                    DateTime            @updatedAt
-  updatedById                  String?
-  user                         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedShift                ShiftPolicy?        @relation(fields: [assignedShiftId], references: [id])
-  assignedLeavePolicy          LeavePolicy?        @relation(fields: [assignedLeavePolicyId], references: [id])
-  assignedHolidayCalendar      HolidayCalendar?    @relation(fields: [assignedHolidayCalendarId], references: [id])
-  assignedWeeklyOffPolicy      WeeklyOffPolicy?    @relation(fields: [assignedWeeklyOffPolicyId], references: [id])
-  assignedAttendanceLocation   AttendanceLocation? @relation(fields: [assignedAttendanceLocationId], references: [id])
+  id                    String             @id @default(cuid())
+  userId                String             @unique
+  category              AttendanceCategory
+  attendanceRequired    Boolean            @default(true)
+  assignedShiftId       String?
+  assignedLeavePolicyId String?
+  reportingManagerId    String?
+  hrReviewerId          String?
+  effectiveFrom         DateTime           @default(now())
+  effectiveTo           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  updatedById           String?
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedShift         ShiftPolicy?       @relation(fields: [assignedShiftId], references: [id])
+  assignedLeavePolicy   LeavePolicy?       @relation(fields: [assignedLeavePolicyId], references: [id])
 
-  @@index([userId, effectiveFrom])
-  @@index([assignedAttendanceLocationId])
-  @@index([userId, effectiveTo])
   @@index([category])
   @@index([assignedShiftId])
   @@index([assignedLeavePolicyId])
@@ -967,52 +874,31 @@ model EmployeeAttendanceProfile {
 }
 
 model WeeklyOffPolicy {
-  id               String                      @id @default(cuid())
-  name             String
-  everySunday      Boolean                     @default(true)
-  secondSaturday   Boolean                     @default(true)
-  fourthSaturday   Boolean                     @default(true)
-  isActive         Boolean                     @default(true)
-  effectiveFrom    DateTime                    @default(now())
-  effectiveTo      DateTime?
-  createdAt        DateTime                    @default(now())
-  updatedAt        DateTime                    @updatedAt
-  employeeProfiles EmployeeAttendanceProfile[]
+  id             String    @id @default(cuid())
+  name           String
+  everySunday    Boolean   @default(true)
+  secondSaturday Boolean   @default(true)
+  fourthSaturday Boolean   @default(true)
+  isActive       Boolean   @default(true)
+  effectiveFrom  DateTime  @default(now())
+  effectiveTo    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([isActive])
   @@map("weekly_off_policies")
 }
 
 model HolidayCalendar {
-  id               String                      @id @default(cuid())
-  financialYear    String
-  name             String
-  isActive         Boolean                     @default(true)
-  createdAt        DateTime                    @default(now())
-  updatedAt        DateTime                    @updatedAt
-  // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
-  // policy share it; a different series (e.g. Team Leader shift vs Regular
-  // Employee shift) has its own. Never derived from the mutable display name.
-  policyKey        String
-  // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
-  // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
-  // pre-existing readers and seed keep working; PolicyVersionService writes both.
-  version          Int                         @default(1)
-  status           PolicyStatus                @default(DRAFT)
-  effectiveFrom    DateTime                    @default(now())
-  effectiveTo      DateTime?
-  approvedById     String?
-  approvedAt       DateTime?
-  createdById      String?
-  supersededById   String?
-  holidays         Holiday[]
-  employeeProfiles EmployeeAttendanceProfile[]
+  id            String    @id @default(cuid())
+  financialYear String
+  name          String
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  holidays      Holiday[]
 
-  @@unique([policyKey, version])
   @@index([financialYear])
-  @@index([policyKey])
-  @@index([status])
-  @@index([effectiveFrom])
   @@map("holiday_calendars")
 }
 
@@ -1031,261 +917,23 @@ model Holiday {
   @@map("holidays")
 }
 
-// A single-date, company-wide exception to the ordinary calendar.
-//
-// An override changes what the company EXPECTS of a date; it never erases the
-// underlying calendar facts. A SPECIAL_WORKING_DAY on a Sunday leaves that date
-// still a Sunday and still a weekly off — BusinessCalendarService reports both,
-// and only expectedCompanyWorkingDay flips.
-//
-// Overrides are withdrawn by setting revokedAt, never by deletion, so a past
-// attendance result can always be re-explained with the calendar that applied
-// at the time.
-//
-// Deliberately company-wide: no employee, department or location fields, and no
-// attendance-result or payroll fields. Those belong to later layers.
-// A camera capture uploaded by an employee, held server-side until a punch
-// consumes it. SERVER-OWNED.
-//
-// Punch evidence is immutable, so the photo must exist and be validated BEFORE
-// the evidence row is inserted. This table is that staging step.
-//
-// Bytes live in private object storage, never in Postgres and never as base64.
-// Only the storage reference and a server-computed hash are kept here.
-//
-// Short-lived and single-use: expiresAt is a technical anti-replay window, and
-// the one-to-one relation to AttendancePunchEvidence means a capture can back
-// exactly one punch. The uniqueness is enforced by the database, so two
-// concurrent punches cannot both claim the same photo.
-model AttendancePunchPhoto {
-  id               String    @id @default(cuid())
-  userId           String
-  /// Private storage reference, e.g. cloudinary:authenticated:image:<id>:<fmt>.
-  /// Never a public URL, and never accepted from the client.
-  objectKey        String
-  /// SHA-256 of the bytes the server actually received.
-  sha256           String
-  mimeType         String
-  byteSize         Int
-  clientCapturedAt DateTime?
-  receivedAt       DateTime  @default(now())
-  expiresAt        DateTime
-  createdAt        DateTime  @default(now())
-
-  user          User                     @relation(fields: [userId], references: [id])
-  punchEvidence AttendancePunchEvidence?
-
-  @@index([userId, expiresAt])
-  @@map("attendance_punch_photos")
-}
-
-// A physical place attendance may be punched from. SERVER CONFIGURATION.
-//
-// Coordinates, radius and the accuracy threshold are administrative settings.
-// An employee's device never submits any of them -- it submits only where it
-// thinks it is, and the server decides whether that is acceptable.
-model AttendanceLocation {
-  id                    String   @id @default(cuid())
-  name                  String
-  latitude              Float
-  longitude             Float
-  /// Acceptance radius in metres. A punch at or within this distance passes.
-  radiusMeters          Int      @default(150)
-  /// Worst GPS accuracy still trusted. A reading vaguer than this is treated
-  /// as LOW_ACCURACY even if its coordinate happens to land inside the radius.
-  minimumAccuracyMeters Int      @default(100)
-  isActive              Boolean  @default(true)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  employeeProfiles EmployeeAttendanceProfile[]
-  punchEvidence    AttendancePunchEvidence[]
-
-  @@index([isActive])
-  @@map("attendance_locations")
-}
-
-// Immutable, append-only record of a single punch. RAW FACT ONLY.
-//
-// This is evidence, not a conclusion: it never stores Present, Absent, Half
-// Day, Leave, LWP or any payroll consequence. Those are decided far later, by a
-// different layer, FROM this evidence.
-//
-// Deliberately separate from AttendanceEvent. That table is the live Workday
-// engine's audit stream -- nine call sites across auth and workday write LOGIN,
-// START_WORK, BREAK_START and so on. Mixing legally-significant punch evidence
-// into it would make the contract ambiguous by shape, and an append-only
-// database trigger would then also bind the production Workday engine's audit
-// writes. This table is new, has no readers, and can carry that guarantee
-// safely.
-//
-// Server-authoritative fields (userId, businessDate, serverOccurredAt,
-// receivedAt, all policy provenance, both verification states) are derived
-// backend-side and are never accepted from the client.
-model AttendancePunchEvidence {
-  id     String    @id @default(cuid())
-  userId String
-  type   PunchType
-
-  // Company business date, derived server-side through the BL-1 TVA contract.
-  businessDate DateTime @db.Date
-
-  // Three distinct instants, never collapsed: when the server considers the
-  // punch to have happened, when the client says it captured it, and when the
-  // request actually arrived. A retry, a slow network or a wrong device clock
-  // are all visible in the gap between them.
-  serverOccurredAt DateTime
-  clientCapturedAt DateTime?
-  receivedAt       DateTime  @default(now())
-
-  latitude                   Float?
-  longitude                  Float?
-  accuracyMeters             Float?
-  locationVerification       PunchLocationVerification @default(PENDING)
-  // Why the server reached that verdict. Storing only VERIFIED/OUTSIDE would
-  // make a past decision unexplainable once the location config changes.
-  attendanceLocationId       String?
-  distanceFromLocationMeters Float?
-  geofenceRadiusMeters       Int?
-  accuracyThresholdMeters    Int?
-
-  /// One-use link to the staged capture. Unique, so the database itself
-  /// prevents two punches sharing one photo.
-  photoAssetId      String?                @unique
-  photoObjectKey    String?
-  photoHash         String?
-  photoVerification PunchPhotoVerification @default(PENDING)
-
-  source         PunchSource @default(WEB)
-  deviceMetadata Json?
-  ipAddress      String?
-
-  // Linked in PE-4, when punches begin driving the Workday engine.
-  workSessionId String?
-
-  // Provenance from the BL-5 daily context, captured at punch time so the
-  // evidence can be re-explained under the rules that actually applied.
-  employeeProfileId       String?
-  shiftPolicyId           String?
-  shiftPolicyVersion      Int?
-  attendancePolicyId      String?
-  attendancePolicyVersion Int?
-  contextResolverVersion  Int?
-
-  // Retry safety. A repeated submission with the same key returns the original
-  // record rather than creating a second punch.
-  idempotencyKey String
-
-  createdAt DateTime @default(now())
-
-  user               User                  @relation(fields: [userId], references: [id])
-  workSession        WorkSession?          @relation(fields: [workSessionId], references: [id])
-  attendanceLocation AttendanceLocation?   @relation(fields: [attendanceLocationId], references: [id])
-  photoAsset         AttendancePunchPhoto? @relation(fields: [photoAssetId], references: [id])
-
-  @@unique([userId, idempotencyKey])
-  @@index([userId, businessDate])
-  @@index([businessDate])
-  @@index([type])
-  @@map("attendance_punch_evidence")
-}
-
-model BusinessDayOverride {
-  id           String                  @id @default(cuid())
-  date         DateTime                @db.Date
-  type         BusinessDayOverrideType
-  reason       String
-  createdById  String?
-  approvedById String?
-  approvedAt   DateTime?
-  revokedById  String?
-  revokedAt    DateTime?
-  createdAt    DateTime                @default(now())
-  updatedAt    DateTime                @updatedAt
-
-  @@unique([date])
-  @@index([type])
-  @@index([revokedAt])
-  @@map("business_day_overrides")
-}
-
 model LeavePolicy {
-  id                               String                      @id @default(cuid())
-  financialYear                    String
-  name                             String
-  totalPaidLeaves                  Int                         @default(14)
-  combinedPoolTypes                Json                        @default("[]")
-  lwpAfterBalanceExhausted         Boolean                     @default(true)
-  approvedLeavePriorityOverAbsent  Boolean                     @default(true)
-  weeklyOffExcluded                Boolean                     @default(true)
-  holidaysExcluded                 Boolean                     @default(true)
-  /// Separate management-confirmed authorities. totalPaidLeaves remains for
-  /// historical/legacy leave types; new CASUAL/EMERGENCY funding never pools.
-  casualLeaveAllocation            Int                         @default(10)
-  emergencyLeaveAllocation         Int                         @default(4)
-  /// Explicit approved half-day attendance expectations.
-  firstHalfInEarliest              String                      @default("09:30")
-  firstHalfInLatest                String                      @default("10:30")
-  firstHalfRequiredPresenceMinutes Int                         @default(240)
-  secondHalfInEarliest             String                      @default("14:00")
-  secondHalfInLatest               String                      @default("14:30")
-  secondHalfOutTime                String                      @default("18:30")
-  /// Comp Off credits are independent of annual paid-leave allocations.
-  compOffExpiryDays                Int                         @default(30)
-  isActive                         Boolean                     @default(true)
-  createdAt                        DateTime                    @default(now())
-  updatedAt                        DateTime                    @updatedAt
-  // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
-  // policy share it; a different series (e.g. Team Leader shift vs Regular
-  // Employee shift) has its own. Never derived from the mutable display name.
-  policyKey                        String
-  // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
-  // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
-  // pre-existing readers and seed keep working; PolicyVersionService writes both.
-  version                          Int                         @default(1)
-  status                           PolicyStatus                @default(DRAFT)
-  effectiveFrom                    DateTime                    @default(now())
-  effectiveTo                      DateTime?
-  approvedById                     String?
-  approvedAt                       DateTime?
-  createdById                      String?
-  supersededById                   String?
-  employeeProfiles                 EmployeeAttendanceProfile[]
+  id                              String                      @id @default(cuid())
+  financialYear                   String
+  name                            String
+  totalPaidLeaves                 Int                         @default(14)
+  combinedPoolTypes               Json                        @default("[]")
+  lwpAfterBalanceExhausted        Boolean                     @default(true)
+  approvedLeavePriorityOverAbsent Boolean                     @default(true)
+  weeklyOffExcluded               Boolean                     @default(true)
+  holidaysExcluded                Boolean                     @default(true)
+  isActive                        Boolean                     @default(true)
+  createdAt                       DateTime                    @default(now())
+  updatedAt                       DateTime                    @updatedAt
+  employeeProfiles                EmployeeAttendanceProfile[]
 
-  @@unique([policyKey, version])
   @@index([financialYear])
-  @@index([policyKey])
-  @@index([status])
-  @@index([effectiveFrom])
   @@map("leave_policies")
-}
-
-/// Manually granted Comp Off entitlement. No WorkSession automatically creates
-/// this row: management has not defined a qualifying work-duration threshold.
-model CompOffCredit {
-  id                      String              @id @default(cuid())
-  employeeId              String
-  earnedFromBusinessDate  DateTime            @db.Date
-  earnedFromWorkSessionId String?
-  earnedAt                DateTime            @default(now())
-  expiresAt               DateTime            @db.Date
-  usedAt                  DateTime?
-  leaveRequestId          String?
-  status                  CompOffCreditStatus @default(AVAILABLE)
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
-  employee                User                @relation(fields: [employeeId], references: [id])
-  earnedFromWorkSession   WorkSession?        @relation(fields: [earnedFromWorkSessionId], references: [id], onDelete: SetNull)
-  leaveRequest            LeaveRequest?       @relation(fields: [leaveRequestId], references: [id], onDelete: SetNull)
-
-  /// One credit per employee per source day. Enforced here rather than by a
-  /// service check, so a concurrent double-grant fails on the constraint.
-  @@unique([employeeId, earnedFromBusinessDate])
-  @@index([employeeId, status, expiresAt])
-  @@index([earnedFromBusinessDate])
-  @@index([earnedFromWorkSessionId])
-  @@index([leaveRequestId])
-  @@map("comp_off_credits")
 }
 
 model DailyAttendance {
@@ -1304,79 +952,36 @@ model DailyAttendance {
   locked            Boolean               @default(false)
   lockedAt          DateTime?
   policyVersion     String?
-
-  // ── Evaluation layer (AE-1) ─────────────────────────────────────────────
-  // Provenance ids are stored WITHOUT foreign keys on purpose. This is a
-  // historical explanation of a past decision, and it must survive the later
-  // deletion or supersession of any policy, calendar or leave row it names --
-  // exactly like an audit record.
-  evaluationState         DailyAttendanceEvaluationState @default(CALCULATED)
-  evaluatorVersion        Int                            @default(1)
-  resolverVersion         Int?
-  evaluatedAt             DateTime?
-  exceptionFlags          String[]                       @default([])
-  /// Digest of the source facts this result was computed from. Lets a repeat
-  /// evaluation recognise "nothing changed" without rewriting the row.
-  sourceFingerprint       String?
-  employeeProfileId       String?
-  attendancePolicyId      String?
-  attendancePolicyVersion Int?
-  shiftPolicyId           String?
-  shiftPolicyVersion      Int?
-  holidayCalendarId       String?
-  weeklyOffPolicyId       String?
-  holidayId               String?
-  businessDayOverrideId   String?
-  leaveRequestId          String?
-  punchInEvidenceId       String?
-  punchOutEvidenceId      String?
-  workSessionIds          String[]                       @default([])
-  // ── Correction provenance (AR-1) ────────────────────────────────────────
-  /// Bumped every time an approved regularization revises this official fact.
-  /// 0 means the evaluator's own answer has never been corrected.
-  revision                Int                            @default(0)
-  /// The approved regularization behind the CURRENT official values, if any.
-  lastRegularizationId    String?
-  createdAt               DateTime                       @default(now())
-  updatedAt               DateTime                       @updatedAt
-  user                    User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([userId])
   @@index([date])
   @@index([status])
-  @@index([evaluationState])
   @@map("daily_attendance")
 }
 
 model AttendanceRegularization {
-  id                 String                    @id @default(cuid())
-  userId             String
-  date               DateTime                  @db.Date
-  requestType        RegularizationRequestType
-  reason             String
-  requestedPunchIn   DateTime?
-  requestedPunchOut  DateTime?
-  // ── AR-1 ──────────────────────────────────────────────────────────────────
-  /// The official result's sourceFingerprint when this request was raised.
-  /// Compared at final approval so a correction written against a stale view of
-  /// the day cannot silently overwrite a newer official result.
-  basedOnFingerprint String?
-  /// Explicit official status the approver is granting, for corrections that
-  /// are not expressible as a punch time (e.g. approved manual attendance).
-  proposedStatus     DailyAttendanceStatus?
-  status             RegularizationStatus      @default(PENDING)
-  managerApproverId  String?
-  managerDecisionAt  DateTime?
-  hrApproverId       String?
-  hrDecisionAt       DateTime?
-  createdAt          DateTime                  @default(now())
-  updatedAt          DateTime                  @updatedAt
-  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String                    @id @default(cuid())
+  userId            String
+  date              DateTime                  @db.Date
+  requestType       RegularizationRequestType
+  reason            String
+  requestedPunchIn  DateTime?
+  requestedPunchOut DateTime?
+  status            RegularizationStatus      @default(PENDING)
+  managerApproverId String?
+  managerDecisionAt DateTime?
+  hrApproverId      String?
+  hrDecisionAt      DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, date])
   @@index([status])
-  @@index([status, date])
   @@map("attendance_regularizations")
 }
 
@@ -1589,45 +1194,8 @@ enum LeaveType {
   ANNUAL
   SICK
   EMERGENCY
-  CASUAL
-  COMP_OFF
   UNPAID
   OTHER
-}
-
-enum HalfDaySession {
-  FIRST_HALF
-  SECOND_HALF
-}
-
-enum CompOffCreditStatus {
-  AVAILABLE
-  USED
-  EXPIRED
-  CANCELLED
-}
-
-/// Where a leave request sits in the Manager -> HR chain (LH-2).
-///
-/// Deliberately SEPARATE from LeaveStatus rather than adding new status values.
-/// Every existing reader that checks `status === PENDING` keeps working while a
-/// request moves between review stages; only the final HR approval flips the
-/// status to APPROVED.
-enum LeaveApprovalStage {
-  MANAGER_REVIEW
-  HR_REVIEW
-  COMPLETE
-}
-
-/// How an approved leave was actually funded (LH-2).
-///
-/// Recorded ALONGSIDE the requested `type`, never in place of it: the employee
-/// asked for annual leave, and the company settled some or all of it as unpaid.
-/// Rewriting the request type would destroy that distinction.
-enum LeaveFundingOutcome {
-  PAID
-  UNPAID
-  PARTIAL
 }
 
 enum LeaveStatus {
@@ -1668,17 +1236,6 @@ enum DailyAttendanceStatus {
   FACE_MISSING
 }
 
-/// Lifecycle of a daily attendance RESULT, distinct from its classification.
-///
-/// status answers "what happened that day"; this answers "can we trust it yet".
-/// A PRESENT day with a geofence exception is still PRESENT -- it is the state
-/// that says a human must look, not the status.
-enum DailyAttendanceEvaluationState {
-  CALCULATED
-  NEEDS_REVIEW
-  FINALIZED
-}
-
 enum RegularizationRequestType {
   MISSING_PUNCH
   LOCATION_EXCEPTION
@@ -1692,70 +1249,4 @@ enum RegularizationStatus {
   MANAGER_APPROVED
   HR_APPROVED
   REJECTED
-}
-
-enum BusinessDayOverrideType {
-  SPECIAL_WORKING_DAY
-  COMPANY_CLOSURE
-}
-
-enum PunchType {
-  PUNCH_IN
-  PUNCH_OUT
-}
-
-// Set by the server. PE-1 always records PENDING; PE-2 adds the geofence
-// calculation that resolves it.
-enum PunchLocationVerification {
-  PENDING
-  VERIFIED
-  /// Geofencing is switched off by the governing AttendancePolicy. GPS was
-  /// still captured and stored; it simply was not enforced against a location.
-  /// Deliberately NOT reported as VERIFIED, which would falsely imply the
-  /// employee was inside an approved location.
-  NOT_ENFORCED
-  OUTSIDE_GEOFENCE
-  LOW_ACCURACY
-  UNAVAILABLE
-  NEEDS_REVIEW
-}
-
-// Set by the server. PE-1 always records PENDING; PE-3 adds live capture and
-// storage that resolves it.
-enum PunchPhotoVerification {
-  PENDING
-  CAPTURED
-  MISSING
-  REJECTED
-  NEEDS_REVIEW
-}
-
-enum PunchSource {
-  WEB
-  PWA
-  MOBILE
-  MANUAL_APPROVED
-}
-
-// Lifecycle shared by every versioned attendance policy record.
-// A record that has ever been ACTIVE is never edited in place; it is
-// SUPERSEDED by a new version, so historical meaning is preserved.
-enum PolicyStatus {
-  DRAFT
-  APPROVED
-  ACTIVE
-  SUPERSEDED
-}
-
-// What a policy version says to do about a situation whose business rule
-// management has not yet settled. REQUIRE_REVIEW is the safe default: produce
-// no automatic payroll-affecting outcome and escalate to HR instead.
-enum PolicyDecisionAction {
-  REQUIRE_REVIEW
-  NO_ACTION
-  MARK_HALF_DAY
-  MARK_ABSENT
-  DEDUCT_HALF_PAID_LEAVE
-  DEDUCT_FULL_PAID_LEAVE
-  MARK_LWP
 }

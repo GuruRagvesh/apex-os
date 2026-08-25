@@ -5,17 +5,11 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { workdayApi } from '@/lib/api';
 import { BreakModal } from '@/components/workday/BreakModal';
-import { PunchModal } from '@/components/attendance/PunchModal';
-import { useAttendanceV2 } from '@/components/attendance/useAttendanceV2';
 import toast from 'react-hot-toast';
 
 export function QuickActionDock() {
   const [open, setOpen] = useState(false);
   const [showBreakModal, setShowBreakModal] = useState(false);
-  const [punchType, setPunchType] = useState<'PUNCH_IN' | 'PUNCH_OUT' | null>(null);
-  // Fails closed: while the probe loads, or if it errors, this is false and
-  // the legacy controls behave exactly as before.
-  const { punchEnabled } = useAttendanceV2();
   const router = useRouter();
   const pathname = usePathname();
   const user = useAuthStore(s => s.user);
@@ -49,17 +43,11 @@ export function QuickActionDock() {
   };
 
   const handleStartWork = async () => {
-    // With V2 on, starting the day IS a punch: the modal collects the photo and
-    // location and the server starts the workday in the same transaction that
-    // records the evidence. Calling startWork() here would create a session with
-    // no evidence behind it.
-    if (punchEnabled) { setPunchType('PUNCH_IN'); return; }
     try { await workdayApi.startWork(); toast.success('Workday started!'); }
     catch { toast.error('Failed to start workday'); }
   };
 
   const handleEndWorkday = async () => {
-    if (punchEnabled) { setPunchType('PUNCH_OUT'); return; }
     if (!confirm('End your workday now?')) return;
     try { await workdayApi.endWork(); toast.success('Workday ended'); }
     catch { toast.error('Failed to end workday'); }
@@ -164,18 +152,6 @@ export function QuickActionDock() {
       >
         {open ? '✕' : '+'}
       </button>
-
-      {/* Punch modal — camera + location, then the punch itself */}
-      {punchType && (
-        <PunchModal
-          type={punchType}
-          onClose={() => setPunchType(null)}
-          onPunched={() => {
-            setPunchType(null);
-            toast.success(punchType === 'PUNCH_IN' ? 'Punched in' : 'Punched out');
-          }}
-        />
-      )}
 
       {/* Break modal */}
       {showBreakModal && (

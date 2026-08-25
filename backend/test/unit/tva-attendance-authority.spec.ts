@@ -83,23 +83,13 @@ describe('TVA Attendance Authority (Unit)', () => {
 
     await workdayService.startWork('user-1');
 
-    // PE-4 made the authority transaction-aware, so both calls now carry the
-    // caller's Prisma transaction client as a trailing argument. What this test
-    // exists to prove -- that the write goes THROUGH the authority rather than
-    // straight to Prisma -- is unchanged.
     expect(attendanceAuthority.createWorkSession).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-1',
         status: 'WORKING',
-      }),
-      expect.anything(),
+      })
     );
-    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith(
-      'user-1',
-      'WORKING',
-      expect.any(Date),
-      expect.anything(),
-    );
+    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'WORKING', expect.any(Date));
   });
 
   it('4. break writes through authority', async () => {

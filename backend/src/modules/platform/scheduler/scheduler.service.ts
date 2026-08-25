@@ -11,7 +11,6 @@ import { SettingsService } from '../settings/settings.service';
 import { shouldPolicyAutoStop } from '../workday/workday.policy.helper';
 import { WorkdayService } from '../workday/workday.service';
 import { TVAService } from '../../../common/services/tva.service';
-import { COMPANY_CRON_TIMEZONE } from '../../../common/constants/company-time.constants';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 
 @Injectable()
@@ -143,11 +142,8 @@ export class SchedulerService {
     }
   }
 
-  // 1. MIDNIGHT LEAVE STATUS SETTER — 00:01 every day, COMPANY time.
-  // Without the explicit zone this fired at 00:01 UTC (05:31 IST), which for
-  // a job that stamps "today" is not merely late -- it is the wrong day for
-  // part of its own run.
-  @Cron('1 0 * * *', { timeZone: COMPANY_CRON_TIMEZONE })
+  // 1. MIDNIGHT LEAVE STATUS SETTER — 00:01 every day
+  @Cron('1 0 * * *')
   async setLeaveStatuses() {
     // Two distinct values on purpose: `today` is the real instant, correct
     // for comparing against LeaveRequest's DateTime start/end range below.
@@ -295,10 +291,8 @@ export class SchedulerService {
     }
   }
 
-  // 2. WORKDAY END REMINDER — 6:30 PM Mon-Sat, COMPANY time. The message it
-  // sends names 9:30 AM-6:30 PM explicitly, so the intended zone is not in
-  // doubt; on a UTC host it was arriving at midnight IST.
-  @Cron('30 18 * * 1-6', { timeZone: COMPANY_CRON_TIMEZONE })
+  // 2. WORKDAY END REMINDER — 6:30 PM Mon-Sat
+  @Cron('30 18 * * 1-6')
   async workdayEndReminder() {
     const stillWorking = await this.prisma.user.findMany({
       where: { currentStatus: { in: ['WORKING', 'ON_BREAK', 'IDLE'] }, isActive: true },
@@ -327,10 +321,7 @@ export class SchedulerService {
   @Cron('0 * * * *')
   async autoLogoutInactive() {
     const now = this.tva.now();
-    // Company-local hour, not server-local. `getHours()` reads the HOST's
-    // timezone, so on Render this 9am-8pm guard was really 09:00-20:00 UTC --
-    // 14:30-01:30 IST, which both skipped the morning and ran overnight.
-    const hour = Number(formatInTimeZone(now, this.tva.companyTimezone(), 'H'));
+    const hour = now.getHours();
     if (hour < 9 || hour > 20) return;
 
     const cutoff = new Date(now.getTime() - 2 * 60 * 60 * 1000);

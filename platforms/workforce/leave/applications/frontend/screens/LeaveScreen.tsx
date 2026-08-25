@@ -2,30 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { leaveApi, compOffApi } from '../api';
+import { leaveApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
 import { LEAVE_STATUS_COLORS } from '../lib/leave-status';
-import { CompOffGrantPanel } from '../components/CompOffGrantPanel';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
 import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, Info, ChevronDown } from 'lucide-react';
 import { EmptyState } from '@apex/shared-ui/components/empty-state';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
 
-const LEAVE_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'ANNUAL', 'SICK', 'UNPAID', 'OTHER'];
-
-/**
- * Types whose entitlement is NOT the generic leave balance shown above the form.
- *
- * Casual and Emergency are separate per-financial-year pools, and Comp Off is
- * funded by earned credits with no entitlement in that pool at all. Blocking
- * these on the generic balance would refuse a request the server would happily
- * accept -- and for Comp Off it would refuse every request, since its
- * entitlement from that pool is always zero. The server validates the real
- * per-type balance either way; this only decides whether the button is
- * pre-emptively disabled.
- */
-const SEPARATELY_FUNDED_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'UNPAID'];
+const LEAVE_TYPES = ['ANNUAL', 'SICK', 'EMERGENCY', 'UNPAID', 'OTHER'];
 
 export default function LeavePage() {
   const { user } = useAuthStore();
@@ -60,22 +46,11 @@ export default function LeavePage() {
       setTab('all');
     }
   }, [queryString]);
-  const [form, setForm] = useState({ type: 'CASUAL', startDate: '', endDate: '', reason: '' });
+  const [form, setForm] = useState({ type: 'ANNUAL', startDate: '', endDate: '', reason: '' });
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [balances, setBalances] = useState<Record<string, any>>({});
   const [loadingBalances, setLoadingBalances] = useState<Record<string, boolean>>({});
-
-  // Comp off is funded by earned credits and nothing else -- there is no
-  // fallback into the Casual or Emergency pools -- so the employee has to see
-  // how many unexpired credits they hold before requesting one.
-  const { data: compOffCredits } = useQuery({
-    queryKey: ['comp-off-mine'],
-    queryFn: () => compOffApi.mine() as Promise<any[]>,
-    staleTime: 60_000,
-    retry: false,
-  });
-  const availableCompOff = Array.isArray(compOffCredits) ? compOffCredits.length : 0;
 
   // Apply leave form extras
   const [isHalfDay, setIsHalfDay] = useState(false);
@@ -194,7 +169,7 @@ export default function LeavePage() {
       qc.invalidateQueries({ queryKey: ['leave-stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
       setShowNew(false);
-      setForm({ type: 'CASUAL', startDate: '', endDate: '', reason: '' });
+      setForm({ type: 'ANNUAL', startDate: '', endDate: '', reason: '' });
     },
     onError: () => toast.error('Failed to submit leave request'),
   });
@@ -237,14 +212,7 @@ export default function LeavePage() {
   };
 
   // Form: computed duration + balance check
-  const compOffShortfall =
-    form.type === 'COMP_OFF' && formDuration > 0 && formDuration > availableCompOff;
-
-  const exceedsBalance =
-    !SEPARATELY_FUNDED_TYPES.includes(form.type) &&
-    myBalance != null &&
-    formDuration > 0 &&
-    formDuration > (myBalance.balance ?? 0);
+  const exceedsBalance = myBalance != null && formDuration > 0 && formDuration > (myBalance.balance ?? 0);
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
@@ -262,10 +230,6 @@ export default function LeavePage() {
           <Plus size={16} />Apply Leave
         </button>
       </div>
-
-      {/* Manual comp off grant. Shown to HR/Admin; the server is the authority
-          and refuses anyone else with 403, which the panel reports. */}
-      {(_isAdmin || (user as any)?.isHR === true) && <CompOffGrantPanel />}
 
       {/* Stats & Personal Leave Balance */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -549,29 +513,8 @@ export default function LeavePage() {
               <div>
                 <label className="apex-label">Leave Type</label>
                 <select value={form.type} onChange={(e) => setForm(f => ({ ...f, type: e.target.value }))} className="apex-select w-full">
-                  {LEAVE_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+                  {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
-
-                {form.type === 'COMP_OFF' && (
-                  <div
-                    className={cn(
-                      'mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs font-medium',
-                      compOffShortfall
-                        ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400'
-                        : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400',
-                    )}
-                  >
-                    {compOffShortfall
-                      ? <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
-                      : <Info size={12} className="mt-0.5 flex-shrink-0" />}
-                    <span>
-                      {availableCompOff} comp off credit{availableCompOff === 1 ? '' : 's'} available.
-                      {compOffShortfall
-                        ? ` This request needs ${formDuration}. Comp off is all-or-nothing, so it cannot be part-funded.`
-                        : ' The soonest-to-expire credits are used first.'}
-                    </span>
-                  </div>
-                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -657,10 +600,10 @@ export default function LeavePage() {
                     createMutation.mutate({ ...form, isHalfDay, halfDayType: isHalfDay ? halfDayType : undefined });
                   }
                 }}
-                disabled={createMutation.isPending || !form.startDate || !form.endDate || !form.reason || exceedsBalance || compOffShortfall}
+                disabled={createMutation.isPending || !form.startDate || !form.endDate || !form.reason || exceedsBalance}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
-                {createMutation.isPending ? 'Submitting...' : exceedsBalance ? 'Balance Exceeded' : compOffShortfall ? 'Not Enough Comp Off' : 'Submit Request'}
+                {createMutation.isPending ? 'Submitting...' : exceedsBalance ? 'Balance Exceeded' : 'Submit Request'}
               </button>
               <button
                 onClick={() => {

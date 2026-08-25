@@ -36,32 +36,3 @@ export const leaveApi = {
   getDuration: (startDate: string, endDate: string, isHalfDay: boolean) =>
     r(api.get('/leave/duration', { params: { startDate, endDate, isHalfDay } })),
 };
-
-export interface CompOffCredit {
-  id: string;
-  earnedFromBusinessDate: string;
-  earnedAt: string;
-  expiresAt: string;
-  status: string;
-  reason?: string | null;
-}
-
-/**
- * Comp off credits.
- *
- * A COMP_OFF leave request is funded by these and nothing else -- there is no
- * fallback into the Casual or Emergency pools -- so the employee has to be able
- * to see how many unexpired credits they actually hold before requesting one.
- *
- * Grant is HR/Admin only, enforced by the server.
- */
-export const compOffApi = {
-  mine: () => r(api.get('/leave/comp-off/me')),
-  forEmployee: (employeeId: string) => r(api.get(`/leave/comp-off/employee/${employeeId}`)),
-  grant: (data: {
-    employeeId: string;
-    earnedFromBusinessDate: string;
-    reason: string;
-    earnedFromWorkSessionId?: string | null;
-  }) => r(api.post('/leave/comp-off/grant', data)),
-};

@@ -7,8 +7,6 @@ import { TVAService } from '../../src/common/services/tva.service';
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { LeaveService } from '../../src/modules/operations/leave/leave.service';
-import { LeaveSettlementService } from '../../src/modules/operations/leave/leave-settlement.service';
-import { HierarchyApprovalService } from '../../src/common/services/hierarchy-approval.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
@@ -82,19 +80,6 @@ describe('LeaveService — approval rules', () => {
         AccessPolicyService,
         LeaveAccessService,
         { provide: LeaveBalanceService,   useValue: mockLeaveBalance },
-        {
-          // LH-2 added this dependency. These tests exercise the legacy
-          // single-approval path (the lifecycle flag defaults off), so the
-          // settlement service must never be reached -- asserted below.
-          provide: LeaveSettlementService,
-          useValue: { settleAndApprove: jest.fn() },
-        },
-        {
-          // Also LH-2. The lifecycle flag is off in these tests, so the
-          // reporting chain is never consulted on the legacy path.
-          provide: HierarchyApprovalService,
-          useValue: { resolveApproverChainFor: jest.fn().mockResolvedValue([]) },
-        },
         { provide: PrismaService,         useValue: mockPrisma  },
         { provide: EventsGateway,         useValue: mockGateway },
         { provide: EmailService,          useValue: mockEmail   },
@@ -153,42 +138,5 @@ describe('LeaveService — approval rules', () => {
 
     const result = await service.cancel('leave1', 'emp1');
     expect(result.status).toBe('CANCELLED');
-  });
-
-  it('writes the typed half-day session and the historical compatibility mirror', async () => {
-    mockPrisma.leaveRequest.create.mockImplementation(({ data }: any) => Promise.resolve({
-      id: 'leave-half',
-      ...data,
-      user: { id: 'emp1', name: 'Employee', departmentId: null },
-    }));
-
-    await service.create({
-      type: 'CASUAL',
-      startDate: '2026-08-24',
-      endDate: '2026-08-24',
-      isHalfDay: true,
-      halfDaySession: 'FIRST_HALF',
-    }, 'emp1');
-
-    expect(mockPrisma.leaveRequest.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        type: 'CASUAL',
-        halfDaySession: 'FIRST_HALF',
-        halfDayType: 'FIRST_HALF',
-      }),
-    }));
-    expect(mockLeaveBalance.validateLeaveRequest).toHaveBeenCalledWith(
-      'emp1', expect.any(Date), expect.any(Date), true, 'CASUAL',
-    );
-  });
-
-  it('refuses a half-day request without FIRST_HALF or SECOND_HALF', async () => {
-    await expect(service.create({
-      type: 'CASUAL',
-      startDate: '2026-08-24',
-      endDate: '2026-08-24',
-      isHalfDay: true,
-    }, 'emp1')).rejects.toThrow(/FIRST_HALF or SECOND_HALF/);
-    expect(mockPrisma.leaveRequest.create).not.toHaveBeenCalled();
   });
 });

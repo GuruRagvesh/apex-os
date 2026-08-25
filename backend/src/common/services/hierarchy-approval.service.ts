@@ -22,11 +22,6 @@ export interface ApproverCandidate {
  *
  * Phase 1 scope: review/completion/rating control only. It does NOT implement
  * creation-time pending approval (no schema change).
- *
- * LH-2 also consumes resolveApproverChainFor/isApproverFor for the leave
- * Manager-review stage. That is deliberate reuse, not scope creep: the chain
- * IS the company's reporting hierarchy, and leave approval must not answer
- * "who reports to whom" differently from ticket approval.
  */
 @Injectable()
 export class HierarchyApprovalService {

@@ -54,14 +54,9 @@ docs/<documentation>  documentation-only work
 
 - Migrations are additive by default: new nullable columns, new models, new
   indexes. Column drops, renames and type narrowing require an approved plan.
-- Starting the application does NOT run migrations. `render.yaml`'s start
-  command and `backend/package.json`'s `start:prod` both used to run
-  `npx prisma migrate deploy` first, which made merging a migration to `main`
-  enough to alter production on the next deploy — and made an ordinary restart a
-  schema-migration event. Both now start the app and nothing else.
-- Applying a migration is an explicit, human-run release step with its own
-  identity verification. See
-  `docs/operations/deployment/MIGRATION_RELEASE_PROCEDURE.md`.
+- `render.yaml`'s start command runs `npx prisma migrate deploy` on every
+  deploy, so merging a migration to `main` applies it to production on the next
+  deploy. There is no separate migration gate.
 - Seed, reset, and repair scripts are never run against production. Before
   running any script that takes a `DATABASE_URL`, confirm which database it
   points at.
