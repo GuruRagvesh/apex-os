@@ -12,6 +12,7 @@
     "backup:retention": "ts-node scripts/backup/run-retention-sweep.ts",
     "backup:restore-test": "ts-node scripts/backup/run-restore-test.ts",
     "backup:archive-photos": "ts-node scripts/backup/run-photo-archive.ts",
+    "backup:reconcile-photos": "ts-node scripts/backup/run-photo-reconcile.ts",
     "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
     "build": "npx prisma generate && npx tsc -p tsconfig.json",
     "format": "prettier --write \"src/**/*.ts\"",
