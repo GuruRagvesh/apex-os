@@ -22,17 +22,14 @@
  * so the destination can be checked against them by name as well as by marker.
  */
 
-import { execFile } from 'child_process';
 import { mkdtempSync, rmSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { promisify } from 'util';
 import { PrismaClient } from '@prisma/client';
+import { redactSecrets, runPgTool, toPgTarget } from './pg-connection';
 import { assertNonProductionTarget, TargetRefused } from './backup-identity';
 import type { BackupManifest } from './backup-manifest';
 import { createR2Vault, readR2Config, sha256File, type Vault } from './r2-vault';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Tables whose presence proves the dump carried the business, not just a
@@ -112,6 +109,18 @@ export async function runRestoreTest(
   const target = assertSafeRestoreTarget(env);
   const targetUrl = env.RESTORE_TARGET_DATABASE_URL!;
 
+  // Anything that ends up in the report is printed, so every error captured
+  // below is scrubbed. Prisma and libpq both echo connection details in some
+  // failures, and the report is the last place that text passes through.
+  const secret = (() => {
+    try {
+      return toPgTarget(targetUrl).password;
+    } catch {
+      return null;
+    }
+  })();
+  const safe = (text: string) => redactSecrets(text, [secret]);
+
   const dir = mkdtempSync(join(tmpdir(), 'apex-restore-'));
   const dumpPath = join(dir, 'restore.dump');
 
@@ -161,7 +170,7 @@ export async function runRestoreTest(
           table,
           present: false,
           rowCount: null,
-          error: err?.message ?? String(err),
+          error: safe(err?.message ?? String(err)),
         });
       }
     }
@@ -185,7 +194,7 @@ export async function runRestoreTest(
     report.passed = true;
     return report;
   } catch (err: any) {
-    report.failureReason = err?.message ?? String(err);
+    report.failureReason = safe(err?.message ?? String(err));
     return report;
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -198,12 +207,24 @@ export async function runRestoreTest(
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function pgRestore(databaseUrl: string, dumpPath: string): Promise<void> {
+  // The password goes through PGPASSWORD, never into argv: an exec error's
+  // message embeds the whole command, which is how a failed restore printed a
+  // live password into the terminal.
+  const target = toPgTarget(databaseUrl);
   // --clean --if-exists so a repeated restore into the same scratch database
   // is idempotent rather than colliding on existing objects.
-  await execFileAsync(
+  await runPgTool(
     'pg_restore',
-    ['--clean', '--if-exists', '--no-owner', '--no-privileges', '--dbname', databaseUrl, dumpPath],
-    { maxBuffer: 64 * 1024 * 1024 },
+    [
+      '--clean',
+      '--if-exists',
+      '--no-owner',
+      '--no-privileges',
+      '--dbname',
+      target.safeConnectionString,
+      dumpPath,
+    ],
+    target,
   );
 }
 

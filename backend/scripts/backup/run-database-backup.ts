@@ -32,6 +32,7 @@ import { join } from 'path';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
+import { runPgTool, toPgTarget } from './pg-connection';
 import { assertProductionTarget, mask, TargetRefused } from './backup-identity';
 import {
   applyRun,
@@ -229,6 +230,7 @@ async function readServerVersion(databaseUrl: string): Promise<string> {
 }
 
 async function readClientMajor(): Promise<number> {
+  // No connection involved, so no credential to protect here.
   const { stdout } = await execFileAsync('pg_dump', ['--version']);
   // "pg_dump (PostgreSQL) 18.4"
   const m = /(\d+)\.\d+/.exec(stdout);
@@ -236,12 +238,24 @@ async function readClientMajor(): Promise<number> {
 }
 
 async function pgDump(databaseUrl: string, outPath: string): Promise<void> {
+  // Same rule as the restore path: the production password must never reach
+  // argv, where a failure would copy it into the manifest's failureReason and
+  // then into R2.
+  const target = toPgTarget(databaseUrl);
   // Custom format: compressed, and the only format pg_restore can filter and
   // reorder from. A plain SQL dump would restore, but far less flexibly.
-  await execFileAsync(
+  await runPgTool(
     'pg_dump',
-    ['--format=custom', '--compress=9', '--no-owner', '--no-privileges', '--file', outPath, databaseUrl],
-    { maxBuffer: 64 * 1024 * 1024 },
+    [
+      '--format=custom',
+      '--compress=9',
+      '--no-owner',
+      '--no-privileges',
+      '--file',
+      outPath,
+      target.safeConnectionString,
+    ],
+    target,
   );
 }
 
