@@ -19,6 +19,8 @@ export type PhotoHealth =
   | 'PRIMARY_MISSING_BACKUP_AVAILABLE'
   | 'BACKUP_MISSING'
   | 'BOTH_MISSING'
+  | 'INTEGRITY_MISMATCH'
+  | 'CHECK_FAILED'
   | 'NO_PHOTO_CLAIMED';
 
 export interface PhotoFacts {
@@ -29,6 +31,10 @@ export interface PhotoFacts {
   primaryPresent: boolean | null;
   /** Whether the archive copy resolved. Null when the check could not run. */
   backupPresent: boolean | null;
+  /** Size the database recorded at capture, when known. */
+  expectedByteSize?: number | null;
+  /** Size the archive object actually reports, when it could be read. */
+  archiveByteSize?: number | null;
 }
 
 export interface PhotoAssessment {
@@ -53,19 +59,43 @@ export function assessPhoto(facts: PhotoFacts): PhotoAssessment {
     };
   }
 
-  // An unfinished check is never reported as a clean state. Saying HEALTHY
-  // because the archive lookup errored is exactly the false assurance this
-  // system exists to remove.
+  // An outage is not data loss. A Cloudinary or R2 failure looks identical to
+  // an absent asset if you only ask "did it resolve", and the two mean
+  // completely different things -- one is a retry, the other is an incident.
+  // CHECK_FAILED keeps them apart rather than guessing.
   if (facts.primaryPresent === null || facts.backupPresent === null) {
+    const which =
+      facts.primaryPresent === null && facts.backupPresent === null
+        ? 'Neither store could be checked'
+        : facts.primaryPresent === null
+          ? 'The operational store could not be checked'
+          : 'The archive could not be checked';
     return {
       ...base,
-      health: facts.primaryPresent === false ? 'PRIMARY_MISSING_BACKUP_AVAILABLE' : 'BACKUP_MISSING',
+      health: 'CHECK_FAILED',
       indeterminate: true,
-      detail: 'One of the storage checks could not be completed; verdict is provisional.',
+      detail: `${which}; this says nothing about whether the photograph exists.`,
     };
   }
 
   if (facts.primaryPresent && facts.backupPresent) {
+    // Both present, but disagreeing about size means two different things are
+    // claiming to be the same immutable evidence. Neither can be trusted until
+    // somebody looks.
+    const expected = facts.expectedByteSize;
+    const archived = facts.archiveByteSize;
+    if (
+      typeof expected === 'number' &&
+      typeof archived === 'number' &&
+      expected !== archived
+    ) {
+      return {
+        ...base,
+        health: 'INTEGRITY_MISMATCH',
+        indeterminate: false,
+        detail: `Archive is ${archived} bytes but the record says ${expected}.`,
+      };
+    }
     return { ...base, health: 'HEALTHY', indeterminate: false, detail: 'Both copies present.' };
   }
   if (!facts.primaryPresent && facts.backupPresent) {
@@ -98,6 +128,8 @@ export interface ReconciliationSummary {
   primaryMissing: number;
   backupMissing: number;
   bothMissing: number;
+  integrityMismatch: number;
+  checkFailed: number;
   noPhoto: number;
   indeterminate: number;
   /** True when anything needs a human. */
@@ -109,6 +141,8 @@ export function summarise(assessments: PhotoAssessment[]): ReconciliationSummary
   const bothMissing = count('BOTH_MISSING');
   const backupMissing = count('BACKUP_MISSING');
   const primaryMissing = count('PRIMARY_MISSING_BACKUP_AVAILABLE');
+  const integrityMismatch = count('INTEGRITY_MISMATCH');
+  const checkFailed = count('CHECK_FAILED');
   const indeterminate = assessments.filter((a) => a.indeterminate).length;
 
   return {
@@ -117,10 +151,13 @@ export function summarise(assessments: PhotoAssessment[]): ReconciliationSummary
     primaryMissing,
     backupMissing,
     bothMissing,
+    integrityMismatch,
+    checkFailed,
     noPhoto: count('NO_PHOTO_CLAIMED'),
     indeterminate,
     // Unprotected evidence counts as needing action: silently accumulating it
     // is how a recoverable situation becomes an unrecoverable one.
-    actionRequired: bothMissing + backupMissing + primaryMissing + indeterminate > 0,
+    actionRequired:
+      bothMissing + backupMissing + primaryMissing + integrityMismatch + checkFailed > 0,
   };
 }
