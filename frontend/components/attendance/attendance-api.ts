@@ -1,4 +1,4 @@
-import { api } from '@apex/shared-auth';
+import { api, unwrap as r } from '@apex/shared-auth';
 
 /**
  * Employee daily attendance transport (AE-1).
@@ -50,14 +50,12 @@ export interface AttendanceDay {
 }
 
 export async function getMyAttendanceToday(): Promise<AttendanceDay> {
-  const res = await api.get('/attendance/daily/today');
-  return res.data;
+  return r(api.get('/attendance/daily/today'));
 }
 
 export async function getMyAttendanceRange(
   from: string,
   to: string,
 ): Promise<{ from: string; to: string; days: AttendanceDay[] }> {
-  const res = await api.get('/attendance/daily', { params: { from, to } });
-  return res.data;
+  return r(api.get('/attendance/daily', { params: { from, to } }));
 }

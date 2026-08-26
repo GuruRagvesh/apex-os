@@ -1,4 +1,4 @@
-import { api } from '@apex/shared-auth';
+import { api, unwrap as r } from '@apex/shared-auth';
 
 /**
  * Attendance punch transport (PE-4).
@@ -32,8 +32,7 @@ export interface PunchResult {
 
 /** Whether Attendance V2 punching is switched on for this deployment. */
 export async function getPunchStatus(): Promise<{ enabled: boolean }> {
-  const res = await api.get('/attendance/punch-evidence/status');
-  return res.data;
+  return r(api.get('/attendance/punch-evidence/status'));
 }
 
 /**
@@ -44,8 +43,7 @@ export async function getPunchStatus(): Promise<{ enabled: boolean }> {
  * legitimately owns: intent, position, the photo asset and the retry key.
  */
 export async function submitPunch(input: SubmitPunchInput): Promise<PunchResult> {
-  const res = await api.post('/attendance/punch-evidence', input);
-  return res.data;
+  return r(api.post('/attendance/punch-evidence', input));
 }
 
 /**

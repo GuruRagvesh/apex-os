@@ -1,4 +1,4 @@
-import { api } from '@apex/shared-auth';
+import { api, unwrap as r } from '@apex/shared-auth';
 
 /**
  * Attendance punch photo transport (PE-3).
@@ -29,8 +29,7 @@ export async function uploadPunchPhoto(
   form.append('photo', blob, `punch-${Date.now()}.jpg`);
   form.append('clientCapturedAt', clientCapturedAt.toISOString());
 
-  const res = await api.post('/attendance/punch-photo', form, {
+  return r(api.post('/attendance/punch-photo', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return res.data;
+  }));
 }

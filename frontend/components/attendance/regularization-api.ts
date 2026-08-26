@@ -1,4 +1,4 @@
-import { api } from '@apex/shared-auth';
+import { api, unwrap as r } from '@apex/shared-auth';
 
 /**
  * Attendance correction transport (AR-1).
@@ -44,34 +44,28 @@ export interface CreateRegularizationBody {
 export async function createRegularization(
   body: CreateRegularizationBody,
 ): Promise<Regularization> {
-  const res = await api.post('/attendance/regularization', body);
-  return res.data;
+  return r(api.post('/attendance/regularization', body));
 }
 
 export async function getMyRegularizations(): Promise<Regularization[]> {
-  const res = await api.get('/attendance/regularization/me');
-  return res.data;
+  return r(api.get('/attendance/regularization/me'));
 }
 
 /** Requests awaiting this user's decision — their reports', or HR's queue. */
 export async function getPendingRegularizations(): Promise<any[]> {
-  const res = await api.get('/attendance/regularization/pending');
-  return res.data;
+  return r(api.get('/attendance/regularization/pending'));
 }
 
 export async function managerApprove(id: string) {
-  const res = await api.patch(`/attendance/regularization/${id}/manager-approve`);
-  return res.data;
+  return r(api.patch(`/attendance/regularization/${id}/manager-approve`));
 }
 
 export async function hrApprove(id: string) {
-  const res = await api.patch(`/attendance/regularization/${id}/hr-approve`);
-  return res.data;
+  return r(api.patch(`/attendance/regularization/${id}/hr-approve`));
 }
 
 export async function rejectRegularization(id: string, reason?: string) {
-  const res = await api.patch(`/attendance/regularization/${id}/reject`, { reason });
-  return res.data;
+  return r(api.patch(`/attendance/regularization/${id}/reject`, { reason }));
 }
 
 /** Plain-language stage label. Never asserts a pay consequence. */
