@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { AttendancePunchEvidence } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { SettingsService } from '../../settings/settings.service';
@@ -473,10 +474,65 @@ export class PunchEvidenceService {
    * other-employee read; that needs its own permission model.
    */
   async listMine(userId: string, limit = 90) {
-    return this.prisma.attendancePunchEvidence.findMany({
+    const rows = await this.prisma.attendancePunchEvidence.findMany({
       where: { userId },
       orderBy: [{ businessDate: 'desc' }, { serverOccurredAt: 'desc' }],
       take: Math.min(Math.max(limit, 1), 200),
+      include: { attendanceLocation: { select: { name: true } } },
     });
+    return rows.map(toOwnEvidenceView);
   }
+}
+
+/**
+ * What an employee may see of their OWN punch.
+ *
+ * An employee may inspect the location evidence behind their own attendance:
+ * the stored coordinate, its accuracy, how far it was from the assigned site,
+ * and the radius that decision used. Without those, a disputed punch is
+ * unarguable from the employee's side.
+ *
+ * Three things are still withheld, and they are not privacy theatre:
+ *
+ *   photoObjectKey  the storage pointer. A punch photo is reachable only
+ *                   through the short-lived signed-URL route scoped to its
+ *                   owner; handing out the key would route around that.
+ *   photoHash       an integrity value for reproducing a decision, not a fact
+ *                   about the employee's day.
+ *   ipAddress,      captured for audit. Neither answers "where was I", and
+ *   deviceMetadata  both widen what a compromised session could harvest.
+ *
+ * The returned coordinate is the PERSISTED evidence. It is never recomputed
+ * from a current browser reading -- that would answer where the employee is
+ * now, not where they punched.
+ */
+export function toOwnEvidenceView(
+  row: AttendancePunchEvidence & { attendanceLocation?: { name: string } | null },
+) {
+  return {
+    id: row.id,
+    type: row.type,
+    businessDate: row.businessDate,
+    serverOccurredAt: row.serverOccurredAt,
+    clientCapturedAt: row.clientCapturedAt,
+
+    // Distinct measures, deliberately named apart. Accuracy is how uncertain
+    // the reading is; distance is how far that reading was from the site.
+    // Presenting one as the other is the mistake this shape exists to prevent.
+    latitude: row.latitude,
+    longitude: row.longitude,
+    accuracyMeters: row.accuracyMeters,
+    distanceFromLocationMeters: row.distanceFromLocationMeters,
+    geofenceRadiusMeters: row.geofenceRadiusMeters,
+    accuracyThresholdMeters: row.accuracyThresholdMeters,
+    locationVerification: row.locationVerification,
+    locationName: row.attendanceLocation?.name ?? null,
+
+    // The id addresses the signed-URL route; it is not the photo itself.
+    photoAssetId: row.photoAssetId,
+    photoVerification: row.photoVerification,
+
+    workSessionId: row.workSessionId,
+    source: row.source,
+  };
 }
