@@ -171,3 +171,58 @@ describe('exit semantics', () => {
     expect(describeRun(summaryOf({ checkFailed: 1 }))).toBe('CRITICAL');
   });
 });
+
+describe('strict mode for steady-state reconciliation', () => {
+  const summaryOf = (over: Partial<ReturnType<typeof summarise>> = {}) =>
+    ({
+      total: 1,
+      healthy: 1,
+      primaryMissing: 0,
+      backupMissing: 0,
+      bothMissing: 0,
+      integrityMismatch: 0,
+      checkFailed: 0,
+      noPhoto: 0,
+      indeterminate: 0,
+      actionRequired: false,
+      ...over,
+    }) as ReturnType<typeof summarise>;
+
+  it('still exits zero when everything is healthy', () => {
+    expect(exitCodeForReconciliation(summaryOf(), true)).toBe(0);
+    expect(describeRun(summaryOf(), true)).toBe('HEALTHY');
+  });
+
+  it('fails on BACKUP_MISSING, which backfill mode tolerates', () => {
+    // Once everything is archived, a photograph without an independent copy is
+    // not history -- it is new evidence that was never protected.
+    const s = summaryOf({ healthy: 0, backupMissing: 1 });
+
+    expect(exitCodeForReconciliation(s, false)).toBe(0);
+    expect(exitCodeForReconciliation(s, true)).toBe(1);
+  });
+
+  it('fails on PRIMARY_MISSING_BACKUP_AVAILABLE', () => {
+    expect(exitCodeForReconciliation(summaryOf({ healthy: 0, primaryMissing: 1 }), true)).toBe(1);
+  });
+
+  it('names unprotected evidence differently from ordinary backfill work', () => {
+    const s = summaryOf({ healthy: 0, backupMissing: 2 });
+
+    expect(describeRun(s, false)).toBe('ACTION REQUIRED');
+    expect(describeRun(s, true)).toBe('UNPROTECTED EVIDENCE');
+  });
+
+  it('keeps the critical states critical in both modes', () => {
+    for (const over of [{ bothMissing: 1 }, { integrityMismatch: 1 }, { checkFailed: 1 }]) {
+      expect(exitCodeForReconciliation(summaryOf(over), false)).toBe(1);
+      expect(exitCodeForReconciliation(summaryOf(over), true)).toBe(1);
+      expect(describeRun(summaryOf(over), true)).toBe('CRITICAL');
+    }
+  });
+
+  it('does not treat a row with no photo as unprotected', () => {
+    // Nothing was ever claimed, so there is nothing to protect.
+    expect(exitCodeForReconciliation(summaryOf({ healthy: 0, noPhoto: 5 }), true)).toBe(0);
+  });
+});

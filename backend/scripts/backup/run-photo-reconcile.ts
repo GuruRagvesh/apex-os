@@ -84,32 +84,50 @@ export async function reconcilePhotos(
 /**
  * The process exit code for a reconciliation run.
  *
- * Critical means a photograph cannot be produced, two copies disagree about
- * what the evidence is, or a store could not be reached — the last because an
- * unanswered question must not pass as a clean bill of health.
+ * Two modes, because the same finding means different things at different
+ * points in the system's life.
  *
- * BACKUP_MISSING is deliberately NOT critical. It is the expected state for
- * every photograph captured before archiving existed, so failing on it would
- * make the first honest run look broken. It is still reported loudly and the
- * run is never described as healthy while any remain.
+ * BACKFILL (default) — BACKUP_MISSING is expected: every photograph captured
+ * before archiving existed is in that state, and failing on it would make the
+ * first honest run look broken. Only a photograph that cannot be produced, two
+ * copies disagreeing, or a store that could not be reached are critical. The
+ * last of those counts because an unanswered question must not pass as a clean
+ * bill of health.
+ *
+ * STRICT — for scheduled reconciliation once everything is archived. By then a
+ * photograph without an independent copy is not history, it is new evidence
+ * that was never protected, and silence about it is exactly the drift this
+ * system exists to catch.
  */
-export function exitCodeForReconciliation(summary: ReconciliationSummary): number {
+export function exitCodeForReconciliation(
+  summary: ReconciliationSummary,
+  strict = false,
+): number {
   const critical = summary.bothMissing + summary.integrityMismatch + summary.checkFailed;
-  return critical > 0 ? 1 : 0;
+  if (critical > 0) return 1;
+  if (strict && summary.backupMissing + summary.primaryMissing > 0) return 1;
+  return 0;
 }
 
-export function describeRun(summary: ReconciliationSummary): string {
-  if (exitCodeForReconciliation(summary) !== 0) return 'CRITICAL';
-  if (summary.backupMissing > 0 || summary.primaryMissing > 0) return 'ACTION REQUIRED';
+export function describeRun(summary: ReconciliationSummary, strict = false): string {
+  const critical = summary.bothMissing + summary.integrityMismatch + summary.checkFailed;
+  if (critical > 0) return 'CRITICAL';
+  if (summary.backupMissing > 0 || summary.primaryMissing > 0) {
+    // Same finding, different severity: unprotected evidence is tolerable
+    // while backfilling and an incident once steady state is expected.
+    return strict ? 'UNPROTECTED EVIDENCE' : 'ACTION REQUIRED';
+  }
   return 'HEALTHY';
 }
 
 if (require.main === module) {
   const limitArg = process.argv.find((a) => a.startsWith('--limit='));
   const limit = Number(limitArg?.split('=')[1] ?? 2000);
+  const strict = process.argv.includes('--strict');
 
   (async () => {
     console.log('── Apex OS attendance photo reconciliation ────────────────────');
+    console.log(`  mode            : ${strict ? 'STRICT (steady state)' : 'BACKFILL'}`);
 
     for (const key of ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']) {
       if (!process.env[key]) throw new Error(`${key} is not set; the primary store cannot be checked.`);
@@ -183,11 +201,14 @@ if (require.main === module) {
         console.log(`    ${a.health.padEnd(32)} ${a.evidenceId}`);
       }
 
-      const verdict = describeRun(summary);
+      const verdict = describeRun(summary, strict);
       console.log(`\nRECONCILIATION: ${verdict}`);
 
       if (verdict === 'ACTION REQUIRED') {
         console.log('Run backup:archive-photos, then reconcile again.\n');
+      } else if (verdict === 'UNPROTECTED EVIDENCE') {
+        console.error('Attendance evidence exists with no independent copy. In steady');
+        console.error('state that is new evidence that was never archived.\n');
       } else if (verdict === 'CRITICAL') {
         console.error('A photograph cannot be produced, two copies disagree, or a store');
         console.error('could not be reached. Nothing has been changed; investigate first.\n');
@@ -195,7 +216,7 @@ if (require.main === module) {
         console.log('Every photograph has a verified independent copy.\n');
       }
 
-      process.exit(exitCodeForReconciliation(summary));
+      process.exit(exitCodeForReconciliation(summary, strict));
     } finally {
       await prisma.$disconnect();
     }
