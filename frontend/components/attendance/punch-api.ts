@@ -30,6 +30,38 @@ export interface PunchResult {
   photoVerification: string;
 }
 
+/**
+ * One punch's stored evidence, as the owning employee may see it.
+ *
+ * Mirrors toOwnEvidenceView on the server. Accuracy and distance are separate
+ * values on purpose: accuracy is how uncertain the reading was, distance is how
+ * far that reading sat from the assigned site. They are never interchangeable.
+ */
+export interface OwnPunchEvidence {
+  id: string;
+  type: PunchType;
+  businessDate: string;
+  serverOccurredAt: string;
+  clientCapturedAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  accuracyMeters: number | null;
+  distanceFromLocationMeters: number | null;
+  geofenceRadiusMeters: number | null;
+  accuracyThresholdMeters: number | null;
+  locationVerification: string;
+  locationName: string | null;
+  photoAssetId: string | null;
+  photoVerification: string;
+  workSessionId: string | null;
+  source: string;
+}
+
+/** The authenticated employee's own punches, newest first. */
+export async function getMyPunchEvidence(limit = 90): Promise<OwnPunchEvidence[]> {
+  return r(api.get('/attendance/punch-evidence/me', { params: { limit } }));
+}
+
 /** Whether Attendance V2 punching is switched on for this deployment. */
 export async function getPunchStatus(): Promise<{ enabled: boolean }> {
   return r(api.get('/attendance/punch-evidence/status'));
