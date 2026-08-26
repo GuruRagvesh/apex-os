@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { Clock } from 'lucide-react';
+import { ModalPortal } from '../ui/ModalPortal';
 
 interface Props {
   autoCloseTime: string | null;
@@ -88,6 +89,7 @@ export function AutoCloseConsentModal({ autoCloseTime, onClose }: Props) {
   };
 
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
@@ -147,5 +149,6 @@ export function AutoCloseConsentModal({ autoCloseTime, onClose }: Props) {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

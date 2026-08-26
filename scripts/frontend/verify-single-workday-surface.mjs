@@ -167,6 +167,30 @@ try {
   barViolations.push('WorkdayBar.tsx not found at its expected path');
 }
 
+// ── rule 4: workday modals must escape the transformed ancestor ────────────
+// WorkdayBar renders inside a motion.section, and a transformed ancestor
+// becomes the containing block for `position: fixed` descendants -- so an
+// un-portaled modal is positioned against that section, not the viewport, and
+// the employee has to scroll to find it.
+const MODALS = [
+  ['frontend', 'components', 'attendance', 'PunchModal.tsx'],
+  ['frontend', 'components', 'workday', 'BreakModal.tsx'],
+  ['frontend', 'components', 'workday', 'EndDayModal.tsx'],
+  ['frontend', 'components', 'workday', 'AutoCloseConsentModal.tsx'],
+];
+
+for (const parts of MODALS) {
+  const file = join(REPO_ROOT, ...parts);
+  try {
+    const src = readFileSync(file, 'utf8');
+    if (/fixed inset-0/.test(src) && !/<ModalPortal>/.test(src)) {
+      barViolations.push(`${parts[parts.length - 1]} uses fixed inset-0 without ModalPortal`);
+    }
+  } catch {
+    barViolations.push(`${parts[parts.length - 1]} not found at its expected path`);
+  }
+}
+
 if (barViolations.length > 0) {
   console.error('[workday] WorkdayBar capability branch is wrong:');
   for (const v of barViolations) console.error(`  ${v}`);
@@ -179,6 +203,7 @@ if (total === 1 && dockViolations.length === 0) {
   console.log(`[workday] OK — one Workday control surface: ${mounts[0].file}`);
   console.log('[workday] OK — QuickActionDock performs no lifecycle mutation');
   console.log('[workday] OK — WorkdayBar routes through PunchModal and waits for the probe');
+  console.log('[workday] OK — every workday modal is portaled to the viewport');
   process.exit(0);
 }
 

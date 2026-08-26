@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { Coffee } from 'lucide-react';
+import { ModalPortal } from '../ui/ModalPortal';
 
 const BREAK_TYPES = [
   { type: 'TEA', label: 'Tea Break' },
@@ -55,6 +56,7 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
   };
 
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
@@ -198,5 +200,6 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

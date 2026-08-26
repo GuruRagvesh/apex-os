@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AttendanceCamera } from './AttendanceCamera';
 import { useGeolocation } from './useGeolocation';
 import { newIdempotencyKey, submitPunch, type PunchResult, type PunchType } from './punch-api';
+import { ModalPortal } from '../ui/ModalPortal';
 
 /**
  * The employee-facing punch flow (PE-4).
@@ -126,7 +127,8 @@ export function PunchModal({
     geo.status === 'denied' || geo.status === 'unavailable' || geo.status === 'timeout';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <ModalPortal>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-gray-900">
         <div className="mb-4 flex items-start justify-between">
           <div>
@@ -228,6 +230,7 @@ export function PunchModal({
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </ModalPortal>
   );
 }
