@@ -9,6 +9,8 @@
     "postinstall": "npx prisma generate",
     "backup:database": "ts-node scripts/backup/run-database-backup.ts",
     "backup:pre-migration": "ts-node scripts/backup/run-database-backup.ts --type=PRE_MIGRATION",
+    "backup:retention": "ts-node scripts/backup/run-retention-sweep.ts",
+    "backup:restore-test": "ts-node scripts/backup/run-restore-test.ts",
     "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
     "build": "npx prisma generate && npx tsc -p tsconfig.json",
     "format": "prettier --write \"src/**/*.ts\"",

@@ -17,6 +17,18 @@
 
 import type { BackupType } from './backup-manifest';
 
+/**
+ * What an object in the vault is.
+ *
+ * Manifests, state and photo archives are not backups on a rotation — they are
+ * the record of what exists and the evidence copies themselves. Deleting a
+ * manifest would leave a dump nobody can identify; deleting the state file
+ * would lose the last-successful marker. They are classified explicitly rather
+ * than falling through to "unrecognised", so the reason they survive is a
+ * decision rather than an accident.
+ */
+export type VaultCategory = BackupType | 'MANIFEST' | 'STATE' | 'PHOTO_ARCHIVE';
+
 export interface RetentionPolicy {
   dailyDays: number;
   weeklyDays: number;
@@ -33,7 +45,7 @@ export const DEFAULT_RETENTION: RetentionPolicy = {
 
 export interface VaultObject {
   key: string;
-  type: BackupType | null;
+  type: VaultCategory | null;
   createdAt: string;
   byteSize: number;
 }
@@ -47,13 +59,25 @@ export interface RetentionDecision {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function classifyKey(key: string): BackupType | null {
+export function classifyKey(key: string): VaultCategory | null {
+  if (/^state\//.test(key)) return 'STATE';
+  if (/^manifests\//.test(key)) return 'MANIFEST';
+  if (/^photos\//.test(key)) return 'PHOTO_ARCHIVE';
   if (/\/pre-migration\//.test(key)) return 'PRE_MIGRATION';
   if (/\/monthly\//.test(key)) return 'MONTHLY';
   if (/\/weekly\//.test(key)) return 'WEEKLY';
   if (/\/daily\//.test(key)) return 'DAILY';
   return null;
 }
+
+/** Categories the routine sweep may never delete, and why. */
+const PROTECTED: Record<string, string> = {
+  PRE_MIGRATION: 'Pre-migration restore point, never deleted by the routine sweep',
+  MONTHLY: 'Monthly archive, retained outside the daily rotation',
+  MANIFEST: 'Identifies what a dump contains; a dump without one is unidentifiable',
+  STATE: 'Holds the last-successful marker',
+  PHOTO_ARCHIVE: 'Attendance evidence, not a rotating backup',
+};
 
 export function planRetention(
   objects: VaultObject[],
@@ -79,21 +103,8 @@ export function planRetention(
         ageDays,
       };
     }
-    if (type === 'PRE_MIGRATION') {
-      return {
-        key: o.key,
-        action: 'KEEP',
-        reason: 'Pre-migration restore point, never deleted by the routine sweep',
-        ageDays,
-      };
-    }
-    if (type === 'MONTHLY') {
-      return {
-        key: o.key,
-        action: 'KEEP',
-        reason: 'Monthly archive, retained outside the daily rotation',
-        ageDays,
-      };
+    if (PROTECTED[type]) {
+      return { key: o.key, action: 'KEEP', reason: PROTECTED[type], ageDays };
     }
 
     const limit = type === 'WEEKLY' ? policy.weeklyDays : policy.dailyDays;
