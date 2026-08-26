@@ -7,6 +7,7 @@ import { compOffApi } from '@apex/workforce-leave/api';
 import { getMyAttendanceToday } from './attendance-api';
 import { getMyPunchEvidence, type OwnPunchEvidence } from './punch-api';
 import { formatAccuracy, presentLocation } from './location-presentation';
+import { assessPresence } from './attendance-presence';
 import {
   exceptionText,
   formatMinutes,
@@ -33,19 +34,22 @@ import {
  *
  * Three measures are therefore labelled apart and never merged:
  *
- *   Worked          summed across every session, breaks excluded
- *   Session span    first session start to last session end
- *   Punch span      first punch to last punch — evidence only
+ *   Worked                summed across sessions, breaks excluded (operational)
+ *   Workday span          first session start to last session end (operational)
+ *   Attendance presence   punch out minus punch in — the policy measure
  *
- * The 540-minute requirement is shown against the session span, because that is
- * the day, and only when the day is actually finished.
+ * The 540-minute requirement applies to ATTENDANCE PRESENCE only -- punch out
+ * minus punch in -- because that is what policy defines. Session span and
+ * worked minutes are operational facts shown alongside it; neither decides
+ * whether attendance was sufficient, and unevidenced sessions are never folded
+ * into presence. Where Workday activity sits outside the evidenced span, that
+ * discrepancy is stated rather than reconciled away.
  *
  * Read-only. Start Work, Break, Resume and End Day belong to WorkdayBar.
  * Every judgement shown is the server's.
  */
 
 const PERMITTED_BREAK_MINUTES = 60;
-const REQUIRED_PRESENCE_MINUTES = 540;
 
 interface SessionRow {
   id: string;
@@ -175,7 +179,6 @@ export function AttendanceToday() {
   const lastSessionEnd: string | null =
     sessions.length > 0 ? (sessions[sessions.length - 1].logoutAt ?? null) : null;
   const sessionSpan = minutesBetween(firstSessionStart, lastSessionEnd);
-  const dayFinished = !!lastSessionEnd && sessionStatus === 'LOGGED_OUT';
 
   // Today's punches only, oldest first, so the timeline reads forwards.
   const todayEvidence = (evidence ?? [])
@@ -188,15 +191,21 @@ export function AttendanceToday() {
 
   const firstPunch = todayEvidence.find((e) => e.type === 'PUNCH_IN') ?? null;
   const lastPunch = [...todayEvidence].reverse().find((e) => e.type === 'PUNCH_OUT') ?? null;
-  const punchSpan = minutesBetween(
-    firstPunch?.serverOccurredAt ?? null,
-    lastPunch?.serverOccurredAt ?? null,
-  );
-
   // Sessions that predate punching explain why the two spans differ.
   const unpunchedSessions = sessions.filter(
     (s) => !todayEvidence.some((e) => e.workSessionId === s.id),
   ).length;
+
+  // One shared assessment, so the 540 rule cannot drift between surfaces.
+  const presence = assessPresence({
+    punchInAt: firstPunch?.serverOccurredAt ?? null,
+    punchOutAt: lastPunch?.serverOccurredAt ?? null,
+    workedMinutes,
+    firstSessionStart,
+    lastSessionEnd,
+    sessionCount,
+    unevidencedSessions: unpunchedSessions,
+  });
 
   const needsReview = day?.requiresReview || day?.evaluationState === 'NEEDS_REVIEW';
   const availableCredits = Array.isArray(credits) ? credits.length : null;
@@ -250,11 +259,9 @@ export function AttendanceToday() {
           tone={overBreak ? 'warn' : 'normal'}
         />
         <Stat
-          label="Session span"
+          label="Workday span"
           value={sessionSpan === null ? 'in progress' : formatMinutes(sessionSpan)}
-          // The 540 rule measures the day, so it is only meaningful once the
-          // day is over. Showing it mid-morning invites a false failure.
-          hint={dayFinished ? `${formatMinutes(REQUIRED_PRESENCE_MINUTES)} required` : 'first start → last end'}
+          hint="first start → last end"
         />
         <Stat
           label="Sessions"
@@ -264,13 +271,16 @@ export function AttendanceToday() {
         <Stat label="First punch" value={formatTime(firstPunch?.serverOccurredAt ?? null)} />
         <Stat label="Last punch" value={formatTime(lastPunch?.serverOccurredAt ?? null)} />
         <Stat
-          label="Punch span"
-          value={punchSpan === null ? '—' : formatMinutes(punchSpan)}
-          hint={
-            unpunchedSessions > 0
-              ? `${unpunchedSessions} session${unpunchedSessions === 1 ? '' : 's'} without a punch`
-              : 'evidence only'
+          label="Attendance presence"
+          value={
+            presence.presenceMinutes === null
+              ? '—'
+              : formatMinutes(presence.presenceMinutes)
           }
+          hint={`${formatMinutes(presence.requiredMinutes)} required`}
+          // Unknown is not failure: an unfinished day has not answered the
+          // requirement yet, so it is not coloured as an exception.
+          tone={presence.meetsRequirement === false ? 'warn' : 'normal'}
         />
         <Stat
           label="Comp off credits"
@@ -278,6 +288,24 @@ export function AttendanceToday() {
           hint={availableCredits ? 'soonest expiry used first' : undefined}
         />
       </dl>
+
+      {presence.evidenceMismatch && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-900/20">
+          <AlertTriangle
+            size={13}
+            className="mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400"
+          />
+          <p className="text-xs text-amber-800 dark:text-amber-300">
+            <span className="font-semibold">Evidence coverage: {presence.coverage.toLowerCase()}.</span>{' '}
+            Some Workday activity occurred outside the evidence-backed attendance
+            window
+            {unpunchedSessions > 0 &&
+              ` — ${unpunchedSessions} session${unpunchedSessions === 1 ? '' : 's'} carry no punch`}
+            . Only the evidenced span counts toward attendance presence, so this
+            day requires review.
+          </p>
+        </div>
+      )}
 
       {/* Location, in the agreed terminology: accuracy and distance apart. */}
       {firstPunch && (
@@ -306,7 +334,7 @@ export function AttendanceToday() {
       {sessions.length > 0 && (
         <div>
           <h3 className="apex-text-subtle mb-1.5 text-xs font-semibold uppercase tracking-wide">
-            Sessions
+            Workday activity
           </h3>
           <ul className="space-y-1">
             {sessions.map((s, i) => {
