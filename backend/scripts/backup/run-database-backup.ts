@@ -41,6 +41,7 @@ import {
   verifyAndComplete,
   type BackupManifest,
   type BackupState,
+  type BackupStatus,
   type BackupType,
 } from './backup-manifest';
 import { createR2Vault, readR2Config, sha256File, type Vault } from './r2-vault';
@@ -96,9 +97,16 @@ export async function runBackup(
 
   const fail = async (reason: string): Promise<BackupOutcome> => {
     const failed = markFailed(manifest, reason, deps.now().toISOString());
-    await deps.saveManifest(failed);
     const next = applyRun(state, failed);
-    await deps.saveState(next);
+    // Best effort: if the vault is the thing that is broken, recording the
+    // failure there will fail too. The run is still FAILED and the caller
+    // still exits non-zero -- losing the record must not lose the signal.
+    try {
+      await deps.saveManifest(failed);
+      await deps.saveState(next);
+    } catch (err: any) {
+      console.error(`  (failure record could not be persisted: ${err?.message ?? err})`);
+    }
     return { manifest: failed, state: next };
   };
 
@@ -172,10 +180,36 @@ export async function runBackup(
     rmSync(workDir, { recursive: true, force: true });
   }
 
-  await deps.saveManifest(manifest);
-  const next = applyRun(state, manifest);
-  await deps.saveState(next);
-  return { manifest, state: next };
+  if (manifest.status !== 'SUCCESS') {
+    return fail(manifest.failureReason ?? 'Backup did not complete.');
+  }
+
+  // The dump object alone is not a usable backup. Without a durable manifest
+  // and last-successful marker there is no record of what was taken, what its
+  // checksum was, or whether last night's run worked -- and those cannot live
+  // on Render's ephemeral disk. If they cannot be persisted, the run FAILED.
+  try {
+    await deps.saveManifest(manifest);
+    await deps.saveState(applyRun(state, manifest));
+  } catch (err: any) {
+    return fail(
+      `Dump uploaded and verified, but its manifest/state could not be persisted: ` +
+        `${err?.message ?? err}`,
+    );
+  }
+
+  return { manifest, state: applyRun(state, manifest) };
+}
+
+/**
+ * The process exit code for a finished run.
+ *
+ * A FAILED manifest with exit 0 is the worst combination available: Render
+ * marks the cron execution successful, nobody looks, and the gap is discovered
+ * when a restore is needed. The status and the exit code must agree.
+ */
+export function exitCodeFor(status: BackupStatus): number {
+  return status === 'SUCCESS' ? 0 : 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -267,7 +301,7 @@ if (require.main === module) {
     if (outcome.manifest.status !== 'SUCCESS') {
       console.error(`\nBACKUP FAILED: ${outcome.manifest.failureReason}\n`);
       console.error(`Last successful backup remains: ${outcome.state.lastSuccessfulAt ?? 'NONE'}`);
-      process.exit(1);
+      process.exit(exitCodeFor(outcome.manifest.status));
     }
     console.log(`\nBACKUP VERIFIED IN VAULT. Last successful: ${outcome.state.lastSuccessfulAt}\n`);
   })().catch((err) => {

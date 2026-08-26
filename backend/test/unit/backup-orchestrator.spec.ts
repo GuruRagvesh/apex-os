@@ -1,7 +1,12 @@
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { majorVersion, runBackup, type BackupDeps } from '../../scripts/backup/run-database-backup';
+import {
+  exitCodeFor,
+  majorVersion,
+  runBackup,
+  type BackupDeps,
+} from '../../scripts/backup/run-database-backup';
 import { readR2Config, VaultNotConfigured, type Vault } from '../../scripts/backup/r2-vault';
 import type { BackupState } from '../../scripts/backup/backup-manifest';
 
@@ -291,5 +296,70 @@ describe('object placement', () => {
 
     expect(manifest.databaseName).not.toBe(PROD_DB);
     expect(JSON.stringify(manifest)).not.toContain('u:p@');
+  });
+});
+
+describe('durable manifest and state are part of the success contract', () => {
+  it('FAILS when the manifest cannot be persisted, even though the dump uploaded', () => {
+    // The dump object alone is not a usable backup: without a durable record
+    // there is nothing saying what was taken or whether last night worked.
+    return (async () => {
+      const { deps } = makeDeps({
+        saveManifest: async () => {
+          throw new Error('vault write denied');
+        },
+      });
+      const { manifest, state } = await runBackup(prodEnv(), 'DAILY', deps);
+
+      expect(manifest.status).toBe('FAILED');
+      expect(manifest.failureReason).toMatch(/could not be persisted/);
+      expect(state.lastSuccessfulAt).toBe(EXISTING_STATE.lastSuccessfulAt);
+    })();
+  });
+
+  it('FAILS when the last-successful marker cannot be persisted', async () => {
+    const { deps } = makeDeps({
+      saveState: async () => {
+        throw new Error('state write denied');
+      },
+    });
+    const { manifest } = await runBackup(prodEnv(), 'DAILY', deps);
+
+    expect(manifest.status).toBe('FAILED');
+  });
+
+  it('still reports FAILED when the failure record itself cannot be written', async () => {
+    // If the vault is what is broken, recording the failure fails too. Losing
+    // the record must not lose the signal.
+    const { deps } = makeDeps({
+      dump: async () => {
+        throw new Error('pg_dump died');
+      },
+      saveManifest: async () => {
+        throw new Error('vault unreachable');
+      },
+      saveState: async () => {
+        throw new Error('vault unreachable');
+      },
+    });
+
+    const { manifest } = await runBackup(prodEnv(), 'DAILY', deps);
+    expect(manifest.status).toBe('FAILED');
+  });
+});
+
+describe('process exit code agrees with the manifest', () => {
+  it('exits zero only on SUCCESS', () => {
+    expect(exitCodeFor('SUCCESS')).toBe(0);
+  });
+
+  it('exits non-zero on FAILED', () => {
+    // A FAILED manifest with exit 0 is the worst combination: the scheduler
+    // marks the run successful and nobody looks until a restore is needed.
+    expect(exitCodeFor('FAILED')).not.toBe(0);
+  });
+
+  it('exits non-zero on a run that never finished', () => {
+    expect(exitCodeFor('RUNNING')).not.toBe(0);
   });
 });
