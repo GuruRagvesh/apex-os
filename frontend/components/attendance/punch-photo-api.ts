@@ -33,3 +33,19 @@ export async function uploadPunchPhoto(
     headers: { 'Content-Type': 'multipart/form-data' },
   }));
 }
+
+/**
+ * A short-lived signed URL for one of the employee's own punch photos.
+ *
+ * Minted on demand and deliberately not stored: the URL is a temporary
+ * presentation artifact, and persisting it would outlive the scoping that
+ * makes it safe. The server resolves the storage key from the evidence row and
+ * scopes it to the authenticated user, so an id belonging to somebody else
+ * simply does not match.
+ */
+export async function getOwnPunchPhotoUrl(evidenceId: string): Promise<string> {
+  const res = await r<{ url: string }>(
+    api.get(`/attendance/punch-evidence/${evidenceId}/photo`),
+  );
+  return res.url;
+}
