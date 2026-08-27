@@ -822,3 +822,93 @@ describe('DailyContextService (BL-5)', () => {
     });
   });
 });
+
+describe('legacy employees with no joining date (production hotfix)', () => {
+  // Production shipped with users.joiningDate never populated for staff
+  // predating Attendance, and every punch was refused NOT_EMPLOYED. These
+  // exercise the wiring end to end through the real resolver, because the
+  // pure rule passing its own unit tests would not prove the context layer
+  // actually uses the adjusted answer.
+  const noJoiningDate = { id: 'emp-1', joiningDate: null, lastWorkingDate: null };
+
+  it('is REQUIRED when a profile covers the date', async () => {
+    const { service } = build({ user: noJoiningDate });
+    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
+
+    expect(c.employment.reason).toBe('NO_JOINING_DATE');
+    expect(c.coverage).toBe('COVERED');
+    expect(c.attendanceApplicability).toBe('REQUIRED');
+    expect(c.legacyEmploymentFallbackApplied).toBe(true);
+  });
+
+  it('reports the fallback so the missing HR date stays visible', async () => {
+    const { service } = build({ user: noJoiningDate });
+    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
+
+    // The employment facts still say what is actually recorded; only
+    // applicability moves.
+    expect(c.employment.employedOnDate).toBe(false);
+    expect(c.employment.joiningDate).toBeNull();
+    expect(c.legacyEmploymentFallbackApplied).toBe(true);
+  });
+
+  it('does not apply to an employee with a real joining date', async () => {
+    const { service } = build();
+    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
+
+    expect(c.attendanceApplicability).toBe('REQUIRED');
+    expect(c.legacyEmploymentFallbackApplied).toBe(false);
+  });
+
+  it('still refuses a leaver whose last working date has passed', async () => {
+    // employmentOn() returns NO_JOINING_DATE before it reads lastWorkingDate,
+    // so this arrives at the fallback looking identical to an active employee.
+    const { service } = build({
+      user: { id: 'emp-1', joiningDate: null, lastWorkingDate: d('2026-07-31') },
+    });
+    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
+
+    expect(c.coverage).toBe('NOT_EMPLOYED');
+    expect(c.attendanceApplicability).toBe('NOT_EMPLOYED');
+    expect(c.legacyEmploymentFallbackApplied).toBe(false);
+  });
+
+  it('still refuses a future real joining date even with a profile', async () => {
+    const { service } = build({
+      user: { id: 'emp-1', joiningDate: d('2026-09-01'), lastWorkingDate: null },
+    });
+    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
+
+    expect(c.employment.reason).toBe('BEFORE_JOINING');
+    expect(c.attendanceApplicability).toBe('NOT_EMPLOYED');
+    expect(c.legacyEmploymentFallbackApplied).toBe(false);
+  });
+
+  it('fails closed with no profile, and reports NOT_EMPLOYED rather than BLOCKED', async () => {
+    // Worth pinning precisely, because it is the one case that reads
+    // ambiguously in production. resolveCoverage() checks employment BEFORE
+    // profile presence, so a legacy employee with no joining date AND no
+    // profile is NOT_EMPLOYED with an EMPTY blockingReasons -- not
+    // BLOCKED/NO_PROFILE_FOR_DATE, which is what an employee WITH a joining
+    // date and no profile would produce. So a bare NOT_EMPLOYED in production
+    // does not by itself distinguish "employment window failed" from "nobody
+    // configured this person"; only the database separates those.
+    const { service } = build({ user: noJoiningDate, profile: null });
+    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
+
+    expect(c.attendanceApplicability).toBe('NOT_EMPLOYED');
+    expect(c.coverage).toBe('NOT_EMPLOYED');
+    expect(c.blockingReasons).toEqual([]);
+    expect(c.legacyEmploymentFallbackApplied).toBe(false);
+  });
+
+  it('an employee WITH a joining date and no profile is BLOCKED instead', async () => {
+    // The contrast that makes the case above meaningful.
+    const { service } = build({ profile: null });
+    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
+
+    expect(c.coverage).toBe('UNRESOLVED');
+    expect(c.attendanceApplicability).toBe('BLOCKED');
+    expect(c.blockingReasons).toContain('NO_PROFILE_FOR_DATE');
+  });
+});
