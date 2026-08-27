@@ -33,6 +33,7 @@ import {
   type PhotoRecord,
 } from './photo-archive';
 import { createR2Vault, readR2Config, sha256File, type Vault } from './r2-vault';
+import { assertPhotoTarget, mask } from './backup-identity';
 
 export interface ArchiveDeps {
   vault: Vault;
@@ -224,6 +225,14 @@ if (require.main === module) {
       api_key: process.env.CLOUDINARY_API_KEY,
       api_secret: process.env.CLOUDINARY_API_SECRET,
     });
+
+    // Which database and vault this is allowed to touch. Refuses before any
+    // connection is opened, and prints nothing that identifies a credential.
+    const target = assertPhotoTarget(process.env);
+    console.log(`  environment     : ${target.environment}`);
+    console.log(`  database host   : ${mask(target.host)}`);
+    console.log(`  database        : ${target.database}`);
+    console.log(`  vault bucket    : ${target.bucket}`);
 
     const vault = createR2Vault(readR2Config(process.env));
     const prisma = new PrismaClient();

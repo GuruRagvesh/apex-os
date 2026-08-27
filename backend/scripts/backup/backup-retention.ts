@@ -62,6 +62,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function classifyKey(key: string): VaultCategory | null {
   if (/^state\//.test(key)) return 'STATE';
   if (/^manifests\//.test(key)) return 'MANIFEST';
+  // archiveObjectKey() writes `attendance-photos/YYYY/MM/<photoId>`. This
+  // pattern once read `^photos/`, which matched nothing the archive has ever
+  // written: every real photograph fell through to "unrecognised" and survived
+  // only on the keep-what-you-cannot-classify fallback. Evidence was being
+  // protected by an accident rather than by the rule written to protect it.
+  // `photos/` is kept so any object under an older shape stays recognised.
+  if (/^attendance-photos\//.test(key)) return 'PHOTO_ARCHIVE';
   if (/^photos\//.test(key)) return 'PHOTO_ARCHIVE';
   if (/\/pre-migration\//.test(key)) return 'PRE_MIGRATION';
   if (/\/monthly\//.test(key)) return 'MONTHLY';

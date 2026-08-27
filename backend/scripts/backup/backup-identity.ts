@@ -138,3 +138,102 @@ export function assertNonProductionTarget(env: NodeJS.ProcessEnv): TargetIdentit
   }
   return identity;
 }
+
+/**
+ * The production evidence vault. Staging must never write into it.
+ *
+ * Archive keys carry no environment namespace -- a photograph is stored at
+ * `attendance-photos/YYYY/MM/<photoId>` whichever database it came from. Two
+ * environments sharing one bucket would put synthetic staging evidence in the
+ * same keyspace as real attendance records, indistinguishable afterwards. The
+ * separation therefore has to be the bucket.
+ */
+export const PRODUCTION_VAULT_BUCKET = 'apex-os-production-backups';
+
+export type PhotoRunnerEnvironment = 'production' | 'staging';
+
+export interface PhotoTarget extends TargetIdentity {
+  environment: PhotoRunnerEnvironment;
+  bucket: string;
+}
+
+/**
+ * Which database and vault the photo jobs may touch.
+ *
+ * Both runners previously used a bare PrismaClient: whatever DATABASE_URL
+ * happened to be loaded won, with nothing asserting whether that was the
+ * database anyone intended. This makes the operator declare the environment
+ * and then proves the declaration.
+ *
+ * The expected host and database are supplied independently, never derived
+ * from DATABASE_URL -- checking a URL against itself proves only that it was
+ * parsed. They are read from the provider dashboard, so a mismatch means the
+ * connection string is not what the operator believed.
+ */
+export function assertPhotoTarget(env: NodeJS.ProcessEnv): PhotoTarget {
+  const appEnv = (env.APP_ENV ?? '').trim().toLowerCase();
+  const bucket = (env.R2_BUCKET ?? '').trim();
+
+  if (!bucket) throw new TargetRefused('R2_BUCKET is not set.');
+
+  // Silence is not a default. An unrecognised APP_ENV could be anything, and
+  // guessing is how staging writes into the production vault.
+  if (appEnv !== 'production' && appEnv !== 'staging') {
+    throw new TargetRefused(
+      `APP_ENV is "${appEnv || '(unset)'}". Declare "production" or "staging" explicitly; ` +
+        'an ambiguous environment is refused rather than guessed.',
+    );
+  }
+
+  if (appEnv === 'production') {
+    // Reuses the guard the database backup already trusts, so there is one
+    // definition of "this is production" rather than two that can drift.
+    const identity = assertProductionTarget(env);
+
+    if (bucket !== PRODUCTION_VAULT_BUCKET) {
+      throw new TargetRefused(
+        `Production photo archive must use the production vault, not "${bucket}".`,
+      );
+    }
+    return { ...identity, environment: 'production', bucket };
+  }
+
+  const url = env.DATABASE_URL ?? '';
+  const expectedHost = (env.EXPECTED_STAGING_DB_HOST ?? '').trim();
+  const expectedName = (env.EXPECTED_STAGING_DB_NAME ?? '').trim();
+
+  if (!url) throw new TargetRefused('DATABASE_URL is not set.');
+  if (!expectedHost || !expectedName) {
+    throw new TargetRefused(
+      'EXPECTED_STAGING_DB_HOST and EXPECTED_STAGING_DB_NAME must both be set, ' +
+        'read independently from the provider dashboard.',
+    );
+  }
+
+  if (bucket === PRODUCTION_VAULT_BUCKET) {
+    throw new TargetRefused(
+      'Staging may not write to the production vault. Archive keys carry no ' +
+        'environment namespace, so synthetic staging evidence would be stored ' +
+        'alongside real attendance records and be indistinguishable from them.',
+    );
+  }
+
+  const identity = parse(url);
+
+  for (const marker of PRODUCTION_MARKERS) {
+    if (marker.test(url) || marker.test(identity.host) || marker.test(identity.database)) {
+      throw new TargetRefused(
+        `APP_ENV says staging but the target matches a production marker (${marker}). Refusing.`,
+      );
+    }
+  }
+
+  if (identity.host !== expectedHost) {
+    throw new TargetRefused('Host mismatch between DATABASE_URL and EXPECTED_STAGING_DB_HOST.');
+  }
+  if (identity.database !== expectedName) {
+    throw new TargetRefused('Database mismatch between DATABASE_URL and EXPECTED_STAGING_DB_NAME.');
+  }
+
+  return { ...identity, environment: 'staging', bucket };
+}

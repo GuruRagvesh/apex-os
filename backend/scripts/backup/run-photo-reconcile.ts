@@ -20,9 +20,16 @@ import { PrismaClient } from '@prisma/client';
 import { assessPhoto, summarise, type PhotoAssessment, type ReconciliationSummary } from './photo-reconciliation';
 import { archiveObjectKey } from './photo-archive';
 import { createR2Vault, readR2Config, type Vault } from './r2-vault';
+import { assertPhotoTarget, mask } from './backup-identity';
 
 export interface ReconcileRow {
   evidenceId: string;
+  /**
+   * The photograph the evidence row CLAIMS, i.e. the foreign key itself.
+   *
+   * Deliberately not read from the related asset record: if that record is
+   * missing, the claim still exists and the discrepancy is the finding.
+   */
   photoId: string | null;
   /** Cloudinary reference recorded at capture. */
   objectKey: string | null;
@@ -47,8 +54,33 @@ export async function reconcilePhotos(
   const out: PhotoAssessment[] = [];
 
   for (const row of rows) {
-    if (!row.photoId || !row.objectKey || !row.receivedAt) {
-      out.push(assessPhoto({ evidenceId: row.evidenceId, photoAssetId: null, primaryPresent: null, backupPresent: null }));
+    if (!row.photoId) {
+      // No photograph was ever claimed for this punch. Not a loss.
+      out.push(
+        assessPhoto({
+          evidenceId: row.evidenceId,
+          photoAssetId: null,
+          primaryPresent: null,
+          backupPresent: null,
+        }),
+      );
+      continue;
+    }
+
+    if (!row.objectKey || !row.receivedAt) {
+      // The row claims a photograph but the asset record backing it is not
+      // readable, so neither store can even be addressed -- there is no
+      // Cloudinary reference to look up and no date to build the archive key
+      // from. Reporting this as "no photo claimed" would file evidence loss
+      // under a benign state and drop it from every count that matters.
+      out.push(
+        assessPhoto({
+          evidenceId: row.evidenceId,
+          photoAssetId: row.photoId,
+          primaryPresent: null,
+          backupPresent: null,
+        }),
+      );
       continue;
     }
 
@@ -138,6 +170,12 @@ if (require.main === module) {
       api_secret: process.env.CLOUDINARY_API_SECRET,
     });
 
+    const target = assertPhotoTarget(process.env);
+    console.log(`  environment     : ${target.environment}`);
+    console.log(`  database host   : ${mask(target.host)}`);
+    console.log(`  database        : ${target.database}`);
+    console.log(`  vault bucket    : ${target.bucket}`);
+
     const vault = createR2Vault(readR2Config(process.env));
     const prisma = new PrismaClient();
 
@@ -155,7 +193,9 @@ if (require.main === module) {
 
       const rows: ReconcileRow[] = evidence.map((e: any) => ({
         evidenceId: e.id,
-        photoId: e.photoAsset?.id ?? null,
+        // The foreign key, so a claim whose asset record is missing is still
+        // seen as a claim rather than disappearing into "no photo".
+        photoId: e.photoAssetId ?? null,
         objectKey: e.photoAsset?.objectKey ?? null,
         expectedByteSize: e.photoAsset?.byteSize ?? null,
         receivedAt: e.photoAsset?.receivedAt ?? null,
