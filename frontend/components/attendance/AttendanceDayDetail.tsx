@@ -11,6 +11,12 @@ import { PunchPhoto } from './PunchPhoto';
 import { RequestCorrectionForm } from './RequestCorrectionForm';
 import { assessPresence } from './attendance-presence';
 import { exceptionText, formatMinutes, formatTime, presentStatus, reasonText } from './attendance-status';
+import {
+  actorLabel,
+  fieldLabel,
+  getMyAttendanceActivity,
+  type AttendanceActivityEntry,
+} from './activity-api';
 import { getHolidayCalendar, holidayOn, upcomingHolidays } from './holiday-api';
 import { presentLocation } from './location-presentation';
 import { getMyPunchEvidence, type OwnPunchEvidence } from './punch-api';
@@ -85,6 +91,15 @@ export function AttendanceDayDetail({
     queryKey: ['holiday-calendar'],
     queryFn: () => getHolidayCalendar(),
     staleTime: 30 * 60_000,
+    retry: false,
+  });
+
+  // Provenance for THIS date only. Scoped server-side to the caller; there is
+  // no user id to pass.
+  const { data: activity } = useQuery({
+    queryKey: ['my-attendance-activity', businessDate],
+    queryFn: () => getMyAttendanceActivity(businessDate),
+    staleTime: 60_000,
     retry: false,
   });
 
@@ -326,6 +341,9 @@ export function AttendanceDayDetail({
         </DrawerSection>
       )}
 
+      {/* ── D2. Provenance ───────────────────────────────────────────── */}
+      <ActivityTimeline entries={activity ?? []} />
+
       {/* ── E. Day / holiday information ─────────────────────────────── */}
       <DrawerSection title="Calendar">
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -341,6 +359,54 @@ export function AttendanceDayDetail({
         <LeaveBalanceCard compact />
       </DrawerSection>
     </>
+  );
+}
+
+/**
+ * Who changed this day, what they changed it from and to, and why.
+ *
+ * Rendered only when something actually happened: an empty "Activity" heading
+ * on every ordinary day is noise that trains people to ignore the section on
+ * the day it matters.
+ */
+function ActivityTimeline({ entries }: { entries: AttendanceActivityEntry[] }) {
+  if (entries.length === 0) return null;
+
+  return (
+    <DrawerSection title="Activity">
+      <ol className="space-y-2.5">
+        {entries.map((e) => (
+          <li key={e.id} className="border-l-2 border-[var(--border-secondary)] pl-3">
+            <p className="apex-text text-xs font-semibold">{e.label}</p>
+
+            {e.changed && (
+              <ul className="mt-0.5 space-y-0.5">
+                {e.changed.map((c) => (
+                  <li key={c.field} className="apex-text-muted text-[11px]">
+                    {fieldLabel(c.field)}: {c.from ?? 'Missing'} &rarr; {c.to ?? 'Missing'}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {e.reason && (
+              <p className="apex-text-muted mt-0.5 text-[11px]">Reason: {e.reason}</p>
+            )}
+
+            <p className="apex-text-subtle mt-0.5 text-[11px]">
+              {actorLabel(e)} &middot;{' '}
+              {new Date(e.at).toLocaleString([], {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </p>
+          </li>
+        ))}
+      </ol>
+    </DrawerSection>
   );
 }
 

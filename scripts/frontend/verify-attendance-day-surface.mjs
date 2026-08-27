@@ -7,7 +7,7 @@
  * The frontend has no test runner, so the guarantees below are checked
  * statically, the same way the single-Workday-surface rule is.
  *
- * Six rules, each protecting something that has actually gone wrong or would
+ * Seven rules, each protecting something that has actually gone wrong or would
  * be silent if it did:
  *
  *  1. ONE DAY SURFACE. Selecting a date opens the drawer. The old inline
@@ -40,7 +40,7 @@
  *     validator.
  *
  * Node built-ins only. Reads files, touches nothing else.
- * Exit 0 = all six hold. Exit 1 = anything else.
+ * Exit 0 = all seven hold. Exit 1 = anything else.
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -160,6 +160,19 @@ for (const [name, src] of [
   if (/holidays?\s+available/i.test(withoutComments(src))) {
     failures.push(`${name} calls leave entitlement "holidays available"; they are different things.`);
   }
+}
+
+// ── Rule 7: the provenance endpoint has a consumer ─────────────────────────
+// GET /attendance/me/activity was built and left unwired once already -- the
+// same way AttendanceDrawer was. An endpoint nobody renders is invisible in
+// every test that checks the API and in every test that checks the page.
+if (!/getMyAttendanceActivity\(/.test(detail)) {
+  failures.push(
+    'AttendanceDayDetail never calls getMyAttendanceActivity(); the provenance endpoint has no consumer.',
+  );
+}
+if (!/<ActivityTimeline\b/.test(detail)) {
+  failures.push('AttendanceDayDetail does not render the activity timeline.');
 }
 
 // ── Rule 6: no platforms -> frontend import ────────────────────────────────
