@@ -5,7 +5,7 @@ import { DailyAttendanceController } from '../../src/modules/platform/attendance
 import { LeaveFactsService } from '../../src/modules/platform/attendance/evaluation/leave-facts.service';
 import { TVAService } from '../../src/common/services/tva.service';
 import { ConfigService } from '@nestjs/config';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 // AR-1. Real TVAService, a real evaluator and a real LeaveFactsService, so a
 // corrected day is genuinely re-explained by the ordinary rules. Prisma, the
@@ -700,6 +700,31 @@ describe('AR-1 correction lifecycle', () => {
 
     expect(updates[0].status).toBe('REJECTED');
     expect(evaluator.reviseForApprovedCorrection).not.toHaveBeenCalled();
+  });
+
+  it('33b. a rejection without a reason is refused', async () => {
+    // A refusal the employee cannot understand is one they simply resubmit,
+    // and the audit row would record that a correction was refused without
+    // recording why -- the part a later dispute needs.
+    const { service, updates } = lifecycleRig({ request: { ...REQUEST, status: 'PENDING' } });
+
+    await expect(service.reject({ id: 'mgr-1' }, 'reg-1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(service.reject({ id: 'mgr-1' }, 'reg-1', '   ')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(updates).toEqual([]);
+  });
+
+  it('33c. the rejection reason reaches the audit trail', async () => {
+    const { service, audit } = lifecycleRig({ request: { ...REQUEST, status: 'PENDING' } });
+
+    await service.reject({ id: 'mgr-1' }, 'reg-1', '  Not supported by evidence  ');
+    const rejected = audit.find((e: any) => e.action === 'REGULARIZATION_REJECTED');
+
+    // Trimmed, so a whitespace-padded reason is not stored as-is.
+    expect(rejected.metadata).toEqual({ reason: 'Not supported by evidence' });
   });
 
   it('34. with the feature off nothing can be requested or approved', async () => {

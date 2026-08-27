@@ -2,22 +2,22 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { RequestCorrectionForm } from './RequestCorrectionForm';
-import { getMyRegularizations, stageLabel } from './regularization-api';
+import { AttendanceDrawer } from './AttendanceDrawer';
+import { AttendanceDayDetail } from './AttendanceDayDetail';
+import { getMyRegularizations } from './regularization-api';
 import { getMyAttendanceRange, type AttendanceDay } from './attendance-api';
-import {
-  exceptionText,
-  formatMinutes,
-  formatTime,
-  presentStatus,
-  reasonText,
-} from './attendance-status';
+import { presentStatus } from './attendance-status';
 
 /**
  * The employee's own attendance month (AE-1).
  *
- * A calendar plus a detail panel — deliberately not an analytics screen. It
- * answers one question: "what is my attendance, and why?"
+ * A calendar — deliberately not an analytics screen. It answers one question:
+ * "what is my attendance, and why?"
+ *
+ * The calendar is the navigation surface; selecting a date opens the context
+ * drawer rather than expanding a detail panel underneath. The inline panel is
+ * gone rather than kept alongside: two places showing the same day is how they
+ * drift apart, and the one below the fold was the one nobody scrolled to.
  */
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -169,126 +169,36 @@ export function AttendanceCalendar() {
         )}
       </div>
 
-      {selected && (
-        <div className="apex-card">
-          <div className="mb-3 flex items-start justify-between">
-            <div>
-              <h3 className="apex-text text-sm font-semibold">
-                {new Date(`${selected}T00:00:00Z`).toLocaleDateString([], {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric',
-                  timeZone: 'UTC',
-                })}
-              </h3>
-              {detail && (
-                <p className="apex-text-muted mt-1 text-xs">{reasonText(detail.reason)}</p>
-              )}
-            </div>
-            {detail && (
-              <span
-                className={`rounded-md px-2 py-1 text-xs font-medium ${presentStatus(detail.status).chip}`}
-              >
-                {presentStatus(detail.status).label}
-              </span>
-            )}
-          </div>
-
-          {!detail && (
-            <p className="apex-text-muted text-sm">No attendance record for this date.</p>
-          )}
-
-          {detail && (
-            <>
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-                <Fact label="Punch in" value={formatTime(detail.punchInAt)} />
-                <Fact label="Punch out" value={formatTime(detail.punchOutAt)} />
-                <Fact label="Worked" value={formatMinutes(detail.workedMinutes)} />
-                <Fact label="Breaks" value={formatMinutes(detail.breakMinutes)} />
-                <Fact
-                  label="Location"
-                  value={
-                    detail.locationException
-                      ? 'Needs review'
-                      : detail.punchInAt
-                        ? 'Verified'
-                        : '—'
-                  }
-                />
-                <Fact
-                  label="Photo"
-                  value={detail.punchInAt ? (detail.photoCaptured ? 'Captured' : 'Missing') : '—'}
-                />
-                <Fact
-                  label="Leave"
-                  value={
-                    detail.lwpDeducted > 0
-                      ? `${detail.lwpDeducted} unpaid`
-                      : detail.leaveDeducted > 0
-                        ? `${detail.leaveDeducted} day`
-                        : '—'
-                  }
-                />
-                <Fact
-                  label="Late by"
-                  value={detail.lateMinutes > 0 ? formatMinutes(detail.lateMinutes) : '—'}
-                />
-              </dl>
-
-              {detail.exceptions.length > 0 && (
-                <div className="mt-4 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
-                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-                    Needs review
-                  </p>
-                  <ul className="mt-1 space-y-0.5">
-                    {detail.exceptions.map((f) => (
-                      <li key={f} className="text-xs text-amber-700 dark:text-amber-400">
-                        · {exceptionText(f)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {correction && (
-                <div className="mt-4 rounded-lg border border-[var(--border-secondary)] p-3">
-                  <p className="apex-text text-xs font-semibold">
-                    Correction requested · {stageLabel(correction.status)}
-                  </p>
-                  <p className="apex-text-muted mt-0.5 text-xs">{correction.reason}</p>
-                </div>
-              )}
-
-              {detail.requiresReview && !correction && !requesting && (
-                <button
-                  onClick={() => setRequesting(true)}
-                  className="mt-4 rounded-lg border border-[var(--border-secondary)] px-3 py-1.5 text-sm font-medium apex-text"
-                >
-                  Request correction
-                </button>
-              )}
-
-              {requesting && selected && (
-                <RequestCorrectionForm
-                  businessDate={selected}
-                  onDone={() => setRequesting(false)}
-                  onCancel={() => setRequesting(false)}
-                />
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="apex-text-subtle text-[11px] uppercase tracking-wide">{label}</dt>
-      <dd className="apex-text mt-0.5 text-sm font-medium">{value}</dd>
+      <AttendanceDrawer
+        open={Boolean(selected)}
+        title={
+          selected
+            ? new Date(`${selected}T00:00:00Z`).toLocaleDateString([], {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+                timeZone: 'UTC',
+              })
+            : ''
+        }
+        subtitle="Your attendance for this date"
+        onClose={() => {
+          setSelected(null);
+          setRequesting(false);
+        }}
+      >
+        {selected && (
+          <AttendanceDayDetail
+            businessDate={selected}
+            day={detail}
+            correction={correction}
+            requesting={requesting}
+            onRequest={() => setRequesting(true)}
+            onRequestDone={() => setRequesting(false)}
+          />
+        )}
+      </AttendanceDrawer>
     </div>
   );
 }

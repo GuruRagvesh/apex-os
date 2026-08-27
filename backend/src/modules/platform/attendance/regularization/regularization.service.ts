@@ -368,9 +368,20 @@ export class RegularizationService {
     return approved;
   }
 
-  /** Rejection at either stage. Leaves every official attendance fact alone. */
+  /**
+   * Rejection at either stage. Leaves every official attendance fact alone.
+   *
+   * A reason is REQUIRED. A refusal an employee cannot understand is one they
+   * will simply resubmit, and the audit row would record that a correction was
+   * refused without recording why -- which is the part a later dispute needs.
+   */
   async reject(actor: any, id: string, reason?: string) {
     if (!(await this.enabled())) throw new RegularizationDisabledError();
+
+    const trimmed = (reason ?? '').trim();
+    if (trimmed.length === 0) {
+      throw new BadRequestException('A reason is required when rejecting a correction request');
+    }
 
     const row = await this.prisma.attendanceRegularization.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Correction request not found');
@@ -402,7 +413,7 @@ export class RegularizationService {
       action: OperationalAction.REGULARIZATION_REJECTED,
       fromState: row.status,
       toState: 'REJECTED',
-      metadata: reason ? { reason } : undefined,
+      metadata: { reason: trimmed },
     }).catch(() => {});
 
     return updated;
