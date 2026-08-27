@@ -130,6 +130,85 @@ describe('only attendance actions the employee may see', () => {
   });
 });
 
+describe('the reason reaches every entry, not just the rejection', () => {
+  // Only REGULARIZATION_REJECTED writes a reason into event metadata. The
+  // employee's own words live on the regularization ROW, so without resolving
+  // them the line that explains the entry renders blank everywhere else.
+  it('falls back to the request reason for an event on the regularization', async () => {
+    const { service } = build({
+      events: [event({ action: 'REGULARIZATION_MANAGER_APPROVED', entityId: 'reg-1', metadata: {} })],
+    });
+
+    expect((await service.mine('emp-1'))[0].reason).toBe('Forgot to punch out');
+  });
+
+  it('resolves it through regularizationId for a correction on DailyAttendance', async () => {
+    // The revision is logged against DailyAttendance, not the regularization,
+    // so the link is the id carried in metadata.
+    const { service } = build({
+      events: [
+        event({ entityId: 'att-1', metadata: { businessDate: DATE, regularizationId: 'reg-1' } }),
+      ],
+    });
+
+    expect((await service.mine('emp-1'))[0].reason).toBe('Forgot to punch out');
+  });
+
+  it("prefers a rejection's own reason over the original request", async () => {
+    // The decision explains more to the employee than restating what they asked.
+    const { service } = build({
+      events: [
+        event({
+          action: 'REGULARIZATION_REJECTED',
+          entityId: 'reg-1',
+          metadata: { reason: 'Workday shows no activity after 17:00' },
+        }),
+      ],
+    });
+
+    expect((await service.mine('emp-1'))[0].reason).toBe(
+      'Workday shows no activity after 17:00',
+    );
+  });
+
+  it('is null when nothing recorded one', async () => {
+    const { service } = build({
+      regularizations: [{ id: 'reg-1', date: d(DATE), reason: null }],
+      events: [event({ entityId: 'reg-1', metadata: {} })],
+    });
+
+    expect((await service.mine('emp-1'))[0].reason).toBeNull();
+  });
+
+  it('renders a complete correction entry', async () => {
+    const { service } = build({
+      events: [
+        event({
+          entityId: 'att-1',
+          metadata: { businessDate: DATE, regularizationId: 'reg-1', revision: 2 },
+        }),
+      ],
+    });
+    const [entry] = await service.mine('emp-1');
+
+    // Everything a readable line needs, and nothing more.
+    expect(entry.label).toBe('Attendance corrected');
+    expect(entry.actorName).toBe('Priya (HR)');
+    expect(entry.actorRole).toBe('HR');
+    expect(entry.reason).toBe('Forgot to punch out');
+    expect(entry.businessDate).toBe(DATE);
+    expect(entry.at).toBe('2026-08-28T00:00:00.000Z');
+    expect(entry.changed).toEqual(
+      expect.arrayContaining([
+        { field: 'status', from: 'MISSING_PUNCH', to: 'PRESENT' },
+        { field: 'punchOutAt', from: null, to: '2026-08-27T13:00:00.000Z' },
+      ]),
+    );
+    // The revision number is machinery, not provenance.
+    expect(JSON.stringify(entry)).not.toContain('revision');
+  });
+});
+
 describe('the projection is readable and allowlisted', () => {
   it('renders a correction as a sentence with actor and reason', async () => {
     const { service } = build({

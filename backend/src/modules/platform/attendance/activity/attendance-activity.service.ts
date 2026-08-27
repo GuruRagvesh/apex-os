@@ -125,6 +125,15 @@ export class AttendanceActivityService {
       dateByEntity.set(a.id, a.date.toISOString().slice(0, 10));
     }
 
+    // The employee's own words live on the regularization ROW, not in any
+    // event metadata: only a rejection records its reason there. Without this
+    // map "Reason: Forgot to punch out" -- the line that explains the whole
+    // entry -- would render blank on every event except the rejection.
+    const reasonByRegularization = new Map<string, string>();
+    for (const r of regularizations) {
+      if (r.reason) reasonByRegularization.set(r.id, r.reason);
+    }
+
     const events = await (this.prisma as any).operationalEvent.findMany({
       where: {
         OR: [
@@ -153,10 +162,14 @@ export class AttendanceActivityService {
 
     return events
       .filter((e: any) => EMPLOYEE_VISIBLE_ACTIONS.has(e.action))
-      .map((e: any) => this.project(e, dateByEntity));
+      .map((e: any) => this.project(e, dateByEntity, reasonByRegularization));
   }
 
-  private project(e: any, dateByEntity: Map<string, string>): AttendanceActivityEntry {
+  private project(
+    e: any,
+    dateByEntity: Map<string, string>,
+    reasonByRegularization: Map<string, string>,
+  ): AttendanceActivityEntry {
     const before = pick(e.beforeValue);
     const after = pick(e.afterValue);
 
@@ -179,7 +192,15 @@ export class AttendanceActivityService {
       at: e.timestamp.toISOString(),
       actorName: e.actor?.name ?? null,
       actorRole: e.actor?.role?.name ?? null,
-      reason: typeof meta.reason === 'string' ? meta.reason : null,
+      // A rejection's own reason wins: it explains the decision, which is more
+      // use to the employee than restating what they originally asked for.
+      // Otherwise fall back to the request this event belongs to.
+      reason:
+        (typeof meta.reason === 'string' ? meta.reason : null) ??
+        reasonByRegularization.get(e.entityId) ??
+        (typeof meta.regularizationId === 'string'
+          ? (reasonByRegularization.get(meta.regularizationId) ?? null)
+          : null),
       fromState: e.fromState ?? null,
       toState: e.toState ?? null,
       changed: changed.length > 0 ? changed : null,
