@@ -173,6 +173,14 @@ export interface DailyAttendanceContext {
   coverage: AttendanceCoverageState;
   coverageReason: AttendanceCoverageReason;
 
+  /**
+   * True when coverage came from the legacy no-joining-date fallback rather
+   * than from a real employment window. Surfaced so the state is auditable:
+   * an employee running on the fallback is one whose HR joining date is still
+   * missing, and that should be visible rather than silently equivalent.
+   */
+  legacyEmploymentFallbackApplied: boolean;
+
   /** Company-level calendar facts. See BL-2A. */
   calendar: BusinessDayFacts;
 
