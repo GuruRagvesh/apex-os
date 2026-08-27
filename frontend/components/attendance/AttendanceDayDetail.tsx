@@ -96,7 +96,11 @@ export function AttendanceDayDetail({
 
   // Provenance for THIS date only. Scoped server-side to the caller; there is
   // no user id to pass.
-  const { data: activity } = useQuery({
+  // isError is kept separate from an empty result on purpose. During a
+  // production deploy the frontend can be live minutes before the backend, so
+  // this route may 404 briefly. "Nothing happened on this day" and "we could
+  // not load what happened" must not look the same to an employee.
+  const { data: activity, isError: activityFailed } = useQuery({
     queryKey: ['my-attendance-activity', businessDate],
     queryFn: () => getMyAttendanceActivity(businessDate),
     staleTime: 60_000,
@@ -342,7 +346,7 @@ export function AttendanceDayDetail({
       )}
 
       {/* ── D2. Provenance ───────────────────────────────────────────── */}
-      <ActivityTimeline entries={activity ?? []} />
+      <ActivityTimeline entries={activity ?? []} failed={activityFailed} />
 
       {/* ── E. Day / holiday information ─────────────────────────────── */}
       <DrawerSection title="Calendar">
@@ -369,7 +373,25 @@ export function AttendanceDayDetail({
  * on every ordinary day is noise that trains people to ignore the section on
  * the day it matters.
  */
-function ActivityTimeline({ entries }: { entries: AttendanceActivityEntry[] }) {
+function ActivityTimeline({
+  entries,
+  failed,
+}: {
+  entries: AttendanceActivityEntry[];
+  failed?: boolean;
+}) {
+  // Says so, rather than rendering an empty section that reads as "nothing
+  // was changed on this day". The rest of the drawer is unaffected.
+  if (failed) {
+    return (
+      <DrawerSection title="Activity">
+        <p className="apex-text-muted text-xs">
+          Activity history could not be loaded. Your attendance for this day is unaffected.
+        </p>
+      </DrawerSection>
+    );
+  }
+
   if (entries.length === 0) return null;
 
   return (

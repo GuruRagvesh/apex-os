@@ -7,7 +7,7 @@
  * The frontend has no test runner, so the guarantees below are checked
  * statically, the same way the single-Workday-surface rule is.
  *
- * Seven rules, each protecting something that has actually gone wrong or would
+ * Eight rules, each protecting something that has actually gone wrong or would
  * be silent if it did:
  *
  *  1. ONE DAY SURFACE. Selecting a date opens the drawer. The old inline
@@ -40,7 +40,7 @@
  *     validator.
  *
  * Node built-ins only. Reads files, touches nothing else.
- * Exit 0 = all seven hold. Exit 1 = anything else.
+ * Exit 0 = all eight hold. Exit 1 = anything else.
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -173,6 +173,28 @@ if (!/getMyAttendanceActivity\(/.test(detail)) {
 }
 if (!/<ActivityTimeline\b/.test(detail)) {
   failures.push('AttendanceDayDetail does not render the activity timeline.');
+}
+
+// ── Rule 8: the drawer survives a failing dependency ───────────────────────
+// Frontend and backend deploy minutes apart in production, so any of these can
+// fail transiently. Every one must be guarded: an unguarded .map or .find on an
+// undefined query result takes the whole drawer down, and the employee loses
+// the attendance facts too, not just the section that failed.
+for (const [what, pattern] of [
+  ['punch evidence', /\(allEvidence \?\? \[\]\)/],
+  ['activity', /activity \?\? \[\]/],
+  ['upcoming holidays', /upcoming=\{upcoming\}/],
+]) {
+  if (!pattern.test(detail)) {
+    failures.push(`AttendanceDayDetail does not guard a missing ${what} result.`);
+  }
+}
+// A failed activity load must be distinguishable from a day where nothing
+// happened, or an employee reads "no changes" when the truth is "unknown".
+if (!/isError: activityFailed/.test(detail) || !/failed=\{activityFailed\}/.test(detail)) {
+  failures.push(
+    'AttendanceDayDetail does not distinguish a failed activity load from an empty one.',
+  );
 }
 
 // ── Rule 6: no platforms -> frontend import ────────────────────────────────

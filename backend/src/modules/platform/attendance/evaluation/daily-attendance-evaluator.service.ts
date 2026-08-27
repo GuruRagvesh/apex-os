@@ -517,13 +517,23 @@ export class DailyAttendanceEvaluatorService {
     const permittedBreak = policy?.permittedBreakMinutes ?? 60;
     const minimumEffectiveWork = policy?.minimumEffectiveWorkMinutes ?? null;
 
-    const presenceSpanMinutes =
+    // Attendance presence is punch out minus punch in. Nothing else.
+    //
+    // This previously fell back to summing Workday session spans when the punch
+    // pair was incomplete, which let operational Workday time satisfy an
+    // evidence-backed attendance requirement -- the one substitution the policy
+    // exists to prevent. AttendanceConsoleService and the employee's own view
+    // both already return null here; the evaluator was the outlier.
+    //
+    // Null means "cannot be measured", which is not the same as "zero" and not
+    // the same as "insufficient". The day is already NEEDS_REVIEW in every
+    // incomplete case -- MISSING_PUNCH_OUT returns early with forceReview, and
+    // MISSING_PUNCH is not in NON_REVIEW_FLAGS -- so declining to measure loses
+    // no signal. Asserting a shortfall we cannot compute would invent one.
+    const presenceSpanMinutes: number | null =
       punchInAt && punchOutAt
         ? Math.max(0, Math.floor((punchOutAt.getTime() - punchInAt.getTime()) / 60_000))
-        : closed.reduce((n, sess) => {
-            if (!sess.startWorkAt || !sess.logoutAt) return n;
-            return n + Math.max(0, Math.floor((sess.logoutAt.getTime() - sess.startWorkAt.getTime()) / 60_000));
-          }, 0);
+        : null;
 
     // Late beyond the punch window.
     if (lateMinutes > 0) {
@@ -543,7 +553,9 @@ export class DailyAttendanceEvaluatorService {
     // Each duration question is asked separately, and each routes through the
     // one configured action for duration shortfalls.
     const durationShortfalls: AttendanceExceptionFlag[] = [];
-    if (presenceSpanMinutes < requiredSpan) durationShortfalls.push('INSUFFICIENT_PRESENCE_SPAN');
+    if (presenceSpanMinutes !== null && presenceSpanMinutes < requiredSpan) {
+      durationShortfalls.push('INSUFFICIENT_PRESENCE_SPAN');
+    }
     if (breakMinutes > permittedBreak) durationShortfalls.push('BREAK_EXCEEDS_ALLOWANCE');
     if (minimumEffectiveWork !== null && workedMinutes < minimumEffectiveWork) {
       durationShortfalls.push('INSUFFICIENT_EFFECTIVE_WORK');
