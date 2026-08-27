@@ -1,6 +1,7 @@
 // Thin route adapter, matching the convention used by the other dashboard
 // routes: the screen lives in a component, the route just mounts it.
 import { AttendanceCalendar } from '@/components/attendance/AttendanceCalendar';
+import { AttendanceToday } from '@/components/attendance/AttendanceToday';
 
 export default function AttendancePage() {
   return (
@@ -11,6 +12,8 @@ export default function AttendancePage() {
           Your recorded attendance for each day, and why it looks the way it does.
         </p>
       </div>
+      {/* Today first: the question the page is opened with. History below. */}
+      <AttendanceToday />
       <AttendanceCalendar />
     </div>
   );

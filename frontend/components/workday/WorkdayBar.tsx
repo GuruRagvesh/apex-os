@@ -40,7 +40,7 @@ export function WorkdayBar() {
   // PE-4: when Attendance V2 punching is off this stays null forever and every
   // control below behaves exactly as it does today.
   const [punchType, setPunchType] = useState<'PUNCH_IN' | 'PUNCH_OUT' | null>(null);
-  const { punchEnabled } = useAttendanceV2();
+  const { punchEnabled, isLoading: punchStatusLoading } = useAttendanceV2();
 
   // AE-1: today's official/provisional attendance, shown alongside the live
   // workday. Failing quietly is deliberate -- the workday controls must keep
@@ -118,6 +118,14 @@ export function WorkdayBar() {
     sessionDate !== today;
 
   const handleStartWork = async () => {
+    // The capability answer decides which path this is. Starting the day
+    // through the legacy endpoint merely because the probe has not answered
+    // yet would create a WorkSession with no punch evidence behind it -- the
+    // exact outcome the flag exists to prevent.
+    if (punchStatusLoading) {
+      toast('Checking attendance settings…');
+      return;
+    }
     // With V2 on, starting the day IS a punch: the modal collects the photo and
     // location, and the server starts the workday inside the same transaction
     // that records the evidence.
@@ -146,6 +154,10 @@ export function WorkdayBar() {
    * only ever closes today's.
    */
   const openEndDay = () => {
+    if (punchStatusLoading) {
+      toast('Checking attendance settings…');
+      return;
+    }
     if (punchEnabled) {
       setPunchType('PUNCH_OUT');
       return;

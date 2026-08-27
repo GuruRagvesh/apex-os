@@ -1,4 +1,4 @@
-import { api } from '@apex/shared-auth';
+import { api, unwrap as r } from '@apex/shared-auth';
 
 /**
  * Attendance punch photo transport (PE-3).
@@ -29,8 +29,23 @@ export async function uploadPunchPhoto(
   form.append('photo', blob, `punch-${Date.now()}.jpg`);
   form.append('clientCapturedAt', clientCapturedAt.toISOString());
 
-  const res = await api.post('/attendance/punch-photo', form, {
+  return r(api.post('/attendance/punch-photo', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return res.data;
+  }));
+}
+
+/**
+ * A short-lived signed URL for one of the employee's own punch photos.
+ *
+ * Minted on demand and deliberately not stored: the URL is a temporary
+ * presentation artifact, and persisting it would outlive the scoping that
+ * makes it safe. The server resolves the storage key from the evidence row and
+ * scopes it to the authenticated user, so an id belonging to somebody else
+ * simply does not match.
+ */
+export async function getOwnPunchPhotoUrl(evidenceId: string): Promise<string> {
+  const res = await r<{ url: string }>(
+    api.get(`/attendance/punch-evidence/${evidenceId}/photo`),
+  );
+  return res.url;
 }

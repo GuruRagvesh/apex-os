@@ -27,8 +27,14 @@
  * one lifecycle -- and a second place the punch requirement would have to be
  * re-enforced correctly. It navigates to the dashboard instead.
  *
- * Exit 0 = exactly one mount AND no lifecycle mutation in the dock.
- * Exit 1 = anything else.
+ * Rule 3 checks the branch inside WorkdayBar itself. With the punch capability
+ * on, Start Work and End Day must open PunchModal and must NOT call the legacy
+ * workday endpoints -- and while the capability probe is still in flight,
+ * neither path may fire, because "not answered yet" silently becoming "legacy"
+ * is how a WorkSession gets created with no punch evidence behind it.
+ *
+ * Exit 0 = one mount, no lifecycle mutation in the dock, and the WorkdayBar
+ * branch intact. Exit 1 = anything else.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -117,9 +123,87 @@ if (dockSource) {
   }
 }
 
+// ── rule 3: WorkdayBar routes through the punch when the capability is on ──
+const BAR = join(REPO_ROOT, 'frontend', 'components', 'workday', 'WorkdayBar.tsx');
+const barViolations = [];
+
+try {
+  const barSource = readFileSync(BAR, 'utf8');
+  const barCode = barSource
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  const required = [
+    // Reads BOTH the answer and whether it has arrived.
+    [/const \{ punchEnabled, isLoading: \w+ \} = useAttendanceV2\(\)/,
+     'WorkdayBar must read isLoading, not only punchEnabled'],
+    // CASE D: loading must not fall through to either path.
+    [/if \(punchStatusLoading\) \{[\s\S]{0,160}?return;/,
+     'Start Work must not act while the capability probe is loading'],
+    // CASE A: punch in.
+    [/if \(punchEnabled\) \{\s*setPunchType\('PUNCH_IN'\);\s*return;/,
+     'Start Work must open PunchModal as PUNCH_IN when the capability is on'],
+    // CASE B: punch out.
+    [/if \(punchEnabled\) \{\s*setPunchType\('PUNCH_OUT'\);\s*return;/,
+     'End Day must open PunchModal as PUNCH_OUT when the capability is on'],
+    // CASE C: the legacy path still exists for rollback when the flag is off.
+    [/workdayApi\.startWork\(\)/,
+     'The legacy start path must remain for rollback when the capability is off'],
+  ];
+
+  for (const [pattern, message] of required) {
+    if (!pattern.test(barCode)) barViolations.push(message);
+  }
+
+  // The punch path starts/finalises the session INSIDE the evidence
+  // transaction, so an early return before these calls is what keeps a
+  // successful punch from also issuing an HTTP workday start/end.
+  const startIdx = barCode.indexOf("setPunchType('PUNCH_IN')");
+  const legacyIdx = barCode.indexOf('workdayApi.startWork()');
+  if (startIdx > -1 && legacyIdx > -1 && startIdx > legacyIdx) {
+    barViolations.push('The punch branch must be checked BEFORE the legacy start call');
+  }
+} catch {
+  barViolations.push('WorkdayBar.tsx not found at its expected path');
+}
+
+// ── rule 4: workday modals must escape the transformed ancestor ────────────
+// WorkdayBar renders inside a motion.section, and a transformed ancestor
+// becomes the containing block for `position: fixed` descendants -- so an
+// un-portaled modal is positioned against that section, not the viewport, and
+// the employee has to scroll to find it.
+const MODALS = [
+  ['frontend', 'components', 'attendance', 'PunchModal.tsx'],
+  ['frontend', 'components', 'workday', 'BreakModal.tsx'],
+  ['frontend', 'components', 'workday', 'EndDayModal.tsx'],
+  ['frontend', 'components', 'workday', 'AutoCloseConsentModal.tsx'],
+];
+
+for (const parts of MODALS) {
+  const file = join(REPO_ROOT, ...parts);
+  try {
+    const src = readFileSync(file, 'utf8');
+    if (/fixed inset-0/.test(src) && !/<ModalPortal>/.test(src)) {
+      barViolations.push(`${parts[parts.length - 1]} uses fixed inset-0 without ModalPortal`);
+    }
+  } catch {
+    barViolations.push(`${parts[parts.length - 1]} not found at its expected path`);
+  }
+}
+
+if (barViolations.length > 0) {
+  console.error('[workday] WorkdayBar capability branch is wrong:');
+  for (const v of barViolations) console.error(`  ${v}`);
+  console.error('[workday] With the punch capability on, Start Work and End Day must open');
+  console.error('[workday] PunchModal; while it is still loading, neither may act.');
+  process.exit(1);
+}
+
 if (total === 1 && dockViolations.length === 0) {
   console.log(`[workday] OK — one Workday control surface: ${mounts[0].file}`);
   console.log('[workday] OK — QuickActionDock performs no lifecycle mutation');
+  console.log('[workday] OK — WorkdayBar routes through PunchModal and waits for the probe');
+  console.log('[workday] OK — every workday modal is portaled to the viewport');
   process.exit(0);
 }
 
