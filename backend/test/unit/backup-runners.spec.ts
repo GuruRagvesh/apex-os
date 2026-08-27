@@ -3,9 +3,9 @@ import { proveDeletePermission, runSweep } from '../../scripts/backup/run-retent
 import {
   assertSafeRestoreTarget,
   runRestoreTest,
-  INTEGRITY_TABLES,
   type RestoreDeps,
 } from '../../scripts/backup/run-restore-test';
+import { BASELINE_TABLES } from '../../scripts/backup/schema-expectations';
 import { TargetRefused } from '../../scripts/backup/backup-identity';
 import type { Vault, VaultObjectSummary } from '../../scripts/backup/r2-vault';
 
@@ -271,6 +271,9 @@ describe('restore test verifies before it trusts', () => {
       },
       restore: async () => {},
       countRows: async () => 42,
+      listTables: async () => [...BASELINE_TABLES],
+      listAppliedMigrations: async () => ['20260101000000_init'],
+      migrationTables: () => ({}),
       now: () => NOW,
       ...over,
     };
@@ -282,8 +285,9 @@ describe('restore test verifies before it trusts', () => {
 
     expect(report.restored).toBe(true);
     expect(report.passed).toBe(true);
-    expect(report.checks).toHaveLength(INTEGRITY_TABLES.length);
-    expect(report.migrationCount).toBe(42);
+    expect(report.checks).toHaveLength(BASELINE_TABLES.length);
+    expect(report.migrationCount).toBe(1);
+    expect(report.appliedMigrations).toEqual(['20260101000000_init']);
   });
 
   it('refuses to restore when the checksum does not match', async () => {
@@ -296,21 +300,21 @@ describe('restore test verifies before it trusts', () => {
     expect(restore).not.toHaveBeenCalled();
   });
 
-  it('fails when a table is missing after restore', async () => {
+  it('fails when a baseline table cannot be read after restore', async () => {
     const report = await runRestoreTest(
       env,
       'database/daily/a.dump',
       null,
       deps({
         countRows: async (_u, table) => {
-          if (table === 'comp_off_credits') throw new Error('relation does not exist');
+          if (table === 'leave_requests') throw new Error('relation does not exist');
           return 10;
         },
       }),
     );
 
     expect(report.passed).toBe(false);
-    expect(report.failureReason).toMatch(/comp_off_credits/);
+    expect(report.failureReason).toMatch(/leave_requests/);
   });
 
   it('fails when the restored database has no migration history', async () => {
@@ -319,7 +323,7 @@ describe('restore test verifies before it trusts', () => {
       env,
       'database/daily/a.dump',
       null,
-      deps({ countRows: async (_u, table) => (table === '_prisma_migrations' ? 0 : 5) }),
+      deps({ listAppliedMigrations: async () => [] }),
     );
 
     expect(report.passed).toBe(false);
@@ -342,17 +346,19 @@ describe('restore test verifies before it trusts', () => {
     expect(report.failureReason).toContain('corrupt archive');
   });
 
-  it('checks the attendance tables specifically, not just users', () => {
+  it('checks the attendance tables that exist in every database', () => {
+    // The release-only tables are handled by migration history, not this list:
+    // demanding them unconditionally is exactly what broke the first real
+    // production restore.
     for (const table of [
-      'attendance_punch_evidence',
       'daily_attendance',
-      'comp_off_credits',
       'attendance_regularizations',
       'leave_requests',
       'work_sessions',
       'break_logs',
     ]) {
-      expect(INTEGRITY_TABLES).toContain(table);
+      expect(BASELINE_TABLES).toContain(table);
     }
+    expect(BASELINE_TABLES).not.toContain('attendance_punch_evidence');
   });
 });

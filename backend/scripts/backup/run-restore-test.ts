@@ -30,27 +30,13 @@ import { redactSecrets, runPgTool, toPgTarget } from './pg-connection';
 import { assertNonProductionTarget, TargetRefused } from './backup-identity';
 import type { BackupManifest } from './backup-manifest';
 import { createR2Vault, readR2Config, sha256File, type Vault } from './r2-vault';
-
-/**
- * Tables whose presence proves the dump carried the business, not just a
- * schema. Counts only — no row content is read, so no employee data reaches a
- * log.
- */
-export const INTEGRITY_TABLES = [
-  '_prisma_migrations',
-  'users',
-  'work_sessions',
-  'break_logs',
-  'attendance_punch_evidence',
-  'attendance_punch_photo_assets',
-  'daily_attendance',
-  'attendance_regularizations',
-  'leave_requests',
-  'comp_off_credits',
-  'attendance_policies',
-  'holiday_calendars',
-  'app_settings',
-] as const;
+import {
+  planSchemaExpectations,
+  readMigrationTableMap,
+  verifySchema,
+  type SchemaVerdict,
+  type TableExpectation,
+} from './schema-expectations';
 
 export interface RestoreCheck {
   table: string;
@@ -66,6 +52,10 @@ export interface RestoreReport {
   actualSha256: string;
   checksumVerified: boolean;
   restored: boolean;
+  /** Migrations the RESTORED database records, not the working tree's. */
+  appliedMigrations: string[];
+  expectations: TableExpectation[];
+  schema: SchemaVerdict | null;
   checks: RestoreCheck[];
   migrationCount: number | null;
   passed: boolean;
@@ -97,6 +87,12 @@ export interface RestoreDeps {
   vault: Vault;
   restore: (databaseUrl: string, dumpPath: string) => Promise<void>;
   countRows: (databaseUrl: string, table: string) => Promise<number>;
+  /** Table names the restored database actually has. */
+  listTables: (databaseUrl: string) => Promise<string[]>;
+  /** Migration names the restored database records as applied. */
+  listAppliedMigrations: (databaseUrl: string) => Promise<string[]>;
+  /** Which tables each migration creates. Injected so tests need no fixtures. */
+  migrationTables: () => Record<string, string[]>;
   now: () => Date;
 }
 
@@ -131,6 +127,9 @@ export async function runRestoreTest(
     actualSha256: '',
     checksumVerified: false,
     restored: false,
+    appliedMigrations: [],
+    expectations: [],
+    schema: null,
     checks: [],
     migrationCount: null,
     passed: false,
@@ -157,17 +156,47 @@ export async function runRestoreTest(
     await deps.restore(targetUrl, dumpPath);
     report.restored = true;
 
-    for (const table of INTEGRITY_TABLES) {
+    // What this backup CLAIMS to be. Read from the restored database, never
+    // from the working tree: the repository has moved on, the backup has not.
+    report.appliedMigrations = await deps.listAppliedMigrations(targetUrl);
+    report.migrationCount = report.appliedMigrations.length;
+
+    if (report.migrationCount === 0) {
+      // A restore with no migration history is a schema of unknown provenance.
+      report.failureReason = 'Restored database has no Prisma migration history.';
+      return report;
+    }
+
+    report.expectations = planSchemaExpectations(
+      report.appliedMigrations,
+      deps.migrationTables(),
+    );
+
+    const present = new Set(await deps.listTables(targetUrl));
+    report.schema = verifySchema(report.expectations, present);
+
+    if (!report.schema.passed) {
+      // A table its own migration claims to have created is genuinely missing.
+      report.failureReason =
+        `${report.schema.missing.length} table(s) missing that the restored migration ` +
+        `history requires: ${report.schema.missing.map((m) => m.table).join(', ')}`;
+      return report;
+    }
+
+    // Counts, for the tables that should exist. No row content is read, so no
+    // employee data reaches a log.
+    for (const expectation of report.expectations) {
+      if (expectation.requirement === 'NOT_APPLICABLE') continue;
       try {
         report.checks.push({
-          table,
+          table: expectation.table,
           present: true,
-          rowCount: await deps.countRows(targetUrl, table),
+          rowCount: await deps.countRows(targetUrl, expectation.table),
           error: null,
         });
       } catch (err: any) {
         report.checks.push({
-          table,
+          table: expectation.table,
           present: false,
           rowCount: null,
           error: safe(err?.message ?? String(err)),
@@ -175,19 +204,11 @@ export async function runRestoreTest(
       }
     }
 
-    const migrations = report.checks.find((c) => c.table === '_prisma_migrations');
-    report.migrationCount = migrations?.rowCount ?? null;
-
-    const missing = report.checks.filter((c) => !c.present);
-    if (missing.length > 0) {
-      report.failureReason = `${missing.length} expected table(s) missing after restore: ${missing
+    const unreadable = report.checks.filter((c) => !c.present);
+    if (unreadable.length > 0) {
+      report.failureReason = `${unreadable.length} table(s) exist but could not be read: ${unreadable
         .map((m) => m.table)
         .join(', ')}`;
-      return report;
-    }
-    if (!report.migrationCount) {
-      // A restore with no migration history is a schema of unknown provenance.
-      report.failureReason = 'Restored database has no Prisma migration history.';
       return report;
     }
 
@@ -226,6 +247,34 @@ async function pgRestore(databaseUrl: string, dumpPath: string): Promise<void> {
     ],
     target,
   );
+}
+
+/** Table names the restored database actually has. */
+async function listTables(databaseUrl: string): Promise<string[]> {
+  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  try {
+    const rows = await prisma.$queryRaw<Array<{ tablename: string }>>`
+      SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+    `;
+    return rows.map((r) => r.tablename);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/** Migrations the RESTORED database records, in the order they ran. */
+async function listAppliedMigrations(databaseUrl: string): Promise<string[]> {
+  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  try {
+    const rows = await prisma.$queryRaw<Array<{ migration_name: string }>>`
+      SELECT migration_name FROM "_prisma_migrations"
+      WHERE finished_at IS NOT NULL
+      ORDER BY finished_at ASC
+    `;
+    return rows.map((r) => r.migration_name);
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
 async function countRows(databaseUrl: string, table: string): Promise<number> {
@@ -287,15 +336,49 @@ if (require.main === module) {
       vault,
       restore: pgRestore,
       countRows,
+      listTables,
+      listAppliedMigrations,
+      migrationTables: () => readMigrationTableMap(join(__dirname, '..', '..', 'prisma', 'migrations')),
       now: () => new Date(),
     });
 
-    console.log(`  bytes           : ${report.byteSize}`);
-    console.log(`  checksum        : ${report.checksumVerified ? 'VERIFIED' : 'not verified'}`);
-    console.log(`  restored        : ${report.restored}`);
-    console.log(`  migrations      : ${report.migrationCount ?? '(none)'}`);
-    for (const c of report.checks) {
-      console.log(`    ${c.present ? '✓' : '✗'} ${c.table.padEnd(34)} ${c.rowCount ?? c.error}`);
+    console.log('\n  RESTORE');
+    console.log(`    bytes         : ${report.byteSize}`);
+    console.log(`    checksum      : ${report.checksumVerified ? 'VERIFIED' : 'not verified'}`);
+    console.log(`    restored      : ${report.restored}`);
+
+    console.log('\n  SCHEMA AT BACKUP');
+    console.log(`    migrations    : ${report.migrationCount ?? '(none)'}`);
+    if (report.appliedMigrations.length > 0) {
+      console.log(`    latest        : ${report.appliedMigrations[report.appliedMigrations.length - 1]}`);
+    }
+
+    if (report.schema) {
+      console.log('\n  BASELINE INTEGRITY');
+      for (const c of report.checks) {
+        const e = report.expectations.find((x) => x.table === c.table);
+        if (e?.requirement !== 'BASELINE') continue;
+        console.log(`    ${c.present ? '✓' : '✗'} ${c.table.padEnd(30)} ${c.rowCount ?? c.error}`);
+      }
+
+      const fromMigration = report.checks.filter(
+        (c) => report.expectations.find((x) => x.table === c.table)?.requirement === 'REQUIRED_BY_MIGRATION',
+      );
+      if (fromMigration.length > 0) {
+        console.log('\n  RELEASE SCHEMA (required by applied migrations)');
+        for (const c of fromMigration) {
+          console.log(`    ${c.present ? '✓' : '✗'} ${c.table.padEnd(30)} ${c.rowCount ?? c.error}`);
+        }
+      }
+
+      const future = report.expectations.filter((e) => e.requirement === 'NOT_APPLICABLE');
+      if (future.length > 0) {
+        console.log('\n  FUTURE SCHEMA (not part of this backup)');
+        for (const e of future) {
+          // Absence here is the correct state, not a finding.
+          console.log(`    – ${e.table.padEnd(30)} NOT APPLICABLE — migration not present at backup time`);
+        }
+      }
     }
 
     if (!report.passed) {

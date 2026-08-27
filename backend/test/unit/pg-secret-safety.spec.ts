@@ -7,6 +7,7 @@ import {
 } from '../../scripts/backup/pg-connection';
 import { runRestoreTest, type RestoreDeps } from '../../scripts/backup/run-restore-test';
 import type { Vault } from '../../scripts/backup/r2-vault';
+import { BASELINE_TABLES } from '../../scripts/backup/schema-expectations';
 
 // A real incident: a failed restore printed the whole pg_restore command,
 // which carried the live database password, into the terminal. The same text
@@ -88,6 +89,9 @@ describe('the restore report never carries the password', () => {
     vault,
     restore: async () => {},
     countRows: async () => 42,
+    listTables: async () => [...BASELINE_TABLES],
+    listAppliedMigrations: async () => ['20260101000000_init'],
+    migrationTables: () => ({}),
     now: () => new Date(),
     ...over,
   });
