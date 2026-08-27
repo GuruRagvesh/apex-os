@@ -1,6 +1,6 @@
 import { WorkdayService } from '../../src/modules/platform/workday/workday.service';
+import { createTvaDouble } from '../helpers/tva-double';
 
-const TODAY = new Date('2026-06-10T00:00:00.000Z');
 const NOW   = new Date('2026-06-10T10:00:00.000Z');
 
 // startWorkAt is 2h before NOW → elapsed = 120 min
@@ -20,6 +20,12 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
       workSession: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      // finalize refuses to close a session that still has running ticket
+      // timers; none of these cases has one.
+      ticketTimeLog: {
+        count: jest.fn().mockResolvedValue(0),
       },
       breakLog: {
         create: jest.fn(),
@@ -40,6 +46,14 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
       },
     };
 
+    // The service runs startWork/finalize inside a transaction. Hand the
+    // callback this same mock so the existing assertions still observe the
+    // calls made inside it.
+    prisma.$transaction = jest.fn((fn: any) => fn(prisma));
+    // finalize takes a `SELECT ... FOR UPDATE` row lock before writing
+    // terminal fields; the double just has to answer it.
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+
     attendanceAuthority = {
       setUserStatus: jest.fn().mockResolvedValue({}),
       createWorkSession: jest.fn().mockImplementation(async (data) => ({ id: 'new-session', ...data })),
@@ -59,10 +73,7 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
       ticketLedger,
       { sendNotification: jest.fn().mockResolvedValue({}) } as any,
       attendanceAuthority,
-      {
-        now: jest.fn(() => NOW),
-        companyDayStart: jest.fn(() => TODAY),
-      } as any,
+      createTvaDouble(NOW) as any,
     );
   });
 
@@ -118,13 +129,17 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
 
   describe('endWork', () => {
     function setupWorkSession(breakLogs: any[]) {
-      prisma.workSession.findFirst.mockResolvedValue({
+      const session = {
         id: 'ws1',
         status: 'WORKING',
         logoutAt: null,
         startWorkAt: START_WORK,
         breakLogs,
-      });
+      };
+      // The service locates the session, then re-reads it by id after taking
+      // the row lock. Both reads answer with the same row.
+      prisma.workSession.findFirst.mockResolvedValue(session);
+      prisma.workSession.findUnique.mockResolvedValue(session);
       prisma.breakLog.update.mockResolvedValue({});
     }
 

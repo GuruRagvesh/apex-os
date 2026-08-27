@@ -37,6 +37,11 @@ import { SettingsModule } from './modules/platform/settings/settings.module';
 import { SchedulerModule } from './modules/platform/scheduler/scheduler.module';
 import { TaskTypesModule } from './modules/platform/task-types/task-types.module';
 import { WorkdayModule } from './modules/platform/workday/workday.module';
+import { PunchEvidenceModule } from './modules/platform/attendance/punch/punch-evidence.module';
+import { DailyAttendanceModule } from './modules/platform/attendance/evaluation/daily-attendance.module';
+import { RegularizationModule } from './modules/platform/attendance/regularization/regularization.module';
+import { AttendanceConsoleModule } from './modules/platform/attendance/console/attendance-console.module';
+import { AttendanceProcessingModule } from './modules/platform/attendance/processing/attendance-processing.module';
 import { EventsModule } from './modules/platform/events/events.module';
 import { AnalyticsModule } from './modules/platform/analytics/analytics.module';
 
@@ -83,6 +88,11 @@ const isTest = process.env.NODE_ENV === 'test';
     SchedulerModule,
     TaskTypesModule,
     WorkdayModule,
+    PunchEvidenceModule,
+    DailyAttendanceModule,
+    RegularizationModule,
+    AttendanceConsoleModule,
+    AttendanceProcessingModule,
     EventsModule,
     AnalyticsModule,
   ],

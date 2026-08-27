@@ -1,6 +1,10 @@
 import { TicketStatus } from '@prisma/client';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { DashboardService } from '../../src/modules/platform/dashboard/dashboard.service';
+import { createTvaDouble } from '../helpers/tva-double';
+
+// Fixed company clock: the fixtures below are dated relative to it.
+const NOW = new Date('2026-05-26T12:00:00.000Z');
 
 const overdueCandidate = {
   id: 'ticket1',
@@ -76,7 +80,8 @@ describe('P1-D dashboard count convergence', () => {
       ticketTiming,
       leaveAccess,
       new AccessPolicyService(prisma),
-      {} as any, { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyDayStart: () => new Date(), companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } as any
+      {} as any,
+      createTvaDouble(NOW) as any,
     );
 
     const summary = await service.getSummary({

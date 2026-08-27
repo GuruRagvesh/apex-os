@@ -9,8 +9,14 @@ export class AttendanceAuthorityService {
   /**
    * Authority update for User's current presence status.
    */
-  async setUserStatus(userId: string, status: string, lastActiveAt?: Date) {
-    return this.prisma.user.update({
+  async setUserStatus(
+    userId: string,
+    status: string,
+    lastActiveAt?: Date,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? this.prisma;
+    return client.user.update({
       where: { id: userId },
       data: { 
         currentStatus: status,
@@ -43,8 +49,9 @@ export class AttendanceAuthorityService {
     status: string;
     leaveId?: string;
     continuationOfSessionId?: string;
-  }) {
-    return this.prisma.workSession.create({
+  }, tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
+    return client.workSession.create({
       data,
     });
   }

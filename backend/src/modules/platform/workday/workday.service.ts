@@ -7,7 +7,7 @@ import { calculateWorkdayRuntime } from './workday.calculation';
 import { buildCompanyDateTimeUtc } from './workday.policy.helper';
 import { TicketLedgerService } from '../../operations/tickets/ticket-ledger.service';
 import { NotificationEventService } from '../../operations/notifications/notification-event.service';
-import { NotificationType } from '@prisma/client';
+import { NotificationType, Prisma } from '@prisma/client';
 import { formatInTimeZone } from 'date-fns-tz';
 
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
@@ -176,11 +176,26 @@ export class WorkdayService {
     return this.isOpenSession(session) && ['WORKING', 'ON_BREAK', 'IDLE', 'LOGGED_IN'].includes(session.status);
   }
 
-  async startWork(userId: string) {
+  /**
+   * The database half of starting a workday, runnable inside a caller's
+   * transaction.
+   *
+   * Extracted so an attendance punch can commit the session start and its
+   * immutable evidence together. The rules are unchanged, byte for byte: a
+   * closed latest session means a NEW session linked by continuationOfSessionId
+   * (which is what keeps the original startWorkAt intact), a LOGGED_IN session
+   * is promoted using `startWorkAt ?? now`, and anything else that is not an
+   * open working session is refused.
+   *
+   * Notifications and audit deliberately stay OUT of here: they are post-commit
+   * side effects, and firing them from inside a transaction that later rolls
+   * back would announce a workday that never started.
+   */
+  async startWorkInTransaction(tx: Prisma.TransactionClient, userId: string) {
     const today = this.getTodayDate();
     const now = this.tva.now();
 
-    const latestSession = await this.prisma.workSession.findFirst({
+    const latestSession = await tx.workSession.findFirst({
       where: { userId, date: today },
       orderBy: { createdAt: 'desc' },
     });
@@ -197,17 +212,32 @@ export class WorkdayService {
         startWorkAt: now,
         status: 'WORKING',
         ...(latestSession ? { continuationOfSessionId: latestSession.id } : {}),
-      });
+      }, tx);
     } else if (session.status === 'LOGGED_IN') {
       session = await this.attendanceAuthority.updateWorkSession(session.id, {
         status: 'WORKING',
         startWorkAt: session.startWorkAt ?? now,
         loginAt: session.loginAt ?? now,
-      });
+      }, tx);
     } else if (!this.isOpenWorkSession(session)) {
       throw new Error('No active session');
     }
 
+    await tx.attendanceEvent.create({
+      data: { userId, workSessionId: session!.id, eventType: 'START_WORK', source: 'manual' },
+    });
+
+    await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
+
+    return { session: session!, wasAutoClosed };
+  }
+
+  /**
+   * Post-commit side effects of a workday start. Shared by the public
+   * startWork() and by the attendance punch orchestrator, so both announce a
+   * start the same way -- and only once it is real.
+   */
+  async afterWorkStarted(userId: string, session: any, wasAutoClosed: boolean) {
     if (wasAutoClosed) {
       try {
         await this.notificationEventService.sendNotification(userId, 'system', {
@@ -221,19 +251,19 @@ export class WorkdayService {
       } catch (_e) {}
     }
 
-    await this.prisma.attendanceEvent.create({
-      data: { userId, workSessionId: session.id, eventType: 'START_WORK', source: 'manual' },
-    });
-
-    await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now);
-
     this.eventLogger.log({
       actorId: userId,
       entityType: 'WorkdaySession',
       entityId: session.id,
       action: OperationalAction.WORKDAY_STARTED,
     }).catch(() => {});
+  }
 
+  async startWork(userId: string) {
+    const { session, wasAutoClosed } = await this.prisma.$transaction((tx) =>
+      this.startWorkInTransaction(tx, userId),
+    );
+    await this.afterWorkStarted(userId, session, wasAutoClosed);
     return { session, message: 'Workday started' };
   }
 
@@ -290,8 +320,21 @@ export class WorkdayService {
   // reconciled — breaks closed, totals recomputed, logs paused — but its
   // existing status/logoutAt/closureReason are preserved rather than
   // overwritten, and no duplicate closure audit event is emitted.
-  async finalizeWorkSession(sessionId: string, options: FinalizeWorkSessionOptions) {
-    const txResult = await this.prisma.$transaction(async (tx) => {
+  /**
+   * The database half of closing a session, runnable inside a caller's
+   * transaction.
+   *
+   * This is the SAME body that finalizeWorkSession has always executed --
+   * lifted out unchanged so an attendance punch can commit the finalization and
+   * its immutable evidence together. Row lock, break closing, totals, terminal
+   * fields and ticket-log pausing all behave exactly as before.
+   */
+  async finalizeWorkSessionInTransaction(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+    options: FinalizeWorkSessionOptions,
+  ) {
+    {
       // Row lock so two concurrent finalizer calls for the same session
       // serialize instead of racing on the terminal-field write below —
       // matches this repo's existing tx.$queryRaw usage (tickets.service.ts).
@@ -394,8 +437,26 @@ export class WorkdayService {
         didClose: !wasAlreadyTerminal,
         userId: session.userId,
       };
-    });
+    }
+  }
 
+  /**
+   * Flips the user's presence to LOGGED_OUT after a closure has committed.
+   *
+   * Goes through AttendanceAuthorityService because that is the single writer
+   * for user status in this codebase -- a direct user.update here would be the
+   * kind of parallel write that produces drift between the dashboard and the
+   * lists. endWork() performs exactly this call at exactly this point.
+   */
+  async markUserLoggedOut(userId: string) {
+    await this.attendanceAuthority.setUserStatus(userId, 'LOGGED_OUT');
+  }
+
+  /**
+   * Post-commit audit for a closure. Emitted only when this call actually
+   * closed the session, so a reconciliation pass never double-audits.
+   */
+  async afterWorkSessionFinalized(txResult: any, options: FinalizeWorkSessionOptions) {
     if (txResult.didClose) {
       await this.prisma.attendanceEvent.create({
         data: {
@@ -421,6 +482,16 @@ export class WorkdayService {
       totalWorkMinutes: txResult.totalWorkMinutes,
       totalBreakMinutes: txResult.totalBreakMinutes,
     };
+  }
+
+  // Single shared closer, public surface unchanged. Callers that own their own
+  // transaction use finalizeWorkSessionInTransaction + afterWorkSessionFinalized
+  // instead; everything else keeps calling this and behaves exactly as before.
+  async finalizeWorkSession(sessionId: string, options: FinalizeWorkSessionOptions) {
+    const txResult = await this.prisma.$transaction((tx) =>
+      this.finalizeWorkSessionInTransaction(tx, sessionId, options),
+    );
+    return this.afterWorkSessionFinalized(txResult, options);
   }
 
   async startBreak(userId: string, dto: { breakType: string; estimatedMinutes?: number }) {

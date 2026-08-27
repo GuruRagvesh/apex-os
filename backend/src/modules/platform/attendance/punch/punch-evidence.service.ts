@@ -1,0 +1,538 @@
+import { Injectable } from '@nestjs/common';
+import type { AttendancePunchEvidence } from '@prisma/client';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import { TVAService } from '../../../../common/services/tva.service';
+import { SettingsService } from '../../settings/settings.service';
+import {
+  EventLoggerService,
+  OperationalAction,
+} from '../../../../common/services/event-logger.service';
+import { DailyContextService } from '../context/daily-context.service';
+import { WorkdayService } from '../../workday/workday.service';
+import {
+  ATTENDANCE_V2_DEFAULTS,
+  ATTENDANCE_V2_SETTING_KEY,
+  PunchFeatureDisabledError,
+  PunchIdempotencyConflictError,
+  PunchLocationConfigurationError,
+  PunchLocationRequiredError,
+  PunchNotApplicableError,
+  PunchContextInvariantError,
+  PunchNoOpenWorkdayError,
+  PunchPhotoRequiredError,
+  PunchValidationError,
+  SubmitPunchEvidenceInput,
+} from './punch-evidence.types';
+import { evaluateGeofence } from './geofence';
+
+/**
+ * Punch Evidence (PE-1).
+ *
+ * Append-only raw evidence for future Punch In / Punch Out. See
+ * punch-evidence.types.ts for the contract.
+ *
+ * Three properties this service exists to guarantee:
+ *
+ *   SERVER AUTHORITY  the client never chooses its own identity, business
+ *                     date, timestamps, policy provenance or verification
+ *                     outcome
+ *   CONTEXT GATE      no evidence is created under a configuration the BL-5
+ *                     resolver could not explain
+ *   APPEND-ONLY       create and read only; there is no update or delete path
+ *                     here, and the database refuses both as well
+ *
+ * It performs no attendance classification of any kind.
+ */
+@Injectable()
+export class PunchEvidenceService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tva: TVAService,
+    private readonly settings: SettingsService,
+    private readonly eventLogger: EventLoggerService,
+    private readonly dailyContext: DailyContextService,
+    private readonly workday: WorkdayService,
+  ) {}
+
+  /** Feature flag, defaulting OFF. */
+  private async isEnabled(): Promise<boolean> {
+    const cfg = await this.settings.get(ATTENDANCE_V2_SETTING_KEY);
+    return (cfg?.punchEvidenceEnabled ?? ATTENDANCE_V2_DEFAULTS.punchEvidenceEnabled) === true;
+  }
+
+  /**
+   * Whether the employee-facing punch flow is switched on.
+   *
+   * Exposed so the client can render the legacy workday controls untouched when
+   * the feature is off, instead of showing a punch button that would only fail
+   * at submit time.
+   */
+  async featureStatus(): Promise<{ enabled: boolean }> {
+    return { enabled: await this.isEnabled() };
+  }
+
+  /**
+   * Validates only what the client is allowed to send.
+   *
+   * GPS is stored, not judged: PE-1 records coordinates and marks them PENDING.
+   * PE-2 adds the geofence calculation. What is rejected here is data that
+   * could not be a real reading at all -- out of range, non-finite, or a
+   * nonsensical accuracy.
+   */
+  private validate(input: SubmitPunchEvidenceInput) {
+    if (input.type !== 'PUNCH_IN' && input.type !== 'PUNCH_OUT') {
+      throw new PunchValidationError('type must be PUNCH_IN or PUNCH_OUT');
+    }
+    if (!input.idempotencyKey || typeof input.idempotencyKey !== 'string') {
+      throw new PunchValidationError('idempotencyKey is required');
+    }
+
+    const num = (v: any) => v !== null && v !== undefined;
+
+    if (num(input.latitude)) {
+      const lat = Number(input.latitude);
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+        throw new PunchValidationError('latitude must be a finite number between -90 and 90');
+      }
+    }
+    if (num(input.longitude)) {
+      const lon = Number(input.longitude);
+      if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+        throw new PunchValidationError('longitude must be a finite number between -180 and 180');
+      }
+    }
+    if (num(input.accuracyMeters)) {
+      const acc = Number(input.accuracyMeters);
+      if (!Number.isFinite(acc) || acc <= 0) {
+        throw new PunchValidationError('accuracyMeters must be a finite number greater than 0');
+      }
+    }
+    if (num(input.clientCapturedAt)) {
+      const t = new Date(input.clientCapturedAt as any);
+      if (Number.isNaN(t.getTime())) {
+        throw new PunchValidationError('clientCapturedAt must be a valid timestamp');
+      }
+    }
+  }
+
+  /**
+   * Does this submission match an existing record closely enough to be the
+   * same punch retried?
+   *
+   * Compared on what the client actually chose. Server-derived fields are
+   * excluded on purpose: serverOccurredAt and receivedAt differ between a
+   * request and its retry by definition, so including them would turn every
+   * legitimate retry into a conflict.
+   */
+  private isSameSubmission(existing: any, input: SubmitPunchEvidenceInput): boolean {
+    const sameNullable = (a: any, b: any) =>
+      (a ?? null) === null && (b ?? null) === null
+        ? true
+        : Number(a ?? NaN) === Number(b ?? NaN);
+
+    const existingClient = existing.clientCapturedAt
+      ? new Date(existing.clientCapturedAt).getTime()
+      : null;
+    const inputClient = input.clientCapturedAt
+      ? new Date(input.clientCapturedAt as any).getTime()
+      : null;
+
+    return (
+      existing.type === input.type &&
+      existingClient === inputClient &&
+      sameNullable(existing.latitude, input.latitude) &&
+      sameNullable(existing.longitude, input.longitude) &&
+      sameNullable(existing.accuracyMeters, input.accuracyMeters)
+    );
+  }
+
+  /**
+   * Resolves which attendance location this punch is judged against.
+   *
+   * Mirrors the BL-5 integrity rule exactly: an explicit assignment wins;
+   * with none, candidates are COUNTED, and zero or several is a configuration
+   * error rather than a guess.
+   *
+   * An assigned-but-inactive location is a configuration error too. Silently
+   * falling back to some other office would move an employee's workplace
+   * without anyone deciding to.
+   */
+  private async resolveAttendanceLocation(assignedId: string | null | undefined) {
+    if (assignedId) {
+      const assigned = await this.prisma.attendanceLocation.findUnique({
+        where: { id: assignedId },
+      });
+      if (!assigned || !assigned.isActive) {
+        throw new PunchLocationConfigurationError('MISSING_ATTENDANCE_LOCATION');
+      }
+      return assigned;
+    }
+
+    // take: 2 is enough to distinguish 0 from 1 from many.
+    const candidates = await this.prisma.attendanceLocation.findMany({
+      where: { isActive: true },
+      take: 2,
+    });
+    if (candidates.length === 0) {
+      throw new PunchLocationConfigurationError('MISSING_ATTENDANCE_LOCATION');
+    }
+    if (candidates.length > 1) {
+      throw new PunchLocationConfigurationError('AMBIGUOUS_ATTENDANCE_LOCATION');
+    }
+    return candidates[0];
+  }
+
+  /**
+   * Resolves the staged capture backing this punch.
+   *
+   * Every check is an ownership or freshness question the server answers for
+   * itself: the asset must exist, belong to this employee, be unexpired, and be
+   * unconsumed.
+   *
+   * The unconsumed check here is a friendly early rejection, not the guarantee.
+   * The guarantee is the unique index on AttendancePunchEvidence.photoAssetId,
+   * which is what actually stops two concurrent punches claiming one capture --
+   * a check-then-insert alone would leave that race open.
+   */
+  private async resolvePhotoAsset(userId: string, photoAssetId?: string | null) {
+    if (!photoAssetId) {
+      throw new PunchPhotoRequiredError('PHOTO_REQUIRED');
+    }
+
+    const photo = await this.prisma.attendancePunchPhoto.findUnique({
+      where: { id: photoAssetId },
+      include: { punchEvidence: { select: { id: true } } },
+    });
+
+    // Not-found and wrong-owner deliberately return the same rejection: telling
+    // a caller that someone else's asset id exists is itself a small leak.
+    if (!photo || photo.userId !== userId) {
+      throw new PunchPhotoRequiredError('PHOTO_NOT_FOUND');
+    }
+    if (photo.expiresAt.getTime() <= this.tva.now().getTime()) {
+      throw new PunchPhotoRequiredError('PHOTO_EXPIRED');
+    }
+    if (photo.punchEvidence) {
+      throw new PunchPhotoRequiredError('PHOTO_ALREADY_USED');
+    }
+    return photo;
+  }
+
+  /**
+   * Records one punch.
+   *
+   * @param userId taken from the verified JWT by the controller, never from
+   *               the request body.
+   */
+  async submit(
+    userId: string,
+    input: SubmitPunchEvidenceInput,
+    meta: { ipAddress?: string | null } = {},
+  ) {
+    if (!(await this.isEnabled())) {
+      throw new PunchFeatureDisabledError();
+    }
+
+    this.validate(input);
+
+    const receivedAt = this.tva.now();
+    const serverOccurredAt = receivedAt;
+    const businessDate = this.tva.companyDateOnly(serverOccurredAt);
+
+    // Context gate. A punch is only accepted when the foundation can say
+    // exactly which rules apply -- so a configuration gap surfaces as a clear
+    // error instead of quietly producing evidence nobody can interpret.
+    const context = await this.dailyContext.resolveDailyContext(userId, serverOccurredAt);
+    if (context.attendanceApplicability !== 'REQUIRED') {
+      throw new PunchNotApplicableError(
+        context.attendanceApplicability,
+        context.blockingReasons,
+      );
+    }
+
+    // Defence in depth. REQUIRED already implies a resolved policy, so this
+    // should be unreachable -- but if it ever were reached, treating a null
+    // policy as geoFenceEnabled === false would silently downgrade an office
+    // punch to NOT_ENFORCED. Fail loudly instead.
+    if (!context.attendancePolicy) {
+      throw new PunchContextInvariantError();
+    }
+
+    // Retry safety, checked before the write so a repeat returns the original.
+    const existing = await this.prisma.attendancePunchEvidence.findUnique({
+      where: { userId_idempotencyKey: { userId, idempotencyKey: input.idempotencyKey } },
+    });
+    if (existing) {
+      if (!this.isSameSubmission(existing, input)) {
+        throw new PunchIdempotencyConflictError(input.idempotencyKey);
+      }
+      return existing;
+    }
+
+    // A normal employee punch must carry a position. PE-1 allowed evidence
+    // without one because it was a bare evidence layer; from here the punch is
+    // geofenced, and a punch that cannot be geofenced is not acceptable.
+    if (
+      input.latitude === null || input.latitude === undefined ||
+      input.longitude === null || input.longitude === undefined
+    ) {
+      throw new PunchLocationRequiredError();
+    }
+
+    // geoFenceEnabled governs ENFORCEMENT, never capture. GPS is mandatory
+    // either way and is always stored; the policy decides only whether that
+    // reading is checked against an approved location.
+    const geoFenceEnabled = context.attendancePolicy?.geoFenceEnabled === true;
+
+    let location: { id: string; latitude: number; longitude: number; radiusMeters: number; minimumAccuracyMeters: number } | null = null;
+    let decision = {
+      // Not VERIFIED. Calling an unenforced reading verified would falsely
+      // assert the employee was inside an approved location.
+      verdict: 'NOT_ENFORCED' as string,
+      distanceMeters: null as number | null,
+      radiusMeters: null as number | null,
+      accuracyThresholdMeters: null as number | null,
+    };
+
+    if (geoFenceEnabled) {
+      // Configuration problems block BEFORE anything is written. Being outside
+      // the fence does not -- see below. With enforcement off, a missing or
+      // ambiguous location is simply irrelevant and must not block.
+      location = await this.resolveAttendanceLocation(
+        context.sources.assignedAttendanceLocationId,
+      );
+
+      // The verdict is computed here, server-side, and inserted with the row.
+      // Evidence is append-only: nothing is written PENDING and corrected later.
+      decision = evaluateGeofence(
+        {
+          latitude: input.latitude,
+          longitude: input.longitude,
+          accuracyMeters: input.accuracyMeters,
+        },
+        {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          radiusMeters: location.radiusMeters,
+          minimumAccuracyMeters: location.minimumAccuracyMeters,
+        },
+      );
+    }
+
+    // A live capture is required, and must be resolved BEFORE the insert --
+    // punch evidence is append-only, so photoVerification is never written
+    // PENDING and corrected later.
+    //
+    // Deliberately after the idempotency check above: an exact retry must
+    // return the original punch even though that punch has already consumed
+    // this very photo, which would otherwise look like reuse.
+    const photo = await this.resolvePhotoAsset(userId, input.photoAssetId);
+
+    // ── ATOMIC BOUNDARY ──────────────────────────────────────────────────
+    // The workday mutation and the immutable evidence commit together or not
+    // at all. A started session with no evidence would be an unexplained
+    // workday; evidence with no session would be a punch that did nothing.
+    //
+    // Everything above this line is validation: by the time the transaction
+    // opens, the context, GPS, geofence and photo have all been accepted, so
+    // the only work left is the pair of writes.
+    const { evidence, workdayAfter } = await this.prisma.$transaction(async (tx) => {
+      let workSessionId: string | null = null;
+      let after: (() => Promise<void>) | null = null;
+
+      if (input.type === 'PUNCH_IN') {
+        const started = await this.workday.startWorkInTransaction(tx, userId);
+        workSessionId = started.session.id;
+        after = () => this.workday.afterWorkStarted(userId, started.session, started.wasAutoClosed);
+      } else {
+        // Resolve the session to close through the same query the workday
+        // engine uses, rather than inventing a second notion of "current".
+        const open = await tx.workSession.findFirst({
+          where: { userId, date: businessDate },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (!open || open.logoutAt || ['LOGGED_OUT', 'AUTO_CLOSED'].includes(open.status)) {
+          throw new PunchNoOpenWorkdayError();
+        }
+
+        // The existing finalizer, unchanged. It closes any open break, freezes
+        // the totals and pauses ticket logs exactly as End Day does today --
+        // none of that arithmetic is duplicated here.
+        const txResult = await this.workday.finalizeWorkSessionInTransaction(tx, open.id, {
+          effectiveEndAt: serverOccurredAt,
+          terminalStatus: 'LOGGED_OUT',
+          closureReason: 'ENDED_BY_PUNCH_OUT',
+          actorUserId: userId,
+          eventSource: 'manual',
+          attendanceEventType: 'LOGOUT',
+          ticketPauseReason: 'LOGOUT',
+        });
+        workSessionId = txResult.session.id;
+        after = async () => {
+          await this.workday.afterWorkSessionFinalized(txResult, {
+            effectiveEndAt: serverOccurredAt,
+            terminalStatus: 'LOGGED_OUT',
+            closureReason: 'ENDED_BY_PUNCH_OUT',
+            actorUserId: userId,
+            eventSource: 'manual',
+            attendanceEventType: 'LOGOUT',
+            ticketPauseReason: 'LOGOUT',
+          });
+          // Same authority, same point in the sequence as End Day.
+          await this.workday.markUserLoggedOut(userId);
+        };
+      }
+
+      const row = await tx.attendancePunchEvidence.create({
+        data: {
+          workSessionId,
+          userId,
+          type: input.type as any,
+          businessDate,
+          serverOccurredAt,
+          receivedAt,
+          clientCapturedAt: input.clientCapturedAt ? new Date(input.clientCapturedAt as any) : null,
+          latitude: input.latitude ?? null,
+          longitude: input.longitude ?? null,
+          accuracyMeters: input.accuracyMeters ?? null,
+          // Server-decided, never accepted from the client, and final at the
+          // moment of insert.
+          locationVerification: decision.verdict as any,
+          attendanceLocationId: location?.id ?? null,
+          distanceFromLocationMeters: decision.distanceMeters,
+          geofenceRadiusMeters: decision.radiusMeters,
+          accuracyThresholdMeters: decision.accuracyThresholdMeters,
+          // Server-decided and final at insert. CAPTURED, never FACE_VERIFIED:
+          // the server can prove this user uploaded these bytes recently and has
+          // not reused them, but it cannot prove biometric liveness.
+          photoVerification: 'CAPTURED' as any,
+          photoAssetId: photo.id,
+          photoObjectKey: photo.objectKey,
+          photoHash: photo.sha256,
+          source: (input.source ?? 'WEB') as any,
+          deviceMetadata: (input.deviceMetadata ?? undefined) as any,
+          ipAddress: meta.ipAddress ?? null,
+          employeeProfileId: context.sources.employeeProfileId,
+          shiftPolicyId: context.sources.shiftPolicyId,
+          shiftPolicyVersion: context.sources.shiftPolicyVersion,
+          attendancePolicyId: context.sources.attendancePolicyId,
+          attendancePolicyVersion: context.sources.attendancePolicyVersion,
+          contextResolverVersion: context.resolverVersion,
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+
+      return { evidence: row, workdayAfter: after };
+    });
+
+    // Post-commit only. Workday's own notification and audit fire here, after
+    // the punch is genuinely real, exactly as the public startWork/endWork
+    // paths do.
+    await workdayAfter?.().catch(() => {});
+
+    // Audit deliberately carries no coordinates, no photo reference and no
+    // device payload. The precise evidence lives in the evidence record; the
+    // operational log records only that a punch was recorded, and under which
+    // rules.
+    this.eventLogger
+      .log({
+        actorId: userId,
+        entityType: 'AttendancePunchEvidence',
+        entityId: evidence.id,
+        action: OperationalAction.ATTENDANCE_PUNCH_RECORDED,
+        metadata: {
+          type: evidence.type,
+          businessDate: this.tva.companyBusinessDate(evidence.serverOccurredAt),
+          locationVerification: evidence.locationVerification,
+          photoVerification: evidence.photoVerification,
+          source: evidence.source,
+          // The outcome and how far off it was, but never the coordinates
+          // themselves -- an operational log is not the place for an
+          // employee's precise position.
+          distanceFromLocationMeters: evidence.distanceFromLocationMeters,
+          attendanceLocationId: evidence.attendanceLocationId,
+          // The asset id only. Never the storage reference, the signed URL, or
+          // the hash -- an operational log is not evidence storage.
+          photoAssetId: evidence.photoAssetId,
+        },
+      })
+      .catch(() => {});
+
+    return evidence;
+  }
+
+  /**
+   * Mirrors what endWork() does after a manual End Day: the user's presence
+   * status follows the closed session. Kept post-commit so a rolled-back punch
+   * never leaves someone marked logged out.
+   */
+
+  /**
+   * The authenticated employee's own evidence.
+   *
+   * Scoped to userId by construction. PE-1 exposes no company-wide or
+   * other-employee read; that needs its own permission model.
+   */
+  async listMine(userId: string, limit = 90) {
+    const rows = await this.prisma.attendancePunchEvidence.findMany({
+      where: { userId },
+      orderBy: [{ businessDate: 'desc' }, { serverOccurredAt: 'desc' }],
+      take: Math.min(Math.max(limit, 1), 200),
+      include: { attendanceLocation: { select: { name: true } } },
+    });
+    return rows.map(toOwnEvidenceView);
+  }
+}
+
+/**
+ * What an employee may see of their OWN punch.
+ *
+ * An employee may inspect the location evidence behind their own attendance:
+ * the stored coordinate, its accuracy, how far it was from the assigned site,
+ * and the radius that decision used. Without those, a disputed punch is
+ * unarguable from the employee's side.
+ *
+ * Three things are still withheld, and they are not privacy theatre:
+ *
+ *   photoObjectKey  the storage pointer. A punch photo is reachable only
+ *                   through the short-lived signed-URL route scoped to its
+ *                   owner; handing out the key would route around that.
+ *   photoHash       an integrity value for reproducing a decision, not a fact
+ *                   about the employee's day.
+ *   ipAddress,      captured for audit. Neither answers "where was I", and
+ *   deviceMetadata  both widen what a compromised session could harvest.
+ *
+ * The returned coordinate is the PERSISTED evidence. It is never recomputed
+ * from a current browser reading -- that would answer where the employee is
+ * now, not where they punched.
+ */
+export function toOwnEvidenceView(
+  row: AttendancePunchEvidence & { attendanceLocation?: { name: string } | null },
+) {
+  return {
+    id: row.id,
+    type: row.type,
+    businessDate: row.businessDate,
+    serverOccurredAt: row.serverOccurredAt,
+    clientCapturedAt: row.clientCapturedAt,
+
+    // Distinct measures, deliberately named apart. Accuracy is how uncertain
+    // the reading is; distance is how far that reading was from the site.
+    // Presenting one as the other is the mistake this shape exists to prevent.
+    latitude: row.latitude,
+    longitude: row.longitude,
+    accuracyMeters: row.accuracyMeters,
+    distanceFromLocationMeters: row.distanceFromLocationMeters,
+    geofenceRadiusMeters: row.geofenceRadiusMeters,
+    accuracyThresholdMeters: row.accuracyThresholdMeters,
+    locationVerification: row.locationVerification,
+    locationName: row.attendanceLocation?.name ?? null,
+
+    // The id addresses the signed-URL route; it is not the photo itself.
+    photoAssetId: row.photoAssetId,
+    photoVerification: row.photoVerification,
+
+    workSessionId: row.workSessionId,
+    source: row.source,
+  };
+}

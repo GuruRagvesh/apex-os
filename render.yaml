@@ -4,7 +4,17 @@ services:
     runtime: node
     rootDir: backend
     buildCommand: npm install --include=dev && npm run build
-    startCommand: npx prisma migrate deploy && node dist/main.js
+    # Starting the application must NEVER mutate a database.
+    #
+    # This previously read `npx prisma migrate deploy && node dist/main.js`,
+    # which made every deploy -- and every restart, and every Render health
+    # recovery -- a schema-migration event against production. Merging a branch
+    # was therefore enough to alter the production database, with no separate
+    # approval and no chance to verify which database was being changed.
+    #
+    # Migration is now an explicit, human-run release step. See
+    # docs/operations/deployment/MIGRATION_RELEASE_PROCEDURE.md.
+    startCommand: node dist/main.js
     # ── Required env vars (set manually in Render dashboard → Environment) ────
     # DATABASE_URL          → Render PostgreSQL internal URL
     # JWT_SECRET            → Long random string (min 64 chars) — NEVER commit

@@ -6,6 +6,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { resolveCorsOrigins } from './shared/config/cors-origins';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -27,15 +28,9 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app));
 
   // ── CORS ──────────────────────────────────────────────────────────────────
+  const corsOrigins = resolveCorsOrigins();
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://apex-os.vercel.app',
-      'https://apex-os-frontend.vercel.app',
-      'https://apex-os-frontend-git-main-guru-ragvesh-thanumoorthys-projects.vercel.app',
-      process.env.FRONTEND_URL,
-    ].filter(Boolean),
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -70,9 +65,23 @@ async function bootstrap() {
     console.error(`\n❌ FATAL: Missing required env vars: ${missing.join(', ')}\n`);
     process.exit(1);
   }
-  ['OPENAI_API_KEY', 'CLOUDINARY_CLOUD_NAME']
+  ['OPENAI_API_KEY']
     .filter((k) => !process.env[k])
     .forEach((k) => console.warn(`⚠️  WARN: ${k} not set — related features disabled`));
+
+  // Attendance photo storage needs all three, and PunchPhotoStorage fails
+  // closed unless it has them. Warning on CLOUDINARY_CLOUD_NAME alone was
+  // misleading: setting just that name silenced this line while every punch
+  // still returned 503. Names only -- never their values.
+  const cloudinaryKeys = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+  const missingCloudinary = cloudinaryKeys.filter((k) => !process.env[k]);
+  if (missingCloudinary.length) {
+    console.warn(
+      `⚠️  WARN: Attendance photo storage is not fully configured — missing ` +
+        `${missingCloudinary.join(', ')}. Punch photo capture will be refused. ` +
+        `Check /health -> attendancePhotoStorage.configured for the runtime answer.`,
+    );
+  }
 
   // ── Start ─────────────────────────────────────────────────────────────────
   const port = process.env.PORT || 3001;
@@ -88,6 +97,11 @@ async function bootstrap() {
     console.log(`📚 Swagger docs → http://localhost:${port}/api/docs`);
   }
   console.log(`❤️  Health check → ${baseUrl}/api/health\n`);
+  // A rejected origin reaches the browser as an opaque "Network Error" with
+  // nothing server-side to explain it. Origins are public information, not
+  // configuration secrets, so listing them here costs nothing and turns the
+  // next occurrence into a one-glance diagnosis.
+  console.log(`\u{1F310} CORS origins (${corsOrigins.length}): ${corsOrigins.join(', ')}\n`);
 }
 
 bootstrap();

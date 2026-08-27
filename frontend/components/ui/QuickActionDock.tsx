@@ -3,13 +3,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
-import { workdayApi } from '@/lib/api';
-import { BreakModal } from '@/components/workday/BreakModal';
 import toast from 'react-hot-toast';
+
+/**
+ * Where the Workday lifecycle actually happens.
+ *
+ * WorkdayBar is the single component allowed to execute Start Work, Break,
+ * Resume and End Day. It is the one that opens PunchModal when Attendance V2
+ * is on, so the punch photo and location are captured and the server starts or
+ * finalises the session in the same transaction that records the evidence.
+ *
+ * This dock deliberately performs none of those. It is a shortcut surface on
+ * every page; running the same mutations here meant two independent action
+ * paths for one lifecycle, and a second place where the punch requirement
+ * would have to be re-enforced correctly. It now navigates instead.
+ */
+const WORKDAY_SURFACE = '/dashboard';
 
 export function QuickActionDock() {
   const [open, setOpen] = useState(false);
-  const [showBreakModal, setShowBreakModal] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const user = useAuthStore(s => s.user);
@@ -37,32 +49,17 @@ export function QuickActionDock() {
     setTimeout(() => setOpen(false), 300);
   }, []);
 
-  const handleResumeWork = async () => {
-    try { await workdayApi.resumeWork(); toast.success('Resumed work'); }
-    catch { toast.error('Failed to resume'); }
-  };
-
-  const handleStartWork = async () => {
-    try { await workdayApi.startWork(); toast.success('Workday started!'); }
-    catch { toast.error('Failed to start workday'); }
-  };
-
-  const handleEndWorkday = async () => {
-    if (!confirm('End your workday now?')) return;
-    try { await workdayApi.endWork(); toast.success('Workday ended'); }
-    catch { toast.error('Failed to end workday'); }
-  };
-
-  const handleLunchBreak = async () => {
-    if (status !== 'WORKING') { toast.error('Start your workday first'); return; }
-    try { await workdayApi.startBreak({ breakType: 'LUNCH' }); toast.success('Lunch break started'); }
-    catch { toast.error('Failed'); }
-  };
-
-  const handleRestroomBreak = async () => {
-    if (status !== 'WORKING') { toast.error('Start your workday first'); return; }
-    try { await workdayApi.startBreak({ breakType: 'RESTROOM' }); toast.success('Restroom break'); }
-    catch { toast.error('Failed'); }
+  /**
+   * Sends the employee to the Workday controls instead of acting here.
+   *
+   * The toast names the destination: a button that appears to do nothing but
+   * change page is worse than one that says where it went.
+   */
+  const goToWorkday = (what: string) => {
+    if (pathname !== WORKDAY_SURFACE) {
+      toast(`${what} is on your dashboard`, { icon: '\u23F1\uFE0F' });
+    }
+    router.push(WORKDAY_SURFACE);
   };
 
   const isEmployee = ['EMPLOYEE', 'INTERN'].includes(role);
@@ -73,17 +70,20 @@ export function QuickActionDock() {
       label: '+ Ticket', emoji: '🎫', color: '#3b82f6',
       onClick: () => doAction(() => router.push('/tickets/new')),
     },
+    // Every entry below navigates. `status` still decides what is shown and
+    // what is enabled, exactly as before -- it comes from the auth store, not
+    // from a workday call.
     status === 'ON_BREAK'
-      ? { label: 'Resume', emoji: '▶', color: '#10b981', onClick: () => doAction(handleResumeWork) }
+      ? { label: 'Resume', emoji: '▶', color: '#10b981', onClick: () => doAction(() => goToWorkday('Resume')) }
       : { label: 'Break', emoji: '⏸', color: '#f97316', disabled: status !== 'WORKING',
-          onClick: () => doAction(() => { setShowBreakModal(true); }) },
+          onClick: () => doAction(() => goToWorkday('Break')) },
     { label: 'Lunch', emoji: '🍽', color: '#f59e0b', disabled: status !== 'WORKING',
-      onClick: () => doAction(handleLunchBreak) },
+      onClick: () => doAction(() => goToWorkday('Lunch break')) },
     { label: 'Restroom', emoji: '🚻', color: '#6b7280', disabled: status !== 'WORKING',
-      onClick: () => doAction(handleRestroomBreak) },
+      onClick: () => doAction(() => goToWorkday('Breaks')) },
     status === 'OFFLINE' || status === 'LOGGED_IN' || status === 'LOGGED_OUT'
-      ? { label: 'Start Work', emoji: '🟢', color: '#10b981', onClick: () => doAction(handleStartWork) }
-      : { label: 'End Day', emoji: '🔴', color: '#ef4444', onClick: () => doAction(handleEndWorkday) },
+      ? { label: 'Start Work', emoji: '🟢', color: '#10b981', onClick: () => doAction(() => goToWorkday('Start Work')) }
+      : { label: 'End Day', emoji: '🔴', color: '#ef4444', onClick: () => doAction(() => goToWorkday('End Day')) },
     ...(isEmployee || role === 'TEAM_LEAD' ? [{
       label: 'Blocked', emoji: '🔒', color: '#ef4444',
       onClick: () => doAction(() => {
@@ -152,14 +152,6 @@ export function QuickActionDock() {
       >
         {open ? '✕' : '+'}
       </button>
-
-      {/* Break modal */}
-      {showBreakModal && (
-        <BreakModal
-          onClose={() => setShowBreakModal(false)}
-          onBreakStarted={() => { setShowBreakModal(false); toast.success('Break started'); }}
-        />
-      )}
     </>
   );
 }

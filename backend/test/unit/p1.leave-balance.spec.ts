@@ -6,6 +6,8 @@ import { SettingsService } from '../../src/modules/platform/settings/settings.se
 import { LeaveStatus } from '@prisma/client';
 import { ForbiddenException } from '@nestjs/common';
 import { CompanyDateService } from '../../src/common/services/company-date.service';
+import { LeaveWorkingDayService } from '../../src/modules/operations/leave/leave-working-day.service';
+import { ConfigService } from '@nestjs/config';
 
 const mockPrisma = {
   user: {
@@ -31,6 +33,17 @@ describe('LeaveBalanceService', () => {
       providers: [
         { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         LeaveBalanceService,
+        {
+          // LH-1 added this dependency. It is given a REAL TVAService so the
+          // company-date arithmetic under test actually runs; the outer
+          // TVAService stub above is left exactly as it was.
+          provide: LeaveWorkingDayService,
+          useValue: new LeaveWorkingDayService(
+            new TVAService({ get: () => undefined } as unknown as ConfigService),
+            {} as any,
+            {} as any,
+          ),
+        },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SettingsService, useValue: mockSettings },
         { 

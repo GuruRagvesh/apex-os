@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { CheckCircle, Clock } from 'lucide-react';
+import { ModalPortal } from '../ui/ModalPortal';
 
 interface Props {
   session: any;
@@ -42,6 +43,7 @@ export function EndDayModal({ session, elapsedWorkMinutes, totalBreakMinutes, on
   };
 
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
@@ -141,5 +143,6 @@ export function EndDayModal({ session, elapsedWorkMinutes, totalBreakMinutes, on
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
