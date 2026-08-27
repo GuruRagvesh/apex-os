@@ -4,6 +4,7 @@ import { TVAService } from '../../../../common/services/tva.service';
 import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import { EmployeeTimelineService } from '../timeline/employee-timeline.service';
 import { PolicyVersionService } from '../policy/policy-version.service';
+import { applyLegacyEmploymentFallback } from './legacy-employment-fallback';
 import {
   AttendanceApplicability,
   AttendancePolicyContext,
@@ -56,6 +57,20 @@ export class DailyContextService {
     // calendar back onto the globally active records.
     const employee = await this.timeline.resolveEmployeeOn(employeeId, businessDate);
 
+    // Legacy compatibility, ATTENDANCE ONLY. An employee with no joining date
+    // is attendance-applicable from their profile's effectiveFrom onward. It is
+    // applied here rather than in EmployeeTimelineService because comp-off and
+    // leave-working-day consume that service too, and relaxing employment there
+    // would change leave semantics as a side effect.
+    const { coverage, coverageReason, legacyFallbackApplied } =
+      applyLegacyEmploymentFallback({
+        coverage: employee.coverage,
+        coverageReason: employee.coverageReason,
+        employment: employee.employment,
+        profile: employee.profile,
+        businessDate,
+      });
+
     const calendar = await this.calendar.resolveBusinessDay(businessDate, {
       holidayCalendarId: employee.profile?.assignedHolidayCalendarId ?? null,
       weeklyOffPolicyId: employee.profile?.assignedWeeklyOffPolicyId ?? null,
@@ -72,11 +87,11 @@ export class DailyContextService {
     // Policies are only meaningful for someone actually subject to attendance.
     // An exempt or non-employed person needs no shift, and demanding one would
     // manufacture a blocking reason out of a complete answer.
-    if (employee.coverage === 'UNRESOLVED') {
+    if (coverage === 'UNRESOLVED') {
       blockingReasons.push('NO_PROFILE_FOR_DATE');
     }
 
-    if (employee.coverage === 'COVERED' && employee.profile) {
+    if (coverage === 'COVERED' && employee.profile) {
       const p = employee.profile;
 
       // Calendar sources are only required for someone actually subject to
@@ -183,9 +198,9 @@ export class DailyContextService {
     let attendanceApplicability: AttendanceApplicability;
     if (!contextResolved) {
       attendanceApplicability = 'BLOCKED';
-    } else if (employee.coverage === 'NOT_EMPLOYED') {
+    } else if (coverage === 'NOT_EMPLOYED') {
       attendanceApplicability = 'NOT_EMPLOYED';
-    } else if (employee.coverage === 'EXEMPT') {
+    } else if (coverage === 'EXEMPT') {
       attendanceApplicability = 'EXEMPT';
     } else {
       attendanceApplicability = 'REQUIRED';
@@ -195,8 +210,9 @@ export class DailyContextService {
       employeeId,
       businessDate,
       employment: employee.employment,
-      coverage: employee.coverage,
-      coverageReason: employee.coverageReason,
+      coverage,
+      coverageReason,
+      legacyEmploymentFallbackApplied: legacyFallbackApplied,
       calendar,
       profile: employee.profile
         ? {
