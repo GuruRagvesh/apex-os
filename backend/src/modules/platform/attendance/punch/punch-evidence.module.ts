@@ -4,6 +4,8 @@ import { PunchPhotoService } from './punch-photo.service';
 import { PunchPhotoStorageModule } from './punch-photo-storage.module';
 import { PunchEvidenceController } from './punch-evidence.controller';
 import { PunchPhotoController } from './punch-photo.controller';
+import { PunchHandoffController } from './punch-handoff.controller';
+import { PunchHandoffService } from './punch-handoff.service';
 import { DailyContextModule } from '../context/daily-context.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { WorkdayModule } from '../../workday/workday.module';
@@ -17,8 +19,8 @@ import { WorkdayModule } from '../../workday/workday.module';
  */
 @Module({
   imports: [DailyContextModule, SettingsModule, WorkdayModule, PunchPhotoStorageModule],
-  controllers: [PunchEvidenceController, PunchPhotoController],
-  providers: [PunchEvidenceService, PunchPhotoService],
-  exports: [PunchEvidenceService, PunchPhotoService],
+  controllers: [PunchEvidenceController, PunchPhotoController, PunchHandoffController],
+  providers: [PunchEvidenceService, PunchPhotoService, PunchHandoffService],
+  exports: [PunchEvidenceService, PunchPhotoService, PunchHandoffService],
 })
 export class PunchEvidenceModule {}
