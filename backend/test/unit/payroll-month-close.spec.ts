@@ -156,7 +156,10 @@ describe('every figure is derived, never supplied', () => {
     expect(row.finalizedAt).toEqual(NOW);
   });
 
-  it('records a hash and size of the exact workbook', async () => {
+  it('records a fingerprint of the data and the size of the workbook', async () => {
+    // reportSha256 is the V1 column name. Its value is a digest of the
+    // canonical Attendance DATA, not of the .xlsx -- see the guards at the
+    // bottom of this file.
     const { service, closes } = build();
     await service.finalize(HR, '2026-08');
     const row = closes.get('2026-08');
@@ -165,7 +168,7 @@ describe('every figure is derived, never supplied', () => {
     expect(row.reportByteSize).toBeGreaterThan(0);
   });
 
-  it('accepts no count, hash or total from the caller', () => {
+  it('accepts no count, fingerprint or total from the caller', () => {
     // finalize takes only the actor and the month. Anything else would let the
     // number that justifies a payroll run be supplied by the thing it justifies.
     expect(PayrollReportService.prototype.finalize.length).toBe(2);
@@ -301,8 +304,9 @@ describe('sending is explicit and honest', () => {
   });
 
   it('refuses to send data that changed since finalization', async () => {
-    // The stored hash is what makes this detectable. Delivering a materially
-    // different file under the old approval would misrepresent what HR agreed.
+    // The stored data fingerprint is what makes this detectable. Delivering
+    // materially different attendance under the old approval would
+    // misrepresent what HR agreed to.
     const { service } = build({
       close: { ...finalized, reportSha256: 'a'.repeat(64) },
     });
@@ -418,5 +422,91 @@ describe('nothing sends itself', () => {
     // though it were settled.
     expect(code).not.toMatch(/@Cron|CronExpression|setInterval|setTimeout/i);
     expect(code).not.toMatch(/schedule/i);
+  });
+});
+
+describe('the stored digest is never presented as a file hash', () => {
+  // Since 372909a the value is a digest of the canonical Attendance DATA, not
+  // of the .xlsx: an XLSX is a ZIP whose entry headers carry clock timestamps,
+  // so file digests are not reproducible and hashing them made delivery refuse
+  // itself at random. The column keeps its V1 name because renaming it costs a
+  // migration for no behavioural gain -- which is exactly why the name must
+  // never escape this module. Somebody auditing a payroll dispute a year from
+  // now must not read "sha256" and conclude it identifies the attachment.
+
+  const read = (rel: string) =>
+    require('fs').readFileSync(require('path').resolve(__dirname, '../..', rel), 'utf8');
+
+  const SURFACE = [
+    'prisma/schema.prisma',
+    'src/modules/platform/attendance/reports/payroll-report.service.ts',
+    'src/modules/platform/attendance/reports/payroll-workbook.ts',
+    '../frontend/components/attendance/payroll-api.ts',
+    '../frontend/components/attendance/PayrollMonthClose.tsx',
+  ];
+
+  it('exposes reportDataFingerprint, and never the raw column name', async () => {
+    const { service } = build();
+    const preview: any = await service.preview(HR, '2026-08');
+    const finalized: any = await service.finalize(HR, '2026-08');
+    const status: any = await service.status(HR, '2026-08');
+
+    for (const shape of [preview, finalized, status]) {
+      expect(shape.reportDataFingerprint).toMatch(/^[0-9a-f]{64}$/);
+      expect('reportSha256' in shape).toBe(false);
+    }
+  });
+
+  it('renames at the boundary rather than leaking the column through send', async () => {
+    const { service } = build({
+      close: { month: '2026-08', status: 'FINALIZED', finalizedById: 'hr-1' },
+    });
+    const sentRow: any = await service.send(HR, '2026-08');
+
+    expect('reportSha256' in sentRow).toBe(false);
+    expect(sentRow).toHaveProperty('reportDataFingerprint');
+  });
+
+  it('does not repeat any of the specific untrue claims it used to make', () => {
+    // Literal strings, not patterns: each of these was written here once and
+    // was false. A pattern broad enough to catch every phrasing also flags the
+    // sentences that correctly deny the claim, so this guards the known
+    // regressions and the identifier tests above guard the contract.
+    const UNTRUE = [
+      'Identifies the exact workbook Finance received',
+      'hash of the exact workbook',
+      'byte-identical workbooks',
+      'the bytes are reproducible',
+      'Present only so the caller can show it',
+    ];
+
+    for (const rel of SURFACE) {
+      const src = read(rel);
+      for (const claim of UNTRUE) {
+        expect({ file: rel, claim, present: src.includes(claim) }).toEqual({
+          file: rel,
+          claim,
+          present: false,
+        });
+      }
+    }
+  });
+
+  it('labels it truthfully in the HR close record', () => {
+    const ui = read('../frontend/components/attendance/PayrollMonthClose.tsx');
+
+    expect(ui.includes('Attendance data fingerprint')).toBe(true);
+    // "Report reference" read as though it pointed at the file itself.
+    expect(ui.includes('Report reference')).toBe(false);
+  });
+
+  it('still records the real workbook size, which IS about the file', async () => {
+    // reportByteSize keeps its plain meaning: the size of the .xlsx built and
+    // sent. Only the digest changed meaning.
+    const { service, closes } = build();
+    await service.finalize(HR, '2026-08');
+    const { buffer } = await service.download(HR, '2026-08');
+
+    expect(closes.get('2026-08').reportByteSize).toBe(buffer.length);
   });
 });

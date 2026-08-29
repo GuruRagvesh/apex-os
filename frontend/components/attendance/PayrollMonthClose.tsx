@@ -218,10 +218,16 @@ export function PayrollMonthClose() {
               tone={close.data.deliveryStatus === 'FAILED' ? 'warn' : 'normal'}
             />
           </dl>
-          {close.data.reportSha256 && (
-            <p className="apex-text-subtle mt-3 break-all text-[11px]">
-              Report reference: {close.data.reportSha256.slice(0, 16)}…
-              {close.data.reportByteSize ? ` · ${close.data.reportByteSize} bytes` : ''}
+          {close.data.reportDataFingerprint && (
+            <p
+              className="apex-text-subtle mt-3 break-all text-[11px]"
+              title="Identifies the Attendance data this month was finalized from. It is not a checksum of the Excel file — the same attendance re-rendered produces different file bytes."
+            >
+              Attendance data fingerprint:{' '}
+              {close.data.reportDataFingerprint.slice(0, 16)}…
+              {close.data.reportByteSize
+                ? ` · workbook ${close.data.reportByteSize} bytes`
+                : ''}
             </p>
           )}
         </div>

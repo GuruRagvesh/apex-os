@@ -39,7 +39,15 @@ export interface PayrollPreview {
     employeesWithUnresolved: number;
   };
   summaries: PayrollSummaryRow[];
-  reportSha256: string;
+  /**
+   * SHA-256 of the canonical Attendance DATA this report was built from.
+   *
+   * NOT a checksum of the .xlsx. An XLSX is a ZIP whose entry headers carry
+   * clock timestamps, so the same attendance rendered twice produces different
+   * file bytes. What this identifies is the attendance itself.
+   */
+  reportDataFingerprint: string;
+  /** Size of the actual workbook. This one is about the file. */
   reportByteSize: number;
 }
 
@@ -54,7 +62,9 @@ export interface MonthClose {
   recipientEmail: string | null;
   sentAt: string | null;
   deliveryStatus: string | null;
-  reportSha256: string | null;
+  /** Fingerprint of the finalized Attendance data. Not a file checksum. */
+  reportDataFingerprint: string | null;
+  /** Size of the workbook that was generated and sent. */
   reportByteSize: number | null;
 }
 

@@ -1826,9 +1826,9 @@ model AttendancePunchHandoff {
 /// The durable record of what attendance data was finalized and sent to Finance.
 ///
 /// Deliberately NOT an AppSetting. A payroll input has to prove who finalized
-/// which month, when, and exactly which file Finance received — and a settings
-/// key can be overwritten with no history, which is precisely what a later
-/// payroll dispute needs.
+/// which month, when, and which attendance data Finance received — and a
+/// settings key can be overwritten with no history, which is precisely what a
+/// later payroll dispute needs.
 ///
 /// Every count here is derived server-side at finalization. Accepting an
 /// employee count or unresolved count from a client would let the number that
@@ -1853,10 +1853,19 @@ model AttendanceMonthClose {
   sentAt         DateTime?
   deliveryStatus String?
 
-  /// Identifies the exact workbook Finance received. A regenerated report that
-  /// hashes differently is materially different data, and sending it silently
-  /// under the same finalization would be a lie about what was approved.
+  /// SHA-256 of the CANONICAL REPORT DATA. NOT a digest of the .xlsx file.
+  ///
+  /// The column name is a V1 legacy -- renaming it would cost a migration for
+  /// no behavioural gain -- so the API renames it at the boundary. What it
+  /// holds is a digest of the attendance rows the month was finalized from,
+  /// which answers "did the attendance change between HR approving it and
+  /// Finance receiving it". It does not identify the attachment bytes: an XLSX
+  /// is a ZIP whose entry headers carry clock timestamps, so file digests are
+  /// not reproducible. A true file digest becomes possible only once the
+  /// finalized bytes are themselves stored.
   reportSha256   String?
+
+  /// Size of the actual generated and sent .xlsx. This one IS about the file.
   reportByteSize Int?
 
   createdAt   DateTime @default(now())

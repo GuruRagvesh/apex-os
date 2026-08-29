@@ -56,6 +56,21 @@ export interface ReportRecipients {
   cc: string[];
 }
 
+/**
+ * The close row as every caller outside this module sees it.
+ *
+ * The stored column is `reportSha256`, which is a V1 legacy name: the value is
+ * the SHA-256 of the canonical report DATA, not of the .xlsx file. The name is
+ * renamed here, once, at the boundary -- so a UI, a log line or somebody
+ * reading an audit trail in six months cannot reasonably conclude it
+ * identifies the exact attachment bytes, because it does not.
+ */
+export function toCloseView(row: any) {
+  if (!row) return null;
+  const { reportSha256, ...rest } = row;
+  return { ...rest, reportDataFingerprint: reportSha256 ?? null };
+}
+
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -64,8 +79,12 @@ export interface PreviewResult {
   status: string;
   totals: ReturnType<typeof monthTotals>;
   summaries: ReturnType<typeof summarise>[];
-  /** Present only so the caller can show it; the file itself is downloaded. */
-  reportSha256: string;
+  /**
+   * SHA-256 of the canonical report DATA -- see reportFingerprint(). Named so
+   * it cannot be mistaken for a digest of the workbook the caller downloads.
+   */
+  reportDataFingerprint: string;
+  /** Size of the actual .xlsx that would be downloaded or sent. */
   reportByteSize: number;
 }
 
@@ -209,8 +228,9 @@ export class PayrollReportService {
       companyLabel: 'TechnoEdge',
       summaries,
       register,
-      // Fixed for a finalized month so the bytes are reproducible; a live clock
-      // would change the hash on every render and make comparison useless.
+      // Fixed for a finalized month so the cover sheet reads the same however
+      // often it is regenerated; a live clock would print a different
+      // "generated at" on every download of an already-closed month.
       generatedAt: close?.finalizedAt ?? new Date(0),
       generatedBy: actorLabel,
       finalizedAt: close?.finalizedAt ?? null,
@@ -224,14 +244,14 @@ export class PayrollReportService {
       totals: monthTotals(summaries, facts),
       // Over the DATA, not the file bytes: an XLSX is a ZIP and its entry
       // headers carry clock timestamps, so file hashes are not reproducible.
-      sha256: reportFingerprint({ month, summaries, register }),
+      dataFingerprint: reportFingerprint({ month, summaries, register }),
     };
   }
 
   /**
    * The canonical render for a month, always built from the PERSISTED row.
    *
-   * Finalization and delivery must produce byte-identical workbooks or the hash
+   * Finalization and delivery must describe the same DATA or the fingerprint
    * comparison compares nothing. Deriving the metadata from two different
    * places -- the actor at finalization, the row at send -- made the two renders
    * differ by a name and the guard fired on every send.
@@ -283,7 +303,7 @@ export class PayrollReportService {
       status: close?.status ?? 'REVIEWING',
       totals: rendered.totals,
       summaries: rendered.summaries,
-      reportSha256: rendered.sha256,
+      reportDataFingerprint: rendered.dataFingerprint,
       reportByteSize: rendered.buffer.length,
     };
   }
@@ -333,8 +353,8 @@ export class PayrollReportService {
     const finalizedAt = this.tva.now();
     const finalizedById = actor?.id ?? actor?.sub;
 
-    // Persist the finalization FIRST, then hash the canonical render of what
-    // was persisted. Hashing before the row exists means hashing a workbook
+    // Persist the finalization FIRST, then fingerprint the canonical render of
+    // what was persisted. Fingerprinting before the row exists digests a report
     // built from different metadata than the one send() will rebuild.
     const marked = { status: 'FINALIZED' as const, finalizedById, finalizedAt };
     await this.prisma.attendanceMonthClose.upsert({
@@ -351,7 +371,9 @@ export class PayrollReportService {
         employeeCount: rendered.totals.employees,
         unresolvedDays: rendered.totals.unresolvedDays,
         employeesWithUnresolved: rendered.totals.employeesWithUnresolved,
-        reportSha256: rendered.sha256,
+        // Column name is V1 legacy; the value is the DATA fingerprint.
+        reportSha256: rendered.dataFingerprint,
+        // This one really is about the file: the size of the .xlsx built above.
         reportByteSize: rendered.buffer.length,
       },
     });
@@ -368,7 +390,7 @@ export class PayrollReportService {
           month,
           employees: rendered.totals.employees,
           unresolvedDays: rendered.totals.unresolvedDays,
-          reportSha256: rendered.sha256,
+          reportDataFingerprint: rendered.dataFingerprint,
         },
       })
       .catch(() => {});
@@ -386,10 +408,7 @@ export class PayrollReportService {
       /* recorded on the row as FAILED; the caller reads it from status */
     }
 
-    return this.prisma.attendanceMonthClose.findUnique({
-      where: { month },
-      include: { finalizedBy: { select: { name: true } } },
-    });
+    return this.status(actor, month);
   }
 
   /**
@@ -439,8 +458,10 @@ export class PayrollReportService {
    * Delivers the finalized workbook to Finance.
    *
    * Explicit: nothing here runs on a schedule. The report is rebuilt and its
-   * hash compared against what was finalized, so attendance corrected after
-   * finalisation is caught rather than delivered under the old approval.
+   * DATA fingerprint compared against what was finalized, so attendance
+   * corrected after finalisation is caught rather than delivered under the old
+   * approval. The question is whether the attendance changed, never whether
+   * two ZIP writers happened to agree on a timestamp.
    *
    * A failed send leaves the month FINALIZED with deliveryStatus FAILED. It is
    * never recorded as SENT, so a retry is possible and the record never claims
@@ -467,7 +488,8 @@ export class PayrollReportService {
     }
 
     const rendered = await this.renderCanonical(month);
-    if (close.reportSha256 && rendered.sha256 !== close.reportSha256) {
+    // close.reportSha256 is the stored DATA fingerprint (V1 column name).
+    if (close.reportSha256 && rendered.dataFingerprint !== close.reportSha256) {
       throw new ForbiddenException(
         'Attendance has changed since this month was finalized, so the report no longer matches ' +
           'what was approved. Re-finalizing a closed month is not supported in this version.',
@@ -521,7 +543,7 @@ export class PayrollReportService {
           month,
           to: people.to,
           cc: people.cc,
-          reportSha256: close.reportSha256,
+          reportDataFingerprint: close.reportSha256,
         },
       })
       .catch(() => {});
@@ -531,15 +553,16 @@ export class PayrollReportService {
         'The report could not be delivered. The month remains finalized — you can retry.',
       );
     }
-    return updated;
+    return toCloseView({ ...updated, finalizedBy: close.finalizedBy });
   }
 
   async status(actor: any, month: string) {
     this.assertHr(actor);
     this.assertMonth(month);
-    return this.prisma.attendanceMonthClose.findUnique({
+    const row = await this.prisma.attendanceMonthClose.findUnique({
       where: { month },
       include: { finalizedBy: { select: { name: true } } },
     });
+    return toCloseView(row);
   }
 }
