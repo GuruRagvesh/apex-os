@@ -105,6 +105,7 @@ model User {
   role                      Role                           @relation(fields: [roleId], references: [id])
   workSessions              WorkSession[]
   punchHandoffs             AttendancePunchHandoff[]
+  createdRegularizations    AttendanceRegularization[]     @relation("RegularizationCreator")
 
   @@index([departmentId])
   @@index([roleId])
@@ -1371,14 +1372,60 @@ model AttendanceRegularization {
   managerDecisionAt  DateTime?
   hrApproverId       String?
   hrDecisionAt       DateTime?
-  createdAt          DateTime                  @default(now())
-  updatedAt          DateTime                  @updatedAt
-  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // ── Manual recovery (outage path) ─────────────────────────────────────────
+  /// Who ENTERED this, when it was not the employee. Deliberately separate from
+  /// the approver fields: a manager may enter a recovery that HR later approves,
+  /// and inferring the creator from the approver would lose one of them.
+  /// Null on an ordinary employee request, where the creator is userId.
+  createdById        String?
+  entrySource        RegularizationEntrySource @default(EMPLOYEE_REQUEST)
+  /// Why evidence could not be captured. A different question from
+  /// requestType, which says what kind of correction this is.
+  recoveryReason     ManualRecoveryReason?
+  /// When the employee reported the problem, as distinct from when it was
+  /// entered.
+  employeeInformedAt DateTime?
+  /// The role the actor held AT ENTRY. A historical snapshot: if a manager
+  /// later becomes HR, this record must still say a manager entered it.
+  actorRoleAtEntry   String?
+
+  /// The authoritative punch values BEFORE this correction, captured at
+  /// creation. Null for an add-missing-punch recovery, set for a correction.
+  ///
+  /// Never recomputed. Once the official record is rewritten the previous value
+  /// exists nowhere else, and six months later this record has to be able to
+  /// say 18:04 -> 18:31 on its own -- which matters once these feed payroll.
+  originalPunchIn  DateTime?
+  originalPunchOut DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("RegularizationCreator", fields: [createdById], references: [id])
 
   @@index([userId, date])
   @@index([status])
   @@index([status, date])
+  @@index([entrySource, date])
   @@map("attendance_regularizations")
+}
+
+/// How a correction entered the system. Existing rows are employee requests.
+enum RegularizationEntrySource {
+  EMPLOYEE_REQUEST
+  MANUAL_RECOVERY
+}
+
+/// Why evidence-backed punching was impossible. Recorded durably on the row
+/// rather than only in the audit stream, because EventLogger is best-effort and
+/// a recovery with no recorded reason is a punch nobody can justify.
+enum ManualRecoveryReason {
+  SERVER_UNAVAILABLE
+  EMPLOYEE_INTERNET_ISSUE
+  DEVICE_NETWORK_ISSUE
+  CAMERA_OR_LOCATION_UNAVAILABLE
+  PUNCH_SUBMISSION_FAILED
+  OTHER
 }
 
 // ════════════════════════════════════════════════════════════════════════════

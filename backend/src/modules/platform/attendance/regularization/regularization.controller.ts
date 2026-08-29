@@ -19,6 +19,7 @@ import {
   RegularizationDisabledError,
   RegularizationService,
   StaleCorrectionError,
+  type ManualRecoveryInput,
 } from './regularization.service';
 
 /**
@@ -91,6 +92,22 @@ export class RegularizationController {
   async hrApprove(@CurrentUser() user: any, @Param('id') id: string) {
     try {
       return await this.regularization.approveAsHr(user, id);
+    } catch (err) {
+      this.rethrow(err);
+    }
+  }
+
+  /**
+   * Manual Attendance Recovery.
+   *
+   * Deliberately NOT on the employee punch surface: this is an authorised
+   * person recording a punch somebody else could not record, and an employee
+   * must never reach it. Scope is enforced in the service, not here.
+   */
+  @Post('manual-recovery')
+  async manualRecovery(@CurrentUser() user: any, @Body() body: ManualRecoveryInput) {
+    try {
+      return await this.regularization.createManualRecovery(user, body);
     } catch (err) {
       this.rethrow(err);
     }

@@ -1,3 +1,4 @@
+import { formatInTimeZone } from 'date-fns-tz';
 import {
   BadRequestException,
   ForbiddenException,
@@ -66,6 +67,31 @@ export class StaleCorrectionError extends Error {
     );
     this.name = 'StaleCorrectionError';
   }
+}
+
+/** Why evidence-backed punching was impossible. Mirrors the Prisma enum. */
+export const MANUAL_RECOVERY_REASONS = [
+  'SERVER_UNAVAILABLE',
+  'EMPLOYEE_INTERNET_ISSUE',
+  'DEVICE_NETWORK_ISSUE',
+  'CAMERA_OR_LOCATION_UNAVAILABLE',
+  'PUNCH_SUBMISSION_FAILED',
+  'OTHER',
+] as const;
+
+export type ManualRecoveryReasonInput = (typeof MANUAL_RECOVERY_REASONS)[number];
+
+export interface ManualRecoveryInput {
+  /** The employee whose punch is being recorded. Never the actor. */
+  userId: string;
+  businessDate: string;
+  requestedPunchIn?: string | Date | null;
+  requestedPunchOut?: string | Date | null;
+  recoveryReason: ManualRecoveryReasonInput;
+  reason: string;
+  employeeInformedAt: string | Date;
+  /** Set only when deliberately correcting a punch that already exists. */
+  correctExisting?: boolean;
 }
 
 @Injectable()
@@ -222,6 +248,170 @@ export class RegularizationService {
   // ───────────────────────────────────────────────────────────────────────
   // Decisions
   // ───────────────────────────────────────────────────────────────────────
+
+  /** Wall-clock time in company time, for a message an employee will read. */
+  private companyClock(at: Date): string {
+    return formatInTimeZone(at, this.tva.companyTimezone(), 'HH:mm');
+  }
+
+  /**
+   * Records a punch the employee could not record themselves.
+   *
+   * The last resort in a three-step hierarchy. The laptop is tried first, then
+   * the employee's phone by QR, and only when neither can produce evidence does
+   * an authorised person enter the punch on their behalf. It must never become
+   * the ordinary route, which is why the employee cannot reach it at all.
+   *
+   * WHAT IS NOT FABRICATED. A manual entry carries no coordinates, no accuracy,
+   * no geofence verdict and no photograph. Manufacturing any of those would
+   * make an unevidenced punch indistinguishable from a verified one, which is
+   * the one thing that would make the whole evidence chain worthless.
+   *
+   * LIFECYCLE. The creator's act of entering IS their operational judgment, so
+   * the row starts at MANAGER_APPROVED rather than making the same person
+   * immediately approve their own entry. HR approval is still required and is
+   * still the only thing that rewrites official attendance -- a manager cannot
+   * finalise, and nothing here changes a DailyAttendance row.
+   *
+   * For an HR or admin creator the operational stage is satisfied by their own
+   * authority, and V1 permits the same person to give final approval. That is
+   * a deliberate trade: requiring a second HR person sounds stronger, but an
+   * outage recovery nobody is available to complete leaves the employee with no
+   * attendance at all. The compensating controls are a mandatory reason, the
+   * before/after snapshots, the creator identity, the role snapshot, a separate
+   * explicit confirmation, row locking and a visible audit trail.
+   */
+  async createManualRecovery(actor: any, input: ManualRecoveryInput) {
+    if (!(await this.enabled())) throw new RegularizationDisabledError();
+    this.assertDate(input.businessDate);
+
+    const actorId = actor?.id ?? actor?.sub;
+    if (!actorId) throw new ForbiddenException('Not authenticated');
+
+    // An employee may never enter their own authoritative punch. They request a
+    // correction; somebody else records a recovery.
+    if (actorId === input.userId) {
+      throw new ForbiddenException(
+        'You cannot record your own manual punch. Ask your manager or HR to record it.',
+      );
+    }
+
+    const isHr = this.accessPolicy.isHrOrAdmin(actor);
+    const inScope = await this.hierarchy.isApproverFor(actorId, input.userId);
+    if (!isHr && !inScope) {
+      throw new ForbiddenException(
+        'You can only record a manual punch for an employee you manage',
+      );
+    }
+
+    // Validation is stricter than the columns. They are nullable so existing
+    // employee requests stay valid; a recovery without them is unjustifiable.
+    if (!MANUAL_RECOVERY_REASONS.includes(input.recoveryReason as any)) {
+      throw new BadRequestException('Select why the punch could not be recorded');
+    }
+    if (!input.reason || input.reason.trim().length < 10) {
+      throw new BadRequestException(
+        'Explain what happened. This is the durable record of why attendance was entered by hand.',
+      );
+    }
+    if (!input.requestedPunchIn && !input.requestedPunchOut) {
+      throw new BadRequestException('Provide the punch in or punch out time being recorded');
+    }
+    if (!input.employeeInformedAt) {
+      throw new BadRequestException('Record when the employee reported the problem');
+    }
+
+    const date = this.tva.companyDateOnly(new Date(`${input.businessDate}T00:00:00.000Z`));
+
+    const open = await this.prisma.attendanceRegularization.findFirst({
+      where: { userId: input.userId, date, status: { in: ['PENDING', 'MANAGER_APPROVED'] } },
+    });
+    if (open) {
+      throw new ForbiddenException(
+        'A correction for this date is already under review. Resolve it before recording another.',
+      );
+    }
+
+    const official = await this.prisma.dailyAttendance.findUnique({
+      where: { userId_date: { userId: input.userId, date } },
+    });
+
+    // Duplicate protection. Adding a second punch of a type that already exists
+    // would leave two authoritative answers for one moment; the actor is routed
+    // to a correction instead, which is what the original snapshots below
+    // record.
+    if (input.requestedPunchIn && official?.punchInAt && !input.correctExisting) {
+      throw new ForbiddenException(
+        `A punch in already exists at ${this.companyClock(official.punchInAt)}. ` +
+          'Correct it instead of adding another.',
+      );
+    }
+    if (input.requestedPunchOut && official?.punchOutAt && !input.correctExisting) {
+      throw new ForbiddenException(
+        `A punch out already exists at ${this.companyClock(official.punchOutAt)}. ` +
+          'Correct it instead of adding another.',
+      );
+    }
+
+    const actorRole = this.accessPolicy.roleName(actor);
+
+    const created = await this.prisma.attendanceRegularization.create({
+      data: {
+        userId: input.userId,
+        date,
+        requestType: 'MISSING_PUNCH',
+        reason: input.reason.trim(),
+        requestedPunchIn: input.requestedPunchIn ? new Date(input.requestedPunchIn) : null,
+        requestedPunchOut: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
+
+        // Captured NOW, from the authoritative record as it stands. Once HR
+        // applies the correction the previous value exists nowhere else, and
+        // this row has to be able to say 18:04 -> 18:31 on its own.
+        originalPunchIn: official?.punchInAt ?? null,
+        originalPunchOut: official?.punchOutAt ?? null,
+
+        entrySource: 'MANUAL_RECOVERY',
+        createdById: actorId,
+        actorRoleAtEntry: actorRole,
+        recoveryReason: input.recoveryReason as any,
+        employeeInformedAt: new Date(input.employeeInformedAt),
+
+        basedOnFingerprint: official?.sourceFingerprint ?? null,
+
+        // The creator's own operational judgment, recorded as such. HR approval
+        // is still required and is still the only thing that rewrites
+        // attendance.
+        status: 'MANAGER_APPROVED',
+        managerApproverId: actorId,
+        managerDecisionAt: this.tva.now(),
+      },
+    });
+
+    this.eventLogger.log({
+      actorId,
+      entityType: 'AttendanceRegularization',
+      entityId: created.id,
+      action: OperationalAction.REGULARIZATION_REQUESTED,
+      toState: 'MANUAL_RECOVERY_ENTERED',
+      metadata: {
+        businessDate: input.businessDate,
+        entrySource: 'MANUAL_RECOVERY',
+        recoveryReason: input.recoveryReason,
+        reason: input.reason.trim(),
+        actorRole,
+      },
+      beforeValue: {
+        punchInAt: official?.punchInAt ?? null,
+        punchOutAt: official?.punchOutAt ?? null,
+      },
+      afterValue: {
+        punchInAt: created.requestedPunchIn,
+        punchOutAt: created.requestedPunchOut,
+      },
+    }).catch(() => {});
+
+    return created;
+  }
 
   /** Stage one: the employee's actual reporting authority. */
   async approveAsManager(actor: any, id: string) {
