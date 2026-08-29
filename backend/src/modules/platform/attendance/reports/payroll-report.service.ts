@@ -18,7 +18,12 @@ import {
   type DayFacts,
   type EmployeeMeta,
 } from './payroll-aggregation';
-import { buildPayrollWorkbook, workbookFilename, workbookToBuffer } from './payroll-workbook';
+import {
+  buildPayrollWorkbook,
+  reportFingerprint,
+  workbookFilename,
+  workbookToBuffer,
+} from './payroll-workbook';
 
 /**
  * Monthly attendance close and the payroll workbook Finance receives.
@@ -217,7 +222,9 @@ export class PayrollReportService {
       buffer,
       summaries,
       totals: monthTotals(summaries, facts),
-      sha256: createHash('sha256').update(buffer).digest('hex'),
+      // Over the DATA, not the file bytes: an XLSX is a ZIP and its entry
+      // headers carry clock timestamps, so file hashes are not reproducible.
+      sha256: reportFingerprint({ month, summaries, register }),
     };
   }
 

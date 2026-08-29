@@ -7,6 +7,7 @@ import {
   type DayFacts,
   type EmployeeMeta,
 } from '../../src/modules/platform/attendance/reports/payroll-aggregation';
+import { reportFingerprint } from '../../src/modules/platform/attendance/reports/payroll-workbook';
 
 // These numbers reach Finance and influence salary, so the arithmetic is tested
 // without a database. Two rules matter more than the rest:
@@ -216,5 +217,60 @@ describe('no pay is calculated here', () => {
     for (const key of [...Object.keys(s), ...Object.keys(row)]) {
       expect(key).not.toMatch(/salary|deduct|amount|pay(able)?$|wage/i);
     }
+  });
+});
+
+describe('the report fingerprint identifies the data, not the file', () => {
+  // An XLSX is a ZIP and its entry headers carry clock timestamps, so two
+  // renders of identical data differ by ~36 bytes. Hashing the FILE made the
+  // finalize/send comparison fail intermittently and report "attendance has
+  // changed" when only the clock had. That surfaced as a flaky test before it
+  // could surface as a month close that refuses to deliver.
+  const summaries = [summarise(EMPLOYEE, [day()])];
+  const register = [toRegisterRow(EMPLOYEE, day(), 540)];
+  const fp = () => reportFingerprint({ month: '2026-08', summaries, register });
+
+  it('is identical for identical data', () => {
+    expect(fp()).toBe(fp());
+  });
+
+  it('does not read the clock', () => {
+    const src = require('fs').readFileSync(
+      require('path').resolve(
+        __dirname,
+        '../../src/modules/platform/attendance/reports/payroll-workbook.ts',
+      ),
+      'utf8',
+    );
+    const fn = src.slice(src.indexOf('export function reportFingerprint'));
+    const body = fn.slice(0, fn.indexOf(String.fromCharCode(10) + '}'));
+
+    expect(body).not.toMatch(/new Date\(\)|Date\.now\(\)/);
+  });
+
+  it('changes when the attendance changes', () => {
+    const other = [summarise(EMPLOYEE, [day({ status: 'ABSENT' })])];
+
+    expect(reportFingerprint({ month: '2026-08', summaries: other, register })).not.toBe(fp());
+  });
+
+  it('changes when the month changes', () => {
+    expect(reportFingerprint({ month: '2026-09', summaries, register })).not.toBe(fp());
+  });
+
+  it('changes when a single register cell changes', () => {
+    const other = [{ ...register[0], punchOutSource: 'Manual' as const }];
+
+    expect(reportFingerprint({ month: '2026-08', summaries, register: other })).not.toBe(fp());
+  });
+
+  it('does not depend on the declaration order of the row fields', () => {
+    // Otherwise reordering an interface silently invalidates every stored
+    // fingerprint and every finalized month refuses to send.
+    const reordered = [
+      Object.fromEntries(Object.entries(summaries[0]).reverse()) as typeof summaries[0],
+    ];
+
+    expect(reportFingerprint({ month: '2026-08', summaries: reordered, register })).toBe(fp());
   });
 });

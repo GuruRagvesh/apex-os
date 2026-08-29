@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import * as ExcelJS from 'exceljs';
 import {
   monthTotals,
@@ -58,7 +59,20 @@ export interface WorkbookInput {
 export function buildPayrollWorkbook(input: WorkbookInput): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Apex OS Attendance';
+
+  // Every timestamp is pinned to the supplied instant, none to the clock.
+  //
+  // exceljs defaults `modified` to new Date(), so two renders of identical data
+  // produced different bytes and therefore different hashes. That made the
+  // finalize/send hash comparison fail intermittently -- whenever the two
+  // renders landed either side of a clock tick -- and report "attendance has
+  // changed since finalization" when nothing had changed.
+  //
+  // The hash is only meaningful if the same data always renders to the same
+  // bytes, so nothing here may read the current time.
   wb.created = input.generatedAt;
+  wb.modified = input.generatedAt;
+  wb.lastModifiedBy = 'Apex OS Attendance';
 
   const totals = monthTotals(input.summaries, []);
   addCoverSheet(wb, input, totals);
@@ -197,6 +211,37 @@ function addRegisterSheet(wb: ExcelJS.Workbook, input: WorkbookInput) {
     });
   }
   sheet.autoFilter = { from: 'A1', to: { row: 1, column: 21 } };
+}
+
+/**
+ * A stable fingerprint of the report's DATA.
+ *
+ * NOT a hash of the .xlsx bytes. An XLSX is a ZIP, and the container stamps a
+ * modification time into every entry header from the clock, so two renders of
+ * identical data differ by ~36 bytes and hash differently. Hashing the file
+ * made the finalize/send comparison fail intermittently and report "attendance
+ * has changed" when only the clock had.
+ *
+ * The question the guard actually asks is "has the attendance changed since HR
+ * approved it", and that is a question about the data. So the fingerprint is
+ * taken over the canonical rows: same attendance, same fingerprint, whenever it
+ * is rendered.
+ *
+ * Field order is fixed by JSON.stringify over explicitly ordered keys rather
+ * than object literal order, so a future reordering of an interface cannot
+ * silently change every stored fingerprint.
+ */
+export function reportFingerprint(input: {
+  month: string;
+  summaries: PayrollSummaryRow[];
+  register: RegisterRow[];
+}): string {
+  const canonical = JSON.stringify({
+    month: input.month,
+    summaries: input.summaries.map((s) => Object.keys(s).sort().map((k) => [k, (s as any)[k]])),
+    register: input.register.map((r) => Object.keys(r).sort().map((k) => [k, (r as any)[k]])),
+  });
+  return createHash('sha256').update(canonical).digest('hex');
 }
 
 export async function workbookToBuffer(wb: ExcelJS.Workbook): Promise<Buffer> {
