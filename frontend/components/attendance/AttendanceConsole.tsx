@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ManualRecoveryForm } from './ManualRecoveryForm';
+import { AttendanceExceptionQueue } from './AttendanceExceptionQueue';
 import { PayrollMonthClose } from './PayrollMonthClose';
 import {
   finalizeDay,
@@ -26,10 +27,30 @@ import { formatMinutes, formatTime, presentStatus } from './attendance-status';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * Deep links from the exception queue name the day they are about, so a
+ * "Resolve" click lands on that day rather than on today.
+ *
+ * Read from the URL directly instead of through useSearchParams, which would
+ * require wrapping this client component in a Suspense boundary to prerender.
+ */
+function initialBusinessDate() {
+  if (typeof window === 'undefined') return todayIso();
+  const value = new URLSearchParams(window.location.search).get('businessDate');
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : todayIso();
+}
+
+const TAB_LABEL = {
+  roster: 'Day view',
+  exceptions: 'Exceptions',
+  register: 'Monthly register',
+  payroll: 'Payroll',
+} as const;
+
 export function AttendanceConsole() {
   const queryClient = useQueryClient();
-  const [businessDate, setBusinessDate] = useState(todayIso());
-  const [tab, setTab] = useState<'roster' | 'register' | 'payroll'>('roster');
+  const [businessDate, setBusinessDate] = useState(initialBusinessDate);
+  const [tab, setTab] = useState<keyof typeof TAB_LABEL>('roster');
   // The employee whose day is being recovered by hand, if any.
   const [recovering, setRecovering] = useState<{
     id: string;
@@ -216,8 +237,8 @@ export function AttendanceConsole() {
       <div className="flex gap-2">
         {/* Payroll is HR-only: it decides what Finance is told about pay. */}
         {(access.isHr
-          ? (['roster', 'register', 'payroll'] as const)
-          : (['roster', 'register'] as const)
+          ? (['roster', 'exceptions', 'register', 'payroll'] as const)
+          : (['roster', 'exceptions', 'register'] as const)
         ).map((t) => (
           <button
             key={t}
@@ -229,7 +250,7 @@ export function AttendanceConsole() {
                 : 'apex-text-muted border border-[var(--border-secondary)]',
             ].join(' ')}
           >
-            {t === 'roster' ? 'Day view' : t === 'register' ? 'Monthly register' : 'Payroll'}
+            {TAB_LABEL[t]}
           </button>
         ))}
       </div>
@@ -243,6 +264,9 @@ export function AttendanceConsole() {
           onClose={() => setRecovering(null)}
         />
       )}
+
+      {/* Managers see their own team's exceptions; the server decides which. */}
+      {tab === 'exceptions' && <AttendanceExceptionQueue />}
 
       {tab === 'payroll' && access.isHr && <PayrollMonthClose />}
 

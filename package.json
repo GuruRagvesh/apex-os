@@ -11,6 +11,8 @@
     "architecture:test": "node scripts/architecture/validate-boundaries.test.mjs",
     "frontend:verify-api-contract": "node scripts/frontend/verify-api-response-contract.mjs",
     "frontend:verify-workday-surface": "node scripts/frontend/verify-single-workday-surface.mjs",
+    "frontend:verify-attendance-surface": "node scripts/frontend/verify-attendance-day-surface.mjs",
+    "frontend:verify-exception-queue": "node scripts/frontend/verify-attendance-exception-queue.mjs",
     "backend:build": "npm --prefix backend run build",
     "backend:start": "npm --prefix backend run start:prod",
     "backend:verify-deployment-layout": "node scripts/deployment/verify-backend-root-layout.mjs",

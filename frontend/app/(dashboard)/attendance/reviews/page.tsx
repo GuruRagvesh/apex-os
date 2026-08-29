@@ -13,8 +13,21 @@ import { RegularizationQueue } from '@/components/attendance/RegularizationQueue
  * Both tabs call the same scoped endpoint — the server decides what the caller
  * is allowed to see, so switching tabs can never widen access.
  */
+/**
+ * Which tab a deep link asked for.
+ *
+ * The exception queue links here for a decision that is specifically HR's or
+ * specifically the manager's; landing on the wrong tab would show an empty
+ * list and read as "nothing to do". Read from the URL directly rather than
+ * through useSearchParams, which would need a Suspense boundary to prerender.
+ */
+function initialMode(): 'manager' | 'hr' {
+  if (typeof window === 'undefined') return 'manager';
+  return new URLSearchParams(window.location.search).get('mode') === 'hr' ? 'hr' : 'manager';
+}
+
 export default function AttendanceReviewsPage() {
-  const [mode, setMode] = useState<'manager' | 'hr'>('manager');
+  const [mode, setMode] = useState<'manager' | 'hr'>(initialMode);
 
   return (
     <div className="space-y-4">

@@ -43,6 +43,7 @@ import { RegularizationModule } from './modules/platform/attendance/regularizati
 import { AttendanceActivityModule } from './modules/platform/attendance/activity/attendance-activity.module';
 import { PayrollReportModule } from './modules/platform/attendance/reports/payroll-report.module';
 import { AttendanceConsoleModule } from './modules/platform/attendance/console/attendance-console.module';
+import { AttendanceExceptionModule } from './modules/platform/attendance/exceptions/attendance-exception.module';
 import { AttendanceProcessingModule } from './modules/platform/attendance/processing/attendance-processing.module';
 import { EventsModule } from './modules/platform/events/events.module';
 import { AnalyticsModule } from './modules/platform/analytics/analytics.module';
@@ -97,6 +98,7 @@ const isTest = process.env.NODE_ENV === 'test';
     PayrollReportModule,
     AttendanceConsoleModule,
     AttendanceProcessingModule,
+    AttendanceExceptionModule,
     EventsModule,
     AnalyticsModule,
   ],
