@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ManualRecoveryForm } from './ManualRecoveryForm';
 import {
   finalizeDay,
   getConsoleAccess,
@@ -28,6 +29,13 @@ export function AttendanceConsole() {
   const queryClient = useQueryClient();
   const [businessDate, setBusinessDate] = useState(todayIso());
   const [tab, setTab] = useState<'roster' | 'register'>('roster');
+  // The employee whose day is being recovered by hand, if any.
+  const [recovering, setRecovering] = useState<{
+    id: string;
+    name: string;
+    punchInAt: string | null;
+    punchOutAt: string | null;
+  } | null>(null);
   const [lastRun, setLastRun] = useState<EvaluationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -221,6 +229,16 @@ export function AttendanceConsole() {
         ))}
       </div>
 
+      {recovering && (
+        <ManualRecoveryForm
+          employee={{ id: recovering.id, name: recovering.name }}
+          businessDate={businessDate}
+          existing={{ punchInAt: recovering.punchInAt, punchOutAt: recovering.punchOutAt }}
+          actorIsHr={access.isHr}
+          onClose={() => setRecovering(null)}
+        />
+      )}
+
       {tab === 'roster' && roster && (
         <div className="apex-card overflow-x-auto">
           <table className="w-full min-w-[640px] text-left text-sm">
@@ -231,7 +249,7 @@ export function AttendanceConsole() {
                 <th className="pb-2">In</th>
                 <th className="pb-2">Out</th>
                 <th className="pb-2">Worked</th>
-                {access.isHr && <th className="pb-2" />}
+                <th className="pb-2" />
               </tr>
             </thead>
             <tbody>
@@ -261,23 +279,42 @@ export function AttendanceConsole() {
                   <td className="apex-text-muted py-2 text-xs">
                     {r.workedMinutes == null ? '—' : formatMinutes(r.workedMinutes)}
                   </td>
-                  {access.isHr && (
-                    <td className="py-2 text-right">
+                  <td className="py-2 text-right">
+                    <div className="flex justify-end gap-1.5">
+                      {/* Managers see this for their own reports; the server
+                          decides scope, and a refusal is surfaced by the form
+                          rather than hidden. Employees never reach this table. */}
                       <button
                         onClick={() =>
-                          finalize.mutate({ userId: r.employee.id, businessDate })
+                          setRecovering({
+                            id: r.employee.id,
+                            name: r.employee.name,
+                            punchInAt: r.punchInAt,
+                            punchOutAt: r.punchOutAt,
+                          })
                         }
-                        disabled={
-                          finalize.isPending ||
-                          r.evaluationState === 'NOT_EVALUATED' ||
-                          r.evaluationState === 'NEEDS_REVIEW'
-                        }
-                        className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-2 py-1 text-xs disabled:opacity-40"
+                        className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-2 py-1 text-xs"
                       >
-                        Finalize
+                        Manual recovery
                       </button>
-                    </td>
-                  )}
+
+                      {access.isHr && (
+                        <button
+                          onClick={() =>
+                            finalize.mutate({ userId: r.employee.id, businessDate })
+                          }
+                          disabled={
+                            finalize.isPending ||
+                            r.evaluationState === 'NOT_EVALUATED' ||
+                            r.evaluationState === 'NEEDS_REVIEW'
+                          }
+                          className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-2 py-1 text-xs disabled:opacity-40"
+                        >
+                          Finalize
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
