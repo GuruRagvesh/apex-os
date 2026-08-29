@@ -41,6 +41,7 @@ import { PunchEvidenceModule } from './modules/platform/attendance/punch/punch-e
 import { DailyAttendanceModule } from './modules/platform/attendance/evaluation/daily-attendance.module';
 import { RegularizationModule } from './modules/platform/attendance/regularization/regularization.module';
 import { AttendanceActivityModule } from './modules/platform/attendance/activity/attendance-activity.module';
+import { PayrollReportModule } from './modules/platform/attendance/reports/payroll-report.module';
 import { AttendanceConsoleModule } from './modules/platform/attendance/console/attendance-console.module';
 import { AttendanceProcessingModule } from './modules/platform/attendance/processing/attendance-processing.module';
 import { EventsModule } from './modules/platform/events/events.module';
@@ -93,6 +94,7 @@ const isTest = process.env.NODE_ENV === 'test';
     DailyAttendanceModule,
     RegularizationModule,
     AttendanceActivityModule,
+    PayrollReportModule,
     AttendanceConsoleModule,
     AttendanceProcessingModule,
     EventsModule,

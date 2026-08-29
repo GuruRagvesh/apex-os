@@ -106,6 +106,7 @@ model User {
   workSessions              WorkSession[]
   punchHandoffs             AttendancePunchHandoff[]
   createdRegularizations    AttendanceRegularization[]     @relation("RegularizationCreator")
+  finalizedMonthCloses      AttendanceMonthClose[]         @relation("MonthCloseFinalizer")
 
   @@index([departmentId])
   @@index([roleId])
@@ -1822,6 +1823,57 @@ model AttendancePunchHandoff {
 /// No PROCESSING state: merely opening the QR page must not mutate anything,
 /// or a scan that is closed immediately leaves the handoff stuck and the
 /// employee unable to retry.
+/// The durable record of what attendance data was finalized and sent to Finance.
+///
+/// Deliberately NOT an AppSetting. A payroll input has to prove who finalized
+/// which month, when, and exactly which file Finance received — and a settings
+/// key can be overwritten with no history, which is precisely what a later
+/// payroll dispute needs.
+///
+/// Every count here is derived server-side at finalization. Accepting an
+/// employee count or unresolved count from a client would let the number that
+/// justifies a payroll run be supplied by the thing being justified.
+model AttendanceMonthClose {
+  id     String           @id @default(cuid())
+  /// yyyy-MM. Unique: a month is closed once.
+  month  String           @unique
+  status MonthCloseStatus @default(OPEN)
+
+  /// Snapshot of what was true at finalization, not recomputed later.
+  employeeCount           Int?
+  unresolvedDays          Int?
+  employeesWithUnresolved Int?
+
+  finalizedById String?
+  finalizedAt   DateTime?
+
+  /// Copied from the setting AT SEND TIME. Changing the configured recipient
+  /// next month must not rewrite who an already-sent report went to.
+  recipientEmail String?
+  sentAt         DateTime?
+  deliveryStatus String?
+
+  /// Identifies the exact workbook Finance received. A regenerated report that
+  /// hashes differently is materially different data, and sending it silently
+  /// under the same finalization would be a lie about what was approved.
+  reportSha256   String?
+  reportByteSize Int?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  finalizedBy User?    @relation("MonthCloseFinalizer", fields: [finalizedById], references: [id])
+
+  @@index([status])
+  @@map("attendance_month_closes")
+}
+
+enum MonthCloseStatus {
+  OPEN
+  REVIEWING
+  FINALIZED
+  SENT
+}
+
 enum PunchHandoffStatus {
   WAITING
   COMPLETED

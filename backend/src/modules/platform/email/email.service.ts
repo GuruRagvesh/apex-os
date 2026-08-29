@@ -185,6 +185,70 @@ export class EmailService {
 
   // ── Archive backup delivery ──────────────────────────────────────────────────
 
+  /**
+   * The finalized monthly attendance workbook, to Finance.
+   *
+   * Its own method rather than reusing sendArchiveBackup, whose subject reads
+   * "User archive backup" -- Finance receiving a payroll input under that title
+   * would be actively misleading about what the attachment is.
+   *
+   * Returns whether it was delivered. The caller records FAILED and leaves the
+   * month finalized rather than claiming a send that did not happen.
+   */
+  async sendPayrollAttendanceReport(
+    to: string,
+    month: string,
+    filename: string,
+    buffer: Buffer,
+    facts: { employees: number; unresolvedDays: number; employeesWithUnresolved: number },
+  ): Promise<boolean> {
+    if (!this.resendClient || !to) {
+      this.logger.debug('[Payroll attendance report skipped — no provider or no recipient]');
+      return false;
+    }
+
+    // The unresolved count is stated in the body, not only inside the file. A
+    // month with unreviewed exceptions is not a settled payroll input, and that
+    // has to be visible before anyone opens the attachment.
+    const caveat =
+      facts.employeesWithUnresolved > 0
+        ? `<p style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;margin:16px 0">
+             <strong>${facts.employeesWithUnresolved} employee(s)</strong> have
+             ${facts.unresolvedDays} unresolved attendance day(s) in this month.
+             Those rows are not a settled attendance result.
+           </p>`
+        : '';
+
+    const html = this.buildHtml(
+      `Attendance report — ${month}`,
+      `<p>The finalized monthly attendance report for <strong>${month}</strong> is attached.</p>
+       ${caveat}
+       <p>${facts.employees} employee(s) included.</p>
+       <p style="color:#64748b;font-size:13px">
+         This report contains attendance facts only. No salary or deduction has been
+         calculated; payroll rules are applied by Finance.</p>`,
+    );
+
+    try {
+      const { error } = await (this.resendClient as any).emails.send({
+        from: this.resendFrom,
+        to: [to],
+        subject: `Apex OS — Attendance report ${month}`,
+        html,
+        attachments: [{ filename, content: buffer }],
+      });
+      if (error) {
+        this.logger.error(`Payroll attendance report to ${to} failed: ${(error as any).message}`);
+        return false;
+      }
+      this.logger.log(`Payroll attendance report for ${month} sent to ${to}`);
+      return true;
+    } catch (err: any) {
+      this.logger.error(`Payroll attendance report to ${to} exception: ${err.message}`);
+      return false;
+    }
+  }
+
   async sendArchiveBackup(
     recipients: string[],
     originalName: string,
