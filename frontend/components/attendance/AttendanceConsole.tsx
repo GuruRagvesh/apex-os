@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ManualRecoveryForm } from './ManualRecoveryForm';
+import { PayrollMonthClose } from './PayrollMonthClose';
 import {
   finalizeDay,
   getConsoleAccess,
@@ -28,7 +29,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 export function AttendanceConsole() {
   const queryClient = useQueryClient();
   const [businessDate, setBusinessDate] = useState(todayIso());
-  const [tab, setTab] = useState<'roster' | 'register'>('roster');
+  const [tab, setTab] = useState<'roster' | 'register' | 'payroll'>('roster');
   // The employee whose day is being recovered by hand, if any.
   const [recovering, setRecovering] = useState<{
     id: string;
@@ -213,7 +214,11 @@ export function AttendanceConsole() {
       )}
 
       <div className="flex gap-2">
-        {(['roster', 'register'] as const).map((t) => (
+        {/* Payroll is HR-only: it decides what Finance is told about pay. */}
+        {(access.isHr
+          ? (['roster', 'register', 'payroll'] as const)
+          : (['roster', 'register'] as const)
+        ).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -224,7 +229,7 @@ export function AttendanceConsole() {
                 : 'apex-text-muted border border-[var(--border-secondary)]',
             ].join(' ')}
           >
-            {t === 'roster' ? 'Day view' : 'Monthly register'}
+            {t === 'roster' ? 'Day view' : t === 'register' ? 'Monthly register' : 'Payroll'}
           </button>
         ))}
       </div>
@@ -238,6 +243,8 @@ export function AttendanceConsole() {
           onClose={() => setRecovering(null)}
         />
       )}
+
+      {tab === 'payroll' && access.isHr && <PayrollMonthClose />}
 
       {tab === 'roster' && roster && (
         <div className="apex-card overflow-x-auto">
