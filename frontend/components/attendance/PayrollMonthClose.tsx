@@ -6,13 +6,13 @@ import { AlertTriangle, CheckCircle2, Download, Mail } from 'lucide-react';
 import {
   STATUS_LABEL,
   finalizeMonth,
-  getFinanceRecipient,
+  getFinanceRecipients,
   getMonthClose,
   getPayrollPreview,
   downloadPayrollWorkbook,
   previousMonth,
   sendToFinance,
-  setFinanceRecipient,
+  setFinanceRecipients,
 } from './payroll-api';
 
 /**
@@ -29,7 +29,8 @@ export function PayrollMonthClose() {
   const queryClient = useQueryClient();
   const [month, setMonth] = useState(previousMonth());
   const [confirming, setConfirming] = useState<'finalize' | 'send' | null>(null);
-  const [recipientDraft, setRecipientDraft] = useState('');
+  const [toDraft, setToDraft] = useState('');
+  const [ccDraft, setCcDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const preview = useQuery({
@@ -44,7 +45,7 @@ export function PayrollMonthClose() {
   });
   const recipient = useQuery({
     queryKey: ['payroll-recipient'],
-    queryFn: getFinanceRecipient,
+    queryFn: getFinanceRecipients,
     retry: false,
   });
 
@@ -68,9 +69,19 @@ export function PayrollMonthClose() {
   });
 
   const saveRecipient = useMutation({
-    mutationFn: () => setFinanceRecipient(recipientDraft.trim()),
+    mutationFn: () =>
+      setFinanceRecipients({
+        to: toDraft.trim(),
+        // Comma or newline separated, because that is how people paste
+        // addresses out of a mail client.
+        cc: ccDraft
+          .split(/[,;\r\n]+/)
+          .map((e) => e.trim())
+          .filter(Boolean),
+      }),
     onSuccess: () => {
-      setRecipientDraft('');
+      setToDraft('');
+      setCcDraft('');
       queryClient.invalidateQueries({ queryKey: ['payroll-recipient'] });
     },
     onError: (err: any) => setError(err?.response?.data?.message ?? 'That address was not accepted.'),
@@ -221,25 +232,42 @@ export function PayrollMonthClose() {
         <p className="apex-text-muted mb-2 text-xs">
           The finalized report is emailed here. Changing it does not affect months already sent.
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="apex-text text-sm font-medium">
-            {recipient.data?.recipient ?? 'Not configured'}
-          </span>
-        </div>
-        <div className="mt-2 flex gap-2">
+        <dl className="mb-3 space-y-1">
+          <div className="flex gap-2 text-sm">
+            <dt className="apex-text-subtle w-10 shrink-0">To</dt>
+            <dd className="apex-text font-medium">
+              {recipient.data?.recipients?.to ?? 'Not configured'}
+            </dd>
+          </div>
+          {(recipient.data?.recipients?.cc?.length ?? 0) > 0 && (
+            <div className="flex gap-2 text-sm">
+              <dt className="apex-text-subtle w-10 shrink-0">Cc</dt>
+              <dd className="apex-text-muted">{recipient.data!.recipients!.cc.join(', ')}</dd>
+            </div>
+          )}
+        </dl>
+
+        <div className="space-y-2">
           <input
             type="email"
-            value={recipientDraft}
-            onChange={(e) => setRecipientDraft(e.target.value)}
-            placeholder="finance@company.com"
-            className="apex-input flex-1 text-sm"
+            value={toDraft}
+            onChange={(e) => setToDraft(e.target.value)}
+            placeholder="Accountant (To) — finance@company.com"
+            className="apex-input w-full text-sm"
+          />
+          <input
+            type="text"
+            value={ccDraft}
+            onChange={(e) => setCcDraft(e.target.value)}
+            placeholder="Cc — accounts@company.com, hr@company.com"
+            className="apex-input w-full text-sm"
           />
           <button
             onClick={() => saveRecipient.mutate()}
-            disabled={saveRecipient.isPending || recipientDraft.trim().length === 0}
+            disabled={saveRecipient.isPending || toDraft.trim().length === 0}
             className="apex-text rounded-lg border border-[var(--border-secondary)] px-3 py-1.5 text-sm disabled:opacity-50"
           >
-            Save
+            Save recipients
           </button>
         </div>
       </div>
@@ -249,7 +277,7 @@ export function PayrollMonthClose() {
           kind={confirming}
           month={month}
           unresolved={unresolved}
-          recipient={recipient.data?.recipient ?? null}
+          recipient={recipient.data?.recipients?.to ?? null}
           pending={act.isPending}
           onCancel={() => setConfirming(null)}
           onConfirm={() => act.mutate(confirming)}

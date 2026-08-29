@@ -58,18 +58,18 @@ export class PayrollReportController {
   }
 
   @Get('recipient')
-  @ApiOperation({ summary: 'The configured Finance recipient' })
+  @ApiOperation({ summary: 'The configured Finance recipients' })
   async recipient(@CurrentUser() user: any) {
-    // Reading is HR-gated in the service through the same policy as everything
-    // else here; the address is company configuration, not personal data.
+    // HR-gated through the same policy as everything else here; the addresses
+    // are company configuration, not personal data.
     await this.reports.status(user, this.currentMonth());
-    return { recipient: await this.reports.recipient() };
+    return { recipients: await this.reports.recipients() };
   }
 
   @Post('recipient')
-  @ApiOperation({ summary: 'Set the Finance recipient' })
-  async setRecipient(@CurrentUser() user: any, @Body() body: { email: string }) {
-    return this.reports.setRecipient(user, body?.email);
+  @ApiOperation({ summary: 'Set the Finance recipients' })
+  async setRecipient(@CurrentUser() user: any, @Body() body: { to: string; cc?: string[] }) {
+    return this.reports.setRecipients(user, body);
   }
 
   private currentMonth(): string {

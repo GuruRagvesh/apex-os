@@ -197,6 +197,7 @@ export class EmailService {
    */
   async sendPayrollAttendanceReport(
     to: string,
+    cc: string[],
     month: string,
     filename: string,
     buffer: Buffer,
@@ -233,6 +234,9 @@ export class EmailService {
       const { error } = await (this.resendClient as any).emails.send({
         from: this.resendFrom,
         to: [to],
+        // The accountant acts on it; the others review. One TO makes whose
+        // action is expected unambiguous.
+        ...(cc.length > 0 ? { cc } : {}),
         subject: `Apex OS — Attendance report ${month}`,
         html,
         attachments: [{ filename, content: buffer }],
@@ -241,7 +245,10 @@ export class EmailService {
         this.logger.error(`Payroll attendance report to ${to} failed: ${(error as any).message}`);
         return false;
       }
-      this.logger.log(`Payroll attendance report for ${month} sent to ${to}`);
+      this.logger.log(
+        `Payroll attendance report for ${month} sent to ${to}` +
+          (cc.length > 0 ? ` (cc ${cc.length})` : ''),
+      );
       return true;
     } catch (err: any) {
       this.logger.error(`Payroll attendance report to ${to} exception: ${err.message}`);

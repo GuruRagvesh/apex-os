@@ -32,8 +32,24 @@ import { buildPayrollWorkbook, workbookFilename, workbookToBuffer } from './payr
  * it were settled, which is the failure this whole workflow exists to prevent.
  */
 
-/** The AppSetting key holding the Finance recipient. Never a literal address. */
+/** The AppSetting key holding the Finance recipients. Never a literal address. */
 export const RECIPIENT_SETTING_KEY = 'attendance.payrollReportRecipient';
+
+/**
+ * Who the finalized report goes to.
+ *
+ * One TO and several CC, because the three parties have different jobs: the
+ * accountant processes payroll from it, the head of finance reviews, and HR
+ * owns the attendance being reported. Sending to all three as TO would blur
+ * whose action is expected.
+ *
+ * Configured, never hardcoded — a leaver on this list must be changeable
+ * without a deploy.
+ */
+export interface ReportRecipients {
+  to: string;
+  cc: string[];
+}
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -205,6 +221,24 @@ export class PayrollReportService {
     };
   }
 
+  /**
+   * The canonical render for a month, always built from the PERSISTED row.
+   *
+   * Finalization and delivery must produce byte-identical workbooks or the hash
+   * comparison compares nothing. Deriving the metadata from two different
+   * places -- the actor at finalization, the row at send -- made the two renders
+   * differ by a name and the guard fired on every send.
+   *
+   * Reading the row both times removes the possibility by construction.
+   */
+  private async renderCanonical(month: string) {
+    const close = await this.prisma.attendanceMonthClose.findUnique({
+      where: { month },
+      include: { finalizedBy: { select: { name: true } } },
+    });
+    return this.render(month, close, (close as any)?.finalizedBy?.name ?? 'HR');
+  }
+
   /** A preview. Generating one changes no official state beyond REVIEWING. */
   async preview(actor: any, month: string): Promise<PreviewResult> {
     this.assertHr(actor);
@@ -289,29 +323,27 @@ export class PayrollReportService {
       );
     }
 
-    const rendered = await this.render(month, null, actor?.name ?? 'HR');
     const finalizedAt = this.tva.now();
+    const finalizedById = actor?.id ?? actor?.sub;
 
-    const close = await this.prisma.attendanceMonthClose.upsert({
+    // Persist the finalization FIRST, then hash the canonical render of what
+    // was persisted. Hashing before the row exists means hashing a workbook
+    // built from different metadata than the one send() will rebuild.
+    const marked = { status: 'FINALIZED' as const, finalizedById, finalizedAt };
+    await this.prisma.attendanceMonthClose.upsert({
       where: { month },
-      create: {
-        month,
-        status: 'FINALIZED',
+      create: { month, ...marked },
+      update: marked,
+    });
+
+    const rendered = await this.renderCanonical(month);
+
+    const close = await this.prisma.attendanceMonthClose.update({
+      where: { month },
+      data: {
         employeeCount: rendered.totals.employees,
         unresolvedDays: rendered.totals.unresolvedDays,
         employeesWithUnresolved: rendered.totals.employeesWithUnresolved,
-        finalizedById: actor?.id ?? actor?.sub,
-        finalizedAt,
-        reportSha256: rendered.sha256,
-        reportByteSize: rendered.buffer.length,
-      },
-      update: {
-        status: 'FINALIZED',
-        employeeCount: rendered.totals.employees,
-        unresolvedDays: rendered.totals.unresolvedDays,
-        employeesWithUnresolved: rendered.totals.employeesWithUnresolved,
-        finalizedById: actor?.id ?? actor?.sub,
-        finalizedAt,
         reportSha256: rendered.sha256,
         reportByteSize: rendered.buffer.length,
       },
@@ -334,23 +366,66 @@ export class PayrollReportService {
       })
       .catch(() => {});
 
-    return close;
-  }
-
-  /** The configured Finance recipient, or null. Never a literal in source. */
-  async recipient(): Promise<string | null> {
-    const value = await this.settings.get(RECIPIENT_SETTING_KEY).catch(() => null);
-    const email = typeof value === 'string' ? value : (value as any)?.email;
-    return typeof email === 'string' && EMAIL_RE.test(email) ? email : null;
-  }
-
-  async setRecipient(actor: any, email: string) {
-    this.assertHr(actor);
-    if (!EMAIL_RE.test(email ?? '')) {
-      throw new BadRequestException('Enter a valid email address');
+    // Delivery follows finalization immediately: HR finalizing IS the decision
+    // to send, and a report that sits finalized-but-unsent is the state where
+    // Finance waits on an email nobody realises they still owe.
+    //
+    // Best-effort on purpose. A send failure must not undo a finalization that
+    // is already correct, so it is recorded as FAILED and left retryable rather
+    // than thrown from here.
+    try {
+      await this.send(actor, month);
+    } catch {
+      /* recorded on the row as FAILED; the caller reads it from status */
     }
-    await this.settings.set(RECIPIENT_SETTING_KEY, email, actor?.id ?? actor?.sub);
-    return { recipient: email };
+
+    return this.prisma.attendanceMonthClose.findUnique({
+      where: { month },
+      include: { finalizedBy: { select: { name: true } } },
+    });
+  }
+
+  /**
+   * The configured recipients, or null when none is usable.
+   *
+   * Tolerates the older shape where the setting held a bare address string, so
+   * a value saved before CC existed still works rather than silently blocking
+   * a month close.
+   */
+  async recipients(): Promise<ReportRecipients | null> {
+    const value = await this.settings.get(RECIPIENT_SETTING_KEY).catch(() => null);
+
+    const to =
+      typeof value === 'string' ? value : ((value as any)?.to ?? (value as any)?.email ?? null);
+    if (typeof to !== 'string' || !EMAIL_RE.test(to)) return null;
+
+    const rawCc = Array.isArray((value as any)?.cc) ? (value as any).cc : [];
+    const cc = rawCc
+      .filter((e: any) => typeof e === 'string' && EMAIL_RE.test(e))
+      // Copying the TO address into CC would deliver twice to one inbox.
+      .filter((e: string) => e.toLowerCase() !== to.toLowerCase());
+
+    return { to, cc: Array.from(new Set(cc.map((e: string) => e.toLowerCase()))) };
+  }
+
+  async setRecipients(actor: any, input: { to: string; cc?: string[] }) {
+    this.assertHr(actor);
+
+    const to = (input?.to ?? '').trim();
+    if (!EMAIL_RE.test(to)) {
+      throw new BadRequestException('Enter a valid address for the accountant');
+    }
+
+    const cc = (input?.cc ?? []).map((e) => (e ?? '').trim()).filter(Boolean);
+    const bad = cc.find((e) => !EMAIL_RE.test(e));
+    if (bad) throw new BadRequestException(`"${bad}" is not a valid email address`);
+
+    await this.settings.set(
+      RECIPIENT_SETTING_KEY,
+      { to, cc },
+      actor?.id ?? actor?.sub,
+    );
+    return { to, cc };
   }
 
   /**
@@ -377,14 +452,14 @@ export class PayrollReportService {
       throw new ForbiddenException(`${month} must be finalized before it can be sent`);
     }
 
-    const to = await this.recipient();
-    if (!to) {
+    const people = await this.recipients();
+    if (!people) {
       throw new BadRequestException(
         'No Finance recipient is configured. Set one before sending the payroll report.',
       );
     }
 
-    const rendered = await this.render(month, close, close.finalizedBy?.name ?? 'HR');
+    const rendered = await this.renderCanonical(month);
     if (close.reportSha256 && rendered.sha256 !== close.reportSha256) {
       throw new ForbiddenException(
         'Attendance has changed since this month was finalized, so the report no longer matches ' +
@@ -396,7 +471,8 @@ export class PayrollReportService {
     let delivered = false;
     try {
       delivered = await this.email.sendPayrollAttendanceReport(
-        to,
+        people.to,
+        people.cc,
         month,
         filename,
         rendered.buffer,
@@ -416,8 +492,10 @@ export class PayrollReportService {
         ? {
             status: 'SENT',
             // Copied at send time: changing the setting next month must not
-            // rewrite who an already-sent report went to.
-            recipientEmail: to,
+            // rewrite who an already-sent report went to. The CC list is
+            // recorded alongside it so "who received this" is answerable from
+            // the row rather than from the mail provider.
+            recipientEmail: [people.to, ...people.cc].join(', '),
             sentAt: this.tva.now(),
             deliveryStatus: 'SENT',
           }
@@ -432,7 +510,12 @@ export class PayrollReportService {
         action: delivered ? 'PAYROLL_REPORT_SENT' : 'PAYROLL_REPORT_SEND_FAILED',
         fromState: 'FINALIZED',
         toState: delivered ? 'SENT' : 'FINALIZED',
-        metadata: { month, recipient: to, reportSha256: close.reportSha256 },
+        metadata: {
+          month,
+          to: people.to,
+          cc: people.cc,
+          reportSha256: close.reportSha256,
+        },
       })
       .catch(() => {});
 

@@ -74,12 +74,24 @@ export async function sendToFinance(month: string): Promise<MonthClose> {
   return r(api.post('/attendance/payroll/send', { month }));
 }
 
-export async function getFinanceRecipient(): Promise<{ recipient: string | null }> {
+/**
+ * Who the finalized report goes to.
+ *
+ * One TO and several CC, because the parties have different jobs: the
+ * accountant processes payroll from it, the head of finance reviews, HR owns
+ * the attendance. Sending to all as TO would blur whose action is expected.
+ */
+export interface ReportRecipients {
+  to: string;
+  cc: string[];
+}
+
+export async function getFinanceRecipients(): Promise<{ recipients: ReportRecipients | null }> {
   return r(api.get('/attendance/payroll/recipient'));
 }
 
-export async function setFinanceRecipient(email: string) {
-  return r(api.post('/attendance/payroll/recipient', { email }));
+export async function setFinanceRecipients(input: ReportRecipients) {
+  return r(api.post('/attendance/payroll/recipient', input));
 }
 
 /**
