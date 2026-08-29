@@ -33,7 +33,13 @@ function build(over: any = {}) {
     attendanceRegularization: { findMany: jest.fn().mockResolvedValue([]) },
     leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
     attendanceMonthClose: {
-      findUnique: jest.fn(async ({ where }: any) => closes.get(where.month) ?? null),
+      findUnique: jest.fn(async ({ where }: any) => {
+        const row = closes.get(where.month);
+        if (!row) return null;
+        // Production's findUnique includes the finalizedBy relation; the
+        // canonical render reads its name, so the fixture must supply it too.
+        return { finalizedBy: row.finalizedById ? { name: 'Priya' } : null, ...row };
+      }),
       upsert: jest.fn(async ({ where, create, update }: any) => {
         const existing = closes.get(where.month);
         const row = existing ? { ...existing, ...update } : { id: 'mc-1', ...create };
@@ -167,6 +173,71 @@ describe('every figure is derived, never supplied', () => {
   });
 });
 
+describe('finalizing delivers, and a failed delivery does not undo it', () => {
+  // HR finalizing IS the decision to send. A report sitting finalized-but-unsent
+  // is the state where Finance waits on an email nobody realises they owe.
+
+  it('sends immediately after finalization', async () => {
+    const { service, closes, sent } = build();
+    await service.finalize(HR, '2026-08');
+
+    expect(sent).toHaveLength(1);
+    expect(closes.get('2026-08').status).toBe('SENT');
+  });
+
+  it('keeps the finalization when delivery fails', async () => {
+    // The month IS correctly finalized. Undoing that because an email bounced
+    // would throw away a decision HR already made correctly.
+    const { service, closes } = build({ sendOk: false });
+    await service.finalize(HR, '2026-08');
+    const row = closes.get('2026-08');
+
+    expect(row.status).toBe('FINALIZED');
+    expect(row.deliveryStatus).toBe('FAILED');
+    expect(row.finalizedAt).toEqual(NOW);
+  });
+
+  it('does not throw out of finalize when the send fails', async () => {
+    // Finalization succeeded; reporting it as an error would be misleading.
+    const { service } = build({ sendOk: false });
+
+    await expect(service.finalize(HR, '2026-08')).resolves.toBeTruthy();
+  });
+
+  it('still finalizes when no recipient is configured', async () => {
+    // Not being able to deliver is not a reason to refuse the close. HR can
+    // configure a recipient and retry.
+    const { service, closes } = build({ recipient: null });
+    await service.finalize(HR, '2026-08');
+
+    expect(closes.get('2026-08').status).toBe('FINALIZED');
+  });
+
+  it('addresses one TO and the configured CC list', async () => {
+    const { service, sent } = build({
+      recipient: { to: 'finance@x.com', cc: ['accounts@x.com', 'hr@x.com'] },
+    });
+    await service.finalize(HR, '2026-08');
+    const [to, cc] = sent[0];
+
+    expect(to).toBe('finance@x.com');
+    expect(cc).toEqual(['accounts@x.com', 'hr@x.com']);
+  });
+
+  it('records every recipient on the row, not only the TO', async () => {
+    // "Who received this" must be answerable from the record rather than from
+    // the mail provider.
+    const { service, closes } = build({
+      recipient: { to: 'finance@x.com', cc: ['accounts@x.com', 'hr@x.com'] },
+    });
+    await service.finalize(HR, '2026-08');
+
+    expect(closes.get('2026-08').recipientEmail).toBe(
+      'finance@x.com, accounts@x.com, hr@x.com',
+    );
+  });
+});
+
 describe('sending is explicit and honest', () => {
   const finalized = {
     month: '2026-08',
@@ -240,25 +311,67 @@ describe('sending is explicit and honest', () => {
   });
 });
 
-describe('the Finance recipient is configuration, not source', () => {
-  it('reads from the settings key', async () => {
+describe('the Finance recipients are configuration, not source', () => {
+  it('reads a bare address saved before CC existed', async () => {
+    // Tolerating the older shape matters: a value stored before this change
+    // must not silently block a month close.
     const { service } = build();
 
-    expect(await service.recipient()).toBe('finance@technoedge.example');
+    expect(await service.recipients()).toEqual({ to: 'finance@technoedge.example', cc: [] });
     expect(RECIPIENT_SETTING_KEY).toBe('attendance.payrollReportRecipient');
+  });
+
+  it('reads one TO and several CC', async () => {
+    const { service } = build({
+      recipient: { to: 'finance@x.com', cc: ['accounts@x.com', 'hr@x.com'] },
+    });
+
+    expect(await service.recipients()).toEqual({
+      to: 'finance@x.com',
+      cc: ['accounts@x.com', 'hr@x.com'],
+    });
+  });
+
+  it('never copies the TO address into CC', async () => {
+    // Otherwise the accountant receives it twice.
+    const { service } = build({
+      recipient: { to: 'finance@x.com', cc: ['FINANCE@x.com', 'hr@x.com'] },
+    });
+
+    expect((await service.recipients())!.cc).toEqual(['hr@x.com']);
+  });
+
+  it('drops an unusable CC rather than failing the whole send', async () => {
+    const { service } = build({ recipient: { to: 'finance@x.com', cc: ['nonsense', 'hr@x.com'] } });
+
+    expect((await service.recipients())!.cc).toEqual(['hr@x.com']);
+  });
+
+  it('returns null when the TO address is unusable', async () => {
+    // No TO means nobody is being asked to act, so there is nothing to send.
+    const { service } = build({ recipient: { to: 'nonsense', cc: ['hr@x.com'] } });
+
+    expect(await service.recipients()).toBeNull();
   });
 
   it('validates before storing', async () => {
     const { service } = build();
 
-    await expect(service.setRecipient(HR, 'nope')).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.setRecipient(HR, 'a@b.co')).resolves.toEqual({ recipient: 'a@b.co' });
+    await expect(service.setRecipients(HR, { to: 'nope' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(
+      service.setRecipients(HR, { to: 'a@b.co', cc: ['bad'] }),
+    ).rejects.toThrow(/not a valid email/i);
+    await expect(
+      service.setRecipients(HR, { to: 'a@b.co', cc: ['c@d.co'] }),
+    ).resolves.toEqual({ to: 'a@b.co', cc: ['c@d.co'] });
   });
 
-  it('lets only HR change it', async () => {
+  it('lets only HR change them', async () => {
     const { service } = build();
 
-    await expect(service.setRecipient(EMPLOYEE, 'a@b.co')).rejects.toBeInstanceOf(
+    await expect(service.setRecipients(EMPLOYEE, { to: 'a@b.co' })).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });
