@@ -7,7 +7,7 @@
  * The frontend has no test runner, so the guarantees below are checked
  * statically, the same way the single-Workday-surface rule is.
  *
- * Eight rules, each protecting something that has actually gone wrong or would
+ * Eleven rules, each protecting something that has actually gone wrong or would
  * be silent if it did:
  *
  *  1. ONE DAY SURFACE. Selecting a date opens the drawer. The old inline
@@ -40,7 +40,7 @@
  *     validator.
  *
  * Node built-ins only. Reads files, touches nothing else.
- * Exit 0 = all eight hold. Exit 1 = anything else.
+ * Exit 0 = all eleven hold. Exit 1 = anything else.
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -50,6 +50,10 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const FILES = {
+  punchModal: 'frontend/components/attendance/PunchModal.tsx',
+  camera: 'frontend/components/attendance/useAttendanceCamera.ts',
+  mobilePunch: 'frontend/app/attendance/mobile-punch/[handoffId]/page.tsx',
+
   calendar: 'frontend/components/attendance/AttendanceCalendar.tsx',
   detail: 'frontend/components/attendance/AttendanceDayDetail.tsx',
   drawer: 'frontend/components/attendance/AttendanceDrawer.tsx',
@@ -76,6 +80,9 @@ const card = read('card');
 const summary = read('summary');
 const profileRoute = read('profileRoute');
 const profileScreen = read('profileScreen');
+const punchModal = read('punchModal');
+const camera = read('camera');
+const mobilePunch = read('mobilePunch');
 
 // ── Rule 1: one day surface ────────────────────────────────────────────────
 if (!/<AttendanceDrawer\b/.test(calendar)) {
@@ -195,6 +202,46 @@ if (!/isError: activityFailed/.test(detail) || !/failed=\{activityFailed\}/.test
   failures.push(
     'AttendanceDayDetail does not distinguish a failed activity load from an empty one.',
   );
+}
+
+
+// -- Rule 9: the capture rules are WIRED, not merely tested ------------------
+// location-acquisition.ts and frame-quality.ts are pure and covered, but a
+// tested helper nothing imports protects nobody. Both routes must consume them.
+if (!/useLocationAcquisition\(/.test(punchModal)) {
+  failures.push('PunchModal does not use useLocationAcquisition(); the location fix is not wired.');
+}
+if (!/useLocationAcquisition\(/.test(mobilePunch)) {
+  failures.push('The mobile punch page does not use useLocationAcquisition().');
+}
+if (/useGeolocation\(/.test(punchModal)) {
+  failures.push('PunchModal still uses the old one-shot useGeolocation().');
+}
+for (const fn of ['assessReadiness', 'judgeFrame', 'measureFrame']) {
+  if (!camera.includes(fn + '(')) {
+    failures.push(`useAttendanceCamera does not call ${fn}(); the frame gate is not wired.`);
+  }
+}
+
+// -- Rule 10: the camera cannot fabricate a frame ---------------------------
+// `videoWidth || 1280` turned "no frame" into a full-size black JPEG that was
+// accepted as attendance evidence. Its return in any form is a defect.
+if (/videoWidth\s*\|\|/.test(camera) || /videoHeight\s*\|\|/.test(camera)) {
+  failures.push('useAttendanceCamera fabricates canvas dimensions again; zero means no frame.');
+}
+// A swallowed play() failure followed by an unconditional ready is the other
+// half of the same defect.
+if (/play\?\.\(\)\.catch\(\(\)\s*=>\s*\{\s*\}\)/.test(camera)) {
+  failures.push('useAttendanceCamera swallows a failed play(); playback failure must stop the camera.');
+}
+
+// -- Rule 11: the phone route stays reachable -------------------------------
+if (!/<PunchHandoffQr\b/.test(punchModal)) {
+  failures.push('PunchModal does not offer the phone QR route.');
+}
+// The raw token must never become a path segment or query parameter.
+if (/mobile-punch\/\$\{[^}]*\}\/\$\{/.test(punchModal) || /token=\$\{[^}]*\}&/.test(punchModal)) {
+  failures.push('The handoff token appears in a URL path or query; it belongs in the fragment.');
 }
 
 // ── Rule 6: no platforms -> frontend import ────────────────────────────────

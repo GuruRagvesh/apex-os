@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AttendanceCamera } from './AttendanceCamera';
-import { useGeolocation } from './useGeolocation';
+import { useLocationAcquisition } from './useLocationAcquisition';
+import { PunchHandoffQr } from './PunchHandoffQr';
 import { newIdempotencyKey, submitPunch, type PunchResult, type PunchType } from './punch-api';
 import { ModalPortal } from '../ui/ModalPortal';
 
@@ -42,7 +43,7 @@ export function PunchModal({
   onClose: () => void;
   onPunched: (result: PunchResult) => void;
 }) {
-  const geo = useGeolocation();
+  const geo = useLocationAcquisition();
   const [phase, setPhase] = useState<Phase>('location');
   const [error, setError] = useState<string | null>(null);
   const [canRetry, setCanRetry] = useState(false);
@@ -61,11 +62,11 @@ export function PunchModal({
   }, []);
 
   useEffect(() => {
-    if (geo.status === 'ready') setPhase('photo');
-  }, [geo.status]);
+    if (geo.phase === 'ready') setPhase('photo');
+  }, [geo.phase]);
 
   const send = useCallback(async () => {
-    const reading = geo.reading;
+    const reading = geo.sample;
     const photoAssetId = photoAssetIdRef.current;
     // Belt and braces: neither can be missing by this point, and neither has a
     // safe default worth inventing.
@@ -112,7 +113,7 @@ export function PunchModal({
             : 'The punch was not accepted.',
       );
     }
-  }, [geo.reading, onPunched, type]);
+  }, [geo.sample, onPunched, type]);
 
   const handleCaptured = useCallback(
     (photoAssetId: string) => {
@@ -123,13 +124,15 @@ export function PunchModal({
     [send],
   );
 
-  const geoBlocked =
-    geo.status === 'denied' || geo.status === 'unavailable' || geo.status === 'timeout';
+  // One flag per real fault, not one flag for every fault. A timeout is not
+  // a refused permission, and telling an employee their location is off when
+  // it is merely slow is what made this undiagnosable.
+  const geoBlocked = geo.phase === 'failed';
 
   return (
     <ModalPortal>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-gray-900">
+      <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl dark:bg-gray-900">
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
@@ -150,35 +153,56 @@ export function PunchModal({
         </div>
 
         {phase === 'location' && (
-          <div className="py-6 text-center">
-            {geoBlocked ? (
-              <>
-                <p className="text-sm font-medium text-red-600 dark:text-red-400">{geo.error}</p>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  A punch cannot be recorded without a location.
+          <div className="grid gap-5 md:grid-cols-2 md:divide-x md:divide-[var(--border-secondary)]">
+            <div className="py-6 text-center md:pr-5">
+              {geoBlocked ? (
+                <>
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                    {geo.message}
+                  </p>
+                  {/* Only a refused permission is worth explaining as a setting.
+                      A timeout or an unavailable position is transient, and the
+                      phone beside it is usually the faster answer. */}
+                  {!geo.terminal && (
+                    <button
+                      onClick={() => void geo.locate()}
+                      className="mt-4 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white dark:bg-gray-100 dark:text-gray-900"
+                    >
+                      Try again
+                    </button>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  Getting your location…
                 </p>
-                <button
-                  onClick={() => void geo.locate()}
-                  className="mt-4 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white dark:bg-gray-100 dark:text-gray-900"
-                >
-                  Try again
-                </button>
-              </>
-            ) : (
-              <p className="text-sm text-gray-600 dark:text-gray-300">Getting your location…</p>
-            )}
+              )}
+            </div>
+
+            <div className="md:pl-5">
+              <PunchHandoffQr type={type} onCompleted={onClose} />
+            </div>
           </div>
         )}
 
         {phase === 'photo' && (
-          <>
-            <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-              Location captured
-              {geo.reading?.accuracyMeters != null &&
-                ` · accurate to about ${Math.round(geo.reading.accuracyMeters)} m`}
-            </p>
-            <AttendanceCamera onCaptured={handleCaptured} onCancel={onClose} />
-          </>
+          <div className="grid gap-5 md:grid-cols-2 md:divide-x md:divide-[var(--border-secondary)]">
+            <div className="md:pr-5">
+              <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                Location captured
+                {geo.sample?.accuracyMeters != null &&
+                  ` · accurate to about ${Math.round(geo.sample.accuracyMeters)} m`}
+              </p>
+              <AttendanceCamera onCaptured={handleCaptured} onCancel={onClose} />
+            </div>
+
+            {/* Kept visible rather than shown only on failure: a laptop whose
+                camera is refused mid-flow should not have to start again to
+                find the phone route. */}
+            <div className="md:pl-5">
+              <PunchHandoffQr type={type} onCompleted={onClose} />
+            </div>
+          </div>
         )}
 
         {phase === 'submitting' && (

@@ -18,11 +18,58 @@ import { ConfigService } from '@nestjs/config';
 
 const PUNE = { latitude: 18.5204, longitude: 73.8567 };
 
-const jpeg = (n = 64) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n)]);
-const png = (n = 64) =>
-  Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(n)]);
-const webp = (n = 64) =>
-  Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP'), Buffer.alloc(n)]);
+// Real headers, not magic bytes with padding. The previous fixtures were a
+// signature followed by zeroes -- not decodable as an image at all -- which is
+// precisely what the server-side header check now rejects, and what a client
+// could previously upload as a punch photo.
+const WIDTH = 640;
+const HEIGHT = 480;
+
+const jpeg = (n = 64) => {
+  const sof = Buffer.alloc(8);
+  sof.writeUInt16BE(11, 0); // segment length
+  sof.writeUInt8(8, 2); // precision
+  sof.writeUInt16BE(HEIGHT, 3);
+  sof.writeUInt16BE(WIDTH, 5);
+  sof.writeUInt8(3, 7); // components
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]), // SOI
+    Buffer.from([0xff, 0xc0]), // SOF0
+    sof,
+    Buffer.alloc(n),
+  ]);
+};
+
+const png = (n = 64) => {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(WIDTH, 0);
+  ihdr.writeUInt32BE(HEIGHT, 4);
+  ihdr.writeUInt8(8, 8); // bit depth
+  ihdr.writeUInt8(2, 9); // colour type
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    (() => {
+      const len = Buffer.alloc(4);
+      len.writeUInt32BE(13, 0);
+      return len;
+    })(),
+    Buffer.from('IHDR'),
+    ihdr,
+    Buffer.alloc(n),
+  ]);
+};
+
+const webp = (n = 64) => {
+  const head = Buffer.alloc(30);
+  head.write('RIFF', 0, 'ascii');
+  head.writeUInt32LE(22 + n, 4);
+  head.write('WEBP', 8, 'ascii');
+  head.write('VP8 ', 12, 'ascii');
+  head.writeUInt32LE(10, 16);
+  head.writeUInt16LE(WIDTH & 0x3fff, 26);
+  head.writeUInt16LE(HEIGHT & 0x3fff, 28);
+  return Buffer.concat([head, Buffer.alloc(n)]);
+};
 const svg = () => Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
 const pdf = () => Buffer.concat([Buffer.from('%PDF-1.7'), Buffer.alloc(32)]);
 
@@ -76,6 +123,47 @@ function photoRig(opts: { enabled?: boolean; configured?: boolean } = {}) {
     prisma, storage, created,
   };
 }
+
+describe('the server proves the bytes are an image, not just labelled one', () => {
+  // Client-side blur and darkness checks are a UX gate and can be bypassed by
+  // not using the browser. What a client cannot be trusted on is whether the
+  // upload is an image at all, so the server reads the header itself.
+  //
+  // Header parsing only: decoding pixels would need a large native module and
+  // would buy analysis the client already does adequately.
+
+  it('rejects a correct signature followed by nothing decodable', async () => {
+    const rig = photoRig();
+    const stub = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
+
+    await expect(
+      rig.service.upload('emp-1', file(stub, 'image/jpeg')),
+    ).rejects.toThrow(/could not be read as an image/i);
+  });
+
+  it('rejects an image far too small to be a camera frame', async () => {
+    const rig = photoRig();
+    const tiny = Buffer.alloc(30);
+    tiny.write('RIFF', 0, 'ascii');
+    tiny.write('WEBP', 8, 'ascii');
+    tiny.write('VP8 ', 12, 'ascii');
+    tiny.writeUInt16LE(8, 26);
+    tiny.writeUInt16LE(8, 28);
+
+    await expect(
+      rig.service.upload('emp-1', file(tiny, 'image/webp')),
+    ).rejects.toThrow(/at least/i);
+  });
+
+  it('rejects a truncated header rather than reading past it', async () => {
+    const rig = photoRig();
+    const cut = png().subarray(0, 12);
+
+    await expect(
+      rig.service.upload('emp-1', file(cut, 'image/png')),
+    ).rejects.toThrow(/could not be read as an image/i);
+  });
+});
 
 describe('PunchPhotoService (PE-3)', () => {
   describe('accepted formats', () => {
