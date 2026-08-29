@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { uploadPunchPhoto } from './punch-photo-api';
+import {
+  assessReadiness,
+  judgeFrame,
+  measureFrame,
+  type CameraReadiness,
+  type FrameVerdict,
+} from './frame-quality';
 
 /**
  * Live camera capture for attendance punch (PE-3).
@@ -35,6 +42,59 @@ export interface AttendanceCameraState {
   retake: () => void;
   upload: () => Promise<string | null>;
   stop: () => void;
+}
+
+/** Longest edge used for quality measurement. Enough detail, little work. */
+const QUALITY_SAMPLE_EDGE = 240;
+
+/**
+ * Measures the drawn frame at a reduced size.
+ *
+ * Sharpness is scale-sensitive, so the sample edge is fixed rather than a
+ * ratio: every frame is judged at the same resolution whatever the camera
+ * reports, or a 4K webcam and a 640x480 one would be held to different bars.
+ */
+function judgeCanvas(source: HTMLCanvasElement, _ctx: CanvasRenderingContext2D): FrameVerdict {
+  try {
+    const scale = Math.min(1, QUALITY_SAMPLE_EDGE / Math.max(source.width, source.height));
+    const w = Math.max(1, Math.round(source.width * scale));
+    const h = Math.max(1, Math.round(source.height * scale));
+
+    const small = document.createElement('canvas');
+    small.width = w;
+    small.height = h;
+    const sctx = small.getContext('2d', { willReadFrequently: true });
+    if (!sctx) return 'UNREADABLE';
+
+    sctx.drawImage(source, 0, 0, w, h);
+    const data = sctx.getImageData(0, 0, w, h).data;
+    return judgeFrame(measureFrame(data, w, h));
+  } catch {
+    // getImageData throws on a tainted canvas. A frame that cannot be read
+    // cannot be judged, and unjudged is not the same as acceptable.
+    return 'UNREADABLE';
+  }
+}
+
+function readinessMessage(readiness: CameraReadiness): string {
+  const text: Record<string, string> = {
+    NO_STREAM: 'The camera is not running. Try again, or use your phone.',
+    TRACK_ENDED: 'The camera stopped. Another app may have taken it.',
+    NOT_PLAYING: 'The camera preview is not playing. Try again.',
+    NO_FRAME_DATA: 'The camera has not produced a picture yet. Wait a moment and try again.',
+    ZERO_DIMENSIONS: 'The camera is not producing a picture. Try again, or use your phone.',
+  };
+  return text[readiness] ?? 'The camera is not ready.';
+}
+
+function frameMessage(verdict: FrameVerdict): string {
+  const text: Record<string, string> = {
+    BLANK: 'The camera view is not clear. Uncover the camera and try again.',
+    TOO_DARK: 'The picture is too dark. Move to better lighting and try again.',
+    TOO_BLURRY: 'The picture is too blurry. Hold the device steady and try again.',
+    UNREADABLE: 'The picture could not be read. Try again.',
+  };
+  return text[verdict] ?? 'The picture could not be used. Try again.';
 }
 
 export function useAttendanceCamera(): AttendanceCameraState {
@@ -82,9 +142,26 @@ export function useAttendanceCamera(): AttendanceCameraState {
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play?.().catch(() => {});
+
+      // A swallowed play() failure followed by an unconditional 'ready' is how
+      // a covered or blocked camera produced a black JPEG that was accepted as
+      // attendance evidence. Playback must actually succeed.
+      if (!videoRef.current) {
+        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        setStatus('error');
+        setError('The camera preview could not be attached.');
+        return;
+      }
+
+      videoRef.current.srcObject = stream;
+      try {
+        await videoRef.current.play?.();
+      } catch {
+        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        streamRef.current = null;
+        setStatus('error');
+        setError('The camera preview could not start. Try again, or use your phone.');
+        return;
       }
       setStatus('ready');
     } catch (err: any) {
@@ -107,9 +184,20 @@ export function useAttendanceCamera(): AttendanceCameraState {
     const video = videoRef.current;
     if (!video || status !== 'ready') return null;
 
+    // Re-checked at the moment of capture: the stream can stop between the
+    // preview looking fine and the button being pressed.
+    const readiness = assessReadiness(video, streamRef.current?.getVideoTracks() ?? null);
+    if (readiness !== 'READY') {
+      setStatus('error');
+      setError(readinessMessage(readiness));
+      return null;
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    // No `|| 1280` fallback. Zero dimensions mean no frame exists, and
+    // substituting a default size is what manufactured the black image.
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       setStatus('error');
@@ -117,6 +205,17 @@ export function useAttendanceCamera(): AttendanceCameraState {
       return null;
     }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Judge the frame that was actually drawn, not the one the preview showed.
+    // Downscaled first: quality is a whole-image property and measuring every
+    // pixel of a 1280x720 frame on a phone is needless work.
+    const verdict = judgeCanvas(canvas, ctx);
+    if (verdict !== 'OK') {
+      setStatus('ready');
+      setError(frameMessage(verdict));
+      return null;
+    }
+    setError(null);
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.85),

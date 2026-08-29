@@ -763,6 +763,13 @@ describe('AR-1 correction lifecycle', () => {
   });
 
   it('37. the controller exposes no route that edits raw evidence', () => {
+    // Pinned deliberately: every route here is another way attendance can
+    // change, so an addition should be a decision rather than a drift.
+    //
+    // manualRecovery is the outage path. It creates a REGULARIZATION -- the
+    // same reviewable object an employee request creates -- and changes no
+    // official attendance itself; only hrApprove does. It writes no punch
+    // evidence, so the rule this test protects still holds.
     const surface = Object.getOwnPropertyNames(RegularizationController.prototype).sort();
     expect(surface).toEqual([
       'constructor',
@@ -771,6 +778,7 @@ describe('AR-1 correction lifecycle', () => {
       'hrApprove',
       'listMine',
       'managerApprove',
+      'manualRecovery',
       'pending',
       'reject',
       'rethrow',

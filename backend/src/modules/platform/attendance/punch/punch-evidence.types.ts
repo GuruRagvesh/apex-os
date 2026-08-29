@@ -67,6 +67,16 @@ export interface SubmitPunchEvidenceInput {
   deviceMetadata?: Record<string, any> | null;
   /** Opaque id returned by POST /attendance/punch-photo. */
   photoAssetId?: string | null;
+
+  /**
+   * Set only by the phone finishing a handoff.
+   *
+   * The server claims the handoff and takes the punch's identity, intent and
+   * idempotency key FROM THE ROW, not from this body — so a phone cannot punch
+   * for someone else or flip an in to an out by editing the request.
+   */
+  handoffId?: string | null;
+  handoffToken?: string | null;
 }
 
 /**

@@ -20,6 +20,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../../shared/decorators/current-user.decorator';
 import { PunchEvidenceService } from './punch-evidence.service';
+import { PunchHandoffService } from './punch-handoff.service';
 import { PunchPhotoService, MAX_PHOTO_BYTES } from './punch-photo.service';
 import {
   PunchContextInvariantError,
@@ -51,6 +52,7 @@ export class PunchEvidenceController {
   constructor(
     private readonly punchEvidence: PunchEvidenceService,
     private readonly punchPhoto: PunchPhotoService,
+    private readonly handoff: PunchHandoffService,
   ) {}
 
   /**
@@ -69,9 +71,33 @@ export class PunchEvidenceController {
   ) {
     const userId = user?.id ?? user?.sub;
     try {
-      return await this.punchEvidence.submit(userId, body, {
+      // A phone finishing a handoff claims it FIRST. The claim is the
+      // concurrency control: it verifies the session owns the handoff, that it
+      // is still WAITING and unexpired, and returns the intent and idempotency
+      // key from the row. Nothing about who is punching, or whether it is an in
+      // or an out, is read from the request body on this path.
+      let effective = body;
+      let claimedHandoffId: string | null = null;
+
+      if (body?.handoffId && body?.handoffToken) {
+        const claim = await this.handoff.claim(body.handoffId, body.handoffToken, userId);
+        claimedHandoffId = body.handoffId;
+        effective = {
+          ...body,
+          type: claim.intent,
+          idempotencyKey: claim.idempotencyKey,
+          source: 'MOBILE',
+        };
+      }
+
+      const result = await this.punchEvidence.submit(userId, effective, {
         ipAddress: req?.ip ?? req?.headers?.['x-forwarded-for'] ?? null,
       });
+
+      if (claimedHandoffId && (result as any)?.id) {
+        await this.handoff.attachEvidence(claimedHandoffId, (result as any).id);
+      }
+      return result;
     } catch (err) {
       // Mapped explicitly so each failure reaches the client as a meaningful
       // status rather than an opaque 500.

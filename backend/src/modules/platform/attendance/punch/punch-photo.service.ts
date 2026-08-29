@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { SettingsService } from '../../settings/settings.service';
 import { PunchPhotoStorage } from './punch-photo.storage';
+import { IMAGE_REJECTION_TEXT, checkPunchPhotoBytes } from './image-header';
 import {
   ATTENDANCE_V2_DEFAULTS,
   ATTENDANCE_V2_SETTING_KEY,
@@ -80,6 +81,19 @@ export class PunchPhotoService {
       throw new PunchPhotoValidationError(
         `Photo content does not match its declared type "${file.mimetype}".`,
       );
+    }
+
+    // The client refuses blank, dark and blurred frames, but a client-side gate
+    // is a user-experience control, not a security boundary: anything the
+    // browser decides can be bypassed by not using the browser. So the server
+    // independently proves the bytes are a real image of a plausible size.
+    //
+    // Header parsing only. Decoding pixels would need a large native module and
+    // would buy analysis the client already does adequately; what a client
+    // cannot be trusted on is whether the file is an image at all.
+    const image = checkPunchPhotoBytes(file.buffer);
+    if (!image.ok) {
+      throw new PunchPhotoValidationError(IMAGE_REJECTION_TEXT[image.rejection!]);
     }
   }
 
