@@ -548,3 +548,86 @@ describe('archival retires the login and keeps the person', () => {
     expect(src).not.toContain('Personal data anonymized');
   });
 });
+
+describe('the archive marker and the deactivation commit together', () => {
+  // The audit event IS the archived marker, so these two writes must be
+  // atomic. Previously the event went through eventLogger.log() -- fire and
+  // forget, and swallowing its own errors -- so any failure left an account
+  // deactivated with no marker: indistinguishable from an ordinary
+  // deactivation, invisible to the idempotency check, and a retry would have
+  // produced a second vault object and a second round of notifications.
+
+  const read = () =>
+    require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    ) as string;
+
+  const archiveBody = () => {
+    const src = read();
+    const fn = src.slice(src.indexOf('async archiveAfterBackup'));
+    const ends = [fn.indexOf('\n  async ', 10), fn.indexOf('\n  private ', 10)].filter((i) => i > 0);
+    return fn.slice(0, Math.min(...ends));
+  };
+
+  it('both writes happen inside one transaction', () => {
+    const body = archiveBody();
+    const tx = body.slice(body.indexOf('$transaction'));
+    const scope = tx.slice(0, tx.indexOf('\n    });'));
+
+    expect(body).toContain('this.prisma.$transaction');
+    expect(scope).toContain('tx.user.update');
+    expect(scope).toContain("action: 'USER_ARCHIVED_AFTER_BACKUP'");
+  });
+
+  it('the marker is not written through the swallowing logger', () => {
+    // eventLogger.log() catches its own errors and is not awaited, so a
+    // failure there is invisible. State cannot be carried that way.
+    const body = archiveBody();
+    const afterTx = body.slice(body.indexOf('$transaction'));
+
+    expect(afterTx).not.toMatch(/eventLogger\.log\([\s\S]*USER_ARCHIVED_AFTER_BACKUP/);
+    expect(body).not.toMatch(/eventLogger[\s\S]{0,400}USER_ARCHIVED_AFTER_BACKUP[\s\S]{0,400}catch\(\(\) => \{\}\)/);
+  });
+
+  it('the deactivation is never written outside the transaction', () => {
+    const body = archiveBody();
+    // The only isActive write in this method must be the transactional one.
+    const writes = body.match(/user\.update\(\{[^}]*data:\s*\{\s*isActive/g) ?? [];
+    const txWrites = body.match(/tx\.user\.update\(\{[^}]*data:\s*\{\s*isActive/g) ?? [];
+
+    expect(writes.length).toBe(txWrites.length);
+  });
+
+  it('re-checks for a concurrent archival inside the transaction', () => {
+    // Two administrators clicking at once: the check before the transaction
+    // can go stale between reading and writing.
+    const body = archiveBody();
+    const tx = body.slice(body.indexOf('$transaction'));
+    const scope = tx.slice(0, tx.indexOf('\n    });'));
+
+    expect(scope).toContain('operationalEvent.findFirst');
+    expect(scope).toMatch(/throw new BadRequestException/);
+  });
+
+  it('R2 is verified before the transaction opens, and stays outside it', () => {
+    // An object store and Postgres cannot share a transaction. The ordering is
+    // chosen so the survivable failure is the harmless one: a verified backup
+    // with no archival, which is simply retried.
+    const body = archiveBody();
+
+    expect(body.indexOf('archiveToVault(')).toBeGreaterThan(-1);
+    expect(body.indexOf('archiveToVault(')).toBeLessThan(body.indexOf('$transaction'));
+    const tx = body.slice(body.indexOf('$transaction'));
+    const scope = tx.slice(0, tx.indexOf('\n    });'));
+    expect(scope).not.toContain('archiveToVault');
+    expect(scope).not.toContain('sendArchiveBackup');
+  });
+
+  it('the dependency gate runs before anything is generated or uploaded', () => {
+    const body = archiveBody();
+
+    expect(body.indexOf('activeResponsibilities(')).toBeLessThan(body.indexOf('generateBackup('));
+    expect(body.indexOf('activeResponsibilities(')).toBeLessThan(body.indexOf('archiveToVault('));
+  });
+});

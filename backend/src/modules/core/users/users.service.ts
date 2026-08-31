@@ -1071,7 +1071,63 @@ export class UsersService {
     // Erasure remains a separate future operation with its own retention
     // checks and approval, and must never be a side effect of somebody leaving
     // the company or of a duplicate account being retired.
-    await this.prisma.user.update({ where: { id: userId }, data: { isActive: false } });
+    // ONE TRANSACTION. The audit event IS the archived marker now, so the
+    // deactivation and the event must commit together or not at all.
+    //
+    // Before this they could not: the event was written through
+    // eventLogger.log(), which is fire-and-forget AND swallows its own errors.
+    // Any failure there left an account deactivated with no archive marker --
+    // indistinguishable from an ordinary deactivation, invisible to the
+    // idempotency check, and a retry would have produced a second vault object
+    // and a second round of notifications.
+    //
+    // Written straight to operationalEvent rather than through the logger,
+    // because a logger designed never to fail cannot carry state that must.
+    //
+    // R2 stays outside, deliberately: an object store and Postgres cannot share
+    // a transaction, and the ordering is chosen so the survivable failure is
+    // the harmless one -- a verified backup with no archival, which is simply
+    // retried.
+    await this.prisma.$transaction(async (tx) => {
+      // Re-checked INSIDE the transaction: a concurrent request may have
+      // archived between the earlier check and here.
+      const already = await (tx as any).operationalEvent.findFirst({
+        where: {
+          entityType: 'User',
+          entityId: userId,
+          action: { in: ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'] },
+        },
+        select: { id: true },
+      });
+      if (already) {
+        throw new BadRequestException('This account was archived by another request.');
+      }
+
+      await tx.user.update({ where: { id: userId }, data: { isActive: false } });
+
+      await (tx as any).operationalEvent.create({
+        data: {
+          actorId,
+          entityType: 'User',
+          entityId: userId,
+          action: 'USER_ARCHIVED_AFTER_BACKUP',
+          fromState: 'ACTIVE',
+          toState: 'ARCHIVED',
+          metadata: {
+            targetName: user.name,
+            targetEmail: user.email,
+            targetRole: (user as any).role?.name ?? null,
+            provider: vaultResult.provider,
+            bucket: vaultResult.bucket,
+            objectKey: vaultResult.objectKey,
+            sha256: vaultResult.sha256,
+            sizeBytes: vaultResult.sizeBytes,
+            verifiedAt: vaultResult.verifiedAt,
+            backupDeliveredTo: deliveryResult.sent,
+          },
+        },
+      });
+    });
 
     // ── Step 6: Audit logs ────────────────────────────────────────────────────
     await this.logSensitiveAccess(actorId, 'USER_ARCHIVED', userId, {
@@ -1086,26 +1142,9 @@ export class UsersService {
       backupDeliveredTo: deliveryResult.sent,
     });
 
-    this.eventLogger.log({
-      actorId,
-      entityType: 'User',
-      entityId: userId,
-      action: 'USER_ARCHIVED_AFTER_BACKUP' as any,
-      metadata: {
-        // The person, named. This event is the archived marker and the record
-        // of who was retired -- both of which need the real identity.
-        targetName: user.name,
-        targetEmail: user.email,
-        actorRole: (user as any).role?.name ?? null,
-        provider: vaultResult.provider,
-        bucket: vaultResult.bucket,
-        objectKey: vaultResult.objectKey,
-        sha256: vaultResult.sha256,
-        sizeBytes: vaultResult.sizeBytes,
-        verifiedAt: vaultResult.verifiedAt,
-        backupDeliveredTo: deliveryResult.sent,
-      },
-    }).catch(() => {});
+// The archive event is written inside the transaction above, where a
+    // failure can still undo the deactivation. Logging it again here would
+    // record the act twice.
 
     const sentCount = deliveryResult.sent.length;
     return {
