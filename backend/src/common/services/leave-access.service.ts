@@ -79,19 +79,26 @@ export class LeaveAccessService {
     //
     // -- so an HR user holds an ordinary base role and still acts as HR.
     //
-    // DELIBERATELY `approver.isHR`, NOT `isHrOrAdmin()`. The combined helper
-    // would sweep Admin and Super Admin past the ladder too, which would let an
-    // ADMIN approve a SUPER_ADMIN's leave -- authority they never had, expanded
-    // as an accident of fixing something unrelated. Admin keeps exactly its
-    // previous behaviour below: bound by the ladder, exempt from department
-    // scope.
+    // HR AUTHORITY REACHES ADMIN AND BELOW. SUPER ADMIN STAYS PROTECTED.
     //
-    // And `!isAdmin` so the flag can never expand Admin either. Admin already
-    // has its own authority model; isHR represents HR functional authority for
-    // people who are NOT administrators. Setting the flag on an admin account
-    // is refused at the user-management path, but an account that already
-    // carries the combination must not quietly gain ladder immunity from it.
-    if (approver.isHR && !this.access.isAdmin(approver)) return;
+    // The cap is on the TARGET, not the approver, which is what makes this one
+    // rule serve both kinds of HR user:
+    //
+    //   EMPLOYEE + isHR   HR staff       -> everyone up to and including ADMIN
+    //   ADMIN    + isHR   HR ADMIN       -> the same, plus ordinary Admin powers
+    //
+    // Neither can act on a Super Admin. HR is an operational authority over the
+    // workforce; it is not a route to acting on the account that administers
+    // the system, and a flag on an ordinary employee must not become one.
+    //
+    // Note this also closes a gap in the previous revision, where an HR user
+    // bypassed the ladder unconditionally and could therefore approve a Super
+    // Admin's leave.
+    //
+    // DELIBERATELY NOT `isHrOrAdmin()`: that helper is true for a plain ADMIN
+    // with no HR flag, and using it here would let any administrator past the
+    // ladder -- authority they have never had.
+    if (approver.isHR && !this.access.isSuperAdmin(targetUser)) return;
 
     // Everyone else answers to the ladder, Admin and Super Admin included.
     // Self-approval is already refused at the top of this method, so this

@@ -51,6 +51,24 @@ export class AccessPolicyService {
     return Boolean(user?.isHR) || this.isAdmin(user);
   }
 
+  /**
+   * HR ADMIN: an administrator who also carries HR functional authority.
+   *
+   * A COMPOSED authority, not a seventh role. The canonical ladder stays at six
+   * entries and this is derived from two facts already on the account, so
+   * nothing downstream has to learn a new role name:
+   *
+   *   ADMIN            ordinary administrator
+   *   ADMIN + isHR     HR ADMIN -- Admin powers AND the HR set
+   *
+   * Every other HR check in the codebase is `isHR || isAdmin`, so the union
+   * falls out for free; this predicate exists for PRESENTATION and for the few
+   * places that need to name the combination, not to grant anything on its own.
+   */
+  isHrAdmin(user?: UserLike | null): boolean {
+    return this.isAdmin(user) && Boolean(user?.isHR);
+  }
+
   async hydrateUser(user: UserLike | string): Promise<any> {
     const id = typeof user === 'string' ? user : user.id;
     return this.prisma.user.findUnique({

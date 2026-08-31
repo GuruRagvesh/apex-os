@@ -230,6 +230,13 @@ export default function UserProfileScreen() {
   }
 
   const roleName = profile?.role?.name ?? '';
+
+  // HR ADMIN is a COMPOSED authority, not a seventh role: an administrator who
+  // also carries HR functional authority. Presented as one identity because
+  // that is how the company thinks of the person -- while Account & Access
+  // still shows both underlying facts, so nothing is hidden.
+  const isHrAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName) && !!(profile as any)?.isHR;
+  const authorityLabel = isHrAdmin ? 'HR ADMIN' : (profile as any)?.isHR ? 'HR' : roleName;
   const initials = profile?.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   return (
@@ -270,9 +277,12 @@ export default function UserProfileScreen() {
                 <h1 className="text-3xl font-black text-white">{profile?.name}</h1>
                 <p className="text-slate-400 mt-0.5">{profile?.email}</p>
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  {roleName && (
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${ROLE_COLORS[roleName] ?? 'bg-slate-700 text-slate-300'}`}>
-                      {roleName}
+                  {authorityLabel && (
+                    <span
+                      title={isHrAdmin ? `Base role ${roleName} with HR authority` : undefined}
+                      className={`text-xs font-bold px-2 py-1 rounded-full ${isHrAdmin ? 'bg-purple-900/40 text-purple-300' : ROLE_COLORS[roleName] ?? 'bg-slate-700 text-slate-300'}`}
+                    >
+                      {authorityLabel}
                     </span>
                   )}
                   {profile?.department?.name && (

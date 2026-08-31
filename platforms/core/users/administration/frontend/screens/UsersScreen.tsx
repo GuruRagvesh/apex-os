@@ -122,11 +122,13 @@ export default function UsersPage() {
     onError: (err: any) => toast.error(err?.message || 'Archive failed'),
   });
 
-  // Admin roles cannot hold HR authority: the combination is redundant and the
-  // server refuses it.
-  const editIsAdminRole = ['ADMIN', 'SUPER_ADMIN'].includes(
-    (Array.isArray(roles) ? roles : []).find((r: any) => r.id === editForm.roleId)?.name ?? '',
-  );
+  // ADMIN + HR is the HR ADMIN and is allowed. Only SUPER_ADMIN is refused:
+  // it administers the system rather than the workforce, so the flag would
+  // grant it nothing while implying a role it does not hold. The server
+  // refuses it independently.
+  const editIsSuperAdminRole =
+    (Array.isArray(roles) ? roles : []).find((r: any) => r.id === editForm.roleId)?.name ===
+    'SUPER_ADMIN';
 
   const editMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => usersApi.update(id, data),
@@ -444,22 +446,21 @@ export default function UsersPage() {
                 questions: the role decides seniority, and therefore whose leave
                 this person may approve; the flag decides HR reach.
               */}
-              {/* Admin already has company-wide access, so the flag would grant
-                  nothing and imply something it does not. The server refuses
-                  the combination too -- this is the explanation, not the
-                  enforcement. */}
+              {/* ADMIN + HR is the HR ADMIN and is offered normally. Only
+                  SUPER_ADMIN is blocked here, and the server refuses it too --
+                  this is the explanation, not the enforcement. */}
               <label
                 className="flex items-start gap-2.5 rounded-lg border p-3"
                 style={{
                   borderColor: 'var(--border-secondary)',
-                  cursor: editIsAdminRole ? 'not-allowed' : 'pointer',
-                  opacity: editIsAdminRole ? 0.55 : 1,
+                  cursor: editIsSuperAdminRole ? 'not-allowed' : 'pointer',
+                  opacity: editIsSuperAdminRole ? 0.55 : 1,
                 }}
               >
                 <input
                   type="checkbox"
-                  checked={editForm.isHR && !editIsAdminRole}
-                  disabled={editIsAdminRole}
+                  checked={editForm.isHR && !editIsSuperAdminRole}
+                  disabled={editIsSuperAdminRole}
                   onChange={(e) => setEditForm(f => ({ ...f, isHR: e.target.checked }))}
                   className="mt-0.5"
                 />
@@ -468,16 +469,16 @@ export default function UsersPage() {
                     HR authority
                   </span>
                   <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {editIsAdminRole
-                      ? 'Not applicable — this role already has company-wide access.'
-                      : 'Company-wide access to attendance, exceptions, corrections, payroll and the month close. Separate from the role, which decides seniority.'}
+                    {editIsSuperAdminRole
+                      ? 'Not available for Super Admin — that role administers the system, not the workforce.'
+                      : 'Company-wide access to attendance, exceptions, corrections, payroll and the month close. Combine with ADMIN for an HR administrator.'}
                   </span>
                 </span>
               </label>
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || null, departmentId: editForm.departmentId || null, isHR: editIsAdminRole ? false : editForm.isHR } })}
+                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || null, departmentId: editForm.departmentId || null, isHR: editIsSuperAdminRole ? false : editForm.isHR } })}
                 disabled={editMutation.isPending || !editForm.name}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >

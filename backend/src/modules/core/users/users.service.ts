@@ -147,16 +147,20 @@ export class UsersService {
       if (data?.[field] !== undefined) clean[field] = data[field];
     }
 
-    // HR AUTHORITY IS FOR PEOPLE WHO ARE NOT ADMINISTRATORS.
+    // HR AUTHORITY MAY BE COMBINED WITH ANY ROLE EXCEPT SUPER ADMIN.
     //
-    // Admin already has its own authority model, so the combination is
-    // redundant, and a redundant flag is worse than no flag: it reads as though
-    // it grants something. Refused here rather than only disabled in the UI --
-    // a disabled control is a hint, not enforcement, and this route is
-    // reachable directly.
+    // ADMIN + isHR is the HR ADMIN: ordinary Admin powers plus the HR set. That
+    // combination was briefly refused here on the reasoning that it was
+    // redundant; it is not, and the refusal is gone.
+    //
+    // SUPER_ADMIN + isHR stays refused. Super Admin is the account that
+    // administers the system, and HR is an authority over the workforce; the
+    // flag would grant it nothing while implying a workforce role it does not
+    // hold. Nothing in the system reads the combination, so allowing it would
+    // record a fact that means nothing.
     //
     // The role is resolved from the payload when the same request also changes
-    // it, so setting both at once cannot slip through.
+    // it, so setting both at once cannot slip through by reading the old one.
     if (clean.isHR === true) {
       const roleId =
         (clean.roleId as string | undefined) ??
@@ -166,10 +170,9 @@ export class UsersService {
         ? await this.prisma.role.findUnique({ where: { id: roleId }, select: { name: true } })
         : null;
 
-      if (role && ['ADMIN', 'SUPER_ADMIN'].includes(role.name)) {
+      if (role?.name === 'SUPER_ADMIN') {
         throw new BadRequestException(
-          `HR authority is for non-administrator accounts. ${role.name} already has company-wide ` +
-            'access, so the flag would grant nothing and imply something it does not.',
+          'HR authority cannot be combined with SUPER_ADMIN. Use ADMIN for an HR administrator.',
         );
       }
     }
