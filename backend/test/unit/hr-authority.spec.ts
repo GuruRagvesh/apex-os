@@ -408,3 +408,117 @@ describe('the HR flag grants HR authority and nothing else', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('Admin authority is exactly what it was before the HR fix', () => {
+  // The HR correction moved a bypass above the ladder. Using the combined
+  // isHrOrAdmin() helper there would have swept Admin past the ladder too,
+  // letting an ADMIN approve a SUPER_ADMIN's leave -- authority they never
+  // had, expanded as a side effect of fixing something unrelated.
+  //
+  // These pin the pre-fix baseline: Admin is bound by the ladder and exempt
+  // from department scope.
+
+  const leaveOf = (roleName: string, level: number, departmentId = 'dept-eng') => ({
+    id: 'leave-1',
+    userId: 'target-1',
+    status: 'PENDING',
+    user: { id: 'target-1', departmentId, role: { name: roleName, level } },
+  });
+
+  function leaveService(approver: any) {
+    const prisma: any = {
+      user: { findUnique: jest.fn(async () => approver) },
+      managerDeptAccess: { findMany: jest.fn(async () => []) },
+    };
+    const access = new AccessPolicyService(prisma);
+    jest.spyOn(access, 'hydrateUser').mockResolvedValue(approver as any);
+    return new LeaveAccessService(prisma, access);
+  }
+
+  const ADMIN = {
+    id: 'admin-1',
+    isHR: false,
+    departmentId: 'dept-ops',
+    role: { name: ROLES.ADMIN, level: 1 },
+  };
+  const SUPER = {
+    id: 'sa-1',
+    isHR: false,
+    departmentId: 'dept-ops',
+    role: { name: ROLES.SUPER_ADMIN, level: 0 },
+  };
+
+  it('an ADMIN still cannot approve a SUPER_ADMIN’s leave', async () => {
+    // THE REGRESSION THIS FILE EXISTS TO PREVENT.
+    const service = leaveService(ADMIN);
+
+    await expect(
+      service.assertCanApproveReject(ADMIN, leaveOf(ROLES.SUPER_ADMIN, 0), 'approve'),
+    ).rejects.toThrow(/cannot approve/i);
+  });
+
+  it('an ADMIN still cannot approve another ADMIN’s leave', async () => {
+    const service = leaveService(ADMIN);
+
+    await expect(
+      service.assertCanApproveReject(ADMIN, leaveOf(ROLES.ADMIN, 1), 'approve'),
+    ).rejects.toThrow(/cannot approve/i);
+  });
+
+  it('a SUPER_ADMIN still cannot approve another SUPER_ADMIN’s leave', async () => {
+    const service = leaveService(SUPER);
+
+    await expect(
+      service.assertCanApproveReject(SUPER, leaveOf(ROLES.SUPER_ADMIN, 0), 'approve'),
+    ).rejects.toThrow(/cannot approve/i);
+  });
+
+  it('an ADMIN still approves everyone below them, in any department', async () => {
+    // Admin remains exempt from department scope, as before.
+    const service = leaveService(ADMIN);
+
+    for (const [name, level] of [
+      [ROLES.MANAGER, 2],
+      [ROLES.TEAM_LEAD, 3],
+      [ROLES.EMPLOYEE, 4],
+      [ROLES.INTERN, 5],
+    ] as const) {
+      await expect(
+        service.assertCanApproveReject(ADMIN, leaveOf(name, level, 'dept-somewhere-else'), 'approve'),
+      ).resolves.toBeUndefined();
+    }
+  });
+
+  it('a SUPER_ADMIN still approves an ADMIN', async () => {
+    const service = leaveService(SUPER);
+
+    await expect(
+      service.assertCanApproveReject(SUPER, leaveOf(ROLES.ADMIN, 1), 'approve'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('neither can approve their own leave', async () => {
+    for (const actor of [ADMIN, SUPER]) {
+      const service = leaveService(actor);
+      const own = { ...leaveOf(ROLES.ADMIN, 1), userId: actor.id };
+
+      await expect(
+        service.assertCanApproveReject(actor, own, 'approve'),
+      ).rejects.toThrow(/your own leave/i);
+    }
+  });
+
+  it('the bypass reads the HR flag, never the combined admin helper', () => {
+    // Guards the distinction at the source: isHrOrAdmin() at the bypass point
+    // is what silently expanded Admin, and it reads identically at a glance.
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/common/services/leave-access.service.ts'),
+      'utf8',
+    );
+    const body = src.slice(src.indexOf('async assertCanApproveReject'));
+    const upToLadder = body.slice(0, body.indexOf('role.level >='));
+
+    expect(upToLadder).toContain('approver.isHR) return');
+    expect(upToLadder).not.toContain('isHrOrAdmin(approver)) return');
+  });
+});
