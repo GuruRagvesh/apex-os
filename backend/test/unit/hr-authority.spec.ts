@@ -132,11 +132,14 @@ describe('an administrator can appoint HR through the supported path', () => {
     const audit: any[] = [];
     const prisma: any = {
       user: {
+        // Read when isHR is being set, to resolve the resulting base role.
+        findUnique: jest.fn(async () => ({ roleId: 'role-employee' })),
         update: jest.fn(async ({ data }: any) => {
           updates.push(data);
           return { id: 'u-1', password: 'hash', ...data };
         }),
       },
+      role: { findUnique: jest.fn(async () => ({ name: ROLES.EMPLOYEE })) },
     };
     const service = new UsersService(
       prisma,
@@ -518,7 +521,167 @@ describe('Admin authority is exactly what it was before the HR fix', () => {
     const body = src.slice(src.indexOf('async assertCanApproveReject'));
     const upToLadder = body.slice(0, body.indexOf('role.level >='));
 
-    expect(upToLadder).toContain('approver.isHR) return');
+    expect(upToLadder).toContain('approver.isHR');
     expect(upToLadder).not.toContain('isHrOrAdmin(approver)) return');
+  });
+});
+
+describe('the HR flag never expands an administrator', () => {
+  // Admin already has its own authority model. A redundant flag is worse than
+  // no flag: it reads as though it grants something. Two defences --
+  //   1. leave authorization ignores it on an admin
+  //   2. the user-management path refuses to set it on one
+
+  const leaveOf = (roleName: string, level: number) => ({
+    id: 'leave-1',
+    userId: 'target-1',
+    status: 'PENDING',
+    user: { id: 'target-1', departmentId: 'dept-eng', role: { name: roleName, level } },
+  });
+
+  function leaveService(approver: any) {
+    const prisma: any = {
+      user: { findUnique: jest.fn(async () => approver) },
+      managerDeptAccess: { findMany: jest.fn(async () => []) },
+    };
+    const access = new AccessPolicyService(prisma);
+    jest.spyOn(access, 'hydrateUser').mockResolvedValue(approver as any);
+    return new LeaveAccessService(prisma, access);
+  }
+
+  it.each([
+    [ROLES.ADMIN, 1, ROLES.SUPER_ADMIN, 0],
+    [ROLES.ADMIN, 1, ROLES.ADMIN, 1],
+    [ROLES.SUPER_ADMIN, 0, ROLES.SUPER_ADMIN, 0],
+  ])(
+    'a %s with isHR=true is refused a %s exactly as without it',
+    async (actorRole, actorLevel, targetRole, targetLevel) => {
+      const withFlag = {
+        id: 'a-1',
+        isHR: true,
+        departmentId: 'dept-ops',
+        role: { name: actorRole, level: actorLevel },
+      };
+      const withoutFlag = { ...withFlag, isHR: false };
+
+      await expect(
+        leaveService(withFlag).assertCanApproveReject(
+          withFlag,
+          leaveOf(targetRole, targetLevel),
+          'approve',
+        ),
+      ).rejects.toThrow(/cannot approve/i);
+
+      await expect(
+        leaveService(withoutFlag).assertCanApproveReject(
+          withoutFlag,
+          leaveOf(targetRole, targetLevel),
+          'approve',
+        ),
+      ).rejects.toThrow(/cannot approve/i);
+    },
+  );
+
+  it('an ADMIN with the flag still approves everyone below, as before', async () => {
+    const admin = {
+      id: 'a-1',
+      isHR: true,
+      departmentId: 'dept-ops',
+      role: { name: ROLES.ADMIN, level: 1 },
+    };
+
+    await expect(
+      leaveService(admin).assertCanApproveReject(admin, leaveOf(ROLES.MANAGER, 2), 'approve'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('a non-admin HR user is untouched by this', async () => {
+    const hr = {
+      id: 'hr-1',
+      isHR: true,
+      departmentId: 'dept-hr',
+      role: { name: ROLES.EMPLOYEE, level: 4 },
+    };
+
+    await expect(
+      leaveService(hr).assertCanApproveReject(hr, leaveOf(ROLES.MANAGER, 2), 'approve'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('the bypass is guarded by !isAdmin at the source', () => {
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/common/services/leave-access.service.ts'),
+      'utf8',
+    );
+    const body = src.slice(src.indexOf('async assertCanApproveReject'));
+    const upToLadder = body.slice(0, body.indexOf('role.level >='));
+
+    expect(upToLadder).toMatch(/approver\.isHR && !this\.access\.isAdmin\(approver\)\) return/);
+  });
+});
+
+describe('setting HR authority on an administrator is refused', () => {
+  function build(roleName: string) {
+    const updates: any[] = [];
+    const prisma: any = {
+      user: {
+        findUnique: jest.fn(async () => ({ roleId: 'role-1' })),
+        update: jest.fn(async ({ data }: any) => {
+          updates.push(data);
+          return { id: 'u-1', password: 'x', ...data };
+        }),
+      },
+      role: { findUnique: jest.fn(async () => ({ name: roleName })) },
+    };
+    const service = new UsersService(
+      prisma,
+      policy as any,
+      { log: jest.fn(async () => undefined) } as any,
+      {} as any,
+      {} as any,
+    );
+    return { service, updates, prisma };
+  }
+
+  it.each([ROLES.ADMIN, ROLES.SUPER_ADMIN])('refuses it for %s', async (roleName) => {
+    const { service, updates } = build(roleName);
+
+    await expect(service.update('u-1', { isHR: true } as any, 'sa-1')).rejects.toThrow(
+      /non-administrator/i,
+    );
+    expect(updates).toEqual([]);
+  });
+
+  it('refuses it when the same request also promotes them to admin', async () => {
+    // Setting both at once must not slip past by reading the OLD role.
+    const { service, updates } = build(ROLES.ADMIN);
+
+    await expect(
+      service.update('u-1', { roleId: 'role-admin', isHR: true } as any, 'sa-1'),
+    ).rejects.toThrow(/non-administrator/i);
+    expect(updates).toEqual([]);
+  });
+
+  it('allows it for an ordinary role', async () => {
+    const { service, updates } = build(ROLES.EMPLOYEE);
+    await service.update('u-1', { isHR: true } as any, 'sa-1');
+
+    expect(updates[0]).toEqual({ isHR: true });
+  });
+
+  it('does not interfere with clearing the flag on an admin', async () => {
+    // Removing it must always be possible, including to clean up an account
+    // that already carries the combination.
+    const { service, updates } = build(ROLES.ADMIN);
+    await service.update('u-1', { isHR: false } as any, 'sa-1');
+
+    expect(updates[0]).toEqual({ isHR: false });
+  });
+
+  it('does not look up a role when the flag is not being set', async () => {
+    const { service, prisma } = build(ROLES.ADMIN);
+    await service.update('u-1', { name: 'Someone' }, 'sa-1');
+
+    expect(prisma.role.findUnique).not.toHaveBeenCalled();
   });
 });

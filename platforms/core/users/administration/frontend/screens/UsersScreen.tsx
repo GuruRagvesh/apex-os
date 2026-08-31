@@ -122,6 +122,12 @@ export default function UsersPage() {
     onError: (err: any) => toast.error(err?.message || 'Archive failed'),
   });
 
+  // Admin roles cannot hold HR authority: the combination is redundant and the
+  // server refuses it.
+  const editIsAdminRole = ['ADMIN', 'SUPER_ADMIN'].includes(
+    (Array.isArray(roles) ? roles : []).find((r: any) => r.id === editForm.roleId)?.name ?? '',
+  );
+
   const editMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => usersApi.update(id, data),
     onSuccess: () => {
@@ -438,13 +444,22 @@ export default function UsersPage() {
                 questions: the role decides seniority, and therefore whose leave
                 this person may approve; the flag decides HR reach.
               */}
+              {/* Admin already has company-wide access, so the flag would grant
+                  nothing and imply something it does not. The server refuses
+                  the combination too -- this is the explanation, not the
+                  enforcement. */}
               <label
-                className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3"
-                style={{ borderColor: 'var(--border-secondary)' }}
+                className="flex items-start gap-2.5 rounded-lg border p-3"
+                style={{
+                  borderColor: 'var(--border-secondary)',
+                  cursor: editIsAdminRole ? 'not-allowed' : 'pointer',
+                  opacity: editIsAdminRole ? 0.55 : 1,
+                }}
               >
                 <input
                   type="checkbox"
-                  checked={editForm.isHR}
+                  checked={editForm.isHR && !editIsAdminRole}
+                  disabled={editIsAdminRole}
                   onChange={(e) => setEditForm(f => ({ ...f, isHR: e.target.checked }))}
                   className="mt-0.5"
                 />
@@ -453,15 +468,16 @@ export default function UsersPage() {
                     HR authority
                   </span>
                   <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
-                    Company-wide access to attendance, exceptions, corrections, payroll and the
-                    month close. Separate from the role, which decides seniority.
+                    {editIsAdminRole
+                      ? 'Not applicable — this role already has company-wide access.'
+                      : 'Company-wide access to attendance, exceptions, corrections, payroll and the month close. Separate from the role, which decides seniority.'}
                   </span>
                 </span>
               </label>
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || null, departmentId: editForm.departmentId || null, isHR: editForm.isHR } })}
+                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || null, departmentId: editForm.departmentId || null, isHR: editIsAdminRole ? false : editForm.isHR } })}
                 disabled={editMutation.isPending || !editForm.name}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >

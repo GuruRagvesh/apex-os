@@ -147,6 +147,33 @@ export class UsersService {
       if (data?.[field] !== undefined) clean[field] = data[field];
     }
 
+    // HR AUTHORITY IS FOR PEOPLE WHO ARE NOT ADMINISTRATORS.
+    //
+    // Admin already has its own authority model, so the combination is
+    // redundant, and a redundant flag is worse than no flag: it reads as though
+    // it grants something. Refused here rather than only disabled in the UI --
+    // a disabled control is a hint, not enforcement, and this route is
+    // reachable directly.
+    //
+    // The role is resolved from the payload when the same request also changes
+    // it, so setting both at once cannot slip through.
+    if (clean.isHR === true) {
+      const roleId =
+        (clean.roleId as string | undefined) ??
+        (await this.prisma.user.findUnique({ where: { id }, select: { roleId: true } }))?.roleId;
+
+      const role = roleId
+        ? await this.prisma.role.findUnique({ where: { id: roleId }, select: { name: true } })
+        : null;
+
+      if (role && ['ADMIN', 'SUPER_ADMIN'].includes(role.name)) {
+        throw new BadRequestException(
+          `HR authority is for non-administrator accounts. ${role.name} already has company-wide ` +
+            'access, so the flag would grant nothing and imply something it does not.',
+        );
+      }
+    }
+
     const user = await this.prisma.user.update({
       where: { id },
       data: clean,

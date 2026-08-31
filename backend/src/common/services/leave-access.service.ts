@@ -85,7 +85,13 @@ export class LeaveAccessService {
     // as an accident of fixing something unrelated. Admin keeps exactly its
     // previous behaviour below: bound by the ladder, exempt from department
     // scope.
-    if (approver.isHR) return;
+    //
+    // And `!isAdmin` so the flag can never expand Admin either. Admin already
+    // has its own authority model; isHR represents HR functional authority for
+    // people who are NOT administrators. Setting the flag on an admin account
+    // is refused at the user-management path, but an account that already
+    // carries the combination must not quietly gain ladder immunity from it.
+    if (approver.isHR && !this.access.isAdmin(approver)) return;
 
     // Everyone else answers to the ladder, Admin and Super Admin included.
     // Self-approval is already refused at the top of this method, so this
