@@ -186,7 +186,11 @@ export class UsersService {
 
   private static readonly UPDATABLE_FIELDS = [
     'name',
-    'email',
+    // `email` is DELIBERATELY ABSENT. A login email is an identity, and
+    // changing one has to be validated, deduplicated and audited with a
+    // reason -- which adminCorrectEmail() does and this general-purpose route
+    // does not. Allowing it here made the Account & Access screen a second,
+    // unaudited way to reassign somebody's identity.
     'roleId',
     'departmentId',
     'isActive',

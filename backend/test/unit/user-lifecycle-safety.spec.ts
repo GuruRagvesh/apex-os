@@ -846,3 +846,119 @@ describe('lifecycle is the latest transition, not the first one ever', () => {
     expect(audit[0].action).toBe('USER_UPDATED');
   });
 });
+
+describe('Account & Access can make an inactive INTERN an active HR ADMIN', () => {
+  // THE EXACT PRODUCTION CASE. hr@technoedgels.com sits INTERN / inactive /
+  // isHR, and needs to become ADMIN / active / isHR / Department HR in one
+  // save from the Account & Access screen.
+
+  function build(roleName: string) {
+    const updates: any[] = [];
+    const audit: any[] = [];
+    const prisma: any = {
+      user: {
+        findUnique: jest.fn(async () => ({ roleId: 'role-intern', employeeId: 'TE-014' })),
+        update: jest.fn(async ({ data }: any) => {
+          updates.push(data);
+          return { id: 'u-1', password: 'hash', ...data };
+        }),
+      },
+      role: { findUnique: jest.fn(async () => ({ name: roleName })) },
+    };
+    const service = new UsersService(
+      prisma, policy as any,
+      { log: jest.fn(async (e: any) => void audit.push(e)) } as any, {} as any, {} as any,
+    );
+    return { service, updates, audit };
+  }
+
+  it('applies role, department, HR authority and reactivation in one call', async () => {
+    const { service, updates } = build('ADMIN');
+
+    await service.update(
+      'u-1',
+      { roleId: 'role-admin', departmentId: 'dept-hr', isHR: true, isActive: true } as any,
+      'sa-1',
+    );
+
+    expect(updates[0]).toEqual({
+      roleId: 'role-admin',
+      departmentId: 'dept-hr',
+      isHR: true,
+      isActive: true,
+    });
+  });
+
+  it('records the reactivation, so the account stops reading as archived', async () => {
+    // Without the lifecycle event the latest-transition reader has nothing to
+    // cancel an earlier archival with.
+    const { service, audit } = build('ADMIN');
+    await service.update('u-1', { roleId: 'role-admin', isHR: true, isActive: true } as any, 'sa-1');
+
+    expect(audit[0].action).toBe('USER_REACTIVATED');
+  });
+
+  it('still refuses HR authority on a SUPER_ADMIN from this screen', async () => {
+    const { service, updates } = build('SUPER_ADMIN');
+
+    await expect(
+      service.update('u-1', { roleId: 'role-sa', isHR: true, isActive: true } as any, 'sa-1'),
+    ).rejects.toThrow(/cannot be combined with SUPER_ADMIN/i);
+    expect(updates).toEqual([]);
+  });
+
+  it('cannot smuggle anything else through the same call', async () => {
+    const { service, updates } = build('ADMIN');
+
+    await service.update(
+      'u-1',
+      {
+        roleId: 'role-admin',
+        isHR: true,
+        isActive: true,
+        // The screen must not become a route to these.
+        email: 'someone-else@x.com',
+        password: 'no',
+        ctcAnnual: 1,
+        basicSalary: 2,
+        panNumber: 'X',
+      } as any,
+      'sa-1',
+    );
+
+    expect(updates[0]).toEqual({ roleId: 'role-admin', isHR: true, isActive: true });
+  });
+
+  it('the screen sends authority through the account route, not the profile one', () => {
+    // The profile save is whitelisted to profile columns and drops isActive
+    // silently -- which is why the old header toggle reported success and did
+    // nothing.
+    const ui: string = require('fs').readFileSync(
+      require('path').resolve(
+        __dirname,
+        '../../../platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+      ),
+      'utf8',
+    );
+
+    expect(ui).toContain('accessMutation');
+    expect(ui).toMatch(/accessMutation[\s\S]{0,200}usersApi as any\)\.update\(userId/);
+    // And the activate toggle no longer goes through updateProfile.
+    expect(ui).not.toMatch(/updateMutation\.mutate\(\{\s*isActive/);
+  });
+
+  it('authority editing is administrators only, not everyone who may edit a profile', () => {
+    const ui: string = require('fs').readFileSync(
+      require('path').resolve(
+        __dirname,
+        '../../../platforms/core/users/profiles/frontend/screens/UserProfileScreen.tsx',
+      ),
+      'utf8',
+    );
+
+    // canEditAll includes HR; deciding who is an administrator is a different
+    // job. The server enforces this independently.
+    expect(ui).toContain("const canEditAccess = ['SUPER_ADMIN', 'ADMIN'].includes(currentRoleName)");
+    expect(ui).toContain('canEditAccess && !isOwnProfile');
+  });
+});

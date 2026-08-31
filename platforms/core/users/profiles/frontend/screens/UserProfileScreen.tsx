@@ -6,6 +6,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { analyticsApi } from '@apex/intelligence-analytics/api';
 import { usersApi } from '@apex/core-users/api';
+import { rolesApi } from '@apex/core-organization-roles/api';
+import { departmentsApi } from '@apex/core-organization-departments/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { ChevronRight, Edit2, Upload, Eye, Clock, CheckCircle, AlertTriangle, RotateCcw } from 'lucide-react';
@@ -119,6 +121,86 @@ export default function UserProfileScreen() {
   const currentRoleName = (currentUser?.role as any)?.name ?? '';
   const isHR = (currentUser as any)?.isHR;
   const canEditAll = ['SUPER_ADMIN', 'ADMIN'].includes(currentRoleName) || isHR;
+
+  /**
+   * Account & Access is a NARROWER permission than the rest of the profile.
+   *
+   * canEditAll includes HR, who may edit somebody's phone number and payroll
+   * details. Deciding who is an administrator is not the same job, so authority
+   * is administrators only. The server enforces this independently -- the route
+   * is @Roles(ADMIN, SUPER_ADMIN) -- and this only decides whether the control
+   * is worth showing.
+   */
+  const canEditAccess = ['SUPER_ADMIN', 'ADMIN'].includes(currentRoleName);
+
+  const [accessEdit, setAccessEdit] = useState(false);
+  const [accessForm, setAccessForm] = useState<any>({});
+
+  const { data: roleOptions } = useQuery({
+    queryKey: ['roles'],
+    queryFn: () => (rolesApi as any).getAll() as Promise<any[]>,
+    enabled: canEditAccess,
+    staleTime: 5 * 60_000,
+  });
+  const { data: departmentOptions } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => (departmentsApi as any).getAll() as Promise<any[]>,
+    enabled: canEditAccess,
+    staleTime: 5 * 60_000,
+  });
+
+  /**
+   * Authority goes through PUT /users/:id, NOT the profile endpoint.
+   *
+   * They are deliberately different routes: the profile save cannot change a
+   * role or the HR flag, so a form that looks like it edits a phone number can
+   * never quietly grant HR authority. This one is whitelisted server-side to
+   * exactly the account-access fields.
+   */
+  const accessMutation = useMutation({
+    mutationFn: (data: any) => (usersApi as any).update(userId, data),
+    onSuccess: () => {
+      toast.success('Account access updated');
+      setAccessEdit(false);
+      // Refetched everywhere it is shown, so nobody has to wonder whether the
+      // save worked: this page, the header badge and the Users list.
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] });
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.message ?? err?.message;
+      toast.error(
+        typeof detail === 'string' && detail.length < 200
+          ? detail
+          : 'The account could not be updated.',
+      );
+    },
+  });
+
+  const startAccessEdit = () => {
+    setAccessForm({
+      roleId: (profile as any)?.role?.id ?? '',
+      departmentId: (profile as any)?.departmentId ?? '',
+      isHR: !!(profile as any)?.isHR,
+      isActive: (profile as any)?.isActive !== false,
+    });
+    setAccessEdit(true);
+  };
+
+  const selectedRoleName =
+    (Array.isArray(roleOptions) ? roleOptions : []).find((r: any) => r.id === accessForm.roleId)
+      ?.name ?? '';
+  // ADMIN + HR is the HR ADMIN and is offered normally. Only SUPER_ADMIN is
+  // refused, and the server refuses it independently.
+  const accessIsSuperAdmin = selectedRoleName === 'SUPER_ADMIN';
+
+  const saveAccess = () =>
+    accessMutation.mutate({
+      roleId: accessForm.roleId || undefined,
+      departmentId: accessForm.departmentId || null,
+      isHR: accessIsSuperAdmin ? false : !!accessForm.isHR,
+      isActive: !!accessForm.isActive,
+    });
   const isOwnProfile = currentUser?.id === userId;
   const canSeePayroll = canEditAll || isOwnProfile;
   const canSeeAccess = ['SUPER_ADMIN', 'ADMIN'].includes(currentRoleName);
@@ -302,10 +384,15 @@ export default function UserProfileScreen() {
               </div>
             </div>
 
-            {canEditAll && (
+            {canEditAccess && !isOwnProfile && (
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => updateMutation.mutate({ isActive: !(profile?.isActive !== false) })}
+                  // Through the ACCOUNT route, not the profile one. The profile
+                  // save is whitelisted to profile columns and drops isActive
+                  // silently, so this toggle reported success and did nothing.
+                  // Activating here also records the lifecycle transition, so a
+                  // previously archived account genuinely comes back.
+                  onClick={() => accessMutation.mutate({ isActive: !(profile?.isActive !== false) })}
                   className="px-4 py-2 text-sm border border-slate-700 bg-slate-900 text-slate-200 rounded-xl hover:bg-slate-800 transition-colors"
                 >
                   {profile?.isActive === false ? 'Activate' : 'Deactivate'}
@@ -495,7 +582,38 @@ export default function UserProfileScreen() {
           {/* Tab 3: Account & Access */}
           {activeTab === 'access' && (
             <div>
-              <h2 className="text-xl font-black text-white mb-6">Account & Access</h2>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-black text-white">Account &amp; Access</h2>
+                {/* Authority editing is administrators only -- narrower than
+                    the rest of the profile, which HR may also edit. The server
+                    enforces it independently. */}
+                {canEditAccess && !isOwnProfile && (
+                  accessEdit ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={saveAccess}
+                        disabled={accessMutation.isPending}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm rounded-xl disabled:opacity-50"
+                      >
+                        {accessMutation.isPending ? 'Saving…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => setAccessEdit(false)}
+                        className="px-4 py-2 border border-slate-700 text-slate-200 text-sm rounded-xl"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={startAccessEdit}
+                      className="flex items-center gap-2 px-4 py-2 border border-slate-700 text-slate-200 text-sm rounded-xl hover:bg-slate-800"
+                    >
+                      <Edit2 size={14} /> Edit
+                    </button>
+                  )
+                )}
+              </div>
               {!canSeeAccess && !isOwnProfile ? (
                 <div className="text-slate-400 text-center py-8">You don&apos;t have permission to view this section.</div>
               ) : (
@@ -512,38 +630,97 @@ export default function UserProfileScreen() {
                         <div className={readCls}>••••••••</div>
                       )}
                     </div>
+
                     {/*
-                      Base role and HR authority are shown as two facts because
-                      they ARE two facts. HR authority is the isHR flag, not a
-                      role -- there is no HR entry in the canonical ladder --
-                      and showing only the role made an HR user look like an
-                      ordinary employee, which is what sent a real correction
-                      down the wrong path.
+                      Base role and HR authority are two separate facts. There
+                      is no HR role in the canonical ladder; the flag is what
+                      grants the HR permission set, and ADMIN + HR is the
+                      HR ADMIN.
                     */}
                     <div><label className={labelCls}>Base Role *</label>
-                      <div className={readCls}>
-                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${ROLE_COLORS[roleName] ?? 'bg-slate-700 text-slate-300'}`}>{roleName}</span>
-                      </div>
+                      {accessEdit ? (
+                        <select
+                          value={accessForm.roleId ?? ''}
+                          onChange={(e) => setAccessForm((f: any) => ({ ...f, roleId: e.target.value }))}
+                          className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800 text-slate-100 text-sm"
+                        >
+                          {(Array.isArray(roleOptions) ? roleOptions : []).map((r: any) => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className={readCls}>
+                          <span className={`text-xs font-bold px-2 py-1 rounded-full ${ROLE_COLORS[roleName] ?? 'bg-slate-700 text-slate-300'}`}>{roleName}</span>
+                        </div>
+                      )}
                     </div>
+
                     <div><label className={labelCls}>HR Authority</label>
-                      <div className={readCls}>
-                        {(profile as any)?.isHR ? (
-                          <span className="text-xs font-bold px-2 py-1 rounded-full bg-purple-900/40 text-purple-300">
-                            Enabled
+                      {accessEdit ? (
+                        <label
+                          className="flex items-start gap-2.5 w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800"
+                          style={{ cursor: accessIsSuperAdmin ? 'not-allowed' : 'pointer', opacity: accessIsSuperAdmin ? 0.55 : 1 }}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={!!accessForm.isHR && !accessIsSuperAdmin}
+                            disabled={accessIsSuperAdmin}
+                            onChange={(e) => setAccessForm((f: any) => ({ ...f, isHR: e.target.checked }))}
+                          />
+                          <span className="text-sm text-slate-200">
+                            {accessIsSuperAdmin
+                              ? 'Not available for Super Admin'
+                              : 'Company-wide attendance, corrections, payroll and month close'}
                           </span>
-                        ) : (
-                          <span className="text-slate-400">Not enabled</span>
-                        )}
-                      </div>
+                        </label>
+                      ) : (
+                        <div className={readCls}>
+                          {(profile as any)?.isHR ? (
+                            <span className="text-xs font-bold px-2 py-1 rounded-full bg-purple-900/40 text-purple-300">Enabled</span>
+                          ) : (
+                            <span className="text-slate-400">Not enabled</span>
+                          )}
+                        </div>
+                      )}
                     </div>
+
                     <div><label className={labelCls}>Account Status *</label>
-                      <div className={readCls}>
-                        {profile?.isActive === false
-                          ? <span className="text-red-400 font-medium">Inactive</span>
-                          : <span className="text-green-400 font-medium">Active</span>}
-                      </div>
+                      {accessEdit ? (
+                        <select
+                          value={accessForm.isActive ? 'active' : 'inactive'}
+                          onChange={(e) => setAccessForm((f: any) => ({ ...f, isActive: e.target.value === 'active' }))}
+                          className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800 text-slate-100 text-sm"
+                        >
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      ) : (
+                        <div className={readCls}>
+                          {profile?.isActive === false
+                            ? <span className="text-red-400 font-medium">Inactive</span>
+                            : <span className="text-green-400 font-medium">Active</span>}
+                        </div>
+                      )}
                     </div>
-                    <div><label className={labelCls}>Department</label><div className={readCls}>{profile?.department?.name || 'Not assigned'}</div></div>
+
+                    <div><label className={labelCls}>Department</label>
+                      {accessEdit ? (
+                        <select
+                          value={accessForm.departmentId ?? ''}
+                          onChange={(e) => setAccessForm((f: any) => ({ ...f, departmentId: e.target.value }))}
+                          className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800 text-slate-100 text-sm"
+                        >
+                          <option value="">None</option>
+                          {(Array.isArray(departmentOptions) ? departmentOptions : []).map((d: any) => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className={readCls}>{profile?.department?.name || 'Not assigned'}</div>
+                      )}
+                    </div>
+
                     <div><label className={labelCls}>Last Active</label><div className={readCls}>{profile?.lastActiveAt ? new Date(profile.lastActiveAt).toLocaleString() : 'Never'}</div></div>
                   </div>
                 </div>
