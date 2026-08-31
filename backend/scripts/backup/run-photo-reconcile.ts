@@ -203,6 +203,37 @@ if (require.main === module) {
 
       console.log(`  evidence checked: ${rows.length}`);
 
+      // A ZERO HAS TO EXPLAIN ITSELF.
+      //
+      // "evidence checked: 0" reads as a clean pass and is the single most
+      // misleading line this script can print -- it looks identical whether
+      // nothing was ever punched or whether every punch lost its photo link.
+      // Those need opposite responses, so the counts that distinguish them are
+      // reported rather than left to be guessed at.
+      if (rows.length === 0) {
+        const [totalEvidence, totalPhotos, orphanPhotos] = await Promise.all([
+          prisma.attendancePunchEvidence.count(),
+          (prisma as any).attendancePunchPhoto.count(),
+          // Staged captures never claimed by a punch. Expected to be small; a
+          // large number means punches are failing after the upload.
+          (prisma as any).attendancePunchPhoto.count({ where: { evidence: { is: null } } }),
+        ]);
+
+        console.log(`  punch evidence rows (all): ${totalEvidence}`);
+        console.log(`  punch photo rows (all)   : ${totalPhotos}`);
+        console.log(`  photos with no evidence  : ${orphanPhotos}`);
+
+        if (totalEvidence === 0) {
+          console.log('');
+          console.log('  Nothing has been punched yet. This is not a healthy result, it is an');
+          console.log('  empty one -- run a real punch before treating reconciliation as passed.');
+        } else {
+          console.log('');
+          console.log(`  ${totalEvidence} punch(es) exist but NONE carries a photo link.`);
+          console.log('  That is a linkage failure, not a clean run. Do not accept it.');
+        }
+      }
+
       const assessments = await reconcilePhotos(rows, {
         vault,
         primaryExists: async (objectKey) => {

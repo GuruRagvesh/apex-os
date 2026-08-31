@@ -132,6 +132,15 @@ export class BackupVaultService {
     };
   }
 
+  /**
+   * @deprecated NOT A PRODUCTION SAFETY PATH. Use archiveToVault().
+   *
+   * Writes to OneDrive via Microsoft Graph. It has no callers, it verifies
+   * nothing after upload, and the OneDrive vault has an unresolved 404 -- so it
+   * cannot prove a durable copy exists and must never gate archival or
+   * disaster recovery again. Kept only so a future business-readable archive
+   * has somewhere to start; a test fails the build if production code calls it.
+   */
   async save(buffer: Buffer, filename: string): Promise<{ fileRef: string; provider: string }> {
     if (!this.tenantId || !this.clientId || !this.clientSecret || !this.userId || !this.folderPath) {
       throw new ServiceUnavailableException(
