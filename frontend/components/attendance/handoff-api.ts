@@ -1,4 +1,5 @@
 import { api, unwrap as r } from '@apex/shared-auth';
+import { forgetToken, recallToken, rememberToken, takeToken } from './handoff-token';
 import type { PunchType } from './punch-api';
 
 /**
@@ -60,53 +61,42 @@ export function mobilePunchUrl(origin: string, handoffId: string, token: string)
   return `${origin}/attendance/mobile-punch/${handoffId}#token=${encodeURIComponent(token)}`;
 }
 
-/** Where the phone stashes the secret across a login redirect. */
-export const handoffSecretKey = (handoffId: string) => `apex.punch.handoff.${handoffId}`;
+/**
+ * Token handling lives in handoff-token.ts, which imports nothing, so the
+ * backend Jest suite can exercise it. These wrappers bind it to the real
+ * browser objects.
+ */
+export { handoffSecretKey } from './handoff-token';
+
+const browserEnv = () => ({
+  hash: window.location.hash ?? '',
+  pathname: window.location.pathname,
+  search: window.location.search,
+  storage: typeof sessionStorage === 'undefined' ? null : sessionStorage,
+  replaceUrl: (url: string) => window.history.replaceState(null, '', url),
+});
 
 export function rememberHandoffSecret(handoffId: string, token: string): void {
-  try {
-    sessionStorage.setItem(handoffSecretKey(handoffId), token);
-  } catch {
-    // Private mode or blocked storage. The punch can still complete in one go;
-    // only surviving a login redirect is lost.
-  }
+  rememberToken(handoffId, token, typeof sessionStorage === 'undefined' ? null : sessionStorage);
 }
 
 export function recallHandoffSecret(handoffId: string): string | null {
-  try {
-    return sessionStorage.getItem(handoffSecretKey(handoffId));
-  } catch {
-    return null;
-  }
+  if (typeof window === 'undefined') return null;
+  return recallToken(handoffId, typeof sessionStorage === 'undefined' ? null : sessionStorage);
 }
 
-/** Cleared on completion, cancellation, expiry and refusal — never left behind. */
 export function forgetHandoffSecret(handoffId: string): void {
-  try {
-    sessionStorage.removeItem(handoffSecretKey(handoffId));
-  } catch {
-    /* nothing to clear */
-  }
+  if (typeof window === 'undefined') return;
+  forgetToken(handoffId, typeof sessionStorage === 'undefined' ? null : sessionStorage);
 }
 
 /**
  * Reads and immediately strips the secret from the address bar.
  *
- * The fragment is not sent to servers, but it does persist in history and in
- * anything the user might screenshot or share, so it does not linger.
+ * Guarded for the server render: this runs from an effect, but a stray call
+ * during SSR must return null rather than throw on `window`.
  */
-export function takeTokenFromFragment(): string | null {
+export function takeHandoffToken(handoffId: string): string | null {
   if (typeof window === 'undefined') return null;
-
-  const raw = window.location.hash ?? '';
-  const match = /(?:^#|&)token=([^&]+)/.exec(raw);
-  if (!match) return null;
-
-  const token = decodeURIComponent(match[1]);
-  try {
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  } catch {
-    /* address bar unchanged; the token is already in hand */
-  }
-  return token;
+  return takeToken(handoffId, browserEnv());
 }

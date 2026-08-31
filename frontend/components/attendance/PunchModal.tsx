@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Laptop } from 'lucide-react';
 import { AttendanceCamera } from './AttendanceCamera';
 import { useLocationAcquisition } from './useLocationAcquisition';
 import { PunchHandoffQr } from './PunchHandoffQr';
@@ -152,54 +153,78 @@ export function PunchModal({
           </button>
         </div>
 
-        {phase === 'location' && (
+        {/*
+          TWO INDEPENDENT CAPTURE PATHS, not a path and a fallback.
+          ────────────────────────────────────────────────────────────────────
+          Both columns are rendered under ONE condition, so the phone column is
+          mounted exactly once and SURVIVES the location -> photo transition.
+
+          That is not a cosmetic detail. The QR used to be written out twice, in
+          two separate `phase === ...` branches, which meant React unmounted one
+          and mounted the other every time the phase changed -- cancelling the
+          live handoff and creating a replacement. Combined with an unmemoised
+          `onCompleted`, the employee was frequently looking at a QR that had
+          already been cancelled.
+
+          The employee may choose the phone at any moment. Nothing here waits
+          for geolocation, and nothing here waits for the camera: the phone
+          column does not read `geo` at all.
+        */}
+        {(phase === 'location' || phase === 'photo') && (
           <div className="grid gap-5 md:grid-cols-2 md:divide-x md:divide-[var(--border-secondary)]">
-            <div className="py-6 text-center md:pr-5">
-              {geoBlocked ? (
-                <>
-                  <p className="text-sm font-medium text-red-600 dark:text-red-400">
-                    {geo.message}
-                  </p>
-                  {/* Only a refused permission is worth explaining as a setting.
-                      A timeout or an unavailable position is transient, and the
-                      phone beside it is usually the faster answer. */}
-                  {!geo.terminal && (
-                    <button
-                      onClick={() => void geo.locate()}
-                      className="mt-4 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white dark:bg-gray-100 dark:text-gray-900"
-                    >
-                      Try again
-                    </button>
+            <div className="md:pr-5">
+              <div className="mb-2 flex items-center justify-center gap-1.5">
+                <Laptop size={14} className="apex-text-subtle" />
+                <span className="apex-text text-xs font-semibold">Use this device</span>
+              </div>
+
+              {phase === 'location' ? (
+                <div className="py-6 text-center">
+                  {geoBlocked ? (
+                    <>
+                      <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                        {geo.message}
+                      </p>
+                      {/* Only a refused permission is worth explaining as a
+                          setting. A timeout or an unavailable position is
+                          transient, and the phone beside it is usually the
+                          faster answer. */}
+                      {!geo.terminal && (
+                        <button
+                          onClick={() => void geo.locate()}
+                          className="mt-4 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white dark:bg-gray-100 dark:text-gray-900"
+                        >
+                          Try again
+                        </button>
+                      )}
+                      <p className="apex-text-subtle mt-3 text-[11px]">
+                        Or finish on your phone instead — it does not need this device&rsquo;s
+                        location.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Getting your location…
+                    </p>
                   )}
-                </>
+                </div>
               ) : (
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  Getting your location…
-                </p>
+                <>
+                  <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                    Location captured
+                    {geo.sample?.accuracyMeters != null &&
+                      ` · accurate to about ${Math.round(geo.sample.accuracyMeters)} m`}
+                  </p>
+                  <AttendanceCamera onCaptured={handleCaptured} onCancel={onClose} />
+                </>
               )}
             </div>
 
-            <div className="md:pl-5">
-              <PunchHandoffQr type={type} onCompleted={onClose} />
-            </div>
-          </div>
-        )}
-
-        {phase === 'photo' && (
-          <div className="grid gap-5 md:grid-cols-2 md:divide-x md:divide-[var(--border-secondary)]">
-            <div className="md:pr-5">
-              <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                Location captured
-                {geo.sample?.accuracyMeters != null &&
-                  ` · accurate to about ${Math.round(geo.sample.accuracyMeters)} m`}
-              </p>
-              <AttendanceCamera onCaptured={handleCaptured} onCancel={onClose} />
-            </div>
-
-            {/* Kept visible rather than shown only on failure: a laptop whose
-                camera is refused mid-flow should not have to start again to
-                find the phone route. */}
-            <div className="md:pl-5">
+            <div className="relative md:pl-5">
+              {/* Reads as a choice, not as a consolation. */}
+              <span className="apex-text-subtle absolute -top-3 left-1/2 hidden -translate-x-1/2 bg-white px-2 text-[10px] font-semibold uppercase tracking-widest md:block dark:bg-gray-900">
+                or
+              </span>
               <PunchHandoffQr type={type} onCompleted={onClose} />
             </div>
           </div>

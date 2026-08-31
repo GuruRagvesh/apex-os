@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2, MapPin, ShieldAlert } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
@@ -8,9 +8,7 @@ import { AttendanceCamera } from '@/components/attendance/AttendanceCamera';
 import { useLocationAcquisition } from '@/components/attendance/useLocationAcquisition';
 import {
   forgetHandoffSecret,
-  recallHandoffSecret,
-  rememberHandoffSecret,
-  takeTokenFromFragment,
+  takeHandoffToken,
   viewHandoff,
   type HandoffView,
 } from '@/components/attendance/handoff-api';
@@ -35,12 +33,26 @@ import { newIdempotencyKey, submitPunch } from '@/components/attendance/punch-ap
 
 type Phase = 'checking' | 'need-login' | 'invalid' | 'location' | 'photo' | 'submitting' | 'done';
 
+/**
+ * `params` is a PLAIN OBJECT on Next 14, not a promise.
+ *
+ * This page previously read it with React's `use()`. The installed React is
+ * 18.3.1, which does not export `use` at all -- but @types/react 18.3.x
+ * declares it, so both `tsc` and the production build passed while the page
+ * threw `use is not a function` on its very first render, before any token,
+ * auth or handoff logic could run. That is what reached production as
+ * "Application error: a client-side exception has occurred".
+ *
+ * Read the object directly. When this project moves to Next 15, `params`
+ * becomes a promise and this signature changes with it -- deliberately, and
+ * with the React version that provides `use`.
+ */
 export default function MobilePunchPage({
   params,
 }: {
-  params: Promise<{ handoffId: string }>;
+  params: { handoffId: string };
 }) {
-  const { handoffId } = use(params);
+  const { handoffId } = params;
   const router = useRouter();
   const { isAuthenticated, hasHydrated } = useAuthStore();
   const loc = useLocationAcquisition();
@@ -50,19 +62,28 @@ export default function MobilePunchPage({
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
-  // Runs before any redirect can discard the fragment.
+  // Runs before any redirect can discard the fragment. takeHandoffToken reads
+  // the hash, stashes the secret, strips the address bar, and falls back to the
+  // stash when arriving back from login -- all in one place, so no ordering
+  // mistake here can lose the token.
+  //
+  // `null` means "not looked yet"; `''` means "looked, found nothing". Without
+  // that distinction the auth effect below cannot tell a page that is still
+  // reading the fragment from one that has no token at all.
   useEffect(() => {
-    const fromUrl = takeTokenFromFragment();
-    if (fromUrl) {
-      rememberHandoffSecret(handoffId, fromUrl);
-      setToken(fromUrl);
-      return;
-    }
-    setToken(recallHandoffSecret(handoffId));
+    setToken(takeHandoffToken(handoffId) ?? '');
   }, [handoffId]);
 
   useEffect(() => {
     if (!hasHydrated || token === null) return;
+
+    // Looked, and there was nothing. A bare URL with no fragment and no stash
+    // cannot complete a punch, and must say so rather than sit on a spinner.
+    if (token === '') {
+      setPhase('invalid');
+      setError('This punch link is incomplete. Scan the QR code again from your computer.');
+      return;
+    }
 
     if (!isAuthenticated) {
       setPhase('need-login');
@@ -107,7 +128,7 @@ export default function MobilePunchPage({
           idempotencyKey: newIdempotencyKey(),
           handoffId,
           handoffToken: token ?? undefined,
-        } as any);
+        });
         forgetHandoffSecret(handoffId);
         setPhase('done');
       } catch (err: any) {

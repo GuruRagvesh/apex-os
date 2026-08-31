@@ -18,6 +18,20 @@ export interface SubmitPunchInput {
   accuracyMeters?: number | null;
   clientCapturedAt?: string | null;
   photoAssetId: string;
+
+  /**
+   * Set ONLY by the phone finishing a handoff. The backend has accepted these
+   * since the handoff shipped, but they were missing from this interface, so
+   * the mobile page submitted through `as any` -- which meant the one call in
+   * the whole flow that carries the replay-protection token was the one call
+   * TypeScript was not checking.
+   *
+   * When present the server claims the handoff first and takes the punch type,
+   * the idempotency key and `source: MOBILE` from the row. Nothing about who is
+   * punching, or whether it is an in or an out, is read from this body.
+   */
+  handoffId?: string;
+  handoffToken?: string;
 }
 
 export interface PunchResult {

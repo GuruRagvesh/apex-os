@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Loader2, Smartphone } from 'lucide-react';
 import {
@@ -10,6 +10,7 @@ import {
   mobilePunchUrl,
   type HandoffStatus,
 } from './handoff-api';
+import { classifyHandoffFailure, describeHandoffFailure } from './handoff-failure';
 import type { PunchType } from './punch-api';
 
 /**
@@ -37,7 +38,41 @@ export function PunchHandoffQr({
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<HandoffStatus | 'CREATING' | 'ERROR'>('CREATING');
   const [error, setError] = useState<string | null>(null);
+  const [canRetry, setCanRetry] = useState(false);
   const handoffRef = useRef<string | null>(null);
+  // A completed handoff must not be cancelled on the way out. Unmount happens
+  // right after success, and cancelling then would race the punch that just
+  // landed.
+  const completedRef = useRef(false);
+
+  /**
+   * The completion callback lives in a ref, NOT in the dependency array.
+   *
+   * This is the whole reason the phone link kept failing. The parent passes an
+   * inline arrow (`onClose={() => setPunchType(null)}`), so its identity
+   * changes on every render of WorkdayBar -- which re-renders on a timer and on
+   * every react-query refetch. With `onCompleted` as a dependency, each of
+   * those renders tore this effect down and rebuilt it: cancel the handoff,
+   * create another, cancel that one. The employee was looking at a QR that had
+   * usually already been cancelled, and the burst of creates is exactly what a
+   * throttler rejects.
+   *
+   * The effect now depends only on `type`, so one open modal means one handoff.
+   */
+  const completedCb = useRef(onCompleted);
+  useEffect(() => {
+    completedCb.current = onCompleted;
+  }, [onCompleted]);
+
+  /** Bumped to ask for a fresh handoff without remounting the component. */
+  const [attempt, setAttempt] = useState(0);
+
+  const retry = useCallback(() => {
+    setStatus('CREATING');
+    setError(null);
+    setDataUrl(null);
+    setAttempt((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +113,10 @@ export function PunchHandoffQr({
             // handoff forever is a leak.
             if (s.status !== 'WAITING') {
               stopPolling();
-              if (s.status === 'COMPLETED') onCompleted();
+              if (s.status === 'COMPLETED') {
+                completedRef.current = true;
+                completedCb.current();
+              }
             }
           } catch {
             /* transient; the next tick tries again */
@@ -87,7 +125,8 @@ export function PunchHandoffQr({
       } catch (err: any) {
         if (cancelled) return;
         setStatus('ERROR');
-        setError(err?.response?.data?.message ?? 'The phone link could not be created.');
+        setError(describeHandoffFailure(err));
+        setCanRetry(classifyHandoffFailure(err).retryable);
       }
     })();
 
@@ -95,14 +134,27 @@ export function PunchHandoffQr({
       cancelled = true;
       stopPolling();
       const id = handoffRef.current;
-      if (id) void cancelHandoff(id).catch(() => undefined);
+      // Never cancel a handoff that already produced a punch.
+      if (id && !completedRef.current) void cancelHandoff(id).catch(() => undefined);
     };
-  }, [type, onCompleted]);
+  }, [type, attempt]);
 
   if (status === 'ERROR') {
     return (
       <div className="text-center">
+        <div className="mb-2 flex items-center justify-center gap-1.5">
+          <Smartphone size={14} className="apex-text-subtle" />
+          <span className="apex-text text-xs font-semibold">Use your phone</span>
+        </div>
         <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        {canRetry && (
+          <button
+            onClick={retry}
+            className="mt-3 rounded-lg border border-[var(--border-secondary)] px-3 py-1.5 text-sm apex-text"
+          >
+            Try again
+          </button>
+        )}
       </div>
     );
   }
@@ -110,8 +162,17 @@ export function PunchHandoffQr({
   if (status === 'EXPIRED' || status === 'CANCELLED') {
     return (
       <div className="text-center">
+        <div className="mb-2 flex items-center justify-center gap-1.5">
+          <Smartphone size={14} className="apex-text-subtle" />
+          <span className="apex-text text-xs font-semibold">Use your phone</span>
+        </div>
         <p className="apex-text-muted text-sm">This phone link has expired.</p>
-        <p className="apex-text-subtle mt-1 text-xs">Close and start the punch again.</p>
+        <button
+          onClick={retry}
+          className="mt-3 rounded-lg border border-[var(--border-secondary)] px-3 py-1.5 text-sm apex-text"
+        >
+          New link
+        </button>
       </div>
     );
   }
