@@ -949,7 +949,14 @@ export class UsersService {
   }
 
   async archiveAfterBackup(userId: string, actorId: string, confirmBackupDownloaded: boolean): Promise<{
-    message: string; vaulted: boolean; emailSentTo: number; skippedRecipients: number;
+    message: string;
+    vaulted: boolean;
+    emailSentTo: number;
+    skippedRecipients: number;
+    /** Reported separately, because they can and do differ: a mail outage
+     *  leaves the archive complete and the notification unsent. */
+    archiveStatus: 'SUCCESS' | 'ALREADY_ARCHIVED';
+    notificationStatus: 'SENT' | 'FAILED';
   }> {
     // `confirmBackupDownloaded` NO LONGER AUTHORISES ANYTHING.
     //
@@ -981,6 +988,9 @@ export class UsersService {
         vaulted: true,
         emailSentTo: 0,
         skippedRecipients: 0,
+        archiveStatus: 'ALREADY_ARCHIVED',
+        // No second archive was generated, uploaded, or announced.
+        notificationStatus: 'SENT',
       };
     }
 
@@ -996,8 +1006,6 @@ export class UsersService {
       });
     }
 
-    // ── Step 1: Resolve mandatory recipients by role (throws if none valid) ───
-    const recipients = await this.resolveArchiveRecipients(userId, user);
 
     // ── Step 2: Generate backup BEFORE anonymising ────────────────────────────
     const { buffer, filename } = await this.generateBackup(userId, actorId);
@@ -1036,23 +1044,7 @@ export class UsersService {
       },
     }).catch(() => {});
 
-    // ── Step 4: Email backup to mandatory recipients ───────────────────────────
-    const deliveryResult = await this.emailService.sendArchiveBackup(recipients, user.name, filename, buffer);
 
-    if (deliveryResult.sent.length === 0) {
-      throw new BadRequestException(
-        `Backup email delivery failed for all ${deliveryResult.skipped.length} recipient(s). ` +
-        'Archive aborted. Check RESEND_API_KEY and RESEND_FROM_EMAIL configuration.',
-      );
-    }
-
-    this.eventLogger.log({
-      actorId,
-      entityType: 'User',
-      entityId: userId,
-      action: 'USER_BACKUP_DELIVERED' as any,
-      metadata: { filename, sentTo: deliveryResult.sent, skipped: deliveryResult.skipped, originalName: user.name },
-    }).catch(() => {});
 
     // ── Step 5: Retire the login. Do NOT rewrite the person. ──────────────────
     //
@@ -1123,13 +1115,54 @@ export class UsersService {
             sha256: vaultResult.sha256,
             sizeBytes: vaultResult.sizeBytes,
             verifiedAt: vaultResult.verifiedAt,
-            backupDeliveredTo: deliveryResult.sent,
           },
         },
       });
     });
 
-    // ── Step 6: Audit logs ────────────────────────────────────────────────────
+    // ── Step 6: Notify. THE ARCHIVE IS ALREADY DONE. ─────────────────────────
+    //
+    // Everything below this line is a side effect. The transaction has
+    // committed, the marker exists, and the account is retired -- so a mail
+    // provider outage must not undo any of it, and must not report failure for
+    // work that succeeded.
+    //
+    // This used to run BEFORE the commit and threw when every recipient
+    // failed, which made an employee's retirement depend on Resend being up.
+    // The audit event proves the retirement happened; email only tells people
+    // it did.
+    let notificationStatus: 'SENT' | 'FAILED' = 'FAILED';
+    let deliveryResult: { sent: string[]; skipped: string[] } = { sent: [], skipped: [] };
+    try {
+      const recipients = await this.resolveArchiveRecipients(userId, user);
+      deliveryResult = await this.emailService.sendArchiveBackup(
+        recipients,
+        user.name,
+        filename,
+        buffer,
+      );
+      if (deliveryResult.sent.length > 0) notificationStatus = 'SENT';
+    } catch (err: any) {
+      console.error(`[UsersService] Archive notification failed for ${userId}:`, err?.message ?? err);
+    }
+
+    if (notificationStatus === 'FAILED') {
+      // Recorded so the gap is visible and can be chased, without pretending
+      // the archive itself failed. No provider internals reach the client.
+      this.eventLogger.log({
+        actorId,
+        entityType: 'User',
+        entityId: userId,
+        action: 'USER_ARCHIVE_NOTIFICATION_FAILED' as any,
+        metadata: {
+          targetEmail: user.email,
+          objectKey: vaultResult.objectKey,
+          skippedRecipients: deliveryResult.skipped.length,
+        },
+      }).catch(() => {});
+    }
+
+    // ── Step 7: Audit logs ────────────────────────────────────────────────────
     await this.logSensitiveAccess(actorId, 'USER_ARCHIVED', userId, {
       originalName: user.name,
       originalEmail: user.email,
@@ -1148,13 +1181,21 @@ export class UsersService {
 
     const sentCount = deliveryResult.sent.length;
     return {
+      // Says what happened, including when only half of it did. Reporting an
+      // unsent email as an archive failure would send somebody to re-run work
+      // that already succeeded.
       message:
-        `User archived. Verified backup stored in the vault and emailed to ${sentCount} ` +
-        `recipient${sentCount !== 1 ? 's' : ''}. The account can no longer sign in; their name, ` +
-        'history and records are unchanged.',
+        notificationStatus === 'SENT'
+          ? `User archived. Verified backup stored in the vault and sent to ${sentCount} ` +
+            `recipient${sentCount !== 1 ? 's' : ''}. The account can no longer sign in; their ` +
+            'name, history and records are unchanged.'
+          : 'User archived. The verified backup is stored in the vault and their name, history ' +
+            'and records are unchanged. The notification email could not be sent.',
       vaulted: true,
       emailSentTo: sentCount,
       skippedRecipients: deliveryResult.skipped.length,
+      archiveStatus: 'SUCCESS',
+      notificationStatus,
     };
   }
 

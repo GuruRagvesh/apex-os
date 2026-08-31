@@ -631,3 +631,93 @@ describe('the archive marker and the deactivation commit together', () => {
     expect(body.indexOf('activeResponsibilities(')).toBeLessThan(body.indexOf('archiveToVault('));
   });
 });
+
+describe('notification informs; it does not gate', () => {
+  // Making an employee's retirement depend on Resend being up was the wrong
+  // dependency direction. The audit event proves the retirement happened;
+  // email only tells people that it did.
+
+  const body = () => {
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+    const fn = src.slice(src.indexOf('async archiveAfterBackup'));
+    const ends = [fn.indexOf('\n  async ', 10), fn.indexOf('\n  private ', 10)].filter((i) => i > 0);
+    return fn.slice(0, Math.min(...ends));
+  };
+
+  it('sends only after the transaction has committed', () => {
+    // THE ORDERING TEST. Moving the send back above the commit fails here.
+    const b = body();
+
+    expect(b.indexOf('$transaction')).toBeLessThan(b.indexOf('sendArchiveBackup'));
+    expect(b.indexOf('$transaction')).toBeLessThan(b.indexOf('resolveArchiveRecipients'));
+  });
+
+  it('cannot abort the archive, because the send is inside a catch', () => {
+    const b = body();
+    const after = b.slice(b.indexOf('$transaction'));
+    const send = after.slice(after.indexOf('sendArchiveBackup') - 600, after.indexOf('sendArchiveBackup'));
+
+    expect(send).toContain('try {');
+  });
+
+  it('no longer throws when every recipient fails', () => {
+    // The old guard: `if (deliveryResult.sent.length === 0) throw`.
+    const b = body();
+
+    expect(b).not.toMatch(/deliveryResult\.sent\.length === 0\s*\)\s*\{\s*throw/);
+    expect(b).not.toContain('Archive aborted');
+  });
+
+  it('reports archive and notification as separate outcomes', () => {
+    const b = body();
+
+    // A LITERAL, not a conditional. Deriving archiveStatus from the send would
+    // reintroduce exactly the coupling this change removes -- the archive
+    // reported as failed because an email did.
+    expect(b).toMatch(/archiveStatus:\s*'SUCCESS'/);
+    expect(b).not.toMatch(/archiveStatus:\s*notificationStatus/);
+    expect(b).not.toMatch(/archiveStatus:[^,\n]*\?/);
+    expect(b).toContain('notificationStatus');
+    // And the message tells the truth about the half that failed.
+    expect(b).toMatch(/notification email could not be sent/i);
+  });
+
+  it('records the unsent notification without claiming the archive failed', () => {
+    const b = body();
+
+    expect(b).toContain('USER_ARCHIVE_NOTIFICATION_FAILED');
+    const marker = b.slice(b.indexOf('USER_ARCHIVE_NOTIFICATION_FAILED'));
+    // Non-critical: it must not be able to break a completed archive.
+    expect(marker.slice(0, 500)).toContain('.catch(() => {})');
+  });
+
+  it('does not leak provider internals to the caller', () => {
+    const b = body();
+    const failureMessage = b.slice(b.indexOf('notification email could not be sent') - 300);
+
+    for (const leak of ['RESEND_API_KEY', 'smtp', 'SMTP']) {
+      expect(failureMessage.slice(0, 400)).not.toContain(leak);
+    }
+  });
+
+  it('attempts nothing when the archive never happened', () => {
+    // R2 verification and the transaction both throw, so execution never
+    // reaches the notification block below them.
+    const b = body();
+
+    expect(b.indexOf('archiveToVault(')).toBeLessThan(b.indexOf('sendArchiveBackup'));
+    expect(b.indexOf('activeResponsibilities(')).toBeLessThan(b.indexOf('sendArchiveBackup'));
+  });
+
+  it('an already-archived retry sends nothing and archives nothing', () => {
+    const b = body();
+    const early = b.slice(0, b.indexOf('generateBackup('));
+
+    expect(early).toContain("archiveStatus: 'ALREADY_ARCHIVED'");
+    expect(early).not.toContain('sendArchiveBackup');
+    expect(early).not.toContain('archiveToVault');
+  });
+});
