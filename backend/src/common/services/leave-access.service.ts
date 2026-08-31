@@ -60,11 +60,33 @@ export class LeaveAccessService {
       throw new ForbiddenException(`You do not have permission to ${action} leave`);
     }
 
+    // HR AND ADMIN AUTHORITY IS NOT SUBJECT TO THE ORGANISATIONAL LADDER, and
+    // this bypass must therefore come BEFORE the ladder rather than after it.
+    //
+    // It used to come after, which made HR authority depend on the approver's
+    // seniority: an HR user on a junior base role was rejected by the ladder
+    // before this line was ever reached, and would have been unable to approve
+    // ANYBODY'S leave -- including another employee on their own level, since
+    // the comparison is `>=`.
+    //
+    // The tempting fix is to promote the HR user to MANAGER. That is a
+    // workaround: it grants real manager authority over teams, projects and
+    // tickets purely to satisfy a check that should never have applied. The
+    // three concepts stay separate instead --
+    //
+    //   role       organisational seniority
+    //   isHR       HR functional authority
+    //   department organisational placement
+    //
+    // -- so an HR user can hold an ordinary base role and still act as HR.
+    if (this.access.isHrOrAdmin(approver)) return;
+
+    // Everyone else answers to the ladder. Self-approval is already refused at
+    // the top of this method, so this cannot be reached by someone approving
+    // their own request.
     if (targetUser.role && approver.role && approver.role.level >= targetUser.role.level) {
       throw new ForbiddenException(`A ${approver.role.name} cannot ${action} a ${targetUser.role.name}'s leave`);
     }
-
-    if (this.access.isHrOrAdmin(approver)) return;
 
     const deptIds = await this.access.managedDepartmentIds(approver);
     if (!targetUser.departmentId || !deptIds.includes(targetUser.departmentId)) {

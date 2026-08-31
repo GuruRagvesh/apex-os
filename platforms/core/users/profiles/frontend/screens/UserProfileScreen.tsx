@@ -502,9 +502,28 @@ export default function UserProfileScreen() {
                         <div className={readCls}>••••••••</div>
                       )}
                     </div>
-                    <div><label className={labelCls}>Role *</label>
+                    {/*
+                      Base role and HR authority are shown as two facts because
+                      they ARE two facts. HR authority is the isHR flag, not a
+                      role -- there is no HR entry in the canonical ladder --
+                      and showing only the role made an HR user look like an
+                      ordinary employee, which is what sent a real correction
+                      down the wrong path.
+                    */}
+                    <div><label className={labelCls}>Base Role *</label>
                       <div className={readCls}>
                         <span className={`text-xs font-bold px-2 py-1 rounded-full ${ROLE_COLORS[roleName] ?? 'bg-slate-700 text-slate-300'}`}>{roleName}</span>
+                      </div>
+                    </div>
+                    <div><label className={labelCls}>HR Authority</label>
+                      <div className={readCls}>
+                        {(profile as any)?.isHR ? (
+                          <span className="text-xs font-bold px-2 py-1 rounded-full bg-purple-900/40 text-purple-300">
+                            Enabled
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">Not enabled</span>
+                        )}
                       </div>
                     </div>
                     <div><label className={labelCls}>Account Status *</label>
