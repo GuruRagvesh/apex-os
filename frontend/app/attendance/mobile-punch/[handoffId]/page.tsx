@@ -1,9 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { CheckCircle2, Loader2, MapPin, ShieldAlert } from 'lucide-react';
-import { useAuthStore } from '@/store/auth.store';
+import { CheckCircle2, Clock, Loader2, MapPin, ShieldAlert } from 'lucide-react';
 import { AttendanceCamera } from '@/components/attendance/AttendanceCamera';
 import { useLocationAcquisition } from '@/components/attendance/useLocationAcquisition';
 import {
@@ -31,7 +29,7 @@ import { newIdempotencyKey, submitPunch } from '@/components/attendance/punch-ap
  * shared phone does not keep a live punch secret.
  */
 
-type Phase = 'checking' | 'need-login' | 'invalid' | 'location' | 'photo' | 'submitting' | 'done';
+type Phase = 'checking' | 'invalid' | 'location' | 'photo' | 'submitting' | 'done';
 
 /**
  * `params` is a PLAIN OBJECT on Next 14, not a promise.
@@ -53,14 +51,30 @@ export default function MobilePunchPage({
   params: { handoffId: string };
 }) {
   const { handoffId } = params;
-  const router = useRouter();
-  const { isAuthenticated, hasHydrated } = useAuthStore();
   const loc = useLocationAcquisition();
 
   const [phase, setPhase] = useState<Phase>('checking');
   const [handoff, setHandoff] = useState<HandoffView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+
+  // A live clock, so the page shows what is about to be recorded rather than
+  // whatever the moment the page happened to load. Ticks only while the punch
+  // is still being prepared.
+  const [now, setNow] = useState(() => new Date());
+  const settled = phase === 'done' || phase === 'invalid';
+  useEffect(() => {
+    if (settled) return;
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, [settled]);
+
+  const dateLabel = now.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  const clock = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
   // Runs before any redirect can discard the fragment. takeHandoffToken reads
   // the hash, stashes the secret, strips the address bar, and falls back to the
@@ -75,7 +89,7 @@ export default function MobilePunchPage({
   }, [handoffId]);
 
   useEffect(() => {
-    if (!hasHydrated || token === null) return;
+    if (token === null) return;
 
     // Looked, and there was nothing. A bare URL with no fragment and no stash
     // cannot complete a punch, and must say so rather than sit on a spinner.
@@ -85,13 +99,14 @@ export default function MobilePunchPage({
       return;
     }
 
-    if (!isAuthenticated) {
-      setPhase('need-login');
-      // Only the id travels in the URL. The secret stays in session storage.
-      router.replace(`/login?returnTo=${encodeURIComponent(`/attendance/mobile-punch/${handoffId}`)}`);
-      return;
-    }
-
+    // NO LOGIN. The token is the credential: it is single-use, expires in
+    // minutes, is stored only as a hash, and names the employee and the punch
+    // type on the server side where the phone cannot influence them. Sending an
+    // employee through a login screen to finish a punch their own laptop
+    // already authorised is friction with no security to show for it.
+    //
+    // The server still refuses a session belonging to a DIFFERENT employee, so
+    // a colleague scanning this QR on their own signed-in phone is turned away.
     (async () => {
       try {
         const view = await viewHandoff(handoffId, token);
@@ -105,7 +120,7 @@ export default function MobilePunchPage({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasHydrated, isAuthenticated, token, handoffId]);
+  }, [token, handoffId]);
 
   useEffect(() => {
     if (phase === 'location' && loc.phase === 'ready') setPhase('photo');
@@ -140,20 +155,29 @@ export default function MobilePunchPage({
     [handoff, loc.sample, handoffId, token],
   );
 
-  const title = handoff?.intent === 'PUNCH_OUT' ? 'Complete punch out' : 'Complete punch in';
+  const title = handoff?.intent === 'PUNCH_OUT' ? 'Punch out' : 'Punch in';
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-4 p-5">
-      <header>
-        <p className="apex-text-subtle text-xs font-semibold uppercase tracking-wide">Apex OS</p>
-        <h1 className="apex-text text-lg font-semibold">{title}</h1>
+      <header className="apex-card">
+        <p className="apex-text-subtle text-[10px] font-semibold uppercase tracking-widest">
+          Apex OS Attendance
+        </p>
+        <h1 className="apex-text mt-0.5 text-xl font-semibold">{title}</h1>
         {handoff?.employeeName && (
-          <p className="apex-text-muted text-xs">{handoff.employeeName}</p>
+          <p className="apex-text mt-1 text-sm font-medium">{handoff.employeeName}</p>
         )}
+        <div className="apex-text-muted mt-2 flex items-center gap-1.5 text-xs">
+          <Clock size={13} className="apex-text-subtle" />
+          <span>{dateLabel}</span>
+          <span aria-hidden="true">·</span>
+          {/* Live, so the employee can see the system agrees with their watch
+              before they commit. The authoritative punch time is the server's. */}
+          <span className="tabular-nums">{clock}</span>
+        </div>
       </header>
 
       {phase === 'checking' && <Waiting label="Checking this link…" />}
-      {phase === 'need-login' && <Waiting label="Sign in to continue…" />}
 
       {phase === 'invalid' && (
         <div className="apex-card text-center">
@@ -190,12 +214,25 @@ export default function MobilePunchPage({
 
       {phase === 'photo' && (
         <div className="apex-card">
+          <dl className="mb-3 grid grid-cols-3 gap-2 rounded-lg bg-[var(--surface-secondary,rgba(127,127,127,.08))] p-2.5">
+            <Fact label="Date" value={dateLabel} />
+            <Fact label="Time" value={clock} />
+            <Fact
+              label="Accuracy"
+              value={
+                loc.sample?.accuracyMeters != null
+                  ? `${Math.round(loc.sample.accuracyMeters)} m`
+                  : '—'
+              }
+            />
+          </dl>
           <p className="apex-text-muted mb-3 text-xs">
-            Location captured
-            {loc.sample?.accuracyMeters != null &&
-              ` · accurate to about ${Math.round(loc.sample.accuracyMeters)} m`}
+            Take a photo to finish. Both the photo and the location come from this phone.
           </p>
-          <AttendanceCamera onCaptured={onCaptured} />
+          <AttendanceCamera
+            onCaptured={onCaptured}
+            handoff={token ? { handoffId, handoffToken: token } : null}
+          />
         </div>
       )}
 
@@ -211,6 +248,15 @@ export default function MobilePunchPage({
         </div>
       )}
     </main>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="apex-text-subtle text-[10px] uppercase tracking-wide">{label}</dt>
+      <dd className="apex-text mt-0.5 text-sm font-medium tabular-nums">{value}</dd>
+    </div>
   );
 }
 

@@ -14,11 +14,14 @@ import { useAttendanceCamera } from './useAttendanceCamera';
 export function AttendanceCamera({
   onCaptured,
   onCancel,
+  handoff,
 }: {
   onCaptured: (photoAssetId: string) => void;
   onCancel?: () => void;
+  /** Set only on the phone handoff page, which uploads without a session. */
+  handoff?: { handoffId: string; handoffToken: string } | null;
 }) {
-  const cam = useAttendanceCamera();
+  const cam = useAttendanceCamera(handoff);
 
   useEffect(() => {
     void cam.start();

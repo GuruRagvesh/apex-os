@@ -10,6 +10,7 @@ import {
   Query,
   Req,
   ServiceUnavailableException,
+  UnauthorizedException,
   UnprocessableEntityException,
   UploadedFile,
   UseGuards,
@@ -18,6 +19,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../../shared/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../../../shared/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../../../../shared/decorators/current-user.decorator';
 import { PunchEvidenceService } from './punch-evidence.service';
 import { PunchHandoffService } from './punch-handoff.service';
@@ -46,7 +48,6 @@ import {
  */
 @ApiTags('Attendance Punch Evidence')
 @Controller('attendance/punch-evidence')
-@UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class PunchEvidenceController {
   constructor(
@@ -63,13 +64,37 @@ export class PunchEvidenceController {
    * -- the body type carries only client-owned fields, and the service reads
    * nothing else from it.
    */
+  /**
+   * OptionalJwtAuthGuard, NOT a missing guard.
+   *
+   * This route serves two callers with two different credentials. The desktop
+   * is authorised by its session. The phone is authorised by a one-time
+   * handoff token in the QR fragment, and must not be sent through a login
+   * screen to record a punch its own laptop already authorised.
+   *
+   * So the session is read when present and REQUIRED when there is no handoff
+   * -- see the explicit refusal below, which is what keeps the session-only
+   * path closed. It is covered by tests precisely because it is an assertion
+   * in code rather than a framework guard.
+   */
   @Post()
+  @UseGuards(OptionalJwtAuthGuard)
   async submit(
     @CurrentUser() user: any,
     @Body() body: SubmitPunchEvidenceInput,
     @Req() req: any,
   ) {
-    const userId = user?.id ?? user?.sub;
+    const sessionUserId = user?.id ?? user?.sub ?? null;
+    const viaHandoff = !!(body?.handoffId && body?.handoffToken);
+
+    // THE SESSION-ONLY PATH STAYS CLOSED. Without a handoff there is no other
+    // credential, so a missing session is a refusal here exactly as the class
+    // guard used to make it.
+    if (!viaHandoff && !sessionUserId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+
+    let userId: string = sessionUserId as string;
     try {
       // A phone finishing a handoff claims it FIRST. The claim is the
       // concurrency control: it verifies the session owns the handoff, that it
@@ -79,9 +104,16 @@ export class PunchEvidenceController {
       let effective = body;
       let claimedHandoffId: string | null = null;
 
-      if (body?.handoffId && body?.handoffToken) {
-        const claim = await this.handoff.claim(body.handoffId, body.handoffToken, userId);
-        claimedHandoffId = body.handoffId;
+      if (viaHandoff) {
+        const claim = await this.handoff.claim(
+          body.handoffId!,
+          body.handoffToken!,
+          sessionUserId,
+        );
+        // WHO is punching comes from the handoff row, never from the request
+        // and never from a session that may not exist.
+        userId = claim.userId;
+        claimedHandoffId = body.handoffId!;
         effective = {
           ...body,
           type: claim.intent,
@@ -136,12 +168,14 @@ export class PunchEvidenceController {
    * Read-only and cheap: the client calls it to decide whether to render the
    * punch flow or leave the legacy workday controls exactly as they are.
    */
+  @UseGuards(JwtAuthGuard)
   @Get('status')
   async status() {
     return this.punchEvidence.featureStatus();
   }
 
   /** The authenticated employee's own evidence. Scoped by JWT, not by query. */
+  @UseGuards(JwtAuthGuard)
   @Get('me')
   async listMine(@CurrentUser() user: any, @Query('limit') limit?: string) {
     const userId = user?.id ?? user?.sub;
@@ -155,6 +189,7 @@ export class PunchEvidenceController {
    * simply does not match and returns 404. Manager and HR access arrives with
    * the HR authorization wave.
    */
+  @UseGuards(JwtAuthGuard)
   @Get(':id/photo')
   async ownPhoto(@CurrentUser() user: any, @Param('id') id: string) {
     const userId = user?.id ?? user?.sub;

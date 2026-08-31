@@ -20,14 +20,29 @@ export interface UploadedPunchPhoto {
  * and the hash — none of them are sent from here, and there is no code path
  * that submits a photo URL.
  */
+export interface PhotoHandoffAuth {
+  handoffId: string;
+  handoffToken: string;
+}
+
 export async function uploadPunchPhoto(
   blob: Blob,
   clientCapturedAt: Date,
+  /**
+   * Sent only by the phone finishing a QR handoff, which has no session. The
+   * server attributes the photo to the employee named on the handoff ROW, not
+   * to anything sent from here, and validates the token without consuming it.
+   */
+  handoff?: PhotoHandoffAuth | null,
 ): Promise<UploadedPunchPhoto> {
   const form = new FormData();
   // Filename is cosmetic; the server validates the actual bytes.
   form.append('photo', blob, `punch-${Date.now()}.jpg`);
   form.append('clientCapturedAt', clientCapturedAt.toISOString());
+  if (handoff) {
+    form.append('handoffId', handoff.handoffId);
+    form.append('handoffToken', handoff.handoffToken);
+  }
 
   return r(api.post('/attendance/punch-photo', form, {
     headers: { 'Content-Type': 'multipart/form-data' },

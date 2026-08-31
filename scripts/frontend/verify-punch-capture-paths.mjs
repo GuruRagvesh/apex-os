@@ -37,6 +37,10 @@ const FILES = {
   api: 'frontend/components/attendance/handoff-api.ts',
   token: 'frontend/components/attendance/handoff-token.ts',
   failure: 'frontend/components/attendance/handoff-failure.ts',
+  handoffSvc: 'backend/src/modules/platform/attendance/punch/punch-handoff.service.ts',
+  handoffCtl: 'backend/src/modules/platform/attendance/punch/punch-handoff.controller.ts',
+  evidenceCtl: 'backend/src/modules/platform/attendance/punch/punch-evidence.controller.ts',
+  photoCtl: 'backend/src/modules/platform/attendance/punch/punch-photo.controller.ts',
 };
 
 const failures = [];
@@ -244,11 +248,24 @@ if (/geo\.sample/.test(mobileCode)) {
 if (!/loc\.sample\.latitude/.test(mobileCode)) {
   failures.push('The mobile punch page does not submit the phone’s own coordinates.');
 }
-if (!/handoffToken/.test(mobileCode)) {
-  failures.push(
-    'The mobile punch page no longer sends the handoff token. Without it the server cannot claim ' +
-      'the handoff, and replay protection never runs.',
-  );
+// Scoped to the SUBMIT CALL. `handoffToken` also appears in the camera's
+// upload credential, so a bare file-wide search passes even when the punch
+// itself stops sending it.
+{
+  const at = mobileCode.indexOf('submitPunch({');
+  if (at === -1) {
+    failures.push('The mobile punch page no longer submits a punch.');
+  } else {
+    const call = mobileCode.slice(at, mobileCode.indexOf('});', at) + 3);
+    for (const field of ['handoffId', 'handoffToken']) {
+      if (!call.includes(field)) {
+        failures.push(
+          `The mobile punch submit no longer sends ${field}. Without it the server cannot claim ` +
+            'the handoff, so replay protection never runs and the desktop never completes.',
+        );
+      }
+    }
+  }
 }
 // The token module must stay importable by the backend test suite.
 if (/^import\s/m.test(token)) {
@@ -263,6 +280,99 @@ if (!/#token=/.test(api)) {
 }
 if (/mobile-punch\/\$\{[^}]*\}\/\$\{/.test(api) || /[?&]token=\$\{/.test(api)) {
   failures.push('The handoff token appears in a URL path or query string; it belongs in the fragment.');
+}
+
+// ── Rule 9: the no-login phone path is token-secured, not unsecured ────────
+// V1 decision: the phone completes the punch on the handoff token alone. That
+// only holds while every one of these is true.
+{
+  const svc = stripComments(read('handoffSvc'));
+  const handoffCtl = stripComments(read('handoffCtl'));
+  const evidenceCtl = stripComments(read('evidenceCtl'));
+  const photoCtl = stripComments(read('photoCtl'));
+
+  // A session belonging to somebody else is still refused.
+  if (!/sessionUserId\s*&&\s*row\.userId\s*!==\s*sessionUserId/.test(svc)) {
+    failures.push(
+      'The handoff no longer refuses a session belonging to a different employee. That is the ' +
+        'one check standing between a photographed QR and a colleague punching with it.',
+    );
+  }
+
+  // Identity always comes from the row.
+  if (!/userId:\s*row\.userId/.test(svc)) {
+    failures.push('claim() no longer returns the employee from the handoff row.');
+  }
+
+  // Staging a photo must not consume the single use.
+  const owner = svc.slice(svc.indexOf('async resolveOwner'));
+  if (!owner) {
+    failures.push('resolveOwner() is gone; the phone cannot stage a photo without consuming the handoff.');
+  } else if (/updateMany|\.update\(/.test(owner.slice(0, owner.indexOf('async claim')))) {
+    failures.push('resolveOwner() mutates the handoff. Staging a photo would burn its single use.');
+  }
+
+  // The relaxed guard is confined to the three routes that carry their own
+  // credential. Anywhere else it is a hole.
+  const ALLOWED_OPTIONAL = ['handoffCtl', 'evidenceCtl', 'photoCtl'];
+  for (const [key, path] of Object.entries(FILES)) {
+    if (!path.startsWith('backend/')) continue;
+    if (ALLOWED_OPTIONAL.includes(key)) continue;
+    if (/OptionalJwtAuthGuard/.test(read(key))) {
+      failures.push(`${path} uses OptionalJwtAuthGuard. It is only for routes authorised by a handoff token.`);
+    }
+  }
+
+  // Each relaxed route must still refuse when there is no other credential.
+  // Match the THROW, not the import -- the import survives the exact mutation
+  // this rule exists to catch. And require the condition to actually consult
+  // the session, so a throw that can never fire does not count either.
+  for (const [label, src, hint] of [
+    ['punch submit route', evidenceCtl, '!viaHandoff'],
+    ['photo upload', photoCtl, '!sessionUserId'],
+  ]) {
+    if (!/throw new UnauthorizedException/.test(src)) {
+      failures.push(
+        `The ${label} no longer refuses a caller with neither a session nor a handoff. ` +
+          'OptionalJwtAuthGuard means this refusal is the only thing closing that path.',
+      );
+      continue;
+    }
+    const at = src.indexOf('throw new UnauthorizedException');
+    const preceding = src.slice(Math.max(0, at - 220), at);
+    if (!preceding.includes(hint) || !preceding.includes('sessionUserId')) {
+      failures.push(
+        `The ${label} refusal no longer depends on the session being absent, so it either never ` +
+          'fires or fires for the wrong caller.',
+      );
+    }
+  }
+  // Desktop-only routes keep the hard guard.
+  for (const route of ['@Post()', "@Get(':handoffId/status')", "@Delete(':handoffId')"]) {
+    const at = handoffCtl.indexOf(route);
+    if (at === -1) {
+      failures.push(`The handoff controller no longer exposes ${route}.`);
+      continue;
+    }
+    const after = handoffCtl.slice(at, at + 200);
+    if (!/@UseGuards\(JwtAuthGuard\)/.test(after)) {
+      failures.push(`${route} on the handoff controller lost its JwtAuthGuard; only the phone route may relax it.`);
+    }
+  }
+}
+
+// ── Rule 10: the phone page shows no login and no app shell ────────────────
+if (/useAuthStore|router\.replace\(`\/login|'\/login/.test(mobileCode)) {
+  failures.push(
+    'The phone punch page routes through login again. The token authorises it; a login screen ' +
+      'is friction with nothing to show for it.',
+  );
+}
+if (!/handoff=\{/.test(mobileCode)) {
+  failures.push(
+    'The phone page does not pass its handoff to the camera, so the photo upload has no ' +
+      'credential and will be refused.',
+  );
 }
 
 if (failures.length > 0) {

@@ -134,19 +134,77 @@ describe('creating a handoff', () => {
   });
 });
 
-describe('the token alone is never enough', () => {
+describe('the token is the credential, and a wrong session still loses', () => {
+  // DELIBERATE V1 DECISION. The phone completes the punch on the token alone:
+  // sending an employee through a login screen to finish a punch their own
+  // laptop already authorised is friction with nothing to show for it. The
+  // token is single-use, expires in minutes, stored only as a hash, and names
+  // the employee and the intent server-side.
+  //
+  // What that costs: somebody who obtains the QR image inside its window can
+  // punch. The live photo and the GPS still record who actually did, so it is
+  // evidenced rather than prevented.
+  //
+  // What is still refused: a session belonging to a DIFFERENT employee. Being
+  // signed out and being signed in as someone else are different facts, and the
+  // second is the likeliest way this gets abused.
+
+  it('lets a phone with no session complete the punch', async () => {
+    const { service } = build({ row: handoffRow() });
+
+    await expect(service.view('ho-1', RAW, null)).resolves.toMatchObject({ handoffId: 'ho-1' });
+    await expect(service.claim('ho-1', RAW, null)).resolves.toMatchObject({ userId: 'emp-1' });
+  });
+
   it('refuses a different signed-in employee holding a valid token', async () => {
-    // The attack the session check exists for: a colleague photographs the QR.
+    // A colleague scanning your QR on their own logged-in phone.
     const { service } = build({ row: handoffRow() });
 
     await expect(service.view('ho-1', RAW, 'emp-2')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(service.claim('ho-1', RAW, 'emp-2')).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('refuses an unauthenticated caller', async () => {
+  it('still accepts the owner’s own session', async () => {
     const { service } = build({ row: handoffRow() });
 
-    await expect(service.view('ho-1', RAW, '')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.view('ho-1', RAW, 'emp-1')).resolves.toMatchObject({ handoffId: 'ho-1' });
+  });
+
+  it('takes the employee from the row, never from the caller', async () => {
+    // The whole reason a session-less punch is safe: nothing the phone sends
+    // can change who is being punched in.
+    const { service } = build({ row: handoffRow() });
+
+    await expect(service.claim('ho-1', RAW, null)).resolves.toMatchObject({
+      userId: 'emp-1',
+      intent: 'PUNCH_IN',
+    });
+  });
+
+  it('resolves the owner for a photo upload without consuming the handoff', async () => {
+    // The phone must stage a photo BEFORE it can submit. Claiming there would
+    // burn the single use and leave the punch unable to claim anything.
+    const { service, updateManyCalls } = build({ row: handoffRow() });
+
+    await expect(service.resolveOwner('ho-1', RAW, null)).resolves.toBe('emp-1');
+    expect(updateManyCalls).toHaveLength(0);
+
+    // And the handoff is still claimable afterwards.
+    await expect(service.claim('ho-1', RAW, null)).resolves.toMatchObject({ userId: 'emp-1' });
+  });
+
+  it('refuses a photo upload for a handoff belonging to someone else', async () => {
+    const { service } = build({ row: handoffRow() });
+
+    await expect(service.resolveOwner('ho-1', RAW, 'emp-2')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('refuses a photo upload against an expired handoff', async () => {
+    const { service } = build({ row: handoffRow({ expiresAt: later(-1000) }) });
+
+    await expect(service.resolveOwner('ho-1', RAW, null)).rejects.toThrow(/expired/i);
   });
 
   it('refuses a wrong token even from the right employee', async () => {

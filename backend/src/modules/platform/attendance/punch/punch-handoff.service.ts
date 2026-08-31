@@ -113,11 +113,15 @@ export class PunchHandoffService {
   /**
    * Validates a handoff for the phone WITHOUT changing it.
    *
-   * Both the token and the session are checked. A mismatch on either is
-   * refused, and neither failure reveals anything about the other.
+   * `sessionUserId` may be null: the token is the credential here, not the
+   * session. See load() for why a session that IS present is still checked.
    */
-  async view(handoffId: string, token: string, authenticatedUserId: string): Promise<HandoffView> {
-    const row = await this.load(handoffId, token, authenticatedUserId);
+  async view(
+    handoffId: string,
+    token: string,
+    sessionUserId: string | null,
+  ): Promise<HandoffView> {
+    const row = await this.load(handoffId, token, sessionUserId);
 
     return {
       handoffId: row.id,
@@ -131,12 +135,23 @@ export class PunchHandoffService {
   /**
    * The shared checks, in an order chosen so the message is useful.
    *
+   * THE TOKEN IS THE CREDENTIAL. A phone with no Apex OS session may complete
+   * the punch, which is the entire point of the QR: an employee in a doorway
+   * whose laptop camera failed must not be sent through a login screen to
+   * record a punch their laptop already authorised. The token is single-use,
+   * expires in minutes, is stored only as a hash, and names the employee and
+   * the punch type itself -- none of which the phone can influence.
+   *
+   * A session that belongs to SOMEBODY ELSE is still refused. "Signed out" and
+   * "signed in as a different employee" are different facts: the first is an
+   * ordinary employee, the second is a colleague holding a QR that is not
+   * theirs, which is the likeliest way this would be abused. Refusing it costs
+   * the honest employee nothing.
+   *
    * Identity is verified before expiry: telling the wrong person that somebody
-   * else's handoff has expired is a small leak, and there is no reason to
-   * confirm a handoff exists to someone who does not own it.
+   * else's handoff has expired is a small leak.
    */
-  private async load(handoffId: string, token: string, authenticatedUserId: string) {
-    if (!authenticatedUserId) throw new ForbiddenException('Not authenticated');
+  private async load(handoffId: string, token: string, sessionUserId: string | null) {
     if (!handoffId || !token) throw new BadRequestException('Handoff reference is incomplete');
 
     const row = await this.prisma.attendancePunchHandoff.findUnique({
@@ -151,9 +166,9 @@ export class PunchHandoffService {
       throw new NotFoundException('This punch link is not valid');
     }
 
-    if (row.userId !== authenticatedUserId) {
+    if (sessionUserId && row.userId !== sessionUserId) {
       throw new ForbiddenException(
-        'This punch link belongs to a different employee. Sign in as that employee to use it.',
+        'This punch link belongs to a different employee. It cannot be used from this account.',
       );
     }
 
@@ -171,6 +186,26 @@ export class PunchHandoffService {
   }
 
   /**
+   * WHO this handoff belongs to, without consuming it.
+   *
+   * The phone must upload its photo BEFORE it submits the punch, and that
+   * upload has to be attributed to somebody. Using claim() here would burn the
+   * single use on the photo and leave the punch itself unable to claim
+   * anything -- so this runs exactly the same checks and mutates nothing.
+   *
+   * The id is returned from the ROW. A phone that uploads a photo can never
+   * attribute it to an employee of its choosing.
+   */
+  async resolveOwner(
+    handoffId: string,
+    token: string,
+    sessionUserId: string | null,
+  ): Promise<string> {
+    const row = await this.load(handoffId, token, sessionUserId);
+    return row.userId;
+  }
+
+  /**
    * Claims the handoff so a punch may be submitted against it.
    *
    * The conditional updateMany is the concurrency control: two phones scanning
@@ -184,9 +219,9 @@ export class PunchHandoffService {
   async claim(
     handoffId: string,
     token: string,
-    authenticatedUserId: string,
+    sessionUserId: string | null,
   ): Promise<{ userId: string; intent: PunchType; idempotencyKey: string }> {
-    const row = await this.load(handoffId, token, authenticatedUserId);
+    const row = await this.load(handoffId, token, sessionUserId);
 
     const claimed = await this.prisma.attendancePunchHandoff.updateMany({
       where: { id: row.id, status: 'WAITING', expiresAt: { gt: this.tva.now() } },

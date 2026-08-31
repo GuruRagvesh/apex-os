@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { uploadPunchPhoto } from './punch-photo-api';
+import { uploadPunchPhoto, type PhotoHandoffAuth } from './punch-photo-api';
 import {
   assessReadiness,
   judgeFrame,
@@ -97,7 +97,7 @@ function frameMessage(verdict: FrameVerdict): string {
   return text[verdict] ?? 'The picture could not be used. Try again.';
 }
 
-export function useAttendanceCamera(): AttendanceCameraState {
+export function useAttendanceCamera(handoff?: PhotoHandoffAuth | null): AttendanceCameraState {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const blobRef = useRef<Blob | null>(null);
@@ -268,7 +268,11 @@ export function useAttendanceCamera(): AttendanceCameraState {
     setStatus('uploading');
     setError(null);
     try {
-      const { photoAssetId } = await uploadPunchPhoto(blobRef.current, capturedAtRef.current);
+      const { photoAssetId } = await uploadPunchPhoto(
+        blobRef.current,
+        capturedAtRef.current,
+        handoff,
+      );
       blobRef.current = null;
       return photoAssetId;
     } catch (err: any) {
