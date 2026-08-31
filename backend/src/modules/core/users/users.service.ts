@@ -61,7 +61,29 @@ export class UsersService {
       }),
     ]);
 
-    const users = rawUsers.map((u) => this.accessPolicy.safeUser(u));
+    // Archived status comes from the audit trail, in ONE batched query rather
+    // than per row. It used to be inferred from the anonymised email address,
+    // which only worked because archival destroyed the name.
+    const archiveEvents: Array<{ entityId: string; timestamp: Date }> = rawUsers.length
+      ? await (this.prisma as any).operationalEvent.findMany({
+          where: {
+            entityType: 'User',
+            entityId: { in: rawUsers.map((u: any) => u.id) },
+            action: { in: ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'] },
+          },
+          select: { entityId: true, timestamp: true },
+        })
+      : [];
+    const archivedAtById = new Map<string, Date>();
+    for (const e of archiveEvents) {
+      const seen = archivedAtById.get(e.entityId);
+      if (!seen || e.timestamp < seen) archivedAtById.set(e.entityId, e.timestamp);
+    }
+
+    const users = rawUsers.map((u) => ({
+      ...this.accessPolicy.safeUser(u),
+      archivedAt: archivedAtById.get(u.id)?.toISOString() ?? null,
+    }));
     return { users, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
@@ -852,6 +874,80 @@ export class UsersService {
     return { message: 'User permanently deleted' };
   }
 
+  /**
+   * When this account was archived, or null.
+   *
+   * Read from the audit trail rather than a column. Archival already writes an
+   * immutable OperationalEvent, the table is indexed on (entityType, entityId),
+   * and that event is the authoritative record of the act -- so a second
+   * boolean would only be a copy that could disagree with it. It also needs no
+   * migration, and production is already at 46.
+   *
+   * This REPLACES the previous marker, which was the anonymised email address:
+   * `archived-<id>@apex.local`. Detecting archival by reading a destroyed name
+   * only worked because the name was destroyed.
+   */
+  async archivedAt(userId: string): Promise<Date | null> {
+    const event = await (this.prisma as any).operationalEvent.findFirst({
+      where: {
+        entityType: 'User',
+        entityId: userId,
+        // Both names: archival now writes USER_ARCHIVED_AFTER_BACKUP, and
+        // accounts retired before that are still archived.
+        action: { in: ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'] },
+      },
+      orderBy: { timestamp: 'asc' },
+      select: { timestamp: true },
+    });
+    return event?.timestamp ?? null;
+  }
+
+  /**
+   * Active responsibilities that must be handed over before an account is
+   * retired -- as distinct from historical references, which are preserved and
+   * never block anything.
+   *
+   * An employee's past attendance is a fact about last month. Four people
+   * reporting to them is a fact about next Monday, and archiving the account
+   * without moving them leaves the company with a hole in its hierarchy.
+   */
+  async activeResponsibilities(userId: string): Promise<Record<string, number>> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { employeeId: true },
+    });
+
+    const employeeId = user?.employeeId ?? null;
+    const [reports, teamMembers, openTickets, managedDepts, pendingManagerLeave, pendingHrLeave] =
+      await Promise.all([
+        employeeId
+          ? this.prisma.user.count({ where: { isActive: true, reportingManager: employeeId } })
+          : Promise.resolve(0),
+        employeeId
+          ? this.prisma.user.count({ where: { isActive: true, teamLeadName: employeeId } })
+          : Promise.resolve(0),
+        this.prisma.ticket.count({
+          where: { assignedToId: userId, status: { notIn: ['DONE', 'CLOSED'] as any } },
+        }),
+        (this.prisma as any).managerDeptAccess.count({ where: { managerId: userId } }),
+        (this.prisma as any).leaveRequest.count({
+          where: { managerApprovedById: userId, status: 'PENDING' as any },
+        }),
+        (this.prisma as any).leaveRequest.count({
+          where: { hrApprovedById: userId, status: 'PENDING' as any },
+        }),
+      ]);
+
+    const blocking: Record<string, number> = {};
+    if (reports) blocking['Direct reports'] = reports;
+    if (teamMembers) blocking['Team members led'] = teamMembers;
+    if (openTickets) blocking['Open tickets assigned'] = openTickets;
+    if (managedDepts) blocking['Departments managed'] = managedDepts;
+    if (pendingManagerLeave) blocking['Leave awaiting their approval'] = pendingManagerLeave;
+    if (pendingHrLeave) blocking['Leave awaiting their HR approval'] = pendingHrLeave;
+    return blocking;
+  }
+
   async archiveAfterBackup(userId: string, actorId: string, confirmBackupDownloaded: boolean): Promise<{
     message: string; vaulted: boolean; emailSentTo: number; skippedRecipients: number;
   }> {
@@ -873,6 +969,32 @@ export class UsersService {
     if (!user) throw new NotFoundException('User not found');
     if (userId === actorId) throw new ForbiddenException('Cannot archive your own account');
     if (user.isActive) throw new BadRequestException('Deactivate user before archival');
+
+    // ALREADY ARCHIVED IS A DETERMINISTIC ANSWER, NOT A SECOND ARCHIVAL.
+    // A double click, a browser retry or a second administrator must not
+    // produce another vault object, another email to senior staff, or another
+    // audit event claiming the act happened twice.
+    const already = await this.archivedAt(userId);
+    if (already) {
+      return {
+        message: `Already archived on ${already.toISOString()}. No changes made.`,
+        vaulted: true,
+        emailSentTo: 0,
+        skippedRecipients: 0,
+      };
+    }
+
+    // ACTIVE RESPONSIBILITIES BLOCK; HISTORY NEVER DOES.
+    // Checked before the archive is generated, so a blocked attempt costs
+    // nothing and writes nothing.
+    const blocking = await this.activeResponsibilities(userId);
+    if (Object.keys(blocking).length > 0) {
+      throw new BadRequestException({
+        message:
+          'This user still owns active work. Reassign it before archiving; their history will be kept either way.',
+        activeResponsibilities: blocking,
+      });
+    }
 
     // ── Step 1: Resolve mandatory recipients by role (throws if none valid) ───
     const recipients = await this.resolveArchiveRecipients(userId, user);
@@ -932,36 +1054,24 @@ export class UsersService {
       metadata: { filename, sentTo: deliveryResult.sent, skipped: deliveryResult.skipped, originalName: user.name },
     }).catch(() => {});
 
-    // ── Step 5: Anonymise the user ────────────────────────────────────────────
-    const shortId = userId.slice(-6);
-    const archiveData: any = {
-      name: `Archived User ${shortId}`,
-      email: `archived-${userId}@apex.local`,
-      isActive: false,
-      photoUrl: null,
-      bio: null,
-      phone: null,
-      dateOfBirth: null,
-      currentAddress: null,
-      permanentAddress: null,
-      emergencyName: null,
-      emergencyPhone: null,
-      emergencyRelation: null,
-      ctcAnnual: null,
-      basicSalary: null,
-      salaryStructure: null,
-      bankName: null,
-      accountNumber: null,
-      ifscCode: null,
-      accountHolderName: null,
-      paymentMode: null,
-      panNumber: null,
-      aadhaarNumber: null,
-      uanNumber: null,
-      hrNotes: null,
-    };
-
-    await this.prisma.user.update({ where: { id: userId }, data: archiveData });
+    // ── Step 5: Retire the login. Do NOT rewrite the person. ──────────────────
+    //
+    // ARCHIVAL AND ERASURE ARE DIFFERENT OPERATIONS. This used to overwrite the
+    // name with "Archived User <id>", the email with a placeholder, and null
+    // the phone, addresses, salary and bank details -- so a 2026 attendance
+    // report read back three years later would attribute the day to an
+    // anonymous id rather than to the person who worked it. A leave approval
+    // would no longer say who approved it. An audit trail without identity is
+    // barely an audit trail.
+    //
+    // Only `isActive` changes. Authentication already fails on it -- the JWT
+    // strategy re-reads the user on every request -- so destroying the identity
+    // was never what prevented login.
+    //
+    // Erasure remains a separate future operation with its own retention
+    // checks and approval, and must never be a side effect of somebody leaving
+    // the company or of a duplicate account being retired.
+    await this.prisma.user.update({ where: { id: userId }, data: { isActive: false } });
 
     // ── Step 6: Audit logs ────────────────────────────────────────────────────
     await this.logSensitiveAccess(actorId, 'USER_ARCHIVED', userId, {
@@ -980,17 +1090,29 @@ export class UsersService {
       actorId,
       entityType: 'User',
       entityId: userId,
-      action: 'USER_ARCHIVED' as any,
+      action: 'USER_ARCHIVED_AFTER_BACKUP' as any,
       metadata: {
-        archivedName: archiveData.name,
-        originalEmail: user.email,
+        // The person, named. This event is the archived marker and the record
+        // of who was retired -- both of which need the real identity.
+        targetName: user.name,
+        targetEmail: user.email,
+        actorRole: (user as any).role?.name ?? null,
+        provider: vaultResult.provider,
+        bucket: vaultResult.bucket,
+        objectKey: vaultResult.objectKey,
+        sha256: vaultResult.sha256,
+        sizeBytes: vaultResult.sizeBytes,
+        verifiedAt: vaultResult.verifiedAt,
         backupDeliveredTo: deliveryResult.sent,
       },
     }).catch(() => {});
 
     const sentCount = deliveryResult.sent.length;
     return {
-      message: `User archived. Backup saved to vault and emailed to ${sentCount} recipient${sentCount !== 1 ? 's' : ''}. Personal data anonymized, all linked records preserved.`,
+      message:
+        `User archived. Verified backup stored in the vault and emailed to ${sentCount} ` +
+        `recipient${sentCount !== 1 ? 's' : ''}. The account can no longer sign in; their name, ` +
+        'history and records are unchanged.',
       vaulted: true,
       emailSentTo: sentCount,
       skippedRecipients: deliveryResult.skipped.length,

@@ -22,9 +22,20 @@ const roleBadge: Record<string, string> = {
   INTERN: 'bg-slate-100 text-slate-600',
 };
 
+/**
+ * Archived is now a fact the server reports, from the audit trail.
+ *
+ * It used to be inferred from the email address -- `archived-<id>@apex.local`
+ * -- which only worked because archival overwrote the person's name and email.
+ * Archival no longer does that, so the old shape is kept only to recognise
+ * accounts retired before the change.
+ */
 const isArchivedUser = (u: any): boolean =>
-  !u.isActive && typeof u.email === 'string' &&
-  u.email.startsWith('archived-') && u.email.endsWith('@apex.local');
+  Boolean(u.archivedAt) ||
+  (!u.isActive &&
+    typeof u.email === 'string' &&
+    u.email.startsWith('archived-') &&
+    u.email.endsWith('@apex.local'));
 
 export default function UsersPage() {
   const { user: me, hasHydrated } = useAuthStore();

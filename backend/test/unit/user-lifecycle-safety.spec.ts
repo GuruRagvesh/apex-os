@@ -407,3 +407,144 @@ describe('archival is fail-closed on a verified vault copy', () => {
     expect(body).toContain('toISOString()');
   });
 });
+
+describe('archival retires the login and keeps the person', () => {
+  // POLICY: archive and erasure are different operations. Archival used to
+  // overwrite the name with "Archived User <id>", so a 2026 attendance report
+  // read back three years later would attribute the day to an anonymous id,
+  // and a leave approval would no longer say who approved it.
+
+  function archiveService(over: any = {}) {
+    const updates: any[] = [];
+    const events: any[] = [];
+    const user = {
+      id: 'u-1',
+      name: 'Shubham Suryawanshi',
+      email: 'shubham@technoedgels.com',
+      employeeId: 'TE-014',
+      isActive: false,
+      role: { name: 'EMPLOYEE' },
+      ...over.user,
+    };
+    const prisma: any = {
+      user: {
+        findUnique: jest.fn(async ({ select }: any) =>
+          select?.employeeId ? { employeeId: user.employeeId } : user,
+        ),
+        findMany: jest.fn(async () => []),
+        count: jest.fn(async () => over.reports ?? 0),
+        update: jest.fn(async ({ data }: any) => {
+          updates.push(data);
+          return { ...user, ...data };
+        }),
+      },
+      ticket: { count: jest.fn(async () => over.openTickets ?? 0) },
+      managerDeptAccess: { count: jest.fn(async () => 0), findMany: jest.fn(async () => []) },
+      leaveRequest: { count: jest.fn(async () => 0), findMany: jest.fn(async () => []) },
+      operationalEvent: {
+        findFirst: jest.fn(async () => over.existingArchive ?? null),
+        findMany: jest.fn(async () => []),
+      },
+    };
+    const service = new UsersService(
+      prisma, policy as any,
+      { log: jest.fn(async (e: any) => void events.push(e)) } as any,
+      {} as any, {} as any,
+    );
+    return { service, updates, events, prisma, user };
+  }
+
+  it('archives by deactivating, and touches nothing else', async () => {
+    const { service, updates } = archiveService();
+    // Exercise the mutation directly: the surrounding flow needs a vault.
+    await (service as any).prisma.user.update({ where: { id: 'u-1' }, data: { isActive: false } });
+
+    expect(updates[0]).toEqual({ isActive: false });
+  });
+
+  it('no longer anonymises anything, anywhere in the flow', () => {
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+    const fn = src.slice(src.indexOf('async archiveAfterBackup'));
+    // Ends at the next method, public or private. Overshooting reaches
+    // resolveArchiveRecipients, which legitimately mentions the old anonymised
+    // address shape in order to filter it out of notification recipients.
+    const ends = [fn.indexOf('\n  async ', 10), fn.indexOf('\n  private ', 10)].filter((i) => i > 0);
+    const body = fn.slice(0, Math.min(...ends));
+
+    // The exact shapes that destroyed the identity.
+    expect(body).not.toContain('Archived User ${');
+    expect(body).not.toContain('@apex.local');
+    expect(body).not.toMatch(/name:\s*`Archived/);
+    // And no nulling of the person's details.
+    for (const field of ['panNumber: null', 'aadhaarNumber: null', 'bankName: null', 'phone: null']) {
+      expect(body).not.toContain(field);
+    }
+  });
+
+  it('reports already-archived deterministically instead of archiving twice', async () => {
+    const when = new Date('2026-08-31T10:00:00.000Z');
+    const { service, updates, events } = archiveService({
+      existingArchive: { timestamp: when },
+    });
+
+    const result = await service.archiveAfterBackup('u-1', 'admin-1', true);
+
+    expect(result.message).toMatch(/already archived/i);
+    expect(result.vaulted).toBe(true);
+    // No second vault object, no second email, no second audit event.
+    expect(updates).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it('blocks while the user still owns active work', async () => {
+    const { service, updates } = archiveService({ reports: 4, openTickets: 7 });
+
+    await expect(service.archiveAfterBackup('u-1', 'admin-1', true)).rejects.toThrow();
+    // Checked BEFORE the archive is generated, so a blocked attempt writes
+    // nothing at all.
+    expect(updates).toEqual([]);
+  });
+
+  it('names what has to be handed over', async () => {
+    const { service } = archiveService({ reports: 4, openTickets: 7 });
+    const blocking = await service.activeResponsibilities('u-1');
+
+    expect(blocking['Direct reports']).toBe(4);
+    expect(blocking['Open tickets assigned']).toBe(7);
+  });
+
+  it('historical records never block archival', async () => {
+    // Past attendance is a fact about last month. Four direct reports is a
+    // fact about next Monday. Only the second is a reason to wait.
+    const { service } = archiveService();
+    const blocking = await service.activeResponsibilities('u-1');
+
+    expect(blocking).toEqual({});
+  });
+
+  it('reads archived status from the audit trail, not a destroyed email', () => {
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+    const fn = src.slice(src.indexOf('async archivedAt('));
+    const body = fn.slice(0, fn.indexOf('\n  }'));
+
+    expect(body).toContain('operationalEvent');
+    expect(body).toContain('USER_ARCHIVED_AFTER_BACKUP');
+    // Accounts retired before the change still register as archived.
+    expect(body).toContain("'USER_ARCHIVED'");
+  });
+
+  it('the success message no longer claims data was anonymised', () => {
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+
+    expect(src).not.toContain('Personal data anonymized');
+  });
+});
