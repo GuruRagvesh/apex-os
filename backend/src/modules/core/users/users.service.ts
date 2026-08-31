@@ -64,20 +64,31 @@ export class UsersService {
     // Archived status comes from the audit trail, in ONE batched query rather
     // than per row. It used to be inferred from the anonymised email address,
     // which only worked because archival destroyed the name.
-    const archiveEvents: Array<{ entityId: string; timestamp: Date }> = rawUsers.length
-      ? await (this.prisma as any).operationalEvent.findMany({
-          where: {
-            entityType: 'User',
-            entityId: { in: rawUsers.map((u: any) => u.id) },
-            action: { in: ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'] },
-          },
-          select: { entityId: true, timestamp: true },
-        })
-      : [];
+    const lifecycleEvents: Array<{ entityId: string; timestamp: Date; action: string }> =
+      rawUsers.length
+        ? await (this.prisma as any).operationalEvent.findMany({
+            where: {
+              entityType: 'User',
+              entityId: { in: rawUsers.map((u: any) => u.id) },
+              action: {
+                in: [...UsersService.ARCHIVE_ACTIONS, ...UsersService.REACTIVATE_ACTIONS],
+              },
+            },
+            orderBy: { timestamp: 'desc' },
+            select: { entityId: true, timestamp: true, action: true },
+          })
+        : [];
+
+    // Newest first, so the first event seen for a user IS their latest
+    // transition. A reactivation cancels an earlier archival.
     const archivedAtById = new Map<string, Date>();
-    for (const e of archiveEvents) {
-      const seen = archivedAtById.get(e.entityId);
-      if (!seen || e.timestamp < seen) archivedAtById.set(e.entityId, e.timestamp);
+    const settled = new Set<string>();
+    for (const e of lifecycleEvents) {
+      if (settled.has(e.entityId)) continue;
+      settled.add(e.entityId);
+      if (UsersService.ARCHIVE_ACTIONS.includes(e.action)) {
+        archivedAtById.set(e.entityId, e.timestamp);
+      }
     }
 
     const users = rawUsers.map((u) => ({
@@ -148,6 +159,16 @@ export class UsersService {
    * belong to the audited admin update path, so a form that looks like it is
    * editing a phone number can never quietly grant HR authority.
    */
+  /**
+   * The lifecycle vocabulary, in one place.
+   *
+   * Two archive names because archival now writes USER_ARCHIVED_AFTER_BACKUP
+   * and accounts retired before that carry USER_ARCHIVED -- both mean archived.
+   * Reactivation cancels either, and the most recent transition is what counts.
+   */
+  static readonly ARCHIVE_ACTIONS = ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'];
+  static readonly REACTIVATE_ACTIONS = ['USER_REACTIVATED'];
+
   private static readonly PROFILE_FIELDS = [
     // Personal
     'name', 'phone', 'dateOfBirth', 'gender', 'bloodGroup',
@@ -234,10 +255,22 @@ export class UsersService {
 
     // Granting or removing HR authority is a privilege change, not an edit, and
     // is recorded as one so it is findable in the audit trail later.
+    // A LIFECYCLE CHANGE IS NOT AN EDIT.
+    //
+    // Reactivation happens through this generic update -- the Users list simply
+    // sets isActive -- and it used to log USER_UPDATED. Since archived state is
+    // read from the lifecycle events, a reactivation that left no transition
+    // was invisible: the account came back but still read as archived, with no
+    // way to clear it.
     const privilegeChange = clean.roleId !== undefined || clean.isHR !== undefined;
-    const action = privilegeChange
-      ? OperationalAction.USER_ROLE_CHANGED
-      : OperationalAction.USER_UPDATED;
+    const action =
+      clean.isActive === true
+        ? OperationalAction.USER_REACTIVATED
+        : clean.isActive === false
+          ? OperationalAction.USER_DEACTIVATED
+          : privilegeChange
+            ? OperationalAction.USER_ROLE_CHANGED
+            : OperationalAction.USER_UPDATED;
     this.eventLogger.log({
       actorId: actorId ?? id,
       entityType: 'User',
@@ -888,18 +921,22 @@ export class UsersService {
    * only worked because the name was destroyed.
    */
   async archivedAt(userId: string): Promise<Date | null> {
-    const event = await (this.prisma as any).operationalEvent.findFirst({
+    const latest = await (this.prisma as any).operationalEvent.findFirst({
       where: {
         entityType: 'User',
         entityId: userId,
-        // Both names: archival now writes USER_ARCHIVED_AFTER_BACKUP, and
-        // accounts retired before that are still archived.
-        action: { in: ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'] },
+        action: { in: [...UsersService.ARCHIVE_ACTIONS, ...UsersService.REACTIVATE_ACTIONS] },
       },
-      orderBy: { timestamp: 'asc' },
-      select: { timestamp: true },
+      // NEWEST FIRST. Reading the oldest archive event would mark a
+      // reactivated account as archived for ever: archive -> reactivate ->
+      // still archived, with no way back. Lifecycle is the LATEST transition,
+      // not whether one ever happened.
+      orderBy: { timestamp: 'desc' },
+      select: { timestamp: true, action: true },
     });
-    return event?.timestamp ?? null;
+
+    if (!latest) return null;
+    return UsersService.ARCHIVE_ACTIONS.includes(latest.action) ? latest.timestamp : null;
   }
 
   /**
@@ -1083,14 +1120,18 @@ export class UsersService {
     await this.prisma.$transaction(async (tx) => {
       // Re-checked INSIDE the transaction: a concurrent request may have
       // archived between the earlier check and here.
-      const already = await (tx as any).operationalEvent.findFirst({
+      const latest = await (tx as any).operationalEvent.findFirst({
         where: {
           entityType: 'User',
           entityId: userId,
-          action: { in: ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'] },
+          action: { in: [...UsersService.ARCHIVE_ACTIONS, ...UsersService.REACTIVATE_ACTIONS] },
         },
-        select: { id: true },
+        // Same latest-wins rule as archivedAt(): an account archived, then
+        // reactivated, may be archived again.
+        orderBy: { timestamp: 'desc' },
+        select: { action: true },
       });
+      const already = latest && UsersService.ARCHIVE_ACTIONS.includes(latest.action);
       if (already) {
         throw new BadRequestException('This account was archived by another request.');
       }

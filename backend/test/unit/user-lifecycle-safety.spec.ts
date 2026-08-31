@@ -487,7 +487,9 @@ describe('archival retires the login and keeps the person', () => {
   it('reports already-archived deterministically instead of archiving twice', async () => {
     const when = new Date('2026-08-31T10:00:00.000Z');
     const { service, updates, events } = archiveService({
-      existingArchive: { timestamp: when },
+      // Carries an action: state is the LATEST transition, so an event with
+      // no action is not an archival.
+      existingArchive: { timestamp: when, action: 'USER_ARCHIVED_AFTER_BACKUP' },
     });
 
     const result = await service.archiveAfterBackup('u-1', 'admin-1', true);
@@ -534,9 +536,12 @@ describe('archival retires the login and keeps the person', () => {
     const body = fn.slice(0, fn.indexOf('\n  }'));
 
     expect(body).toContain('operationalEvent');
-    expect(body).toContain('USER_ARCHIVED_AFTER_BACKUP');
-    // Accounts retired before the change still register as archived.
-    expect(body).toContain("'USER_ARCHIVED'");
+    expect(body).toContain('ARCHIVE_ACTIONS');
+    // The vocabulary itself, now shared: the current name, the older one that
+    // accounts retired before the change still carry, and the reactivation
+    // that cancels either.
+    expect(src).toContain("ARCHIVE_ACTIONS = ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED']");
+    expect(src).toContain("REACTIVATE_ACTIONS = ['USER_REACTIVATED']");
   });
 
   it('the success message no longer claims data was anonymised', () => {
@@ -719,5 +724,125 @@ describe('notification informs; it does not gate', () => {
     expect(early).toContain("archiveStatus: 'ALREADY_ARCHIVED'");
     expect(early).not.toContain('sendArchiveBackup');
     expect(early).not.toContain('archiveToVault');
+  });
+});
+
+describe('lifecycle is the latest transition, not the first one ever', () => {
+  // THE BUG THIS FIXES: archivedAt() read the OLDEST archive event, so
+  // archive -> reactivate left the account reading as archived permanently,
+  // with no way back. Lifecycle state is the most recent transition.
+
+  function svc(events: Array<{ action: string; timestamp: Date }>) {
+    // Newest-first, as the real query orders it.
+    const ordered = [...events].sort((a, b) => +b.timestamp - +a.timestamp);
+    const prisma: any = {
+      operationalEvent: {
+        findFirst: jest.fn(async ({ where }: any) => {
+          const allowed: string[] = where.action.in;
+          return ordered.find((e) => allowed.includes(e.action)) ?? null;
+        }),
+      },
+    };
+    return new UsersService(
+      prisma, policy as any,
+      { log: jest.fn(async () => undefined) } as any, {} as any, {} as any,
+    );
+  }
+
+  const T = (iso: string) => new Date(iso);
+
+  it('is archived after an archive event', async () => {
+    const at = T('2026-08-01T10:00:00.000Z');
+    await expect(
+      svc([{ action: 'USER_ARCHIVED_AFTER_BACKUP', timestamp: at }]).archivedAt('u-1'),
+    ).resolves.toEqual(at);
+  });
+
+  it('is NOT archived once reactivated afterwards', async () => {
+    // The whole point. Without this an account can never come back.
+    const service = svc([
+      { action: 'USER_ARCHIVED_AFTER_BACKUP', timestamp: T('2026-08-01T10:00:00.000Z') },
+      { action: 'USER_REACTIVATED', timestamp: T('2026-08-02T10:00:00.000Z') },
+    ]);
+
+    await expect(service.archivedAt('u-1')).resolves.toBeNull();
+  });
+
+  it('is archived again after archive -> reactivate -> archive', async () => {
+    const again = T('2026-08-03T10:00:00.000Z');
+    const service = svc([
+      { action: 'USER_ARCHIVED', timestamp: T('2026-08-01T10:00:00.000Z') },
+      { action: 'USER_REACTIVATED', timestamp: T('2026-08-02T10:00:00.000Z') },
+      { action: 'USER_ARCHIVED_AFTER_BACKUP', timestamp: again },
+    ]);
+
+    await expect(service.archivedAt('u-1')).resolves.toEqual(again);
+  });
+
+  it('recognises accounts retired under the older action name', async () => {
+    const at = T('2026-07-01T10:00:00.000Z');
+    await expect(svc([{ action: 'USER_ARCHIVED', timestamp: at }]).archivedAt('u-1')).resolves.toEqual(at);
+  });
+
+  it('is not archived when nothing ever happened', async () => {
+    await expect(svc([]).archivedAt('u-1')).resolves.toBeNull();
+  });
+
+  it('queries newest-first everywhere the state is derived', () => {
+    // Three places read it: archivedAt(), the users list, and the
+    // in-transaction re-check. All must order desc or the rule silently
+    // reverts for that caller.
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+    const derivations = src.match(/ARCHIVE_ACTIONS[\s\S]{0,400}?orderBy:\s*\{\s*timestamp:\s*'(asc|desc)'/g) ?? [];
+
+    expect(derivations.length).toBeGreaterThanOrEqual(3);
+    for (const d of derivations) expect(d).toContain("'desc'");
+    expect(src).not.toMatch(/ARCHIVE_ACTIONS[\s\S]{0,400}?timestamp:\s*'asc'/);
+  });
+
+  it('reactivation writes a transition rather than a plain edit', async () => {
+    // It happens through the generic update -- the Users list just sets
+    // isActive -- and used to log USER_UPDATED, which the lifecycle reader
+    // cannot see.
+    const audit: any[] = [];
+    const prisma: any = {
+      user: {
+        findUnique: jest.fn(async () => ({ roleId: 'r-1', employeeId: 'TE-1' })),
+        update: jest.fn(async ({ data }: any) => ({ id: 'u-1', ...data })),
+      },
+      role: { findUnique: jest.fn(async () => ({ name: 'EMPLOYEE' })) },
+    };
+    const service = new UsersService(
+      prisma, policy as any,
+      { log: jest.fn(async (e: any) => void audit.push(e)) } as any, {} as any, {} as any,
+    );
+
+    await service.update('u-1', { isActive: true } as any, 'admin-1');
+    expect(audit[0].action).toBe('USER_REACTIVATED');
+
+    audit.length = 0;
+    await service.update('u-1', { isActive: false } as any, 'admin-1');
+    expect(audit[0].action).toBe('USER_DEACTIVATED');
+  });
+
+  it('an ordinary edit is still an edit', async () => {
+    const audit: any[] = [];
+    const prisma: any = {
+      user: {
+        findUnique: jest.fn(async () => ({ roleId: 'r-1' })),
+        update: jest.fn(async ({ data }: any) => ({ id: 'u-1', ...data })),
+      },
+      role: { findUnique: jest.fn(async () => ({ name: 'EMPLOYEE' })) },
+    };
+    const service = new UsersService(
+      prisma, policy as any,
+      { log: jest.fn(async (e: any) => void audit.push(e)) } as any, {} as any, {} as any,
+    );
+
+    await service.update('u-1', { name: 'Shubham' }, 'admin-1');
+    expect(audit[0].action).toBe('USER_UPDATED');
   });
 });
