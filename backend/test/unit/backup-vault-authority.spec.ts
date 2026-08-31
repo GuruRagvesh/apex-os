@@ -83,3 +83,67 @@ describe('R2 is the only vault that can gate production safety', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('the backup cron fits in the memory it is given', () => {
+  // Render's cron gave the process roughly a 256 MB heap. Plain `ts-node`
+  // builds the whole type graph before running a line, exhausted it, and the
+  // job died with exit 134 -- so pg_dump, R2 and every verification step in
+  // this repository were never reached, and a green-looking config proved
+  // nothing at all.
+  //
+  // --transpile-only skips typechecking at RUNTIME only. It is safe because
+  // the types are still checked by `npm run typecheck:scripts`, which covers
+  // scripts/**/* -- so the guarantee moves to the gate rather than being lost.
+
+  const pkg = JSON.parse(
+    readFileSync(resolve(__dirname, '../../package.json'), 'utf8'),
+  ) as { scripts: Record<string, string> };
+
+  const backupScripts = Object.entries(pkg.scripts).filter(([name]) =>
+    name.startsWith('backup:'),
+  );
+
+  it('every backup entrypoint runs transpile-only', () => {
+    expect(backupScripts.length).toBeGreaterThan(0);
+
+    for (const [name, cmd] of backupScripts) {
+      if (!cmd.includes('ts-node')) continue;
+      expect([name, cmd.includes('--transpile-only')]).toEqual([name, true]);
+    }
+  });
+
+  it('the types are still checked somewhere', () => {
+    // Without this, transpile-only would mean the backup scripts are never
+    // typechecked at all.
+    expect(pkg.scripts['typecheck:scripts']).toContain('tsconfig.scripts.json');
+
+    const scriptsConfig = JSON.parse(
+      readFileSync(resolve(__dirname, '../../tsconfig.scripts.json'), 'utf8'),
+    ) as { include: string[] };
+    expect(scriptsConfig.include.some((i) => i.startsWith('scripts/'))).toBe(true);
+  });
+
+  it('the cron command stays simple, with the flag in package.json', () => {
+    // Render runs `npm run backup:database`. Putting the flag in the dashboard
+    // instead would mean the repository and production disagree about how the
+    // backup is executed.
+    expect(pkg.scripts['backup:database']).toBe(
+      'ts-node --transpile-only scripts/backup/run-database-backup.ts',
+    );
+  });
+
+  it('none of the safety steps were traded away for memory', () => {
+    const src = readFileSync(
+      resolve(__dirname, '../../scripts/backup/run-database-backup.ts'),
+      'utf8',
+    );
+
+    // The OOM was a runtime-execution problem. Nothing about what the backup
+    // proves should have changed to fix it.
+    expect(src).toContain('assertProductionTarget');   // right database
+    expect(src).toContain('cannot dump a PostgreSQL');  // pg_dump version gate
+    expect(src).toContain('sha256File');                // checksum
+    expect(src).toContain('vault.put');                 // upload
+    expect(src).toContain('vault.head');                // read-back
+  });
+});
