@@ -32,7 +32,7 @@ import {
   type ArchiveResult,
   type PhotoRecord,
 } from './photo-archive';
-import { createR2Vault, readR2Config, sha256File, type Vault } from './r2-vault';
+import { createR2Vault, readR2Config, sha256File, type Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 import { assertPhotoTarget, mask } from './backup-identity';
 
 export interface ArchiveDeps {

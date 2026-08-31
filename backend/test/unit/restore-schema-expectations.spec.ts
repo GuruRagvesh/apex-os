@@ -7,7 +7,7 @@ import {
   verifySchema,
 } from '../../scripts/backup/schema-expectations';
 import { runRestoreTest, type RestoreDeps } from '../../scripts/backup/run-restore-test';
-import type { Vault } from '../../scripts/backup/r2-vault';
+import type { Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 
 // The first real production restore succeeded and was then reported FAILED,
 // because the check demanded attendance_punch_evidence — a table belonging to

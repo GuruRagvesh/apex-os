@@ -35,6 +35,19 @@ export interface VaultObjectSummary {
 
 export interface Vault {
   put(key: string, filePath: string, contentType?: string): Promise<void>;
+  /**
+   * Store bytes already in memory.
+   *
+   * The database and photo backups stream from disk; a user archive is built
+   * in memory and never touches the filesystem, which is one fewer place a
+   * copy of somebody's employment record can be left behind.
+   *
+   * OPTIONAL so a vault implementation that only streams files stays a valid
+   * Vault. A caller that needs it must check, and refuse when it is absent --
+   * which is the correct fail-closed answer rather than a reason to weaken the
+   * verification.
+   */
+  putBuffer?(key: string, body: Buffer, contentType?: string): Promise<void>;
   head(key: string): Promise<{ key: string; byteSize: number } | null>;
   getToFile(key: string, destinationPath: string): Promise<void>;
   list(prefix: string): Promise<VaultObjectSummary[]>;
@@ -108,6 +121,18 @@ export function createR2Vault(config: R2Config): Vault {
           Body: createReadStream(filePath),
           ContentType: contentType,
           ContentLength: size,
+        }),
+      );
+    },
+
+    async putBuffer(key, body, contentType = 'application/octet-stream') {
+      await client.send(
+        new PutObjectCommand({
+          Bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+          ContentLength: body.length,
         }),
       );
     },

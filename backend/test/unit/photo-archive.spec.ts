@@ -7,7 +7,7 @@ import {
 } from '../../scripts/backup/photo-archive';
 import { archivePhoto, type ArchiveDeps } from '../../scripts/backup/run-photo-archive';
 import { assessPhoto, summarise } from '../../scripts/backup/photo-reconciliation';
-import type { Vault } from '../../scripts/backup/r2-vault';
+import type { Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 
 // Punch photographs are attendance evidence. The failure that matters is
 // reporting an outage as data loss, or overwriting one copy of an immutable

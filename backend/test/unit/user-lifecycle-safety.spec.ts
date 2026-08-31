@@ -272,3 +272,138 @@ describe('retiring an account cannot lose its attendance history', () => {
     }
   });
 });
+
+describe('archival is fail-closed on a verified vault copy', () => {
+  const { BackupVaultService } = require('../../src/modules/platform/backup-vault/backup-vault.service');
+
+  const ENV = {
+    R2_ACCOUNT_ID: 'acct',
+    R2_ACCESS_KEY_ID: 'key',
+    R2_SECRET_ACCESS_KEY: 'secret',
+    R2_BUCKET: 'apex-os-production-backups',
+  };
+
+  function vaultService(vault: any) {
+    const svc = new BackupVaultService();
+    const r2 = require('../../src/modules/platform/backup-vault/r2-vault');
+    jest.spyOn(r2, 'createR2Vault').mockReturnValue(vault);
+    return svc;
+  }
+
+  const original = { ...process.env };
+  beforeEach(() => Object.assign(process.env, ENV));
+  afterEach(() => {
+    process.env = { ...original };
+    jest.restoreAllMocks();
+  });
+
+  const buffer = Buffer.from('an archive');
+
+  it('returns proof only after reading the object back', async () => {
+    const puts: any[] = [];
+    const svc = vaultService({
+      putBuffer: jest.fn(async (k: string, b: Buffer) => void puts.push({ k, n: b.length })),
+      head: jest.fn(async (k: string) => ({ key: k, byteSize: buffer.length })),
+    });
+
+    const result = await svc.archiveToVault('user-archive/2026/08/u-1/x.xlsx', buffer);
+
+    expect(puts).toHaveLength(1);
+    expect(result.provider).toBe('r2');
+    expect(result.bucket).toBe('apex-os-production-backups');
+    expect(result.sizeBytes).toBe(buffer.length);
+    expect(result.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('refuses when the vault is not configured', async () => {
+    delete process.env.R2_BUCKET;
+    const svc = vaultService({ putBuffer: jest.fn(), head: jest.fn() });
+
+    await expect(svc.archiveToVault('k', buffer)).rejects.toThrow(/not configured/i);
+  });
+
+  it('refuses when the upload fails', async () => {
+    const svc = vaultService({
+      putBuffer: jest.fn(async () => {
+        throw new Error('network');
+      }),
+      head: jest.fn(),
+    });
+
+    await expect(svc.archiveToVault('k', buffer)).rejects.toThrow(/could not be uploaded/i);
+  });
+
+  it('refuses when the object is absent after a successful upload', async () => {
+    // An upload that returns 200 and stores nothing is exactly what reading it
+    // back exists to catch.
+    const svc = vaultService({
+      putBuffer: jest.fn(async () => undefined),
+      head: jest.fn(async () => null),
+    });
+
+    await expect(svc.archiveToVault('k', buffer)).rejects.toThrow(/not present/i);
+  });
+
+  it('refuses when the stored size does not match what was sent', async () => {
+    const svc = vaultService({
+      putBuffer: jest.fn(async () => undefined),
+      head: jest.fn(async (k: string) => ({ key: k, byteSize: 3 })),
+    });
+
+    await expect(svc.archiveToVault('k', buffer)).rejects.toThrow(/bytes but/i);
+  });
+
+  it('refuses when verification itself errors', async () => {
+    const svc = vaultService({
+      putBuffer: jest.fn(async () => undefined),
+      head: jest.fn(async () => {
+        throw new Error('r2 down');
+      }),
+    });
+
+    await expect(svc.archiveToVault('k', buffer)).rejects.toThrow(/could not be verified/i);
+  });
+
+  it('never returns a credential', async () => {
+    const svc = vaultService({
+      putBuffer: jest.fn(async () => undefined),
+      head: jest.fn(async (k: string) => ({ key: k, byteSize: buffer.length })),
+    });
+
+    const result = await svc.archiveToVault('k', buffer);
+    const serialized = JSON.stringify(result);
+
+    for (const secret of ['secret', 'key', 'acct']) {
+      expect(serialized.toLowerCase()).not.toContain(`"${secret}"`);
+    }
+    expect(serialized).not.toContain(ENV.R2_SECRET_ACCESS_KEY);
+    expect(serialized).not.toContain(ENV.R2_ACCESS_KEY_ID);
+  });
+
+  it('the browser can no longer authorise archival', () => {
+    // `confirmBackupDownloaded` used to gate this. A download cannot be
+    // verified by the server that offered it.
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+    const body = src.slice(src.indexOf('async archiveAfterBackup'));
+    const fn = body.slice(0, body.indexOf('async getMyTeam'));
+
+    expect(fn).not.toMatch(/if\s*\(!confirmBackupDownloaded\)/);
+    expect(fn).toContain('archiveToVault(');
+    // And the OneDrive path is no longer what retires an account.
+    expect(fn).not.toContain('backupVaultService.save(');
+  });
+
+  it('archives under an immutable, timestamped key', () => {
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+    const body = src.slice(src.indexOf('async archiveAfterBackup'));
+
+    expect(body).toContain('user-archive/');
+    expect(body).toContain('toISOString()');
+  });
+});

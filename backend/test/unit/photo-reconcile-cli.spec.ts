@@ -6,7 +6,7 @@ import {
   type ReconcileRow,
 } from '../../scripts/backup/run-photo-reconcile';
 import { summarise } from '../../scripts/backup/photo-reconciliation';
-import type { Vault } from '../../scripts/backup/r2-vault';
+import type { Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 
 // A reporting tool. It must never repair, delete or overwrite, and it must
 // never let an unanswered question pass as a clean bill of health.

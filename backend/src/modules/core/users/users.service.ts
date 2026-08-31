@@ -855,9 +855,16 @@ export class UsersService {
   async archiveAfterBackup(userId: string, actorId: string, confirmBackupDownloaded: boolean): Promise<{
     message: string; vaulted: boolean; emailSentTo: number; skippedRecipients: number;
   }> {
-    if (!confirmBackupDownloaded) {
-      throw new BadRequestException('confirmBackupDownloaded must be true to proceed with archival.');
-    }
+    // `confirmBackupDownloaded` NO LONGER AUTHORISES ANYTHING.
+    //
+    // It was the browser asserting that somebody had saved a file, and the
+    // server making an account unusable on the strength of it. A download
+    // cannot be verified by the server that offered it: the click could have
+    // been cancelled, the file discarded, the tab closed mid-transfer. The
+    // parameter is accepted for compatibility with the existing client and
+    // deliberately ignored -- proof now comes from reading the archive back
+    // out of the vault below.
+    void confirmBackupDownloaded;
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -873,15 +880,38 @@ export class UsersService {
     // ── Step 2: Generate backup BEFORE anonymising ────────────────────────────
     const { buffer, filename } = await this.generateBackup(userId, actorId);
 
-    // ── Step 3: Save to backup vault — throws if not configured or fails ──────
-    const vaultResult = await this.backupVaultService.save(buffer, filename);
+    // ── Step 3: Store in the R2 vault and VERIFY it landed ────────────────────
+    //
+    // Fail-closed. Every failure below this line -- vault unconfigured, upload
+    // refused, object absent afterwards, size mismatch -- throws before the
+    // account is touched, so the user simply remains active. Previously this
+    // wrote to OneDrive, whose vault has an unresolved 404, and archival could
+    // proceed on a boolean from the browser.
+    //
+    // The key carries a timestamp, so a retry writes a NEW object and no
+    // archive is ever overwritten.
+    const now = new Date();
+    const safeEmail = (user.email ?? 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const objectKey =
+      `user-archive/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/` +
+      `${userId}/${now.toISOString().replace(/[:.]/g, '-')}-${safeEmail}.xlsx`;
+
+    const vaultResult = await this.backupVaultService.archiveToVault(objectKey, buffer);
 
     this.eventLogger.log({
       actorId,
       entityType: 'User',
       entityId: userId,
       action: 'USER_BACKUP_VAULTED' as any,
-      metadata: { filename, provider: vaultResult.provider, fileRef: vaultResult.fileRef },
+      metadata: {
+        filename,
+        provider: vaultResult.provider,
+        bucket: vaultResult.bucket,
+        objectKey: vaultResult.objectKey,
+        sizeBytes: vaultResult.sizeBytes,
+        sha256: vaultResult.sha256,
+        verifiedAt: vaultResult.verifiedAt,
+      },
     }).catch(() => {});
 
     // ── Step 4: Email backup to mandatory recipients ───────────────────────────
@@ -937,7 +967,12 @@ export class UsersService {
     await this.logSensitiveAccess(actorId, 'USER_ARCHIVED', userId, {
       originalName: user.name,
       originalEmail: user.email,
-      backupVaultedTo: `${vaultResult.provider}:${vaultResult.fileRef}`,
+      // The vault coordinates, so a later investigation can find the archive
+      // from the audit trail alone rather than by guessing at a filename.
+      backupVaultedTo: `${vaultResult.provider}:${vaultResult.bucket}/${vaultResult.objectKey}`,
+      backupSha256: vaultResult.sha256,
+      backupSizeBytes: vaultResult.sizeBytes,
+      backupVerifiedAt: vaultResult.verifiedAt,
       backupDeliveredTo: deliveryResult.sent,
     });
 

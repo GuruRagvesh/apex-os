@@ -7,7 +7,7 @@ import {
   runBackup,
   type BackupDeps,
 } from '../../scripts/backup/run-database-backup';
-import { readR2Config, VaultNotConfigured, type Vault } from '../../scripts/backup/r2-vault';
+import { readR2Config, VaultNotConfigured, type Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 import type { BackupState } from '../../scripts/backup/backup-manifest';
 
 // The orchestrator decides whether a run counts as a backup. These tests drive

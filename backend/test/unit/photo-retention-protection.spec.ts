@@ -1,7 +1,7 @@
 import { classifyKey, planRetention } from '../../scripts/backup/backup-retention';
 import { archiveObjectKey } from '../../scripts/backup/photo-archive';
 import { runSweep } from '../../scripts/backup/run-retention-sweep';
-import type { Vault, VaultObjectSummary } from '../../scripts/backup/r2-vault';
+import type { Vault, VaultObjectSummary } from '../../src/modules/platform/backup-vault/r2-vault';
 
 // The archive writes `attendance-photos/YYYY/MM/<photoId>`. Retention used to
 // recognise only `^photos/`, a shape nothing has ever written, so every real

@@ -19,7 +19,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { PrismaClient } from '@prisma/client';
 import { assessPhoto, summarise, type PhotoAssessment, type ReconciliationSummary } from './photo-reconciliation';
 import { archiveObjectKey } from './photo-archive';
-import { createR2Vault, readR2Config, type Vault } from './r2-vault';
+import { createR2Vault, readR2Config, type Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 import { assertPhotoTarget, mask } from './backup-identity';
 
 export interface ReconcileRow {

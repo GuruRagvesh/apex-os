@@ -45,7 +45,7 @@ import {
   type BackupStatus,
   type BackupType,
 } from './backup-manifest';
-import { createR2Vault, readR2Config, sha256File, type Vault } from './r2-vault';
+import { createR2Vault, readR2Config, sha256File, type Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 
 const execFileAsync = promisify(execFile);
 

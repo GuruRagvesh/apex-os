@@ -9,7 +9,7 @@ import {
   type ReconcileRow,
 } from '../../scripts/backup/run-photo-reconcile';
 import { assessPhoto, summarise } from '../../scripts/backup/photo-reconciliation';
-import type { Vault } from '../../scripts/backup/r2-vault';
+import type { Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 
 const RECEIVED = new Date('2026-08-14T09:30:00Z');
 

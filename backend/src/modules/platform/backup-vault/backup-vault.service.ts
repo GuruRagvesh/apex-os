@@ -1,6 +1,18 @@
 import { Injectable, Logger, Optional, ServiceUnavailableException, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as https from 'https';
+import { createHash } from 'crypto';
+import { createR2Vault, readR2Config, VaultNotConfigured, type Vault } from './r2-vault';
+
+/** What a verified archive can prove. Never carries a credential. */
+export interface VerifiedArchive {
+  provider: 'r2';
+  bucket: string;
+  objectKey: string;
+  sizeBytes: number;
+  sha256: string;
+  verifiedAt: string;
+}
 
 @Injectable()
 export class BackupVaultService {
@@ -27,6 +39,99 @@ export class BackupVaultService {
    * Throws InternalServerErrorException if token request or upload fails.
    * Caller MUST NOT anonymize the user if this throws.
    */
+  /**
+   * Stores an archive in the production R2 vault and PROVES it landed.
+   *
+   * This is the only path allowed to authorise retiring an account, and it is
+   * fail-closed at every step: a caller that receives a VerifiedArchive knows
+   * the bytes are in the vault, because this method read them back.
+   *
+   * It replaces a flow that wrote to OneDrive and then trusted a boolean the
+   * BROWSER sent -- `confirmBackupDownloaded` -- as evidence a durable copy
+   * existed. A download cannot be verified by the server that offered it, and
+   * the OneDrive vault has an unresolved 404. Neither is a basis for making an
+   * account unusable.
+   *
+   * Objects are immutable: the key carries a timestamp, so a retry writes a new
+   * one and no archive is ever overwritten.
+   */
+  async archiveToVault(
+    objectKey: string,
+    buffer: Buffer,
+    contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ): Promise<VerifiedArchive> {
+    let vault: Vault;
+    let bucket: string;
+    try {
+      const config = readR2Config(process.env);
+      bucket = config.bucket;
+      vault = createR2Vault(config);
+    } catch (err) {
+      // Missing configuration is a refusal, never a silent skip: an archive
+      // with nowhere to go is not an archive.
+      if (err instanceof VaultNotConfigured) {
+        throw new ServiceUnavailableException(
+          'Backup vault is not configured, so this account cannot be archived. ' +
+            'Set the R2 credentials before retiring any user.',
+        );
+      }
+      throw err;
+    }
+
+    // Hashed BEFORE upload, from the bytes actually sent.
+    const sha256 = createHash('sha256').update(buffer).digest('hex');
+
+    if (typeof vault.putBuffer !== 'function') {
+      // A vault that cannot take bytes cannot prove it stored them.
+      throw new ServiceUnavailableException(
+        'The configured backup vault cannot store an in-memory archive. The account has not been changed.',
+      );
+    }
+
+    try {
+      await vault.putBuffer(objectKey, buffer, contentType);
+    } catch (err: any) {
+      this.logger.error(`User archive upload failed for ${objectKey}: ${err?.message ?? err}`);
+      throw new ServiceUnavailableException(
+        'The archive could not be uploaded to the backup vault. The account has not been changed.',
+      );
+    }
+
+    // Read it back. An upload that returned 200 and stored nothing is exactly
+    // the failure this whole sequence exists to catch.
+    let head: { key: string; byteSize: number } | null;
+    try {
+      head = await vault.head(objectKey);
+    } catch (err: any) {
+      this.logger.error(`User archive verification errored for ${objectKey}: ${err?.message ?? err}`);
+      throw new ServiceUnavailableException(
+        'The archive could not be verified in the backup vault. The account has not been changed.',
+      );
+    }
+
+    if (!head) {
+      throw new ServiceUnavailableException(
+        'The archive is not present in the backup vault after upload. The account has not been changed.',
+      );
+    }
+    if (head.byteSize !== buffer.length) {
+      throw new ServiceUnavailableException(
+        `The archive in the backup vault is ${head.byteSize} bytes but ${buffer.length} were sent. ` +
+          'The account has not been changed.',
+      );
+    }
+
+    this.logger.log(`User archive verified in R2: ${objectKey} (${head.byteSize} bytes)`);
+    return {
+      provider: 'r2',
+      bucket,
+      objectKey,
+      sizeBytes: head.byteSize,
+      sha256,
+      verifiedAt: new Date().toISOString(),
+    };
+  }
+
   async save(buffer: Buffer, filename: string): Promise<{ fileRef: string; provider: string }> {
     if (!this.tenantId || !this.clientId || !this.clientSecret || !this.userId || !this.folderPath) {
       throw new ServiceUnavailableException(

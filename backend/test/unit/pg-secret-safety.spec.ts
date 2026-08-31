@@ -6,7 +6,7 @@ import {
   toPgTarget,
 } from '../../scripts/backup/pg-connection';
 import { runRestoreTest, type RestoreDeps } from '../../scripts/backup/run-restore-test';
-import type { Vault } from '../../scripts/backup/r2-vault';
+import type { Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 import { BASELINE_TABLES } from '../../scripts/backup/schema-expectations';
 
 // A real incident: a failed restore printed the whole pg_restore command,

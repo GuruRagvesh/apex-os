@@ -7,7 +7,7 @@ import {
 } from '../../scripts/backup/run-restore-test';
 import { BASELINE_TABLES } from '../../scripts/backup/schema-expectations';
 import { TargetRefused } from '../../scripts/backup/backup-identity';
-import type { Vault, VaultObjectSummary } from '../../scripts/backup/r2-vault';
+import type { Vault, VaultObjectSummary } from '../../src/modules/platform/backup-vault/r2-vault';
 
 // Retention is the only routine job that destroys recovery points, and the
 // restore test is what turns "we have backups" from a hypothesis into a fact.

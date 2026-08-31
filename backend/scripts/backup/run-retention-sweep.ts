@@ -27,7 +27,7 @@ import {
   type RetentionDecision,
   type VaultObject,
 } from './backup-retention';
-import { createR2Vault, readR2Config, type Vault } from './r2-vault';
+import { createR2Vault, readR2Config, type Vault } from '../../src/modules/platform/backup-vault/r2-vault';
 
 export interface SweepDeps {
   vault: Vault;
