@@ -100,19 +100,74 @@ export class UsersService {
     return result;
   }
 
-  async update(id: string, data: { name?: string; email?: string; roleId?: string; departmentId?: string; isActive?: boolean; avatar?: string; photoUrl?: string | null; bio?: string }, actorId?: string) {
+  /**
+   * Everything an administrator may change about somebody else's account.
+   *
+   * A WHITELIST, not documentation. The controller takes `@Body() body: any`
+   * and this method used to hand it straight to `prisma.user.update({ data })`,
+   * so any column on User was settable through PUT /users/:id -- including
+   * `password`, `ctcAnnual` and `basicSalary`. The TypeScript signature listing
+   * eight fields looked like a restriction and enforced nothing at runtime.
+   *
+   * `isHR` is on this list deliberately. It is the field that actually grants
+   * HR authority -- isHrOrAdmin() reads it, and there is no HR role in the
+   * canonical ladder -- so without it there was no supported way to appoint an
+   * HR user at all, short of writing to the database by hand.
+   */
+  private static readonly UPDATABLE_FIELDS = [
+    'name',
+    'email',
+    'roleId',
+    'departmentId',
+    'isActive',
+    'isHR',
+    'avatar',
+    'photoUrl',
+    'bio',
+  ] as const;
+
+  async update(
+    id: string,
+    data: {
+      name?: string;
+      email?: string;
+      roleId?: string;
+      departmentId?: string;
+      isActive?: boolean;
+      /** HR authority. Read by isHrOrAdmin() across attendance, payroll and leave. */
+      isHR?: boolean;
+      avatar?: string;
+      photoUrl?: string | null;
+      bio?: string;
+    },
+    actorId?: string,
+  ) {
+    const clean: Record<string, unknown> = {};
+    for (const field of UsersService.UPDATABLE_FIELDS) {
+      if (data?.[field] !== undefined) clean[field] = data[field];
+    }
+
     const user = await this.prisma.user.update({
       where: { id },
-      data,
+      data: clean,
       include: { role: true, department: true },
     });
-    const action = data.roleId ? OperationalAction.USER_ROLE_CHANGED : OperationalAction.USER_UPDATED;
+
+    // Granting or removing HR authority is a privilege change, not an edit, and
+    // is recorded as one so it is findable in the audit trail later.
+    const privilegeChange = clean.roleId !== undefined || clean.isHR !== undefined;
+    const action = privilegeChange
+      ? OperationalAction.USER_ROLE_CHANGED
+      : OperationalAction.USER_UPDATED;
     this.eventLogger.log({
       actorId: actorId ?? id,
       entityType: 'User',
       entityId: id,
       action,
-      metadata: { fields: Object.keys(data) },
+      metadata: {
+        fields: Object.keys(clean),
+        ...(clean.isHR !== undefined ? { isHR: clean.isHR } : {}),
+      },
     }).catch(() => {});
     const { password, ...result } = user;
     return result;

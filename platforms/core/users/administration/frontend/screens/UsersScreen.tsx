@@ -38,7 +38,7 @@ export default function UsersPage() {
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '' });
   const [editUser, setEditUser] = useState<any | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true });
+  const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true, isHR: false });
   const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<any | null>(null);
@@ -297,7 +297,7 @@ export default function UsersPage() {
                         e.preventDefault();
                         e.stopPropagation();
                         setEditUser(u);
-                        setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive: u.isActive });
+                        setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive: u.isActive, isHR: !!u.isHR });
                       }}
                       className="p-1.5 rounded-lg transition-colors"
                       style={{ color: 'var(--text-tertiary)' }}
@@ -426,10 +426,42 @@ export default function UsersPage() {
                   </select>
                 </div>
               </div>
+
+              {/*
+                HR authority is a FLAG, not a role. There is no HR entry in the
+                canonical ladder, and isHrOrAdmin() reads this field -- so this
+                is the only thing that grants the HR permission set. Without a
+                control here, appointing an HR user meant writing to the
+                database by hand.
+
+                Kept separate from Role because the two answer different
+                questions: the role decides seniority, and therefore whose leave
+                this person may approve; the flag decides HR reach.
+              */}
+              <label
+                className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3"
+                style={{ borderColor: 'var(--border-secondary)' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={editForm.isHR}
+                  onChange={(e) => setEditForm(f => ({ ...f, isHR: e.target.checked }))}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    HR authority
+                  </span>
+                  <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
+                    Company-wide access to attendance, exceptions, corrections, payroll and the
+                    month close. Separate from the role, which decides seniority.
+                  </span>
+                </span>
+              </label>
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || null, departmentId: editForm.departmentId || null } })}
+                onClick={() => editForm.name && editMutation.mutate({ id: editUser.id, data: { name: editForm.name, roleId: editForm.roleId || null, departmentId: editForm.departmentId || null, isHR: editForm.isHR } })}
                 disabled={editMutation.isPending || !editForm.name}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
