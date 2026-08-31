@@ -4,6 +4,8 @@ import { UsersService } from '../../src/modules/core/users/users.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
+import { EmailService } from '../../src/modules/platform/email/email.service';
+import { BackupVaultService } from '../../src/modules/platform/backup-vault/backup-vault.service';
 
 const mockPrisma = {
   user: {
@@ -37,6 +39,12 @@ describe('UsersService — Profile Update Scoping', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AccessPolicyService, useValue: mockAccessPolicy },
         { provide: EventLoggerService, useValue: mockEventLogger },
+        // UsersService gained these two dependencies; without them the module
+        // failed to compile and this ENTIRE suite never ran a single
+        // assertion -- which is how the profile mass-assignment bug it was
+        // written to catch reached production.
+        { provide: EmailService, useValue: { sendMail: jest.fn() } },
+        { provide: BackupVaultService, useValue: { save: jest.fn() } },
       ],
     }).compile();
 

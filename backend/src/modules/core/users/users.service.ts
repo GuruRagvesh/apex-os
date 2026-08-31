@@ -114,6 +114,33 @@ export class UsersService {
    * canonical ladder -- so without it there was no supported way to appoint an
    * HR user at all, short of writing to the database by hand.
    */
+  /**
+   * Everything the profile screen may legitimately write.
+   *
+   * Scalars only. No relation objects, no ids that decide authority, no
+   * timestamps the database owns. Derived from the User model's own columns:
+   * personal details, employment details and payroll/statutory -- the three
+   * sections that screen actually edits.
+   *
+   * `roleId`, `isHR` and `isActive` are deliberately ABSENT. Authority changes
+   * belong to the audited admin update path, so a form that looks like it is
+   * editing a phone number can never quietly grant HR authority.
+   */
+  private static readonly PROFILE_FIELDS = [
+    // Personal
+    'name', 'phone', 'dateOfBirth', 'gender', 'bloodGroup',
+    'currentAddress', 'permanentAddress', 'bio', 'avatar', 'photoUrl',
+    'emergencyName', 'emergencyPhone', 'emergencyRelation',
+    // Employment
+    'employeeId', 'designation', 'employmentType', 'workMode', 'shiftTiming',
+    'workLocation', 'userLocation', 'reportingManager', 'teamLeadName',
+    'joiningDate', 'probationPeriod', 'lastWorkingDate',
+    // Payroll and statutory. Already logged as sensitive access below.
+    'ctcAnnual', 'basicSalary', 'salaryStructure', 'bankName', 'accountNumber',
+    'ifscCode', 'accountHolderName', 'paymentMode', 'panNumber', 'aadhaarNumber',
+    'uanNumber', 'pfApplicable', 'esicApplicable', 'professionalTax', 'taxRegime',
+  ] as const;
+
   private static readonly UPDATABLE_FIELDS = [
     'name',
     'email',
@@ -416,13 +443,57 @@ export class UsersService {
     let data: any = {};
 
     if (canEditAll) {
-      data = { ...dto };
-      delete data.password;
-      delete data.id;
+      // AN ALLOW-LIST, NOT A DENY-LIST.
+      //
+      // This used to be `{ ...dto }` with three fields deleted. The profile
+      // screen sends the WHOLE profile object back, including the `role` and
+      // `department` RELATION objects, and Prisma rejects a raw nested object
+      // where it expects connect/update syntax -- which is the "Internal server
+      // error" seen when saving Employment Details. Deleting three known-bad
+      // keys could never catch that, because the problem is everything else.
+      //
+      // Authority is deliberately absent from this list. roleId and isHR are
+      // changed through the audited admin update path, never through a profile
+      // save, so an HR-authority grant can never ride in on a form that looks
+      // like it is only editing a phone number.
+      for (const field of UsersService.PROFILE_FIELDS) {
+        if (field in dto) data[field] = dto[field];
+      }
+
+      // A date input sends "2026-06-01". Prisma wants a Date or a full ISO-8601
+      // instant and rejects a date-only string outright, so an HR user filling
+      // in a joining date got the same opaque 500 as the relation objects did.
+      //
+      // Midnight UTC, the canonical form for a date-only value and what is
+      // already stored. It reads as 05:30 IST on the same calendar day, well
+      // clear of the 18:30 UTC boundary where a stored instant would start
+      // reporting the NEXT business date -- the hazard that makes joiningDate
+      // worth being careful with, since attendance coverage keys off it.
+      for (const field of ['dateOfBirth', 'joiningDate', 'lastWorkingDate']) {
+        const value = data[field];
+        if (typeof value !== 'string' || value === '') continue;
+        const iso = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00.000Z` : value;
+        const parsed = new Date(iso);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new BadRequestException(`${field} is not a valid date.`);
+        }
+        data[field] = parsed;
+      }
       // Login email is corrected only through the dedicated, audited
       // adminCorrectEmail() path (validated, deduped, logged) — never through
       // this general-purpose profile save.
       delete data.email;
+
+      // Nobody reports to themselves. Observed in production, and it corrupts
+      // hierarchy, scope resolution and approval routing wherever it is read.
+      const selfManager = ['reportingManager', 'teamLeadName'].filter(
+        (f) => data[f] && target.employeeId && data[f] === target.employeeId,
+      );
+      if (selfManager.length > 0) {
+        throw new BadRequestException(
+          'A user cannot be their own reporting manager or team lead.',
+        );
+      }
       const payrollChanged = PAYROLL_FIELDS.filter((f) => f in dto);
       if (payrollChanged.length > 0) {
         await this.logSensitiveAccess(requesterId, 'EDIT_PAYROLL_DATA', targetUserId, { fieldsChanged: payrollChanged });
@@ -684,6 +755,15 @@ export class UsersService {
       changeRequestsTarget,
       changeRequestsApproving,
       workdayOverride,
+      dailyAttendance,
+      punchEvidence,
+      punchPhotos,
+      regularizations,
+      recoveriesEntered,
+      punchHandoffs,
+      monthClosesFinalized,
+      compOffCredits,
+      attendanceProfiles,
     ] = await Promise.all([
       this.prisma.ticket.count({ where: { createdById: userId } }),
       this.prisma.ticket.count({ where: { assignedToId: userId } }),
@@ -705,6 +785,19 @@ export class UsersService {
       (this.prisma as any).employeeProfileChangeRequest.count({ where: { targetUserId: userId } }),
       (this.prisma as any).employeeProfileChangeRequest.count({ where: { currentApproverId: userId } }),
       (this.prisma as any).userWorkdayPolicyOverride.count({ where: { userId } }),
+      // ── Attendance V1 ────────────────────────────────────────────────────
+      // Absent until now, which meant a user could be retired while holding
+      // the attendance history payroll is computed from. The modal counted
+      // AttendanceEvent and nothing else in this stack.
+      (this.prisma as any).dailyAttendance.count({ where: { userId } }),
+      (this.prisma as any).attendancePunchEvidence.count({ where: { userId } }),
+      (this.prisma as any).attendancePunchPhoto.count({ where: { userId } }),
+      (this.prisma as any).attendanceRegularization.count({ where: { userId } }),
+      (this.prisma as any).attendanceRegularization.count({ where: { createdById: userId } }),
+      (this.prisma as any).attendancePunchHandoff.count({ where: { userId } }),
+      (this.prisma as any).attendanceMonthClose.count({ where: { finalizedById: userId } }),
+      (this.prisma as any).compOffCredit.count({ where: { employeeId: userId } }),
+      (this.prisma as any).employeeAttendanceProfile.count({ where: { userId } }),
     ]);
 
     const blockers: Record<string, number> = {};
@@ -728,6 +821,15 @@ export class UsersService {
     if (changeRequestsTarget)    blockers['Change Requests (Target)']    = changeRequestsTarget;
     if (changeRequestsApproving) blockers['Change Requests (Approver)']  = changeRequestsApproving;
     if (workdayOverride)         blockers['Workday Policy Override']     = workdayOverride;
+    if (dailyAttendance)         blockers['Daily Attendance']            = dailyAttendance;
+    if (punchEvidence)           blockers['Punch Evidence']              = punchEvidence;
+    if (punchPhotos)             blockers['Punch Photos']                = punchPhotos;
+    if (regularizations)         blockers['Attendance Corrections']      = regularizations;
+    if (recoveriesEntered)       blockers['Corrections Entered For Others'] = recoveriesEntered;
+    if (punchHandoffs)           blockers['Phone Punch Handoffs']        = punchHandoffs;
+    if (monthClosesFinalized)    blockers['Payroll Months Finalized']    = monthClosesFinalized;
+    if (compOffCredits)          blockers['Comp-Off Credits']            = compOffCredits;
+    if (attendanceProfiles)      blockers['Attendance Profiles']         = attendanceProfiles;
 
     if (Object.keys(blockers).length > 0) {
       throw new ConflictException({
@@ -972,6 +1074,16 @@ export class UsersService {
       managedDepts,
       projectMembers,
       employeeDocuments,
+      // ── Attendance V1 ────────────────────────────────────────────────────
+      // The archive claimed to preserve a user's history while exporting none
+      // of this. The delete modal even counted Attendance Events as a reason
+      // the account could not be removed, and then left them out of the backup
+      // taken to justify removing it.
+      dailyAttendance,
+      attendanceEvents,
+      punchEvidence,
+      regularizations,
+      compOffCredits,
     ] = await Promise.all([
       this.prisma.ticket.findMany({ where: { createdById: userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
       this.prisma.ticket.findMany({ where: { assignedToId: userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
@@ -985,6 +1097,14 @@ export class UsersService {
       (this.prisma as any).managerDeptAccess.findMany({ where: { managerId: userId }, include: { department: { select: { name: true } } } }),
       this.prisma.projectMember.findMany({ where: { userId }, include: { project: { select: { projectId: true, name: true, status: true } } } }),
       (this.prisma as any).employeeDocument.findMany({ where: { userId }, orderBy: { uploadedAt: 'desc' } }),
+      (this.prisma as any).dailyAttendance.findMany({ where: { userId }, orderBy: { date: 'desc' } }),
+      (this.prisma as any).attendanceEvent.findMany({ where: { userId }, orderBy: { timestamp: 'desc' } }),
+      (this.prisma as any).attendancePunchEvidence.findMany({ where: { userId }, orderBy: { serverOccurredAt: 'desc' } }),
+      (this.prisma as any).attendanceRegularization.findMany({
+        where: { OR: [{ userId }, { createdById: userId }] },
+        orderBy: { createdAt: 'desc' },
+      }),
+      (this.prisma as any).compOffCredit.findMany({ where: { employeeId: userId }, orderBy: { earnedAt: 'desc' } }),
     ]);
 
     const fmt = (v: any): string => {
@@ -1053,6 +1173,11 @@ export class UsersService {
       ['Manager Dept Access', managedDepts.length],
       ['Project Memberships', projectMembers.length],
       ['Documents Metadata', employeeDocuments.length],
+      ['Daily Attendance', dailyAttendance.length],
+      ['Attendance Events', attendanceEvents.length],
+      ['Punch Evidence', punchEvidence.length],
+      ['Attendance Corrections', regularizations.length],
+      ['Comp-Off Credits', compOffCredits.length],
     ].forEach(([sheet, count]) => wsSummary.addRow([sheet, count]));
 
     // ── Sheet 2: User Profile ────────────────────────────────────────────────
@@ -1305,13 +1430,192 @@ export class UsersService {
       verificationStatus: d.verificationStatus, uploadedAt: fmt(d.uploadedAt),
     }));
 
+    // ── Attendance V1 ────────────────────────────────────────────────────────
+    // The payroll-relevant history. An archive taken to justify retiring an
+    // account has to contain the records that made the account unretirable.
+
+    const wsDaily = wb.addWorksheet('Daily Attendance');
+    wsDaily.columns = [
+      { header: 'Business Date', key: 'date', width: 14 },
+      { header: 'Status', key: 'status', width: 22 },
+      { header: 'Punch In', key: 'in', width: 22 },
+      { header: 'Punch Out', key: 'out', width: 22 },
+      { header: 'Presence (min)', key: 'presence', width: 14 },
+      { header: 'Worked (min)', key: 'worked', width: 13 },
+      { header: 'Evaluation', key: 'evalState', width: 14 },
+      { header: 'Exceptions', key: 'flags', width: 40 },
+      { header: 'Reason', key: 'reason', width: 26 },
+      { header: 'Revision', key: 'revision', width: 9 },
+    ];
+    wsDaily.getRow(1).font = { bold: true };
+    wsDaily.views = [{ state: 'frozen', ySplit: 1 }];
+    if (dailyAttendance.length === 0) noRecords(wsDaily);
+    else
+      dailyAttendance.forEach((d: any) =>
+        wsDaily.addRow({
+          date: fmt(d.date).slice(0, 10),
+          status: d.status,
+          in: fmt(d.punchInAt),
+          out: fmt(d.punchOutAt),
+          // Presence is punch out minus punch in, and stays BLANK when either
+          // is missing. Zero is a measurement; blank means unmeasurable.
+          presence:
+            d.punchInAt && d.punchOutAt
+              ? Math.max(
+                  0,
+                  Math.floor(
+                    (new Date(d.punchOutAt).getTime() - new Date(d.punchInAt).getTime()) / 60000,
+                  ),
+                )
+              : '',
+          worked: d.workedMinutes ?? '',
+          evalState: d.evaluationState ?? '',
+          flags: Array.isArray(d.exceptionFlags) ? d.exceptionFlags.join(', ') : '',
+          reason: d.calculationReason ?? '',
+          revision: d.revision ?? 0,
+        }),
+      );
+
+    const wsAttEvents = wb.addWorksheet('Attendance Events');
+    wsAttEvents.columns = [
+      { header: 'Type', key: 'type', width: 18 },
+      { header: 'Timestamp', key: 'ts', width: 22 },
+      { header: 'Source', key: 'src', width: 12 },
+      { header: 'Latitude', key: 'lat', width: 12 },
+      { header: 'Longitude', key: 'lng', width: 12 },
+      { header: 'Accuracy (m)', key: 'acc', width: 12 },
+      { header: 'Timezone', key: 'tz', width: 18 },
+    ];
+    wsAttEvents.getRow(1).font = { bold: true };
+    wsAttEvents.views = [{ state: 'frozen', ySplit: 1 }];
+    if (attendanceEvents.length === 0) noRecords(wsAttEvents);
+    else
+      attendanceEvents.forEach((e: any) =>
+        wsAttEvents.addRow({
+          type: e.eventType,
+          ts: fmt(e.timestamp),
+          src: e.source ?? '',
+          lat: e.latitude ?? '',
+          lng: e.longitude ?? '',
+          acc: e.accuracy ?? '',
+          tz: e.timezone ?? '',
+        }),
+      );
+
+    const wsEvidence = wb.addWorksheet('Punch Evidence');
+    wsEvidence.columns = [
+      { header: 'Business Date', key: 'date', width: 14 },
+      { header: 'Type', key: 'type', width: 12 },
+      { header: 'Server Time', key: 'server', width: 22 },
+      { header: 'Client Time', key: 'client', width: 22 },
+      { header: 'Source', key: 'src', width: 10 },
+      { header: 'Latitude', key: 'lat', width: 12 },
+      { header: 'Longitude', key: 'lng', width: 12 },
+      { header: 'Accuracy (m)', key: 'acc', width: 12 },
+      { header: 'Location Verdict', key: 'loc', width: 20 },
+      { header: 'Distance (m)', key: 'dist', width: 12 },
+      { header: 'Photo Verdict', key: 'photo', width: 16 },
+      // The object key is the durable pointer to the stored image; the image
+      // itself lives in the photo vault, not in this workbook.
+      { header: 'Photo Object Key', key: 'key', width: 46 },
+    ];
+    wsEvidence.getRow(1).font = { bold: true };
+    wsEvidence.views = [{ state: 'frozen', ySplit: 1 }];
+    if (punchEvidence.length === 0) noRecords(wsEvidence);
+    else
+      punchEvidence.forEach((p: any) =>
+        wsEvidence.addRow({
+          date: fmt(p.businessDate).slice(0, 10),
+          type: p.type,
+          server: fmt(p.serverOccurredAt),
+          client: fmt(p.clientCapturedAt),
+          src: p.source ?? '',
+          lat: p.latitude ?? '',
+          lng: p.longitude ?? '',
+          acc: p.accuracyMeters ?? '',
+          loc: p.locationVerification ?? '',
+          dist: p.distanceFromLocationMeters ?? '',
+          photo: p.photoVerification ?? '',
+          key: p.photoObjectKey ?? '',
+        }),
+      );
+
+    const wsCorrections = wb.addWorksheet('Attendance Corrections');
+    wsCorrections.columns = [
+      { header: 'Business Date', key: 'date', width: 14 },
+      { header: 'Request Type', key: 'type', width: 22 },
+      { header: 'Entry Source', key: 'entry', width: 18 },
+      { header: 'Status', key: 'status', width: 18 },
+      { header: 'Role At Entry', key: 'role', width: 14 },
+      { header: 'Recovery Reason', key: 'why', width: 22 },
+      { header: 'Original In', key: 'origIn', width: 22 },
+      { header: 'Original Out', key: 'origOut', width: 22 },
+      { header: 'Requested In', key: 'reqIn', width: 22 },
+      { header: 'Requested Out', key: 'reqOut', width: 22 },
+      { header: 'Employee Reason', key: 'reason', width: 40 },
+      { header: 'Raised For This User', key: 'own', width: 18 },
+    ];
+    wsCorrections.getRow(1).font = { bold: true };
+    wsCorrections.views = [{ state: 'frozen', ySplit: 1 }];
+    if (regularizations.length === 0) noRecords(wsCorrections);
+    else
+      regularizations.forEach((r: any) =>
+        wsCorrections.addRow({
+          date: fmt(r.date).slice(0, 10),
+          type: r.requestType,
+          entry: r.entrySource ?? '',
+          status: r.status,
+          role: r.actorRoleAtEntry ?? '',
+          why: r.recoveryReason ?? '',
+          // Provenance: what the record said BEFORE the correction. Recorded
+          // once at creation and never recomputed, so it survives here.
+          origIn: fmt(r.originalPunchIn),
+          origOut: fmt(r.originalPunchOut),
+          reqIn: fmt(r.requestedPunchIn),
+          reqOut: fmt(r.requestedPunchOut),
+          reason: r.reason ?? '',
+          own: r.userId === userId ? 'Yes' : 'No (entered for another employee)',
+        }),
+      );
+
+    const wsCompOff = wb.addWorksheet('Comp-Off Credits');
+    wsCompOff.columns = [
+      { header: 'Earned From', key: 'from', width: 14 },
+      { header: 'Earned At', key: 'at', width: 22 },
+      { header: 'Expires At', key: 'exp', width: 22 },
+      { header: 'Used At', key: 'used', width: 22 },
+      { header: 'Status', key: 'status', width: 14 },
+    ];
+    wsCompOff.getRow(1).font = { bold: true };
+    wsCompOff.views = [{ state: 'frozen', ySplit: 1 }];
+    if (compOffCredits.length === 0) noRecords(wsCompOff);
+    else
+      compOffCredits.forEach((c: any) =>
+        wsCompOff.addRow({
+          from: fmt(c.earnedFromBusinessDate).slice(0, 10),
+          at: fmt(c.earnedAt),
+          exp: fmt(c.expiresAt),
+          used: fmt(c.usedAt),
+          status: c.status,
+        }),
+      );
+
     // Log export to audit trail
     this.eventLogger.log({
       actorId,
       entityType: 'User',
       entityId: userId,
       action: OperationalAction.EXPORT_PERFORMED,
-      metadata: { exportType: 'user_backup_xlsx', targetUser: user.name, sheets: 14 },
+      metadata: {
+        exportType: 'user_backup_xlsx',
+        targetUser: user.name,
+        sheets: 19,
+        // Recorded so the audit trail says what the archive actually held,
+        // rather than only that one was produced.
+        attendanceRows: dailyAttendance.length,
+        punchEvidenceRows: punchEvidence.length,
+        correctionRows: regularizations.length,
+      },
     }).catch(() => {});
 
     // writeBuffer loads the full workbook into memory before sending.
