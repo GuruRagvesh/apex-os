@@ -293,4 +293,136 @@ export class BusinessCalendarService {
       },
     };
   }
+
+  /**
+   * Working-day classification for every date in a month, in a handful of
+   * queries rather than one round trip per day.
+   *
+   * resolveBusinessDay() answers one date and re-resolves the governing
+   * calendar and weekly-off policy each time. Asking it thirty times to render
+   * a monthly report is thirty times the work for an answer that does not
+   * change between days -- and that per-date pattern is exactly what makes a
+   * month view slow.
+   *
+   * So the policy and the calendar are resolved ONCE, the holidays and
+   * overrides for the month are read in bulk, and the weekly-off rule is then
+   * applied per date with the same helper resolveBusinessDay() uses. The rule
+   * is not reimplemented here; only the fetching changes.
+   */
+  async classifyMonth(
+    year: number,
+    month: number,
+    sources: BusinessCalendarSources = {},
+  ): Promise<{
+    month: string;
+    workingDays: number;
+    /**
+     * How each authority was resolved.
+     *
+     * Reported rather than swallowed. If no weekly-off policy could be
+     * resolved, every Sunday counts as a working day and the total is simply
+     * wrong -- a caller that prints "Working Days: 30" beside an HR register
+     * needs to know that, not discover it from a confused employee.
+     */
+    sources: {
+      holidayCalendar: CalendarSourceResolution;
+      weeklyOffPolicy: CalendarSourceResolution;
+    };
+    days: Array<{
+      businessDate: string;
+      isWorkingDay: boolean;
+      reason: 'WORKING' | 'SUNDAY' | 'SECOND_SATURDAY' | 'FOURTH_SATURDAY' | 'HOLIDAY' | 'COMPANY_CLOSURE' | 'SPECIAL_WORKING_DAY';
+      holidayName: string | null;
+    }>;
+  }> {
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const first = this.companyDateOnlyFor(`${monthKey}-01`);
+    const last = this.companyDateOnlyFor(`${monthKey}-${String(daysInMonth).padStart(2, '0')}`);
+
+    // STRICT BY DEFAULT here, unlike resolveBusinessDay(). A company-wide
+    // report has no employee to inherit an assignment from, and non-strict
+    // resolution returns NO calendar at all -- which would silently report
+    // every holiday as a working day. Strict resolves the company default when
+    // exactly one exists, and refuses to guess when zero or several do.
+    const strict = sources.strict !== false;
+    const [calendarSel, weeklyOffSel] = await Promise.all([
+      this.resolveCalendarId(sources.holidayCalendarId, first, strict),
+      this.resolveWeeklyOffPolicy(sources.weeklyOffPolicyId, first, strict),
+    ]);
+
+    const [holidays, overrides] = await Promise.all([
+      calendarSel.id
+        ? this.prisma.holiday.findMany({
+            where: { calendarId: calendarSel.id, date: { gte: first, lte: last } },
+            select: { date: true, name: true, isOptional: true },
+          })
+        : Promise.resolve([] as Array<{ date: Date; name: string; isOptional: boolean }>),
+      this.prisma.businessDayOverride.findMany({
+        // A revoked override is history, not policy.
+        where: { date: { gte: first, lte: last }, revokedAt: null },
+        select: { date: true, type: true },
+      }),
+    ]);
+
+    const key = (d: Date) => new Date(d).toISOString().slice(0, 10);
+    const holidayByDate = new Map<string, string>();
+    for (const h of holidays) {
+      // An optional holiday does not close the company.
+      if (!h.isOptional) holidayByDate.set(key(h.date), h.name);
+    }
+    const overrideByDate = new Map<string, string>();
+    for (const o of overrides) overrideByDate.set(key(o.date), o.type);
+
+    const days = [];
+    let workingDays = 0;
+
+    for (let d = 1; d <= daysInMonth; d += 1) {
+      const businessDate = `${monthKey}-${String(d).padStart(2, '0')}`;
+      const { dayOfWeek, weekdayOrdinal } = this.describeDate(businessDate);
+
+      const override = overrideByDate.get(businessDate);
+      const holidayName = holidayByDate.get(businessDate) ?? null;
+      const weeklyOff = this.weeklyOffReasons(weeklyOffSel.policy, dayOfWeek, weekdayOrdinal);
+
+      // An explicit override outranks both the holiday list and the weekly-off
+      // rule, in either direction -- that is what an override is for.
+      let isWorkingDay: boolean;
+      let reason: any;
+      if (override === 'SPECIAL_WORKING_DAY') {
+        isWorkingDay = true;
+        reason = 'SPECIAL_WORKING_DAY';
+      } else if (override === 'COMPANY_CLOSURE') {
+        isWorkingDay = false;
+        reason = 'COMPANY_CLOSURE';
+      } else if (weeklyOff.length > 0) {
+        isWorkingDay = false;
+        reason = weeklyOff[0];
+      } else if (holidayName) {
+        isWorkingDay = false;
+        reason = 'HOLIDAY';
+      } else {
+        isWorkingDay = true;
+        reason = 'WORKING';
+      }
+
+      if (isWorkingDay) workingDays += 1;
+      days.push({ businessDate, isWorkingDay, reason, holidayName });
+    }
+
+    return {
+      month: monthKey,
+      workingDays,
+      sources: {
+        holidayCalendar: calendarSel.resolution,
+        weeklyOffPolicy: weeklyOffSel.resolution,
+      },
+      days,
+    };
+  }
+
+  /** Same encoding resolveBusinessDay() uses: UTC midnight for a yyyy-MM-dd. */
+  private companyDateOnlyFor(businessDate: string): Date {
+    return new Date(`${businessDate}T00:00:00.000Z`);
+  }
 }

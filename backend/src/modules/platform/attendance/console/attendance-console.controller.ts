@@ -5,8 +5,10 @@ import {
   Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../../shared/decorators/current-user.decorator';
@@ -84,6 +86,44 @@ export class AttendanceConsoleController {
     @Query('departmentId') departmentId?: string,
   ) {
     return this.console.monthlyRegister(user, { from, to, departmentId });
+  }
+
+  /**
+   * The register as a file.
+   *
+   * Two routes, one report: both hand the same computed result to a different
+   * encoder. Nothing here decides what a number is.
+   *
+   * Fetched with the Bearer token attached rather than opened as a link, so the
+   * bytes are returned to the caller instead of being served to an anonymous
+   * browser navigation.
+   */
+  @Get('register/export.xlsx')
+  async exportRegisterXlsx(
+    @CurrentUser() user: any,
+    @Res() res: Response,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const file = await this.console.exportRegister(user, { from, to, departmentId }, 'xlsx');
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
+  }
+
+  @Get('register/export.csv')
+  async exportRegisterCsv(
+    @CurrentUser() user: any,
+    @Res() res: Response,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const file = await this.console.exportRegister(user, { from, to, departmentId }, 'csv');
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
   }
 
   @Get('detail/:userId/:businessDate')

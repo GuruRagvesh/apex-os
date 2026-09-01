@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ManualRecoveryForm } from './ManualRecoveryForm';
-import { AttendanceExceptionQueue } from './AttendanceExceptionQueue';
-import { PayrollMonthClose } from './PayrollMonthClose';
 import {
+  downloadRegister,
   finalizeDay,
   getConsoleAccess,
   getRegister,
@@ -15,6 +14,15 @@ import {
   type EvaluationResult,
 } from './console-api';
 import { formatMinutes, formatTime, presentStatus } from './attendance-status';
+import {
+  currentMonth,
+  formatBalance,
+  formatCompletion,
+  isFutureMonth,
+  monthLabel,
+  monthRange,
+  shiftMonth,
+} from './register-month';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -40,17 +48,27 @@ function initialBusinessDate() {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : todayIso();
 }
 
+/**
+ * Two questions, two tabs.
+ *
+ *   Daily Review     what happened on this day, and what needs acting on
+ *   Monthly Register how everyone did this month, and the file to send on
+ *
+ * Exceptions and Payroll were removed from this console deliberately. Their
+ * backends are untouched -- this is a decision about what HR should be looking
+ * at, not about deleting the machinery behind it.
+ */
 const TAB_LABEL = {
-  roster: 'Day view',
-  exceptions: 'Exceptions',
-  register: 'Monthly register',
-  payroll: 'Payroll',
+  roster: 'Daily Review',
+  register: 'Monthly Register',
 } as const;
 
 export function AttendanceConsole() {
   const queryClient = useQueryClient();
   const [businessDate, setBusinessDate] = useState(initialBusinessDate);
   const [tab, setTab] = useState<keyof typeof TAB_LABEL>('roster');
+  const [month, setMonth] = useState(() => currentMonth());
+  const [downloading, setDownloading] = useState<'xlsx' | 'csv' | null>(null);
   // The employee whose day is being recovered by hand, if any.
   const [recovering, setRecovering] = useState<{
     id: string;
@@ -82,9 +100,17 @@ export function AttendanceConsole() {
     staleTime: 30_000,
   });
 
-  const { data: register } = useQuery({
-    queryKey: ['console-register', businessDate],
-    queryFn: () => getRegister(`${businessDate.slice(0, 7)}-01`, businessDate),
+  // The register asks for the WHOLE month. The server clamps its calculations
+  // to elapsed working days, so requesting September on September 1st does not
+  // manufacture twenty-one absences.
+  const range = monthRange(month);
+  const {
+    data: register,
+    isLoading: registerLoading,
+    isError: registerFailed,
+  } = useQuery({
+    queryKey: ['console-register', month],
+    queryFn: () => getRegister(range.from, range.to),
     enabled: !!access?.hasTeam && tab === 'register',
     staleTime: 60_000,
   });
@@ -123,6 +149,23 @@ export function AttendanceConsole() {
       setError(err?.response?.data?.message ?? 'The day could not be finalized.'),
   });
 
+  /**
+   * Both files come from the server, from the same call that produced the table
+   * above. Nothing is recomputed here, so the download cannot disagree with
+   * what HR is looking at.
+   */
+  const download = async (format: 'xlsx' | 'csv') => {
+    setDownloading(format);
+    try {
+      await downloadRegister(month, format);
+      setError(null);
+    } catch {
+      setError('The register could not be downloaded.');
+    } finally {
+      setDownloading(null);
+    }
+  };
+
   if (accessLoading) {
     return <p className="apex-text-muted py-8 text-center text-sm">Loading…</p>;
   }
@@ -146,7 +189,7 @@ export function AttendanceConsole() {
             {access.isHr ? 'Company-wide' : 'Your team'} · stored results only
           </p>
         </div>
-        <div className="flex items-end gap-2">
+        <div className={`flex items-end gap-2 ${tab === 'roster' ? '' : 'hidden'}`}>
           <div>
             <label className="apex-text-subtle text-[11px] uppercase tracking-wide">Date</label>
             <input
@@ -194,52 +237,24 @@ export function AttendanceConsole() {
         </div>
       )}
 
-      {summary && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* Day-scoped, so it belongs to Daily Review and nowhere else. The
+          geofence / accuracy / corrections strip that used to sit here fed the
+          Exceptions tab; with that gone it was noise on a managerial screen. */}
+      {summary && tab === 'roster' && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Kpi label="Present" value={summary.present + summary.late} />
           <Kpi label="Leave" value={summary.leave + summary.lwp + summary.halfDay} />
           <Kpi label="Needs review" value={summary.needsReview} tone="warn" />
           {/* Kept visually distinct from absence on purpose: a day nobody has
               evaluated is not evidence that anyone was missing. */}
           <Kpi label="Not evaluated" value={summary.notEvaluated} tone="muted" />
-        </div>
-      )}
-
-      {summary && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {/* Unknown and zero are shown differently on purpose: a dash means no
-              evaluation has run for this date yet, not that nobody is blocked. */}
-          <Kpi
-            label="Config blocked"
-            value={summary.exceptions.configurationBlocked}
-            tone={summary.exceptions.configurationBlocked ? 'warn' : 'muted'}
-          />
           <Kpi label="Finalized" value={summary.finalized} tone="muted" />
-          <Kpi label="Corrections pending" value={summary.exceptions.regularizationPending} tone="muted" />
           <Kpi label="Employees" value={summary.expectedEmployees} tone="muted" />
         </div>
       )}
 
-      {summary && (
-        <div className="apex-card">
-          <p className="apex-text text-sm font-semibold">Exceptions</p>
-          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-            <Small label="Missing punch" value={summary.exceptions.missingPunch} />
-            <Small label="Missing punch out" value={summary.exceptions.missingPunchOut} />
-            <Small label="Outside geofence" value={summary.exceptions.outsideGeofence} />
-            <Small label="Low accuracy" value={summary.exceptions.lowAccuracy} />
-            <Small label="Partial leave funding" value={summary.exceptions.partialLeaveFunding} />
-            <Small label="Corrections pending" value={summary.exceptions.regularizationPending} />
-          </div>
-        </div>
-      )}
-
       <div className="flex gap-2">
-        {/* Payroll is HR-only: it decides what Finance is told about pay. */}
-        {(access.isHr
-          ? (['roster', 'exceptions', 'register', 'payroll'] as const)
-          : (['roster', 'exceptions', 'register'] as const)
-        ).map((t) => (
+        {(['roster', 'register'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -264,11 +279,6 @@ export function AttendanceConsole() {
           onClose={() => setRecovering(null)}
         />
       )}
-
-      {/* Managers see their own team's exceptions; the server decides which. */}
-      {tab === 'exceptions' && <AttendanceExceptionQueue />}
-
-      {tab === 'payroll' && access.isHr && <PayrollMonthClose />}
 
       {tab === 'roster' && roster && (
         <div className="apex-card overflow-x-auto">
@@ -356,44 +366,120 @@ export function AttendanceConsole() {
         </div>
       )}
 
-      {tab === 'register' && register && (
-        <div className="apex-card overflow-x-auto">
-          <p className="apex-text-muted mb-3 text-xs">
-            {register.from} to {register.to} · {register.days} days
-          </p>
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead>
-              <tr className="apex-text-subtle text-[11px] uppercase tracking-wide">
-                <th className="pb-2">Employee</th>
-                <th className="pb-2">Present</th>
-                <th className="pb-2">Leave</th>
-                <th className="pb-2">LWP</th>
-                <th className="pb-2">Half</th>
-                <th className="pb-2">Off</th>
-                <th className="pb-2">Review</th>
-                <th className="pb-2">Not eval.</th>
-                <th className="pb-2">%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {register.rows.map((r: any) => (
-                <tr key={r.employee.id} className="border-t border-[var(--border-primary)]">
-                  <td className="apex-text py-2 font-medium">{r.employee.name}</td>
-                  <td className="apex-text-muted py-2">{r.present}</td>
-                  <td className="apex-text-muted py-2">{r.leave}</td>
-                  <td className="apex-text-muted py-2">{r.lwp}</td>
-                  <td className="apex-text-muted py-2">{r.halfDay}</td>
-                  <td className="apex-text-muted py-2">{r.weeklyOff + r.holiday}</td>
-                  <td className="apex-text-muted py-2">{r.needsReview}</td>
-                  <td className="apex-text-muted py-2">{r.notEvaluated}</td>
-                  <td className="apex-text py-2">
-                    {/* Null, not 0%: nothing evaluated means nothing is known. */}
-                    {r.attendancePercent == null ? '—' : `${r.attendancePercent}%`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {tab === 'register' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setMonth(shiftMonth(month, -1))}
+                className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-2.5 py-1.5 text-sm"
+                aria-label="Previous month"
+              >
+                ‹
+              </button>
+              <span className="apex-text min-w-[9.5rem] text-center text-sm font-semibold">
+                {monthLabel(month)}
+              </span>
+              <button
+                onClick={() => setMonth(shiftMonth(month, 1))}
+                // A month that has not begun holds nothing to review.
+                disabled={isFutureMonth(shiftMonth(month, 1))}
+                className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-2.5 py-1.5 text-sm disabled:opacity-40"
+                aria-label="Next month"
+              >
+                ›
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="text-right">
+                <p className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                  Working days
+                </p>
+                {/* The full scheduled month, not the elapsed part of it. What
+                    HR is asked at the end of the month is how many working days
+                    it contained, and that answer does not change on the 2nd. */}
+                <p className="apex-text text-2xl font-semibold leading-tight">
+                  {register?.workingDays ?? '—'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => download('xlsx')}
+                  disabled={!register || downloading !== null}
+                  className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-3 py-2 text-sm disabled:opacity-40"
+                >
+                  {downloading === 'xlsx' ? 'Preparing…' : 'Download Excel'}
+                </button>
+                <button
+                  onClick={() => download('csv')}
+                  disabled={!register || downloading !== null}
+                  className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-3 py-2 text-sm disabled:opacity-40"
+                >
+                  {downloading === 'csv' ? 'Preparing…' : 'Download CSV'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {register && !register.calendarResolved && (
+            <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                No weekly-off policy could be resolved for this month, so weekends
+                are being counted as working days. The working-day total and every
+                percentage below it are unreliable until that is configured.
+              </p>
+            </div>
+          )}
+
+          {registerLoading && (
+            <p className="apex-text-muted py-8 text-center text-sm">Loading register…</p>
+          )}
+          {registerFailed && (
+            <p className="apex-text-muted py-8 text-center text-sm">
+              The register could not be loaded.
+            </p>
+          )}
+
+          {register && (
+            <div className="apex-card overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead>
+                  <tr className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                    <th className="pb-2">Employee</th>
+                    <th className="pb-2 text-right">Present</th>
+                    <th className="pb-2 text-right">Absent</th>
+                    <th className="pb-2 text-right">Half days</th>
+                    <th className="pb-2 text-right">Leave balance</th>
+                    <th className="pb-2 text-right">Late punch-ins</th>
+                    <th className="pb-2 text-right">Attendance %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {register.employees.map((e) => (
+                    <tr key={e.userId} className="border-t border-[var(--border-primary)]">
+                      <td className="apex-text py-2 font-medium">{e.name}</td>
+                      <td className="apex-text-muted py-2 text-right">{e.daysPresent}</td>
+                      <td className="apex-text-muted py-2 text-right">{e.daysAbsent}</td>
+                      <td className="apex-text-muted py-2 text-right">{e.halfDays}</td>
+                      <td className="apex-text-muted py-2 text-right">
+                        {formatBalance(e.leaveBalance)}
+                      </td>
+                      <td className="apex-text-muted py-2 text-right">{e.latePunchIns}</td>
+                      <td className="apex-text py-2 text-right">
+                        {formatCompletion(e.attendanceCompletionPercentage)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {register.employees.length === 0 && (
+                <p className="apex-text-muted py-6 text-center text-sm">
+                  No employees in view.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -420,15 +506,6 @@ function Kpi({
     <div className="apex-card">
       <p className="apex-text-subtle text-[11px] uppercase tracking-wide">{label}</p>
       <p className={`mt-1 text-2xl font-semibold ${colour}`}>{value ?? '—'}</p>
-    </div>
-  );
-}
-
-function Small({ label, value }: { label: string; value: number }) {
-  return (
-    <div>
-      <span className="apex-text-subtle text-[11px] uppercase tracking-wide">{label}</span>
-      <span className="apex-text ml-2 text-sm font-medium">{value}</span>
     </div>
   );
 }

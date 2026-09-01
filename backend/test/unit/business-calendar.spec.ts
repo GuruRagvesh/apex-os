@@ -352,3 +352,173 @@ describe('BusinessCalendarService (BL-2A)', () => {
     });
   });
 });
+
+
+/**
+ * classifyMonth: the same rules, asked once for a whole month.
+ *
+ * Its own rig, because this is the bulk path -- it reads holidays and overrides
+ * with findMany after resolving the two authorities once, where
+ * resolveBusinessDay() resolves them per date with findFirst.
+ *
+ * August 2026 again: it begins on a Saturday, so Saturdays fall on 1, 8, 15,
+ * 22, 29 and Sundays on 2, 9, 16, 23, 30. Under the default policy that is five
+ * Sundays plus the 2nd and 4th Saturdays -- seven non-working days out of 31.
+ */
+describe('classifyMonth (bulk month classification)', () => {
+  const ACTIVE_CALENDAR = { id: 'cal-2026' };
+
+  function buildMonth(fixtures: {
+    weeklyOffPolicies?: any[];
+    calendars?: any[];
+    holidays?: any[];
+    overrides?: any[];
+  } = {}) {
+    const prisma = {
+      weeklyOffPolicy: {
+        findMany: jest.fn().mockResolvedValue(fixtures.weeklyOffPolicies ?? [DEFAULT_WEEKLY_OFF]),
+        findFirst: jest.fn(),
+      },
+      holidayCalendar: {
+        findMany: jest.fn().mockResolvedValue(fixtures.calendars ?? [ACTIVE_CALENDAR]),
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      holiday: { findMany: jest.fn().mockResolvedValue(fixtures.holidays ?? []), findFirst: jest.fn() },
+      businessDayOverride: {
+        findMany: jest.fn().mockResolvedValue(fixtures.overrides ?? []),
+        findFirst: jest.fn(),
+      },
+      // Present so a test can prove attendance is never touched by the calendar.
+      dailyAttendance: { findMany: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+      workSession: { findMany: jest.fn(), update: jest.fn() },
+    };
+    const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
+    return { service: new BusinessCalendarService(prisma as any, tva), prisma };
+  }
+
+  const day = (out: any, businessDate: string) =>
+    out.days.find((d: any) => d.businessDate === businessDate);
+
+  it('excludes Sundays and the 2nd and 4th Saturdays', async () => {
+    const { service } = buildMonth();
+    const out = await service.classifyMonth(2026, 8);
+
+    expect(out.month).toBe('2026-08');
+    expect(out.days).toHaveLength(31);
+
+    for (const sunday of ['2026-08-02', '2026-08-09', '2026-08-16', '2026-08-23', '2026-08-30']) {
+      expect(day(out, sunday).isWorkingDay).toBe(false);
+      expect(day(out, sunday).reason).toBe('SUNDAY');
+    }
+
+    expect(day(out, '2026-08-08').reason).toBe('SECOND_SATURDAY');
+    expect(day(out, '2026-08-22').reason).toBe('FOURTH_SATURDAY');
+
+    // The 1st, 3rd and 5th Saturdays are ordinary working days.
+    for (const saturday of ['2026-08-01', '2026-08-15', '2026-08-29']) {
+      expect(day(out, saturday).isWorkingDay).toBe(true);
+    }
+
+    // 31 days less five Sundays and two Saturdays.
+    expect(out.workingDays).toBe(24);
+  });
+
+  it('excludes a company holiday and names it', async () => {
+    const { service } = buildMonth({
+      holidays: [{ date: new Date('2026-08-17T00:00:00.000Z'), name: 'Independence Day', isOptional: false }],
+    });
+    const out = await service.classifyMonth(2026, 8);
+
+    expect(day(out, '2026-08-17').isWorkingDay).toBe(false);
+    expect(day(out, '2026-08-17').reason).toBe('HOLIDAY');
+    expect(day(out, '2026-08-17').holidayName).toBe('Independence Day');
+    expect(out.workingDays).toBe(23);
+  });
+
+  it('an OPTIONAL holiday does not close the company', async () => {
+    const { service } = buildMonth({
+      holidays: [{ date: new Date('2026-08-17T00:00:00.000Z'), name: 'Optional festival', isOptional: true }],
+    });
+    const out = await service.classifyMonth(2026, 8);
+
+    // Some employees take it; the company still runs, so the working-day
+    // total must not drop for everyone.
+    expect(day(out, '2026-08-17').isWorkingDay).toBe(true);
+    expect(out.workingDays).toBe(24);
+  });
+
+  it('a SPECIAL_WORKING_DAY override turns a weekly off back into a working day', async () => {
+    const { service } = buildMonth({
+      overrides: [{ date: new Date('2026-08-09T00:00:00.000Z'), type: 'SPECIAL_WORKING_DAY' }],
+    });
+    const out = await service.classifyMonth(2026, 8);
+
+    // A Sunday the company decided to work. The override outranks the rule.
+    expect(day(out, '2026-08-09').isWorkingDay).toBe(true);
+    expect(day(out, '2026-08-09').reason).toBe('SPECIAL_WORKING_DAY');
+    expect(out.workingDays).toBe(25);
+  });
+
+  it('a COMPANY_CLOSURE override outranks a holiday and an ordinary day alike', async () => {
+    const { service } = buildMonth({
+      overrides: [{ date: new Date('2026-08-19T00:00:00.000Z'), type: 'COMPANY_CLOSURE' }],
+    });
+    const out = await service.classifyMonth(2026, 8);
+
+    expect(day(out, '2026-08-19').isWorkingDay).toBe(false);
+    expect(day(out, '2026-08-19').reason).toBe('COMPANY_CLOSURE');
+    expect(out.workingDays).toBe(23);
+  });
+
+  it('a revoked override is never applied', async () => {
+    const { service, prisma } = buildMonth();
+    await service.classifyMonth(2026, 8);
+
+    // Filtered in the query rather than after the fact: a revoked override is
+    // history, and history must not close the office.
+    expect(prisma.businessDayOverride.findMany.mock.calls[0][0].where.revokedAt).toBeNull();
+  });
+
+  it('reports how each authority resolved instead of guessing', async () => {
+    const { service } = buildMonth();
+    const resolved = await service.classifyMonth(2026, 8);
+    expect(resolved.sources.weeklyOffPolicy).toBe('COMPANY_DEFAULT');
+    expect(resolved.sources.holidayCalendar).toBe('COMPANY_DEFAULT');
+
+    // With no policy configured, every Sunday becomes a working day. The count
+    // is wrong and the caller is told so rather than left to publish it.
+    const { service: bare } = buildMonth({ weeklyOffPolicies: [], calendars: [] });
+    const unresolved = await bare.classifyMonth(2026, 8);
+    expect(unresolved.sources.weeklyOffPolicy).toBe('NONE');
+    expect(unresolved.workingDays).toBe(31);
+  });
+
+  it('two active policies are AMBIGUOUS, never quietly the first one', async () => {
+    const { service } = buildMonth({
+      weeklyOffPolicies: [DEFAULT_WEEKLY_OFF, { ...DEFAULT_WEEKLY_OFF, id: 'wop-2' }],
+    });
+    const out = await service.classifyMonth(2026, 8);
+    expect(out.sources.weeklyOffPolicy).toBe('AMBIGUOUS');
+  });
+
+  it('reads the month in a handful of queries, not one per day', async () => {
+    const { service, prisma } = buildMonth();
+    await service.classifyMonth(2026, 8);
+
+    // The whole point of this method. Thirty round trips per employee is what
+    // made the monthly views slow enough to look broken.
+    expect(prisma.holiday.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.businessDayOverride.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.holiday.findFirst).not.toHaveBeenCalled();
+    expect(prisma.businessDayOverride.findFirst).not.toHaveBeenCalled();
+    expect(prisma.dailyAttendance.findMany).not.toHaveBeenCalled();
+  });
+
+  it('handles February, leap and otherwise', async () => {
+    const { service } = buildMonth();
+    expect((await service.classifyMonth(2026, 2)).days).toHaveLength(28);
+    expect((await service.classifyMonth(2028, 2)).days).toHaveLength(29);
+    expect((await service.classifyMonth(2026, 12)).days).toHaveLength(31);
+  });
+});

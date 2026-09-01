@@ -6,6 +6,11 @@ import { HierarchyApprovalService } from '../../../../common/services/hierarchy-
 import { EventLoggerService, OperationalAction } from '../../../../common/services/event-logger.service';
 import { DailyAttendanceEvaluatorService } from '../evaluation/daily-attendance-evaluator.service';
 import { AttendanceProcessingService } from '../processing/attendance-processing.service';
+import { BusinessCalendarService } from '../calendar/business-calendar.service';
+import { LeaveBalanceService } from '../../../operations/leave/leave-balance.service';
+import { formatInTimeZone } from 'date-fns-tz';
+import { registerCsv, registerFileName, type RegisterResult } from './register-report';
+import { buildRegisterWorkbook } from './register-workbook';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -32,6 +37,17 @@ const MAX_RANGE_DAYS = 62;
 const MAX_EVALUATION_UNITS = 2000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * A punch in AFTER this company-local time is late.
+ *
+ * The policy window is 09:30-10:30 INCLUSIVE, so 10:30:00 is on time and
+ * 10:30:01 is not. Compared as a zero-padded HH:mm:ss string in company time,
+ * which sorts correctly and needs no offset arithmetic -- and reading the wall
+ * clock in the company timezone is the whole point, since a UTC comparison
+ * would call an 09:00 IST arrival late.
+ */
+const LATE_AFTER = '10:30:00';
+
 export interface ConsoleScope {
   /** null means unrestricted (HR/Admin). */
   userIds: string[] | null;
@@ -57,6 +73,8 @@ export class AttendanceConsoleService {
     private readonly eventLogger: EventLoggerService,
     private readonly evaluator: DailyAttendanceEvaluatorService,
     private readonly processing: AttendanceProcessingService,
+    private readonly businessCalendar: BusinessCalendarService,
+    private readonly leaveBalance: LeaveBalanceService,
   ) {}
 
   // ───────────────────────────────────────────────────────────────────────
@@ -567,48 +585,199 @@ export class AttendanceConsoleService {
       byUser.set(r.userId, list);
     }
 
+    // ── Working days, from the business calendar rather than counted rows ──
+    //
+    // Two different numbers, and conflating them is the bug this guards
+    // against:
+    //
+    //   workingDays  every scheduled working day in the MONTH. What HR sees
+    //                top-right. On the 1st of the month it is still 22.
+    //   eligible     working days that have actually ELAPSED. What the
+    //                percentage is measured against.
+    //
+    // Using the month total as a denominator on the 1st would report everybody
+    // at 4% and read as a system-wide failure.
+    // A range normally sits inside one month, but nothing forces that, so
+    // every month it touches is classified rather than silently assuming the
+    // first one covers the rest.
+    const months = Array.from(new Set(dates.map((d) => d.slice(0, 7))));
+    const classified = await Promise.all(
+      months.map((m) => {
+        const [y, mo] = m.split('-');
+        return this.businessCalendar.classifyMonth(Number(y), Number(mo));
+      }),
+    );
+    const calendarDays = classified.flatMap((c) => c.days);
+    const workingDays = classified.reduce((n, c) => n + c.workingDays, 0);
+
+    // ELAPSED STOPS AT TODAY, whatever the caller asked for.
+    //
+    // The console requests a whole month, so on the 1st the range still runs to
+    // the 30th. Measuring against that would charge every employee with 21
+    // absences they have not had the chance to avoid, and the register would
+    // read as a company-wide collapse on the morning it is first opened.
+    const elapsedThrough = to < today ? to : today;
+    const elapsedWorkingDates = new Set(
+      calendarDays
+        .filter(
+          (d) => d.isWorkingDay && d.businessDate >= from && d.businessDate <= elapsedThrough,
+        )
+        .map((d) => d.businessDate),
+    );
+
+    // ── Leave balance, from the one service that already defines it ────────
+    //
+    // Reused rather than recomputed: adding leave types together here would
+    // create a second, quietly different answer to "how much leave is left".
+    // It is per-employee and does several queries, so it runs in bounded
+    // batches -- 34 sequential round trips is the pattern that makes a monthly
+    // page feel broken.
+    const balanceByUser = new Map<string, number | null>();
+    const BATCH = 8;
+    for (let i = 0; i < employees.length; i += BATCH) {
+      const slice = employees.slice(i, i + BATCH);
+      const settled = await Promise.all(
+        slice.map((e) =>
+          this.leaveBalance
+            .getLeaveBalance(e.id, Number(from.slice(0, 4)))
+            .then((b: any) => b?.balance ?? null)
+            // One employee's leave data must not blank the whole register.
+            .catch(() => null),
+        ),
+      );
+      slice.forEach((e, n) => balanceByUser.set(e.id, settled[n]));
+    }
+
     const rows = employees.map((e) => {
       const mine = byUser.get(e.id) ?? [];
-      const count = (status: string) => mine.filter((r) => r.status === status).length;
 
+      // THE REGISTER COUNTS ELAPSED WORKING DAYS, NOTHING ELSE.
+      //
+      // Stored rows only exist for evaluated days, so future dates would
+      // usually fall out anyway -- but "usually" is not a guarantee, and a
+      // single stray future ABSENT row would put a fabricated absence against
+      // a real employee's name in a file HR sends on. The filter states the
+      // rule instead of inheriting it.
+      const applicable = mine.filter((r) =>
+        elapsedWorkingDates.has(this.tva.companyBusinessDate(r.date)),
+      );
+      const count = (status: string) => applicable.filter((r) => r.status === status).length;
+
+      // A late arrival is still an attended day. Lateness is reported in its
+      // own column rather than deducted twice.
       const present = count('PRESENT') + count('LATE') + count('LATE_EXEMPTED');
       const leave = count('LEAVE');
       const lwp = count('LWP');
       const halfDay = count('HALF_DAY');
       const absent = count('ABSENT');
-      const weeklyOff = count('WEEKLY_OFF');
-      const holiday = count('HOLIDAY');
-      const needsReview = mine.filter((r) => r.evaluationState === 'NEEDS_REVIEW').length;
-      const notEvaluated = dates.length - mine.length;
+      const weeklyOff = mine.filter((r) => r.status === 'WEEKLY_OFF').length;
+      const holiday = mine.filter((r) => r.status === 'HOLIDAY').length;
+      const needsReview = applicable.filter((r) => r.evaluationState === 'NEEDS_REVIEW').length;
+      const notEvaluated = Math.max(0, elapsedWorkingDates.size - applicable.length);
 
-      // Denominator is the working days actually EVALUATED for this employee:
-      // non-working days do not count against anyone, and a day nobody has
-      // evaluated is not evidence of anything.
-      const evaluatedWorkingDays = mine.length - weeklyOff - holiday;
-      const attendedDays = present + leave + halfDay * 0.5;
+      // Late is read from the ATTENDANCE punch, not a Workday session start.
+      // They are different facts and only this one is policy.
+      const latePunchIns = applicable.filter(
+        (r) =>
+          r.punchInAt &&
+          formatInTimeZone(r.punchInAt, this.tva.companyTimezone(), 'HH:mm:ss') > LATE_AFTER,
+      ).length;
+
+      // Approved full-day leave leaves the denominator entirely: an employee
+      // on sanctioned leave has not failed to attend, and counting it against
+      // them is the unfairness this formula exists to avoid.
+      const eligibleWorkingDays = Math.max(0, elapsedWorkingDates.size - leave);
+      const credit = present + halfDay * 0.5;
 
       return {
-        employee: e,
-        present,
-        leave,
+        userId: e.id,
+        name: e.name,
+        employeeId: e.employeeId,
+        department: e.department?.name ?? null,
+
+        // ── The seven register figures ──
+        daysPresent: present,
+        daysAbsent: absent,
+        halfDays: halfDay,
+        leaveBalance: balanceByUser.get(e.id) ?? null,
+        latePunchIns,
+        // Null, never 0 or NaN: with nothing to measure, a percentage is not a
+        // low score, it is an absent one.
+        attendanceCompletionPercentage:
+          eligibleWorkingDays > 0
+            ? Number(((credit / eligibleWorkingDays) * 100).toFixed(2))
+            : null,
+
+        // ── Working figures, not shown in the register ──
+        eligibleWorkingDays,
+        leaveDays: leave,
         lwp,
-        halfDay,
-        absent,
         weeklyOff,
         holiday,
         needsReview,
         notEvaluated,
-        evaluatedWorkingDays,
-        attendancePercent:
-          evaluatedWorkingDays > 0
-            ? Number(((attendedDays / evaluatedWorkingDays) * 100).toFixed(1))
-            : null,
-        totalEffectiveWorkMinutes: mine.reduce((n, r) => n + (r.workedMinutes ?? 0), 0),
-        totalBreakMinutes: mine.reduce((n, r) => n + (r.breakMinutes ?? 0), 0),
       };
     });
 
-    return { from, to, days: dates.length, rows };
+    return {
+      from,
+      to,
+      days: dates.length,
+      month: months[0],
+      // The full month, deliberately -- see the note above.
+      workingDays,
+      elapsedWorkingDays: elapsedWorkingDates.size,
+      /**
+       * Whether the working-day total can be trusted.
+       *
+       * A month whose weekly-off policy could not be resolved counts Sundays
+       * as working days. The register still renders -- refusing to show
+       * anything helps nobody -- but it says so instead of presenting a wrong
+       * total as a fact.
+       */
+      calendarResolved:
+        classified.every(
+          (c) => c.sources.weeklyOffPolicy !== 'NONE' && c.sources.weeklyOffPolicy !== 'AMBIGUOUS',
+        ),
+      // ONE result. The table, the workbook and the CSV all read this array;
+      // none of them recomputes a figure. Three implementations of the same
+      // formula is three chances for HR to be handed three different answers.
+      employees: rows,
+    };
+  }
+
+  /**
+   * The register as a downloadable file.
+   *
+   * Calls monthlyRegister() and renders what it returns. The workbook and the
+   * CSV are two encodings of ONE result, not two reports -- neither exporter
+   * queries anything or recomputes a figure, so a number in the spreadsheet
+   * cannot disagree with the number HR was looking at when they pressed the
+   * button. Scope and authorization come from the same call, so an export can
+   * never reach further than the screen.
+   */
+  async exportRegister(
+    actor: any,
+    filters: { from?: string; to?: string; departmentId?: string },
+    format: 'xlsx' | 'csv',
+  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+    const result = (await this.monthlyRegister(actor, filters)) as unknown as RegisterResult;
+
+    if (format === 'csv') {
+      return {
+        buffer: Buffer.from(registerCsv(result), 'utf8'),
+        filename: registerFileName(result.month, 'csv'),
+        contentType: 'text/csv; charset=utf-8',
+      };
+    }
+
+    const wb = buildRegisterWorkbook(result, this.tva.now());
+    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+    return {
+      buffer,
+      filename: registerFileName(result.month, 'xlsx'),
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    };
   }
 
   // ───────────────────────────────────────────────────────────────────────

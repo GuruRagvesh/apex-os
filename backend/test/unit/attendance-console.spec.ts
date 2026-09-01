@@ -17,6 +17,18 @@ const employee = (id: string, name = id) => ({
   department: { id: 'dept-1', name: 'Ops' },
 });
 
+/** A stored day on a specific business date. */
+const on = (userId: string, businessDate: string, over: any = {}) =>
+  record(userId, { date: new Date(`${businessDate}T00:00:00.000Z`), ...over });
+
+/** An IST wall-clock time on that business date, as the stored UTC instant. */
+const ist = (businessDate: string, hhmmss: string) => {
+  const [h, m, s] = hhmmss.split(':').map(Number);
+  // IST is UTC+5:30 with no daylight saving, so one offset is exact all year.
+  const secondsUtc = (h * 60 + m - 330) * 60 + s;
+  return new Date(Date.parse(`${businessDate}T00:00:00.000Z`) + secondsUtc * 1000);
+};
+
 const record = (userId: string, over: any = {}) => ({
   id: `da-${userId}`, userId, date: dateOnly,
   status: 'PRESENT', evaluationState: 'CALCULATED',
@@ -40,6 +52,13 @@ interface Fixtures {
   regularizationCount?: number;
   evaluateOutcome?: any;
   evaluateThrows?: Record<string, string>;
+  /** Business dates the calendar reports as scheduled working days. */
+  workingDates?: string[];
+  /** Per-employee leave balance; a missing entry reads as unknown. */
+  leaveBalances?: Record<string, number | null>;
+  leaveBalanceThrows?: string[];
+  /** How the calendar authorities resolved; NONE means unconfigured. */
+  calendarResolution?: string;
   finalizeOutcome?: any;
   blockedFromLastRun?: any[] | null;
 }
@@ -60,7 +79,10 @@ function rig(f: Fixtures = {}) {
         // The scope query asks for reports; every other query asks for the
         // employee list the caller is allowed to see.
         if (args?.where?.OR) return Promise.resolve(f.reports ?? [{ id: 'emp-1' }]);
-        return Promise.resolve(employees);
+        // The id filter is honoured here on purpose. A mock that returns every
+        // employee whatever it is asked would let a scope leak pass as a pass.
+        const ids: string[] | undefined = args?.where?.id?.in;
+        return Promise.resolve(ids ? employees.filter((e: any) => ids.includes(e.id)) : employees);
       }),
       count: jest.fn().mockResolvedValue(employees.length),
       update: jest.fn(),
@@ -92,6 +114,44 @@ function rig(f: Fixtures = {}) {
     evaluate: jest.fn(),
   };
 
+  // The calendar is mocked here on purpose: which dates are working days is
+  // BusinessCalendarService's decision and is proved in its own suite. What
+  // these tests are about is what the register does with that answer.
+  const working = new Set(f.workingDates ?? []);
+  const calendar: any = {
+    classifyMonth: jest.fn(async (year: number, month: number) => {
+      const key = `${year}-${String(month).padStart(2, '0')}`;
+      const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      const days = [];
+      for (let d = 1; d <= daysInMonth; d += 1) {
+        const businessDate = `${key}-${String(d).padStart(2, '0')}`;
+        days.push({
+          businessDate,
+          isWorkingDay: working.has(businessDate),
+          reason: working.has(businessDate) ? 'WORKING' : 'SUNDAY',
+          holidayName: null,
+        });
+      }
+      return {
+        month: key,
+        workingDays: days.filter((d) => d.isWorkingDay).length,
+        sources: {
+          holidayCalendar: f.calendarResolution ?? 'COMPANY_DEFAULT',
+          weeklyOffPolicy: f.calendarResolution ?? 'COMPANY_DEFAULT',
+        },
+        days,
+      };
+    }),
+  };
+
+  const leaveBalance: any = {
+    getLeaveBalance: jest.fn(async (userId: string) => {
+      if (f.leaveBalanceThrows?.includes(userId)) throw new Error('leave lookup failed');
+      const balance = f.leaveBalances?.[userId];
+      return balance === undefined ? { balance: 0 } : { balance };
+    }),
+  };
+
   const service = new AttendanceConsoleService(
     prisma,
     tvaOf(),
@@ -105,9 +165,11 @@ function rig(f: Fixtures = {}) {
     // SS-1: blocked employees come from the last processing run. Null here
     // means "no run yet", which every pre-SS-1 case below assumes.
     { blockedFromLastRun: jest.fn().mockResolvedValue(f.blockedFromLastRun ?? null) } as any,
+    calendar,
+    leaveBalance,
   );
 
-  return { service, prisma, evaluator, audit };
+  return { service, prisma, evaluator, audit, calendar, leaveBalance };
 }
 
 const HR = { id: 'hr-1' };
@@ -512,71 +574,297 @@ describe('HC-1 roster and register report stored results', () => {
     const { service, evaluator } = rig({
       isHr: true,
       employees: [employee('e1')],
+      workingDates: ['2026-08-03', '2026-08-04', '2026-08-05'],
       records: [
-        record('e1', { status: 'PRESENT', workedMinutes: 480, breakMinutes: 60 }),
-        record('e1', { status: 'LEAVE', workedMinutes: 0, breakMinutes: 0 }),
-        record('e1', { status: 'WEEKLY_OFF', workedMinutes: 0, breakMinutes: 0 }),
+        on('e1', '2026-08-03', { status: 'PRESENT' }),
+        on('e1', '2026-08-04', { status: 'LEAVE' }),
+        on('e1', '2026-08-05', { status: 'HALF_DAY' }),
+        // A Sunday. Stored, and correctly outside every register figure.
+        on('e1', '2026-08-02', { status: 'WEEKLY_OFF' }),
       ],
     });
 
     const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
-    const row = out.rows[0];
+    const row = out.employees[0];
 
-    expect(row.present).toBe(1);
-    expect(row.leave).toBe(1);
-    expect(row.weeklyOff).toBe(1);
-    expect(row.totalEffectiveWorkMinutes).toBe(480);
-    expect(row.totalBreakMinutes).toBe(60);
+    expect(row.daysPresent).toBe(1);
+    expect(row.halfDays).toBe(1);
+    expect(row.daysAbsent).toBe(0);
+    expect(row.leaveDays).toBe(1);
     expect(evaluator.evaluate).not.toHaveBeenCalled();
     expect(evaluator.evaluateAndPersist).not.toHaveBeenCalled();
   });
 
-  it('28. unevaluated days are reported, not counted as absence', async () => {
+  it('28. a working day nobody evaluated is reported, never counted as absence', async () => {
     const { service } = rig({
       isHr: true,
       employees: [employee('e1')],
-      records: [record('e1', { status: 'PRESENT' })],
+      workingDates: ['2026-08-03', '2026-08-04', '2026-08-05'],
+      records: [on('e1', '2026-08-03', { status: 'PRESENT' })],
     });
 
-    // Five days in the range, one evaluated.
     const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
-    const row = out.rows[0];
+    const row = out.employees[0];
 
-    expect(out.days).toBe(5);
-    expect(row.notEvaluated).toBe(4);
-    expect(row.absent).toBe(0);
+    expect(row.notEvaluated).toBe(2);
+    expect(row.daysAbsent).toBe(0);
   });
 
-  it('29. the percentage denominator excludes non-working and unevaluated days', async () => {
+  it('28b. a full-day absence is counted from the stored classification', async () => {
     const { service } = rig({
       isHr: true,
       employees: [employee('e1')],
+      workingDates: ['2026-08-03', '2026-08-04'],
       records: [
-        record('e1', { status: 'PRESENT' }),
-        record('e1', { status: 'PRESENT' }),
-        record('e1', { status: 'ABSENT' }),
-        record('e1', { status: 'WEEKLY_OFF' }),
-        record('e1', { status: 'HOLIDAY' }),
+        on('e1', '2026-08-03', { status: 'PRESENT' }),
+        on('e1', '2026-08-04', { status: 'ABSENT' }),
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-10' });
-    const row = out.rows[0];
-
-    // 5 stored days, of which 2 are non-working: 3 evaluated working days,
-    // 2 attended. A weekly off must never count against anyone.
-    expect(row.evaluatedWorkingDays).toBe(3);
-    expect(row.attendancePercent).toBe(66.7);
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    expect(out.employees[0].daysAbsent).toBe(1);
   });
 
-  it('30. an employee with nothing evaluated has no percentage rather than zero', async () => {
-    const { service } = rig({ isHr: true, employees: [employee('e1')], records: [] });
+  it('29. a half day weighs half and a full day weighs one', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1')],
+      workingDates: [
+        '2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07',
+        '2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14',
+      ],
+      records: [
+        ...['03', '04', '05', '06', '07', '10', '11', '12'].map((d) =>
+          on('e1', `2026-08-${d}`, { status: 'PRESENT' }),
+        ),
+        on('e1', '2026-08-13', { status: 'HALF_DAY' }),
+        on('e1', '2026-08-14', { status: 'HALF_DAY' }),
+      ],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-14' });
+
+    // The brief's worked example: 8 full + 2 half over 10 eligible days = 90%.
+    expect(out.employees[0].eligibleWorkingDays).toBe(10);
+    expect(out.employees[0].attendanceCompletionPercentage).toBe(90);
+  });
+
+  it('29b. approved full-day leave leaves the denominator instead of counting against the employee', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1')],
+      workingDates: ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06'],
+      records: [
+        on('e1', '2026-08-03', { status: 'PRESENT' }),
+        on('e1', '2026-08-04', { status: 'PRESENT' }),
+        on('e1', '2026-08-05', { status: 'PRESENT' }),
+        on('e1', '2026-08-06', { status: 'LEAVE' }),
+      ],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-06' });
+
+    // 4 working days, 1 on sanctioned leave: measured against 3, and attended
+    // all 3. Counting the leave day as a miss would report 75%.
+    expect(out.employees[0].eligibleWorkingDays).toBe(3);
+    expect(out.employees[0].attendanceCompletionPercentage).toBe(100);
+  });
+
+  it('30. an employee with no eligible working day has no percentage rather than zero', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1')],
+      workingDates: [],
+      records: [],
+    });
 
     const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
 
     // 0% would read as "never attended". Null reads as "we do not know yet".
-    expect(out.rows[0].attendancePercent).toBeNull();
-    expect(out.rows[0].notEvaluated).toBe(5);
+    expect(out.employees[0].attendanceCompletionPercentage).toBeNull();
+    expect(out.employees[0].eligibleWorkingDays).toBe(0);
+  });
+
+  it('30b. working days is the whole month; the percentage is measured on elapsed days only', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1')],
+      // Twenty-two scheduled working days in the month, but the caller has
+      // asked only as far as the 3rd.
+      workingDates: Array.from({ length: 22 }, (_, i) =>
+        `2026-08-${String(i + 3).padStart(2, '0')}`,
+      ),
+      records: [
+        on('e1', '2026-08-03', { status: 'PRESENT' }),
+        on('e1', '2026-08-04', { status: 'PRESENT' }),
+      ],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-04' });
+
+    expect(out.workingDays).toBe(22);
+    expect(out.elapsedWorkingDays).toBe(2);
+    // Not 2/22 = 9%. The rest of the month has not happened.
+    expect(out.employees[0].attendanceCompletionPercentage).toBe(100);
+    expect(out.employees[0].daysAbsent).toBe(0);
+  });
+
+  it('30c. a stored day outside the elapsed working days never reaches the register', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1')],
+      workingDates: ['2026-08-03'],
+      records: [
+        on('e1', '2026-08-03', { status: 'PRESENT' }),
+        // A stray row on a day the register does not cover. It must not be
+        // able to put a fabricated absence against a real name.
+        on('e1', '2026-08-20', { status: 'ABSENT' }),
+      ],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    expect(out.employees[0].daysAbsent).toBe(0);
+    expect(out.employees[0].daysPresent).toBe(1);
+  });
+
+  it('30d. 10:30 exactly is on time and 10:30:01 is late', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1'), employee('e2')],
+      workingDates: ['2026-08-03'],
+      records: [
+        on('e1', '2026-08-03', { punchInAt: ist('2026-08-03', '10:30:00') }),
+        on('e2', '2026-08-03', { punchInAt: ist('2026-08-03', '10:30:01') }),
+      ],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+
+    // The policy window is 09:30-10:30 INCLUSIVE. The boundary belongs to the
+    // employee.
+    expect(out.employees.find((e: any) => e.userId === 'e1')!.latePunchIns).toBe(0);
+    expect(out.employees.find((e: any) => e.userId === 'e2')!.latePunchIns).toBe(1);
+  });
+
+  it('30e. lateness is read in company time, not UTC', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1')],
+      workingDates: ['2026-08-03'],
+      records: [on('e1', '2026-08-03', { punchInAt: ist('2026-08-03', '11:00:00') })],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    // 11:00 IST is 05:30 UTC. A UTC comparison would call this on time.
+    expect(out.employees[0].latePunchIns).toBe(1);
+  });
+
+  it('30f. a day with no punch in is never late', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1')],
+      workingDates: ['2026-08-03'],
+      records: [on('e1', '2026-08-03', { status: 'ABSENT', punchInAt: null })],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    expect(out.employees[0].latePunchIns).toBe(0);
+  });
+
+  it('30g. leave balance comes from the leave service, and one failure does not blank the register', async () => {
+    const { service, leaveBalance } = rig({
+      isHr: true,
+      employees: [employee('e1'), employee('e2')],
+      workingDates: ['2026-08-03'],
+      records: [],
+      leaveBalances: { e1: 7 },
+      leaveBalanceThrows: ['e2'],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+
+    expect(leaveBalance.getLeaveBalance).toHaveBeenCalledWith('e1', 2026);
+    expect(out.employees.find((e: any) => e.userId === 'e1')!.leaveBalance).toBe(7);
+    // Unknown, not zero, and the other 33 employees still have a register.
+    expect(out.employees.find((e: any) => e.userId === 'e2')!.leaveBalance).toBeNull();
+    expect(out.employees).toHaveLength(2);
+  });
+
+  it('30h. the export renders the same result the screen was showing', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1', 'Ajay Singh')],
+      workingDates: ['2026-08-03', '2026-08-04'],
+      records: [
+        on('e1', '2026-08-03', { status: 'PRESENT' }),
+        on('e1', '2026-08-04', { status: 'ABSENT' }),
+      ],
+      leaveBalances: { e1: 7 },
+    });
+
+    const filters = { from: '2026-08-01', to: '2026-08-05' };
+    const onScreen = await service.monthlyRegister(HR, filters);
+    const csv = (await service.exportRegister(HR, filters, 'csv')).buffer.toString('utf8');
+
+    const row = onScreen.employees[0];
+    expect(row.daysPresent).toBe(1);
+    expect(row.daysAbsent).toBe(1);
+
+    // The same numbers, in the same order, in the file HR sends on.
+    expect(csv).toContain(
+      `Ajay Singh,${row.daysPresent},${row.daysAbsent},${row.halfDays},${row.leaveBalance},${row.latePunchIns},50.00%`,
+    );
+  });
+
+  it('30i. the file is named for the month, in both formats', async () => {
+    const { service } = rig({ isHr: true, workingDates: [], records: [] });
+    const filters = { from: '2026-08-01', to: '2026-08-05' };
+
+    expect((await service.exportRegister(HR, filters, 'csv')).filename).toBe(
+      'Attendance_Register_August_2026.csv',
+    );
+    const xlsx = await service.exportRegister(HR, filters, 'xlsx');
+    expect(xlsx.filename).toBe('Attendance_Register_August_2026.xlsx');
+    // A real XLSX is a ZIP; anything else means the workbook did not render.
+    expect(xlsx.buffer.subarray(0, 2).toString('latin1')).toBe('PK');
+  });
+
+  it('30j. an export can never reach further than the screen it came from', async () => {
+    // An ordinary employee: no reports, no managed department, no HR flag.
+    const { service, prisma } = rig({
+      isHr: false,
+      actorEmployeeId: null,
+      departmentId: null,
+      managedDepartments: [],
+      employees: [employee('e1'), employee('e2')],
+      workingDates: ['2026-08-03'],
+      records: [on('e1', '2026-08-03', { status: 'PRESENT' })],
+    });
+
+    const csv = (
+      await service.exportRegister(EMPLOYEE, { from: '2026-08-01', to: '2026-08-05' }, 'csv')
+    ).buffer.toString('utf8');
+
+    // The header and nothing else. Scope is resolved before a row is read, so
+    // the export cannot become a company-wide leak just by existing.
+    expect(csv.split(/\r?\n/).filter(Boolean)).toHaveLength(1);
+    expect(csv).not.toContain('e1');
+  });
+
+  it('30k. a manager exports their own reports, not the company', async () => {
+    const { service, prisma } = rig({
+      isHr: false,
+      reports: [{ id: 'emp-1' }],
+      employees: [employee('emp-1')],
+      workingDates: ['2026-08-03'],
+      records: [on('emp-1', '2026-08-03', { status: 'PRESENT' })],
+    });
+
+    await service.exportRegister(MANAGER, { from: '2026-08-01', to: '2026-08-05' }, 'xlsx');
+
+    // Narrowed by id before any attendance row is read.
+    const where = prisma.user.findMany.mock.calls.at(-1)[0].where;
+    expect(where.id).toEqual({ in: ['emp-1'] });
   });
 
   it('31. the register range is bounded', async () => {
@@ -707,6 +995,10 @@ describe('HC-1 review queue links back to existing sources', () => {
       'constructor',
       'detail',
       'evaluate',
+      // Both exports are GETs that render what monthlyRegister() returned.
+      // They read; they decide nothing.
+      'exportRegisterCsv',
+      'exportRegisterXlsx',
       'finalize',
       'register',
       'reviewQueue',
