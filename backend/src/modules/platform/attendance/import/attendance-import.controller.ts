@@ -145,6 +145,26 @@ export class AttendanceImportController {
     return this.apply.apply(user, id);
   }
 
+  /**
+   * Continues a batch whose apply died. Explicit, never automatic.
+   *
+   * Refused while the previous run is still beating; permitted only once its
+   * lease has gone stale.
+   */
+  @Post(':id/resume')
+  resume(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.apply.resume(user, id);
+  }
+
+  /**
+   * Reclassifies a batch that stopped because the facts moved, and returns it
+   * for a fresh approval. The only way out of REVIEW_REQUIRED.
+   */
+  @Post(':id/re-preview')
+  rePreview(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.apply.rePreview(user, id);
+  }
+
   @Get(':id/errors.xlsx')
   async errors(@CurrentUser() user: any, @Param('id') id: string, @Res() res: Response) {
     const { buffer, filename } = await this.imports.errorWorkbook(user, id);

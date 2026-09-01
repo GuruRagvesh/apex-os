@@ -1,9 +1,12 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { ConfigService } from '@nestjs/config';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { TVAService } from '../../src/common/services/tva.service';
-import { AttendanceImportApplyService } from '../../src/modules/platform/attendance/import/attendance-import-apply.service';
+import {
+  AttendanceImportApplyService,
+  batchOutcome,
+} from '../../src/modules/platform/attendance/import/attendance-import-apply.service';
 import { AttendanceImportController } from '../../src/modules/platform/attendance/import/attendance-import.controller';
 
 /**
@@ -65,8 +68,22 @@ function rig(over: any = {}) {
     attendanceImportBatch: {
       findUnique: jest.fn(async () => batch),
       update: jest.fn(async ({ data }: any) => { Object.assign(batch, data); return { ...batch }; }),
+      // Scoped to the attempt id, exactly as the heartbeat is: a mock that
+      // ignored the where clause would let a zombie worker refresh somebody
+      // else's lease and still pass.
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        if (where.applyAttemptId && where.applyAttemptId !== batch.applyAttemptId) return { count: 0 };
+        Object.assign(batch, data);
+        return { count: 1 };
+      }),
     },
     attendanceImportRow: {
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        const states: string[] | undefined = where?.applyState?.in;
+        const hit = rows.filter((r) => !states || states.includes(r.applyState));
+        hit.forEach((r) => Object.assign(r, data));
+        return { count: hit.length };
+      }),
       count: jest.fn(async ({ where }: any) => {
         if (where.classification === 'INVALID') return over.invalidRows ?? 0;
         if (where.classification === 'CONFLICT') return over.conflictRows ?? 0;
@@ -318,7 +335,7 @@ describe('a row whose world moved is skipped, never forced', () => {
 
     const out = await service.apply(HR, 'batch-1');
 
-    expect(out).toMatchObject({ status: 'FAILED', applied: 0, stale: 1 });
+    expect(out).toMatchObject({ status: 'REVIEW_REQUIRED', applied: 0, stale: 1 });
     expect(created).toEqual([]);
     expect(revised).toEqual([]);
     expect(rowUpdates.at(-1)).toMatchObject({ applyState: 'SKIPPED_STALE' });
@@ -402,15 +419,19 @@ describe('a row whose world moved is skipped, never forced', () => {
     expect(batch.status).toBe('PARTIALLY_APPLIED');
   });
 
-  it('28. a batch where nothing applied is never reported as APPLIED', async () => {
-    // Telling HR an import went through when nothing did is the worst possible
-    // summary.
+  it('28. a wholly stale batch is REVIEW_REQUIRED, not FAILED', async () => {
+    // The system worked exactly as designed and refused to write against an
+    // approval that no longer describes reality. Calling that FAILED sends
+    // somebody hunting a bug that is not there, and hides the one action that
+    // resolves it.
     const { service, batch } = approved({ monthStatus: 'SENT' });
     const out = await service.apply(HR, 'batch-1');
 
     expect(out.applied).toBe(0);
-    expect(batch.status).toBe('FAILED');
+    expect(out.stale).toBe(1);
+    expect(batch.status).toBe('REVIEW_REQUIRED');
     expect(out.status).not.toBe('APPLIED');
+    expect(out.status).not.toBe('FAILED');
   });
 
   it('29. an already-applied row is never applied twice', async () => {
@@ -479,7 +500,8 @@ describe('nothing here writes attendance directly', () => {
   it('34. the controller exposes approve and apply, and still deletes nothing', () => {
     const surface = Object.getOwnPropertyNames(AttendanceImportController.prototype).sort();
     expect(surface).toEqual([
-      'applyBatch', 'approve', 'constructor', 'errors', 'findOne', 'list', 'preview', 'template', 'upload',
+      'applyBatch', 'approve', 'constructor', 'errors', 'findOne', 'list',
+      'preview', 'rePreview', 'resume', 'template', 'upload',
     ]);
 
     const controller = readFileSync(
@@ -487,5 +509,202 @@ describe('nothing here writes attendance directly', () => {
       'utf8',
     );
     expect(controller).not.toContain('@Delete');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('what a finished batch is called', () => {
+  it('35. the outcome rules, stated as a table', () => {
+    // Row APPLIED and batch APPLIED mean different things on purpose. A row is
+    // APPLIED when it produced a revision; a batch is APPLIED when it was fully
+    // processed with nothing left to do.
+    expect(batchOutcome({ actionable: 0, applied: 0, stale: 0, failed: 0 })).toBe('APPLIED');
+    expect(batchOutcome({ actionable: 4, applied: 4, stale: 0, failed: 0 })).toBe('APPLIED');
+    expect(batchOutcome({ actionable: 4, applied: 3, stale: 1, failed: 0 })).toBe('PARTIALLY_APPLIED');
+    expect(batchOutcome({ actionable: 4, applied: 3, stale: 0, failed: 1 })).toBe('PARTIALLY_APPLIED');
+    expect(batchOutcome({ actionable: 4, applied: 0, stale: 4, failed: 0 })).toBe('REVIEW_REQUIRED');
+    expect(batchOutcome({ actionable: 4, applied: 0, stale: 0, failed: 4 })).toBe('FAILED');
+    // A runtime failure alongside staleness is still something to investigate.
+    expect(batchOutcome({ actionable: 4, applied: 0, stale: 3, failed: 1 })).toBe('FAILED');
+  });
+
+  it('36. AN ALL-MATCH BATCH IS A SUCCESS', async () => {
+    // The bug this phase existed to fix. Four thousand rows that all agree with
+    // Apex OS is a completely successful reconciliation, and reporting it as
+    // FAILED tells HR the opposite of what happened.
+    const { service, batch, created, revised } = rig({
+      status: 'APPROVED',
+      approvedById: 'hr-2',
+      rows: [
+        importRow({ id: 'm1', classification: 'MATCH' }),
+        importRow({ id: 'm2', classification: 'MATCH' }),
+      ],
+      matchRows: 2,
+    });
+
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out).toMatchObject({
+      status: 'APPLIED', attempted: 0, applied: 0, noOps: 2, stale: 0, failed: 0,
+    });
+    expect(batch.status).toBe('APPLIED');
+    expect(created).toEqual([]);
+    expect(revised).toEqual([]);
+  });
+
+  it('37. MATCH rows stay PENDING and are terminal no-ops', async () => {
+    const { service, rows } = rig({
+      status: 'APPROVED',
+      approvedById: 'hr-2',
+      rows: [importRow({ id: 'm1', classification: 'MATCH' })],
+      matchRows: 1,
+    });
+    await service.apply(HR, 'batch-1');
+
+    // classification=MATCH already makes this unambiguous; a NO_OP state would
+    // add a value that says nothing the classification does not.
+    expect(rows[0]).toMatchObject({ classification: 'MATCH', applyState: 'PENDING' });
+  });
+
+  it('38. a REVIEW_REQUIRED batch cannot be applied against the old approval', async () => {
+    const { service } = rig({ status: 'REVIEW_REQUIRED', approvedById: 'hr-2' });
+
+    await expect(service.apply(HR, 'batch-1')).rejects.toThrow(/Re-preview it and approve again/i);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('the apply lease', () => {
+  it('39. a finished run releases its lease', async () => {
+    const { service, batch } = rig({ status: 'APPROVED', approvedById: 'hr-2' });
+    await service.apply(HR, 'batch-1');
+
+    expect(batch.applyAttemptId).toBeNull();
+    expect(batch.applyStartedAt).toBeInstanceOf(Date);
+  });
+
+  it('40. a live run refuses a second caller with a conflict', async () => {
+    const { service } = rig({
+      status: 'APPLYING',
+      batch: { applyAttemptId: 'attempt-1', applyHeartbeatAt: new Date() },
+    });
+
+    await expect(service.apply(HR, 'batch-1')).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.resume(HR, 'batch-1')).rejects.toThrow(/still alive/i);
+  });
+
+  it('41. a stale lease permits an explicit resume — nothing resumes on a timer', async () => {
+    const stale = new Date(Date.now() - 10 * 60 * 1000);
+    const { service, client } = rig({
+      status: 'APPLYING',
+      approvedById: 'hr-2',
+      batch: { applyAttemptId: 'dead-attempt', applyHeartbeatAt: stale },
+      rows: [importRow()],
+    });
+
+    const out = await service.resume(HR, 'batch-1');
+
+    expect(out.applied).toBe(1);
+
+    // A NEW attempt is claimed, checked at the moment of CLAIMING rather than
+    // afterwards: by the end of a run the lease has been released to null, and
+    // null !== the dead id would pass whether or not a new one was ever issued.
+    //
+    // It matters because beat() is scoped by attempt id. Without a fresh one,
+    // the dead worker that wakes up still holds the id that owns this batch and
+    // could keep refreshing a lease somebody else now depends on.
+    const claim = client.attendanceImportBatch.update.mock.calls
+      .map((c: any[]) => c[0].data)
+      .find((d: any) => d.applyHeartbeatAt && !('status' in d));
+
+    expect(claim.applyAttemptId).toBeTruthy();
+    expect(claim.applyAttemptId).not.toBe('dead-attempt');
+  });
+
+  it('42. a heartbeat only refreshes the attempt that owns the batch', async () => {
+    const { service, client } = rig({ status: 'APPROVED', approvedById: 'hr-2' });
+    await service.apply(HR, 'batch-1');
+
+    const beat = client.attendanceImportBatch.updateMany.mock.calls[0][0];
+    // Scoped, so a zombie worker cannot make a live run look dead.
+    expect(beat.where.applyAttemptId).toBeTruthy();
+  });
+
+  it('43. a batch that is not mid-apply cannot be resumed', async () => {
+    for (const status of ['APPROVED', 'APPLIED', 'READY_FOR_REVIEW', 'REVIEW_REQUIRED']) {
+      const { service } = rig({ status });
+      await expect(service.resume(HR, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+    }
+  });
+
+  it('44. resume never reconsiders rows that already landed', async () => {
+    const stale = new Date(Date.now() - 10 * 60 * 1000);
+    const { service, created } = rig({
+      status: 'APPLYING',
+      approvedById: 'hr-2',
+      batch: { applyAttemptId: 'dead', applyHeartbeatAt: stale },
+      rows: [
+        importRow({ id: 'done', applyState: 'APPLIED', regularizationId: 'reg-old' }),
+        importRow({ id: 'todo' }),
+        importRow({ id: 'was-stale', applyState: 'SKIPPED_STALE' }),
+      ],
+    });
+
+    const out = await service.resume(HR, 'batch-1');
+
+    // Only the never-attempted row continues. APPLIED is history; SKIPPED_STALE
+    // needs a fresh preview, not a retry against the same stale decision.
+    expect(out.attempted).toBe(1);
+    expect(created).toHaveLength(1);
+  });
+
+  it('45. resume is refused to everyone but HR authority', async () => {
+    for (const actor of [OPERATOR, MANAGER, EMPLOYEE, INTERN]) {
+      const { service } = rig({ status: 'APPLYING' });
+      await expect(service.resume(actor, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('re-preview is the only way out of REVIEW_REQUIRED', () => {
+  it('46. it clears the approval, because the comparison changed', async () => {
+    const { service, batch } = rig({ status: 'REVIEW_REQUIRED', approvedById: 'hr-2' });
+    await service.rePreview(HR, 'batch-1');
+
+    expect(batch).toMatchObject({
+      status: 'READY_FOR_REVIEW', approvedById: null, approvedAt: null,
+    });
+  });
+
+  it('47. stale and failed rows return to PENDING; applied rows never do', async () => {
+    const { service, rows } = rig({
+      status: 'REVIEW_REQUIRED',
+      rows: [
+        importRow({ id: 'stale', applyState: 'SKIPPED_STALE' }),
+        importRow({ id: 'failed', applyState: 'FAILED' }),
+        importRow({ id: 'done', applyState: 'APPLIED' }),
+      ],
+    });
+    await service.rePreview(HR, 'batch-1');
+
+    expect(rows.find((r: any) => r.id === 'stale').applyState).toBe('PENDING');
+    expect(rows.find((r: any) => r.id === 'failed').applyState).toBe('PENDING');
+    expect(rows.find((r: any) => r.id === 'done').applyState).toBe('APPLIED');
+  });
+
+  it('48. a healthy batch does not need re-previewing', async () => {
+    for (const status of ['READY_FOR_REVIEW', 'APPROVED', 'APPLIED']) {
+      const { service } = rig({ status });
+      await expect(service.rePreview(HR, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+    }
+  });
+
+  it('49. after re-preview the batch must be approved again before it can apply', async () => {
+    const { service, batch } = rig({ status: 'REVIEW_REQUIRED', approvedById: 'hr-2' });
+    await service.rePreview(HR, 'batch-1');
+
+    expect(batch.status).toBe('READY_FOR_REVIEW');
+    await expect(service.apply(HR, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

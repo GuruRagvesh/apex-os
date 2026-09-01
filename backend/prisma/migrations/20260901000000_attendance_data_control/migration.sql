@@ -12,7 +12,7 @@
 -- CreateEnum
 CREATE TYPE "AttendanceImportMode" AS ENUM ('CURRENT_CORRECTION', 'HISTORICAL_MIGRATION');
 -- CreateEnum
-CREATE TYPE "AttendanceImportStatus" AS ENUM ('UPLOADING', 'VALIDATING', 'READY_FOR_REVIEW', 'HAS_ERRORS', 'APPROVED', 'APPLYING', 'APPLIED', 'PARTIALLY_APPLIED', 'FAILED', 'CANCELLED');
+CREATE TYPE "AttendanceImportStatus" AS ENUM ('UPLOADING', 'VALIDATING', 'READY_FOR_REVIEW', 'HAS_ERRORS', 'APPROVED', 'APPLYING', 'APPLIED', 'PARTIALLY_APPLIED', 'REVIEW_REQUIRED', 'FAILED', 'CANCELLED');
 -- CreateEnum
 CREATE TYPE "AttendanceImportRowClass" AS ENUM ('NEW', 'MATCH', 'CHANGE', 'CONFLICT', 'INVALID');
 -- CreateEnum
@@ -54,6 +54,9 @@ CREATE TABLE "attendance_import_batches" (
     "approvedAt" TIMESTAMP(3),
     "appliedById" TEXT,
     "appliedAt" TIMESTAMP(3),
+    "applyAttemptId" TEXT,
+    "applyStartedAt" TIMESTAMP(3),
+    "applyHeartbeatAt" TIMESTAMP(3),
     "cancelledAt" TIMESTAMP(3),
     "failureReason" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

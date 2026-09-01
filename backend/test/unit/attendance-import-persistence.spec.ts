@@ -384,7 +384,8 @@ describe('PHASE 4 STILL WRITES NO ATTENDANCE', () => {
     const surface = Object.getOwnPropertyNames(AttendanceImportController.prototype).sort();
 
     expect(surface).toEqual([
-      'applyBatch', 'approve', 'constructor', 'errors', 'findOne', 'list', 'preview', 'template', 'upload',
+      'applyBatch', 'approve', 'constructor', 'errors', 'findOne', 'list',
+      'preview', 'rePreview', 'resume', 'template', 'upload',
     ]);
     expect(controller).toContain('this.apply.approve(user, id)');
     expect(controller).toContain('this.apply.apply(user, id)');

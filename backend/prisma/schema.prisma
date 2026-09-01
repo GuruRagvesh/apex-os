@@ -2002,6 +2002,20 @@ model AttendanceImportBatch {
   /// Deliberately not approvedById reused: those are different decisions.
   appliedById   String?
   appliedAt     DateTime?
+
+  /// ── The apply lease ──────────────────────────────────────────────────
+  ///
+  /// Distinguishes a run still in progress from a worker that died. Without
+  /// it, APPLYING means only "somebody started this", and the safe response to
+  /// that is either to block the batch forever or to let a second worker run
+  /// alongside the first -- neither acceptable for something that rewrites
+  /// months of attendance.
+  ///
+  /// A fresh heartbeat refuses a second caller. A stale one permits an
+  /// explicit, human-initiated resume; nothing resumes on a timer.
+  applyAttemptId   String?
+  applyStartedAt   DateTime?
+  applyHeartbeatAt DateTime?
   cancelledAt   DateTime?
   failureReason String?
 
@@ -2129,6 +2143,13 @@ enum AttendanceImportStatus {
   APPLYING
   APPLIED
   PARTIALLY_APPLIED
+  /// Nothing applied because the facts moved after HR approved them.
+  ///
+  /// Not a failure: the system worked exactly as designed and refused to write
+  /// against an approval that no longer describes reality. Calling it FAILED
+  /// would send somebody hunting for a bug that is not there, and would hide
+  /// the one action that actually resolves it -- re-previewing.
+  REVIEW_REQUIRED
   FAILED
   CANCELLED
 }

@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { AccessPolicyService } from '../../../../common/services/access-policy.service';
@@ -48,6 +50,48 @@ const OPEN_CORRECTION_STATUSES = ['PENDING', 'MANAGER_APPROVED'] as const;
  * costs only the chunk. Each employee-day is still atomic in its own right.
  */
 const APPLY_CHUNK = 25;
+
+/**
+ * How long an apply lease stays fresh without a heartbeat.
+ *
+ * Long enough that an ordinary chunk cannot look dead -- a chunk of 25 rows,
+ * each running the evaluator, is seconds -- and short enough that a genuine
+ * crash does not strand a batch for an afternoon. Nothing resumes when it
+ * expires; expiry only makes an explicit, human-initiated resume permissible.
+ */
+const APPLY_LEASE_MS = 2 * 60 * 1000;
+
+/**
+ * What a finished batch is called.
+ *
+ * The row-level and batch-level meanings of APPLIED are deliberately different,
+ * and conflating them was a real bug: a row is APPLIED when it produced an
+ * authoritative revision, and a BATCH is APPLIED when it was fully processed
+ * with nothing left to do. A file whose four thousand rows all MATCH is a
+ * completely successful reconciliation -- reporting it as FAILED would tell HR
+ * the opposite of what happened.
+ *
+ * Staleness is likewise not failure. It means the system refused to write
+ * against an approval that no longer describes reality, which is the guard
+ * working; the answer is to re-preview, not to debug.
+ */
+export function batchOutcome(counts: {
+  actionable: number;
+  applied: number;
+  stale: number;
+  failed: number;
+}): 'APPLIED' | 'PARTIALLY_APPLIED' | 'REVIEW_REQUIRED' | 'FAILED' {
+  const { actionable, applied, stale, failed } = counts;
+
+  // Nothing to do, and nothing went wrong. An all-MATCH file lands here.
+  if (actionable === 0) return 'APPLIED';
+  if (applied === actionable) return 'APPLIED';
+  if (applied > 0) return 'PARTIALLY_APPLIED';
+
+  // Nothing applied. Which of the two reasons decides the name.
+  if (failed === 0 && stale > 0) return 'REVIEW_REQUIRED';
+  return 'FAILED';
+}
 
 export interface ApplySummary {
   reference: string;
@@ -202,17 +246,35 @@ export class AttendanceImportApplyService {
 
       const batch = await tx.attendanceImportBatch.findUnique({ where: { id: batchId } });
       if (!batch) throw new NotFoundException('Import batch not found');
+      if (batch.status === 'APPLYING' && this.leaseIsFresh(batch)) {
+        // Somebody is running it right now. A deterministic refusal, not a
+        // second set of corrections against the same rows.
+        throw new ConflictException(
+          `This batch is already being applied (attempt ${batch.applyAttemptId}). ` +
+            'Wait for it to finish, or resume it if that run has died.',
+        );
+      }
       if (batch.status !== 'APPROVED') {
-        // A deterministic refusal, not a second set of corrections. This is
-        // what a double click and two open browsers both hit.
         throw new ForbiddenException(
-          `This batch is ${batch.status.toLowerCase().replace(/_/g, ' ')} and cannot be applied.`,
+          batch.status === 'REVIEW_REQUIRED'
+            ? 'The facts changed after this batch was approved. Re-preview it and approve again before applying.'
+            : `This batch is ${batch.status.toLowerCase().replace(/_/g, ' ')} and cannot be applied.`,
         );
       }
 
       return tx.attendanceImportBatch.update({
         where: { id: batchId },
-        data: { status: 'APPLYING', appliedById: applierId },
+        data: {
+          status: 'APPLYING',
+          appliedById: applierId,
+          // The lease. A fresh heartbeat is what refuses a second caller;
+          // without it APPLYING says only "somebody started this", and the
+          // safe responses to that are to block the batch forever or to let a
+          // second worker run beside the first.
+          applyAttemptId: randomUUID(),
+          applyStartedAt: this.tva.now(),
+          applyHeartbeatAt: this.tva.now(),
+        },
       });
     });
 
@@ -228,9 +290,23 @@ export class AttendanceImportApplyService {
       })
       .catch(() => {});
 
+    return this.processRows(claimed, applierId);
+  }
+
+  /**
+   * The row loop, shared by a first apply and a resume.
+   *
+   * One implementation, so a resumed batch is held to exactly the same
+   * re-checks, chunking and outcome rules as a first run.
+   */
+  private async processRows(claimed: any, applierId: string): Promise<ApplySummary> {
+    const batchId = claimed.id;
+
     // Only rows that would change something. MATCH rows are truthful no-ops and
     // are never touched: calling them APPLIED would claim a revision that never
-    // happened.
+    // happened. SKIPPED_STALE rows are excluded too -- they were refused
+    // because the facts moved, and only a fresh preview and approval brings
+    // them back.
     const rows = await this.prisma.attendanceImportRow.findMany({
       where: { batchId, classification: { in: ['NEW', 'CHANGE'] }, applyState: 'PENDING' },
       orderBy: [{ businessDate: 'asc' }, { rowNumber: 'asc' }],
@@ -250,16 +326,13 @@ export class AttendanceImportApplyService {
         else if (outcome === 'SKIPPED_STALE') stale += 1;
         else failed += 1;
       }
+      // Proof of life between chunks. A run that stops beating is what makes a
+      // resume permissible; one that keeps beating is what refuses a second
+      // caller.
+      await this.beat(batchId, claimed.applyAttemptId);
     }
 
-    // A zero-success batch is not APPLIED. Reporting it as such would tell HR
-    // the import went through when nothing did.
-    const status =
-      applied === rows.length && failed === 0 && stale === 0
-        ? 'APPLIED'
-        : applied > 0
-          ? 'PARTIALLY_APPLIED'
-          : 'FAILED';
+    const status = batchOutcome({ actionable: rows.length, applied, stale, failed });
 
     const finished = await this.prisma.attendanceImportBatch.update({
       where: { id: batchId },
@@ -270,8 +343,13 @@ export class AttendanceImportApplyService {
         failedRows: failed + stale,
         failureReason:
           status === 'FAILED'
-            ? 'No row could be applied: every one was refused at apply time or failed.'
-            : null,
+            ? 'No row could be applied: every one failed unexpectedly.'
+            : status === 'REVIEW_REQUIRED'
+              ? 'Every row was refused because the attendance it referred to changed after approval. Re-preview and approve again.'
+              : null,
+        // The lease is released whichever way the run ended.
+        applyAttemptId: null,
+        applyHeartbeatAt: null,
       },
     });
 
@@ -303,6 +381,152 @@ export class AttendanceImportApplyService {
       failed,
       noOps,
     };
+  }
+
+  /** Whether a run is still alive. A missing heartbeat is a dead one. */
+  private leaseIsFresh(batch: { applyHeartbeatAt?: Date | null }): boolean {
+    if (!batch.applyHeartbeatAt) return false;
+    return this.tva.now().getTime() - batch.applyHeartbeatAt.getTime() < APPLY_LEASE_MS;
+  }
+
+  /**
+   * Proof of life, and only from the run that owns the batch.
+   *
+   * Scoped to the attempt id so a zombie worker that wakes up after being
+   * replaced cannot refresh somebody else's lease and make a live run look
+   * dead -- or a dead one look live.
+   */
+  private async beat(batchId: string, attemptId: string | null) {
+    if (!attemptId) return;
+    await this.prisma.attendanceImportBatch
+      .updateMany({
+        where: { id: batchId, applyAttemptId: attemptId },
+        data: { applyHeartbeatAt: this.tva.now() },
+      })
+      .catch(() => {});
+  }
+
+  /**
+   * Continues a batch whose run died.
+   *
+   * EXPLICIT, never automatic. No timer resumes a six-thousand-row import: a
+   * lease expiring makes a resume permissible, and a person still has to ask
+   * for it. Whoever asks claims a NEW attempt inside the batch row lock, so
+   * two people racing to recover the same batch cannot both believe they own
+   * it.
+   *
+   * Only rows that were never attempted continue. APPLIED rows are untouched
+   * forever, and SKIPPED_STALE rows do not come back to life here -- they were
+   * refused because the facts moved, and the answer to that is a fresh preview
+   * and a fresh approval, not a retry against the same stale decision.
+   */
+  async resume(actor: any, batchId: string): Promise<ApplySummary> {
+    this.assertHrAuthority(actor, 'resume');
+    const applierId = this.actorId(actor);
+
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "attendance_import_batches" WHERE id = ${batchId} FOR UPDATE`;
+
+      const batch = await tx.attendanceImportBatch.findUnique({ where: { id: batchId } });
+      if (!batch) throw new NotFoundException('Import batch not found');
+      if (batch.status !== 'APPLYING') {
+        throw new ForbiddenException(
+          `Only a batch left mid-apply can be resumed; this one is ${batch.status.toLowerCase().replace(/_/g, ' ')}.`,
+        );
+      }
+      if (this.leaseIsFresh(batch)) {
+        throw new ConflictException(
+          'That run is still alive. Wait for it to finish rather than starting a second one.',
+        );
+      }
+
+      return tx.attendanceImportBatch.update({
+        where: { id: batchId },
+        data: {
+          // A new attempt, so the previous worker's heartbeat can no longer
+          // touch this batch even if it comes back.
+          applyAttemptId: randomUUID(),
+          applyHeartbeatAt: this.tva.now(),
+          appliedById: applierId,
+        },
+      });
+    });
+
+    this.eventLogger
+      .log({
+        actorId: applierId,
+        entityType: 'AttendanceImportBatch',
+        entityId: batchId,
+        action: 'ATTENDANCE_IMPORT_APPLY_RESUMED' as any,
+        fromState: 'APPLYING',
+        toState: 'APPLYING',
+        metadata: {
+          reference: claimed.reference,
+          // appliedById on the batch is the LATEST executor, not the whole
+          // list. Every attempt -- who and which id -- lives here in the event
+          // stream, which is the only place that can answer "who ran this" when
+          // a crash means more than one person did.
+          resumedAttemptId: claimed.applyAttemptId,
+          resumedBy: applierId,
+        },
+      })
+      .catch(() => {});
+
+    return this.processRows(claimed, applierId);
+  }
+
+  /**
+   * Reclassifies a batch against current authoritative state.
+   *
+   * The only way out of REVIEW_REQUIRED. Approval is cleared, because an
+   * approval describes a comparison and that comparison has changed: letting
+   * the old one stand would apply rows a human agreed to under different facts.
+   */
+  async rePreview(actor: any, batchId: string) {
+    this.assertHrAuthority(actor, 're-preview');
+
+    const batch = await this.prisma.attendanceImportBatch.findUnique({ where: { id: batchId } });
+    if (!batch) throw new NotFoundException('Import batch not found');
+    if (batch.status !== 'REVIEW_REQUIRED' && batch.status !== 'PARTIALLY_APPLIED') {
+      throw new ForbiddenException(
+        'Only a batch that stopped because the facts changed needs re-previewing.',
+      );
+    }
+
+    // The rows that never landed. APPLIED rows are history and are never
+    // reconsidered.
+    const reset = await this.prisma.attendanceImportRow.updateMany({
+      where: { batchId, applyState: { in: ['SKIPPED_STALE', 'FAILED'] } },
+      data: { applyState: 'PENDING', failureReason: null },
+    });
+
+    const updated = await this.prisma.attendanceImportBatch.update({
+      where: { id: batchId },
+      data: {
+        status: 'READY_FOR_REVIEW',
+        // Cleared deliberately: a fresh approval is required, by a human, on
+        // the new comparison.
+        approvedById: null,
+        approvedAt: null,
+        applyAttemptId: null,
+        applyHeartbeatAt: null,
+        failureReason: null,
+      },
+    });
+
+    this.eventLogger
+      .log({
+        actorId: this.actorId(actor),
+        entityType: 'AttendanceImportBatch',
+        entityId: batchId,
+        action: 'ATTENDANCE_IMPORT_REPREVIEW' as any,
+        fromState: batch.status,
+        toState: 'READY_FOR_REVIEW',
+        metadata: { reference: batch.reference, rowsReturnedToPending: reset.count },
+      })
+      .catch(() => {});
+
+    return updated;
   }
 
   /**
