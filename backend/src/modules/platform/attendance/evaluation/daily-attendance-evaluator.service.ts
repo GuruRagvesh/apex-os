@@ -10,6 +10,7 @@ import {
   type CorrectionAuthority,
   type SettlementReason,
 } from './attendance-settlement';
+import { lockAttendanceMonth } from './attendance-month-lock';
 import { DailyContextService } from '../context/daily-context.service';
 import { LeaveFactsService } from './leave-facts.service';
 import type { DailyAttendanceContext } from '../context/daily-context.types';
@@ -188,27 +189,27 @@ export class DailyAttendanceEvaluatorService {
     // it is also the apply-time re-check: a month finalized between a preview
     // and the click that applies it is caught here, not in a stale preview.
     //
-    // The default authority is INDIVIDUAL_REVIEW, which blocks nothing and
-    // preserves exactly what Apex OS does today -- a reviewed correction is the
-    // sanctioned way to change a settled day, and payroll send() already
-    // refuses a report whose data no longer matches its finalization
-    // fingerprint. Only an explicitly BULK caller is refused.
+    // The default authority is INDIVIDUAL_REVIEW, which is refused only by a
+    // month already SENT to Finance. A bulk caller is refused by any settled
+    // state at all.
     //
-    // The month close is read ONLY when the answer could refuse this caller.
-    // An individual correction is not merely unblocked by it, it must not start
-    // depending on a table it never read: adding a query to the sanctioned HR
-    // path would mean a correction that works today failing tomorrow because of
-    // something unrelated to the correction.
+    // BOTH authorities read the month, because both can now be refused by it.
+    // The lock comes first: reading the month without holding it would only
+    // narrow the race, not close it -- finalize() could commit between this
+    // read and the write below, and the correction would land in a month that
+    // was open when it looked and closed when it wrote.
     const authority: CorrectionAuthority = options.authority ?? 'INDIVIDUAL_REVIEW';
-    if (authority !== 'INDIVIDUAL_REVIEW') {
-      const monthClose = await tx.attendanceMonthClose.findUnique({
-        where: { month: businessMonthOf(businessDate) },
-        select: { status: true },
-      });
-      const settlement = assessSettlement({ day: before, monthClose }, authority);
-      if (settlement.blocked.length > 0) {
-        throw new SettledAttendanceError(businessDate, settlement.blocked);
-      }
+    const month = businessMonthOf(businessDate);
+
+    await lockAttendanceMonth(tx, month);
+
+    const monthClose = await tx.attendanceMonthClose.findUnique({
+      where: { month },
+      select: { status: true },
+    });
+    const settlement = assessSettlement({ day: before, monthClose }, authority);
+    if (settlement.blocked.length > 0) {
+      throw new SettledAttendanceError(businessDate, settlement.blocked);
     }
 
     // Re-evaluated through the SAME evaluator, now seeing the approved

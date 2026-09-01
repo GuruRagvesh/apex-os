@@ -67,6 +67,8 @@ interface EvalFixtures {
   sessions?: any[];
   correction?: any;
   existingRecord?: any;
+  /** The month's close row. Defaults to OPEN, which settles nothing. */
+  monthClose?: any;
 }
 
 /** Evaluator + a prisma mock that records every write it is asked to make. */
@@ -102,6 +104,12 @@ function evaluatorRig(f: EvalFixtures = {}) {
       findFirst: jest.fn().mockResolvedValue(f.correction ?? null),
     },
     leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
+    // Phase 2B: a correction now holds the month advisory lock and reads the
+    // close row before writing, whatever authority is asking.
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    attendanceMonthClose: {
+      findUnique: jest.fn().mockResolvedValue(f.monthClose ?? { status: 'OPEN' }),
+    },
     dailyAttendance: {
       findUnique: jest.fn().mockResolvedValue(f.existingRecord ?? null),
       upsert: jest.fn((args: any) => {

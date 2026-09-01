@@ -1,3 +1,9 @@
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import {
+  MONTH_LOCK_NAMESPACE_FOR_TEST,
+  monthLockKey,
+} from '../../src/modules/platform/attendance/evaluation/attendance-month-lock';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import {
   PayrollReportService,
@@ -20,7 +26,18 @@ function build(over: any = {}) {
   const audit: any[] = [];
   const sent: any[] = [];
 
+  const advisoryLocks: any[] = [];
+
   const prisma: any = {
+    // finalize() and send() now run inside one transaction each, holding the
+    // month's advisory lock. The double runs the callback against itself, which
+    // is what a Prisma interactive transaction does from the callee's point of
+    // view, and records the lock so a test can assert it was actually taken.
+    $transaction: jest.fn((fn: any) => fn(prisma)),
+    $queryRaw: jest.fn((...args: any[]) => {
+      advisoryLocks.push(args);
+      return Promise.resolve([]);
+    }),
     user: {
       findMany: jest.fn().mockResolvedValue(
         over.employees ?? [
@@ -77,7 +94,7 @@ function build(over: any = {}) {
     } as any,
   );
 
-  return { service, prisma, closes, audit, sent };
+  return { service, prisma, closes, audit, sent, advisoryLocks };
 }
 
 describe('only HR may touch payroll attendance', () => {
@@ -508,5 +525,90 @@ describe('the stored digest is never presented as a file hash', () => {
     const { buffer } = await service.download(HR, '2026-08');
 
     expect(closes.get('2026-08').reportByteSize).toBe(buffer.length);
+  });
+});
+
+
+/**
+ * THE MONTH LOCK, FROM THE CLOSE SIDE.
+ *
+ * A correction and a month close can only race if they do not contend for the
+ * same thing. These prove the close path takes the SAME advisory lock, keyed
+ * the same way, that reviseForApprovedCorrection() takes -- which is the whole
+ * mechanism. The unit environment has no database, so what is proved here is
+ * that both paths ask PostgreSQL for the same lock before they act; the
+ * serialization itself is PostgreSQL's, and the manual plan in the Phase 2B
+ * report exercises it against a real server.
+ */
+describe('the close path holds the month it is closing', () => {
+  const lockKeysFrom = (advisoryLocks: any[]) =>
+    advisoryLocks
+      .filter((call) => String(call[0].join('?')).includes('pg_advisory_xact_lock'))
+      .map((call) => call.slice(1));
+
+  it('finalize takes the month lock, transaction-scoped, before it reads', async () => {
+    const { service, prisma, advisoryLocks } = build();
+
+    await service.finalize(HR, '2026-08');
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(lockKeysFrom(advisoryLocks)[0]).toEqual([MONTH_LOCK_NAMESPACE_FOR_TEST, 202608]);
+
+    // The lock must come before the close row is read, or the read is of a
+    // state that can change before the write.
+    const lockOrder = prisma.$queryRaw.mock.invocationCallOrder[0];
+    const readOrder = prisma.attendanceMonthClose.findUnique.mock.invocationCallOrder[0];
+    expect(lockOrder).toBeLessThan(readOrder);
+  });
+
+  it('send takes the same month lock', async () => {
+    const { service, advisoryLocks } = build({
+      close: { month: '2026-08', status: 'FINALIZED', reportSha256: null },
+    });
+
+    await service.send(HR, '2026-08').catch(() => {});
+
+    // Same namespace, same key. Two different keys would mean two paths that
+    // never contend, which is the same as no lock at all.
+    expect(lockKeysFrom(advisoryLocks)).toContainEqual([MONTH_LOCK_NAMESPACE_FOR_TEST, 202608]);
+  });
+
+  it('finalize releases the month before delivering', async () => {
+    // send() takes the same lock in its own transaction. Prisma hands a nested
+    // $transaction a different pooled connection, so calling send() from inside
+    // finalize's block would have it wait on a lock its own caller holds --
+    // a deadlock built out of two correct-looking functions. finalize must
+    // therefore commit first and deliver afterwards.
+    const src = readFileSync(
+      resolve(
+        __dirname,
+        '../../src/modules/platform/attendance/reports/payroll-report.service.ts',
+      ),
+      'utf8',
+    );
+
+    const finalizeBody = src.slice(
+      src.indexOf('async finalize('),
+      src.indexOf('async recipients('),
+    );
+    const txClose = finalizeBody.indexOf('{ timeout: 120_000');
+    const sendCall = finalizeBody.indexOf('await this.send(actor, month)');
+
+    expect(txClose).toBeGreaterThan(-1);
+    expect(sendCall).toBeGreaterThan(txClose);
+  });
+
+  it('every month gets its own key, so two months never block each other', () => {
+    expect(monthLockKey('2026-08')).toBe(202608);
+    expect(monthLockKey('2026-09')).toBe(202609);
+    expect(monthLockKey('2027-01')).toBe(202701);
+    expect(monthLockKey('2026-08')).not.toBe(monthLockKey('2026-09'));
+  });
+
+  it('refuses to lock a month it cannot parse rather than locking the wrong one', () => {
+    // A silent NaN key would take a lock nothing else contends for, which looks
+    // exactly like working and protects nothing.
+    expect(() => monthLockKey('August 2026')).toThrow(/unparseable month/i);
+    expect(() => monthLockKey('2026-13')).toThrow(/unparseable month/i);
   });
 });

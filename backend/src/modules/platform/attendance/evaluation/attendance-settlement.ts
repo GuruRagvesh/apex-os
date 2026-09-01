@@ -82,15 +82,24 @@ export function describeSettlement(facts: SettlementFacts): SettlementReason[] {
  * authority to rewrite a financially settled period, and a bulk operation that
  * could would be one click away from silently changing what Finance was told.
  *
- * INDIVIDUAL_REVIEW is refused by none of them, which preserves exactly what
- * Apex OS does today: a deliberately reviewed correction is the sanctioned way
- * to change a settled day, and the payroll send() already refuses to deliver a
- * report whose data no longer matches the fingerprint captured at finalization.
- * That downstream guard is the design; this module does not second-guess it.
+ * INDIVIDUAL_REVIEW is refused by exactly one: SENT_MONTH.
  *
- * The gap that guard does NOT cover is a month already SENT -- nothing
- * re-checks a report that has gone. Closing it would change sanctioned HR
- * behaviour, so it is reported rather than decided here.
+ * The line is drawn at delivery, not at finalization. Before the report leaves,
+ * a reviewed correction is the sanctioned way to repair a month, and the
+ * existing chain holds -- send() re-renders and refuses to deliver a report
+ * whose data no longer matches the fingerprint captured at finalization, so a
+ * corrected-but-unsent month cannot reach Finance stale. A locked day or a
+ * finalized month is therefore still correctable by a human who reviewed it.
+ *
+ * Once the month is SENT, that chain has nothing left to catch: Finance is
+ * holding the report, and no later check re-examines a report that has gone. A
+ * correction after that point does not repair the month, it makes Apex OS
+ * disagree with a document somebody is already working from -- silently, and
+ * with no record on the Finance side that anything moved.
+ *
+ * Reopening a sent month is a real need and a separate, explicit workflow:
+ * amend the report, tell Finance, record that it happened. It is not something
+ * an ordinary correction should be able to do as a side effect.
  */
 export function settlementBlocking(
   reasons: SettlementReason[],
@@ -100,7 +109,10 @@ export function settlementBlocking(
   // BULK_IMPORT is refused", so that a caller which grows a third authority and
   // forgets to classify it is refused rather than quietly waved through. The
   // permissive branch is the one that has to be asked for by name.
-  return authority === 'INDIVIDUAL_REVIEW' ? [] : reasons;
+  if (authority !== 'INDIVIDUAL_REVIEW') return reasons;
+
+  // Delivery is the line. Everything short of it stays correctable.
+  return reasons.filter((reason) => reason === 'SENT_MONTH');
 }
 
 /**

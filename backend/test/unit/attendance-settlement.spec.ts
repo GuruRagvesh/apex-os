@@ -103,15 +103,52 @@ describe('who a settled day refuses', () => {
     expect(out.blocked.length).toBeGreaterThan(0);
   });
 
-  it.each(settled)('12. INDIVIDUAL_REVIEW is not refused by %s', (_label, f) => {
-    // Preserving today's sanctioned behaviour exactly. A reviewed correction is
-    // how a settled day is meant to be changed, and payroll send() already
-    // refuses to deliver a report whose data no longer matches the fingerprint
-    // captured at finalization.
+  const correctableByAHuman = [
+    ['a locked day', facts({ day: { locked: true, evaluationState: 'CALCULATED' } })],
+    ['a finalized day', facts({ day: { locked: false, evaluationState: 'FINALIZED' } })],
+    ['a finalized but unsent month', facts({ monthClose: { status: 'FINALIZED' } })],
+  ] as const;
+
+  it.each(correctableByAHuman)('12. INDIVIDUAL_REVIEW is not refused by %s', (_label, f) => {
+    // The line is delivery, not finalization. Before the report leaves, a
+    // reviewed correction is the sanctioned way to repair a month, and send()
+    // re-renders and refuses anything that no longer matches its fingerprint --
+    // so a corrected-but-unsent month cannot reach Finance stale.
     const out = assessSettlement(f, 'INDIVIDUAL_REVIEW');
 
     expect(out.settled).toBe(true);
     expect(out.blocked).toEqual([]);
+  });
+
+  it('12b. INDIVIDUAL_REVIEW IS refused once the month has been SENT', () => {
+    // Finance is holding the report. Nothing downstream re-examines a report
+    // that has gone, so a correction here does not repair the month -- it makes
+    // Apex OS disagree with a document somebody is already working from.
+    const out = assessSettlement(facts({ monthClose: { status: 'SENT' } }), 'INDIVIDUAL_REVIEW');
+
+    expect(out.blocked).toEqual(['SENT_MONTH']);
+  });
+
+  it('12c. a SENT month refuses a human even when the day itself is open', () => {
+    const out = assessSettlement(
+      { day: { locked: false, evaluationState: 'CALCULATED' }, monthClose: { status: 'SENT' } },
+      'INDIVIDUAL_REVIEW',
+    );
+
+    // The day is not settled at all; the delivery is what refuses.
+    expect(out.blocked).toEqual(['SENT_MONTH']);
+  });
+
+  it('12d. a SENT month refuses for the delivery, not for the day state', () => {
+    const out = assessSettlement(
+      { day: { locked: true, evaluationState: 'FINALIZED' }, monthClose: { status: 'SENT' } },
+      'INDIVIDUAL_REVIEW',
+    );
+
+    // Everything is reported; only SENT_MONTH refuses. A human is still
+    // permitted to correct a locked day -- just not in a delivered month.
+    expect(out.reasons).toEqual(['LOCKED_DAY', 'FINALIZED_DAY', 'SENT_MONTH']);
+    expect(out.blocked).toEqual(['SENT_MONTH']);
   });
 
   it('13. an open day in an open month is eligible for either', () => {
@@ -128,10 +165,10 @@ describe('who a settled day refuses', () => {
   it('15. settled and blocked are different questions', () => {
     // A preview needs to say "this day is finalized" about a day it is
     // nevertheless allowed to change. Collapsing the two would lose that.
-    const out = assessSettlement(facts({ monthClose: { status: 'SENT' } }), 'INDIVIDUAL_REVIEW');
+    const out = assessSettlement(facts({ monthClose: { status: 'FINALIZED' } }), 'INDIVIDUAL_REVIEW');
 
     expect(out.settled).toBe(true);
-    expect(out.reasons).toEqual(['SENT_MONTH']);
+    expect(out.reasons).toEqual(['FINALIZED_MONTH']);
     expect(out.blocked).toEqual([]);
   });
 });
@@ -188,6 +225,10 @@ describe('the authority list is closed', () => {
 import { DailyAttendanceEvaluatorService } from '../../src/modules/platform/attendance/evaluation/daily-attendance-evaluator.service';
 import { TVAService } from '../../src/common/services/tva.service';
 import { ConfigService } from '@nestjs/config';
+import {
+  MONTH_LOCK_NAMESPACE_FOR_TEST,
+  monthLockKey,
+} from '../../src/modules/platform/attendance/evaluation/attendance-month-lock';
 
 const DATE = '2026-08-12';
 
@@ -221,6 +262,7 @@ function gateRig(over: { day?: any; monthStatus?: string | null } = {}) {
     workSession: { findMany: jest.fn().mockResolvedValue([]) },
     leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
     attendanceRegularization: { findFirst: jest.fn().mockResolvedValue(null) },
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
 
   const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
@@ -297,19 +339,73 @@ describe('the settlement gate fires at the only write', () => {
     expect(upserts).toEqual([]);
   });
 
-  it('24. an INDIVIDUAL correction never reads the month close at all', async () => {
-    // Not merely unblocked: the sanctioned HR path must not start depending on
-    // a table it never read, or a correction that works today fails tomorrow
-    // for a reason unrelated to the correction.
-    const { service, tx } = gateRig({ monthStatus: 'SENT' });
+  it('24. an INDIVIDUAL correction into a SENT month is refused at the write', async () => {
+    const { service, upserts } = gateRig({ monthStatus: 'SENT' });
 
-    // evaluate() is stubbed to reject, so reaching it proves the gate let the
-    // call through rather than refusing it.
+    await expect(
+      service.reviseForApprovedCorrection((service as any).prisma, 'emp-1', DATE, 'reg-1'),
+    ).rejects.toThrow(SettledAttendanceError);
+
+    expect(upserts).toEqual([]);
+  });
+
+  it('24b. an INDIVIDUAL correction into a FINALIZED but unsent month still works', async () => {
+    // The behaviour Phase 2B had to preserve. HR repairing a month before it
+    // reaches Finance is the sanctioned workflow, and blocking it would push
+    // people back to editing spreadsheets by hand.
+    const { service } = gateRig({ monthStatus: 'FINALIZED' });
+
+    await expect(
+      service.reviseForApprovedCorrection((service as any).prisma, 'emp-1', DATE, 'reg-1'),
+    ).rejects.toThrow('evaluate() must not be reached');
+  });
+
+  it('24c. an INDIVIDUAL correction onto a locked day in an open month still works', async () => {
+    const { service } = gateRig({
+      day: { id: 'da-1', revision: 0, locked: true, evaluationState: 'FINALIZED' },
+      monthStatus: 'OPEN',
+    });
+
+    await expect(
+      service.reviseForApprovedCorrection((service as any).prisma, 'emp-1', DATE, 'reg-1'),
+    ).rejects.toThrow('evaluate() must not be reached');
+  });
+
+  it('24d. the month is LOCKED before it is read, for every authority', async () => {
+    // Reading the month without holding it only narrows the race: finalize()
+    // could commit between the read and the write. The order matters, so it is
+    // asserted rather than assumed.
+    for (const authority of ['INDIVIDUAL_REVIEW', 'BULK_IMPORT'] as const) {
+      const { service, tx } = gateRig({ monthStatus: 'OPEN' });
+
+      await expect(
+        service.reviseForApprovedCorrection(
+          (service as any).prisma, 'emp-1', DATE, 'reg-1', { authority },
+        ),
+      ).rejects.toThrow('evaluate() must not be reached');
+
+      const lockCall = tx.$queryRaw.mock.invocationCallOrder[0];
+      const readCall = tx.attendanceMonthClose.findUnique.mock.invocationCallOrder[0];
+
+      expect(tx.$queryRaw).toHaveBeenCalled();
+      expect(lockCall).toBeLessThan(readCall);
+    }
+  });
+
+  it('24e. the lock names this month, and is transaction-scoped', async () => {
+    const { service, tx } = gateRig({ monthStatus: 'OPEN' });
+
     await expect(
       service.reviseForApprovedCorrection((service as any).prisma, 'emp-1', DATE, 'reg-1'),
     ).rejects.toThrow('evaluate() must not be reached');
 
-    expect(tx.attendanceMonthClose.findUnique).not.toHaveBeenCalled();
+    const sql = tx.$queryRaw.mock.calls[0][0].join('?');
+    // xact-scoped: released on commit, on rollback, and on a dropped
+    // connection. A session-scoped lock would outlive a failed correction.
+    expect(sql).toContain('pg_advisory_xact_lock');
+    // 2026-08 -> 202608, readable in pg_locks during an incident.
+    expect(tx.$queryRaw.mock.calls[0].slice(1)).toEqual([MONTH_LOCK_NAMESPACE_FOR_TEST, 202608]);
+    expect(monthLockKey('2026-08')).toBe(202608);
   });
 
   it('25. a bulk correction into an OPEN month is allowed through the gate', async () => {

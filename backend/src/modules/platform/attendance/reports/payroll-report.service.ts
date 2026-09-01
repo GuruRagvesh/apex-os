@@ -24,6 +24,7 @@ import {
   workbookFilename,
   workbookToBuffer,
 } from './payroll-workbook';
+import { lockAttendanceMonth } from '../evaluation/attendance-month-lock';
 
 /**
  * Monthly attendance close and the payroll workbook Finance receives.
@@ -340,7 +341,18 @@ export class PayrollReportService {
     this.assertHr(actor);
     this.assertMonth(month);
 
-    const existing = await this.prisma.attendanceMonthClose.findUnique({ where: { month } });
+    await this.prisma.$transaction(async (tx) => {
+    // THE MONTH IS HELD FOR THE WHOLE CLOSE.
+    //
+    // Not a formality. Between marking the month FINALIZED and fingerprinting
+    // the render of it, a correction committing in that window would be
+    // included in the fingerprint -- so the digest would match attendance that
+    // changed after the month was declared closed, and send()'s staleness
+    // check would pass on a report it should have refused. Holding the month
+    // across both statements is what makes the fingerprint mean what it says.
+    await lockAttendanceMonth(tx, month);
+
+    const existing = await tx.attendanceMonthClose.findUnique({ where: { month } });
     if (existing?.status === 'FINALIZED' || existing?.status === 'SENT') {
       // Reopening a finalized month is not designed for V1. Failing closed is
       // correct: silently re-finalising would change what Finance was told was
@@ -357,7 +369,7 @@ export class PayrollReportService {
     // what was persisted. Fingerprinting before the row exists digests a report
     // built from different metadata than the one send() will rebuild.
     const marked = { status: 'FINALIZED' as const, finalizedById, finalizedAt };
-    await this.prisma.attendanceMonthClose.upsert({
+    await tx.attendanceMonthClose.upsert({
       where: { month },
       create: { month, ...marked },
       update: marked,
@@ -365,7 +377,7 @@ export class PayrollReportService {
 
     const rendered = await this.renderCanonical(month);
 
-    const close = await this.prisma.attendanceMonthClose.update({
+    const close = await tx.attendanceMonthClose.update({
       where: { month },
       data: {
         employeeCount: rendered.totals.employees,
@@ -394,10 +406,23 @@ export class PayrollReportService {
         },
       })
       .catch(() => {});
+    },
+    // The render inside this transaction builds a workbook for the whole
+    // company, which comfortably outlives Prisma's 5s default.
+    { timeout: 120_000, maxWait: 15_000 });
 
-    // Delivery follows finalization immediately: HR finalizing IS the decision
-    // to send, and a report that sits finalized-but-unsent is the state where
-    // Finance waits on an email nobody realises they still owe.
+    // DELIVERY RUNS OUTSIDE THE LOCK, AND MUST.
+    //
+    // send() takes the same month lock in its own transaction. Advisory locks
+    // are held by a session, and Prisma gives a nested $transaction a different
+    // pooled connection -- so calling send() from inside the block above would
+    // have it wait on a lock its own caller is holding, until the statement
+    // timeout. A deadlock built out of two correct-looking functions.
+    //
+    // Committing first is also the honest order: finalization is complete and
+    // durable before anything is emailed, and if a correction slips in between
+    // the two, send() re-renders under its own lock and refuses the now-stale
+    // report. That refusal is the system working.
     //
     // Best-effort on purpose. A send failure must not undo a finalization that
     // is already correct, so it is recorded as FAILED and left retryable rather
@@ -471,7 +496,17 @@ export class PayrollReportService {
     this.assertHr(actor);
     this.assertMonth(month);
 
-    const close = await this.prisma.attendanceMonthClose.findUnique({
+    return this.prisma.$transaction(async (tx) => {
+    // THE MONTH IS HELD FROM THE STALENESS CHECK THROUGH TO SENT.
+    //
+    // The fingerprint comparison below is the last thing standing between a
+    // changed month and Finance. Without the lock, a correction committing
+    // between that check and the status write would be delivered inside the
+    // report and then recorded as SENT -- with the check having already passed.
+    // The guard would have run, correctly, one moment too early.
+    await lockAttendanceMonth(tx, month);
+
+    const close = await tx.attendanceMonthClose.findUnique({
       where: { month },
       include: { finalizedBy: { select: { name: true } } },
     });
@@ -515,7 +550,7 @@ export class PayrollReportService {
       delivered = false;
     }
 
-    const updated = await this.prisma.attendanceMonthClose.update({
+    const updated = await tx.attendanceMonthClose.update({
       where: { month },
       data: delivered
         ? {
@@ -554,6 +589,11 @@ export class PayrollReportService {
       );
     }
     return toCloseView({ ...updated, finalizedBy: close.finalizedBy });
+    },
+    // Wider than the finalize window: this one renders the workbook AND waits
+    // on the mail provider. Delivery and the SENT write have to be inside the
+    // same held month, or a correction lands between them.
+    { timeout: 180_000, maxWait: 15_000 });
   }
 
   async status(actor: any, month: string) {
