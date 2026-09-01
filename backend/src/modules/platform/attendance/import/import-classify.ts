@@ -40,8 +40,15 @@ export interface CurrentDay {
   punchOutAt: Date | null;
   evaluationState: string | null;
   locked: boolean | null;
-  /** Whether real punch evidence backs this record. */
-  hasEvidence: boolean;
+  /**
+   * The evidence rows backing each punch, by id.
+   *
+   * Stored as ids rather than a has-evidence Boolean so the snapshot invents no
+   * second evidence vocabulary and points at the specific rows that backed the
+   * day. Whether evidence exists is derived from them.
+   */
+  punchInEvidenceId: string | null;
+  punchOutEvidenceId: string | null;
 }
 
 export interface ClassifyContext {
@@ -63,6 +70,8 @@ export interface ClassifyContext {
 export interface ClassifiedRow {
   rowNumber: number;
   classification: RowClassification;
+  /** The resolved account, or null when identity did not resolve. */
+  userId: string | null;
   employeeId: string;
   employeeName: string;
   businessDate: string | null;
@@ -74,6 +83,9 @@ export interface ClassifiedRow {
     status: string | null;
     punchIn: string | null;
     punchOut: string | null;
+    punchInEvidenceId: string | null;
+    punchOutEvidenceId: string | null;
+    /** Derived, for a reviewer reading the preview. */
     hasEvidence: boolean;
   } | null;
   proposed: {
@@ -132,6 +144,7 @@ function statusesAgree(proposed: string, current: string | null): boolean {
 export function classifyRow(row: NormalizedRow, context: ClassifyContext): ClassifiedRow {
   const base = {
     rowNumber: row.rowNumber,
+    userId: row.proposal?.userId ?? null,
     employeeId: row.proposal?.employeeId ?? row.raw.rawEmployeeId,
     employeeName: row.proposal?.employeeName ?? row.raw.rawEmployeeName,
     businessDate: row.proposal?.businessDate ?? null,
@@ -188,7 +201,9 @@ export function classifyRow(row: NormalizedRow, context: ClassifyContext): Class
         status: current.status,
         punchIn: iso(current.punchInAt),
         punchOut: iso(current.punchOutAt),
-        hasEvidence: current.hasEvidence,
+        punchInEvidenceId: current.punchInEvidenceId,
+        punchOutEvidenceId: current.punchOutEvidenceId,
+        hasEvidence: Boolean(current.punchInEvidenceId || current.punchOutEvidenceId),
       }
     : null;
 
@@ -380,4 +395,20 @@ function suggestionFor(code: ConflictCode): string {
     default:
       return 'Remove this row, or correct the day individually with a reviewed correction.';
   }
+}
+
+/** The human sentence for a stored code. Presentation, never the record. */
+export function describeCode(code: string): string {
+  return (CONFLICT_MESSAGE as Record<string, string>)[code] ?? code.replace(/_/g, ' ').toLowerCase();
+}
+
+/** What to do about a stored code. */
+export function suggestForCode(code: string): string {
+  if (code in CONFLICT_MESSAGE) return suggestionFor(code as ConflictCode);
+  if (code.startsWith('DATE')) return 'Write the date as yyyy-MM-dd, for example 2026-08-14.';
+  if (code.startsWith('TIME') || code.includes('MIDNIGHT')) return 'Use HH:mm in company time, and end the day after it starts.';
+  if (code.startsWith('EMPLOYEE')) return 'Check the Employee ID against the employee list.';
+  if (code.startsWith('DUPLICATE')) return 'Leave exactly one row per employee per date.';
+  if (code.startsWith('REASON')) return 'Give a reason of at least 10 characters.';
+  return 'Correct this row and upload the file again.';
 }

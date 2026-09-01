@@ -16,6 +16,10 @@ import { DailyContextModule } from '../context/daily-context.module';
   imports: [DailyContextModule],
   controllers: [DailyAttendanceController],
   providers: [DailyAttendanceEvaluatorService, LeaveFactsService],
-  exports: [DailyAttendanceEvaluatorService],
+  // LeaveFactsService is exported so the attendance importer can ASK whether
+  // approved leave exists for an employee-day. It never creates leave; sharing
+  // the one resolver is what keeps the import's answer identical to the
+  // evaluator's.
+  exports: [DailyAttendanceEvaluatorService, LeaveFactsService],
 })
 export class DailyAttendanceModule {}

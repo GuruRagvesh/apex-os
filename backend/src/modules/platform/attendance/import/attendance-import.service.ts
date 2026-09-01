@@ -1,10 +1,16 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { createHash } from 'crypto';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { createHash, randomBytes } from 'crypto';
 import * as ExcelJS from 'exceljs';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { AccessPolicyService } from '../../../../common/services/access-policy.service';
 import { LeaveFactsService } from '../evaluation/leave-facts.service';
+import { BackupVaultService } from '../../backup-vault/backup-vault.service';
 import {
   MAX_IMPORT_BYTES,
   MAX_IMPORT_ROWS,
@@ -26,6 +32,8 @@ import {
   type ClassifiedRow,
   type CurrentDay,
   type ImportSummary,
+  describeCode,
+  suggestForCode,
 } from './import-classify';
 
 /**
@@ -71,6 +79,7 @@ export class AttendanceImportService {
     private readonly tva: TVAService,
     private readonly accessPolicy: AccessPolicyService,
     private readonly leaveFacts: LeaveFactsService,
+    private readonly vault: BackupVaultService,
   ) {}
 
   /**
@@ -311,7 +320,8 @@ export class AttendanceImportService {
           punchOutAt: r.punchOutAt,
           evaluationState: r.evaluationState,
           locked: r.locked,
-          hasEvidence: Boolean(r.punchInEvidenceId || r.punchOutEvidenceId),
+          punchInEvidenceId: r.punchInEvidenceId,
+          punchOutEvidenceId: r.punchOutEvidenceId,
         },
       ]),
     );
@@ -367,6 +377,285 @@ export class AttendanceImportService {
       summary: summarise(rows),
       rows,
       errorFile: buildErrorFileRows(rows),
+    };
+  }
+
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Persistence (Phase 4). Batches and rows only -- never attendance.
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * A human-facing label, not an accounting sequence.
+   *
+   * Random rather than MAX(reference)+1: that read is a race two concurrent
+   * uploads can lose, producing either a duplicate or a lost batch. The unique
+   * index is the real guarantee; the retry is for the collision it would catch.
+   */
+  private async nextReference(): Promise<string> {
+    const year = this.tva.companyToday().slice(0, 4);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const suffix = randomBytes(3).toString('hex').toUpperCase();
+      const reference = `ATI-${year}-${suffix}`;
+      const clash = await this.prisma.attendanceImportBatch.findUnique({
+        where: { reference },
+        select: { id: true },
+      });
+      if (!clash) return reference;
+    }
+    throw new BadRequestException('A batch reference could not be allocated. Try again.');
+  }
+
+  /**
+   * Uploads a file, archives it, classifies it, and stores the result.
+   *
+   * NOTHING HERE TOUCHES ATTENDANCE. The batch and its rows are a description
+   * of a change somebody might later approve.
+   *
+   * The ordering is deliberate, because R2 and PostgreSQL are two systems and
+   * pretending otherwise is how misleading state gets written:
+   *
+   *   1. batch row, status UPLOADING   -- a batch that dies here is visibly
+   *                                       incomplete, not a plausible empty one
+   *   2. archive the file to R2
+   *   3. record the object key
+   *   4. classify, persist rows
+   *   5. READY_FOR_REVIEW or HAS_ERRORS
+   *
+   * A failure at any step leaves FAILED with the reason on the row. It never
+   * leaves READY_FOR_REVIEW over a file that was not archived.
+   */
+  async upload(
+    actor: any,
+    input: { buffer: Buffer; fileName: string; mode: ImportMode },
+  ): Promise<{ id: string; reference: string; status: string }> {
+    this.assertMayPrepare(actor);
+
+    const actorId = actor?.id ?? actor?.sub;
+    const fileSha256 = createHash('sha256').update(input.buffer).digest('hex');
+    const reference = await this.nextReference();
+
+    const batch = await this.prisma.attendanceImportBatch.create({
+      data: {
+        reference,
+        mode: input.mode as any,
+        status: 'UPLOADING',
+        fileName: input.fileName,
+        fileByteSize: input.buffer.byteLength,
+        fileSha256,
+        uploadedById: actorId,
+      },
+      select: { id: true, reference: true },
+    });
+
+    try {
+      // Audit evidence, in its own namespace and never under the database
+      // backup retention rule -- there is no approved HR records deletion
+      // policy, so nothing here expires on a schedule nobody chose.
+      const objectKey = `attendance-imports/${this.tva.companyToday().slice(0, 4)}/${batch.id}/source-${input.fileName}`;
+      const archived = await this.vault.archiveToVault(
+        objectKey,
+        input.buffer,
+        input.fileName.toLowerCase().endsWith('.csv')
+          ? 'text/csv'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+
+      await this.prisma.attendanceImportBatch.update({
+        where: { id: batch.id },
+        data: { vaultObjectKey: archived.objectKey, status: 'VALIDATING' },
+      });
+
+      const result = await this.preview(actor, input);
+      await this.persistRows(batch.id, result);
+
+      return { id: batch.id, reference: batch.reference, status: result.summary.approvable ? 'READY_FOR_REVIEW' : 'HAS_ERRORS' };
+    } catch (error: any) {
+      // Truthful, not tidy. A batch that failed says so, with the reason, and
+      // is never mistaken for one that produced no rows.
+      await this.prisma.attendanceImportBatch
+        .update({
+          where: { id: batch.id },
+          data: { status: 'FAILED', failureReason: String(error?.message ?? error).slice(0, 500) },
+        })
+        .catch(() => {});
+      throw error;
+    }
+  }
+
+  /** Writes the classification exactly as Phase 3 produced it. */
+  private async persistRows(batchId: string, result: ImportPreview) {
+    const rows = result.rows.map((row) => {
+      const source = result.rows.find((r) => r.rowNumber === row.rowNumber)!;
+      return {
+        batchId,
+        rowNumber: row.rowNumber,
+        rawEmployeeId: row.employeeId ?? '',
+        rawName: row.employeeName || null,
+        rawDate: row.businessDate,
+        rawStatus: row.proposed?.status ?? null,
+        rawPunchIn: row.proposed?.punchIn ?? null,
+        rawPunchOut: row.proposed?.punchOut ?? null,
+        rawHalfDay: row.proposed?.halfDay ?? null,
+        rawLeaveType: row.proposed?.leaveType ?? null,
+        rawReason: row.proposed?.reason ?? null,
+        userId: row.userId ?? null,
+        businessDate: row.businessDate
+          ? this.tva.companyDateOnly(new Date(`${row.businessDate}T00:00:00.000Z`))
+          : null,
+        proposedStatus: (row.proposed?.status ?? null) as any,
+        proposedPunchIn: row.proposed?.punchIn ? new Date(row.proposed.punchIn) : null,
+        proposedPunchOut: row.proposed?.punchOut ? new Date(row.proposed.punchOut) : null,
+        proposedHalfDay: (row.proposed?.halfDay ?? null) as any,
+        proposedLeaveType: (row.proposed?.leaveType ?? null) as any,
+        normalizedReason: row.proposed?.reason ?? null,
+        currentStatus: (row.current?.status ?? null) as any,
+        currentPunchIn: row.current?.punchIn ? new Date(row.current.punchIn) : null,
+        currentPunchOut: row.current?.punchOut ? new Date(row.current.punchOut) : null,
+        currentPunchInEvidenceId: row.current?.punchInEvidenceId ?? null,
+        currentPunchOutEvidenceId: row.current?.punchOutEvidenceId ?? null,
+        classification: row.classification as any,
+        // Codes, not sentences. The wording is rendered from these, so a
+        // reworded message never invalidates a stored verdict.
+        messages: [...row.errors.map((e) => e.code), ...row.conflicts.map((c) => c.code)],
+        warnings: row.warnings.map((w) => w.code),
+        void: source,
+      };
+    }).map(({ void: _drop, ...row }) => row);
+
+    // Chunked: six thousand individual inserts is six thousand round trips,
+    // and one statement of six thousand rows is a parameter count PostgreSQL
+    // will refuse.
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await this.prisma.attendanceImportRow.createMany({ data: rows.slice(i, i + CHUNK) as any });
+    }
+
+    await this.prisma.attendanceImportBatch.update({
+      where: { id: batchId },
+      data: {
+        status: result.summary.approvable ? 'READY_FOR_REVIEW' : 'HAS_ERRORS',
+        periodFrom: result.periodFrom
+          ? this.tva.companyDateOnly(new Date(`${result.periodFrom}T00:00:00.000Z`))
+          : null,
+        periodTo: result.periodTo
+          ? this.tva.companyDateOnly(new Date(`${result.periodTo}T00:00:00.000Z`))
+          : null,
+        totalRows: result.summary.totalRows,
+        newRows: result.summary.newRows,
+        matchRows: result.summary.matchRows,
+        changeRows: result.summary.changeRows,
+        conflictRows: result.summary.conflictRows,
+        invalidRows: result.summary.invalidRows,
+        warningRows: result.summary.warningRows,
+      },
+    });
+  }
+
+  /** Whether this file has been seen before. Information, never a refusal. */
+  async previousUploadsOf(fileSha256: string, excludeBatchId?: string) {
+    return this.prisma.attendanceImportBatch.findMany({
+      where: { fileSha256, ...(excludeBatchId ? { id: { not: excludeBatchId } } : {}) },
+      select: { id: true, reference: true, uploadedAt: true, status: true },
+      orderBy: { uploadedAt: 'desc' },
+      take: 5,
+    });
+  }
+
+  /** Import history. Company-wide for HR authority; own batches for an operator. */
+  async list(actor: any, limit = 50) {
+    this.assertMayPrepare(actor);
+    const companyWide = this.accessPolicy.isHrOrAdmin(actor);
+
+    return this.prisma.attendanceImportBatch.findMany({
+      where: companyWide ? {} : { uploadedById: actor?.id ?? actor?.sub },
+      orderBy: { uploadedAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 200),
+      include: {
+        uploadedBy: { select: { id: true, name: true } },
+        approvedBy: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async findOne(actor: any, id: string) {
+    this.assertMayPrepare(actor);
+    const batch = await this.prisma.attendanceImportBatch.findUnique({
+      where: { id },
+      include: {
+        uploadedBy: { select: { id: true, name: true } },
+        approvedBy: { select: { id: true, name: true } },
+      },
+    });
+    if (!batch) throw new NotFoundException('Import batch not found');
+
+    // An operator sees what they prepared. HR authority sees everything.
+    if (!this.accessPolicy.isHrOrAdmin(actor) && batch.uploadedById !== (actor?.id ?? actor?.sub)) {
+      throw new ForbiddenException('That import batch was prepared by somebody else.');
+    }
+    return batch;
+  }
+
+  /** The stored rows, so a preview survives the request that produced it. */
+  async rowsOf(actor: any, id: string, filter?: string) {
+    await this.findOne(actor, id);
+    return this.prisma.attendanceImportRow.findMany({
+      where: { batchId: id, ...(filter ? { classification: filter as any } : {}) },
+      orderBy: { rowNumber: 'asc' },
+      take: 5000,
+    });
+  }
+
+  /**
+   * The rows an operator has to fix, as a workbook.
+   *
+   * Rendered from the STORED problem codes rather than by re-reading the file:
+   * the codes are the durable record, and the sentences are presentation. A
+   * reworded message never invalidates a stored verdict.
+   */
+  async errorWorkbook(actor: any, id: string): Promise<{ buffer: Buffer; filename: string }> {
+    const batch = await this.findOne(actor, id);
+    const rows = await this.prisma.attendanceImportRow.findMany({
+      where: { batchId: id, classification: { in: ['INVALID', 'CONFLICT'] } },
+      orderBy: { rowNumber: 'asc' },
+    });
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Apex OS Attendance';
+    const sheet = wb.addWorksheet('Rows to fix');
+    sheet.columns = [
+      { header: 'Row Number', key: 'rowNumber', width: 12 },
+      { header: 'Employee ID', key: 'employeeId', width: 16 },
+      { header: 'Employee Name', key: 'employeeName', width: 26 },
+      { header: 'Date', key: 'date', width: 14 },
+      { header: 'Value', key: 'value', width: 22 },
+      { header: 'Error Code', key: 'code', width: 34 },
+      { header: 'Error', key: 'error', width: 70 },
+      { header: 'Suggested Fix', key: 'fix', width: 60 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    for (const row of rows) {
+      for (const code of row.messages) {
+        sheet.addRow({
+          rowNumber: row.rowNumber,
+          employeeId: row.rawEmployeeId,
+          employeeName: row.rawName ?? '',
+          date: row.rawDate ?? '',
+          // Raw input only. No coordinates, no photo reference, nothing an
+          // error report has no business carrying.
+          value: row.rawStatus ?? '',
+          code,
+          error: describeCode(code),
+          fix: suggestForCode(code),
+        });
+      }
+    }
+
+    return {
+      buffer: Buffer.from(await wb.xlsx.writeBuffer()),
+      filename: `Attendance_Import_Errors_${batch.reference}.xlsx`,
     };
   }
 

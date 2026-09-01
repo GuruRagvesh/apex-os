@@ -34,6 +34,15 @@ model User {
   emergencyRelation         String?
   userLocation              String?                        @default("Pune HQ")
   employeeId                String?                        @unique
+  /// Attendance import PREPARATION only -- template, upload, validate,
+  /// preview. Not a seventh role and not a grant of company-wide attendance
+  /// visibility: approving and applying an import stay with isHR/ADMIN, and
+  /// this flag confers nothing on Daily Review, the Monthly Register or
+  /// Manual Recovery. Follows the isHR precedent: functional authority carried
+  /// as a flag rather than by adding a rung to the role ladder.
+  isAttendanceDataOperator  Boolean                        @default(false)
+  attendanceImportsUploaded AttendanceImportBatch[]        @relation("AttendanceImportUploader")
+  attendanceImportsApproved AttendanceImportBatch[]        @relation("AttendanceImportApprover")
   designation               String?
   employmentType            String?                        @default("Full-time")
   workMode                  String?                        @default("Office")
@@ -1354,6 +1363,9 @@ model DailyAttendance {
 
 model AttendanceRegularization {
   id                 String                    @id @default(cuid())
+  /// The import row that produced this correction, if any. Back-reference
+  /// only: the foreign key lives on AttendanceImportRow.
+  importRow          AttendanceImportRow?
   userId             String
   date               DateTime                  @db.Date
   requestType        RegularizationRequestType
@@ -1415,6 +1427,12 @@ model AttendanceRegularization {
 enum RegularizationEntrySource {
   EMPLOYEE_REQUEST
   MANUAL_RECOVERY
+  /// A row from a reviewed and approved import batch. Distinguished from a
+  /// historical migration forever, because the two make different claims: one
+  /// corrects a period the system was running for, the other reconstructs a
+  /// period it was not.
+  BULK_IMPORT
+  HISTORICAL_IMPORT
 }
 
 /// Why evidence-backed punching was impossible. Recorded durably on the row
@@ -1918,4 +1936,206 @@ enum PolicyDecisionAction {
   DEDUCT_HALF_PAID_LEAVE
   DEDUCT_FULL_PAID_LEAVE
   MARK_LWP
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// Attendance Data Control — import batches (staging and audit only)
+//
+// These tables never hold attendance. They hold what somebody uploaded, what
+// Apex OS made of it, and what it was compared against -- so that months later
+// the question "where did this attendance record come from" has an answer that
+// survives the deletion of the spreadsheet.
+//
+// The authoritative write remains AttendanceRegularization ->
+// reviseForApprovedCorrection(). An import row can point at the correction it
+// produced; it can never be one.
+// ════════════════════════════════════════════════════════════════════════════
+
+model AttendanceImportBatch {
+  id            String                 @id @default(cuid())
+  /// Human-facing, e.g. ATI-2026-3F9A2C. Random suffix rather than a counter:
+  /// a MAX(reference)+1 read is a race two concurrent uploads can lose, and
+  /// this is a label, not an accounting sequence.
+  reference     String                 @unique
+  mode          AttendanceImportMode
+  status        AttendanceImportStatus @default(UPLOADING)
+
+  fileName      String
+  fileByteSize  Int
+  /// Indexed, deliberately NOT unique. The same workbook may legitimately be
+  /// uploaded again to see what has changed since; a repeat is worth saying
+  /// out loud and is never a reason to refuse the file.
+  fileSha256    String
+  /// Private object key in the attendance-imports namespace. Never a signed or
+  /// public URL -- those expire, and an audit trail cannot depend on a link
+  /// that stops resolving.
+  vaultObjectKey String?
+
+  periodFrom    DateTime? @db.Date
+  periodTo      DateTime? @db.Date
+
+  totalRows     Int @default(0)
+  newRows       Int @default(0)
+  matchRows     Int @default(0)
+  changeRows    Int @default(0)
+  conflictRows  Int @default(0)
+  invalidRows   Int @default(0)
+  warningRows   Int @default(0)
+
+  /// Populated only by Phase 5. Zero here means nothing has been applied,
+  /// which is also true of every batch this phase can produce.
+  appliedRows   Int @default(0)
+  failedRows    Int @default(0)
+
+  uploadedById  String
+  uploadedAt    DateTime @default(now())
+  approvedById  String?
+  approvedAt    DateTime?
+  appliedAt     DateTime?
+  cancelledAt   DateTime?
+  failureReason String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  /// Restrict, not Cascade. An import that changed official attendance is the
+  /// evidence explaining that change, and it must be harder to destroy than
+  /// the spreadsheet it came from. A finished batch is CANCELLED, never
+  /// deleted, and there is no endpoint that deletes one.
+  uploadedBy    User  @relation("AttendanceImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  approvedBy    User? @relation("AttendanceImportApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  rows          AttendanceImportRow[]
+
+  @@index([status])
+  @@index([uploadedById])
+  @@index([fileSha256])
+  @@index([uploadedAt])
+  @@map("attendance_import_batches")
+}
+
+model AttendanceImportRow {
+  id        String @id @default(cuid())
+  batchId   String
+  /// The line number in the spreadsheet, so an error file can point at it.
+  rowNumber Int
+
+  // ── RAW: what was actually typed ────────────────────────────────────────
+  // Kept verbatim. This is the evidence quoted back to whoever has to fix the
+  // file, and it must not be replaced by what Apex OS made of it.
+  rawEmployeeId String
+  rawName       String?
+  rawDate       String?
+  rawStatus     String?
+  rawPunchIn    String?
+  rawPunchOut   String?
+  rawHalfDay    String?
+  rawLeaveType  String?
+  rawReason     String?
+
+  // ── NORMALIZED: the frozen proposal ─────────────────────────────────────
+  // What HR previewed and would be approving. Apply consumes THESE, never the
+  // raw cells -- a parser change must not be able to make the same spreadsheet
+  // mean something different from what was approved.
+  //
+  // userId carries no foreign key, following the provenance convention on
+  // DailyAttendance: this is a historical statement about who a row resolved
+  // to, and it has to survive whatever happens to the account later.
+  userId            String?
+  businessDate      DateTime?             @db.Date
+  proposedStatus    DailyAttendanceStatus?
+  proposedPunchIn   DateTime?
+  proposedPunchOut  DateTime?
+  proposedHalfDay   HalfDaySession?
+  proposedLeaveType LeaveType?
+  normalizedReason  String?
+
+  // ── SNAPSHOT: what it was compared against ──────────────────────────────
+  // Frozen at preview so the comparison HR approved stays readable, and so
+  // apply can tell that the day has moved since.
+  //
+  // Evidence is recorded as the actual evidence ids rather than a new
+  // has-evidence taxonomy: it invents no second vocabulary, and it points at
+  // the specific rows that backed the day.
+  currentStatus           DailyAttendanceStatus?
+  currentPunchIn          DateTime?
+  currentPunchOut         DateTime?
+  currentPunchInEvidenceId  String?
+  currentPunchOutEvidenceId String?
+  currentFingerprint      String?
+
+  // ── VERDICT ─────────────────────────────────────────────────────────────
+  classification AttendanceImportRowClass?
+  /// Structured problem codes; the human sentences are rendered from them.
+  messages       String[] @default([])
+  /// Non-blocking findings a reviewer should still see -- a name that does not
+  /// match the ID it was filed under, most of all.
+  warnings       String[] @default([])
+
+  // ── APPLICATION (Phase 5 populates these) ───────────────────────────────
+  /// Deliberately an enum rather than a Boolean. "Never attempted", "skipped
+  /// because the day moved between preview and apply" and "failed unexpectedly"
+  /// need opposite responses -- re-preview, investigate, or nothing -- and a
+  /// Boolean would collapse the last two into one indistinguishable false.
+  applyState       AttendanceImportRowState @default(PENDING)
+  appliedAt        DateTime?
+  failureReason    String?
+  /// The single link to the correction this row produced. The FK lives HERE,
+  /// once. Two independent scalar ids on both sides would be two values that
+  /// can disagree about the same fact.
+  ///
+  /// SetNull: removing a correction must not delete the import history that
+  /// explains it, and it must never cascade the other way.
+  regularizationId String?                   @unique
+  regularization   AttendanceRegularization? @relation(fields: [regularizationId], references: [id], onDelete: SetNull)
+
+  /// Restrict: import rows are the audit trail, not a detail of the batch.
+  batch AttendanceImportBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, classification])
+  @@index([userId, businessDate])
+  @@index([batchId, applyState])
+  @@map("attendance_import_rows")
+}
+
+enum AttendanceImportMode {
+  /// A recent period being corrected. Manual-recovery rules apply in full.
+  CURRENT_CORRECTION
+  /// A period predating Apex OS. May record a status whose punch times were
+  /// never kept; may never invent them.
+  HISTORICAL_MIGRATION
+}
+
+enum AttendanceImportStatus {
+  /// The batch row exists; the file has not been archived yet. A batch that
+  /// dies here is visibly incomplete rather than a plausible empty import.
+  UPLOADING
+  VALIDATING
+  READY_FOR_REVIEW
+  HAS_ERRORS
+  /// Everything below is reached only by Phase 5.
+  APPROVED
+  APPLYING
+  APPLIED
+  PARTIALLY_APPLIED
+  FAILED
+  CANCELLED
+}
+
+enum AttendanceImportRowClass {
+  NEW
+  MATCH
+  CHANGE
+  CONFLICT
+  INVALID
+}
+
+enum AttendanceImportRowState {
+  PENDING
+  APPLIED
+  /// The day changed between the preview HR approved and the moment of
+  /// applying, so the approved comparison no longer described it.
+  SKIPPED_STALE
+  FAILED
 }

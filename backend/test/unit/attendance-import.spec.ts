@@ -318,7 +318,8 @@ describe('classification', () => {
     punchOutAt: new Date('2026-08-14T13:12:00.000Z'),
     evaluationState: 'CALCULATED',
     locked: false,
-    hasEvidence: true,
+    punchInEvidenceId: 'ev-in-1',
+    punchOutEvidenceId: 'ev-out-1',
     ...over,
   });
 
@@ -360,7 +361,7 @@ describe('classification', () => {
     // silent evidence deletions dressed up as a reconciliation.
     const out = classifyRow(
       one({ in: '', out: '' }, context({ mode: 'HISTORICAL_MIGRATION' })),
-      classifyContext({ currentByKey: new Map([[key, current({ hasEvidence: true })]]) }),
+      classifyContext({ currentByKey: new Map([[key, current()]]) }),
     );
 
     expect(out.classification).toBe('MATCH');
@@ -626,9 +627,23 @@ describe('PHASE 3 WRITES NOTHING', () => {
     expect(approve).toContain('isHrOrAdmin');
   });
 
-  it('58. Phase 3 touched no schema', () => {
+  it('58. the import schema stages, and never holds attendance', () => {
+    // Phase 4 added these tables deliberately; what must stay true is what they
+    // are FOR. They record what was uploaded and what Apex OS made of it. The
+    // authoritative fact still lives on DailyAttendance, written only through
+    // an approved AttendanceRegularization.
     const schema = readFileSync(resolve(__dirname, '../../prisma/schema.prisma'), 'utf8');
-    expect(schema).not.toContain('AttendanceImportBatch');
-    expect(schema).not.toContain('isAttendanceDataOperator');
+    const importModels = schema.slice(schema.indexOf('model AttendanceImportBatch'));
+
+    expect(schema).toContain('model AttendanceImportBatch');
+    expect(schema).toContain('model AttendanceImportRow');
+    expect(schema).toContain('isAttendanceDataOperator');
+
+    // The link to a correction lives in ONE place, on the row, and never
+    // cascades into authoritative data.
+    expect(importModels).toContain('regularizationId String?                   @unique');
+    expect(importModels).toContain('onDelete: SetNull');
+    // Audit rows outlive their batch: Restrict, never Cascade.
+    expect(importModels).not.toContain('onDelete: Cascade');
   });
 });

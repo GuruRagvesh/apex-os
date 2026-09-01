@@ -821,6 +821,8 @@ export class UsersService {
       recoveriesEntered,
       punchHandoffs,
       monthClosesFinalized,
+      importsUploaded,
+      importsApproved,
       compOffCredits,
       attendanceProfiles,
     ] = await Promise.all([
@@ -855,6 +857,11 @@ export class UsersService {
       (this.prisma as any).attendanceRegularization.count({ where: { createdById: userId } }),
       (this.prisma as any).attendancePunchHandoff.count({ where: { userId } }),
       (this.prisma as any).attendanceMonthClose.count({ where: { finalizedById: userId } }),
+      // Import batches hold the audit trail explaining attendance changes.
+      // Their FKs are RESTRICT, so without these counts a delete would fail
+      // with a raw constraint error instead of this list of what is in the way.
+      (this.prisma as any).attendanceImportBatch.count({ where: { uploadedById: userId } }),
+      (this.prisma as any).attendanceImportBatch.count({ where: { approvedById: userId } }),
       (this.prisma as any).compOffCredit.count({ where: { employeeId: userId } }),
       (this.prisma as any).employeeAttendanceProfile.count({ where: { userId } }),
     ]);
@@ -887,6 +894,8 @@ export class UsersService {
     if (recoveriesEntered)       blockers['Corrections Entered For Others'] = recoveriesEntered;
     if (punchHandoffs)           blockers['Phone Punch Handoffs']        = punchHandoffs;
     if (monthClosesFinalized)    blockers['Payroll Months Finalized']    = monthClosesFinalized;
+    if (importsUploaded)         blockers['Attendance Imports Uploaded']  = importsUploaded;
+    if (importsApproved)         blockers['Attendance Imports Approved']  = importsApproved;
     if (compOffCredits)          blockers['Comp-Off Credits']            = compOffCredits;
     if (attendanceProfiles)      blockers['Attendance Profiles']         = attendanceProfiles;
 
