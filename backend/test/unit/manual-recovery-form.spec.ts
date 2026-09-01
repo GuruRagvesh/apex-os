@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import { MIN_REASON_ENTERED_CORRECTION } from '../../src/modules/platform/attendance/regularization/correction-proposal';
 import { resolve } from 'path';
 import {
   ACTION_LABEL,
@@ -98,6 +99,14 @@ describe('validation mirrors the server', () => {
   });
 
   it('uses the same minimum the server enforces', () => {
+    // Compared against the CONSTANT rather than a literal grepped out of the
+    // service. The rule moved into the shared correction module so that manual
+    // recovery and bulk import provably hold to one bar; a guard that greps for
+    // "length < 10" would have gone silently vacuous the moment it did.
+    expect(MIN_EXPLANATION).toBe(MIN_REASON_ENTERED_CORRECTION);
+
+    // And the service must actually apply that bar to an entered correction,
+    // not merely import it.
     const service = readFileSync(
       resolve(
         __dirname,
@@ -105,8 +114,7 @@ describe('validation mirrors the server', () => {
       ),
       'utf8',
     );
-
-    expect(service).toMatch(new RegExp(`length < ${MIN_EXPLANATION}`));
+    expect(service).toMatch(/minReasonLength:\s*MIN_REASON_ENTERED_CORRECTION/);
   });
 });
 

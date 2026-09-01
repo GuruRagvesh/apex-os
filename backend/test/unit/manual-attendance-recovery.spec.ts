@@ -317,3 +317,38 @@ describe('ordinary employee requests are unaffected', () => {
     expect(created[0].recoveryReason).toBeUndefined();
   });
 });
+
+describe('AR-1b the shared correction rules reach the service', () => {
+  it('20. refuses a punch pair that ends before it starts', async () => {
+    const { service } = build();
+
+    // Nothing enforced this before the rules were extracted: an inverted pair
+    // reached the evaluator and became a nonsensical presence on a record that
+    // feeds payroll.
+    await expect(
+      service.createManualRecovery(HR, input({
+        requestedPunchIn: '2026-08-29T13:00:00.000Z',
+        requestedPunchOut: '2026-08-29T04:00:00.000Z',
+      }) as any),
+    ).rejects.toThrow(/must be after punch in/i);
+  });
+
+  it('21. still refuses a proposal that asserts nothing', async () => {
+    const { service } = build();
+
+    await expect(
+      service.createManualRecovery(HR, input({
+        requestedPunchIn: undefined,
+        requestedPunchOut: undefined,
+      }) as any),
+    ).rejects.toThrow(/punch in or punch out/i);
+  });
+
+  it('22. still refuses a token explanation', async () => {
+    const { service } = build();
+
+    await expect(
+      service.createManualRecovery(HR, input({ reason: 'outage' }) as any),
+    ).rejects.toThrow(/Explain what happened/i);
+  });
+});

@@ -16,6 +16,13 @@ import {
   ATTENDANCE_V2_DEFAULTS,
   ATTENDANCE_V2_SETTING_KEY,
 } from '../punch/punch-evidence.types';
+import {
+  MIN_REASON_EMPLOYEE_REQUEST,
+  MIN_REASON_ENTERED_CORRECTION,
+  buildCorrectionRecord,
+  validateCorrectionProposal,
+  type CorrectionProposal,
+} from './correction-proposal';
 
 /**
  * Attendance regularization (AR-1).
@@ -138,7 +145,7 @@ export class RegularizationService {
     if (!REQUEST_TYPES.includes(input.requestType)) {
       throw new BadRequestException('Unknown correction type');
     }
-    if (!input.reason || input.reason.trim().length < 5) {
+    if (!input.reason || input.reason.trim().length < MIN_REASON_EMPLOYEE_REQUEST) {
       throw new BadRequestException('Please explain what needs correcting');
     }
 
@@ -309,14 +316,6 @@ export class RegularizationService {
     if (!MANUAL_RECOVERY_REASONS.includes(input.recoveryReason as any)) {
       throw new BadRequestException('Select why the punch could not be recorded');
     }
-    if (!input.reason || input.reason.trim().length < 10) {
-      throw new BadRequestException(
-        'Explain what happened. This is the durable record of why attendance was entered by hand.',
-      );
-    }
-    if (!input.requestedPunchIn && !input.requestedPunchOut) {
-      throw new BadRequestException('Provide the punch in or punch out time being recorded');
-    }
     if (!input.employeeInformedAt) {
       throw new BadRequestException('Record when the employee reported the problem');
     }
@@ -340,43 +339,51 @@ export class RegularizationService {
     // would leave two authoritative answers for one moment; the actor is routed
     // to a correction instead, which is what the original snapshots below
     // record.
-    if (input.requestedPunchIn && official?.punchInAt && !input.correctExisting) {
-      throw new ForbiddenException(
-        `A punch in already exists at ${this.companyClock(official.punchInAt)}. ` +
-          'Correct it instead of adding another.',
-      );
-    }
-    if (input.requestedPunchOut && official?.punchOutAt && !input.correctExisting) {
-      throw new ForbiddenException(
-        `A punch out already exists at ${this.companyClock(official.punchOutAt)}. ` +
-          'Correct it instead of adding another.',
-      );
+    const proposal: CorrectionProposal = {
+      punchInAt: input.requestedPunchIn ? new Date(input.requestedPunchIn) : null,
+      punchOutAt: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
+      proposedStatus: null,
+      reason: input.reason ?? '',
+    };
+
+    // The SAME rules a bulk-imported row is held to. Extracted rather than
+    // duplicated: a spreadsheet row and a hand-entered day are one operation
+    // with different paperwork, and two implementations of "is this punch pair
+    // believable" would agree today and drift by the second change.
+    //
+    // The single-day caller wants the first problem as an exception; the
+    // importer wants the whole list on the row. Same function, different
+    // handling of what it returns.
+    const problems = validateCorrectionProposal(proposal, official, {
+      minReasonLength: MIN_REASON_ENTERED_CORRECTION,
+      correctExisting: input.correctExisting,
+      formatTime: (at) => this.companyClock(at),
+    });
+    if (problems.length > 0) {
+      const [first] = problems;
+      // A duplicate punch is a refusal of authority to add a second answer;
+      // everything else is a malformed request.
+      throw first.code === 'PUNCH_IN_ALREADY_EXISTS' || first.code === 'PUNCH_OUT_ALREADY_EXISTS'
+        ? new ForbiddenException(first.message)
+        : new BadRequestException(first.message);
     }
 
     const actorRole = this.accessPolicy.roleName(actor);
 
     const created = await this.prisma.attendanceRegularization.create({
       data: {
-        userId: input.userId,
-        date,
-        requestType: 'MISSING_PUNCH',
-        reason: input.reason.trim(),
-        requestedPunchIn: input.requestedPunchIn ? new Date(input.requestedPunchIn) : null,
-        requestedPunchOut: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
-
-        // Captured NOW, from the authoritative record as it stands. Once HR
-        // applies the correction the previous value exists nowhere else, and
-        // this row has to be able to say 18:04 -> 18:31 on its own.
-        originalPunchIn: official?.punchInAt ?? null,
-        originalPunchOut: official?.punchOutAt ?? null,
-
-        entrySource: 'MANUAL_RECOVERY',
-        createdById: actorId,
-        actorRoleAtEntry: actorRole,
-        recoveryReason: input.recoveryReason as any,
-        employeeInformedAt: new Date(input.employeeInformedAt),
-
-        basedOnFingerprint: official?.sourceFingerprint ?? null,
+        ...(buildCorrectionRecord({
+          userId: input.userId,
+          date,
+          proposal,
+          official,
+          entrySource: 'MANUAL_RECOVERY',
+          requestType: 'MISSING_PUNCH',
+          createdById: actorId,
+          actorRoleAtEntry: actorRole,
+          recoveryReason: input.recoveryReason ?? null,
+          employeeInformedAt: new Date(input.employeeInformedAt),
+        }) as any),
 
         // The creator's own operational judgment, recorded as such. HR approval
         // is still required and is still the only thing that rewrites
