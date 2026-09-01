@@ -9,6 +9,7 @@ import { AttendanceProcessingService } from '../processing/attendance-processing
 import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import { LeaveBalanceService } from '../../../operations/leave/leave-balance.service';
 import { formatInTimeZone } from 'date-fns-tz';
+import { ROLES } from '../../../../shared/constants/roles';
 import { registerCsv, registerFileName, type RegisterResult } from './register-report';
 import { buildRegisterWorkbook } from './register-workbook';
 
@@ -48,10 +49,30 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  */
 const LATE_AFTER = '10:30:00';
 
+/**
+ * The only roles that operate this console without HR or Admin authority.
+ *
+ * A closed list, checked before any department or hierarchy lookup. Seniority
+ * is not authority here: EMPLOYEE and INTERN are absent deliberately, and a
+ * role that does not exist yet is absent by default rather than admitted by
+ * accident.
+ */
+const CONSOLE_ROLES = new Set<string>([ROLES.MANAGER, ROLES.TEAM_LEAD]);
+
 export interface ConsoleScope {
   /** null means unrestricted (HR/Admin). */
   userIds: string[] | null;
   isHr: boolean;
+  /**
+   * Whether this actor may operate the console AT ALL, independent of how many
+   * people they can see.
+   *
+   * Separate from an empty userIds on purpose. A manager whose team is empty
+   * is permitted and has nothing to show; an employee is not permitted. Both
+   * used to produce an empty list, which made a refusal indistinguishable from
+   * a quiet day.
+   */
+  eligible: boolean;
 }
 
 export interface EvaluationCommandResult {
@@ -84,24 +105,50 @@ export class AttendanceConsoleService {
   /**
    * Which employees this actor may see.
    *
-   * HR and Admin see everyone. Everyone else is narrowed to their actual
-   * reporting relationships — the same `User.reportingManager` /
+   * HR and Admin see everyone. MANAGER and TEAM_LEAD are narrowed to their
+   * actual reporting relationships — the same `User.reportingManager` /
    * `User.teamLeadName` employeeId links the hierarchy resolver uses, plus the
    * departments the existing access policy says they manage.
+   *
+   * Nobody else operates this console at all.
+   *
+   * THE ROLE GATE IS LOAD-BEARING AND MUST COME FIRST.
+   *
+   * AccessPolicyService.managedDepartmentIds() has explicit branches for
+   * MANAGER and TEAM_LEAD and then a final fallback that returns the caller's
+   * OWN department. That fallback is reasonable where it is used to answer
+   * "which departments may this person see records from"; read here as "which
+   * departments does this person MANAGE", it silently promoted every EMPLOYEE
+   * and INTERN with a department into a manager of their colleagues — and this
+   * console hands out attendance, leave balances and a downloadable register.
+   *
+   * So the console decides its own eligibility by role before it asks the
+   * shared policy anything. The shared policy is untouched: it is reused by
+   * tickets, leave and users, and narrowing it globally is a much larger change
+   * than this exposure warrants.
+   *
+   * Belonging to a department is not management authority. Only the two roles
+   * that carry it get to ask.
    *
    * Resolved as a set of ids rather than a filter the caller could forget to
    * apply, so a query cannot accidentally escape its scope.
    */
   async resolveScope(actor: any): Promise<ConsoleScope> {
     if (this.accessPolicy.isHrOrAdmin(actor)) {
-      return { userIds: null, isHr: true };
+      return { userIds: null, isHr: true, eligible: true };
     }
 
     const me = await this.prisma.user.findUnique({
       where: { id: actor?.id },
       select: { id: true, employeeId: true, departmentId: true, role: { select: { name: true } } },
     });
-    if (!me) return { userIds: [], isHr: false };
+    if (!me) return { userIds: [], isHr: false, eligible: false };
+
+    // EMPLOYEE, INTERN, and any role this ladder has not heard of, stop here.
+    // Nothing below this line runs for them, so no inference can reach them.
+    if (!CONSOLE_ROLES.has(me.role?.name as any)) {
+      return { userIds: [], isHr: false, eligible: false };
+    }
 
     const departmentIds = await this.accessPolicy.managedDepartmentIds({
       id: me.id,
@@ -115,15 +162,34 @@ export class AttendanceConsoleService {
     }
     if (departmentIds.length > 0) or.push({ departmentId: { in: departmentIds } });
 
-    // No hierarchy links and no managed department: an empty scope, not the
-    // whole company.
-    if (or.length === 0) return { userIds: [], isHr: false };
+    // A manager with nobody under them yet is still a manager: eligible, with
+    // an empty population. That is a different fact from "not permitted", and
+    // the two must not collapse into the same answer.
+    if (or.length === 0) return { userIds: [], isHr: false, eligible: true };
 
     const reports = await this.prisma.user.findMany({
       where: { isActive: true, OR: or, id: { not: me.id } },
       select: { id: true },
     });
-    return { userIds: reports.map((r) => r.id), isHr: false };
+    return { userIds: reports.map((r) => r.id), isHr: false, eligible: true };
+  }
+
+  /**
+   * The console's single refusal.
+   *
+   * Every read goes through this, so Daily Review, the Monthly Register and
+   * both exports cannot end up with three different ideas of who is allowed.
+   * A refusal, not an empty result: "you have no authority here" and "there is
+   * nobody to show" are different facts, and returning an empty register to an
+   * employee would look to them like a working feature with no data.
+   */
+  private assertEligible(scope: ConsoleScope): ConsoleScope {
+    if (!scope.eligible) {
+      throw new ForbiddenException(
+        'The attendance console is available to HR, administrators, and managers or team leads with reporting employees.',
+      );
+    }
+    return scope;
   }
 
   private assertDate(value: string, label = 'businessDate') {
@@ -163,7 +229,7 @@ export class AttendanceConsoleService {
   async todaySummary(actor: any, businessDate?: string) {
     const date = businessDate ?? this.tva.companyToday();
     this.assertDate(date);
-    const scope = await this.resolveScope(actor);
+    const scope = this.assertEligible(await this.resolveScope(actor));
     const dateOnly = this.tva.companyDateOnly(new Date(`${date}T00:00:00.000Z`));
 
     const [employees, records, pendingRegularizations] = await Promise.all([
@@ -266,7 +332,7 @@ export class AttendanceConsoleService {
   ) {
     const date = filters.businessDate ?? this.tva.companyToday();
     this.assertDate(date);
-    const scope = await this.resolveScope(actor);
+    const scope = this.assertEligible(await this.resolveScope(actor));
     const dateOnly = this.tva.companyDateOnly(new Date(`${date}T00:00:00.000Z`));
 
     const page = Math.max(1, filters.page ?? 1);
@@ -340,7 +406,7 @@ export class AttendanceConsoleService {
   /** Everything known about one employee-date, assembled from existing sources. */
   async dayDetail(actor: any, userId: string, businessDate: string) {
     this.assertDate(businessDate);
-    const scope = await this.resolveScope(actor);
+    const scope = this.assertEligible(await this.resolveScope(actor));
     if (scope.userIds !== null && !scope.userIds.includes(userId) && actor?.id !== userId) {
       throw new ForbiddenException('You do not have permission to view this employee');
     }
@@ -480,7 +546,7 @@ export class AttendanceConsoleService {
     this.assertDate(to, 'to');
     if (from > to) throw new BadRequestException('from must not be after to');
 
-    const scope = await this.resolveScope(actor);
+    const scope = this.assertEligible(await this.resolveScope(actor));
     const limit = Math.min(Math.max(filters.limit ?? 100, 1), 300);
 
     const [flagged, regularizations] = await Promise.all([
@@ -557,7 +623,7 @@ export class AttendanceConsoleService {
       throw new BadRequestException(`Range is limited to ${MAX_RANGE_DAYS} days`);
     }
 
-    const scope = await this.resolveScope(actor);
+    const scope = this.assertEligible(await this.resolveScope(actor));
     const userWhere: any = { isActive: true };
     if (scope.userIds !== null) userWhere.id = { in: scope.userIds };
     if (filters.departmentId) userWhere.departmentId = filters.departmentId;
@@ -928,9 +994,20 @@ export class AttendanceConsoleService {
     return outcome;
   }
 
-  /** Whether this actor may operate the console at all. */
+  /**
+   * Whether this actor may operate the console at all.
+   *
+   * The one read that ANSWERS instead of refusing. It is a capability probe:
+   * the screen asks "may I?" on load, and a 403 to that question would make an
+   * employee's Attendance page fail rather than simply not offer a console they
+   * were never meant to see. Every endpoint that returns actual attendance data
+   * refuses, which is where the refusal belongs.
+   */
   async canOperate(actor: any): Promise<{ isHr: boolean; hasTeam: boolean }> {
     const scope = await this.resolveScope(actor);
-    return { isHr: scope.isHr, hasTeam: scope.userIds === null || scope.userIds.length > 0 };
+    return {
+      isHr: scope.isHr,
+      hasTeam: scope.eligible && (scope.userIds === null || scope.userIds.length > 0),
+    };
   }
 }

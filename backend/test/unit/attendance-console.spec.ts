@@ -1175,45 +1175,151 @@ describe('HC-1 register authorization, measured against the real access policy',
   });
 
   /**
-   * FINDING, NOT A DESIGN DECISION -- reported for the product owner to settle.
+   * THE EXPOSURE THIS SUITE WAS WRITTEN TO FIND, NOW CLOSED.
    *
-   * AccessPolicyService.managedDepartmentIds() ends in a fallback that returns
-   * the caller's OWN department for any role that reached it, which is every
-   * role below TEAM_LEAD. resolveScope() reads that as "departments this person
-   * manages", so an ordinary EMPLOYEE or INTERN who has a department resolves
-   * to every active colleague in it -- and can therefore open the register and
-   * download their colleagues' leave balances and attendance.
+   * managedDepartmentIds() ends in a fallback returning the caller's OWN
+   * department, reached by every role below TEAM_LEAD. resolveScope() read that
+   * as "departments this person manages", so an ordinary EMPLOYEE or INTERN
+   * with a department resolved to every active colleague in it -- and this
+   * console hands out attendance, leave balances and a downloadable file.
    *
-   * This predates the register: the same resolver already scoped the day
-   * roster, the summary and the review queue. The register raises the stakes
-   * because it adds leave balances and a downloadable file.
-   *
-   * The test asserts what the code DOES today so the behaviour is visible and
-   * cannot change silently. It is not an endorsement. The fix belongs in
-   * managedDepartmentIds() or in a console-specific scope rule, and it touches
-   * tickets, leave and users as well, so it is not being made unilaterally.
+   * The shared policy is deliberately untouched; it is reused by tickets, leave
+   * and users. The console gates on role first, so the fallback is never
+   * reached from here.
    */
-  it('43. CURRENT BEHAVIOUR: an ordinary employee with a department sees that department', async () => {
-    const scope = await scopeOf({ role: 'EMPLOYEE', departmentId: 'dept-ops', employeeId: null });
-
-    expect(scope.isHr).toBe(false);
-    expect(scope.userIds).toEqual(['colleague-1', 'colleague-2']);
-
-    // And it is not merely theoretical: the console reports them as having a
-    // team, which is what makes the screen appear at all.
+  it('43. an ordinary employee is refused, not handed their department', async () => {
     const { service, actorUser } = rigWithRealPolicy({
       role: 'EMPLOYEE',
       departmentId: 'dept-ops',
       employeeId: null,
     });
-    expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: true });
+
+    const scope = await service.resolveScope(actorUser);
+    expect(scope.eligible).toBe(false);
+    expect(scope.userIds).toEqual([]);
+
+    // And the screen never appears, so nobody has to discover the refusal.
+    expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
   });
 
-  it('44. the export applies the same scope as the screen, whoever asks', async () => {
+  it('44. every console read refuses an employee, including both exports', async () => {
+    const { service, actorUser } = rigWithRealPolicy({
+      role: 'EMPLOYEE',
+      departmentId: 'dept-ops',
+      employeeId: null,
+    });
+    const filters = { from: '2026-09-01', to: '2026-09-30' };
+
+    // Daily Review, the register and both files answer with one policy. An
+    // empty register would look to an employee like a working feature with no
+    // data, which is not what happened.
+    await expect(service.todaySummary(actorUser, '2026-09-01')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.roster(actorUser, { businessDate: '2026-09-01' })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.monthlyRegister(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.exportRegister(actorUser, filters, 'xlsx')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.exportRegister(actorUser, filters, 'csv')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.dayDetail(actorUser, 'colleague-1', '2026-09-01')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.reviewQueue(actorUser, {})).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('44b. canOperate defends itself if a scope ever arrives inconsistent', async () => {
+    const { service, actorUser } = rigWithRealPolicy({ role: 'EMPLOYEE', departmentId: 'dept-ops' });
+
+    // resolveScope() never produces this today: an ineligible actor always has
+    // an empty population. The eligible check in canOperate() is defence in
+    // depth against that invariant being broken later, and a defence nothing
+    // exercises is decoration -- so it is exercised.
+    jest
+      .spyOn(service, 'resolveScope')
+      .mockResolvedValue({ userIds: ['colleague-1'], isHr: false, eligible: false });
+
+    expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
+  });
+
+  it('45. an intern is refused exactly as an employee is', async () => {
+    const { service, actorUser } = rigWithRealPolicy({
+      role: 'INTERN',
+      departmentId: 'dept-ops',
+      employeeId: null,
+    });
+    const filters = { from: '2026-09-01', to: '2026-09-30' };
+
+    expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
+    await expect(service.monthlyRegister(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.exportRegister(actorUser, filters, 'xlsx')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.exportRegister(actorUser, filters, 'csv')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('46. a department is not management authority, even with reporting links absent', async () => {
+    // The precise shape of the old hole: a department, no reports, no grant.
+    for (const role of ['EMPLOYEE', 'INTERN']) {
+      const { service, actorUser } = rigWithRealPolicy({ role, departmentId: 'dept-ops' });
+      const scope = await service.resolveScope(actorUser);
+      expect([role, scope.eligible, scope.userIds]).toEqual([role, false, []]);
+    }
+  });
+
+  it('47. a role the ladder has not heard of is refused by default, not admitted', async () => {
+    const { service, actorUser } = rigWithRealPolicy({
+      role: 'CONTRACTOR',
+      departmentId: 'dept-ops',
+    });
+    const scope = await service.resolveScope(actorUser);
+    expect(scope.eligible).toBe(false);
+  });
+
+  it('48. a manager keeps their legitimate scope, and only that', async () => {
+    const { service, actorUser } = rigWithRealPolicy({
+      role: 'MANAGER',
+      departmentId: 'dept-ops',
+      employeeId: 'E-mgr',
+    });
+
+    const scope = await service.resolveScope(actorUser);
+    expect(scope.eligible).toBe(true);
+    expect(scope.isHr).toBe(false);
+    // An explicit id list, never the unrestricted null.
+    expect(scope.userIds).toEqual(['colleague-1', 'colleague-2']);
+  });
+
+  it('49. a team lead keeps their legitimate scope, and only that', async () => {
+    const { service, actorUser } = rigWithRealPolicy({
+      role: 'TEAM_LEAD',
+      departmentId: 'dept-ops',
+      employeeId: 'E-tl',
+    });
+
+    const scope = await service.resolveScope(actorUser);
+    expect(scope.eligible).toBe(true);
+    expect(scope.isHr).toBe(false);
+    expect(scope.userIds).toEqual(['colleague-1', 'colleague-2']);
+  });
+
+  it('50. a manager with nobody yet is permitted and empty, not refused', async () => {
+    // Permission and population are different questions. Collapsing them would
+    // tell a real manager they have no authority because their team is new.
+    const { service, actorUser } = rigWithRealPolicy({
+      role: 'MANAGER',
+      departmentId: null,
+      employeeId: null,
+    });
+
+    const scope = await service.resolveScope(actorUser);
+    expect(scope.eligible).toBe(true);
+    expect(scope.userIds).toEqual([]);
+
+    const out = await service.monthlyRegister(actorUser, { from: '2026-09-01', to: '2026-09-30' });
+    expect(out.employees).toEqual([]);
+    expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
+  });
+
+  it('51. the export population equals the on-screen population for every allowed role', async () => {
     for (const actor of [
       { role: 'EMPLOYEE', isHR: true, departmentId: 'dept-hr' },
-      { role: 'MANAGER', departmentId: 'dept-ops' },
-      { role: 'EMPLOYEE', departmentId: 'dept-ops' },
+      { role: 'ADMIN', departmentId: 'dept-ops' },
+      { role: 'SUPER_ADMIN', departmentId: 'dept-ops' },
+      { role: 'MANAGER', departmentId: 'dept-ops', employeeId: 'E-mgr' },
+      { role: 'TEAM_LEAD', departmentId: 'dept-ops', employeeId: 'E-tl' },
     ]) {
       const { service, actorUser } = rigWithRealPolicy(actor);
       const filters = { from: '2026-09-01', to: '2026-09-30' };
@@ -1221,14 +1327,11 @@ describe('HC-1 register authorization, measured against the real access policy',
       const screen = await service.monthlyRegister(actorUser, filters);
       const csv = (await service.exportRegister(actorUser, filters, 'csv')).buffer.toString('utf8');
 
-      // Same people, same count, in both. The export is a rendering of the
-      // register call, so it cannot widen by construction -- this proves the
-      // construction has not been undone.
+      // The export is a rendering of the register call, so it cannot widen by
+      // construction -- this proves the construction has not been undone.
       const inFile = csv.split(/\r?\n/).filter(Boolean).slice(1);
-      expect(inFile).toHaveLength(screen.employees.length);
-      for (const e of screen.employees) {
-        expect(csv).toContain(`${e.name},`);
-      }
+      expect([actor.role, inFile.length]).toEqual([actor.role, screen.employees.length]);
+      for (const e of screen.employees) expect(csv).toContain(`${e.name},`);
     }
   });
 });
