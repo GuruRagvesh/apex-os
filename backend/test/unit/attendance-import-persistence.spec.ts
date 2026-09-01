@@ -5,6 +5,10 @@ import { ForbiddenException } from '@nestjs/common';
 import { TVAService } from '../../src/common/services/tva.service';
 import { AttendanceImportService } from '../../src/modules/platform/attendance/import/attendance-import.service';
 import { AttendanceImportController } from '../../src/modules/platform/attendance/import/attendance-import.controller';
+import {
+  importObjectKey,
+  sanitizeFileSlug,
+} from '../../src/modules/platform/attendance/import/import-object-key';
 
 /**
  * Phase 4. Durable batches and rows — and still not one attendance write.
@@ -452,5 +456,116 @@ describe('the migration is additive and the audit is durable', () => {
     expect(users).toContain('attendanceImportBatch.count');
     expect(users).toContain('Attendance Imports Uploaded');
     expect(users).toContain('Attendance Imports Approved');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('the object key is built, never accepted', () => {
+  it('33. strips path traversal, separators and control characters', () => {
+    // A filename comes from whoever is uploading. Used unexamined it decides
+    // where the object lands.
+    const hostile = [
+      '../../backups/latest.dump',
+      '..\..\windows\system32\config',
+      '/etc/passwd',
+      'a/b/c.xlsx',
+      String.fromCharCode(0) + 'null.xlsx',
+    ];
+
+    for (const name of hostile) {
+      const key = importObjectKey('2026', 'batch-1', name);
+      expect([name, key.startsWith('attendance-imports/2026/batch-1/')]).toEqual([name, true]);
+      expect([name, key.split('/').length]).toEqual([name, 4]);
+      expect([name, key.includes('..') || key.includes('\\')]).toEqual([name, false]);
+      // eslint-disable-next-line no-control-regex
+      expect([name, new RegExp('[' + String.fromCharCode(0) + '-' + String.fromCharCode(31) + ']').test(key)])
+        .toEqual([name, false]);
+    }
+  });
+
+  it('34. keeps a recognisable name when the upload is ordinary', () => {
+    expect(importObjectKey('2026', 'batch-1', 'August 2026.xlsx'))
+      .toBe('attendance-imports/2026/batch-1/source-August-2026.xlsx');
+    expect(importObjectKey('2026', 'batch-1', 'august.csv'))
+      .toBe('attendance-imports/2026/batch-1/source-august.csv');
+  });
+
+  it('35. falls back to a bare name when nothing survives sanitizing', () => {
+    for (const name of ['...', '///', '.xlsx', '']) {
+      expect(importObjectKey('2026', 'batch-1', name)).toMatch(
+        /^attendance-imports\/2026\/batch-1\/source\.(xlsx|csv)$/,
+      );
+    }
+  });
+
+  it('36. bounds the length a name can contribute', () => {
+    const key = importObjectKey('2026', 'batch-1', `${'a'.repeat(4000)}.xlsx`);
+    expect(key.length).toBeLessThan(140);
+  });
+
+  it('37. the extension comes from an allow-list, not from the name', () => {
+    // A name ending .exe or .xlsm cannot make the stored object claim to be one.
+    expect(importObjectKey('2026', 'b', 'payload.exe')).toMatch(/\.xlsx$/);
+    expect(importObjectKey('2026', 'b', 'macro.xlsm')).toMatch(/\.xlsx$/);
+    expect(sanitizeFileSlug('../../x')).toBe('x');
+  });
+
+  it('38. the service archives under the built key, and keeps the raw name for display', async () => {
+    const { service, archived, batches } = rig();
+    await service.upload(HR, {
+      buffer: csv(ROW),
+      fileName: '../../../etc/august 2026.csv',
+      mode: 'CURRENT_CORRECTION',
+    });
+
+    expect(archived[0].objectKey).toBe('attendance-imports/2026/batch-1/source-august-2026.csv');
+    // The original is preserved verbatim, where it can do no harm.
+    expect(batches[0].fileName).toBe('../../../etc/august 2026.csv');
+  });
+});
+
+describe('the evidence snapshot is minimal and non-sensitive', () => {
+  it('39. stores evidence IDS and a fingerprint, and nothing sensitive', async () => {
+    const { service, rows } = rig({
+      records: [{
+        userId: 'u1',
+        date: new Date('2026-08-14T00:00:00.000Z'),
+        status: 'PRESENT',
+        punchInAt: new Date('2026-08-14T04:22:00.000Z'),
+        punchOutAt: new Date('2026-08-14T13:12:00.000Z'),
+        evaluationState: 'CALCULATED',
+        locked: false,
+        punchInEvidenceId: 'ev-in-1',
+        punchOutEvidenceId: 'ev-out-1',
+        sourceFingerprint: 'fp-abc',
+      }],
+    });
+    await service.upload(HR, { buffer: csv(ROW), fileName: 'a.csv', mode: 'CURRENT_CORRECTION' });
+
+    expect(rows[0].currentPunchInEvidenceId).toBe('ev-in-1');
+    expect(rows[0].currentFingerprint).toBe('fp-abc');
+
+    // Nothing that would duplicate sensitive evidence into the import audit.
+    const persisted = JSON.stringify(rows[0]).toLowerCase();
+    for (const forbidden of ['latitude', 'longitude', 'accuracy', 'photohash', 'objectkey', 'cloudinary', 'ipaddress', 'useragent', 'device']) {
+      expect([forbidden, persisted.includes(forbidden)]).toEqual([forbidden, false]);
+    }
+  });
+
+  it('40. every persisted row starts PENDING and Phase 4 never moves it', async () => {
+    const { service, rows, prisma } = rig();
+    await service.upload(HR, { buffer: csv(ROW), fileName: 'a.csv', mode: 'CURRENT_CORRECTION' });
+
+    // createMany omits applyState entirely, so the column default applies.
+    expect(rows[0].applyState).toBeUndefined();
+    expect(prisma.attendanceImportRow.findMany).not.toHaveBeenCalled();
+
+    const source = readFileSync(
+      resolve(__dirname, '../../src/modules/platform/attendance/import/attendance-import.service.ts'),
+      'utf8',
+    );
+    for (const transition of ['SKIPPED_STALE', "applyState: 'APPLIED'", 'appliedAt:']) {
+      expect([transition, source.includes(transition)]).toEqual([transition, false]);
+    }
   });
 });

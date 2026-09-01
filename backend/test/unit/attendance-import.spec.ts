@@ -320,6 +320,7 @@ describe('classification', () => {
     locked: false,
     punchInEvidenceId: 'ev-in-1',
     punchOutEvidenceId: 'ev-out-1',
+    sourceFingerprint: 'fp-1',
     ...over,
   });
 

@@ -35,6 +35,7 @@ import {
   describeCode,
   suggestForCode,
 } from './import-classify';
+import { importContentType, importExtensionOf, importObjectKey } from './import-object-key';
 
 /**
  * Reading an attendance file and saying what it would do. Nothing else.
@@ -287,6 +288,11 @@ export class AttendanceImportService {
             select: {
               userId: true, date: true, status: true, punchInAt: true, punchOutAt: true,
               evaluationState: true, locked: true, punchInEvidenceId: true, punchOutEvidenceId: true,
+              // The digest of the facts this record was computed from. Frozen
+              // onto the row so Phase 5 can tell that the day has moved since
+              // the preview HR approved -- the same staleness signal
+              // approveAsHr() already compares.
+              sourceFingerprint: true,
             },
           })
         : Promise.resolve([]),
@@ -322,6 +328,7 @@ export class AttendanceImportService {
           locked: r.locked,
           punchInEvidenceId: r.punchInEvidenceId,
           punchOutEvidenceId: r.punchOutEvidenceId,
+          sourceFingerprint: r.sourceFingerprint,
         },
       ]),
     );
@@ -452,13 +459,15 @@ export class AttendanceImportService {
       // Audit evidence, in its own namespace and never under the database
       // backup retention rule -- there is no approved HR records deletion
       // policy, so nothing here expires on a schedule nobody chose.
-      const objectKey = `attendance-imports/${this.tva.companyToday().slice(0, 4)}/${batch.id}/source-${input.fileName}`;
+      // The key is BUILT from the batch id, never from the uploaded filename:
+      // a name is user-controlled, and one containing ../ or a leading slash
+      // would otherwise choose where the object lands. The original name stays
+      // on the batch row for display and audit.
+      const objectKey = importObjectKey(this.tva.companyToday().slice(0, 4), batch.id, input.fileName);
       const archived = await this.vault.archiveToVault(
         objectKey,
         input.buffer,
-        input.fileName.toLowerCase().endsWith('.csv')
-          ? 'text/csv'
-          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        importContentType(importExtensionOf(input.fileName)),
       );
 
       await this.prisma.attendanceImportBatch.update({
@@ -514,6 +523,7 @@ export class AttendanceImportService {
         currentPunchOut: row.current?.punchOut ? new Date(row.current.punchOut) : null,
         currentPunchInEvidenceId: row.current?.punchInEvidenceId ?? null,
         currentPunchOutEvidenceId: row.current?.punchOutEvidenceId ?? null,
+        currentFingerprint: row.current?.sourceFingerprint ?? null,
         classification: row.classification as any,
         // Codes, not sentences. The wording is rendered from these, so a
         // reworded message never invalidates a stored verdict.

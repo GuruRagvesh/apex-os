@@ -49,6 +49,8 @@ export interface CurrentDay {
    */
   punchInEvidenceId: string | null;
   punchOutEvidenceId: string | null;
+  /** Digest of the facts this record was computed from. Frozen for staleness. */
+  sourceFingerprint: string | null;
 }
 
 export interface ClassifyContext {
@@ -85,6 +87,7 @@ export interface ClassifiedRow {
     punchOut: string | null;
     punchInEvidenceId: string | null;
     punchOutEvidenceId: string | null;
+    sourceFingerprint: string | null;
     /** Derived, for a reviewer reading the preview. */
     hasEvidence: boolean;
   } | null;
@@ -203,6 +206,7 @@ export function classifyRow(row: NormalizedRow, context: ClassifyContext): Class
         punchOut: iso(current.punchOutAt),
         punchInEvidenceId: current.punchInEvidenceId,
         punchOutEvidenceId: current.punchOutEvidenceId,
+        sourceFingerprint: current.sourceFingerprint,
         hasEvidence: Boolean(current.punchInEvidenceId || current.punchOutEvidenceId),
       }
     : null;
