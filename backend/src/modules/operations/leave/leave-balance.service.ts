@@ -224,16 +224,27 @@ export class LeaveBalanceService {
   ): Promise<{ allocation: number; approved: number; pending: number; balance: number }> {
     const allocation = await this.getYearlyAllocation(userId, year, leaveType);
 
-    const v2 = await this.v2AuthorityEnabled();
-    const fy = v2 ? this.tva.financialYearBounds(`${year}-${year + 1}`) : null;
-    // Flag OFF preserves the historical calendar-year reader. The management
-    // policy authority uses TVA's April-to-March financial-year bounds.
-    const startOfYear = this.tva.companyDayStart(
-      fy?.start ?? new Date(`${year}-01-01T00:00:00.000Z`),
-    );
-    const endOfYear = this.tva.companyDayEnd(
-      fy?.end ?? new Date(`${year}-12-31T00:00:00.000Z`),
-    );
+    // THE BALANCE WINDOW IS THE FINANCIAL YEAR. ALWAYS.
+    //
+    // `year` has meant the FY START year at every caller for as long as this
+    // method has had one -- LeaveService.getUserBalance() passes
+    // financialYear().startYear, and so does the HR monthly register. The
+    // window itself used to depend on attendance_v2.leaveAuthorityEnabled and
+    // fell back to January-December when that was off, so the same argument
+    // could name two different periods depending on a feature flag.
+    //
+    // For nine months of the year those two windows carry the same number and
+    // the disagreement is invisible. From January to March it is real: leave
+    // taken in Jan-Mar was counted against the WRONG financial year, and a
+    // balance labelled "FY 2026-2027" was measuring January to December 2026.
+    //
+    // The company leave year is April to March. That is a policy fact, not a
+    // rollout stage, so it no longer waits on a flag. Deliberately narrow: the
+    // flag still governs leave DURATION and ALLOCATION, which are separate
+    // decisions with their own blast radius, and neither is touched here.
+    const fy = this.tva.financialYearBounds(`${year}-${year + 1}`);
+    const startOfYear = this.tva.companyDayStart(fy.start);
+    const endOfYear = this.tva.companyDayEnd(fy.end);
 
     const leaves = await this.prisma.leaveRequest.findMany({
       where: {
@@ -299,9 +310,16 @@ export class LeaveBalanceService {
     }
 
     // 2. Validate leave balance
-    const balanceYear = (await this.v2AuthorityEnabled())
-      ? this.tva.financialYear(start).startYear
-      : start.getFullYear();
+    //
+    // THE YEAR NAMED HERE MUST MATCH THE WINDOW getLeaveBalance() MEASURES.
+    //
+    // This used to fall back to the calendar year when the flag was off, which
+    // paired with the calendar-year window it also selected. The window is now
+    // always the financial year, so a calendar year here would name FY 2027-28
+    // for a February 2027 request -- a year that has not begun, holds no
+    // leave, and would let an underfunded request through on an empty balance.
+    // One authority for "which leave year is this date in", used on both sides.
+    const balanceYear = this.tva.financialYear(start).startYear;
     const { balance } = await this.getLeaveBalance(userId, balanceYear, leaveType);
     const policy = await this.settings.get('leave_policy');
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
