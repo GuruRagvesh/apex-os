@@ -3,6 +3,13 @@ import { createHash } from 'crypto';
 import type { DailyAttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
+import {
+  assessSettlement,
+  businessMonthOf,
+  SettledAttendanceError,
+  type CorrectionAuthority,
+  type SettlementReason,
+} from './attendance-settlement';
 import { DailyContextService } from '../context/daily-context.service';
 import { LeaveFactsService } from './leave-facts.service';
 import type { DailyAttendanceContext } from '../context/daily-context.types';
@@ -163,11 +170,46 @@ export class DailyAttendanceEvaluatorService {
     userId: string,
     businessDate: string,
     regularizationId: string,
+    options: { authority?: CorrectionAuthority } = {},
   ): Promise<{ before: any; after: any; result: DailyAttendanceResult }> {
     const date = this.tva.companyDateOnly(new Date(`${businessDate}T00:00:00.000Z`));
     const before = await tx.dailyAttendance.findUnique({
       where: { userId_date: { userId, date } },
     });
+
+    // THE SETTLEMENT GATE, AT THE CHOKEPOINT.
+    //
+    // Deliberately here rather than in the caller. This is the only method that
+    // writes an official attendance revision, so a bulk importer cannot reach
+    // the record by forgetting a check, taking a different code path, or being
+    // written later by someone who did not read this file.
+    //
+    // It runs INSIDE the caller's transaction, after the row locks are held, so
+    // it is also the apply-time re-check: a month finalized between a preview
+    // and the click that applies it is caught here, not in a stale preview.
+    //
+    // The default authority is INDIVIDUAL_REVIEW, which blocks nothing and
+    // preserves exactly what Apex OS does today -- a reviewed correction is the
+    // sanctioned way to change a settled day, and payroll send() already
+    // refuses a report whose data no longer matches its finalization
+    // fingerprint. Only an explicitly BULK caller is refused.
+    //
+    // The month close is read ONLY when the answer could refuse this caller.
+    // An individual correction is not merely unblocked by it, it must not start
+    // depending on a table it never read: adding a query to the sanctioned HR
+    // path would mean a correction that works today failing tomorrow because of
+    // something unrelated to the correction.
+    const authority: CorrectionAuthority = options.authority ?? 'INDIVIDUAL_REVIEW';
+    if (authority !== 'INDIVIDUAL_REVIEW') {
+      const monthClose = await tx.attendanceMonthClose.findUnique({
+        where: { month: businessMonthOf(businessDate) },
+        select: { status: true },
+      });
+      const settlement = assessSettlement({ day: before, monthClose }, authority);
+      if (settlement.blocked.length > 0) {
+        throw new SettledAttendanceError(businessDate, settlement.blocked);
+      }
+    }
 
     // Re-evaluated through the SAME evaluator, now seeing the approved
     // correction. The corrected day stays explainable by the ordinary rules
