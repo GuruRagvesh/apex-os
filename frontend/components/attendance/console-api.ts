@@ -108,6 +108,8 @@ export interface RegisterResult {
   elapsedWorkingDays: number;
   /** False when the weekly-off policy could not be resolved, so the total is wrong. */
   calendarResolved: boolean;
+  /** Which financial year (April-March) the Leave Balance column answers for. */
+  leaveBalanceFinancialYear: string;
   employees: RegisterEmployee[];
 }
 

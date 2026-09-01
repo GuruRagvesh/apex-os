@@ -402,6 +402,14 @@ export function AttendanceConsole() {
                 <p className="apex-text text-2xl font-semibold leading-tight">
                   {register?.workingDays ?? '—'}
                 </p>
+                {/* Leave runs April to March while this page is named after a
+                    calendar month, so for January, February and March the two
+                    disagree. A balance nobody can date is not a fact. */}
+                {register && (
+                  <p className="apex-text-subtle mt-0.5 text-[11px]">
+                    Leave balance: FY {register.leaveBalanceFinancialYear}
+                  </p>
+                )}
               </div>
               <div className="flex gap-2">
                 <button

@@ -3,6 +3,7 @@ import { AttendanceConsoleController } from '../../src/modules/platform/attendan
 import { TVAService } from '../../src/common/services/tva.service';
 import { ConfigService } from '@nestjs/config';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 
 // HC-1. Real TVAService, mocked Prisma and a mocked evaluator, because the
 // point of every test here is that the console READS stored results and
@@ -867,6 +868,66 @@ describe('HC-1 roster and register report stored results', () => {
     expect(where.id).toEqual({ in: ['emp-1'] });
   });
 
+  it('30l. the leave balance is asked for a FINANCIAL year, not a calendar year', async () => {
+    // Leave runs April to March. Nine months of the year the calendar year and
+    // the financial-year start year are the same number, which is exactly why
+    // reading the year off the date string survives casual testing and then
+    // reports the wrong entitlement every January.
+    const cases: Array<[string, number, string]> = [
+      // register month     FY start   why
+      ['2026-09', 2026, 'September 2026 sits in FY 2026-27'],
+      ['2026-04', 2026, 'April opens FY 2026-27'],
+      ['2026-12', 2026, 'December is still FY 2026-27'],
+      ['2027-01', 2026, 'January belongs to the FY that began the previous April'],
+      ['2027-03', 2026, 'March closes FY 2026-27'],
+      ['2027-04', 2027, 'April opens the next one'],
+    ];
+
+    for (const [month, expected, because] of cases) {
+      const { service, leaveBalance } = rig({
+        isHr: true,
+        employees: [employee('e1')],
+        workingDates: [],
+        records: [],
+      });
+
+      await service.monthlyRegister(HR, { from: `${month}-01`, to: `${month}-28` });
+
+      const [, yearArg] = leaveBalance.getLeaveBalance.mock.calls[0];
+      expect([month, yearArg, because]).toEqual([month, expected, because]);
+    }
+  });
+
+  it('30m. the register states which financial year the balance covers', async () => {
+    const { service } = rig({ isHr: true, workingDates: [], records: [] });
+
+    // A number nobody can check without knowing its period is not a fact.
+    const march = await service.monthlyRegister(HR, { from: '2027-03-01', to: '2027-03-31' });
+    expect(march.leaveBalanceFinancialYear).toBe('2026-2027');
+
+    const april = await service.monthlyRegister(HR, { from: '2027-04-01', to: '2027-04-30' });
+    expect(april.leaveBalanceFinancialYear).toBe('2027-2028');
+  });
+
+  it('30n. the exported file carries the same balance as the screen', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1', 'Ajay Singh')],
+      workingDates: [],
+      records: [],
+      leaveBalances: { e1: 7 },
+    });
+
+    // March: the month where a calendar-year read would show next year's
+    // entitlement. Screen and file must agree, and both must be FY 2026-27.
+    const filters = { from: '2027-03-01', to: '2027-03-31' };
+    const screen = await service.monthlyRegister(HR, filters);
+    const csv = (await service.exportRegister(HR, filters, 'csv')).buffer.toString('utf8');
+
+    expect(screen.employees[0].leaveBalance).toBe(7);
+    expect(csv).toContain('Ajay Singh,0,0,0,7,0,—');
+  });
+
   it('31. the register range is bounded', async () => {
     const { service } = rig({ isHr: true });
     await expect(
@@ -1005,5 +1066,169 @@ describe('HC-1 review queue links back to existing sources', () => {
       'roster',
       'summary',
     ]);
+  });
+});
+
+
+/**
+ * WHO CAN READ THE MONTHLY REGISTER, AND HOW WIDE
+ *
+ * The REAL AccessPolicyService is used here, not the rig's stub. A mocked
+ * access policy can only confirm that the console asks it a question; it can
+ * never reveal what the answer actually is, and the answer is the whole point
+ * of an authorization audit.
+ *
+ * The register carries leave balances and downloads as a file, so its scope is
+ * more sensitive than the day roster that shares the same resolver.
+ */
+describe('HC-1 register authorization, measured against the real access policy', () => {
+  const ROSTER = [
+    { id: 'colleague-1' },
+    { id: 'colleague-2' },
+  ];
+
+  function rigWithRealPolicy(actor: {
+    role: string;
+    isHR?: boolean;
+    departmentId?: string | null;
+    employeeId?: string | null;
+  }) {
+    const prisma: any = {
+      managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'actor-1',
+          employeeId: actor.employeeId ?? null,
+          departmentId: actor.departmentId ?? null,
+          role: { name: actor.role },
+        }),
+        findMany: jest.fn((args: any) => {
+          if (args?.where?.OR) return Promise.resolve(ROSTER);
+          const ids: string[] | undefined = args?.where?.id?.in;
+          const everyone = [employee('colleague-1'), employee('colleague-2')];
+          return Promise.resolve(ids ? everyone.filter((e) => ids.includes(e.id)) : everyone);
+        }),
+        count: jest.fn().mockResolvedValue(2),
+      },
+      dailyAttendance: { findMany: jest.fn().mockResolvedValue([]) },
+      attendanceRegularization: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      attendancePunchEvidence: { findMany: jest.fn().mockResolvedValue([]) },
+      workSession: { findMany: jest.fn().mockResolvedValue([]) },
+      leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+
+    const calendar: any = {
+      classifyMonth: jest.fn().mockResolvedValue({
+        month: '2026-09',
+        workingDays: 22,
+        sources: { holidayCalendar: 'COMPANY_DEFAULT', weeklyOffPolicy: 'COMPANY_DEFAULT' },
+        days: [],
+      }),
+    };
+
+    const service = new AttendanceConsoleService(
+      prisma,
+      tvaOf(),
+      new AccessPolicyService(prisma),
+      { isApproverFor: jest.fn().mockResolvedValue(true) } as any,
+      { log: jest.fn().mockResolvedValue(undefined) } as any,
+      { evaluate: jest.fn(), evaluateAndPersist: jest.fn(), finalize: jest.fn() } as any,
+      { blockedFromLastRun: jest.fn().mockResolvedValue(null) } as any,
+      calendar,
+      { getLeaveBalance: jest.fn().mockResolvedValue({ balance: 5 }) } as any,
+    );
+
+    return { service, actorUser: { id: 'actor-1', isHR: actor.isHR === true, role: { name: actor.role } } };
+  }
+
+  const scopeOf = async (actor: any) => {
+    const { service, actorUser } = rigWithRealPolicy(actor);
+    return service.resolveScope(actorUser);
+  };
+
+  it('39. HR authority reads the whole company', async () => {
+    const scope = await scopeOf({ role: 'EMPLOYEE', isHR: true, departmentId: 'dept-hr' });
+    expect(scope.isHr).toBe(true);
+    // null is unrestricted: no id filter is applied at all.
+    expect(scope.userIds).toBeNull();
+  });
+
+  it('40. ADMIN and SUPER_ADMIN read the whole company', async () => {
+    for (const role of ['ADMIN', 'SUPER_ADMIN']) {
+      const scope = await scopeOf({ role, departmentId: 'dept-ops' });
+      expect([role, scope.isHr, scope.userIds]).toEqual([role, true, null]);
+    }
+  });
+
+  it('41. no ordinary role is ever company-wide', async () => {
+    for (const role of ['MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'INTERN']) {
+      const scope = await scopeOf({ role, departmentId: 'dept-ops' });
+      expect([role, scope.isHr]).toEqual([role, false]);
+      // An explicit id list, never the unrestricted null.
+      expect(Array.isArray(scope.userIds)).toBe(true);
+    }
+  });
+
+  it('42. an account with no department and no reports resolves to nothing', async () => {
+    const scope = await scopeOf({ role: 'EMPLOYEE', departmentId: null, employeeId: null });
+    expect(scope.userIds).toEqual([]);
+  });
+
+  /**
+   * FINDING, NOT A DESIGN DECISION -- reported for the product owner to settle.
+   *
+   * AccessPolicyService.managedDepartmentIds() ends in a fallback that returns
+   * the caller's OWN department for any role that reached it, which is every
+   * role below TEAM_LEAD. resolveScope() reads that as "departments this person
+   * manages", so an ordinary EMPLOYEE or INTERN who has a department resolves
+   * to every active colleague in it -- and can therefore open the register and
+   * download their colleagues' leave balances and attendance.
+   *
+   * This predates the register: the same resolver already scoped the day
+   * roster, the summary and the review queue. The register raises the stakes
+   * because it adds leave balances and a downloadable file.
+   *
+   * The test asserts what the code DOES today so the behaviour is visible and
+   * cannot change silently. It is not an endorsement. The fix belongs in
+   * managedDepartmentIds() or in a console-specific scope rule, and it touches
+   * tickets, leave and users as well, so it is not being made unilaterally.
+   */
+  it('43. CURRENT BEHAVIOUR: an ordinary employee with a department sees that department', async () => {
+    const scope = await scopeOf({ role: 'EMPLOYEE', departmentId: 'dept-ops', employeeId: null });
+
+    expect(scope.isHr).toBe(false);
+    expect(scope.userIds).toEqual(['colleague-1', 'colleague-2']);
+
+    // And it is not merely theoretical: the console reports them as having a
+    // team, which is what makes the screen appear at all.
+    const { service, actorUser } = rigWithRealPolicy({
+      role: 'EMPLOYEE',
+      departmentId: 'dept-ops',
+      employeeId: null,
+    });
+    expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: true });
+  });
+
+  it('44. the export applies the same scope as the screen, whoever asks', async () => {
+    for (const actor of [
+      { role: 'EMPLOYEE', isHR: true, departmentId: 'dept-hr' },
+      { role: 'MANAGER', departmentId: 'dept-ops' },
+      { role: 'EMPLOYEE', departmentId: 'dept-ops' },
+    ]) {
+      const { service, actorUser } = rigWithRealPolicy(actor);
+      const filters = { from: '2026-09-01', to: '2026-09-30' };
+
+      const screen = await service.monthlyRegister(actorUser, filters);
+      const csv = (await service.exportRegister(actorUser, filters, 'csv')).buffer.toString('utf8');
+
+      // Same people, same count, in both. The export is a rendering of the
+      // register call, so it cannot widen by construction -- this proves the
+      // construction has not been undone.
+      const inFile = csv.split(/\r?\n/).filter(Boolean).slice(1);
+      expect(inFile).toHaveLength(screen.employees.length);
+      for (const e of screen.employees) {
+        expect(csv).toContain(`${e.name},`);
+      }
+    }
   });
 });

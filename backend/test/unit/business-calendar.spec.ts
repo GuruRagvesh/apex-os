@@ -1,6 +1,7 @@
 import { BusinessCalendarService } from '../../src/modules/platform/attendance/calendar/business-calendar.service';
 import { TVAService } from '../../src/common/services/tva.service';
 import { ConfigService } from '@nestjs/config';
+import { OFFICIAL_HOLIDAYS_2026 } from '../../src/modules/platform/attendance/calendar/official-holidays-2026';
 
 // Real TVAService (company-time contract from BL-1), mocked Prisma. No database.
 //
@@ -513,6 +514,62 @@ describe('classifyMonth (bulk month classification)', () => {
     expect(prisma.holiday.findFirst).not.toHaveBeenCalled();
     expect(prisma.businessDayOverride.findFirst).not.toHaveBeenCalled();
     expect(prisma.dailyAttendance.findMany).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The derivation, run rather than asserted from memory.
+   *
+   * The inputs are the two APPROVED sources -- the seeded default weekly-off
+   * policy (every Sunday, 2nd and 4th Saturday) and OFFICIAL_HOLIDAYS_2026,
+   * the same constant prisma/seed-hrms-policy.ts loads. So this is the number
+   * the configured calendar produces, not a number anyone typed.
+   *
+   * No month is hardcoded in application code; an expectation belongs in a
+   * test, which is where this one is.
+   */
+  it('derives the working days of a month from the approved sources', async () => {
+    const september = OFFICIAL_HOLIDAYS_2026.filter((h) => h.date.startsWith('2026-09'));
+
+    const { service } = buildMonth({
+      holidays: september.map((h) => ({
+        date: new Date(`${h.date}T00:00:00.000Z`),
+        name: h.name,
+        isOptional: false,
+      })),
+      // Nothing seeds a BusinessDayOverride anywhere in the repo.
+      overrides: [],
+    });
+
+    const out = await service.classifyMonth(2026, 9);
+    const nonWorking = out.days.filter((d) => !d.isWorkingDay);
+    const by = (reason: string) => nonWorking.filter((d) => d.reason === reason).map((d) => d.businessDate);
+
+    expect(out.days).toHaveLength(30);
+    expect(by('SUNDAY')).toEqual(['2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27']);
+    expect(by('SECOND_SATURDAY')).toEqual(['2026-09-12']);
+    expect(by('FOURTH_SATURDAY')).toEqual(['2026-09-26']);
+    // Ganesh Chaturthi (Monday) and Ganesh Visharjan (Friday). Both fall on
+    // days that would otherwise be worked, so both actually reduce the total --
+    // a holiday landing on a Sunday would not.
+    expect(by('HOLIDAY')).toEqual(['2026-09-14', '2026-09-25']);
+
+    // 30 - 4 Sundays - 1 second Saturday - 1 fourth Saturday - 2 holidays.
+    expect(nonWorking).toHaveLength(8);
+    expect(out.workingDays).toBe(22);
+  });
+
+  it('a holiday already lost to a weekly off does not subtract twice', async () => {
+    // 2026-08-15 (Independence Day) is a Saturday, and the 15th is the third
+    // Saturday, so it is a working day the holiday genuinely removes. The trap
+    // is the opposite case, so construct it: a holiday on a Sunday.
+    const { service } = buildMonth({
+      holidays: [{ date: new Date('2026-09-06T00:00:00.000Z'), name: 'Contrived', isOptional: false }],
+    });
+    const out = await service.classifyMonth(2026, 9);
+
+    expect(day(out, '2026-09-06').reason).toBe('SUNDAY');
+    // Still 24: the day was already not worked, so nothing more is lost.
+    expect(out.workingDays).toBe(24);
   });
 
   it('handles February, leap and otherwise', async () => {

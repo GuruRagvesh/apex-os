@@ -629,9 +629,21 @@ export class AttendanceConsoleService {
     //
     // Reused rather than recomputed: adding leave types together here would
     // create a second, quietly different answer to "how much leave is left".
-    // It is per-employee and does several queries, so it runs in bounded
-    // batches -- 34 sequential round trips is the pattern that makes a monthly
-    // page feel broken.
+    //
+    // THE ARGUMENT IS A FINANCIAL YEAR, NOT A CALENDAR YEAR. Leave runs April
+    // to March, so a March 2027 register belongs to FY 2026-27 and a calendar
+    // year read from the date string would ask for FY 2027-28 -- an entitlement
+    // that has not started. Nine months of the year the two agree, which is
+    // exactly why the wrong one survives testing.
+    //
+    // financialYear().startYear is also what LeaveService.getUserBalance()
+    // passes for the employee's own leave page, so HR and the employee are
+    // never shown different balances for the same person.
+    const balanceYear = this.tva.financialYear(new Date(`${from}T00:00:00.000Z`)).startYear;
+
+    // Per-employee and several queries each, so it runs in bounded batches --
+    // 34 sequential round trips is the pattern that makes a monthly page feel
+    // broken.
     const balanceByUser = new Map<string, number | null>();
     const BATCH = 8;
     for (let i = 0; i < employees.length; i += BATCH) {
@@ -639,7 +651,7 @@ export class AttendanceConsoleService {
       const settled = await Promise.all(
         slice.map((e) =>
           this.leaveBalance
-            .getLeaveBalance(e.id, Number(from.slice(0, 4)))
+            .getLeaveBalance(e.id, balanceYear)
             .then((b: any) => b?.balance ?? null)
             // One employee's leave data must not blank the whole register.
             .catch(() => null),
@@ -727,6 +739,15 @@ export class AttendanceConsoleService {
       // The full month, deliberately -- see the note above.
       workingDays,
       elapsedWorkingDays: elapsedWorkingDates.size,
+      /**
+       * Which financial year the Leave Balance column is answering for.
+       *
+       * Stated rather than assumed. Leave runs April to March while the
+       * register is named after a calendar month, so for January, February and
+       * March the two disagree -- and a balance is not a number anyone can
+       * check without knowing the period it covers.
+       */
+      leaveBalanceFinancialYear: `${balanceYear}-${balanceYear + 1}`,
       /**
        * Whether the working-day total can be trusted.
        *
