@@ -1,0 +1,491 @@
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import { ConfigService } from '@nestjs/config';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { TVAService } from '../../src/common/services/tva.service';
+import { AttendanceImportApplyService } from '../../src/modules/platform/attendance/import/attendance-import-apply.service';
+import { AttendanceImportController } from '../../src/modules/platform/attendance/import/attendance-import.controller';
+
+/**
+ * Phase 5. Approval, then apply.
+ *
+ * The rule this suite exists to hold: a persisted preview is a record of what
+ * somebody was shown, not permission to write. Every applicable row is
+ * re-checked against authoritative state at the moment of applying, and a row
+ * whose world moved is skipped rather than forced.
+ */
+
+const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
+
+const HR = { id: 'hr-1', isHR: true, role: { name: 'ADMIN' } };
+const HR2 = { id: 'hr-2', isHR: true, role: { name: 'ADMIN' } };
+const SUPER = { id: 'sa-1', role: { name: 'SUPER_ADMIN' } };
+const OPERATOR = { id: 'ops-1', isAttendanceDataOperator: true, role: { name: 'EMPLOYEE' } };
+const MANAGER = { id: 'mgr-1', role: { name: 'MANAGER' } };
+const EMPLOYEE = { id: 'emp-9', role: { name: 'EMPLOYEE' } };
+const INTERN = { id: 'int-1', role: { name: 'INTERN' } };
+
+const DATE = new Date('2026-08-14T00:00:00.000Z');
+
+const importRow = (over: any = {}) => ({
+  id: 'row-1',
+  batchId: 'batch-1',
+  rowNumber: 2,
+  userId: 'u1',
+  businessDate: DATE,
+  classification: 'NEW',
+  applyState: 'PENDING',
+  proposedStatus: 'PRESENT',
+  proposedPunchIn: new Date('2026-08-14T04:08:00.000Z'),
+  proposedPunchOut: new Date('2026-08-14T13:12:00.000Z'),
+  normalizedReason: 'Office internet outage - attendance could not be recorded.',
+  currentFingerprint: null,
+  ...over,
+});
+
+function rig(over: any = {}) {
+  const batch = {
+    id: 'batch-1',
+    reference: 'ATI-2026-ABC123',
+    mode: over.mode ?? 'CURRENT_CORRECTION',
+    status: over.status ?? 'READY_FOR_REVIEW',
+    uploadedById: over.uploadedById ?? 'ops-1',
+    approvedById: over.approvedById ?? null,
+    ...over.batch,
+  };
+
+  const rows: any[] = over.rows ?? [importRow()];
+  const created: any[] = [];
+  const revised: any[] = [];
+  const rowUpdates: any[] = [];
+  const locks: any[] = [];
+
+  const client: any = {
+    $queryRaw: jest.fn((...args: any[]) => { locks.push(args); return Promise.resolve([]); }),
+    attendanceImportBatch: {
+      findUnique: jest.fn(async () => batch),
+      update: jest.fn(async ({ data }: any) => { Object.assign(batch, data); return { ...batch }; }),
+    },
+    attendanceImportRow: {
+      count: jest.fn(async ({ where }: any) => {
+        if (where.classification === 'INVALID') return over.invalidRows ?? 0;
+        if (where.classification === 'CONFLICT') return over.conflictRows ?? 0;
+        if (where.classification === 'MATCH') return over.matchRows ?? 0;
+        if (where.userId) return rows.filter((r) => r.userId === where.userId).length;
+        return rows.length;
+      }),
+      // The where clause is HONOURED here on purpose. A mock that filters by
+      // its own rules regardless of what it was asked would let the query drop
+      // its applyState or classification filter and still pass -- the test
+      // would be testing the double, not the code.
+      findMany: jest.fn(async ({ where }: any) => {
+        const classes: string[] | undefined = where?.classification?.in;
+        return rows.filter(
+          (r) =>
+            (!classes || classes.includes(r.classification)) &&
+            (where?.applyState === undefined || r.applyState === where.applyState),
+        );
+      }),
+      update: jest.fn(async ({ where, data }: any) => {
+        rowUpdates.push({ id: where.id, ...data });
+        const row = rows.find((r) => r.id === where.id);
+        if (row) Object.assign(row, data);
+        return row;
+      }),
+    },
+    dailyAttendance: {
+      findUnique: jest.fn(async () => over.current ?? null),
+    },
+    attendanceMonthClose: {
+      findUnique: jest.fn(async () => (over.monthStatus ? { status: over.monthStatus } : null)),
+    },
+    attendanceRegularization: {
+      findFirst: jest.fn(async () => over.openCorrection ?? null),
+      create: jest.fn(async ({ data }: any) => {
+        const row = { id: `reg-${created.length + 1}`, ...data };
+        created.push(row);
+        return row;
+      }),
+    },
+  };
+
+  const prisma: any = { ...client, $transaction: jest.fn((fn: any) => fn(client)) };
+
+  const evaluator: any = {
+    reviseForApprovedCorrection: jest.fn(async (_tx, userId, businessDate, regId, opts) => {
+      if (over.reviseThrows) throw over.reviseThrows;
+      revised.push({ userId, businessDate, regId, opts });
+      return { before: null, after: { id: 'da-1', status: 'PRESENT', revision: 1 } };
+    }),
+  };
+
+  const service = new AttendanceImportApplyService(
+    prisma,
+    tva,
+    { isHrOrAdmin: (a: any) => Boolean(a?.isHR) || ['ADMIN', 'SUPER_ADMIN'].includes(a?.role?.name) } as any,
+    { log: jest.fn().mockResolvedValue(undefined) } as any,
+    evaluator,
+    { resolveForDate: jest.fn().mockResolvedValue(over.leave ?? { kind: 'PAID' }) } as any,
+  );
+
+  return { service, prisma, client, batch, rows, created, revised, rowUpdates, locks, evaluator };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('approval records a decision and writes no attendance', () => {
+  it('1. HR, Admin and Super Admin may approve', async () => {
+    for (const actor of [HR, SUPER]) {
+      const { service } = rig();
+      await expect(service.approve(actor, 'batch-1')).resolves.toBeDefined();
+    }
+  });
+
+  it.each([
+    ['an operator', OPERATOR], ['a manager', MANAGER],
+    ['an employee', EMPLOYEE], ['an intern', INTERN],
+  ])('2. %s may not approve', async (_l, actor) => {
+    const { service } = rig();
+    await expect(service.approve(actor, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('3. the uploader may not approve their own batch', async () => {
+    // Maker/checker. Also a database CHECK constraint, so it holds against a
+    // code path that forgets to ask.
+    const { service } = rig({ uploadedById: 'hr-1' });
+    await expect(service.approve(HR, 'batch-1')).rejects.toThrow(/somebody other than the person who uploaded/i);
+  });
+
+  it('4. an approver may not approve a batch that changes their own attendance', async () => {
+    // Signing off a change to your own record is the one review that reviews
+    // nothing. The batch is refused rather than the row quietly dropped.
+    const { service } = rig({ rows: [importRow({ userId: 'hr-1' })] });
+    await expect(service.approve(HR, 'batch-1')).rejects.toThrow(/your own attendance/i);
+  });
+
+  it('5. a batch with known problems cannot be approved', async () => {
+    for (const over of [{ invalidRows: 3 }, { conflictRows: 2 }]) {
+      const { service } = rig(over);
+      await expect(service.approve(HR, 'batch-1')).rejects.toBeInstanceOf(BadRequestException);
+    }
+  });
+
+  it('6. approvability is recomputed from the rows, not trusted', async () => {
+    const { service, client } = rig();
+    await service.approve(HR, 'batch-1');
+
+    // A client-supplied approvable=true must never be the reason anything is
+    // written.
+    expect(client.attendanceImportRow.count).toHaveBeenCalled();
+  });
+
+  it.each(['APPROVED', 'APPLYING', 'APPLIED', 'FAILED', 'CANCELLED', 'HAS_ERRORS'])(
+    '7. a batch in %s cannot be approved', async (status) => {
+      const { service } = rig({ status });
+      await expect(service.approve(HR, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+    },
+  );
+
+  it('8. approval creates no correction and revises no attendance', async () => {
+    const { service, created, revised, batch } = rig();
+    await service.approve(HR, 'batch-1');
+
+    expect(created).toEqual([]);
+    expect(revised).toEqual([]);
+    expect(batch).toMatchObject({ status: 'APPROVED', approvedById: 'hr-1' });
+  });
+
+  it('9. approval takes a row lock so two approvers cannot both proceed', async () => {
+    const { service, client } = rig();
+    await service.approve(HR, 'batch-1');
+
+    expect(String(client.$queryRaw.mock.calls[0][0].join('?'))).toContain('FOR UPDATE');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('apply executes against the present, not the preview', () => {
+  const approved = (over: any = {}) =>
+    rig({ status: 'APPROVED', approvedById: 'hr-2', ...over });
+
+  it('10. a clean row becomes a correction and an official revision', async () => {
+    const { service, created, revised, rowUpdates, batch } = approved();
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out).toMatchObject({ status: 'APPLIED', attempted: 1, applied: 1, stale: 0, failed: 0 });
+    expect(created).toHaveLength(1);
+    expect(revised).toHaveLength(1);
+    expect(batch.status).toBe('APPLIED');
+
+    // The row link is written in the same transaction as the revision.
+    expect(rowUpdates.at(-1)).toMatchObject({ applyState: 'APPLIED', regularizationId: 'reg-1' });
+  });
+
+  it('11. the correction records all three actors separately', async () => {
+    const { service, created } = approved();
+    await service.apply(SUPER, 'batch-1');
+
+    // The uploader supplied the proposal, the approver sanctioned it, the
+    // applier executed it. Blurring them would lose a responsibility.
+    expect(created[0]).toMatchObject({
+      createdById: 'ops-1',
+      hrApproverId: 'hr-2',
+      status: 'HR_APPROVED',
+      entrySource: 'BULK_IMPORT',
+    });
+    // No invented manager stage.
+    expect(created[0].managerApproverId).toBeUndefined();
+  });
+
+  it('12. a historical batch is marked as such, forever', async () => {
+    const { service, created } = approved({ mode: 'HISTORICAL_MIGRATION' });
+    await service.apply(HR, 'batch-1');
+
+    expect(created[0].entrySource).toBe('HISTORICAL_IMPORT');
+  });
+
+  it('13. it revises through the ONE engine, as a bulk caller', async () => {
+    const { service, revised } = approved();
+    await service.apply(HR, 'batch-1');
+
+    // BULK_IMPORT is what makes the settlement gate refuse a closed period.
+    expect(revised[0].opts).toEqual({ authority: 'BULK_IMPORT' });
+  });
+
+  it('14. it takes the shared month lock before reading anything', async () => {
+    const { service, client } = approved();
+    await service.apply(HR, 'batch-1');
+
+    const sql = client.$queryRaw.mock.calls.map((c: any[]) => String(c[0].join('?')));
+    expect(sql.some((s) => s.includes('pg_advisory_xact_lock'))).toBe(true);
+  });
+
+  it('15. original punch values are preserved before being replaced', async () => {
+    const { service, created } = approved({
+      current: {
+        id: 'da-1',
+        punchInAt: new Date('2026-08-14T04:22:00.000Z'),
+        punchOutAt: new Date('2026-08-14T13:30:00.000Z'),
+        sourceFingerprint: null,
+      },
+    });
+    await service.apply(HR, 'batch-1');
+
+    expect(created[0].originalPunchIn).toEqual(new Date('2026-08-14T04:22:00.000Z'));
+    expect(created[0].originalPunchOut).toEqual(new Date('2026-08-14T13:30:00.000Z'));
+  });
+
+  it.each([
+    ['an operator', OPERATOR], ['a manager', MANAGER], ['an employee', EMPLOYEE], ['an intern', INTERN],
+  ])('16. %s may not apply', async (_l, actor) => {
+    const { service } = approved();
+    await expect(service.apply(actor, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('17. an unapproved batch cannot be applied', async () => {
+    for (const status of ['READY_FOR_REVIEW', 'HAS_ERRORS', 'APPLYING', 'APPLIED', 'CANCELLED']) {
+      const { service } = rig({ status });
+      await expect(service.apply(HR, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+    }
+  });
+
+  it('18. a second apply is refused deterministically, not run again', async () => {
+    // What a double click and two open browsers both hit.
+    const { service, created } = approved();
+    await service.apply(HR, 'batch-1');
+
+    await expect(service.apply(HR, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(created).toHaveLength(1);
+  });
+
+  it('19. the apply actor is recorded, distinctly from the approver', async () => {
+    const { service, batch } = approved();
+    await service.apply(HR, 'batch-1');
+
+    expect(batch.appliedById).toBe('hr-1');
+    expect(batch.approvedById).toBe('hr-2');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('a row whose world moved is skipped, never forced', () => {
+  const approved = (over: any = {}) => rig({ status: 'APPROVED', approvedById: 'hr-2', ...over });
+
+  it('20. the attendance record changed since approval', async () => {
+    const { service, created, revised, rowUpdates } = approved({
+      rows: [importRow({ currentFingerprint: 'fp-at-preview' })],
+      current: { id: 'da-1', sourceFingerprint: 'fp-changed-since' },
+    });
+
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out).toMatchObject({ status: 'FAILED', applied: 0, stale: 1 });
+    expect(created).toEqual([]);
+    expect(revised).toEqual([]);
+    expect(rowUpdates.at(-1)).toMatchObject({ applyState: 'SKIPPED_STALE' });
+    expect(rowUpdates.at(-1).failureReason).toMatch(/changed after this import was approved/i);
+  });
+
+  it.each([['FINALIZED'], ['SENT']])('21. the month became %s after approval', async (status) => {
+    const { service, created, rowUpdates } = approved({ monthStatus: status });
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.stale).toBe(1);
+    expect(created).toEqual([]);
+    expect(rowUpdates.at(-1)).toMatchObject({ applyState: 'SKIPPED_STALE' });
+  });
+
+  it('22. the day became locked after approval', async () => {
+    const { service, created } = approved({
+      current: { id: 'da-1', locked: true, evaluationState: 'FINALIZED', sourceFingerprint: null },
+    });
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.stale).toBe(1);
+    expect(created).toEqual([]);
+  });
+
+  it('23. a correction was raised after approval', async () => {
+    const { service, created, rowUpdates } = approved({ openCorrection: { id: 'reg-open' } });
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.stale).toBe(1);
+    expect(created).toEqual([]);
+    expect(rowUpdates.at(-1).failureReason).toMatch(/correction for this day was raised/i);
+  });
+
+  it('24. the leave behind a LEAVE row disappeared', async () => {
+    // An import may never manufacture a leave day the leave module does not
+    // support, and approval does not freeze that fact.
+    const { service, created, rowUpdates } = approved({
+      rows: [importRow({ proposedStatus: 'LEAVE', proposedPunchIn: null, proposedPunchOut: null })],
+      leave: { kind: 'NONE' },
+    });
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.stale).toBe(1);
+    expect(created).toEqual([]);
+    expect(rowUpdates.at(-1).failureReason).toMatch(/leave behind this row no longer exists/i);
+  });
+
+  it('25. a LEAVE row with live leave still applies', async () => {
+    const { service, created } = approved({
+      rows: [importRow({ proposedStatus: 'LEAVE', proposedPunchIn: null, proposedPunchOut: null })],
+      leave: { kind: 'PAID' },
+    });
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.applied).toBe(1);
+    expect(created[0].proposedStatus).toBe('LEAVE');
+  });
+
+  it('26. a genuine failure is FAILED, not stale — and wrote nothing', async () => {
+    const { service, rowUpdates, revised } = approved({ reviseThrows: new Error('evaluator exploded') });
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out).toMatchObject({ failed: 1, stale: 0, applied: 0 });
+    expect(rowUpdates.at(-1)).toMatchObject({ applyState: 'FAILED' });
+    // The correction, revision and row link share one transaction, so a FAILED
+    // row means no revision committed. That is what makes it safe to retry.
+    expect(revised).toEqual([]);
+  });
+
+  it('27. some applied and some skipped is PARTIALLY_APPLIED', async () => {
+    const { service, batch } = approved({
+      rows: [importRow({ id: 'row-1' }), importRow({ id: 'row-2', userId: 'u2', currentFingerprint: 'moved' })],
+      current: null,
+    });
+    // The second row expects a fingerprint the current record does not have.
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.applied).toBe(1);
+    expect(out.stale).toBe(1);
+    expect(batch.status).toBe('PARTIALLY_APPLIED');
+  });
+
+  it('28. a batch where nothing applied is never reported as APPLIED', async () => {
+    // Telling HR an import went through when nothing did is the worst possible
+    // summary.
+    const { service, batch } = approved({ monthStatus: 'SENT' });
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.applied).toBe(0);
+    expect(batch.status).toBe('FAILED');
+    expect(out.status).not.toBe('APPLIED');
+  });
+
+  it('29. an already-applied row is never applied twice', async () => {
+    const { service, created } = approved({
+      rows: [importRow({ applyState: 'APPLIED', regularizationId: 'reg-old' })],
+    });
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.attempted).toBe(0);
+    expect(created).toEqual([]);
+  });
+
+  it('30. MATCH rows are never applied and never counted as revisions', async () => {
+    // A real MATCH row has to be IN the set the query reads, or widening that
+    // query to include MATCH would change nothing and this test would pass
+    // while proving nothing.
+    const match = importRow({ id: 'row-match', classification: 'MATCH' });
+    const { service, created, revised, rows } = approved({
+      rows: [match, importRow({ id: 'row-new' })],
+      matchRows: 1,
+    });
+
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.attempted).toBe(1);
+    expect(out.applied).toBe(1);
+    expect(out.noOps).toBe(1);
+
+    // Exactly one correction, for the NEW row. The MATCH row produced none.
+    expect(created).toHaveLength(1);
+    expect(revised).toHaveLength(1);
+
+    // And it stays PENDING: APPLIED would claim a revision that never happened.
+    expect(rows.find((r: any) => r.id === 'row-match').applyState).toBe('PENDING');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('nothing here writes attendance directly', () => {
+  const src = readFileSync(
+    resolve(__dirname, '../../src/modules/platform/attendance/import/attendance-import-apply.service.ts'),
+    'utf8',
+  );
+
+  it('31. no DailyAttendance writer and no Finance side effect', () => {
+    for (const forbidden of [
+      'dailyAttendance.create', 'dailyAttendance.update', 'dailyAttendance.upsert',
+      'attendanceMonthClose.update', 'attendanceMonthClose.upsert', 'attendanceMonthClose.create',
+      'leaveRequest.create', 'leaveRequest.update',
+      'appSetting.update', 'sendPayrollAttendanceReport', 'renderCanonical',
+    ]) {
+      expect([forbidden, src.includes(forbidden)]).toEqual([forbidden, false]);
+    }
+  });
+
+  it('32. the revision goes through the single engine', () => {
+    expect(src).toContain('reviseForApprovedCorrection');
+    expect(src).toContain("authority: 'BULK_IMPORT'");
+  });
+
+  it('33. the month lock is the shared helper, not a reimplementation', () => {
+    expect(src).toContain('lockAttendanceMonth');
+    expect(src).not.toContain('pg_advisory');
+  });
+
+  it('34. the controller exposes approve and apply, and still deletes nothing', () => {
+    const surface = Object.getOwnPropertyNames(AttendanceImportController.prototype).sort();
+    expect(surface).toEqual([
+      'applyBatch', 'approve', 'constructor', 'errors', 'findOne', 'list', 'preview', 'template', 'upload',
+    ]);
+
+    const controller = readFileSync(
+      resolve(__dirname, '../../src/modules/platform/attendance/import/attendance-import.controller.ts'),
+      'utf8',
+    );
+    expect(controller).not.toContain('@Delete');
+  });
+});

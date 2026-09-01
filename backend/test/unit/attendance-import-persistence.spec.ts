@@ -376,13 +376,24 @@ describe('PHASE 4 STILL WRITES NO ATTENDANCE', () => {
     expect([...new Set(writes)].sort()).toEqual(['attendanceImportBatch', 'attendanceImportRow']);
   });
 
-  it('24. there is no approve or apply route', () => {
+  it('24. approve and apply exist, and neither writes attendance from here', () => {
+    // Phase 5 added these deliberately. What must stay true is that the
+    // CONTROLLER decides nothing: it delegates, and the authoritative write
+    // still happens through one engine, behind the settlement gate.
     const controller = source('attendance-import.controller.ts');
     const surface = Object.getOwnPropertyNames(AttendanceImportController.prototype).sort();
 
-    expect(surface).toEqual(['constructor', 'errors', 'findOne', 'list', 'preview', 'template', 'upload']);
-    expect(controller).not.toMatch(/@Post\(['"]:id\/approve/);
-    expect(controller).not.toMatch(/@Post\(['"]:id\/apply/);
+    expect(surface).toEqual([
+      'applyBatch', 'approve', 'constructor', 'errors', 'findOne', 'list', 'preview', 'template', 'upload',
+    ]);
+    expect(controller).toContain('this.apply.approve(user, id)');
+    expect(controller).toContain('this.apply.apply(user, id)');
+
+    // The preparation service still writes nothing but its own staging tables;
+    // the apply service is the only thing that reaches a correction.
+    const prep = source('attendance-import.service.ts');
+    expect(prep).not.toContain('attendanceRegularization.create');
+    expect(prep).not.toContain('reviseForApprovedCorrection');
   });
 
   it('25. and no route deletes import history', () => {
@@ -456,6 +467,7 @@ describe('the migration is additive and the audit is durable', () => {
     expect(users).toContain('attendanceImportBatch.count');
     expect(users).toContain('Attendance Imports Uploaded');
     expect(users).toContain('Attendance Imports Approved');
+    expect(users).toContain('Attendance Imports Applied');
   });
 });
 

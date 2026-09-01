@@ -52,6 +52,7 @@ CREATE TABLE "attendance_import_batches" (
     "uploadedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "approvedById" TEXT,
     "approvedAt" TIMESTAMP(3),
+    "appliedById" TEXT,
     "appliedAt" TIMESTAMP(3),
     "cancelledAt" TIMESTAMP(3),
     "failureReason" TEXT,
@@ -120,6 +121,8 @@ CREATE UNIQUE INDEX "attendance_import_rows_batchId_rowNumber_key" ON "attendanc
 ALTER TABLE "attendance_import_batches" ADD CONSTRAINT "attendance_import_batches_uploadedById_fkey" FOREIGN KEY ("uploadedById") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 -- AddForeignKey
 ALTER TABLE "attendance_import_batches" ADD CONSTRAINT "attendance_import_batches_approvedById_fkey" FOREIGN KEY ("approvedById") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- AddForeignKey
+ALTER TABLE "attendance_import_batches" ADD CONSTRAINT "attendance_import_batches_appliedById_fkey" FOREIGN KEY ("appliedById") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 -- AddForeignKey
 ALTER TABLE "attendance_import_rows" ADD CONSTRAINT "attendance_import_rows_regularizationId_fkey" FOREIGN KEY ("regularizationId") REFERENCES "attendance_regularizations"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 -- AddForeignKey

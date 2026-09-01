@@ -16,6 +16,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../../../../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../../shared/decorators/current-user.decorator';
 import { AttendanceImportService } from './attendance-import.service';
+import { AttendanceImportApplyService } from './attendance-import-apply.service';
 import { buildImportTemplate, IMPORT_TEMPLATE_FILENAME } from './import-template';
 import { MAX_IMPORT_BYTES } from './import-rows';
 import type { ImportMode } from './import-normalize';
@@ -23,10 +24,15 @@ import type { ImportMode } from './import-normalize';
 /**
  * Attendance Data Control — preparation and review only.
  *
- * THERE IS NO APPROVE ROUTE AND NO APPLY ROUTE. Nothing reachable here can
- * create a correction or write an attendance record; the most any of it does is
- * describe a change somebody might later approve. Those routes arrive in Phase
- * 5, behind maker/checker and the settlement gate.
+ * Approve and apply are two routes, not one. Approval records that a human
+ * looked at the comparison and accepted it; apply executes that decision
+ * against whatever is true at the moment of execution. Collapsing them would
+ * remove the only moment at which Apex OS can notice that the world moved
+ * between the two.
+ *
+ * Neither route writes attendance directly: an applied row becomes an
+ * AttendanceRegularization and goes through the one engine allowed to revise an
+ * official fact.
  *
  * Every route is authorised in the service rather than by a decorator, because
  * the rule is not a single role: HR authority sees the company, an attendance
@@ -37,7 +43,10 @@ import type { ImportMode } from './import-normalize';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class AttendanceImportController {
-  constructor(private readonly imports: AttendanceImportService) {}
+  constructor(
+    private readonly imports: AttendanceImportService,
+    private readonly apply: AttendanceImportApplyService,
+  ) {}
 
   @Get('template.xlsx')
   async template(@CurrentUser() user: any, @Res() res: Response) {
@@ -117,6 +126,23 @@ export class AttendanceImportController {
     @Query('classification') classification?: string,
   ) {
     return this.imports.rowsOf(user, id, classification);
+  }
+
+  /** Records the decision. Creates no correction and writes no attendance. */
+  @Post(':id/approve')
+  approve(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.apply.approve(user, id);
+  }
+
+  /**
+   * Executes an approved batch.
+   *
+   * Returns a summary, not six thousand rows -- the per-row outcome lives on
+   * the batch detail, where it can be paged.
+   */
+  @Post(':id/apply')
+  applyBatch(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.apply.apply(user, id);
   }
 
   @Get(':id/errors.xlsx')

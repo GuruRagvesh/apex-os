@@ -823,6 +823,7 @@ export class UsersService {
       monthClosesFinalized,
       importsUploaded,
       importsApproved,
+      importsApplied,
       compOffCredits,
       attendanceProfiles,
     ] = await Promise.all([
@@ -862,6 +863,7 @@ export class UsersService {
       // with a raw constraint error instead of this list of what is in the way.
       (this.prisma as any).attendanceImportBatch.count({ where: { uploadedById: userId } }),
       (this.prisma as any).attendanceImportBatch.count({ where: { approvedById: userId } }),
+      (this.prisma as any).attendanceImportBatch.count({ where: { appliedById: userId } }),
       (this.prisma as any).compOffCredit.count({ where: { employeeId: userId } }),
       (this.prisma as any).employeeAttendanceProfile.count({ where: { userId } }),
     ]);
@@ -896,6 +898,7 @@ export class UsersService {
     if (monthClosesFinalized)    blockers['Payroll Months Finalized']    = monthClosesFinalized;
     if (importsUploaded)         blockers['Attendance Imports Uploaded']  = importsUploaded;
     if (importsApproved)         blockers['Attendance Imports Approved']  = importsApproved;
+    if (importsApplied)          blockers['Attendance Imports Applied']   = importsApplied;
     if (compOffCredits)          blockers['Comp-Off Credits']            = compOffCredits;
     if (attendanceProfiles)      blockers['Attendance Profiles']         = attendanceProfiles;
 

@@ -43,6 +43,7 @@ model User {
   isAttendanceDataOperator  Boolean                        @default(false)
   attendanceImportsUploaded AttendanceImportBatch[]        @relation("AttendanceImportUploader")
   attendanceImportsApproved AttendanceImportBatch[]        @relation("AttendanceImportApprover")
+  attendanceImportsApplied  AttendanceImportBatch[]        @relation("AttendanceImportApplier")
   designation               String?
   employmentType            String?                        @default("Full-time")
   workMode                  String?                        @default("Office")
@@ -1992,6 +1993,14 @@ model AttendanceImportBatch {
   uploadedAt    DateTime @default(now())
   approvedById  String?
   approvedAt    DateTime?
+  /// WHO executed the apply, not merely when.
+  ///
+  /// A batch can be uploaded by an operator, approved by HR and applied by an
+  /// administrator -- three responsibilities, three people. A timestamp with no
+  /// actor answers "when did six thousand attendance records change" and not
+  /// "who did it", which is the half a payroll dispute actually needs.
+  /// Deliberately not approvedById reused: those are different decisions.
+  appliedById   String?
   appliedAt     DateTime?
   cancelledAt   DateTime?
   failureReason String?
@@ -2005,6 +2014,7 @@ model AttendanceImportBatch {
   /// deleted, and there is no endpoint that deletes one.
   uploadedBy    User  @relation("AttendanceImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
   approvedBy    User? @relation("AttendanceImportApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  appliedBy     User? @relation("AttendanceImportApplier", fields: [appliedById], references: [id], onDelete: Restrict)
   rows          AttendanceImportRow[]
 
   @@index([status])
