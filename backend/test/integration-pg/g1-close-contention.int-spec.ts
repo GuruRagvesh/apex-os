@@ -226,6 +226,72 @@ describe('an import correction against the payroll close', () => {
     expect(await prisma.attendanceRegularization.count()).toBe(0);
   });
 
+  it('12c. the other ordering: finalize holds the month, and the import waits then refuses', async () => {
+    // The mirror of 12a, and the scenario the lock exists to prevent: a close
+    // completing while a correction is in flight, so the correction lands
+    // behind a month Finance has already been told about.
+    const batch = await approvedChange('B', 'TE-011');
+
+    // Pause finalize INSIDE its transaction, after it has taken the lock and
+    // written FINALIZED but before it commits.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const realRender = (payroll as any).renderCanonical.bind(payroll);
+    const spy = jest
+      .spyOn(payroll as any, 'renderCanonical')
+      .mockImplementation(async (month: any) => {
+        const rendered = await realRender(month);
+        await gate;
+        return rendered;
+      });
+
+    let finalizeDone = false;
+    const finalize = payroll.finalize(seed.actors.hr, MONTH).then(() => {
+      finalizeDone = true;
+    });
+
+    for (let i = 0; i < 100; i++) {
+      if ((await lockRows()).some((r) => r.granted)) break;
+      await sleep(60);
+    }
+    expect((await lockRows()).some((r) => r.granted)).toBe(true);
+
+    // The import now tries to correct a day in that month.
+    let applyDone = false;
+    const applying = apply.apply(seed.actors.admin, batch.id).then((r) => {
+      applyDone = true;
+      return r;
+    });
+
+    // It must be waiting on the same lock object, not proceeding.
+    for (let i = 0; i < 100; i++) {
+      if ((await lockRows()).length >= 2) break;
+      await sleep(60);
+    }
+    const contended = await lockRows();
+    expect(contended.length).toBeGreaterThanOrEqual(2);
+    expect(contended.some((r) => !r.granted)).toBe(true);
+    expect(applyDone).toBe(false);
+    expect(finalizeDone).toBe(false);
+
+    release();
+    await finalize;
+    const out = await applying;
+    spy.mockRestore();
+
+    // The close completed, and the correction that was queued behind it did
+    // NOT write. It saw a settled month the moment it got the lock.
+    expect(finalizeDone).toBe(true);
+    const close = await prisma.attendanceMonthClose.findUnique({ where: { month: MONTH } });
+    expect(['FINALIZED', 'SENT']).toContain(close!.status);
+
+    expect(out.applied).toBe(0);
+    expect(await prisma.attendanceRegularization.count()).toBe(0);
+    const day = await prisma.dailyAttendance.findFirst({ where: { userId: seed.employees.B.id } });
+    expect(day!.revision).toBe(1);
+    expect(day!.punchOutAt?.toISOString()).toBe('2026-08-14T13:10:00.000Z');
+  });
+
   it('13. send holds the month across its staleness check, and SENT is absolute', async () => {
     const batch = await approvedChange('B', 'TE-011');
     await payroll.finalize(seed.actors.hr, MONTH);
