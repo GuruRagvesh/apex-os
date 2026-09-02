@@ -23,7 +23,10 @@ const EMPLOYEE = { id: 'emp-1', name: 'Rahul', role: { name: 'EMPLOYEE' } };
 
 function build(over: any = {}) {
   const closes = new Map<string, any>();
-  if (over.close) closes.set(over.close.month, { ...over.close });
+  // Every real close row has a primary key. Fixtures that omitted it were
+  // describing a row that cannot exist, and the idempotency key rightly
+  // refuses to be built from one.
+  if (over.close) closes.set(over.close.month, { id: 'mc-1', reportSha256: 'fp-report', ...over.close });
   const audit: any[] = [];
   const sent: any[] = [];
 
@@ -89,13 +92,31 @@ function build(over: any = {}) {
     } as any,
     {
       // Stub. No test sends a real message.
+      // Returns a DeliveryResult, as the real transport does. A boolean double
+      // would make "we do not know" indistinguishable from "it failed", which
+      // is the exact distinction this path now depends on.
       sendPayrollAttendanceReport: jest.fn(async (...args: any[]) => {
         sent.push(args);
         if (over.sendThrows) throw new Error('resend down');
-        return over.sendOk !== false;
+        if (over.sendOutcome) return { outcome: over.sendOutcome, reason: 'test' };
+        return over.sendOk !== false
+          ? { outcome: 'SENT', providerId: 'resend-msg-1' }
+          : { outcome: 'REJECTED', reason: 'validation_error' };
       }),
     } as any,
   );
+
+  // Pins what renderCanonical produces, so a fixture can carry a REAL
+  // fingerprint and the comparison against it is deliberate rather than
+  // accidental. Tests that want a mismatch pass a different value; tests about
+  // the real digest format leave it unset and get the genuine implementation.
+  if (over.renderFingerprint) {
+    jest.spyOn(service as any, 'renderCanonical').mockImplementation(async () => ({
+      buffer: Buffer.from('synthetic-workbook'),
+      dataFingerprint: over.renderFingerprint,
+      totals: { employees: 1, unresolvedDays: 0, employeesWithUnresolved: 0 },
+    }));
+  }
 
   return { service, prisma, closes, audit, sent, advisoryLocks };
 }
@@ -268,14 +289,15 @@ describe('sending is explicit and honest', () => {
     employeeCount: 1,
     unresolvedDays: 0,
     employeesWithUnresolved: 0,
-    reportSha256: null,
+    // finalize() always stores this; a FINALIZED row without one cannot exist.
+    reportSha256: 'fp-finalized-report',
     finalizedBy: { name: 'Priya' },
   };
 
   it('delivers and records the recipient at send time', async () => {
     // Copied onto the row so changing the setting next month cannot rewrite
     // who an already-sent report went to.
-    const { service, closes, sent } = build({ close: finalized });
+    const { service, closes, sent } = build({ close: finalized, renderFingerprint: 'fp-finalized-report' });
     await service.send(HR, '2026-08');
     const row = closes.get('2026-08');
 
@@ -287,7 +309,7 @@ describe('sending is explicit and honest', () => {
   });
 
   it('never records SENT when delivery failed', async () => {
-    const { service, closes } = build({ close: finalized, sendOk: false });
+    const { service, closes } = build({ close: finalized, sendOk: false, renderFingerprint: 'fp-finalized-report' });
 
     await expect(service.send(HR, '2026-08')).rejects.toThrow(/could not be delivered/i);
     const row = closes.get('2026-08');
@@ -297,22 +319,30 @@ describe('sending is explicit and honest', () => {
     expect(row.sentAt).toBeUndefined();
   });
 
-  it('treats a thrown transport error as a failure, not a success', async () => {
-    const { service, closes } = build({ close: finalized, sendThrows: true });
+  // The distinction this whole path now rests on. A throw means the request
+  // left the process and never came back -- the mail MAY have been delivered.
+  // Recording FAILED there would invite a second attempt on a report that
+  // already went to Finance. UNKNOWN is retryable too, but the retry reuses the
+  // same idempotency key, so the provider settles it rather than us guessing.
+  // What must never happen is SENT, and it does not.
+  it('records a thrown transport error as UNKNOWN, which is not the same as failed', async () => {
+    const { service, closes } = build({ close: finalized, sendThrows: true, renderFingerprint: 'fp-finalized-report' });
 
     await expect(service.send(HR, '2026-08')).rejects.toThrow(/could not be delivered/i);
-    expect(closes.get('2026-08').deliveryStatus).toBe('FAILED');
+    expect(closes.get('2026-08').deliveryStatus).toBe('UNKNOWN');
+    expect(closes.get('2026-08').status).toBe('FINALIZED');
+    expect(closes.get('2026-08').sentAt).toBeUndefined();
   });
 
   it('allows a retry of the same finalized month', async () => {
-    const { service, closes } = build({ close: { ...finalized, deliveryStatus: 'FAILED' } });
+    const { service, closes } = build({ close: { ...finalized, deliveryStatus: 'FAILED' }, renderFingerprint: 'fp-finalized-report' });
     await service.send(HR, '2026-08');
 
     expect(closes.get('2026-08').status).toBe('SENT');
   });
 
   it('refuses when no Finance recipient is configured', async () => {
-    const { service } = build({ close: finalized, recipient: null });
+    const { service } = build({ close: finalized, recipient: null, renderFingerprint: 'fp-finalized-report' });
 
     await expect(service.send(HR, '2026-08')).rejects.toThrow(/no finance recipient/i);
   });
@@ -416,6 +446,7 @@ describe('audit', () => {
   it('records a failed send as a failure', async () => {
     const { service, audit } = build({
       close: { month: '2026-08', status: 'FINALIZED', finalizedBy: { name: 'Priya' } },
+      renderFingerprint: 'fp-report',
       sendOk: false,
     });
 
@@ -480,6 +511,7 @@ describe('the stored digest is never presented as a file hash', () => {
   it('renames at the boundary rather than leaking the column through send', async () => {
     const { service } = build({
       close: { month: '2026-08', status: 'FINALIZED', finalizedById: 'hr-1' },
+      renderFingerprint: 'fp-report',
     });
     const sentRow: any = await service.send(HR, '2026-08');
 

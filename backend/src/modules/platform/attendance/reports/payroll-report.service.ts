@@ -89,6 +89,15 @@ export interface PreviewResult {
   reportByteSize: number;
 }
 
+import {
+  DELIVERY_SENT,
+  attachmentFileName,
+  deliveryStatusFor,
+  idempotencyKeyFor,
+  mayContactProvider,
+  type DeliveryResult,
+} from './finance-handoff';
+
 @Injectable()
 export class PayrollReportService {
   constructor(
@@ -511,8 +520,19 @@ export class PayrollReportService {
       include: { finalizedBy: { select: { name: true } } },
     });
     if (!close) throw new NotFoundException(`${month} has not been prepared yet`);
-    if (close.status !== 'FINALIZED' && close.status !== 'SENT') {
-      throw new ForbiddenException(`${month} must be finalized before it can be sent`);
+    // ALREADY DELIVERED IS REFUSED HERE, BEFORE THE PROVIDER IS REACHED.
+    //
+    // Resend's idempotency key collapses a retry of the same report inside a
+    // 24-hour window, and that is worth having -- but it is a safety net for
+    // retries, not a licence to call send() again next week and rely on the
+    // provider to remember. A month that has been delivered is refused locally.
+    //
+    // FAILED and UNKNOWN both remain retryable, and both reuse the same key.
+    // For UNKNOWN that is exactly what settles the ambiguity: if the first
+    // attempt did reach Resend, the retry is collapsed rather than delivered.
+    const gate = mayContactProvider(close);
+    if (!gate.allowed) {
+      throw new ForbiddenException(gate.reason ?? `${month} cannot be sent`);
     }
 
     const people = await this.recipients();
@@ -531,24 +551,45 @@ export class PayrollReportService {
       );
     }
 
-    const filename = workbookFilename(month, true);
-    let delivered = false;
+    const filename = attachmentFileName(month);
+
+    // Identifies the REPORT, not the attempt: the month close plus the
+    // fingerprint of the attendance it was finalized from. A retry of the same
+    // report therefore presents the same key. Generating a fresh id per attempt
+    // is the bug this exists to prevent.
+    const idempotencyKey = idempotencyKeyFor({
+      monthCloseId: close.id,
+      reportSha256: close.reportSha256,
+    });
+
+    // The transport is written to classify its own failures and never throw.
+    // Wrapped anyway: if it ever did, an uncaught throw here would abandon the
+    // transaction with NOTHING recorded about the attempt -- and "no record"
+    // reads as "never tried", which is the one thing it is not.
+    let delivery: DeliveryResult;
     try {
-      delivered = await this.email.sendPayrollAttendanceReport(
+      delivery = await this.email.sendPayrollAttendanceReport(
         people.to,
         people.cc,
         month,
         filename,
         rendered.buffer,
         {
+          month,
+          finalizedAt: close.finalizedAt ?? null,
+          finalizedByName: (close as any).finalizedBy?.name ?? null,
+          reference: close.id,
           employees: close.employeeCount ?? 0,
           unresolvedDays: close.unresolvedDays ?? 0,
           employeesWithUnresolved: close.employeesWithUnresolved ?? 0,
         },
+        idempotencyKey,
       );
-    } catch {
-      delivered = false;
+    } catch (error: any) {
+      // Unknown, not failed. The request may have reached the provider.
+      delivery = { outcome: 'UNKNOWN', reason: error?.message ?? 'transport threw' };
     }
+    const delivered = delivery.outcome === 'SENT';
 
     const updated = await tx.attendanceMonthClose.update({
       where: { month },
@@ -561,9 +602,13 @@ export class PayrollReportService {
             // the row rather than from the mail provider.
             recipientEmail: [people.to, ...people.cc].join(', '),
             sentAt: this.tva.now(),
-            deliveryStatus: 'SENT',
+            deliveryStatus: DELIVERY_SENT,
           }
-        : { deliveryStatus: 'FAILED' },
+        : // REJECTED means nothing was sent and a retry is safe. UNKNOWN means we
+          // genuinely do not know -- the status stays FINALIZED either way, but
+          // the two are recorded distinctly so nobody treats an ambiguous
+          // delivery as a confirmed failure.
+          { deliveryStatus: deliveryStatusFor(delivery.outcome) },
     });
 
     this.eventLogger
@@ -579,6 +624,13 @@ export class PayrollReportService {
           to: people.to,
           cc: people.cc,
           reportDataFingerprint: close.reportSha256,
+          // The outcome as the provider left it, and the key that identifies
+          // this report -- so a duplicate investigation can be answered from
+          // the event stream rather than from the mail provider's dashboard.
+          deliveryOutcome: delivery.outcome,
+          deliveryReason: delivery.reason ?? null,
+          providerMessageId: delivery.providerId ?? null,
+          idempotencyKey,
         },
       })
       .catch(() => {});

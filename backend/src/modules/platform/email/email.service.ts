@@ -16,6 +16,17 @@ import { Resend } from 'resend';
  * EmailService directly with `new EmailService(prisma)` remain valid.
  * Resend init falls back to process.env when ConfigService is absent.
  */
+import {
+  NO_PAYROLL_STATEMENT,
+  classifyProviderResult,
+  handoffSummaryRows,
+  monthLabel,
+  reportSubject,
+  unresolvedWarning,
+  type DeliveryResult,
+  type HandoffFacts,
+} from '../attendance/reports/finance-handoff';
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger('EmailService');
@@ -195,64 +206,96 @@ export class EmailService {
    * Returns whether it was delivered. The caller records FAILED and leaves the
    * month finalized rather than claiming a send that did not happen.
    */
+  /**
+   * The monthly Finance handoff.
+   *
+   * Returns a THREE-state result, not a boolean. "It failed" and "we do not
+   * know whether it failed" are different facts about a payroll report, and
+   * collapsing them is how a system either sends a second copy or tells HR
+   * nothing arrived when it did.
+   *
+   * The idempotency key is supplied by the caller and identifies the REPORT,
+   * not the attempt, so a retry is collapsed by the provider rather than
+   * delivered twice. Resend sends it as the Idempotency-Key header and honours
+   * it for 24 hours.
+   */
   async sendPayrollAttendanceReport(
     to: string,
     cc: string[],
     month: string,
     filename: string,
     buffer: Buffer,
-    facts: { employees: number; unresolvedDays: number; employeesWithUnresolved: number },
-  ): Promise<boolean> {
+    facts: HandoffFacts,
+    idempotencyKey: string,
+  ): Promise<DeliveryResult> {
     if (!this.resendClient || !to) {
       this.logger.debug('[Payroll attendance report skipped — no provider or no recipient]');
-      return false;
+      // Nothing was attempted, so this is a refusal rather than an unknown.
+      return { outcome: 'REJECTED', reason: 'no provider or no recipient configured' };
     }
 
-    // The unresolved count is stated in the body, not only inside the file. A
-    // month with unreviewed exceptions is not a settled payroll input, and that
-    // has to be visible before anyone opens the attachment.
-    const caveat =
-      facts.employeesWithUnresolved > 0
-        ? `<p style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;margin:16px 0">
-             <strong>${facts.employeesWithUnresolved} employee(s)</strong> have
-             ${facts.unresolvedDays} unresolved attendance day(s) in this month.
-             Those rows are not a settled attendance result.
-           </p>`
-        : '';
+    const warning = unresolvedWarning(facts);
+    const caveat = warning
+      ? `<p style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;margin:16px 0">
+           ${warning}
+         </p>`
+      : '';
+
+    const summary = handoffSummaryRows(facts)
+      .map(
+        (row) => `<tr>
+             <td style="padding:6px 16px 6px 0;color:#64748b;font-size:13px;white-space:nowrap">${row.label}</td>
+             <td style="padding:6px 0;color:#0f172a;font-size:13px;font-weight:600">${row.value}</td>
+           </tr>`,
+      )
+      .join('');
 
     const html = this.buildHtml(
-      `Attendance report — ${month}`,
-      `<p>The finalized monthly attendance report for <strong>${month}</strong> is attached.</p>
+      `Final Attendance Register — ${monthLabel(facts.month)}`,
+      `<p>The final attendance register for <strong>${monthLabel(facts.month)}</strong> is attached.</p>
+       <table cellpadding="0" cellspacing="0" style="margin:20px 0">${summary}</table>
        ${caveat}
-       <p>${facts.employees} employee(s) included.</p>
-       <p style="color:#64748b;font-size:13px">
-         This report contains attendance facts only. No salary or deduction has been
-         calculated; payroll rules are applied by Finance.</p>`,
+       <p style="color:#64748b;font-size:13px">${NO_PAYROLL_STATEMENT}</p>`,
     );
 
     try {
-      const { error } = await (this.resendClient as any).emails.send({
-        from: this.resendFrom,
-        to: [to],
-        // The accountant acts on it; the others review. One TO makes whose
-        // action is expected unambiguous.
-        ...(cc.length > 0 ? { cc } : {}),
-        subject: `Apex OS — Attendance report ${month}`,
-        html,
-        attachments: [{ filename, content: buffer }],
-      });
-      if (error) {
-        this.logger.error(`Payroll attendance report to ${to} failed: ${(error as any).message}`);
-        return false;
-      }
-      this.logger.log(
-        `Payroll attendance report for ${month} sent to ${to}` +
-          (cc.length > 0 ? ` (cc ${cc.length})` : ''),
+      const { data, error } = await (this.resendClient as any).emails.send(
+        {
+          from: this.resendFrom,
+          to: [to],
+          // The accountant acts on it; the others review. One TO makes whose
+          // action is expected unambiguous.
+          ...(cc.length > 0 ? { cc } : {}),
+          subject: reportSubject(facts.month),
+          html,
+          attachments: [{ filename, content: buffer }],
+        },
+        { idempotencyKey },
       );
-      return true;
+
+      const result = classifyProviderResult({
+        id: data?.id ?? null,
+        errorCode: (error as any)?.name ?? null,
+        errorMessage: (error as any)?.message ?? null,
+      });
+
+      if (result.outcome === 'SENT') {
+        this.logger.log(
+          `Final attendance register for ${month} sent to ${to}` +
+            (cc.length > 0 ? ` (cc ${cc.length})` : ''),
+        );
+      } else {
+        this.logger.error(
+          `Final attendance register for ${month} -> ${result.outcome}: ${result.reason}`,
+        );
+      }
+      return result;
     } catch (err: any) {
-      this.logger.error(`Payroll attendance report to ${to} exception: ${err.message}`);
-      return false;
+      // The request left this process and never came back. It may have been
+      // delivered. Saying FAILED here would invite a second, differently-timed
+      // attempt on a report that already went.
+      this.logger.error(`Final attendance register for ${month} exception: ${err?.message}`);
+      return classifyProviderResult({ threw: true, errorMessage: err?.message ?? 'unknown' });
     }
   }
 
