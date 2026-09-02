@@ -163,6 +163,9 @@ describe('the attendance month advisory lock, observed in pg_locks', () => {
         reason: 'Integration lock probe correction',
         requestedPunchOut: new Date(`${DATE}T13:45:00.000Z`),
         status: 'HR_APPROVED',
+        // A real HR approval always stamps this, and an unstamped one is no
+        // longer allowed to govern a day. See c3-hr-decision-ordering.
+        hrDecisionAt: new Date(),
       } as any,
     });
 
@@ -229,6 +232,9 @@ describe('the attendance month advisory lock, observed in pg_locks', () => {
         reason: 'Integration different-month probe',
         requestedPunchOut: new Date(`${otherDate}T13:45:00.000Z`),
         status: 'HR_APPROVED',
+        // A real HR approval always stamps this, and an unstamped one is no
+        // longer allowed to govern a day. See c3-hr-decision-ordering.
+        hrDecisionAt: new Date(),
       } as any,
     });
 

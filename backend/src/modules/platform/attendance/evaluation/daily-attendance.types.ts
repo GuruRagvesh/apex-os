@@ -60,6 +60,12 @@ export type AttendanceExceptionFlag =
   | 'LOCATION_LOW_ACCURACY'
   | 'LOCATION_UNAVAILABLE'
   | 'PHOTO_MISSING'
+  // A correction somebody approved, carrying no record of WHEN it was
+  // approved. It cannot be ordered against other decisions, so it is not
+  // allowed to govern the day -- and this flag exists so that exclusion is
+  // visible rather than silent. No current code path can produce one; the
+  // column is nullable and a backfill or manual edit could.
+  | 'APPROVED_CORRECTION_WITHOUT_DECISION_TIME'
   // Policy questions management has not answered yet
   | 'LATE_BEYOND_PUNCH_WINDOW'
   // Three distinct duration questions. Collapsing them into one was the bug:

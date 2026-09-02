@@ -387,7 +387,7 @@ export class DailyAttendanceEvaluatorService {
   ): Promise<DailyAttendanceResult> {
     const date = this.tva.companyDateOnly(new Date(`${businessDate}T00:00:00.000Z`));
 
-    const [evidence, sessions, correction] = await Promise.all([
+    const [evidence, sessions, approvals] = await Promise.all([
       client.attendancePunchEvidence.findMany({
         where: { userId, businessDate: date },
         orderBy: { serverOccurredAt: 'asc' },
@@ -396,25 +396,57 @@ export class DailyAttendanceEvaluatorService {
         where: { userId, date },
         orderBy: { createdAt: 'asc' },
       }),
-      // AR-1: the approved correction for this day, if one exists. Corrections
-      // change the official INTERPRETATION of the day; the punch rows and work
-      // sessions above are read exactly as recorded and never rewritten.
-      // NULLS LAST, and a createdAt tiebreaker, both deliberately.
+      // AR-1: the approved corrections for this day. Corrections change the
+      // official INTERPRETATION of the day; the punch rows and work sessions
+      // above are read exactly as recorded and never rewritten.
       //
-      // "ORDER BY hrDecisionAt DESC" alone puts NULLs FIRST in PostgreSQL. An
-      // HR_APPROVED row with no decision timestamp would therefore outrank
-      // every correction made afterwards, permanently, and freeze the day at
-      // its values with nothing reported anywhere. Every current writer sets
-      // hrDecisionAt, but the column is nullable and backfills do not always
-      // read the code -- so the query is made not to care.
+      // WHY THIS IS A findMany AND NOT A findFirst.
       //
-      // createdAt breaks the remaining tie: two corrections approved in the
-      // same millisecond otherwise resolve in whatever order the plan returns.
-      client.attendanceRegularization.findFirst({
+      // The question is "which HR DECISION governs this day", and the answer is
+      // ordered by when the decision was taken. hrDecisionAt is nullable, and
+      // `ORDER BY hrDecisionAt DESC` puts NULLs FIRST in PostgreSQL -- verified
+      // against 18.6, not assumed -- so an HR_APPROVED row carrying no decision
+      // timestamp would outrank every decision taken afterwards, permanently,
+      // and freeze the day at its values.
+      //
+      // Null PLACEMENT is the wrong thing to argue about, though. A row with no
+      // decision timestamp is not a dated decision, so it cannot take part in an
+      // ordering by decision time at all -- ranking it last still lets it govern
+      // whenever it is the only row. It is excluded from authority below.
+      //
+      // But excluding it silently would be its own bug: an approval that the
+      // attendance record then ignores, with nobody told. So both facts are
+      // taken from ONE query and the rule is finished in TypeScript, where it is
+      // visible and testable: the governing decision is the newest DATED one,
+      // and any undated approval raises an exception flag instead of vanishing.
+      //
+      // createdAt then id break the remaining tie. Two corrections decided in
+      // the same millisecond otherwise resolve in whatever order the plan
+      // returns, which is not a rule.
+      client.attendanceRegularization.findMany({
         where: { userId, date, status: 'HR_APPROVED' },
-        orderBy: [{ hrDecisionAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+        orderBy: [
+          { hrDecisionAt: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+        // One employee-day cannot legitimately accumulate many approved
+        // corrections: only one may be open at a time, so they are strictly
+        // serialized. Bounded so a pathological day cannot load without limit.
+        take: 10,
       }),
     ]);
+
+    // The newest DATED decision governs. An undated one never does.
+    const correction = approvals.find((c) => c.hrDecisionAt !== null) ?? null;
+
+    // An approved correction with no decision timestamp cannot be placed in
+    // time, so it is not allowed to rewrite attendance -- but somebody approved
+    // it, and a decision that quietly stops applying is worse than a loud one.
+    // The day goes to review rather than silently ignoring the row.
+    if (approvals.some((c) => c.hrDecisionAt === null)) {
+      flags.push('APPROVED_CORRECTION_WITHOUT_DECISION_TIME');
+    }
 
     const punchIn = evidence.find((e) => e.type === 'PUNCH_IN') ?? null;
     const punchOut = [...evidence].reverse().find((e) => e.type === 'PUNCH_OUT') ?? null;

@@ -1,3 +1,4 @@
+import { correctionStore } from '../helpers/regularization-double';
 import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 import { RegularizationService, StaleCorrectionError, RegularizationDisabledError } from '../../src/modules/platform/attendance/regularization/regularization.service';
 import { RegularizationController } from '../../src/modules/platform/attendance/regularization/regularization.controller';
@@ -67,6 +68,8 @@ interface EvalFixtures {
   evidence?: any[];
   sessions?: any[];
   correction?: any;
+  /** Several, when the test is about WHICH one governs. */
+  corrections?: any[];
   existingRecord?: any;
   /** The month's close row. Defaults to OPEN, which settles nothing. */
   monthClose?: any;
@@ -102,7 +105,7 @@ function evaluatorRig(f: EvalFixtures = {}) {
       create: jest.fn((a: any) => { raw.breakUpdates.push(a); return Promise.resolve(a); }),
     },
     attendanceRegularization: {
-      findFirst: jest.fn().mockResolvedValue(f.correction ?? null),
+      ...correctionStore(f.corrections ?? (f.correction ? [f.correction] : [])),
     },
     leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
     // Phase 2B: a correction now holds the month advisory lock and reads the
@@ -391,8 +394,58 @@ describe('AR-1 corrections change interpretation, never evidence', () => {
     const { service, prisma } = evaluatorRig(missingPunchOut);
     await service.evaluate('emp-1', DATE);
 
-    const where = prisma.attendanceRegularization.findFirst.mock.calls[0][0].where;
+    const where = prisma.attendanceRegularization.findMany.mock.calls[0][0].where;
     expect(where.status).toBe('HR_APPROVED');
+  });
+
+  it('15b. an undecided correction cannot displace a decided one', async () => {
+    // Behavioural rather than a look at the mock's call log. The store filters
+    // and orders the way PostgreSQL does, so this fails if the status filter
+    // is dropped -- ORDER BY hrDecisionAt DESC puts the undated PENDING row
+    // first, and it would then supply the official punch out.
+    const { service } = evaluatorRig({
+      ...missingPunchOut,
+      corrections: [
+        {
+          id: 'decided',
+          status: 'HR_APPROVED',
+          hrDecisionAt: new Date('2026-08-30T12:00:00.000Z'),
+          createdAt: new Date('2026-08-29T09:00:00.000Z'),
+          requestedPunchOut: ist('19:03'),
+        },
+        {
+          id: 'undecided',
+          status: 'PENDING',
+          hrDecisionAt: null,
+          createdAt: new Date('2026-09-01T09:00:00.000Z'),
+          requestedPunchOut: ist('22:00'),
+        },
+      ],
+    });
+
+    const result = await service.evaluate('emp-1', DATE);
+    expect(result.punchOutAt?.toISOString()).toBe(ist('19:03').toISOString());
+  });
+
+  it('15c. an approval with no decision time never governs, and is reported', async () => {
+    const { service } = evaluatorRig({
+      ...missingPunchOut,
+      corrections: [
+        {
+          id: 'unstamped',
+          status: 'HR_APPROVED',
+          hrDecisionAt: null,
+          createdAt: new Date('2026-09-01T09:00:00.000Z'),
+          requestedPunchOut: ist('22:00'),
+        },
+      ],
+    });
+
+    const result = await service.evaluate('emp-1', DATE);
+    // It did not supply the punch out.
+    expect(result.punchOutAt?.toISOString()).not.toBe(ist('22:00').toISOString());
+    // And it was not dropped in silence.
+    expect(result.exceptionFlags).toContain('APPROVED_CORRECTION_WITHOUT_DECISION_TIME');
   });
 
   it('16. a revision bumps the counter and records which correction caused it', async () => {

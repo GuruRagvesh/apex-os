@@ -1,3 +1,4 @@
+import { correctionStore } from '../helpers/regularization-double';
 import { DailyAttendanceEvaluatorService } from '../../src/modules/platform/attendance/evaluation/daily-attendance-evaluator.service';
 import { LeaveFactsService } from '../../src/modules/platform/attendance/evaluation/leave-facts.service';
 import { TVAService } from '../../src/common/services/tva.service';
@@ -141,6 +142,8 @@ interface RigOptions {
   sessions?: any[];
   existingRecord?: any;
   correction?: any;
+  /** Several, when the test is about WHICH one governs. */
+  corrections?: any[];
 }
 
 function rig(opts: RigOptions = {}) {
@@ -167,9 +170,12 @@ function rig(opts: RigOptions = {}) {
     },
     // AR-1 added an approved-correction lookup to the evaluator. Null here, so
     // every AE-1 case below describes an UNCORRECTED day, exactly as before.
-    attendanceRegularization: {
-      findFirst: jest.fn().mockResolvedValue(opts.correction ?? null),
-    },
+    // An honest store: it filters on status and orders on the nullable
+    // decision timestamp exactly as PostgreSQL would, so the evaluator's
+    // CHOICE of governing correction is genuinely under test here.
+    attendanceRegularization: correctionStore(
+      opts.corrections ?? (opts.correction ? [opts.correction] : []),
+    ),
     dailyAttendance: {
       findUnique: jest.fn().mockResolvedValue(opts.existingRecord ?? null),
       upsert: jest.fn(({ create, update }: any) =>
