@@ -19,6 +19,7 @@ import {
 } from '../evaluation/attendance-settlement';
 import { lockAttendanceMonth } from '../evaluation/attendance-month-lock';
 import { buildCorrectionRecord } from '../regularization/correction-proposal';
+import { classifyRow } from './import-classify';
 
 /**
  * Approving an import, then applying it.
@@ -62,6 +63,21 @@ const APPLY_CHUNK = 25;
 const APPLY_LEASE_MS = 2 * 60 * 1000;
 
 /**
+ * Longest a healthy run may go without proving it is alive.
+ *
+ * Chosen against the lease, not against a guess about chunk duration. The
+ * heartbeat is checked after EVERY row, so the worst gap is one row's
+ * transaction plus this interval -- for a live worker to be mistaken for a dead
+ * one, a single employee-day would have to take a minute and a half, which is
+ * far beyond any transaction this code would let stand.
+ *
+ * Beating between chunks alone was not enough: a chunk is a variable amount of
+ * work, and "twenty-five rows always finish inside two minutes" is an
+ * assumption rather than a bound.
+ */
+const HEARTBEAT_INTERVAL_MS = 20 * 1000;
+
+/**
  * What a finished batch is called.
  *
  * The row-level and batch-level meanings of APPLIED are deliberately different,
@@ -76,14 +92,32 @@ const APPLY_LEASE_MS = 2 * 60 * 1000;
  * working; the answer is to re-preview, not to debug.
  */
 export function batchOutcome(counts: {
+  /** Every row the file produced. An empty batch is not a quiet success. */
+  totalRows: number;
+  invalid: number;
+  conflict: number;
   actionable: number;
   applied: number;
   stale: number;
   failed: number;
 }): 'APPLIED' | 'PARTIALLY_APPLIED' | 'REVIEW_REQUIRED' | 'FAILED' {
-  const { actionable, applied, stale, failed } = counts;
+  const { totalRows, invalid, conflict, actionable, applied, stale, failed } = counts;
 
-  // Nothing to do, and nothing went wrong. An all-MATCH file lands here.
+  // AN EMPTY BATCH IS NOT A SUCCESSFUL ONE.
+  //
+  // "Nothing to do" and "there was never anything here" produce the same
+  // actionable count and mean opposite things. Taking totalRows rather than
+  // trusting the caller to have checked is the difference between a rule and
+  // an assumption -- a file that parsed to nothing must never report APPLIED.
+  if (totalRows === 0) return 'FAILED';
+
+  // Approval already refuses these, so reaching here means something upstream
+  // let a known-bad batch through. Fail rather than paper over it.
+  if (invalid > 0 || conflict > 0) return 'FAILED';
+
+  // Nothing to do, and nothing went wrong: every row already agreed with Apex
+  // OS. A four-thousand-row file that all MATCHes lands here, and it is a
+  // completely successful reconciliation.
   if (actionable === 0) return 'APPLIED';
   if (applied === actionable) return 'APPLIED';
   if (applied > 0) return 'PARTIALLY_APPLIED';
@@ -318,21 +352,47 @@ export class AttendanceImportApplyService {
     let applied = 0;
     let stale = 0;
     let failed = 0;
+    let lastBeat = this.tva.now().getTime();
 
-    for (let i = 0; i < rows.length; i += APPLY_CHUNK) {
+    outer: for (let i = 0; i < rows.length; i += APPLY_CHUNK) {
       for (const row of rows.slice(i, i + APPLY_CHUNK)) {
         const outcome = await this.applyRow(row, claimed, applierId);
         if (outcome === 'APPLIED') applied += 1;
         else if (outcome === 'SKIPPED_STALE') stale += 1;
-        else failed += 1;
+        else if (outcome === 'LOST_OWNERSHIP') {
+          // Somebody else legitimately took this batch over while we were
+          // working. Stop immediately and write nothing further -- including
+          // the batch status, which now belongs to them.
+          return {
+            reference: claimed.reference,
+            status: 'SUPERSEDED',
+            attempted: applied + stale + failed,
+            applied,
+            stale,
+            failed,
+            noOps,
+          };
+        } else failed += 1;
+
+        // Checked after every row, so the gap between beats is bounded by one
+        // row plus the interval rather than by a whole chunk.
+        const now = this.tva.now().getTime();
+        if (now - lastBeat >= HEARTBEAT_INTERVAL_MS) {
+          if (!(await this.beat(batchId, claimed.applyAttemptId))) break outer;
+          lastBeat = now;
+        }
       }
-      // Proof of life between chunks. A run that stops beating is what makes a
-      // resume permissible; one that keeps beating is what refuses a second
-      // caller.
-      await this.beat(batchId, claimed.applyAttemptId);
     }
 
-    const status = batchOutcome({ actionable: rows.length, applied, stale, failed });
+    const status = batchOutcome({
+      totalRows: claimed.totalRows ?? rows.length + noOps,
+      invalid: 0,
+      conflict: 0,
+      actionable: rows.length,
+      applied,
+      stale,
+      failed,
+    });
 
     const finished = await this.prisma.attendanceImportBatch.update({
       where: { id: batchId },
@@ -396,14 +456,18 @@ export class AttendanceImportApplyService {
    * replaced cannot refresh somebody else's lease and make a live run look
    * dead -- or a dead one look live.
    */
-  private async beat(batchId: string, attemptId: string | null) {
-    if (!attemptId) return;
-    await this.prisma.attendanceImportBatch
+  private async beat(batchId: string, attemptId: string | null): Promise<boolean> {
+    if (!attemptId) return false;
+    const result = await this.prisma.attendanceImportBatch
       .updateMany({
         where: { id: batchId, applyAttemptId: attemptId },
         data: { applyHeartbeatAt: this.tva.now() },
       })
-      .catch(() => {});
+      .catch(() => ({ count: 0 }));
+
+    // Zero rows updated means the attempt id moved on: somebody resumed this
+    // batch while we were working, and we are the zombie now.
+    return result.count > 0;
   }
 
   /**
@@ -476,11 +540,22 @@ export class AttendanceImportApplyService {
   }
 
   /**
-   * Reclassifies a batch against current authoritative state.
+   * Reclassifies a batch against CURRENT authoritative state.
    *
-   * The only way out of REVIEW_REQUIRED. Approval is cleared, because an
-   * approval describes a comparison and that comparison has changed: letting
-   * the old one stand would apply rows a human agreed to under different facts.
+   * The only way out of REVIEW_REQUIRED, and a real review rather than a state
+   * reset. Resetting rows to PENDING and asking for a fresh approval would put
+   * a new signature on an old comparison -- HR would be approving what was true
+   * when the batch was uploaded, which is exactly the thing that stopped being
+   * true.
+   *
+   * THE PROPOSAL IS NOT RE-READ. proposedStatus, the punch times, the half day,
+   * the leave type and the reason are the submitted claim, frozen at upload.
+   * Only the CURRENT side is refreshed. A parser that behaves differently today
+   * must never be able to change what somebody submitted last week.
+   *
+   * The comparison runs through the Phase 3 classifier -- the same one the
+   * upload used -- so a re-previewed row is judged by identical rules rather
+   * than by a second implementation that agrees today.
    */
   async rePreview(actor: any, batchId: string) {
     this.assertHrAuthority(actor, 're-preview');
@@ -492,25 +567,56 @@ export class AttendanceImportApplyService {
         'Only a batch that stopped because the facts changed needs re-previewing.',
       );
     }
-
-    // The rows that never landed. APPLIED rows are history and are never
-    // reconsidered.
-    const reset = await this.prisma.attendanceImportRow.updateMany({
-      where: { batchId, applyState: { in: ['SKIPPED_STALE', 'FAILED'] } },
-      data: { applyState: 'PENDING', failureReason: null },
+    // APPLIED rows are history and are never reconsidered: not reclassified,
+    // not re-snapshotted, not unlinked from the correction they produced.
+    const unresolved = await this.prisma.attendanceImportRow.findMany({
+      where: { batchId, applyState: { in: ['SKIPPED_STALE', 'FAILED', 'PENDING'] } },
+      orderBy: [{ businessDate: 'asc' }, { rowNumber: 'asc' }],
     });
+
+    const actionable = unresolved.filter((r) => r.classification !== 'MATCH');
+    const refreshed = await this.reclassify(actionable);
+
+    // Applied in bounded chunks; each row's refreshed comparison is one update.
+    for (const row of refreshed) {
+      await this.prisma.attendanceImportRow.update({
+        where: { id: row.id },
+        data: {
+          classification: row.classification as any,
+          messages: row.messages,
+          warnings: row.warnings,
+          currentStatus: row.currentStatus as any,
+          currentPunchIn: row.currentPunchIn,
+          currentPunchOut: row.currentPunchOut,
+          currentPunchInEvidenceId: row.currentPunchInEvidenceId,
+          currentPunchOutEvidenceId: row.currentPunchOutEvidenceId,
+          currentFingerprint: row.currentFingerprint,
+          // Back to never-attempted, now that the comparison is current.
+          applyState: 'PENDING',
+          failureReason: null,
+        },
+      });
+    }
+
+    const counts = await this.recount(batchId);
 
     const updated = await this.prisma.attendanceImportBatch.update({
       where: { id: batchId },
       data: {
-        status: 'READY_FOR_REVIEW',
-        // Cleared deliberately: a fresh approval is required, by a human, on
-        // the new comparison.
+        status: counts.invalid > 0 || counts.conflict > 0 ? 'HAS_ERRORS' : 'READY_FOR_REVIEW',
+        // CLEARED. An approval describes a comparison, and the comparison has
+        // changed; the original stays visible in the event stream, but it
+        // cannot authorise what HR has not seen.
         approvedById: null,
         approvedAt: null,
         applyAttemptId: null,
         applyHeartbeatAt: null,
         failureReason: null,
+        newRows: counts.newRows,
+        matchRows: counts.match,
+        changeRows: counts.change,
+        conflictRows: counts.conflict,
+        invalidRows: counts.invalid,
       },
     });
 
@@ -521,12 +627,165 @@ export class AttendanceImportApplyService {
         entityId: batchId,
         action: 'ATTENDANCE_IMPORT_REPREVIEW' as any,
         fromState: batch.status,
-        toState: 'READY_FOR_REVIEW',
-        metadata: { reference: batch.reference, rowsReturnedToPending: reset.count },
+        toState: updated.status,
+        metadata: {
+          reference: batch.reference,
+          reclassified: refreshed.length,
+          previousApprovedById: batch.approvedById,
+          ...counts,
+        },
       })
       .catch(() => {});
 
     return updated;
+  }
+
+  /**
+   * The Phase 3 classifier, run against today rather than against upload day.
+   *
+   * The frozen proposal is handed back to the same classifyRow() the upload
+   * used; only the context around it is rebuilt from current truth.
+   */
+  private async reclassify(rows: any[]) {
+    if (rows.length === 0) return [];
+
+    const userIds = [...new Set(rows.map((r) => r.userId).filter(Boolean))];
+    const dates = rows.map((r) => this.tva.companyBusinessDate(r.businessDate)).sort();
+    const from = dates[0];
+    const to = dates[dates.length - 1];
+
+    const [records, monthCloses, openCorrections] = await Promise.all([
+      this.prisma.dailyAttendance.findMany({
+        where: {
+          userId: { in: userIds },
+          date: {
+            gte: this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`)),
+            lte: this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`)),
+          },
+        },
+        select: {
+          userId: true, date: true, status: true, punchInAt: true, punchOutAt: true,
+          evaluationState: true, locked: true, punchInEvidenceId: true,
+          punchOutEvidenceId: true, sourceFingerprint: true,
+        },
+      }),
+      this.prisma.attendanceMonthClose.findMany({
+        where: { month: { in: [...new Set(dates.map((d) => d.slice(0, 7)))] } },
+        select: { month: true, status: true },
+      }),
+      this.prisma.attendanceRegularization.findMany({
+        where: {
+          userId: { in: userIds },
+          status: { in: [...OPEN_CORRECTION_STATUSES] },
+          date: {
+            gte: this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`)),
+            lte: this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`)),
+          },
+        },
+        select: { userId: true, date: true },
+      }),
+    ]);
+
+    const key = (userId: string, businessDate: string) => `${userId}|${businessDate}`;
+    const currentByKey = new Map(
+      records.map((r) => [
+        key(r.userId, this.tva.companyBusinessDate(r.date)),
+        {
+          status: r.status,
+          punchInAt: r.punchInAt,
+          punchOutAt: r.punchOutAt,
+          evaluationState: r.evaluationState,
+          locked: r.locked,
+          punchInEvidenceId: r.punchInEvidenceId,
+          punchOutEvidenceId: r.punchOutEvidenceId,
+          sourceFingerprint: r.sourceFingerprint,
+        },
+      ]),
+    );
+
+    // Leave is re-asked for the rows that claim it, exactly as at upload.
+    const approvedLeaveByKey = new Map<string, { kind: string }>();
+    const leaveRows = rows.filter(
+      (r) => r.proposedStatus === 'LEAVE' || r.proposedStatus === 'LWP',
+    );
+    for (const row of leaveRows) {
+      const businessDate = this.tva.companyBusinessDate(row.businessDate);
+      const fact = await this.leaveFacts
+        .resolveForDate(row.userId, businessDate)
+        .catch(() => ({ kind: 'NONE' as const }));
+      approvedLeaveByKey.set(key(row.userId, businessDate), fact as any);
+    }
+
+    const context = {
+      currentByKey,
+      monthStatusByMonth: new Map(monthCloses.map((m) => [m.month, m.status])),
+      openCorrections: new Set(
+        openCorrections.map((c) => key(c.userId, this.tva.companyBusinessDate(c.date))),
+      ),
+      approvedLeaveByKey,
+      // Within-file duplicates were settled at upload and made those rows
+      // INVALID; nothing unresolved can be one.
+      duplicateRows: new Map(),
+    };
+
+    return rows.map((row) => {
+      const businessDate = this.tva.companyBusinessDate(row.businessDate);
+      const classified = classifyRow(
+        {
+          rowNumber: row.rowNumber,
+          raw: {
+            rowNumber: row.rowNumber,
+            rawEmployeeId: row.rawEmployeeId,
+            rawEmployeeName: row.rawName ?? '',
+          } as any,
+          problems: [],
+          warnings: [],
+          // THE FROZEN CLAIM, handed back unchanged.
+          proposal: {
+            userId: row.userId,
+            employeeId: row.rawEmployeeId,
+            employeeName: row.rawName ?? '',
+            businessDate,
+            proposedStatus: row.proposedStatus,
+            proposedPunchIn: row.proposedPunchIn,
+            proposedPunchOut: row.proposedPunchOut,
+            proposedHalfDay: row.proposedHalfDay,
+            proposedLeaveType: row.proposedLeaveType,
+            normalizedReason: row.normalizedReason ?? '',
+          },
+        } as any,
+        context as any,
+      );
+
+      const current = currentByKey.get(key(row.userId, businessDate));
+      return {
+        id: row.id,
+        classification: classified.classification,
+        messages: [
+          ...classified.errors.map((e) => e.code),
+          ...classified.conflicts.map((c) => c.code),
+        ],
+        warnings: classified.warnings.map((w) => w.code),
+        currentStatus: current?.status ?? null,
+        currentPunchIn: current?.punchInAt ?? null,
+        currentPunchOut: current?.punchOutAt ?? null,
+        currentPunchInEvidenceId: current?.punchInEvidenceId ?? null,
+        currentPunchOutEvidenceId: current?.punchOutEvidenceId ?? null,
+        currentFingerprint: current?.sourceFingerprint ?? null,
+      };
+    });
+  }
+
+  /** Counts read back from the rows, never carried forward from before. */
+  private async recount(batchId: string) {
+    const [newRows, match, change, conflict, invalid] = await Promise.all([
+      this.prisma.attendanceImportRow.count({ where: { batchId, classification: 'NEW' } }),
+      this.prisma.attendanceImportRow.count({ where: { batchId, classification: 'MATCH' } }),
+      this.prisma.attendanceImportRow.count({ where: { batchId, classification: 'CHANGE' } }),
+      this.prisma.attendanceImportRow.count({ where: { batchId, classification: 'CONFLICT' } }),
+      this.prisma.attendanceImportRow.count({ where: { batchId, classification: 'INVALID' } }),
+    ]);
+    return { newRows, match, change, conflict, invalid };
   }
 
   /**
@@ -542,11 +801,26 @@ export class AttendanceImportApplyService {
     row: any,
     batch: any,
     applierId: string,
-  ): Promise<'APPLIED' | 'SKIPPED_STALE' | 'FAILED'> {
+  ): Promise<'APPLIED' | 'SKIPPED_STALE' | 'FAILED' | 'LOST_OWNERSHIP'> {
     const businessDate = this.tva.companyBusinessDate(row.businessDate);
 
     try {
       await this.prisma.$transaction(async (tx) => {
+        // OWNERSHIP, INSIDE THE TRANSACTION THAT WOULD WRITE.
+        //
+        // Protecting the heartbeat is not enough. A worker that stalls past its
+        // lease, is replaced, and then wakes must not go on revising
+        // attendance -- so the right to write is re-proved here, in the same
+        // transaction as the write, rather than assumed from a claim made
+        // minutes ago.
+        const owner = await tx.attendanceImportBatch.findUnique({
+          where: { id: batch.id },
+          select: { applyAttemptId: true },
+        });
+        if (!owner || owner.applyAttemptId !== batch.applyAttemptId) {
+          throw new LostOwnership();
+        }
+
         // The Phase 2B lock, shared rather than reimplemented. Held before
         // anything is read, so a month finalized between the read and the write
         // cannot slip through.
@@ -658,6 +932,10 @@ export class AttendanceImportApplyService {
 
       return 'APPLIED';
     } catch (error: any) {
+      // Not our batch any more. Write nothing at all, not even a row status:
+      // these rows belong to whoever holds the current attempt.
+      if (error instanceof LostOwnership) return 'LOST_OWNERSHIP';
+
       const isStale = error instanceof StaleRow || error instanceof SettledAttendanceError;
 
       await this.prisma.attendanceImportRow
@@ -682,6 +960,13 @@ export class AttendanceImportApplyService {
  * system working, and re-previewing resolves it, where a failure wants
  * investigating.
  */
+export class LostOwnership extends Error {
+  constructor() {
+    super('This batch was taken over by another apply attempt.');
+    this.name = 'LostOwnership';
+  }
+}
+
 export class StaleRow extends Error {
   constructor(message: string) {
     super(message);

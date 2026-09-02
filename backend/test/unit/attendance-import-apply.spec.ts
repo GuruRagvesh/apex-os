@@ -66,7 +66,13 @@ function rig(over: any = {}) {
   const client: any = {
     $queryRaw: jest.fn((...args: any[]) => { locks.push(args); return Promise.resolve([]); }),
     attendanceImportBatch: {
-      findUnique: jest.fn(async () => batch),
+      findUnique: jest.fn(async () => {
+        // Simulates another worker claiming the batch mid-run.
+        if (over.stealAfterRows !== undefined && created.length >= over.stealAfterRows) {
+          return { ...batch, applyAttemptId: 'someone-elses-attempt' };
+        }
+        return batch;
+      }),
       update: jest.fn(async ({ data }: any) => { Object.assign(batch, data); return { ...batch }; }),
       // Scoped to the attempt id, exactly as the heartbeat is: a mock that
       // ignored the where clause would let a zombie worker refresh somebody
@@ -84,11 +90,25 @@ function rig(over: any = {}) {
         hit.forEach((r) => Object.assign(r, data));
         return { count: hit.length };
       }),
+      // Counts read from the ACTUAL rows unless a test deliberately overrides
+      // one. A mock that always returned the override would let a re-preview
+      // reclassify a row to CONFLICT and still report the batch approvable --
+      // the test would be measuring the double, not the code.
       count: jest.fn(async ({ where }: any) => {
-        if (where.classification === 'INVALID') return over.invalidRows ?? 0;
-        if (where.classification === 'CONFLICT') return over.conflictRows ?? 0;
-        if (where.classification === 'MATCH') return over.matchRows ?? 0;
-        if (where.userId) return rows.filter((r) => r.userId === where.userId).length;
+        if (where.userId) {
+          return rows.filter(
+            (r) => r.userId === where.userId && ['NEW', 'CHANGE'].includes(r.classification),
+          ).length;
+        }
+        const cls = where.classification;
+        const override = {
+          INVALID: over.invalidRows,
+          CONFLICT: over.conflictRows,
+          MATCH: over.matchRows,
+        }[cls as string];
+        if (override !== undefined) return override;
+        if (cls?.in) return rows.filter((r) => cls.in.includes(r.classification)).length;
+        if (cls) return rows.filter((r) => r.classification === cls).length;
         return rows.length;
       }),
       // The where clause is HONOURED here on purpose. A mock that filters by
@@ -97,10 +117,14 @@ function rig(over: any = {}) {
       // would be testing the double, not the code.
       findMany: jest.fn(async ({ where }: any) => {
         const classes: string[] | undefined = where?.classification?.in;
+        const states: string[] | undefined = where?.applyState?.in;
+        const state: string | undefined =
+          typeof where?.applyState === 'string' ? where.applyState : undefined;
         return rows.filter(
           (r) =>
             (!classes || classes.includes(r.classification)) &&
-            (where?.applyState === undefined || r.applyState === where.applyState),
+            (!states || states.includes(r.applyState)) &&
+            (state === undefined || r.applyState === state),
         );
       }),
       update: jest.fn(async ({ where, data }: any) => {
@@ -112,12 +136,18 @@ function rig(over: any = {}) {
     },
     dailyAttendance: {
       findUnique: jest.fn(async () => over.current ?? null),
+      // Re-preview reads current truth in bulk through the Phase 3 classifier.
+      findMany: jest.fn(async () => over.currentRecords ?? []),
     },
     attendanceMonthClose: {
       findUnique: jest.fn(async () => (over.monthStatus ? { status: over.monthStatus } : null)),
+      findMany: jest.fn(async () =>
+        over.monthStatus ? [{ month: '2026-08', status: over.monthStatus }] : [],
+      ),
     },
     attendanceRegularization: {
       findFirst: jest.fn(async () => over.openCorrection ?? null),
+      findMany: jest.fn(async () => over.openCorrections ?? []),
       create: jest.fn(async ({ data }: any) => {
         const row = { id: `reg-${created.length + 1}`, ...data };
         created.push(row);
@@ -136,9 +166,19 @@ function rig(over: any = {}) {
     }),
   };
 
+  // A clock that can be made to advance, so a time-gated heartbeat can be
+  // observed without waiting twenty real seconds. Only now() moves; every
+  // date-arithmetic helper is the real one.
+  let tick = 0;
+  const clock: any = over.clockStep
+    ? Object.assign(Object.create(Object.getPrototypeOf(tva)), tva, {
+        now: () => new Date(Date.now() + (tick++) * over.clockStep),
+      })
+    : tva;
+
   const service = new AttendanceImportApplyService(
     prisma,
-    tva,
+    clock,
     { isHrOrAdmin: (a: any) => Boolean(a?.isHR) || ['ADMIN', 'SUPER_ADMIN'].includes(a?.role?.name) } as any,
     { log: jest.fn().mockResolvedValue(undefined) } as any,
     evaluator,
@@ -514,18 +554,37 @@ describe('nothing here writes attendance directly', () => {
 
 // ════════════════════════════════════════════════════════════════════════════
 describe('what a finished batch is called', () => {
+  const outcome = (over: any) =>
+    batchOutcome({ totalRows: 4, invalid: 0, conflict: 0, actionable: 4, applied: 0, stale: 0, failed: 0, ...over });
+
   it('35. the outcome rules, stated as a table', () => {
     // Row APPLIED and batch APPLIED mean different things on purpose. A row is
     // APPLIED when it produced a revision; a batch is APPLIED when it was fully
     // processed with nothing left to do.
-    expect(batchOutcome({ actionable: 0, applied: 0, stale: 0, failed: 0 })).toBe('APPLIED');
-    expect(batchOutcome({ actionable: 4, applied: 4, stale: 0, failed: 0 })).toBe('APPLIED');
-    expect(batchOutcome({ actionable: 4, applied: 3, stale: 1, failed: 0 })).toBe('PARTIALLY_APPLIED');
-    expect(batchOutcome({ actionable: 4, applied: 3, stale: 0, failed: 1 })).toBe('PARTIALLY_APPLIED');
-    expect(batchOutcome({ actionable: 4, applied: 0, stale: 4, failed: 0 })).toBe('REVIEW_REQUIRED');
-    expect(batchOutcome({ actionable: 4, applied: 0, stale: 0, failed: 4 })).toBe('FAILED');
+    expect(outcome({ totalRows: 4000, actionable: 0 })).toBe('APPLIED');
+    expect(outcome({ applied: 4 })).toBe('APPLIED');
+    expect(outcome({ applied: 3, stale: 1 })).toBe('PARTIALLY_APPLIED');
+    expect(outcome({ applied: 3, failed: 1 })).toBe('PARTIALLY_APPLIED');
+    expect(outcome({ stale: 4 })).toBe('REVIEW_REQUIRED');
+    expect(outcome({ failed: 4 })).toBe('FAILED');
     // A runtime failure alongside staleness is still something to investigate.
-    expect(batchOutcome({ actionable: 4, applied: 0, stale: 3, failed: 1 })).toBe('FAILED');
+    expect(outcome({ stale: 3, failed: 1 })).toBe('FAILED');
+  });
+
+  it('35b. AN EMPTY BATCH CAN NEVER BE A SUCCESS', () => {
+    // "Nothing to do" and "there was never anything here" produce the same
+    // actionable count and mean opposite things. The helper takes totalRows so
+    // the distinction is a rule rather than an assumption about the caller.
+    expect(outcome({ totalRows: 0, actionable: 0 })).toBe('FAILED');
+    expect(outcome({ totalRows: 0, actionable: 0, applied: 0, stale: 0, failed: 0 })).toBe('FAILED');
+  });
+
+  it('35c. a batch carrying known-bad rows can never be a success', () => {
+    // Approval already refuses these; reaching the outcome helper with them
+    // means something upstream let a known-bad batch through, and papering
+    // over that would apply some rows while silently dropping others.
+    expect(outcome({ invalid: 1, applied: 3 })).toBe('FAILED');
+    expect(outcome({ conflict: 1, applied: 3 })).toBe('FAILED');
   });
 
   it('36. AN ALL-MATCH BATCH IS A SUCCESS', async () => {
@@ -622,12 +681,42 @@ describe('the apply lease', () => {
   });
 
   it('42. a heartbeat only refreshes the attempt that owns the batch', async () => {
-    const { service, client } = rig({ status: 'APPROVED', approvedById: 'hr-2' });
+    // The clock is pushed past the interval so the time-gated heartbeat
+    // actually fires; a one-row run finishes far too fast to reach it.
+    const { service, client } = rig({
+      status: 'APPROVED',
+      approvedById: 'hr-2',
+      clockStep: 30_000,
+      rows: [importRow({ id: 'r1' }), importRow({ id: 'r2', userId: 'u2' })],
+    });
     await service.apply(HR, 'batch-1');
 
+    expect(client.attendanceImportBatch.updateMany).toHaveBeenCalled();
     const beat = client.attendanceImportBatch.updateMany.mock.calls[0][0];
-    // Scoped, so a zombie worker cannot make a live run look dead.
+    // Scoped, so a zombie worker cannot make a live run look dead -- or keep a
+    // lease alive that somebody else now owns.
     expect(beat.where.applyAttemptId).toBeTruthy();
+    expect(beat.data).toEqual({ applyHeartbeatAt: expect.any(Date) });
+  });
+
+  it('42b. losing the batch mid-run stops the worker rather than writing on', async () => {
+    // Attempt A stalls, is replaced, then wakes. It must not go on revising
+    // attendance: the right to write is re-proved inside the transaction that
+    // would do the writing.
+    const { service, created, batch } = rig({
+      status: 'APPROVED',
+      approvedById: 'hr-2',
+      rows: [importRow({ id: 'r1' }), importRow({ id: 'r2', userId: 'u2' })],
+      stealAfterRows: 1,
+    });
+
+    const out = await service.apply(HR, 'batch-1');
+
+    expect(out.status).toBe('SUPERSEDED');
+    // One row landed before the takeover; nothing after it.
+    expect(created).toHaveLength(1);
+    // The batch status belongs to whoever holds the current attempt now.
+    expect(batch.status).toBe('APPLYING');
   });
 
   it('43. a batch that is not mid-apply cannot be resumed', async () => {
@@ -706,5 +795,174 @@ describe('re-preview is the only way out of REVIEW_REQUIRED', () => {
 
     expect(batch.status).toBe('READY_FOR_REVIEW');
     await expect(service.apply(HR, 'batch-1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('re-preview compares against today, not against upload day', () => {
+  const stale = (over: any = {}) =>
+    rig({
+      status: 'REVIEW_REQUIRED',
+      approvedById: 'hr-2',
+      rows: [
+        importRow({
+          id: 'stale',
+          applyState: 'SKIPPED_STALE',
+          classification: 'CHANGE',
+          // What HR was shown at upload, and what must not survive a re-preview.
+          currentStatus: 'MISSING_PUNCH',
+          currentPunchIn: null,
+          currentPunchOut: null,
+          currentPunchInEvidenceId: null,
+          currentPunchOutEvidenceId: null,
+          currentFingerprint: 'fingerprint-at-upload',
+        }),
+      ],
+      ...over,
+    });
+
+  const currentRecord = (over: any = {}) => ({
+    userId: 'u1',
+    date: DATE,
+    status: 'PRESENT',
+    punchInAt: new Date('2026-08-14T04:22:00.000Z'),
+    punchOutAt: new Date('2026-08-14T13:30:00.000Z'),
+    evaluationState: 'CALCULATED',
+    locked: false,
+    punchInEvidenceId: 'ev-in-now',
+    punchOutEvidenceId: 'ev-out-now',
+    sourceFingerprint: 'fingerprint-today',
+    ...over,
+  });
+
+  it('50. every current-side field is refreshed from live truth', async () => {
+    // The whole point. Resetting rows to PENDING and asking for a fresh
+    // approval would put a new signature on an old comparison.
+    const { service, rows } = stale({ currentRecords: [currentRecord()] });
+    await service.rePreview(HR, 'batch-1');
+
+    const row = rows[0];
+    expect(row.currentFingerprint).toBe('fingerprint-today');
+    expect(row.currentStatus).toBe('PRESENT');
+    expect(row.currentPunchIn).toEqual(new Date('2026-08-14T04:22:00.000Z'));
+    expect(row.currentPunchOut).toEqual(new Date('2026-08-14T13:30:00.000Z'));
+    expect(row.currentPunchInEvidenceId).toBe('ev-in-now');
+    expect(row.currentPunchOutEvidenceId).toBe('ev-out-now');
+    expect(row.applyState).toBe('PENDING');
+  });
+
+  it('51. THE PROPOSAL IS FROZEN — only the current side moves', async () => {
+    // The submitted claim is what somebody uploaded. A parser that behaves
+    // differently today must never be able to change it, so re-preview reads
+    // proposedStatus and never rawStatus.
+    const { service, rows } = stale({
+      rows: [
+        importRow({
+          id: 'stale',
+          applyState: 'SKIPPED_STALE',
+          classification: 'CHANGE',
+          proposedStatus: 'PRESENT',
+          // Deliberately disagrees with the frozen proposal. If re-preview
+          // reached for the raw cell, the classification would follow it.
+          rawStatus: 'ABSENT',
+          currentFingerprint: 'old',
+        }),
+      ],
+      currentRecords: [currentRecord({ status: 'ABSENT', punchInAt: null, punchOutAt: null })],
+    });
+
+    await service.rePreview(HR, 'batch-1');
+
+    // PRESENT proposed against an ABSENT record is still a CHANGE. Had the raw
+    // ABSENT been used, it would have come back MATCH and quietly disappeared.
+    expect(rows[0].classification).toBe('CHANGE');
+    expect(rows[0].proposedStatus).toBe('PRESENT');
+  });
+
+  it('52. a stale row that has become correct comes back as MATCH', async () => {
+    // Somebody else corrected the day to the same value while the batch sat.
+    // That is successful reconciliation, not work still to do.
+    const { service, rows } = stale({
+      currentRecords: [
+        currentRecord({
+          status: 'PRESENT',
+          punchInAt: new Date('2026-08-14T04:08:00.000Z'),
+          punchOutAt: new Date('2026-08-14T13:12:00.000Z'),
+        }),
+      ],
+    });
+
+    await service.rePreview(HR, 'batch-1');
+
+    expect(rows[0].classification).toBe('MATCH');
+  });
+
+  it('53. a row that has become unsafe blocks approval rather than staying READY', async () => {
+    const { service, batch, rows } = stale({
+      currentRecords: [currentRecord()],
+      monthStatus: 'SENT',
+    });
+
+    await service.rePreview(HR, 'batch-1');
+
+    expect(rows[0].classification).toBe('CONFLICT');
+    // Not READY_FOR_REVIEW: a batch carrying a conflict is not approvable, and
+    // saying otherwise would invite an approval that apply must then refuse.
+    expect(batch.status).toBe('HAS_ERRORS');
+  });
+
+  it('54. an open correction raised meanwhile is a conflict', async () => {
+    const { service, rows } = stale({
+      currentRecords: [currentRecord()],
+      openCorrections: [{ userId: 'u1', date: DATE }],
+    });
+
+    await service.rePreview(HR, 'batch-1');
+    expect(rows[0].classification).toBe('CONFLICT');
+  });
+
+  it('55. leave authority that has disappeared is a conflict', async () => {
+    const { service, rows } = stale({
+      rows: [
+        importRow({
+          id: 'stale',
+          applyState: 'SKIPPED_STALE',
+          classification: 'CHANGE',
+          proposedStatus: 'LEAVE',
+          proposedPunchIn: null,
+          proposedPunchOut: null,
+        }),
+      ],
+      currentRecords: [],
+      leave: { kind: 'NONE' },
+    });
+
+    await service.rePreview(HR, 'batch-1');
+    expect(rows[0].classification).toBe('CONFLICT');
+  });
+});
+
+describe('a worker that loses the batch stops beating and stops working', () => {
+  it('56. a heartbeat that updates nothing ends the run', async () => {
+    // beat() reporting success unconditionally would let a superseded worker
+    // carry on through the remaining rows.
+    const { service, client } = rig({
+      status: 'APPROVED',
+      approvedById: 'hr-2',
+      clockStep: 30_000,
+      rows: [
+        importRow({ id: 'r1' }),
+        importRow({ id: 'r2', userId: 'u2' }),
+        importRow({ id: 'r3', userId: 'u3' }),
+      ],
+    });
+
+    // The attempt id moves on under us: every heartbeat now matches no rows.
+    client.attendanceImportBatch.updateMany.mockResolvedValue({ count: 0 });
+
+    const out = await service.apply(HR, 'batch-1');
+
+    // It stopped rather than working through the rest of the batch.
+    expect(out.applied).toBeLessThan(3);
   });
 });
