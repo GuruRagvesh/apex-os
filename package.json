@@ -2,7 +2,10 @@
   "name": "apex-os",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["backend", "frontend"],
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
     "dev:backend": "cd backend && npm run start:dev",
     "dev:frontend": "cd frontend && npm run dev",
@@ -18,6 +21,7 @@
     "backend:build": "npm --prefix backend run build",
     "backend:start": "npm --prefix backend run start:prod",
     "backend:verify-deployment-layout": "node scripts/deployment/verify-backend-root-layout.mjs",
-    "backend:verify-module-identity": "node scripts/deployment/verify-backend-module-identity.mjs"
+    "backend:verify-module-identity": "node scripts/deployment/verify-backend-module-identity.mjs",
+    "frontend:verify-import": "node scripts/frontend/verify-attendance-import.mjs"
   }
 }

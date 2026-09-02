@@ -1,7 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuthStore } from '@apex/core-identity';
+import { canPrepare } from './import-presentation';
 import { ManualRecoveryForm } from './ManualRecoveryForm';
 import {
   downloadRegister,
@@ -65,6 +68,7 @@ const TAB_LABEL = {
 
 export function AttendanceConsole() {
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
   const [businessDate, setBusinessDate] = useState(initialBusinessDate);
   const [tab, setTab] = useState<keyof typeof TAB_LABEL>('roster');
   const [month, setMonth] = useState(() => currentMonth());
@@ -253,21 +257,37 @@ export function AttendanceConsole() {
         </div>
       )}
 
-      <div className="flex gap-2">
-        {(['roster', 'register'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={[
-              'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-              tab === t
-                ? 'bg-[var(--accent)] text-[var(--text-inverse)]'
-                : 'apex-text-muted border border-[var(--border-secondary)]',
-            ].join(' ')}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+          {(['roster', 'register'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={[
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                tab === t
+                  ? 'bg-[var(--accent)] text-[var(--text-inverse)]'
+                  : 'apex-text-muted border border-[var(--border-secondary)]',
+              ].join(' ')}
+            >
+              {TAB_LABEL[t]}
+            </button>
+          ))}
+        </div>
+
+        {/* An ACTION, not a third tab.
+            Importing is occasional, deliberate work with its own multi-step
+            flow; a permanent tab would put it beside the two questions HR
+            actually asks daily, and the console was deliberately reduced to
+            those two. It is styled as a link so it does not read as a tab. */}
+        {canPrepare(user as any) && (
+          <Link
+            href="/attendance/import"
+            className="apex-text-muted text-sm underline underline-offset-2"
           >
-            {TAB_LABEL[t]}
-          </button>
-        ))}
+            Import / Update Data →
+          </Link>
+        )}
       </div>
 
       {recovering && (
