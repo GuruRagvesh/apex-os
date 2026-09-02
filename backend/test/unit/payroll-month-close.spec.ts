@@ -1,3 +1,4 @@
+import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
@@ -26,7 +27,9 @@ function build(over: any = {}) {
   const audit: any[] = [];
   const sent: any[] = [];
 
-  const advisoryLocks: any[] = [];
+  const raw = makeRawSqlDouble();
+  // The lock statements, as actually sent.
+  const advisoryLocks = raw.executed;
 
   const prisma: any = {
     // finalize() and send() now run inside one transaction each, holding the
@@ -34,10 +37,10 @@ function build(over: any = {}) {
     // is what a Prisma interactive transaction does from the callee's point of
     // view, and records the lock so a test can assert it was actually taken.
     $transaction: jest.fn((fn: any) => fn(prisma)),
-    $queryRaw: jest.fn((...args: any[]) => {
-      advisoryLocks.push(args);
-      return Promise.resolve([]);
-    }),
+    // An honest raw-SQL double: it rejects void-returning SQL sent as a
+    // query, exactly as PostgreSQL's driver does, so a month lock issued
+    // the wrong way fails here rather than only against a real database.
+    ...raw,
     user: {
       findMany: jest.fn().mockResolvedValue(
         over.employees ?? [
@@ -556,7 +559,7 @@ describe('the close path holds the month it is closing', () => {
 
     // The lock must come before the close row is read, or the read is of a
     // state that can change before the write.
-    const lockOrder = prisma.$queryRaw.mock.invocationCallOrder[0];
+    const lockOrder = prisma.$executeRaw.mock.invocationCallOrder[0];
     const readOrder = prisma.attendanceMonthClose.findUnique.mock.invocationCallOrder[0];
     expect(lockOrder).toBeLessThan(readOrder);
   });

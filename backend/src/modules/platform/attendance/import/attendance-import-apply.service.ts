@@ -213,9 +213,20 @@ export class AttendanceImportApplyService {
             'Fix the file and upload it again, so nothing is applied while something known-bad is skipped.',
         );
       }
-      if (applicable === 0) {
-        throw new BadRequestException('Every row already matches Apex OS. There is nothing to apply.');
-      }
+      // A batch where every row already agrees is APPROVABLE, deliberately.
+      //
+      // This used to be refused as "nothing to apply". Three things were wrong
+      // with that. It left a fully reconciled batch stuck in READY_FOR_REVIEW,
+      // which is not what it was; it made the all-MATCH success outcome in
+      // batchOutcome() unreachable, so a rule we rely on was never exercised;
+      // and it drew the line in an indefensible place -- 99 MATCH plus one
+      // CHANGE was allowed through, while 100 MATCH, the strictly safer file,
+      // was not.
+      //
+      // An all-MATCH result is also the outcome a reconciliation run hopes for:
+      // "the biometric export agrees with Apex OS on every day". That deserves
+      // to be recorded, with who checked it and when, rather than refused.
+      // It applies as APPLIED with applied = 0 and noOps = N, and writes nothing.
 
       // AN APPROVER MAY NOT APPROVE THEIR OWN ATTENDANCE.
       //

@@ -59,10 +59,25 @@ export function monthLockKey(month: string): number {
  *
  * Must be called INSIDE an interactive transaction -- an xact-scoped advisory
  * lock taken outside one is released immediately and protects nothing.
+ *
+ * $executeRaw, NOT $queryRaw, AND THIS IS NOT A STYLE PREFERENCE.
+ *
+ * pg_advisory_xact_lock() returns void. $queryRaw reads the result set back
+ * and tries to deserialize every column, and Prisma has no mapping for void:
+ * the call fails with "Failed to deserialize column of type 'void'" AFTER
+ * PostgreSQL has taken the lock, so the transaction rolls back and the lock is
+ * released. The month would then be protected by a function that throws every
+ * time it is called.
+ *
+ * $executeRaw sends the same statement and asks only for the row count, so
+ * nothing is deserialized and the lock survives to the end of the transaction.
+ *
+ * A mocked tx cannot tell these apart -- a jest.fn() answers both happily --
+ * which is why this is asserted by a PostgreSQL-backed test and not a unit one.
  */
 export async function lockAttendanceMonth(tx: any, month: string): Promise<void> {
   const key = monthLockKey(month);
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${ATTENDANCE_MONTH_LOCK_NAMESPACE}::int, ${key}::int)`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ATTENDANCE_MONTH_LOCK_NAMESPACE}::int, ${key}::int)`;
 }
 
 export const MONTH_LOCK_NAMESPACE_FOR_TEST = ATTENDANCE_MONTH_LOCK_NAMESPACE;

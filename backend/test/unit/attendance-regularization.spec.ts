@@ -1,3 +1,4 @@
+import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 import { RegularizationService, StaleCorrectionError, RegularizationDisabledError } from '../../src/modules/platform/attendance/regularization/regularization.service';
 import { RegularizationController } from '../../src/modules/platform/attendance/regularization/regularization.controller';
 import { DailyAttendanceEvaluatorService } from '../../src/modules/platform/attendance/evaluation/daily-attendance-evaluator.service';
@@ -106,7 +107,7 @@ function evaluatorRig(f: EvalFixtures = {}) {
     leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
     // Phase 2B: a correction now holds the month advisory lock and reads the
     // close row before writing, whatever authority is asking.
-    $queryRaw: jest.fn().mockResolvedValue([]),
+    ...makeRawSqlDouble(),
     attendanceMonthClose: {
       findUnique: jest.fn().mockResolvedValue(f.monthClose ?? { status: 'OPEN' }),
     },
@@ -473,9 +474,9 @@ function lifecycleRig(f: LifecycleFixtures = {}) {
   const lockOrder: string[] = [];
 
   const tx: any = {
-    $queryRaw: jest.fn((strings: any) => {
-      lockOrder.push(String(Array.isArray(strings) ? strings.join('?') : strings).replace(/\s+/g, ' ').trim());
-      return Promise.resolve([{ id: 'x' }]);
+    ...makeRawSqlDouble((sql) => {
+      lockOrder.push(sql.replace(/\s+/g, ' ').trim());
+      return [{ id: 'x' }];
     }),
     attendanceRegularization: {
       findUnique: jest.fn().mockResolvedValue('request' in f ? f.request : { ...REQUEST, status: 'MANAGER_APPROVED' }),

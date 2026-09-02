@@ -399,9 +399,20 @@ export class DailyAttendanceEvaluatorService {
       // AR-1: the approved correction for this day, if one exists. Corrections
       // change the official INTERPRETATION of the day; the punch rows and work
       // sessions above are read exactly as recorded and never rewritten.
+      // NULLS LAST, and a createdAt tiebreaker, both deliberately.
+      //
+      // "ORDER BY hrDecisionAt DESC" alone puts NULLs FIRST in PostgreSQL. An
+      // HR_APPROVED row with no decision timestamp would therefore outrank
+      // every correction made afterwards, permanently, and freeze the day at
+      // its values with nothing reported anywhere. Every current writer sets
+      // hrDecisionAt, but the column is nullable and backfills do not always
+      // read the code -- so the query is made not to care.
+      //
+      // createdAt breaks the remaining tie: two corrections approved in the
+      // same millisecond otherwise resolve in whatever order the plan returns.
       client.attendanceRegularization.findFirst({
         where: { userId, date, status: 'HR_APPROVED' },
-        orderBy: { hrDecisionAt: 'desc' },
+        orderBy: [{ hrDecisionAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       }),
     ]);
 

@@ -1,3 +1,4 @@
+import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { ConfigService } from '@nestjs/config';
@@ -64,7 +65,9 @@ function rig(over: any = {}) {
   const locks: any[] = [];
 
   const client: any = {
-    $queryRaw: jest.fn((...args: any[]) => { locks.push(args); return Promise.resolve([]); }),
+    // Honest about what PostgreSQL will and will not deserialize: a
+    // void-returning lock asked for as a query is rejected here too.
+    ...makeRawSqlDouble((sql, args) => { locks.push([sql, ...args]); return []; }),
     attendanceImportBatch: {
       findUnique: jest.fn(async () => {
         // Simulates another worker claiming the batch mid-run.
@@ -251,6 +254,27 @@ describe('approval records a decision and writes no attendance', () => {
     expect(batch).toMatchObject({ status: 'APPROVED', approvedById: 'hr-1' });
   });
 
+  it('8b. a batch where every row already matches is approvable', async () => {
+    // This used to be refused as "nothing to apply", which left a fully
+    // reconciled batch stuck in READY_FOR_REVIEW and made the all-MATCH
+    // outcome in batchOutcome() unreachable. It also drew the line in an
+    // indefensible place: 99 MATCH plus one CHANGE was allowed, while 100
+    // MATCH -- the strictly safer file -- was not.
+    const { service, created, revised, batch } = rig({
+      rows: [
+        importRow({ id: 'm1', classification: 'MATCH' }),
+        importRow({ id: 'm2', classification: 'MATCH', userId: 'u2' }),
+      ],
+    });
+
+    await service.approve(HR, 'batch-1');
+
+    expect(batch).toMatchObject({ status: 'APPROVED', approvedById: 'hr-1' });
+    // Still a signature and nothing more.
+    expect(created).toEqual([]);
+    expect(revised).toEqual([]);
+  });
+
   it('9. approval takes a row lock so two approvers cannot both proceed', async () => {
     const { service, client } = rig();
     await service.approve(HR, 'batch-1');
@@ -312,7 +336,10 @@ describe('apply executes against the present, not the preview', () => {
     const { service, client } = approved();
     await service.apply(HR, 'batch-1');
 
-    const sql = client.$queryRaw.mock.calls.map((c: any[]) => String(c[0].join('?')));
+    // $executeRaw, not $queryRaw: pg_advisory_xact_lock() returns void, so
+    // asking for its rows fails against a real database AFTER the lock has
+    // been taken -- rolling back the transaction and releasing it.
+    const sql = client.$executeRaw.mock.calls.map((c: any[]) => String(c[0].join('?')));
     expect(sql.some((s) => s.includes('pg_advisory_xact_lock'))).toBe(true);
   });
 

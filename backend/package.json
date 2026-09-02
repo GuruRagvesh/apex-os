@@ -36,7 +36,8 @@
     "prisma:migrate": "npx prisma migrate dev",
     "prisma:studio": "npx prisma studio",
     "prisma:seed": "npx ts-node prisma/seed.ts",
-    "db:setup": "npx prisma migrate dev --name init && npx ts-node prisma/seed.ts"
+    "db:setup": "npx prisma migrate dev --name init && npx ts-node prisma/seed.ts",
+    "test:int": "jest --config jest.integration.config.js"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

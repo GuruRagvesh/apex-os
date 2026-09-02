@@ -1,3 +1,4 @@
+import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 import {
   SettledAttendanceError,
   assessSettlement,
@@ -262,7 +263,9 @@ function gateRig(over: { day?: any; monthStatus?: string | null } = {}) {
     workSession: { findMany: jest.fn().mockResolvedValue([]) },
     leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
     attendanceRegularization: { findFirst: jest.fn().mockResolvedValue(null) },
-    $queryRaw: jest.fn().mockResolvedValue([]),
+    // An honest raw-SQL double: it refuses void-returning SQL exactly as the
+    // real driver does, so a lock sent the wrong way fails here too.
+    ...makeRawSqlDouble(),
   };
 
   const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
@@ -384,10 +387,10 @@ describe('the settlement gate fires at the only write', () => {
         ),
       ).rejects.toThrow('evaluate() must not be reached');
 
-      const lockCall = tx.$queryRaw.mock.invocationCallOrder[0];
+      const lockCall = tx.$executeRaw.mock.invocationCallOrder[0];
       const readCall = tx.attendanceMonthClose.findUnique.mock.invocationCallOrder[0];
 
-      expect(tx.$queryRaw).toHaveBeenCalled();
+      expect(tx.$executeRaw).toHaveBeenCalled();
       expect(lockCall).toBeLessThan(readCall);
     }
   });
@@ -399,12 +402,17 @@ describe('the settlement gate fires at the only write', () => {
       service.reviseForApprovedCorrection((service as any).prisma, 'emp-1', DATE, 'reg-1'),
     ).rejects.toThrow('evaluate() must not be reached');
 
-    const sql = tx.$queryRaw.mock.calls[0][0].join('?');
+    const sql = tx.$executeRaw.mock.calls[0][0].join('?');
     // xact-scoped: released on commit, on rollback, and on a dropped
     // connection. A session-scoped lock would outlive a failed correction.
     expect(sql).toContain('pg_advisory_xact_lock');
     // 2026-08 -> 202608, readable in pg_locks during an incident.
-    expect(tx.$queryRaw.mock.calls[0].slice(1)).toEqual([MONTH_LOCK_NAMESPACE_FOR_TEST, 202608]);
+    expect(tx.$executeRaw.mock.calls[0].slice(1)).toEqual([MONTH_LOCK_NAMESPACE_FOR_TEST, 202608]);
+    // $executeRaw, not $queryRaw: pg_advisory_xact_lock() returns void, and
+    // asking Prisma for its rows fails after the lock is taken -- rolling the
+    // transaction back and releasing it. Proven against PostgreSQL 18 in
+    // test/integration-pg/b1-advisory-lock.int-spec.ts.
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
     expect(monthLockKey('2026-08')).toBe(202608);
   });
 
