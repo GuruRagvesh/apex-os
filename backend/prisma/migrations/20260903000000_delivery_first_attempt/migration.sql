@@ -1,0 +1,26 @@
+-- Attendance month close: when delivery was FIRST attempted.
+--
+-- WHY THIS COLUMN EXISTS
+--
+-- The monthly Finance handoff carries a deterministic idempotency key, so a
+-- retry of the same report is collapsed by the mail provider rather than
+-- delivered twice. That protection lasts about 24 hours -- after which the
+-- provider has forgotten the key, and the same retry would genuinely put a
+-- second copy of a payroll report in an accountant's inbox.
+--
+-- Deciding whether a retry is still inside that window needs to know when the
+-- FIRST attempt happened. Nothing on this table could answer it:
+--
+--   sentAt       written only on success, so it is silent about failures
+--   finalizedAt  about finalization, not delivery
+--   updatedAt    moves on every write, so it answers a different question
+--                entirely and using it here would be a lie
+--
+-- Set once on the first attempt and never reset. A retry that moved it would
+-- slide the window forward on every attempt and defeat the guard.
+--
+-- Additive and nullable. Existing rows are NULL, which reads correctly as
+-- "never attempted" for a month nobody has sent, and as "attempted before this
+-- column existed" for one already delivered -- neither of which can be retried
+-- anyway, because a delivered month is refused before the provider is reached.
+ALTER TABLE "attendance_month_closes" ADD COLUMN     "deliveryFirstAttemptAt" TIMESTAMP(3);

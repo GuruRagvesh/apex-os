@@ -94,6 +94,7 @@ import {
   attachmentFileName,
   deliveryStatusFor,
   idempotencyKeyFor,
+  firstAttemptStamp,
   mayContactProvider,
   type DeliveryResult,
 } from './finance-handoff';
@@ -530,7 +531,7 @@ export class PayrollReportService {
     // FAILED and UNKNOWN both remain retryable, and both reuse the same key.
     // For UNKNOWN that is exactly what settles the ambiguity: if the first
     // attempt did reach Resend, the retry is collapsed rather than delivered.
-    const gate = mayContactProvider(close);
+    const gate = mayContactProvider(close, this.tva.now());
     if (!gate.allowed) {
       throw new ForbiddenException(gate.reason ?? `${month} cannot be sent`);
     }
@@ -549,6 +550,24 @@ export class PayrollReportService {
         'Attendance has changed since this month was finalized, so the report no longer matches ' +
           'what was approved. Re-finalizing a closed month is not supported in this version.',
       );
+    }
+
+    // THE ATTEMPT IS RECORDED BEFORE THE PROVIDER IS CONTACTED, NOT AFTER.
+    //
+    // What is being timed is when we first TRIED, which is the thing the
+    // idempotency window is measured from. Stamping it after the outcome would
+    // date the attempt by when it finished -- and for the case that matters, a
+    // request that hung and eventually failed, that is the wrong end.
+    //
+    // firstAttemptStamp keeps any existing value. A retry must never move it:
+    // sliding the window forward on every attempt would mean it never expires.
+    const attemptAt = this.tva.now();
+    const firstAttemptAt = firstAttemptStamp(close.deliveryFirstAttemptAt, attemptAt);
+    if (!close.deliveryFirstAttemptAt) {
+      await tx.attendanceMonthClose.update({
+        where: { month },
+        data: { deliveryFirstAttemptAt: firstAttemptAt },
+      });
     }
 
     const filename = attachmentFileName(month);

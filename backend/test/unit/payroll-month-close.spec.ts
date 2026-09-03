@@ -325,6 +325,63 @@ describe('sending is explicit and honest', () => {
   // already went to Finance. UNKNOWN is retryable too, but the retry reuses the
   // same idempotency key, so the provider settles it rather than us guessing.
   // What must never happen is SENT, and it does not.
+  it('measures the idempotency window on the COMPANY clock, not wall time', async () => {
+    // The rig's clock is frozen at 2026-09-01T06:00Z. A first attempt six hours
+    // earlier is comfortably inside the 23-hour window, so this send proceeds.
+    //
+    // Read against real wall time instead, that same attempt is days old and the
+    // send would be refused. So this fails if anything stops passing tva.now()
+    // into the gate -- which is otherwise an invisible omission at the call site.
+    const { service, closes } = build({
+      close: {
+        ...finalized,
+        deliveryStatus: 'UNKNOWN',
+        deliveryFirstAttemptAt: new Date('2026-09-01T00:00:00.000Z'),
+      },
+      renderFingerprint: 'fp-finalized-report',
+    });
+
+    await service.send(HR, '2026-08');
+
+    expect(closes.get('2026-08').status).toBe('SENT');
+  });
+
+  it('does not move the first-attempt stamp when retrying', async () => {
+    // Sliding it forward on each retry would keep the window permanently open
+    // and the expiry could never fire.
+    const first = new Date('2026-09-01T00:00:00.000Z');
+    const { service, closes } = build({
+      close: {
+        ...finalized,
+        deliveryStatus: 'UNKNOWN',
+        deliveryFirstAttemptAt: first,
+      },
+      renderFingerprint: 'fp-finalized-report',
+    });
+
+    await service.send(HR, '2026-08');
+
+    expect(closes.get('2026-08').deliveryFirstAttemptAt).toEqual(first);
+  });
+
+  it('refuses an UNKNOWN whose window has expired, rather than risking a duplicate', async () => {
+    const { service, closes, sent } = build({
+      close: {
+        ...finalized,
+        deliveryStatus: 'UNKNOWN',
+        // Frozen clock is 2026-09-01T06:00Z, so this is three days old.
+        deliveryFirstAttemptAt: new Date('2026-08-29T06:00:00.000Z'),
+      },
+      renderFingerprint: 'fp-finalized-report',
+    });
+
+    await expect(service.send(HR, '2026-08')).rejects.toThrow(/idempotency window has expired/i);
+
+    // The provider was never contacted, and nothing was recorded as sent.
+    expect(sent).toHaveLength(0);
+    expect(closes.get('2026-08').status).toBe('FINALIZED');
+  });
+
   it('records a thrown transport error as UNKNOWN, which is not the same as failed', async () => {
     const { service, closes } = build({ close: finalized, sendThrows: true, renderFingerprint: 'fp-finalized-report' });
 

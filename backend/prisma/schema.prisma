@@ -1869,6 +1869,18 @@ model AttendanceMonthClose {
   /// Copied from the setting AT SEND TIME. Changing the configured recipient
   /// next month must not rewrite who an already-sent report went to.
   recipientEmail String?
+  /// When the FIRST delivery attempt was made -- not when one succeeded.
+  ///
+  /// sentAt records success and updatedAt moves on every write, so neither can
+  /// answer "how long ago did we first try to send this". That question decides
+  /// whether an UNKNOWN delivery may still be retried: the provider's
+  /// idempotency key protects against a duplicate for about 24 hours, and after
+  /// that a retry of the same report could genuinely deliver a second copy to
+  /// Finance.
+  ///
+  /// Set once and NEVER reset. Resetting it on each retry would slide the
+  /// window forward indefinitely and defeat the guard entirely.
+  deliveryFirstAttemptAt DateTime?
   sentAt         DateTime?
   deliveryStatus String?
 

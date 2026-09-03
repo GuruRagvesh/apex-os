@@ -212,10 +212,58 @@ export function deliveryStatusFor(outcome: DeliveryOutcome): string {
  * FAILED and UNKNOWN are both retryable, and both reuse the same key -- for
  * UNKNOWN that is precisely what resolves the ambiguity.
  */
-export function mayContactProvider(close: {
-  status: string;
-  deliveryStatus?: string | null;
-}): { allowed: boolean; reason?: string } {
+/**
+ * How long a retry can still rely on the provider to collapse a duplicate.
+ *
+ * Resend honours an idempotency key for about 24 hours. 23 is used rather than
+ * 24 so that clock skew, a slow queue, or somebody retrying "the next morning"
+ * cannot land just past the edge and quietly send a second copy. The margin is
+ * the point: being an hour too cautious costs a human a decision, being an hour
+ * too confident costs Finance a duplicate payroll report.
+ */
+export const IDEMPOTENCY_WINDOW_MS = 23 * 60 * 60 * 1000;
+
+export function withinIdempotencyWindow(
+  firstAttemptAt: Date | string | null | undefined,
+  now: Date,
+): boolean {
+  if (!firstAttemptAt) return false;
+  const first = firstAttemptAt instanceof Date ? firstAttemptAt : new Date(firstAttemptAt);
+  if (Number.isNaN(first.getTime())) return false;
+  return now.getTime() - first.getTime() <= IDEMPOTENCY_WINDOW_MS;
+}
+
+/**
+ * Whether send() may contact the provider at all.
+ *
+ * A month that has already been delivered is refused HERE, before any request
+ * is made. Provider idempotency is a safety net for retries inside a 24-hour
+ * window, not a licence to call send() again next week and rely on it.
+ *
+ * FAILED is retryable without limit: the provider understood the request and
+ * refused it before accepting anything, so nothing was delivered and no
+ * duplicate is possible however long ago it happened.
+ *
+ * UNKNOWN is the interesting one. The mail may already have gone, and the only
+ * thing standing between a retry and a second copy is the provider still
+ * recognising the idempotency key. Inside the window that holds and a retry is
+ * safe. Outside it, the guard is gone -- so this REFUSES rather than sending,
+ * and asks for a human to check with Finance. That is a worse experience and a
+ * far better outcome than an accountant receiving the same register twice with
+ * nothing to say which was real.
+ */
+export function mayContactProvider(
+  close: {
+    status: string;
+    deliveryStatus?: string | null;
+    deliveryFirstAttemptAt?: Date | string | null;
+  },
+  // REQUIRED, with no default. Apex OS has one time authority and this
+  // function's entire job is comparing against it; a `= new Date()` fallback
+  // would let a caller silently bypass the company clock, and the omission
+  // would look like nothing at the call site.
+  now: Date,
+): { allowed: boolean; reason?: string } {
   if (close.status === 'SENT' && close.deliveryStatus === DELIVERY_SENT) {
     return {
       allowed: false,
@@ -230,7 +278,33 @@ export function mayContactProvider(close: {
       reason: 'This month must be finalized before it can be sent to Finance.',
     };
   }
+  if (close.deliveryStatus === DELIVERY_UNKNOWN) {
+    if (!withinIdempotencyWindow(close.deliveryFirstAttemptAt, now)) {
+      return {
+        allowed: false,
+        reason:
+          'Delivery state is unknown and the provider idempotency window has expired. ' +
+          'Verify with Finance before an explicit resend.',
+      };
+    }
+  }
   return { allowed: true };
+}
+
+/**
+ * The first-attempt stamp, which is written once and then left alone.
+ *
+ * Returning the existing value unchanged rather than refreshing it is the whole
+ * guard: a retry that moved this forward would keep the window permanently open
+ * and the expiry check could never fire.
+ */
+export function firstAttemptStamp(
+  existing: Date | string | null | undefined,
+  now: Date,
+): Date {
+  if (!existing) return now;
+  const first = existing instanceof Date ? existing : new Date(existing);
+  return Number.isNaN(first.getTime()) ? now : first;
 }
 
 // ── Body ────────────────────────────────────────────────────────────────────

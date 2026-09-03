@@ -11,7 +11,10 @@ import {
   formatTimestamp,
   handoffSummaryRows,
   idempotencyKeyFor,
+  IDEMPOTENCY_WINDOW_MS,
+  firstAttemptStamp,
   mayContactProvider,
+  withinIdempotencyWindow,
   monthFileToken,
   monthLabel,
   reportSubject,
@@ -211,7 +214,7 @@ describe('three delivery states, because two is a lie', () => {
 // ════════════════════════════════════════════════════════════════════════════
 describe('an already-delivered month is refused before the provider is reached', () => {
   it('22. a month already sent does not silently send again', () => {
-    const gate = mayContactProvider({ status: 'SENT', deliveryStatus: 'SENT' });
+    const gate = mayContactProvider({ status: 'SENT', deliveryStatus: 'SENT' }, new Date());
     expect(gate.allowed).toBe(false);
     expect(gate.reason).toMatch(/already been sent/i);
     expect(gate.reason).toMatch(/second copy/i);
@@ -219,25 +222,150 @@ describe('an already-delivered month is refused before the provider is reached',
     expect(gate.reason).toMatch(/separate, audited action/i);
   });
 
-  it('23. a failed or unknown delivery is still retryable', () => {
-    // Both reuse the same key. For UNKNOWN that is exactly what settles it: if
-    // the first attempt did reach the provider, the retry is collapsed.
-    expect(mayContactProvider({ status: 'FINALIZED', deliveryStatus: 'FAILED' }).allowed).toBe(true);
-    expect(mayContactProvider({ status: 'FINALIZED', deliveryStatus: 'UNKNOWN' }).allowed).toBe(true);
-    expect(mayContactProvider({ status: 'SENT', deliveryStatus: 'UNKNOWN' }).allowed).toBe(true);
+  it('23. a rejected delivery is retryable; an unknown one only inside the window', () => {
+    // FAILED means the provider refused before accepting anything, so nothing
+    // was delivered and a retry cannot duplicate. UNKNOWN is different: the
+    // retry is only safe while the provider still recognises the key, so it
+    // needs a recorded first attempt to measure from. Timing is covered in
+    // detail below.
+    expect(mayContactProvider({ status: 'FINALIZED', deliveryStatus: 'FAILED' }, new Date()).allowed).toBe(true);
+    expect(
+      mayContactProvider({
+        status: 'FINALIZED',
+        deliveryStatus: 'UNKNOWN',
+        deliveryFirstAttemptAt: new Date(),
+      }, new Date()).allowed,
+    ).toBe(true);
+    // No recorded attempt: we cannot show the window is open, so we do not act
+    // as though it is.
+    expect(mayContactProvider({ status: 'FINALIZED', deliveryStatus: 'UNKNOWN' }, new Date()).allowed).toBe(
+      false,
+    );
   });
 
   it('24. never attempted is not the same as failed', () => {
     // NULL is load-bearing: nobody has tried.
-    expect(mayContactProvider({ status: 'FINALIZED', deliveryStatus: null }).allowed).toBe(true);
+    expect(mayContactProvider({ status: 'FINALIZED', deliveryStatus: null }, new Date()).allowed).toBe(true);
   });
 
   it('25. an unfinalized month is refused', () => {
     for (const status of ['OPEN', 'REVIEWING']) {
-      const gate = mayContactProvider({ status, deliveryStatus: null });
+      const gate = mayContactProvider({ status, deliveryStatus: null }, new Date());
       expect(gate.allowed).toBe(false);
       expect(gate.reason).toMatch(/must be finalized/i);
     }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('an UNKNOWN delivery may only retry while the provider still remembers', () => {
+  const NOW = new Date('2026-10-02T12:00:00.000Z');
+  const ago = (ms: number) => new Date(NOW.getTime() - ms);
+  const unknown = (firstAttemptAt: Date | null) => ({
+    status: 'FINALIZED',
+    deliveryStatus: 'UNKNOWN',
+    deliveryFirstAttemptAt: firstAttemptAt,
+  });
+
+  it('29. the window sits deliberately under the one the provider offers', () => {
+    // Resend honours a key for about 24 hours. Being an hour too cautious costs
+    // a human a decision; being an hour too confident costs Finance a duplicate.
+    expect(IDEMPOTENCY_WINDOW_MS).toBeLessThan(24 * 60 * 60 * 1000);
+    expect(IDEMPOTENCY_WINDOW_MS).toBe(23 * 60 * 60 * 1000);
+  });
+
+  it('30. a retry an hour later is allowed, with the same key', () => {
+    const gate = mayContactProvider(unknown(ago(60 * 60 * 1000)), NOW);
+    expect(gate.allowed).toBe(true);
+  });
+
+  it('31. a retry three days later is REFUSED, and says why', () => {
+    // The case this whole change exists for. The provider has forgotten the
+    // key, so the same retry would genuinely deliver a second copy.
+    const gate = mayContactProvider(unknown(ago(3 * 24 * 60 * 60 * 1000)), NOW);
+    expect(gate.allowed).toBe(false);
+    expect(gate.reason).toMatch(/delivery state is unknown/i);
+    expect(gate.reason).toMatch(/idempotency window has expired/i);
+    expect(gate.reason).toMatch(/verify with finance/i);
+  });
+
+  it('32. the boundary is inclusive on the safe side', () => {
+    expect(withinIdempotencyWindow(ago(IDEMPOTENCY_WINDOW_MS), NOW)).toBe(true);
+    expect(withinIdempotencyWindow(ago(IDEMPOTENCY_WINDOW_MS + 1), NOW)).toBe(false);
+  });
+
+  it('33. an UNKNOWN with no recorded attempt is refused, not assumed fresh', () => {
+    // Conservative: we cannot show the window is still open, so we do not act
+    // as though it is. This is also the pre-migration row.
+    expect(withinIdempotencyWindow(null, NOW)).toBe(false);
+    expect(mayContactProvider(unknown(null), NOW).allowed).toBe(false);
+  });
+
+  it('34. FAILED is retryable however old it is', () => {
+    // The provider refused it before accepting anything, so nothing was
+    // delivered and no duplicate is possible no matter how long ago.
+    const old = {
+      status: 'FINALIZED',
+      deliveryStatus: 'FAILED',
+      deliveryFirstAttemptAt: ago(90 * 24 * 60 * 60 * 1000),
+    };
+    expect(mayContactProvider(old, NOW).allowed).toBe(true);
+  });
+
+  it('35. never attempted is unaffected by the window', () => {
+    expect(
+      mayContactProvider(
+        { status: 'FINALIZED', deliveryStatus: null, deliveryFirstAttemptAt: null },
+        NOW,
+      ).allowed,
+    ).toBe(true);
+  });
+
+  it('36. an already-sent month is still refused regardless of the window', () => {
+    const gate = mayContactProvider(
+      { status: 'SENT', deliveryStatus: 'SENT', deliveryFirstAttemptAt: ago(1000) },
+      NOW,
+    );
+    expect(gate.allowed).toBe(false);
+    expect(gate.reason).toMatch(/already been sent/i);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe('the first attempt is stamped once and never moved', () => {
+  const NOW = new Date('2026-10-02T12:00:00.000Z');
+  const EARLIER = new Date('2026-10-01T09:00:00.000Z');
+
+  it('37. a first attempt is stamped now', () => {
+    expect(firstAttemptStamp(null, NOW)).toEqual(NOW);
+    expect(firstAttemptStamp(undefined, NOW)).toEqual(NOW);
+  });
+
+  it('38. A RETRY DOES NOT MOVE IT', () => {
+    // The guard's whole load-bearing property. Refreshing this on each attempt
+    // would slide the window forward forever and the expiry could never fire.
+    expect(firstAttemptStamp(EARLIER, NOW)).toEqual(EARLIER);
+    expect(firstAttemptStamp(EARLIER.toISOString(), NOW)).toEqual(EARLIER);
+  });
+
+  it('39. an unreadable stored value falls back to now rather than crashing', () => {
+    expect(firstAttemptStamp('not a date', NOW)).toEqual(NOW);
+  });
+
+  it('40. send stamps it before contacting the provider, and only when absent', () => {
+    const source = readFileSync(
+      resolve(__dirname, '../../src/modules/platform/attendance/reports/payroll-report.service.ts'),
+      'utf8',
+    );
+    const send = source.slice(source.indexOf('  async send('), source.indexOf('  async status('));
+
+    const stampAt = send.indexOf('deliveryFirstAttemptAt: firstAttemptAt');
+    const sendAt = send.indexOf('sendPayrollAttendanceReport');
+    expect(stampAt).toBeGreaterThan(-1);
+    // Timed by when we TRIED, not by when the attempt finished.
+    expect(stampAt).toBeLessThan(sendAt);
+    // Written only when there is not already one.
+    expect(send).toContain('if (!close.deliveryFirstAttemptAt)');
   });
 });
 
