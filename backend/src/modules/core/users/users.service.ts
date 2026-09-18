@@ -5,6 +5,7 @@ import { AccessPolicyService } from '../../../common/services/access-policy.serv
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { EmailService } from '../../platform/email/email.service';
 import { BackupVaultService } from '../../platform/backup-vault/backup-vault.service';
+import { AttendanceCategory, PolicyStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
@@ -23,6 +24,85 @@ export class UsersService {
     private emailService: EmailService,
     private backupVaultService: BackupVaultService,
   ) {}
+
+  private joiningDate(value: string | Date | undefined): Date {
+    if (!value) {
+      throw new BadRequestException('Joining date is required for attendance onboarding');
+    }
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) {
+        throw new BadRequestException('Joining date must be a valid date');
+      }
+      return new Date(`${value.toISOString().slice(0, 10)}T00:00:00.000Z`);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new BadRequestException('Joining date must be a valid date');
+    }
+    const raw = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(raw.getTime()) || raw.toISOString().slice(0, 10) !== value) {
+      throw new BadRequestException('Joining date must be a valid date');
+    }
+    return raw;
+  }
+
+  private exactlyOne<T>(rows: T[], label: string): T {
+    if (rows.length !== 1) {
+      throw new BadRequestException(
+        rows.length === 0
+          ? `Attendance onboarding is unavailable: no active ${label} is configured`
+          : `Attendance onboarding is unavailable: multiple active ${label} records are configured`,
+      );
+    }
+    return rows[0];
+  }
+
+  private async attendanceDefaults(tx: Prisma.TransactionClient, effectiveFrom: Date) {
+    const activeVersion = {
+      status: PolicyStatus.ACTIVE,
+      isActive: true,
+      effectiveFrom: { lte: effectiveFrom },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
+    };
+    const activeWindow = {
+      isActive: true,
+      effectiveFrom: { lte: effectiveFrom },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
+    };
+
+    const [shifts, leavePolicies, calendars, weeklyOffPolicies] = await Promise.all([
+      tx.shiftPolicy.findMany({
+        where: { ...activeVersion, category: AttendanceCategory.REGULAR_EMPLOYEE },
+        take: 2,
+      }),
+      tx.leavePolicy.findMany({ where: activeVersion, take: 2 }),
+      tx.holidayCalendar.findMany({ where: activeVersion, take: 2 }),
+      tx.weeklyOffPolicy.findMany({ where: activeWindow, take: 2 }),
+    ]);
+
+    const shift = this.exactlyOne(shifts, 'regular shift policy');
+    const attendancePolicy = await tx.attendancePolicy.findFirst({
+      where: { id: shift.attendancePolicyId, ...activeVersion },
+    });
+    if (!attendancePolicy) {
+      throw new BadRequestException(
+        'Attendance onboarding is unavailable: the active shift has no active attendance policy',
+      );
+    }
+
+    let assignedAttendanceLocationId: string | null = null;
+    if (attendancePolicy.geoFenceEnabled) {
+      const locations = await tx.attendanceLocation.findMany({ where: { isActive: true }, take: 2 });
+      assignedAttendanceLocationId = this.exactlyOne(locations, 'attendance location').id;
+    }
+
+    return {
+      shift,
+      leavePolicy: this.exactlyOne(leavePolicies, 'leave policy'),
+      calendar: this.exactlyOne(calendars, 'holiday calendar'),
+      weeklyOff: this.exactlyOne(weeklyOffPolicies, 'weekly-off policy'),
+      assignedAttendanceLocationId,
+    };
+  }
 
   async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
     const page = Math.max(1, Number(query.page) || 1);
@@ -113,14 +193,57 @@ export class UsersService {
     return this.accessPolicy.safeUser(user);
   }
 
-  async create(data: { name: string; email: string; password: string; roleId: string; departmentId?: string }, actorId?: string) {
+  async create(
+    data: {
+      name: string;
+      email: string;
+      password: string;
+      roleId: string;
+      departmentId?: string | null;
+      joiningDate?: string | Date;
+    },
+    actorId?: string,
+  ) {
     const existing = await this.prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new ConflictException('Email already registered');
 
+    const role = await this.prisma.role.findUnique({ where: { id: data.roleId } });
+    if (!role) throw new BadRequestException('Selected role does not exist');
+
+    // Role authority and attendance applicability are separate decisions.
+    // Every human account created through this administration workflow must be
+    // attendance-ready, including Team Lead, Manager, Admin and Super Admin.
+    // An exemption must be an explicit attendance-profile decision; it must
+    // never be inferred from the user's role.
+    const joiningDate = this.joiningDate(data.joiningDate);
+
     const hashedPassword = await bcrypt.hash(data.password, 10);
-    const user = await this.prisma.user.create({
-      data: { ...data, password: hashedPassword },
-      include: { role: true, department: true },
+    const { joiningDate: _inputJoiningDate, ...userInput } = data;
+    const user = await this.prisma.$transaction(async (tx) => {
+      // Resolve all referenced authorities before inserting the user. A
+      // missing or ambiguous policy therefore leaves no partial account.
+      const defaults = await this.attendanceDefaults(tx, joiningDate);
+      const created = await tx.user.create({
+        data: { ...userInput, joiningDate, password: hashedPassword },
+        include: { role: true, department: true },
+      });
+
+      await tx.employeeAttendanceProfile.create({
+        data: {
+          userId: created.id,
+          category: AttendanceCategory.REGULAR_EMPLOYEE,
+          attendanceRequired: true,
+          assignedShiftId: defaults.shift.id,
+          assignedLeavePolicyId: defaults.leavePolicy.id,
+          assignedHolidayCalendarId: defaults.calendar.id,
+          assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
+          assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
+          effectiveFrom: joiningDate,
+          effectiveTo: null,
+          updatedById: actorId ?? null,
+        },
+      });
+      return created;
     });
     this.eventLogger.log({
       actorId: actorId ?? user.id,
