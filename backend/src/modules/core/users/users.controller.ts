@@ -101,7 +101,18 @@ export class UsersController {
 
   @Post()
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  create(@Body() body: { name: string; email: string; password: string; roleId: string; departmentId?: string }, @CurrentUser() actor: any) {
+  create(
+    @Body()
+    body: {
+      name: string;
+      email: string;
+      password: string;
+      roleId: string;
+      departmentId?: string | null;
+      joiningDate?: string;
+    },
+    @CurrentUser() actor: any,
+  ) {
     return this.usersService.create(body, actor?.id);
   }
 

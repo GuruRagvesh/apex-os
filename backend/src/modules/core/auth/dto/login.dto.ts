@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsDateString, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class LoginDto {
@@ -31,5 +31,11 @@ export class RegisterDto {
   roleId: string;
 
   @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
   departmentId?: string;
+
+  @ApiProperty({ example: '2026-09-18' })
+  @IsDateString({ strict: true })
+  joiningDate: string;
 }
