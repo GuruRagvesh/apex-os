@@ -6,6 +6,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { LoginDto, RegisterDto } from './dto/login.dto';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { EmailService } from '../../platform/email/email.service';
+import { UsersService } from '../users/users.service';
 
 /** Generic response used for both known and unknown emails — prevents enumeration. */
 const OTP_GENERIC_RESPONSE = { message: 'If an account exists for that email, a reset code has been sent.' };
@@ -24,6 +25,7 @@ export class AuthService {
     private configService: ConfigService,
     private eventLogger: EventLoggerService,
     private emailService: EmailService,
+    private usersService: UsersService,
   ) {}
 
   /** Case-insensitive email lookup — handles mixed-case addresses at login/OTP */
@@ -71,27 +73,28 @@ export class AuthService {
     return { user: userWithoutPassword, ...tokens };
   }
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, actorId?: string) {
     const normalizedEmail = dto.email.trim().toLowerCase();
     const existing = await this.findUserByEmailCI(normalizedEmail);
     if (existing) throw new ConflictException('Email already registered');
 
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const user = await this.prisma.user.create({
-      data: {
+    // Registration is another administrative user-creation entry point. It
+    // must use the same atomic user + attendance-profile boundary as POST
+    // /users, or a future caller could recreate NOT_EMPLOYED accounts.
+    const user = await this.usersService.create(
+      {
         email: normalizedEmail,
         name: dto.name,
-        password: hashedPassword,
+        password: dto.password,
         roleId: dto.roleId,
-        departmentId: dto.departmentId,
+        departmentId: dto.departmentId ?? null,
+        joiningDate: dto.joiningDate,
       },
-      include: { role: true, department: true },
-    });
+      actorId,
+    );
 
     const tokens = await this.generateTokens(user.id, user.email);
-    const { password, ...userWithoutPassword } = user;
-
-    return { user: userWithoutPassword, ...tokens };
+    return { user, ...tokens };
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string) {

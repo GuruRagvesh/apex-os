@@ -47,7 +47,7 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
   const [editUser, setEditUser] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true, isHR: false });
   const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
@@ -74,7 +74,7 @@ export default function UsersPage() {
       toast.success(`User ${u.name} created!`);
       qc.invalidateQueries({ queryKey: ['users'] });
       setShowNew(false);
-      setForm({ name: '', email: '', password: '', roleId: '', departmentId: '' });
+      setForm({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
     },
     onError: (err: any) => toast.error(err?.message || 'Failed to create user'),
   });
@@ -445,7 +445,6 @@ export default function UsersPage() {
                   </select>
                 </div>
               </div>
-
               {/*
                 HR authority is a FLAG, not a role. There is no HR entry in the
                 canonical ladder, and isHrOrAdmin() reads this field -- so this
@@ -704,11 +703,20 @@ export default function UsersPage() {
                   </select>
                 </div>
               </div>
+              <div>
+                <label className="apex-label">Joining Date *</label>
+                <input
+                  type="date"
+                  value={form.joiningDate}
+                  onChange={(e) => setForm((f) => ({ ...f, joiningDate: e.target.value }))}
+                  className="apex-input"
+                />
+              </div>
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => form.name && form.email && form.password && form.roleId && createMutation.mutate({ ...form, departmentId: form.departmentId || null })}
-                disabled={createMutation.isPending || !form.name || !form.email || !form.password || !form.roleId}
+                onClick={() => form.name && form.email && form.password && form.roleId && form.joiningDate && createMutation.mutate({ ...form, departmentId: form.departmentId || null })}
+                disabled={createMutation.isPending || !form.name || !form.email || !form.password || !form.roleId || !form.joiningDate}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Creating...' : 'Create User'}

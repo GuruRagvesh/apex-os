@@ -25,8 +25,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth()
   @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  register(@Body() dto: RegisterDto, @CurrentUser() actor: any) {
+    return this.authService.register(dto, actor?.id);
   }
 
   @Patch('change-password')
