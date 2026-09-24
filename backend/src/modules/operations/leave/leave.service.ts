@@ -132,16 +132,39 @@ export class LeaveService {
       leaveType,
     );
 
+    // EVERY COLUMN NAMED, NOTHING SPREAD.
+    //
+    // This used to be `{ ...rest, userId, ... }`, where `rest` was the client's
+    // body minus five destructured fields. The six keys written after the
+    // spread were safe because they overwrote whatever arrived; every other
+    // column on LeaveRequest was not. status is the one that mattered -- it
+    // took the schema default only when the client declined to supply one, so
+    // a request carrying `status: 'APPROVED'` was written approved, and
+    // approvedBy, approvalStage, fundingOutcome, paidDays and unpaidDays came
+    // with it.
+    //
+    // A deny-list would have to be extended every time the model gains a
+    // column, and the model gains columns. This is the positive form: a field
+    // is written because it is named here, and a new column is absent until
+    // somebody decides otherwise.
     const leave = await this.prisma.leaveRequest.create({
       data: {
-        ...rest,
+        // The owner is the AUTHENTICATED caller. Never the body, and never a
+        // nested `user: { connect }` either, which is the other spelling of
+        // the same claim.
         userId,
+        type: leaveType,
         startDate: start.toISOString(),
         endDate: end.toISOString(),
+        reason: typeof rest.reason === 'string' ? rest.reason : '',
         isHalfDay: !!isHalfDay,
         // New typed authority plus the old compatibility mirror.
         halfDaySession,
         halfDayType: halfDaySession,
+        // Stated, not inherited from the schema default. The initial state of
+        // a request is a rule of this workflow, and it should not become
+        // whatever a future migration decides the column's default is.
+        status: LeaveStatus.PENDING,
       },
       include: { user: { select: { id: true, name: true, departmentId: true } } },
     });
