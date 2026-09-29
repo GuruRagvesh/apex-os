@@ -12,6 +12,7 @@ import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { ROLES } from '../../../shared/constants/roles';
 import { LeaveType } from '@prisma/client';
+import { CreateLeaveRequestDto } from './dto/create-leave-request.dto';
 
 @ApiTags('Leave')
 @ApiBearerAuth()
@@ -47,8 +48,17 @@ export class LeaveController {
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) { return this.leaveService.findOne(id, user); }
 
+  /**
+   * An employee's own leave request.
+   *
+   * The DTO is what engages the global ValidationPipe: `@Body() body: any`
+   * gave it no metatype, so its whitelist and forbidNonWhitelisted settings
+   * were skipped for this handler and every column on LeaveRequest was
+   * writable from the client. The owner is taken from the token, never the
+   * body, and the service applies its own allow-list when it builds the row.
+   */
   @Post()
-  create(@Body() body: any, @CurrentUser() user: any) {
+  create(@Body() body: CreateLeaveRequestDto, @CurrentUser() user: any) {
     return this.leaveService.create(body, user.id);
   }
 
