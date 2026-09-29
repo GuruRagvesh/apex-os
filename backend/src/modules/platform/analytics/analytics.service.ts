@@ -5,6 +5,14 @@ import { TicketTimingService } from '../../../common/services/ticket-timing.serv
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { TicketStatus } from '@prisma/client';
+import { LEDGER_OWNER_TYPES, LEDGER_STAGES } from '../../operations/tickets/ticket-ledger.service';
+
+// Productive employee time = the primary assignee's WORK and REWORK ledger
+// segments. (The ledger never writes a stage called IN_PROGRESS.)
+const PRODUCTIVE_ASSIGNEE_LOGS = {
+  ownerType: LEDGER_OWNER_TYPES.ASSIGNEE,
+  stage: { in: [LEDGER_STAGES.WORK, LEDGER_STAGES.REWORK] },
+};
 
 @Injectable()
 export class AnalyticsService {
@@ -54,7 +62,8 @@ export class AnalyticsService {
     const reworkPercent = totalDecisions > 0 ? Math.round((reworkCount / totalDecisions) * 100) : 0;
 
     const timeLogs = await this.prisma.ticketTimeLog.findMany({
-      where: { userId: targetUserId, stage: 'IN_PROGRESS', countsAsWork: true, durationSeconds: { not: null } },
+      // Productive assignee time as the ledger records it (WORK / REWORK segments).
+      where: { userId: targetUserId, ...PRODUCTIVE_ASSIGNEE_LOGS, countsAsWork: true, durationSeconds: { not: null } },
       select: { durationSeconds: true },
     });
 
@@ -191,7 +200,7 @@ export class AnalyticsService {
     // Fetch closed tickets and their time logs
     const tickets = await this.prisma.ticket.findMany({
       where: { ...ticketScope, status: { in: ['DONE', 'CLOSED'] } },
-      select: { id: true, priority: true, timeLogs: { where: { stage: 'IN_PROGRESS' }, select: { durationSeconds: true } } },
+      select: { id: true, priority: true, timeLogs: { where: PRODUCTIVE_ASSIGNEE_LOGS, select: { durationSeconds: true } } },
     });
 
     const config = await this.ticketTiming.getSlaConfig();

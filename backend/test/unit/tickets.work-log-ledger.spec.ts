@@ -55,6 +55,35 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
         Object.assign(row, data);
         return row;
       }),
+      aggregate: jest.fn(async () => ({ _sum: { durationSeconds: 0 } })),
+      rows,
+    };
+  }
+
+  function makeReviewCycleTable() {
+    const rows: any[] = [];
+    let counter = 0;
+    const matches = (r: any, where: any) => {
+      if (where.ticketId !== undefined && r.ticketId !== where.ticketId) return false;
+      if ('decision' in where && (r.decision ?? null) !== where.decision) return false;
+      if ('reworkEndedAt' in where && where.reworkEndedAt === null && r.reworkEndedAt) return false;
+      if (where.reworkStartedAt?.not === null && !r.reworkStartedAt) return false;
+      return true;
+    };
+    return {
+      findFirst: jest.fn(async ({ where }: any) =>
+        rows.filter((r) => matches(r, where)).sort((a, b) => b.cycleNo - a.cycleNo)[0] ?? null),
+      findUnique: jest.fn(async () => null),
+      create: jest.fn(async ({ data }: any) => {
+        const row = { id: `cycle-${++counter}`, decision: null, reworkEndedAt: null, ...data };
+        rows.push(row);
+        return row;
+      }),
+      update: jest.fn(async ({ where, data }: any) => {
+        const row = rows.find((r) => r.id === where.id);
+        Object.assign(row, Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)));
+        return row;
+      }),
       rows,
     };
   }
@@ -81,9 +110,9 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     timeLogTable = makeTicketTimeLogTable();
     prisma = {
       ticket: {
-        // startWorkLog()'s own internal "not CLOSED" check — none of these scenarios
-        // start a log on a closed ticket, so a fixed non-closed stub is sufficient.
-        findUnique: jest.fn().mockResolvedValue({ id: 'ticket-1', status: 'IN_PROGRESS' }),
+        // startAssigneeTimer() re-reads the ticket under the worker lock: it must be
+        // IN_PROGRESS, unblocked and still assigned to the worker.
+        findUnique: jest.fn().mockResolvedValue({ id: 'ticket-1', status: 'IN_PROGRESS', isBlocked: false, assignedToId: 'worker-1' }),
         update: jest.fn(async ({ data }: any) => ({
           ...makeTicketFixture(), ...data, assignedTo: { id: 'worker-1', name: 'Worker One' },
         })),
@@ -92,6 +121,11 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       ticketHistory: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       activityLog: { create: jest.fn().mockResolvedValue({}) },
       ticketTimeLog: timeLogTable,
+      reviewCycleLog: makeReviewCycleTable(),
+      // The worker has an open, working session unless a test says otherwise.
+      workSession: { findFirst: jest.fn().mockResolvedValue({ id: 'ws-1', status: 'WORKING', logoutAt: null, breakLogs: [] }) },
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
     };
 
     ticketAccess = {
@@ -127,7 +161,7 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     );
   });
 
-  it('1. OPEN → IN_PROGRESS starts an active TicketTimeLog for the acting user', async () => {
+  it('1. OPEN → IN_PROGRESS starts an active TicketTimeLog for the primary assignee', async () => {
     ticketAccess.findAccessibleTicket.mockResolvedValue(makeTicketFixture({ status: TicketStatus.OPEN }));
 
     await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'worker-1', worker);
@@ -232,19 +266,61 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     await ticketLedger.pauseActiveLogsForUser({ userId: 'worker-1', pauseReason: 'BREAK', breakLogId: 'break-1' });
     expect(timeLogTable.rows.filter((r) => r.endedAt === null)).toHaveLength(0);
 
-    // This is workday.service.ts's exact break-end call — untouched by this change.
-    // resumeLogsForBreak() re-checks the ticket is still IN_PROGRESS/unblocked/still
-    // assigned to this user before resuming, so it needs prisma.ticket included.
-    (timeLogTable.findMany as jest.Mock).mockImplementationOnce(async ({ where }: any) =>
-      timeLogTable.rows
-        .filter((r) => r.userId === where.userId && r.breakLogId === where.breakLogId && r.pauseReason === where.pauseReason)
-        .map((r) => ({ ...r, ticket: { status: 'IN_PROGRESS', isBlocked: false, assignedToId: 'worker-1' } })),
-    );
-
+    // This is workday.service.ts's exact break-end call. resumeLogsForBreak()
+    // re-reads the ticket under the worker lock (still IN_PROGRESS, unblocked,
+    // still assigned to this worker) before resuming.
     const resumed = await ticketLedger.resumeLogsForBreak('break-1', 'worker-1');
 
     expect(resumed).toHaveLength(1);
     expect(timeLogTable.rows.filter((r) => r.endedAt === null)).toHaveLength(1);
+  });
+
+  it('8. a manager moving the ticket to IN_PROGRESS starts the ASSIGNEE\'s timer, not the manager\'s', async () => {
+    ticketAccess.findAccessibleTicket.mockResolvedValue(makeTicketFixture({ status: TicketStatus.OPEN }));
+
+    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
+
+    const activeLogs = timeLogTable.rows.filter((r) => r.endedAt === null);
+    expect(activeLogs).toHaveLength(1);
+    expect(activeLogs[0].userId).toBe('worker-1');
+  });
+
+  it('9. a manager moving the ticket out of IN_PROGRESS stops the WORKER\'s clock', async () => {
+    ticketAccess.findAccessibleTicket.mockResolvedValue(makeTicketFixture({ status: TicketStatus.IN_PROGRESS }));
+    timeLogTable.rows.push({
+      id: 'log-seed', ticketId: 'ticket-1', userId: 'worker-1', stage: 'WORK', ownerType: 'ASSIGNEE', source: 'TICKET_STATUS',
+      startedAt: new Date('2026-07-02T09:00:00Z'), endedAt: null, durationSeconds: null, pauseReason: null, breakLogId: null,
+    });
+
+    await service.update('ticket-1', { status: TicketStatus.REVIEW }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
+
+    expect(timeLogTable.rows.find((r) => r.id === 'log-seed')).toMatchObject({ pauseReason: 'STATUS_CHANGE', durationSeconds: 3600 });
+  });
+
+  it('10. starting while the worker is off-shift writes a zero-length deferred marker, never a running clock', async () => {
+    ticketAccess.findAccessibleTicket.mockResolvedValue(makeTicketFixture({ status: TicketStatus.OPEN }));
+    prisma.workSession.findFirst.mockResolvedValue({ id: 'ws-1', status: 'LOGGED_OUT', logoutAt: NOW, breakLogs: [] });
+
+    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
+
+    expect(timeLogTable.rows.filter((r) => r.endedAt === null)).toHaveLength(0);
+    expect(timeLogTable.rows[0]).toMatchObject({ userId: 'worker-1', durationSeconds: 0, pauseReason: 'AWAITING_WORKDAY' });
+  });
+
+  it('11. rework re-entry opens a REWORK cycle and times the worker in stage REWORK', async () => {
+    ticketAccess.findAccessibleTicket.mockResolvedValue(
+      makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: NOW, reviewStartedAt: NOW }),
+    );
+
+    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
+
+    const cycles = prisma.reviewCycleLog.rows;
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0]).toMatchObject({ decision: 'REWORK' });
+    expect(cycles[0].reworkStartedAt).toBeInstanceOf(Date);
+    const active = timeLogTable.rows.filter((r) => r.endedAt === null);
+    expect(active).toHaveLength(1);
+    expect(active[0]).toMatchObject({ userId: 'worker-1', stage: 'REWORK' });
   });
 
   it('a ledger failure never blocks the status transition itself', async () => {

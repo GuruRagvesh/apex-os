@@ -97,6 +97,10 @@ export default function TicketsPage() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['tickets', { ...filters, ...extraFilters, search: debouncedSearch }, page],
     queryFn: () => ticketsApi.getAll({ ...filters, ...extraFilters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
+    // Time Left follows each assignee's work timer, which their own break / end
+    // day / punch pauses and resumes without touching this page. Poll like Kanban.
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: pendingApprovals, isLoading: isLoadingPending } = useQuery({

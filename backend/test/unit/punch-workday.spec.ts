@@ -488,6 +488,8 @@ function realWorkdayRig(
     workSession: {
       findUnique: jest.fn().mockResolvedValue(session),
       findFirst: jest.fn().mockResolvedValue(session),
+      // No previous-day workday left open in these cases.
+      findMany: jest.fn().mockResolvedValue([]),
     },
     ticketTimeLog: { count: jest.fn().mockResolvedValue(opts.activeTicketLogs ?? 0) },
     breakLog: {

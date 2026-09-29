@@ -132,3 +132,89 @@ export function getTimingColorClasses(severity: TicketTimingState['overdueSeveri
 }
 
 export { formatDuration };
+
+// ── Why a waiting ticket is paused ───────────────────────────────────────────
+// From `timers.pause` (ticket detail) or `workBudget.pause` (lists), which the
+// backend derives from the assignee's live state. Null when the clock runs or
+// the ticket is not IN_PROGRESS. e.g. "Paused · <assignee> is on TKT-123".
+export function pauseLabel(ticket: Record<string, any>): string | null {
+  const p = ticket?.timers?.pause ?? ticket?.workBudget?.pause;
+  if (!p || ticket?.status !== 'IN_PROGRESS') return null;
+  const who = ticket?.assignedTo?.name ?? 'Assignee';
+  switch (p.reason) {
+    case 'WORKING_ON_OTHER': return `Paused · ${who} is on ${p.otherTicketKey ?? 'another ticket'}`;
+    case 'ON_BREAK':         return `Paused · ${who} is on break`;
+    case 'IDLE':             return `Paused · ${who} is idle`;
+    case 'PUNCHED_OUT':      return `Paused · ${who} has punched out`;
+    case 'BLOCKED':          return 'Paused · blocked';
+    case 'WAITING':          return 'Paused · starting next';
+    default:                 return 'Paused';
+  }
+}
+
+// ── List / Kanban badge for the work budget ──────────────────────────────────
+// Pure description of the TimingTicker badge, so its rules are testable.
+// A blocked ticket keeps its frozen work-budget Time Left; "blocked" only
+// changes the state (icon, suffix, tooltip), never swaps in the SLA countdown.
+export interface WorkBudgetBadge {
+  icon: '⏱' | '⏳' | '⏸';
+  text: string;
+  tooltip: string;
+  tone: 'over' | 'running' | 'paused';
+}
+
+export function workBudgetBadge(ticket: Record<string, any>, nowMs: number = Date.now()): WorkBudgetBadge | null {
+  const budget = computeWorkBudget(ticket, nowMs);
+  if (!budget) return null;
+  const blocked = !!ticket?.isBlocked;
+  const running = budget.running && !blocked;
+  return {
+    icon: budget.over ? '⏱' : running ? '⏳' : '⏸',
+    text: `${budget.label}${running ? '' : blocked ? ' · blocked' : ' · paused'}`,
+    tooltip: running ? 'Work timer running' : pauseLabel(ticket) ?? (blocked ? 'Paused · blocked' : 'Work timer paused'),
+    tone: budget.over ? 'over' : running ? 'running' : 'paused',
+  };
+}
+
+// ── Work budget ("Time left") ────────────────────────────────────────────────
+// Time left on an OPEN / IN_PROGRESS ticket is the current cycle's estimate
+// minus the assignee's productive work time, from `ticket.workBudget`, which the
+// backend attaches to every ticket response (TicketLedgerService). It is not the
+// SLA deadline above: breaks, end day, punch out, blocked and switched-away time
+// never use it up. It only counts down while the assignee's clock is running.
+
+export interface WorkBudgetState {
+  /** e.g. "49m left" or "12m over estimate" */
+  label: string;
+  over: boolean;
+  running: boolean;
+  /** Productive minutes in the current cycle (the "Spent so far" figure). */
+  workedMinutes: number;
+  estimatedMinutes: number;
+  cycle: 'ORIGINAL' | 'REWORK';
+}
+
+export function computeWorkBudget(ticket: Record<string, any>, nowMs: number = Date.now()): WorkBudgetState | null {
+  const b = ticket?.workBudget;
+  if (!b || !['OPEN', 'IN_PROGRESS'].includes(ticket?.status)) return null;
+  if (!b.estimatedMinutes || b.estimatedMinutes <= 0) {
+    // A rework sent back without an estimate has no budget of its own. Say so
+    // rather than falling back to the SLA deadline or the original estimate.
+    if (b.cycle !== 'REWORK') return null;
+    const worked = Math.floor((b.workedSeconds ?? 0) / 60);
+    return { label: 'No rework estimate', over: false, running: !!b.running, workedMinutes: worked, estimatedMinutes: 0, cycle: 'REWORK' };
+  }
+  // While running, count on from the moment the backend measured it.
+  const sinceAsOf = b.running && b.asOf ? Math.max(0, (nowMs - new Date(b.asOf).getTime()) / 1000) : 0;
+  const workedSeconds = (b.workedSeconds ?? 0) + sinceAsOf;
+  const workedMinutes = Math.floor(workedSeconds / 60);
+  const leftMinutes = b.estimatedMinutes - workedMinutes;
+  return {
+    label: leftMinutes >= 0 ? `${formatDuration(leftMinutes)} left` : `${formatDuration(leftMinutes)} over estimate`,
+    over: leftMinutes < 0,
+    running: !!b.running,
+    workedMinutes,
+    estimatedMinutes: b.estimatedMinutes,
+    cycle: b.cycle === 'REWORK' ? 'REWORK' : 'ORIGINAL',
+  };
+}

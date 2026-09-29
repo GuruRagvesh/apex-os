@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { computeClientTimingState, getTimingColorClasses } from '../../shared/ticket-timing';
+import { computeClientTimingState, computeWorkBudget, getTimingColorClasses, workBudgetBadge } from '../../shared/ticket-timing';
 
 // ── TimingTicker ─────────────────────────────────────────────────────────────
 // The canonical timing badge component.
@@ -20,17 +20,30 @@ interface TimingTickerProps {
 }
 
 export function TimingTicker({ ticket, showLabel = false, className = '' }: TimingTickerProps) {
-  const [state, setState] = useState(() => computeClientTimingState(ticket));
+  const [now, setNow] = useState(() => Date.now());
+  const state = computeClientTimingState(ticket);
+  const budget = computeWorkBudget(ticket, now);
 
   useEffect(() => {
-    // No active timer — don't bother polling
-    if (state.phase === 'none' || state.dueAt === null) return;
-
-    const interval = setInterval(() => {
-      setState(computeClientTimingState(ticket));
-    }, 60_000);
+    // Only a running work budget changes between refetches.
+    if (!budget?.running) return;
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(interval);
-  }, [ticket]);
+  }, [budget?.running]);
+
+  // OPEN / IN_PROGRESS with an estimate: "Time left" is the work budget
+  // (estimate minus productive work), never the SLA deadline. A blocked
+  // ticket keeps its frozen work budget; "blocked" only changes the state text.
+  const badge = budget ? workBudgetBadge(ticket, now) : null;
+  if (badge) {
+    const color = badge.tone === 'over' ? 'text-red-600' : badge.tone === 'running' ? 'text-green-600' : 'text-amber-600';
+    return (
+      <span className={`inline-flex items-center gap-1 text-xs font-medium ${color} ${className}`} title={badge.tooltip}>
+        <span>{badge.icon}</span>
+        <span>{badge.text}</span>
+      </span>
+    );
+  }
 
   if (!state.countdownLabel) return null;
 
