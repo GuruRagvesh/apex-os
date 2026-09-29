@@ -1,3 +1,4 @@
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { WorkdayService } from '../../src/modules/platform/workday/workday.service';
 import { createTvaDouble } from '../helpers/tva-double';
 
@@ -14,6 +15,8 @@ describe('WorkdayService Release A corruption guards', () => {
     prisma = {
       workSession: {
         findFirst: jest.fn(),
+        // No previous-day workday left open in these cases.
+        findMany: jest.fn().mockResolvedValue([]),
       },
       breakLog: {
         create: jest.fn(),
@@ -130,7 +133,9 @@ describe('WorkdayService Release A corruption guards', () => {
       breakLogs: [],
     });
 
-    await expect(service.startBreak('user-1', { breakType: 'LUNCH' })).rejects.toThrow('No active working session');
+    const err = await service.startBreak('user-1', { breakType: 'LUNCH' }).catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException); // 400, not 500
+    expect(err.message).toBe('No active working session');
     expect(prisma.breakLog.create).not.toHaveBeenCalled();
     expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
   });
@@ -143,9 +148,28 @@ describe('WorkdayService Release A corruption guards', () => {
       breakLogs: [{ id: 'break-1', startAt: new Date('2026-06-10T09:30:00.000Z'), endAt: null }],
     });
 
-    await expect(service.startBreak('user-1', { breakType: 'LUNCH' })).rejects.toThrow('Break already in progress');
+    const err = await service.startBreak('user-1', { breakType: 'LUNCH' }).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException); // 409, not 500
+    expect(err.message).toBe('User is already on a break.');
     expect(prisma.breakLog.create).not.toHaveBeenCalled();
     expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+  });
+
+  it('D-1: startBreak while ON_BREAK is a 409 with a clear message and changes nothing', async () => {
+    prisma.workSession.findFirst.mockResolvedValue({
+      id: 'open-session',
+      status: 'ON_BREAK',
+      logoutAt: null,
+      breakLogs: [{ id: 'break-1', startAt: new Date('2026-06-10T09:30:00.000Z'), endAt: null }],
+    });
+
+    const err = await service.startBreak('user-1', { breakType: 'TEA' }).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.getStatus()).toBe(409);
+    expect(err.message).toBe('User is already on a break.');
+    expect(prisma.breakLog.create).not.toHaveBeenCalled();
+    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+    expect(ticketLedger.pauseActiveLogsForUser).not.toHaveBeenCalled();
   });
 
   it('endBreak rejects when there is no open break', async () => {
@@ -156,9 +180,46 @@ describe('WorkdayService Release A corruption guards', () => {
       breakLogs: [],
     });
 
-    await expect(service.endBreak('user-1')).rejects.toThrow('No open break found');
+    const err = await service.endBreak('user-1').catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.message).toBe('No active break found.');
     expect(prisma.breakLog.update).not.toHaveBeenCalled();
     expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+  });
+
+  it('D-1: endBreak while WORKING (no break open) is a 409 with a clear message and changes nothing', async () => {
+    prisma.workSession.findFirst.mockResolvedValue({
+      id: 'open-session',
+      status: 'WORKING',
+      logoutAt: null,
+      breakLogs: [],
+    });
+
+    const err = await service.endBreak('user-1').catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.getStatus()).toBe(409);
+    expect(err.message).toBe('No active break found.');
+    expect(prisma.breakLog.update).not.toHaveBeenCalled();
+    expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+    expect(ticketLedger.resumeLogsForBreak).not.toHaveBeenCalled();
+  });
+
+  it('endBreak still succeeds (and logs) when the ticket auto-resume fails after the break is closed', async () => {
+    prisma.workSession.findFirst.mockResolvedValue({
+      id: 'open-session',
+      status: 'ON_BREAK',
+      logoutAt: null,
+      totalBreakMinutes: 0,
+      breakLogs: [{ id: 'break-1', breakType: 'TEA', startAt: new Date('2026-06-10T09:45:00.000Z'), endAt: null }],
+    });
+    prisma.breakLog.update.mockResolvedValue({ id: 'break-1' });
+    ticketLedger.resumeLogsForBreak.mockRejectedValueOnce(new Error('ledger unavailable'));
+    const logSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+
+    await expect(service.endBreak('user-1')).resolves.toMatchObject({ durationMinutes: 15 });
+    expect(prisma.breakLog.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'break-1' } }));
+    expect(ticketLedger.resumeLogsForBreak).toHaveBeenCalledWith('break-1', 'user-1');
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('user user-1 (break break-1)'));
   });
 
   it('endBreak rejects multiple open breaks without mutating either break', async () => {

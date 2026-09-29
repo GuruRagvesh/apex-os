@@ -56,7 +56,7 @@ const mockEmail    = { sendTicketAssigned: jest.fn(), sendTicketResolved: jest.f
 const mockLogger   = { log: jest.fn().mockResolvedValue(undefined) };
 const mockConfig   = { get: jest.fn().mockReturnValue('http://localhost:3000') };
 const mockEmitter  = { emit: jest.fn(), emitAsync: jest.fn() };
-const mockLedger   = { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), endActiveLog: jest.fn().mockResolvedValue({}) };
+const mockLedger   = { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), endActiveLog: jest.fn().mockResolvedValue({}), endActiveLogsForTicket: jest.fn().mockResolvedValue({ count: 1, logIds: [] }) };
 const mockImport   = {};
 
 function makeTicket(overrides: any = {}) {
@@ -88,6 +88,7 @@ describe('TicketsService — unassignPrimary / removeSecondaryAssignee', () => {
     mockPrisma.ticket.findUnique.mockImplementation(async () => makeTicket());
     mockPrisma.ticket.update.mockImplementation(async ({ data }: any) => ({ ...makeTicket(), ...data }));
     mockLedger.endActiveLog.mockResolvedValue({});
+    mockLedger.endActiveLogsForTicket.mockResolvedValue({ count: 1, logIds: [] });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -154,9 +155,8 @@ describe('TicketsService — unassignPrimary / removeSecondaryAssignee', () => {
           { ticketId: 'tkt1', field: 'status', oldValue: TicketStatus.IN_PROGRESS, newValue: TicketStatus.OPEN, changedById: 'admin1' },
         ],
       });
-      expect(mockLedger.endActiveLog).toHaveBeenCalledWith({
-        ticketId: 'tkt1', userId: 'emp1', pauseReason: 'UNASSIGNED',
-      });
+      // Every clock on the ticket stops, whoever holds it (not only emp1's).
+      expect(mockLedger.endActiveLogsForTicket).toHaveBeenCalledWith('tkt1', 'UNASSIGNED');
     });
 
     it('never calls ticket.update if status is REVIEW — blocks with the required message', async () => {

@@ -86,6 +86,11 @@ describe('AnalyticsService', () => {
       expect(result.averageCompletionTimeSeconds).toBe(10800 / 5);
       expect(result.reviewAcceptancePercent).toBe(67); // 2/3
       expect(result.reworkPercent).toBe(33); // 1/3
+      // Productive time is the assignee's WORK / REWORK ledger segments (the
+      // ledger never writes a stage called IN_PROGRESS).
+      expect(prisma.ticketTimeLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ ownerType: 'ASSIGNEE', stage: { in: ['WORK', 'REWORK'] } }),
+      }));
     });
 
     it('throws Forbidden if standard user attempts to view another user', async () => {
@@ -153,6 +158,11 @@ describe('AnalyticsService', () => {
       expect(result.overduePercent).toBe(50);
       expect(result.slaBreaches).toBe(1);
       expect(result.averageDelaySeconds).toBe(36000 - 8 * 3600); // 10h - 8h = 2h = 7200s
+      expect(prisma.ticket.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        select: expect.objectContaining({
+          timeLogs: expect.objectContaining({ where: { ownerType: 'ASSIGNEE', stage: { in: ['WORK', 'REWORK'] } } }),
+        }),
+      }));
     });
   });
 
