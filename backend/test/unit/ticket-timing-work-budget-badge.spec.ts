@@ -1,4 +1,4 @@
-import { workBudgetBadge, computeWorkBudget } from '../../../platforms/operations/tickets/sla/shared/ticket-timing';
+import { workBudgetBadge, computeWorkBudget, computeClientTimingState, dueCountdownText } from '../../../platforms/operations/tickets/sla/shared/ticket-timing';
 
 // D-2: the list / Kanban badge (TimingTicker) must keep the frozen work-budget
 // Time Left for a blocked IN_PROGRESS ticket, like the ticket detail does.
@@ -51,5 +51,30 @@ describe('workBudgetBadge (list / Kanban Time Left)', () => {
       .toMatchObject({ icon: '⏱', text: '10m over estimate · paused', tone: 'over' });
     expect(workBudgetBadge(ticket({ workBudget: null }), t0)).toBeNull();
     expect(workBudgetBadge(ticket({ status: 'REVIEW' }), t0)).toBeNull();
+  });
+});
+
+// A ticket without an estimate has no work budget. Its only clock is the deadline,
+// which keeps running on breaks, so it must read "Due in …", never "… left".
+describe('dueCountdownText (no-estimate fallback)', () => {
+  const noEstimate = (timing: Record<string, any>) => ({
+    status: 'IN_PROGRESS',
+    workBudget: { cycle: 'ORIGINAL', estimatedMinutes: null, workedSeconds: 5 * 3600, running: false, asOf: '2026-09-29T12:27:00.000Z', pause: { reason: 'ON_BREAK' } },
+    timing,
+  });
+
+  it('no estimate: no work budget, and the deadline reads "Due in", not "left"', () => {
+    const t = noEstimate({ timerType: 'execution', dueAt: '2026-09-29T13:00:00.000Z', remainingMs: 33 * 60_000, isOverdue: false, label: 'Due date' });
+    expect(computeWorkBudget(t)).toBeNull();
+    const text = dueCountdownText(computeClientTimingState(t));
+    expect(text).toBe('Due in 33m');
+    expect(text).not.toMatch(/left/);
+  });
+
+  it('overdue stays "… overdue"; blocked and finished tickets show nothing', () => {
+    const overdue = noEstimate({ timerType: 'execution', dueAt: '2026-09-29T12:00:00.000Z', overdueMs: 125 * 60_000, isOverdue: true });
+    expect(dueCountdownText(computeClientTimingState(overdue))).toBe('2h 5m overdue');
+    expect(dueCountdownText(computeClientTimingState(noEstimate({ timerType: 'blocked' })))).toBeNull();
+    expect(dueCountdownText(computeClientTimingState(noEstimate({ timerType: 'completed' })))).toBeNull();
   });
 });

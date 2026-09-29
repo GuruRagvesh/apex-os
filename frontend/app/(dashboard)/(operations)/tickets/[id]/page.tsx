@@ -11,7 +11,7 @@ import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
 import { STATUS_COLORS, STATUS_LABELS, formatRole } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn, formatDate, getInitials, formatRelativeTime } from '@apex/shared-utilities';
 import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
-import { computeClientTimingState, computeWorkBudget, pauseLabel } from '@apex/operations-tickets-sla';
+import { computeClientTimingState, computeWorkBudget, dueCountdownText, pauseLabel } from '@apex/operations-tickets-sla';
 import { SkeletonTicketDetail } from '@apex/shared-ui/components/skeleton';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
@@ -103,13 +103,26 @@ function TicketTimingPanel({ ticket }: { ticket: any }) {
             {budget.label}
           </span>
         </div>
-      ) : t.countdownLabel && t.phase !== 'blocked' && (
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs" style={rowLabel}>Time Left</span>
-          <span className={cn('text-sm font-medium', t.isOverdue ? 'text-red-500' : '')} style={!t.isOverdue ? rowValue : undefined}>
-            {t.countdownLabel}
-          </span>
-        </div>
+      ) : (
+        // No work budget. "Time Left" only ever means estimate minus work time (it
+        // pauses on breaks), so an OPEN / IN_PROGRESS ticket without an estimate says
+        // so, and the deadline clock gets its own "Due in" row.
+        <>
+          {['OPEN', 'IN_PROGRESS'].includes(ticket?.status) && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs" style={rowLabel}>Time Left</span>
+              <span className="text-sm font-medium" style={rowLabel}>No estimate</span>
+            </div>
+          )}
+          {dueCountdownText(t) && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs" style={rowLabel}>{t.isOverdue ? 'Overdue' : 'Due in'}</span>
+              <span className={cn('text-sm font-medium', t.isOverdue ? 'text-red-500' : '')} style={!t.isOverdue ? rowValue : undefined}>
+                {t.isOverdue ? t.countdownLabel : dueCountdownText(t)!.replace(/^Due in /, '')}
+              </span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

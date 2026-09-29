@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { computeClientTimingState, computeWorkBudget, getTimingColorClasses, workBudgetBadge } from '../../shared/ticket-timing';
+import { computeClientTimingState, computeWorkBudget, dueCountdownText, getTimingColorClasses, workBudgetBadge } from '../../shared/ticket-timing';
 
 // ── TimingTicker ─────────────────────────────────────────────────────────────
 // The canonical timing badge component.
@@ -74,10 +74,15 @@ export function TimingTicker({ ticket, showLabel = false, className = '' }: Timi
         : 'Exec: '
       : '';
 
+  // No work budget (no estimate, or not an OPEN / IN_PROGRESS ticket): this is the
+  // deadline clock, which keeps running on breaks, so it reads "Due in …", never "… left".
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium ${colors.text} ${className}`}>
+    <span
+      className={`inline-flex items-center gap-1 text-xs font-medium ${colors.text} ${className}`}
+      title="Time until the due time. It keeps running during breaks; add an estimate to track work time left."
+    >
       <span>{icon}</span>
-      <span>{phaseLabel}{state.countdownLabel}</span>
+      <span>{phaseLabel}{showLabel ? state.countdownLabel : dueCountdownText(state)}</span>
     </span>
   );
 }

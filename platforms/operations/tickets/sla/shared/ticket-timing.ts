@@ -119,6 +119,18 @@ export function computeClientTimingState(ticket: Record<string, any>): TicketTim
   };
 }
 
+/**
+ * The deadline countdown as it may be shown to people. It is wall-clock time to
+ * the due / SLA time and keeps running through breaks, so it is never labelled
+ * "Time left" — that name is reserved for the work budget (computeWorkBudget).
+ * e.g. "Due in 33m" or "2h 5m overdue"; null when there is nothing to show.
+ */
+export function dueCountdownText(state: TicketTimingState): string | null {
+  if (!state.countdownLabel || state.phase === 'blocked') return null;
+  if (state.isOverdue) return state.countdownLabel;
+  return `Due in ${formatDuration(Math.max(0, Math.floor((state.msUntilDue ?? 0) / 60_000)))}`;
+}
+
 /** Tailwind colour classes for each severity level */
 export function getTimingColorClasses(severity: TicketTimingState['overdueSeverity'] | null) {
   switch (severity) {
