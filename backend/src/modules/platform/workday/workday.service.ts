@@ -1,11 +1,11 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { TimezoneUtil, DEFAULT_COMPANY_TIMEZONE } from '../../../common/utils/timezone.util';
 import { calculateWorkdayRuntime } from './workday.calculation';
 import { buildCompanyDateTimeUtc } from './workday.policy.helper';
-import { TicketLedgerService } from '../../operations/tickets/ticket-ledger.service';
+import { TicketLedgerService, LEDGER_PAUSE_REASONS, ticketLogSessionScope } from '../../operations/tickets/ticket-ledger.service';
 import { NotificationEventService } from '../../operations/notifications/notification-event.service';
 import { NotificationType, Prisma } from '@prisma/client';
 import { formatInTimeZone } from 'date-fns-tz';
@@ -31,6 +31,8 @@ export interface FinalizeWorkSessionOptions {
 
 @Injectable()
 export class WorkdayService {
+  private readonly logger = new Logger(WorkdayService.name);
+
   constructor(
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
@@ -195,6 +197,8 @@ export class WorkdayService {
     const today = this.getTodayDate();
     const now = this.tva.now();
 
+    await this.closeStalePreviousDaySessions(tx, userId, today, now);
+
     const latestSession = await tx.workSession.findFirst({
       where: { userId, date: today },
       orderBy: { createdAt: 'desc' },
@@ -233,6 +237,56 @@ export class WorkdayService {
   }
 
   /**
+   * A previous day's workday that is still open (no punch out, and the
+   * scheduler's auto-close has not reached it yet) is closed before today's
+   * starts, exactly as the scheduler would close it: at that day's policy
+   * autoCloseTime (never later than now), reason AUTO_CLOSE / ticket SYSTEM.
+   * Without this, yesterday's still-running ticket segment would carry on into
+   * today, and a late auto-close would then cut the clock under today's work.
+   */
+  private async closeStalePreviousDaySessions(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    today: Date,
+    now: Date,
+  ) {
+    const stale = await tx.workSession.findMany({
+      where: { userId, logoutAt: null, date: { lt: today } },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!stale?.length) return;
+
+    const policySetting = await tx.appSetting.findUnique({ where: { key: 'workday_policy' } });
+    const policy = (policySetting?.value as any) ?? null;
+    const timezone = policy?.timezone || DEFAULT_COMPANY_TIMEZONE;
+    const autoCloseTime = policy?.autoCloseTime || '23:59';
+
+    for (const s of stale) {
+      const dayStr = formatInTimeZone(s.loginAt ?? s.createdAt, timezone, 'yyyy-MM-dd');
+      const cutoff = buildCompanyDateTimeUtc(dayStr, autoCloseTime, timezone);
+      const effectiveEndAt = cutoff.getTime() > now.getTime() ? now : cutoff;
+      await this.finalizeWorkSessionInTransaction(tx, s.id, {
+        effectiveEndAt,
+        terminalStatus: 'AUTO_CLOSED',
+        closureReason: 'AUTO_CLOSE',
+        autoClosedAt: now,
+        eventSource: 'system',
+        attendanceEventType: 'AUTO_CLOSE',
+        ticketPauseReason: LEDGER_PAUSE_REASONS.SYSTEM,
+      });
+      await tx.attendanceEvent.create({
+        data: {
+          userId,
+          workSessionId: s.id,
+          eventType: 'AUTO_CLOSE',
+          source: 'system',
+          metadata: { reason: 'closed at next workday start' },
+        },
+      });
+    }
+  }
+
+  /**
    * Post-commit side effects of a workday start. Shared by the public
    * startWork() and by the attendance punch orchestrator, so both announce a
    * start the same way -- and only once it is real.
@@ -257,6 +311,19 @@ export class WorkdayService {
       entityId: session.id,
       action: OperationalAction.WORKDAY_STARTED,
     }).catch(() => {});
+
+    await this.resumeTicketAfterWorkdayStart(userId);
+  }
+
+  // Next-day / next-session auto resume of the ticket the worker's day (not the
+  // ticket) paused. Runs post-commit, so the session is already WORKING when the
+  // ledger re-checks it. Best-effort: a ledger failure never undoes a workday start.
+  private async resumeTicketAfterWorkdayStart(userId: string) {
+    try {
+      await this.ticketLedger.resumeAfterWorkdayStart(userId);
+    } catch (err: any) {
+      this.logger.error(`Ticket auto-resume after workday start failed for ${userId}: ${err?.message}`);
+    }
   }
 
   async startWork(userId: string) {
@@ -348,8 +415,14 @@ export class WorkdayService {
 
       const wasAlreadyTerminal = this.isClosedSession(session);
       const hasOpenBreaks = session.breakLogs.some((b) => !b.endAt);
+      // Only this session's live segments: a segment running in the user's newer
+      // session is none of this closure's business.
       const activeTicketLogCount = await tx.ticketTimeLog.count({
-        where: { userId: session.userId, endedAt: null },
+        where: {
+          userId: session.userId,
+          endedAt: null,
+          ...ticketLogSessionScope(session.id, session.logoutAt ?? options.effectiveEndAt),
+        },
       });
 
       if (wasAlreadyTerminal && !hasOpenBreaks && activeTicketLogCount === 0) {
@@ -426,6 +499,7 @@ export class WorkdayService {
           userId: session.userId,
           pauseReason: options.ticketPauseReason,
           endedAt: effectiveEndAt,
+          workSessionId: session.id,
         },
         tx,
       );
@@ -508,13 +582,13 @@ export class WorkdayService {
         },
       },
     });
-    if (!session || !this.isOpenSession(session) || session.status !== 'WORKING') {
-      throw new Error('No active working session');
+    // Workflow-state problems are the caller's (4xx), not server failures (500).
+    const openBreaks = session?.breakLogs ?? [];
+    if (session && this.isOpenSession(session) && (session.status === 'ON_BREAK' || openBreaks.length > 0)) {
+      throw new ConflictException('User is already on a break.');
     }
-
-    const openBreaks = session.breakLogs ?? [];
-    if (openBreaks.length > 0) {
-      throw new Error('Break already in progress');
+    if (!session || !this.isOpenSession(session) || session.status !== 'WORKING') {
+      throw new BadRequestException('No active working session');
     }
 
     const breakLog = await this.prisma.breakLog.create({
@@ -576,12 +650,12 @@ export class WorkdayService {
         },
       },
     });
-    if (!session || !this.isOpenSession(session) || session.status !== 'ON_BREAK') {
-      throw new Error('No active break session');
+    // Ending a break that is not open is a workflow-state conflict (4xx).
+    const openBreaks = session?.breakLogs ?? [];
+    if (!session || !this.isOpenSession(session) || session.status !== 'ON_BREAK' || openBreaks.length === 0) {
+      throw new ConflictException('No active break found.');
     }
-
-    const openBreaks = session.breakLogs ?? [];
-    if (openBreaks.length === 0) throw new Error('No open break found');
+    // Two open breaks at once is corrupt data, not a caller mistake: stays a 500.
     if (openBreaks.length > 1) throw new Error('Multiple open breaks found');
     const openBreak = openBreaks[0];
 
@@ -608,7 +682,14 @@ export class WorkdayService {
 
     await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now);
 
-    await this.ticketLedger.resumeLogsForBreak(openBreak.id, userId);
+    // The break is already closed and the session is WORKING again; a ticket
+    // resume failure must not turn that into a 500 (a retry would then get
+    // "No active break found"). Best-effort, logged, like the workday-start resume.
+    try {
+      await this.ticketLedger.resumeLogsForBreak(openBreak.id, userId);
+    } catch (err: any) {
+      this.logger.error(`Ticket auto-resume after break end failed for user ${userId} (break ${openBreak.id}): ${err?.message}`);
+    }
 
     this.eventLogger.log({
       actorId: userId,
@@ -626,11 +707,25 @@ export class WorkdayService {
     const now = this.tva.now();
 
     if (idleDuration >= 20) {
-      await this.attendanceAuthority.updateManyWorkSessions(
+      const wentIdle = await this.attendanceAuthority.updateManyWorkSessions(
         { userId, date: today, status: 'WORKING' },
         { status: 'IDLE' }
       );
       await this.attendanceAuthority.setUserStatus(userId, 'IDLE');
+
+      // Idle is not ticket work: pause this person's own ticket clock, back-dated
+      // to when the idle period began. Resuming work picks it back up.
+      if (wentIdle?.count > 0) {
+        try {
+          await this.ticketLedger.pauseActiveLogsForUser({
+            userId,
+            pauseReason: LEDGER_PAUSE_REASONS.IDLE,
+            endedAt: new Date(now.getTime() - idleDuration * 60_000),
+          });
+        } catch (err: any) {
+          this.logger.error(`Ticket pause on idle failed for ${userId}: ${err?.message}`);
+        }
+      }
     }
 
     await this.prisma.attendanceEvent.create({
@@ -649,6 +744,19 @@ export class WorkdayService {
     const today = this.getTodayDate();
     const now = this.tva.now();
 
+    // From a break, "resume" is a break end: close the break and resume the
+    // ticket it paused, exactly like the break banner's Resume Work button.
+    // Flipping the session to WORKING here would leave the break open and the
+    // ticket clock paused while the person is working.
+    const current = await this.prisma.workSession.findFirst({
+      where: { userId, date: today },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (current?.status === 'ON_BREAK') {
+      await this.endBreak(userId);
+      return { message: 'Resumed', updated: 1 };
+    }
+
     const session = await this.attendanceAuthority.updateManyWorkSessions(
       { userId, date: today, status: { in: ['IDLE', 'ON_BREAK', 'LOGGED_IN'] } },
       { status: 'WORKING' }
@@ -659,6 +767,10 @@ export class WorkdayService {
     });
 
     await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now);
+
+    // Back from idle (or a LOGGED_IN session starting): resume the ticket the
+    // person's day paused. Counting restarts now; the idle stretch stays out.
+    if (session.count > 0) await this.resumeTicketAfterWorkdayStart(userId);
 
     return { message: 'Resumed', updated: session.count };
   }
@@ -705,6 +817,8 @@ export class WorkdayService {
       entityId: newSession.id,
       action: OperationalAction.WORKDAY_STARTED,
     }).catch(() => {});
+
+    await this.resumeTicketAfterWorkdayStart(userId);
 
     return { session: newSession, message: 'Workday resumed after auto-close' };
   }

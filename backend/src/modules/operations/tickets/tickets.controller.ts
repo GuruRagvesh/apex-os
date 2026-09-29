@@ -263,10 +263,15 @@ export class TicketsController {
   @Patch(':id/reject')
   reject(
     @Param('id') id: string,
-    @Body() body: { comment: string },
+    @Body() body: { comment: string; reworkEstimatedMinutes?: number | null },
     @CurrentUser() user: any,
   ) {
-    return this.ticketsService.reject(id, body.comment ?? 'No reason provided', user.id, user);
+    // Only the whitelisted fields reach the service; the estimate is validated there.
+    const reworkEstimatedMinutes =
+      body?.reworkEstimatedMinutes === undefined || body?.reworkEstimatedMinutes === null || (body.reworkEstimatedMinutes as any) === ''
+        ? null
+        : Number(body.reworkEstimatedMinutes);
+    return this.ticketsService.reject(id, body?.comment ?? 'No reason provided', user.id, user, reworkEstimatedMinutes);
   }
 
   @Post(':id/approval')

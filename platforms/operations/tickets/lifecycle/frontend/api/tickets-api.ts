@@ -33,7 +33,8 @@ export const ticketsApi = {
   updateStatus: (id: string, status: string) => r(api.patch(`/tickets/${id}/status`, { status })),
   assign: (id: string, assignedToId: string) => r(api.patch(`/tickets/${id}/assign`, { assignedToId })),
   approve: (id: string, ratings?: any) => r(api.patch(`/tickets/${id}/approve`, ratings)),
-  reject: (id: string, comment: string) => r(api.patch(`/tickets/${id}/reject`, { comment })),
+  reject: (id: string, comment: string, reworkEstimatedMinutes?: number | null) =>
+    r(api.patch(`/tickets/${id}/reject`, { comment, reworkEstimatedMinutes: reworkEstimatedMinutes ?? null })),
   getPendingApprovals: () => r(api.get('/tickets/pending-approvals')),
   approveTicketCreation: (id: string) => r(api.post(`/tickets/${id}/approval`, { action: 'APPROVE' })),
   rejectTicketCreation: (id: string, reason: string) => r(api.post(`/tickets/${id}/approval`, { action: 'REJECT', reason })),

@@ -128,11 +128,39 @@ export class TicketsService {
   }
 
   private async addSla(ticket: any) {
-    return this.ticketTiming.decorateTicket(this.sanitizeTicketForResponse(ticket));
+    const decorated = await this.ticketTiming.decorateTicket(this.sanitizeTicketForResponse(ticket));
+    return this.withWorkBudgets([decorated]).then(([t]) => t);
   }
 
+  // Every ticket response carries both clocks: `timing` (SLA deadline, wall
+  // clock) and `workBudget` (estimate minus productive ledger time, what the UI
+  // calls "Time left"). A ledger read failure must never hide tickets.
   private async addSlaMany(tickets: any[]) {
-    return this.ticketTiming.decorateTickets(tickets.map((ticket) => this.sanitizeTicketForResponse(ticket)));
+    const decorated = await this.ticketTiming.decorateTickets(tickets.map((ticket) => this.sanitizeTicketForResponse(ticket)));
+    return this.withWorkBudgets(decorated);
+  }
+
+  // After a worker's running ticket stops for a ticket reason (review, done,
+  // open, block, unassign, handover), the next ticket they have waiting starts
+  // automatically. Best-effort: never affects the transition that triggered it.
+  private async resumeNextWaitingFor(userIds: string[] | undefined, leftTicketId: string) {
+    for (const workerId of userIds ?? []) {
+      try {
+        await this.ticketLedger.resumeNextWaitingTicket?.(workerId, leftTicketId);
+      } catch (err: any) {
+        this.logger.error(`Auto-resume of next ticket failed for user ${workerId} after ticket ${leftTicketId} stopped: ${err?.message}`);
+      }
+    }
+  }
+
+  private async withWorkBudgets(tickets: any[]) {
+    const budgets = await Promise.resolve(this.ticketLedger?.getWorkBudgets?.(tickets))
+      .then((m) => m ?? new Map())
+      .catch((err: any) => {
+        this.logger.error(`Work budget lookup failed: ${err?.message}`);
+        return new Map();
+      });
+    return tickets.map((t: any) => (t?.id && budgets.has(t.id) ? { ...t, workBudget: budgets.get(t.id) } : t));
   }
 
   sanitizeAttachmentForResponse(ticketId: string, attachment: any) {
@@ -418,7 +446,13 @@ export class TicketsService {
     // only a resolved approver (never the self-worker) sees approve/reject controls.
     const selfAssigned = this.ticketAccess.isSelfAssigned(ticket);
     const viewerCanApprove = user ? await this.ticketAccess.viewerCanApprove(user, ticket) : false;
-    return { ...decorated, selfAssigned, viewerCanApprove };
+    // Ledger-derived clocks (lifecycle, productive employee time per cycle,
+    // review). Read-only; a failure here must never hide the ticket itself.
+    const timers = await this.ticketLedger.getTicketTimers(ticket).catch((err: any) => {
+      this.logger.error(`Ticket timers failed for ${ticket.ticketId}: ${err?.message}`);
+      return null;
+    });
+    return { ...decorated, selfAssigned, viewerCanApprove, timers };
   }
 
   async assertCanUploadAttachment(user: any, ticket: any) {
@@ -1211,7 +1245,13 @@ export class TicketsService {
     };
   }
 
-  async update(id: string, data: any, userId: string, user?: any, opts?: { suppressCompletionNotification?: boolean }) {
+  async update(
+    id: string,
+    data: any,
+    userId: string,
+    user?: any,
+    opts?: { suppressCompletionNotification?: boolean; reviewDecisionRecorded?: boolean },
+  ) {
     // Extract assigneeIds (not a Ticket column)
     const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
     delete data.assigneeIds;
@@ -1278,6 +1318,15 @@ export class TicketsService {
 
     // ── REVIEW → IN_PROGRESS (rework): reset review stamps + recalculate executionDueAt ──
     if (data.status === TicketStatus.IN_PROGRESS && existing.status === TicketStatus.REVIEW) {
+      // Every send-back opens a new rework cycle, whichever path it came from.
+      // reject() records its own decision (with feedback and the rework
+      // estimate) first; a direct status change (Kanban, stepper) is recorded
+      // here. Persisted before the status write, so a failure leaves the
+      // ticket in REVIEW rather than reopened with no cycle.
+      if (!opts?.reviewDecisionRecorded) {
+        await this.persistReviewDecision(existing, 'REWORK', userId, { reworkStartedAt: new Date() });
+      }
+      data.reworkCount = { increment: 1 };
       data.submittedAt = null;
       data.reviewStartedAt = null;
       data.reviewDueAt = null;
@@ -1419,26 +1468,30 @@ export class TicketsService {
       // This is the real worked-time tracker (TicketTimeLog via TicketLedgerService) —
       // entirely separate from the SLA/due-date countdown (TicketTimingService), which
       // is untouched here and correctly keeps running regardless of break/end-day.
-      // startWorkLog() already dedupes on {ticketId, userId, stage, endedAt: null}, so
-      // calling it on every entry into IN_PROGRESS (including rework re-entries) can
-      // never create a duplicate active log. Wrapped like every other side effect in
-      // this block — a ledger failure must never corrupt the status transition that
-      // already committed above.
+      // The clock always belongs to the ticket's primary assignee; `userId` (the
+      // actor) is only the audit actor, so a manager or reviewer moving the ticket
+      // never gets a timer. startAssigneeTimer() is idempotent and enforces one
+      // active ticket per worker under a per-worker lock. Wrapped like every other
+      // side effect in this block — a ledger failure must never corrupt the status
+      // transition that already committed above.
       try {
         if (data.status === TicketStatus.IN_PROGRESS && existing.status !== TicketStatus.IN_PROGRESS) {
-          await this.ticketLedger.startWorkLog({
-            ticketId: ticket.id,
-            userId,
-            stage: LEDGER_STAGES.WORK,
-            ownerType: LEDGER_OWNER_TYPES.ASSIGNEE,
-            source: LEDGER_SOURCES.TICKET_STATUS,
-          });
+          if (ticket.assignedToId) {
+            await this.ticketLedger.startAssigneeTimer({
+              ticketId: ticket.id,
+              workerId: ticket.assignedToId,
+              mode: 'START',
+              source: LEDGER_SOURCES.TICKET_STATUS,
+            });
+          }
         } else if (existing.status === TicketStatus.IN_PROGRESS && data.status !== TicketStatus.IN_PROGRESS) {
-          await this.ticketLedger.endActiveLog({
-            ticketId: ticket.id,
-            userId,
-            pauseReason: LEDGER_PAUSE_REASONS.STATUS_CHANGE,
-          });
+          // Whoever holds the clock, it stops: nobody times a ticket that has left
+          // IN_PROGRESS.
+          const ended = await this.ticketLedger.endActiveLogsForTicket(ticket.id, LEDGER_PAUSE_REASONS.STATUS_CHANGE);
+          if (data.status !== TicketStatus.OPEN) {
+            await this.ticketLedger.closeReworkSegment(ticket.id);
+          }
+          await this.resumeNextWaitingFor(ended?.userIds, ticket.id);
         }
       } catch (err: any) {
         this.logger.error(`Work-log ledger update failed for ${ticket.ticketId}: ${err?.message}`);
@@ -1486,6 +1539,33 @@ export class TicketsService {
             );
           }
         } catch (_e) { /* never crash main operation */ }
+      }
+    }
+
+    // Reassigning a ticket that stays IN_PROGRESS hands the clock over: the old
+    // assignee's segment ends, and the new assignee's starts only if they are
+    // working and not already timing another ticket (an assignment never
+    // silently pauses someone else's current work).
+    const reassignedInProgress =
+      data.assignedToId !== undefined &&
+      data.assignedToId !== existing.assignedToId &&
+      existing.status === TicketStatus.IN_PROGRESS &&
+      ticket.status === TicketStatus.IN_PROGRESS;
+    if (reassignedInProgress) {
+      try {
+        const ended = await this.ticketLedger.endActiveLogsForTicket(ticket.id, LEDGER_PAUSE_REASONS.UNASSIGNED);
+        // The previous assignee moves on to their next waiting ticket.
+        await this.resumeNextWaitingFor(ended?.userIds, ticket.id);
+        if (ticket.assignedToId) {
+          await this.ticketLedger.startAssigneeTimer({
+            ticketId: ticket.id,
+            workerId: ticket.assignedToId,
+            mode: 'HANDOVER',
+            source: LEDGER_SOURCES.TICKET_STATUS,
+          });
+        }
+      } catch (err: any) {
+        this.logger.error(`Work-log handover failed for ${ticket.ticketId}: ${err?.message}`);
       }
     }
 
@@ -1578,6 +1658,14 @@ export class TicketsService {
     }).catch(() => {});
     this.gateway.emitTicketStatusChanged(ticket.id, 'BLOCKED', userId);
 
+    // Blocked time is never productive: stop the worker's clock (BLOCKED).
+    try {
+      const ended = await this.ticketLedger.endActiveLogsForTicket(ticket.id, LEDGER_PAUSE_REASONS.BLOCKED);
+      await this.resumeNextWaitingFor(ended?.userIds, ticket.id);
+    } catch (err: any) {
+      this.logger.error(`Failed to pause ticket timer on block for ${ticket.ticketId}: ${err?.message}`);
+    }
+
     // Notify assignee (if different from blocker) that their ticket is blocked
     if (ticket.assignedTo && ticket.assignedToId !== userId) {
       try {
@@ -1655,6 +1743,22 @@ export class TicketsService {
       metadata: { ticketId: ticket.ticketId },
     }).catch(() => {});
     this.gateway.emitTicketStatusChanged(ticket.id, ticket.status, userId);
+
+    // Resume only when it is safe: still IN_PROGRESS, same primary assignee,
+    // worker working, and no other ticket already being timed (UNBLOCK mode
+    // never pauses another ticket). All re-checked under the worker's lock.
+    if (updated.status === TicketStatus.IN_PROGRESS && updated.assignedToId) {
+      try {
+        await this.ticketLedger.startAssigneeTimer({
+          ticketId: ticket.id,
+          workerId: updated.assignedToId,
+          mode: 'UNBLOCK',
+          source: LEDGER_SOURCES.TICKET_STATUS,
+        });
+      } catch (err: any) {
+        this.logger.error(`Failed to resume ticket timer on unblock for ${ticket.ticketId}: ${err?.message}`);
+      }
+    }
 
     // Notify assignee that the blocker has been resolved
     if (ticket.assignedToId && ticket.assignedToId !== userId) {
@@ -1754,11 +1858,8 @@ export class TicketsService {
     // truth, and a clock left open here is a harmless, separately-correctable gap,
     // not silent data loss.
     try {
-      await this.ticketLedger.endActiveLog({
-        ticketId: ticket.id,
-        userId: previousAssigneeId,
-        pauseReason: LEDGER_PAUSE_REASONS.UNASSIGNED,
-      });
+      const ended = await this.ticketLedger.endActiveLogsForTicket(ticket.id, LEDGER_PAUSE_REASONS.UNASSIGNED);
+      await this.resumeNextWaitingFor(ended?.userIds, ticket.id);
     } catch (err: any) {
       this.logger.error(`Failed to pause ticket timer after unassign for ${ticket.ticketId}: ${err?.message}`);
     }
@@ -1879,6 +1980,8 @@ export class TicketsService {
       employeeAttitudeRating?: number | null;
       ratingComment?: string | null;
       feedback?: string | null;
+      reworkStartedAt?: Date;
+      reworkEstimatedMinutes?: number | null;
     },
   ) {
     const closeArgs = {
@@ -1890,6 +1993,8 @@ export class TicketsService {
       employeePerformanceRating: ratings?.employeePerformanceRating ?? null,
       employeeAttitudeRating: ratings?.employeeAttitudeRating ?? null,
       ratingComment: ratings?.ratingComment ?? null,
+      reworkStartedAt: decision === 'REWORK' ? ratings?.reworkStartedAt : undefined,
+      reworkEstimatedMinutes: decision === 'REWORK' ? ratings?.reworkEstimatedMinutes ?? null : undefined,
     };
 
     const actionLabel = decision === 'APPROVED' ? 'approved' : 'sent back for rework';
@@ -2003,7 +2108,12 @@ export class TicketsService {
     return updated;
   }
 
-  async reject(id: string, comment: string, userId: string, user?: any) {
+  async reject(id: string, comment: string, userId: string, user?: any, reworkEstimatedMinutes?: number | null) {
+    if (reworkEstimatedMinutes !== undefined && reworkEstimatedMinutes !== null) {
+      if (!Number.isInteger(reworkEstimatedMinutes) || reworkEstimatedMinutes < 1 || reworkEstimatedMinutes > 10_080) {
+        throw new BadRequestException('reworkEstimatedMinutes must be a whole number of minutes between 1 and 10080');
+      }
+    }
     const ticket = user
       ? await this.ticketAccess.findAccessibleTicket(id, user, { createdBy: { select: { id: true, name: true } }, assignees: true })
       : await this.prisma.ticket.findFirst({
@@ -2030,10 +2140,16 @@ export class TicketsService {
     // Persist the rework decision/feedback BEFORE transitioning status — same ordering
     // guarantee as approve(). If this throws, the ticket must stay in REVIEW rather than
     // silently reopening with no record of why it was sent back.
-    await this.persistReviewDecision(ticket, 'REWORK', userId, { feedback: comment });
+    // reworkStartedAt is stamped here, before the ticket re-enters IN_PROGRESS,
+    // so the worker's first rework segment always falls inside the cycle.
+    await this.persistReviewDecision(ticket, 'REWORK', userId, {
+      feedback: comment,
+      reworkStartedAt: new Date(),
+      reworkEstimatedMinutes: reworkEstimatedMinutes ?? null,
+    });
 
     const [updated] = await Promise.all([
-      this.update(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user),
+      this.update(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user, { reviewDecisionRecorded: true }),
       this.prisma.comment.create({
         data: {
           ticketId: ticket.id,

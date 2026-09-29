@@ -11,7 +11,7 @@ import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
 import { STATUS_COLORS, STATUS_LABELS, formatRole } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn, formatDate, getInitials, formatRelativeTime } from '@apex/shared-utilities';
 import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
-import { computeClientTimingState } from '@apex/operations-tickets-sla';
+import { computeClientTimingState, computeWorkBudget, pauseLabel } from '@apex/operations-tickets-sla';
 import { SkeletonTicketDetail } from '@apex/shared-ui/components/skeleton';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
@@ -34,13 +34,19 @@ const RECURRENCE_LABELS: Record<string, string> = {
   '6_months': 'Daily for 6 months',
 };
 
-// ─── Work timer status (display only — derived from ticket status) ────────────
-// This is a STATUS label, not a live worker clock. OPEN ⇒ "Not started" so an open
-// ticket never looks like a worker timer is running.
+// ─── Work timer status (display only) ─────────────────────────────────────────
+// "Running" comes only from the backend ledger (timers.activeClock), never from
+// ticket.status: an IN_PROGRESS ticket is paused while its assignee is on break,
+// has ended the day, has punched out or is timing another ticket.
 function workTimerStatus(ticket: any): { label: string; cls: string } {
-  if (ticket?.isBlocked) return { label: 'Paused', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' };
+  const paused = { label: 'Paused', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' };
+  if (ticket?.isBlocked) return { ...paused, label: 'Paused (blocked)' };
   switch (ticket?.status) {
-    case 'IN_PROGRESS': return { label: 'Running', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' };
+    case 'IN_PROGRESS':
+      // A paused label always says why (the assignee's break, punch out, another ticket).
+      return ticket?.timers?.activeClock === 'EMPLOYEE_WORK'
+        ? { label: 'Running', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' }
+        : { ...paused, label: pauseLabel(ticket) ?? 'Paused' };
     case 'REVIEW':      return { label: 'Waiting for review', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' };
     case 'DONE':
     case 'CLOSED':      return { label: 'Completed', cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' };
@@ -66,6 +72,7 @@ function TimingHeaderSummary({ ticket }: { ticket: any }) {
 function TicketTimingPanel({ ticket }: { ticket: any }) {
   const wt = workTimerStatus(ticket);
   const t = computeClientTimingState(ticket);
+  const budget = computeWorkBudget(ticket);
   const due = ticket?.dueDate ? new Date(ticket.dueDate) : null;
   const rowLabel = { color: 'var(--text-tertiary)' };
   const rowValue = { color: 'var(--text-primary)' };
@@ -89,7 +96,14 @@ function TicketTimingPanel({ ticket }: { ticket: any }) {
           </div>
         </>
       )}
-      {t.countdownLabel && t.phase !== 'blocked' && (
+      {budget ? (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs" style={rowLabel}>Time Left</span>
+          <span className={cn('text-sm font-medium', budget.over ? 'text-red-500' : '')} style={!budget.over ? rowValue : undefined}>
+            {budget.label}
+          </span>
+        </div>
+      ) : t.countdownLabel && t.phase !== 'blocked' && (
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs" style={rowLabel}>Time Left</span>
           <span className={cn('text-sm font-medium', t.isOverdue ? 'text-red-500' : '')} style={!t.isOverdue ? rowValue : undefined}>
@@ -547,6 +561,8 @@ export default function TicketDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>('comments');
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
+  // Optional estimate for the rework cycle, in hours (sent as minutes).
+  const [reworkEstimateHours, setReworkEstimateHours] = useState('');
   const [taskEfficiencyRating, setTaskEfficiencyRating] = useState(0);
   const [employeePerformanceRating, setEmployeePerformanceRating] = useState(0);
   const [employeeAttitudeRating, setEmployeeAttitudeRating] = useState(0);
@@ -566,6 +582,11 @@ export default function TicketDetailPage() {
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
     queryFn: () => ticketsApi.getOne(id) as Promise<any>,
+    // The work timer is paused/resumed by the assignee's own workday (break, end
+    // day, punch), which no mutation on this page sees. Poll so the ledger-backed
+    // timer state stays current.
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: users } = useQuery({
@@ -824,13 +845,18 @@ export default function TicketDetailPage() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: () => ticketsApi.reject(ticket.id, rejectComment),
+    mutationFn: () => {
+      const hours = parseFloat(reworkEstimateHours);
+      const minutes = Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : null;
+      return ticketsApi.reject(ticket.id, rejectComment, minutes);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ticket', id] });
       qc.invalidateQueries({ queryKey: ['ticket-history', id] });
       toast.success('Ticket sent back to In Progress');
       setRejectMode(false);
       setRejectComment('');
+      setReworkEstimateHours('');
     },
     onError: () => toast.error('Failed to reject ticket'),
   });
@@ -1360,6 +1386,15 @@ export default function TicketDetailPage() {
                 placeholder="Reason for rejection..."
                 className="apex-input"
               />
+              <input
+                type="number"
+                min={0.25}
+                step={0.25}
+                value={reworkEstimateHours}
+                onChange={(e) => setReworkEstimateHours(e.target.value)}
+                placeholder="Rework estimate in hours (optional)"
+                className="apex-input"
+              />
               <div className="flex gap-2">
                 <button
                   onClick={() => rejectMutation.mutate()}
@@ -1369,7 +1404,7 @@ export default function TicketDetailPage() {
                   <XCircle size={14} /> Confirm Reject
                 </button>
                 <button
-                  onClick={() => { setRejectMode(false); setRejectComment(''); }}
+                  onClick={() => { setRejectMode(false); setRejectComment(''); setReworkEstimateHours(''); }}
                   className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   Cancel
@@ -1438,7 +1473,7 @@ export default function TicketDetailPage() {
                   <XCircle size={14} /> Send Back for Rework
                 </button>
               </div>
-              <p className="text-xs text-slate-500">Rejected work returns to Open. The employee must start it again. The same ticket ID is retained.</p>
+              <p className="text-xs text-slate-500">Rework returns the ticket to In Progress for the same assignee as a new cycle with its own estimate. The assignee's timer resumes when they are working. The same ticket ID is retained.</p>
             </div>
           )}
         </div>
@@ -2027,24 +2062,28 @@ export default function TicketDetailPage() {
                   </div>
                 );
               })()}
-              {ticket?.actualStartAt && ticket?.status === 'IN_PROGRESS' && !ticket?.actualCompletedAt && (() => {
-                const ms = Date.now() - new Date(ticket.actualStartAt).getTime();
-                const totalMins = Math.max(0, Math.floor(ms / 60000));
+              {ticket?.workBudget && ticket?.status === 'IN_PROGRESS' && !ticket?.actualCompletedAt && (() => {
+                // Productive assignee time in the current cycle (ledger): breaks,
+                // end-day, overnight, blocked and switched-away time are excluded.
+                // Spent so far + Time left = this cycle's estimate.
+                const budget = computeWorkBudget(ticket);
+                const totalMins = budget ? budget.workedMinutes : Math.max(0, Math.floor((ticket.workBudget.workedSeconds ?? 0) / 60));
+                const cycleEstimate = budget ? budget.estimatedMinutes : ticket.workBudget.estimatedMinutes;
                 if (totalMins <= 0) return null;
                 const hours = Math.floor(totalMins / 60);
                 const mins = totalMins % 60;
                 const display = hours > 0
                   ? mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
                   : `${mins}m`;
-                const isOverEst = ticket.estimatedMinutes && totalMins > ticket.estimatedMinutes;
+                const isOverEst = cycleEstimate && totalMins > cycleEstimate;
                 return (
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 rounded-lg">
                     <Clock size={12} className="text-blue-500 flex-shrink-0" />
                     <div>
                       <span className="text-xs font-semibold text-blue-700">Spent so far: {display}</span>
-                      {ticket.estimatedMinutes && (
+                      {cycleEstimate && (
                         <span className={`ml-1.5 text-[10px] font-medium ${isOverEst ? 'text-orange-500' : 'text-slate-500'}`}>
-                          (Est: {ticket.estimatedMinutes}m)
+                          ({budget?.cycle === 'REWORK' ? 'Rework est' : 'Est'}: {cycleEstimate}m)
                         </span>
                       )}
                     </div>

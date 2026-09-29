@@ -790,6 +790,12 @@ model ReviewCycleLog {
   reviewerWorkSeconds       Int?
   reworkStartedAt           DateTime?
   reworkEndedAt             DateTime?
+  /// Estimate for the rework cycle that follows this REWORK decision. Separate
+  /// from Ticket.estimatedMinutes, which stays the original-cycle estimate.
+  reworkEstimatedMinutes    Int?
+  /// Productive assignee seconds (TicketTimeLog) between reworkStartedAt and
+  /// reworkEndedAt, frozen when the rework is resubmitted for review.
+  reworkWorkSeconds         Int?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
   employeeAttitudeRating    Int?
