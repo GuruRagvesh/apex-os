@@ -96,10 +96,12 @@ describe('TVA-005, 006, 007: SLA Authority Consolidation', () => {
     const analyticsRes = await analyticsService.getManagerMetrics({ id: 'u1' });
     expect(analyticsRes.overdueTickets).toBe(1);
 
-    // 2. AI Digest
+    // 2. AI Digest — email send is disabled (in-app only), so the digest's
+    // overdue count is observable only through its summary log line.
+    const digestLog = jest.spyOn((aiCronService as any).logger, 'log');
     await aiCronService.sendDailyDigest();
-    // Digest sends 1 email per manager. We can check if email was called.
-    expect(mockEmail.sendEmail).toHaveBeenCalled();
+    expect(digestLog).toHaveBeenCalledWith(expect.stringContaining('Overdue: 1,'));
+    expect(mockEmail.sendEmail).not.toHaveBeenCalled();
 
     // 3. Automation
     await automationService.checkOverdueTickets();

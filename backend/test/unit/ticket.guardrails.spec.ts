@@ -81,7 +81,22 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
         { provide: EventLoggerService, useValue: mockLogger },
         { provide: ConfigService, useValue: mockConfig },
         { provide: EventEmitter2, useValue: mockEventEmitter },
-        { provide: TicketLedgerService, useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn(), startWorkLog: jest.fn(), endActiveLog: jest.fn(), getActiveLogForTicket: jest.fn() } },
+        {
+          provide: TicketLedgerService,
+          useValue: {
+            startReviewCycle: jest.fn(),
+            // approve() refuses to reach DONE unless a review cycle is recorded.
+            endReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle1' }),
+            getTicketTimers: jest.fn(),
+            startWorkLog: jest.fn(),
+            endActiveLog: jest.fn(),
+            getActiveLogForTicket: jest.fn(),
+            startAssigneeTimer: jest.fn().mockResolvedValue(undefined),
+            endActiveLogsForTicket: jest.fn().mockResolvedValue(undefined),
+            resumeNextWaitingTicket: jest.fn().mockResolvedValue(undefined),
+            closeReworkSegment: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: TicketImportService, useValue: {} },
       ],
     }).compile();
@@ -175,11 +190,13 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
   });
 
   it('12. Manager/reviewer behavior is not broken for valid review actions', async () => {
-    const t = makeTicket({ status: 'REVIEW', createdById: 'emp1', assignedToId: 'emp1' });
+    // Manager-assigned work reviewed by that manager. A self-assigned ticket
+    // would instead need a resolved hierarchy approver, which is not this case.
+    const t = makeTicket({ status: 'REVIEW', createdById: 'mgr1', assignedToId: 'emp1' });
     mockPrisma.ticket.findFirst.mockResolvedValue(t);
     mockPrisma.ticket.findUnique.mockResolvedValue(t);
     mockPrisma.user.findUnique.mockResolvedValue({ currentStatus: 'WORKING' });
-    await expect(service.approve('tkt1', { taskEfficiencyRating: 5, employeePerformanceRating: 4, employeeAttitudeRating: 5 }, 'mgr1', manager)).resolves.toBeDefined();
+    await expect(service.approve('tkt1', 'mgr1', manager, { taskEfficiencyRating: 5, employeePerformanceRating: 4, employeeAttitudeRating: 5 })).resolves.toBeDefined();
   });
 
   it('13. CLOSED ticket deletion rejected', async () => {

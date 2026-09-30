@@ -2,14 +2,14 @@
  * Smoke tests — API endpoint availability
  *
  * Verifies that every key page/endpoint returns the correct HTTP status with
- * a valid token.  These tests require the backend .env (real DB + JWT_SECRET)
- * and the QC test users created by `prisma/seed-test-users.ts`.
+ * a valid token. Runs only against the dedicated isolated integration
+ * database, which the API integration global setup seeds with its own users.
  *
- * Run:  npx jest test/integration/smoke.spec.ts
+ * Run:  DATABASE_URL=... npm run test:api -- test/integration/smoke.spec.ts
  */
 import * as request from 'supertest';
 import { createTestApp } from '../helpers/app.helper';
-import { bearerFor, loginAs, clearTokenCache } from '../helpers/auth.helper';
+import { bearerFor, loginAs, clearTokenCache, TEST_USERS } from '../helpers/auth.helper';
 import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
@@ -40,16 +40,16 @@ describe('API Smoke Tests', () => {
     it('POST /api/auth/login with valid credentials → 201 + accessToken', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/auth/login')
-        .send({ email: 'admin@apex.local', password: 'Apex@local1' })
+        .send(TEST_USERS.admin)
         .expect(201);
       expect(res.body.accessToken).toBeDefined();
-      expect(res.body.user.email).toBe('admin@apex.local');
+      expect(res.body.user.email).toBe(TEST_USERS.admin.email);
     });
 
     it('POST /api/auth/login with wrong password → 401', async () => {
       await request(app.getHttpServer())
         .post('/api/auth/login')
-        .send({ email: 'admin@apex.local', password: 'wrongpassword' })
+        .send({ email: TEST_USERS.admin.email, password: 'wrongpassword' })
         .expect(401);
     });
 
@@ -63,13 +63,13 @@ describe('API Smoke Tests', () => {
         .get('/api/auth/me')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
-      expect(res.body.email).toBe('admin@apex.local');
+      expect(res.body.email).toBe(TEST_USERS.admin.email);
     });
 
     it('POST /api/auth/register without token → 401 (route is protected)', async () => {
       await request(app.getHttpServer())
         .post('/api/auth/register')
-        .send({ email: 'new@apex.local', password: 'Test@123', name: 'Test', roleId: 'x' })
+        .send({ email: 'new@integration.invalid', password: 'Test@123', name: 'Test', roleId: 'x' })
         .expect(401);
     });
 
@@ -78,7 +78,7 @@ describe('API Smoke Tests', () => {
       await request(app.getHttpServer())
         .post('/api/auth/register')
         .set('Authorization', token)
-        .send({ email: 'new2@apex.local', password: 'Test@123', name: 'Test', roleId: 'x' })
+        .send({ email: 'new2@integration.invalid', password: 'Test@123', name: 'Test', roleId: 'x' })
         .expect(403);
     });
   });
@@ -177,7 +177,7 @@ describe('API Smoke Tests', () => {
         .get('/api/users/me')
         .set('Authorization', token)
         .expect(200);
-      expect(res.body.email).toBe('employee@apex.local');
+      expect(res.body.email).toBe(TEST_USERS.employee.email);
     });
 
     it('POST /api/users as EMPLOYEE → 403', async () => {
@@ -482,7 +482,7 @@ describe('API Smoke Tests', () => {
 
     it('4. workday start creates visible event', async () => {
       const empToken = await bearerFor(app, 'employee');
-      const empUser = await db.user.findFirst({ where: { email: 'employee@apex.local' } });
+      const empUser = await db.user.findFirst({ where: { email: TEST_USERS.employee.email } });
 
       const today = new Date(); today.setHours(0,0,0,0);
       await db.workSession.deleteMany({ where: { userId: empUser.id, date: today } });
@@ -509,8 +509,8 @@ describe('API Smoke Tests', () => {
       const leadToken = await bearerFor(app, 'teamlead');
       const empToken = await bearerFor(app, 'employee');
 
-      const leadUser = await db.user.findFirst({ where: { email: 'teamlead@apex.local' } });
-      const empUser = await db.user.findFirst({ where: { email: 'employee@apex.local' } });
+      const leadUser = await db.user.findFirst({ where: { email: TEST_USERS.teamlead.email } });
+      const empUser = await db.user.findFirst({ where: { email: TEST_USERS.employee.email } });
 
       const origLeadDept = leadUser.departmentId;
       const origEmpDept = empUser.departmentId;
@@ -549,7 +549,7 @@ describe('API Smoke Tests', () => {
       const empToken = await bearerFor(app, 'employee');
       const adminToken = await bearerFor(app, 'admin');
 
-      const empUser = await db.user.findFirst({ where: { email: 'employee@apex.local' } });
+      const empUser = await db.user.findFirst({ where: { email: TEST_USERS.employee.email } });
       
       const testDept = await db.department.findFirst();
       let unrelatedDept = await db.department.findFirst({ where: { id: { not: testDept.id } } });
@@ -558,7 +558,7 @@ describe('API Smoke Tests', () => {
           data: { name: 'Unrelated Dept For Log', color: '#000000', description: 'Test' },
         });
       }
-      const unrelatedUser = await db.user.findFirst({ where: { email: 'intern@apex.local' } });
+      const unrelatedUser = await db.user.findFirst({ where: { email: TEST_USERS.intern.email } });
       const origEmpDept = empUser.departmentId;
       const origUnrelatedDept = unrelatedUser.departmentId;
 

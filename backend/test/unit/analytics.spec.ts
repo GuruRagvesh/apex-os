@@ -8,6 +8,9 @@ import { AccessPolicyService } from '../../src/common/services/access-policy.ser
 import { CompanyDateService } from '../../src/common/services/company-date.service';
 import { ForbiddenException } from '@nestjs/common';
 
+const FIXED_NOW = '2026-06-06T12:00:00Z';
+const FIXED_DAY_START = '2026-06-06T00:00:00Z';
+
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
   let prisma: any;
@@ -44,7 +47,10 @@ describe('AnalyticsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
+        // Pinned clock, matching CompanyDateService below. A live `new Date()`
+        // day start lands after fixtures created a millisecond earlier and
+        // made "approvals today" flaky.
+        { provide: TVAService, useValue: { now: () => new Date(FIXED_NOW), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(FIXED_NOW), companyDayStart: () => new Date(FIXED_DAY_START), formatZoned: () => 'mock', companyDayEnd: () => new Date('2026-06-06T23:59:59.999Z'), elapsedSeconds: () => 0 } },
         AnalyticsService,
         { provide: PrismaService, useValue: prisma },
         { provide: TicketAccessService, useValue: ticketAccess },
@@ -102,8 +108,8 @@ describe('AnalyticsService', () => {
   describe('getReviewerMetrics', () => {
     it('calculates reviewer metrics and SLA breaches', async () => {
       prisma.reviewCycleLog.findMany.mockResolvedValue([
-        { decision: 'APPROVED', reviewerWorkSeconds: 3600, ticket: { priority: 'MEDIUM' }, reviewEndedAt: new Date() }, // 1h
-        { decision: 'REWORK', reviewerWorkSeconds: 90000, ticket: { priority: 'MEDIUM' }, reviewEndedAt: new Date() } // 25h (breach > 24h)
+        { decision: 'APPROVED', reviewerWorkSeconds: 3600, ticket: { priority: 'MEDIUM' }, reviewEndedAt: new Date('2026-06-06T10:00:00Z') }, // 1h
+        { decision: 'REWORK', reviewerWorkSeconds: 90000, ticket: { priority: 'MEDIUM' }, reviewEndedAt: new Date('2026-06-06T11:00:00Z') } // 25h (breach > 24h)
       ]);
       prisma.ticket.count.mockResolvedValue(4); // backlog
 

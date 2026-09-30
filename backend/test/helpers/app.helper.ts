@@ -13,6 +13,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
+import { assertIsolatedDatabase } from '../integration-pg/db-guard';
 
 let cachedApp: INestApplication | null = null;
 
@@ -23,6 +24,10 @@ export async function createTestApp(): Promise<{
   if (cachedApp) {
     return { app: cachedApp, close: async () => {} };
   }
+
+  // The app writes through the real API. Refuse anything but the dedicated
+  // isolated database, however this suite was launched.
+  assertIsolatedDatabase(process.env.DATABASE_URL);
 
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],

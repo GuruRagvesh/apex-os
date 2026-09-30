@@ -48,7 +48,8 @@ class SilentMail {
   readonly sent: any[] = [];
   async sendPayrollAttendanceReport(...args: any[]) {
     this.sent.push(args);
-    return true;
+    // The transport reports a classified DeliveryResult, not a boolean.
+    return { outcome: 'SENT' as const, providerId: 'silent-mail' };
   }
   async sendEmail(...args: any[]) {
     this.sent.push(args);
@@ -294,14 +295,17 @@ describe('an import correction against the payroll close', () => {
 
   it('13. send holds the month across its staleness check, and SENT is absolute', async () => {
     const batch = await approvedChange('B', 'TE-011');
+    // finalize() delivers the report itself once the close has committed. No
+    // mail leaves the process; the database path is real.
     await payroll.finalize(seed.actors.hr, MONTH);
-
-    // Deliver. No mail leaves the process; the database path is real.
-    await payroll.send(seed.actors.hr, MONTH);
-    expect(mail.sent.length).toBeGreaterThan(0);
+    expect(mail.sent.length).toBe(1);
 
     const close = await prisma.attendanceMonthClose.findUnique({ where: { month: MONTH } });
     expect(close!.status).toBe('SENT');
+
+    // A second, explicit send is refused rather than delivering a duplicate.
+    await expect(payroll.send(seed.actors.hr, MONTH)).rejects.toThrow(/already been sent/);
+    expect(mail.sent.length).toBe(1);
 
     // A SENT month refuses every authority, including an individual review --
     // the one settlement reason that is never relaxed.

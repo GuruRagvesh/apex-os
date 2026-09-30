@@ -1,4 +1,12 @@
-/** @type {import('jest').Config} */
+/**
+ * Unit suites: fully mocked, no database. This is what `npm test` runs.
+ *
+ * The API integration suites (test/integration) boot the real app against a
+ * database and run only through jest.api.config.js; the PostgreSQL suites
+ * (test/integration-pg) run only through jest.integration.config.js.
+ *
+ * @type {import('jest').Config}
+ */
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
@@ -7,13 +15,12 @@ module.exports = {
     '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: './tsconfig.json' }],
   },
   testMatch: [
-    '<rootDir>/test/**/*.spec.ts',
+    '<rootDir>/test/unit/**/*.spec.ts',
     '<rootDir>/src/**/*.spec.ts',
   ],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
   },
-  // Give integration tests more time — they boot a real NestJS app + DB
   testTimeout: 30000,
   // Show individual test names in output
   verbose: true,

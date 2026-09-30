@@ -21,13 +21,10 @@
  *     stray file or shell might claim.
  */
 
-import * as dotenv from 'dotenv';
-import * as path from 'path';
-
-// Optional convenience only. If a developer keeps a local .env for a dedicated
-// test database or similar, it is honoured — but nothing here depends on it,
-// and its absence is the normal case.
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+// backend/.env is deliberately NOT loaded. It used to be, "for convenience",
+// and on a developer machine that file can point at a working copy of real
+// data. A suite that needs a database is handed DATABASE_URL explicitly and
+// then checked by test/integration-pg/db-guard.ts.
 
 // Harmless, obviously-not-real values. Long enough to satisfy any minimum-length
 // check without resembling a credential anybody might mistake for real.

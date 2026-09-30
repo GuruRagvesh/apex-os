@@ -79,3 +79,11 @@ recovered_*.json
 # Exception: real Prisma migrations must stay tracked despite the blanket
 # *.sql rule above, or `git add` will silently skip new migration files.
 !backend/prisma/migrations/**/*.sql
+
+# ─── Local-only env backups, punch photos and patch exports ──────────────────
+# Any .env variant (e.g. backend/.env.render-backup) holds real credentials.
+# Only the committed *.example templates may be tracked.
+.env.*
+!.env*.example
+.local-punch-photos/
+/*.patch
