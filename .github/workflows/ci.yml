@@ -73,7 +73,7 @@ jobs:
     name: PostgreSQL integration tests
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: postgresql://apex_test@127.0.0.1:5432/apex_os_attendance_integration?schema=public
+      DATABASE_URL: postgresql://apex_test@127.0.0.1:55432/apex_os_attendance_integration?schema=public
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,6 +81,8 @@ jobs:
       # Host networking, not a `services:` container. The guard asks the server
       # which address it answered on and accepts only loopback; behind a
       # service container's port mapping the server answers on its bridge IP.
+      # Port 55432, as in test/integration-pg/README.md: a0-identity asserts a
+      # dedicated, non-default port.
       - name: Start throwaway PostgreSQL on loopback
         run: |
           docker run -d --name apex-int-pg --network host \
@@ -88,9 +90,9 @@ jobs:
             -e POSTGRES_HOST_AUTH_METHOD=trust \
             -e POSTGRES_DB=apex_os_attendance_integration \
             -e TZ=UTC \
-            postgres:18 -c listen_addresses=127.0.0.1 -c port=5432 -c timezone=UTC
+            postgres:18 -c listen_addresses=127.0.0.1 -c port=55432 -c timezone=UTC
           for i in $(seq 1 30); do
-            docker exec apex-int-pg pg_isready -h 127.0.0.1 -U apex_test -d apex_os_attendance_integration && exit 0
+            docker exec apex-int-pg pg_isready -h 127.0.0.1 -p 55432 -U apex_test -d apex_os_attendance_integration && exit 0
             sleep 2
           done
           docker logs apex-int-pg
