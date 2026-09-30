@@ -8,10 +8,12 @@ import { TicketStatus } from '@prisma/client';
 import { LEDGER_OWNER_TYPES, LEDGER_STAGES } from '../../operations/tickets/ticket-ledger.service';
 
 // Productive employee time = the primary assignee's WORK and REWORK ledger
-// segments. (The ledger never writes a stage called IN_PROGRESS.)
+// segments that count as work. (The ledger never writes a stage called
+// IN_PROGRESS; pause markers and INTEGRITY_REPAIR closures are countsAsWork = false.)
 const PRODUCTIVE_ASSIGNEE_LOGS = {
   ownerType: LEDGER_OWNER_TYPES.ASSIGNEE,
   stage: { in: [LEDGER_STAGES.WORK, LEDGER_STAGES.REWORK] },
+  countsAsWork: true,
 };
 
 @Injectable()
@@ -63,7 +65,7 @@ export class AnalyticsService {
 
     const timeLogs = await this.prisma.ticketTimeLog.findMany({
       // Productive assignee time as the ledger records it (WORK / REWORK segments).
-      where: { userId: targetUserId, ...PRODUCTIVE_ASSIGNEE_LOGS, countsAsWork: true, durationSeconds: { not: null } },
+      where: { userId: targetUserId, ...PRODUCTIVE_ASSIGNEE_LOGS, durationSeconds: { not: null } },
       select: { durationSeconds: true },
     });
 

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TVAService } from '../../../common/services/tva.service';
@@ -49,6 +49,10 @@ export const LEDGER_PAUSE_REASONS = {
   // The worker went idle; the segment ends when the idle period began, so idle
   // time is never counted. Resuming work picks the ticket back up.
   IDLE: 'IDLE',
+  // Written only by the Phase 2D1 ticket-time cleanup, which closes an invalid
+  // or duplicate active timer with countsAsWork = false. A deliberate stop:
+  // never auto-resumed.
+  INTEGRITY_REPAIR: 'INTEGRITY_REPAIR',
 };
 
 // A segment that ended for one of these reasons was interrupted by the worker's
@@ -107,6 +111,33 @@ export function ticketLogSessionScope(workSessionId: string, endedAt?: Date): Pr
   };
 }
 
+/**
+ * The ledger's canonical productive-time test. Only rows with countsAsWork =
+ * true add to employee work, cycle actuals, the work budget (Time Left) and
+ * frozen rework seconds. Zero-length pause markers and rows closed by the
+ * Phase 2D1 cleanup (INTEGRITY_REPAIR) are countsAsWork = false.
+ */
+export function isProductiveLog(l: { countsAsWork?: boolean | null }): boolean {
+  return l.countsAsWork === true;
+}
+
+export const ONE_ACTIVE_TIMER_INDEX = 'ticket_time_logs_one_active_assignee_per_user';
+
+/**
+ * True when `err` is the database refusing a second active ASSIGNEE timer for
+ * one user (the Phase 2D1 partial unique index), however Prisma surfaced it.
+ */
+export function isOneActiveTimerViolation(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; meta?: Record<string, unknown> } | null;
+  if (!e) return false;
+  const text = `${e.message ?? ''} ${JSON.stringify(e.meta ?? {})}`;
+  if (text.includes(ONE_ACTIVE_TIMER_INDEX)) return true;
+  if (e.code !== 'P2002') return false;
+  const target = e.meta?.target;
+  const fields = Array.isArray(target) ? target : [target];
+  return (e.meta?.modelName === undefined || e.meta?.modelName === 'TicketTimeLog') && fields.includes('userId');
+}
+
 @Injectable()
 export class TicketLedgerService {
   constructor(
@@ -153,8 +184,12 @@ export class TicketLedgerService {
 
     const logSeconds = (l: any) =>
       l.endedAt ? (l.durationSeconds ?? 0) : this.tva.elapsedSeconds(l.startedAt, now);
+    // Productive time only: rows the ledger marks countsAsWork = false (pause
+    // markers, INTEGRITY_REPAIR closures) never count. Lifecycle, review time
+    // and activeClock still read every row.
+    const productive = logs.filter(isProductiveLog);
     const sumWindow = (from: Date | null, to: Date | null) =>
-      logs
+      productive
         .filter((l: any) =>
           (!from || l.startedAt.getTime() >= from.getTime()) &&
           (!to || l.startedAt.getTime() < to.getTime()))
@@ -180,7 +215,7 @@ export class TicketLedgerService {
       };
     });
 
-    const employeeWorkSeconds = logs.reduce((acc: number, l: any) => acc + logSeconds(l), 0);
+    const employeeWorkSeconds = productive.reduce((acc: number, l: any) => acc + logSeconds(l), 0);
 
     let reviewSeconds = 0;
     for (const c of cycles as any[]) {
@@ -257,7 +292,9 @@ export class TicketLedgerService {
     const inCycle = openRework
       ? (l: any) => l.startedAt.getTime() >= openRework.reworkStartedAt.getTime()
       : (l: any) => !firstReworkStart || l.startedAt.getTime() < firstReworkStart.getTime();
-    const workedSeconds = logs.filter(inCycle).reduce((acc: number, l: any) => acc + logSeconds(l), 0);
+    const workedSeconds = logs
+      .filter((l: any) => isProductiveLog(l) && inCycle(l))
+      .reduce((acc: number, l: any) => acc + logSeconds(l), 0);
     const estimatedMinutes: number | null = openRework
       ? openRework.reworkEstimatedMinutes ?? null
       : ticket.estimatedMinutes ?? null;
@@ -353,7 +390,7 @@ export class TicketLedgerService {
     const [logs, cycles] = await Promise.all([
       this.prisma.ticketTimeLog.findMany({
         where: { ticketId: { in: ids }, ownerType: LEDGER_OWNER_TYPES.ASSIGNEE },
-        select: { ticketId: true, startedAt: true, endedAt: true, durationSeconds: true },
+        select: { ticketId: true, startedAt: true, endedAt: true, durationSeconds: true, countsAsWork: true },
       }),
       this.prisma.reviewCycleLog.findMany({
         where: { ticketId: { in: ids }, decision: 'REWORK', reworkStartedAt: { not: null } },
@@ -404,18 +441,27 @@ export class TicketLedgerService {
 
     if (existing) return existing;
 
-    return this.prisma.ticketTimeLog.create({
-      data: {
-        ticketId: input.ticketId,
-        userId: input.userId,
-        stage: input.stage,
-        ownerType: input.ownerType,
-        source: input.source,
-        workSessionId: input.workSessionId,
-        countsAsWork: input.countsAsWork ?? true,
-        startedAt: this.tva.now(),
-      },
-    });
+    try {
+      return await this.prisma.ticketTimeLog.create({
+        data: {
+          ticketId: input.ticketId,
+          userId: input.userId,
+          stage: input.stage,
+          ownerType: input.ownerType,
+          source: input.source,
+          workSessionId: input.workSessionId,
+          countsAsWork: input.countsAsWork ?? true,
+          startedAt: this.tva.now(),
+        },
+      });
+    } catch (err) {
+      // Unlocked legacy path: the database's one-active-timer index is the
+      // backstop. Report it as a conflict, never as a raw database error.
+      if (isOneActiveTimerViolation(err)) {
+        throw new ConflictException('This worker already has an active ticket timer.');
+      }
+      throw err;
+    }
   }
 
   async endActiveLog(input: {
@@ -666,6 +712,31 @@ export class TicketLedgerService {
     source: string;
     stage?: string;
   }): Promise<{ outcome: AssigneeTimerOutcome; log?: any; pausedLogIds?: string[] }> {
+    // The worker lock serialises every ledger writer, so the one-active-timer
+    // unique index (Phase 2D1) should never fire here. If a writer outside the
+    // lock slipped a row in, the whole attempt rolled back; re-run it once so
+    // it sees that row and takes the normal switch / idempotent / wait path.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.startAssigneeTimerOnce(input);
+      } catch (err) {
+        if (!isOneActiveTimerViolation(err)) throw err;
+        if (attempt >= 2) {
+          throw new ConflictException(
+            'Another timer for this worker started at the same moment. Please try again.',
+          );
+        }
+      }
+    }
+  }
+
+  private async startAssigneeTimerOnce(input: {
+    ticketId: string;
+    workerId: string;
+    mode: AssigneeTimerMode;
+    source: string;
+    stage?: string;
+  }): Promise<{ outcome: AssigneeTimerOutcome; log?: any; pausedLogIds?: string[] }> {
     const { ticketId, workerId, mode } = input;
     return this.prisma.$transaction(async (tx) => {
       await this.lockWorkerTimers(tx, workerId);
@@ -845,6 +916,7 @@ export class TicketLedgerService {
       where: {
         ticketId,
         ownerType: LEDGER_OWNER_TYPES.ASSIGNEE,
+        countsAsWork: true,
         endedAt: { not: null },
         startedAt: { gte: cycle.reworkStartedAt!, lte: at },
       },
@@ -939,6 +1011,7 @@ export class TicketLedgerService {
       where: {
         ticketId: input.ticketId,
         ownerType: 'ASSIGNEE',
+        countsAsWork: true,
         startedAt: { gte: assigneeStartBound, lte: cycle.reviewStartedAt || this.tva.now() },
       },
       _sum: { durationSeconds: true },

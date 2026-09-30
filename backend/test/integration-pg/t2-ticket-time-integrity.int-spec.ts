@@ -15,6 +15,7 @@ import { spawnSync } from 'child_process';
 import * as path from 'path';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { assertIsolatedDatabase, assertServerIdentity } from './db-guard';
+import { dropOneActiveIndex, restoreOneActiveIndex } from './one-active-index';
 import { AuditReport, CHECKS, runReadOnlyAudit } from '../../scripts/lib/ticket-time-integrity';
 
 const W = 'u-audit-worker';
@@ -96,6 +97,10 @@ describe('T2 ticket timer integrity audit (PostgreSQL)', () => {
     prisma = new PrismaService();
     await prisma.$connect();
     await assertServerIdentity(prisma as any);
+    // The audit exists to inspect databases from BEFORE the Phase 2D1
+    // guardrail, where duplicate active timers are possible, so this suite
+    // works without the one-active-timer index and restores it afterwards.
+    await dropOneActiveIndex(prisma);
   });
 
   beforeEach(seedClean);
@@ -104,6 +109,7 @@ describe('T2 ticket timer integrity audit (PostgreSQL)', () => {
     // Leave the integration database clean for the next suite and for a
     // post-run audit: no timer fixtures survive this file.
     await prisma?.$executeRawUnsafe(`TRUNCATE TABLE users, roles RESTART IDENTITY CASCADE`);
+    if (prisma) await restoreOneActiveIndex(prisma);
     await prisma?.$disconnect();
   });
 

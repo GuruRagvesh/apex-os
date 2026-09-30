@@ -773,6 +773,10 @@ model TicketTimeLog {
   @@index([workSessionId])
   @@index([ticketId, endedAt])
   @@index([userId, endedAt])
+  // Also enforced in SQL only (Prisma cannot express a partial unique index):
+  // ticket_time_logs_one_active_assignee_per_user, UNIQUE ("userId") WHERE
+  // "endedAt" IS NULL AND "ownerType" = 'ASSIGNEE'. Migration
+  // 20261001000000_one_active_assignee_timer.
   @@map("ticket_time_logs")
 }
 
