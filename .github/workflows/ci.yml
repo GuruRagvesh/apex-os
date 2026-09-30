@@ -2,7 +2,7 @@ name: CI
 
 # Typecheck, unit tests, builds, whitespace, and the database-backed suites.
 #
-# The database suites run only against the throwaway PostgreSQL service below,
+# The database suites run only against the throwaway PostgreSQL container below,
 # named apex_os_attendance_integration on loopback -- the only database their
 # guard (backend/test/integration-pg/db-guard.ts) accepts. This workflow uses
 # no secrets, never reaches a hosted database, and does not deploy.
@@ -72,26 +72,29 @@ jobs:
   database:
     name: PostgreSQL integration tests
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: apex_test
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: apex_os_attendance_integration
-          TZ: UTC
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U apex_test -d apex_os_attendance_integration"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     env:
       DATABASE_URL: postgresql://apex_test@127.0.0.1:5432/apex_os_attendance_integration?schema=public
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Host networking, not a `services:` container. The guard asks the server
+      # which address it answered on and accepts only loopback; behind a
+      # service container's port mapping the server answers on its bridge IP.
+      - name: Start throwaway PostgreSQL on loopback
+        run: |
+          docker run -d --name apex-int-pg --network host \
+            -e POSTGRES_USER=apex_test \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -e POSTGRES_DB=apex_os_attendance_integration \
+            -e TZ=UTC \
+            postgres:18 -c listen_addresses=127.0.0.1 -c port=5432 -c timezone=UTC
+          for i in $(seq 1 30); do
+            docker exec apex-int-pg pg_isready -h 127.0.0.1 -U apex_test -d apex_os_attendance_integration && exit 0
+            sleep 2
+          done
+          docker logs apex-int-pg
+          exit 1
 
       - name: Set up Node
         uses: actions/setup-node@v4
