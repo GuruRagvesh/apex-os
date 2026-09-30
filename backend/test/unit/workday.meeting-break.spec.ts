@@ -64,6 +64,7 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
     ticketLedger = {
       pauseActiveLogsForUser: jest.fn().mockResolvedValue({}),
       resumeLogsForBreak: jest.fn().mockResolvedValue({}),
+      resumeAfterWorkdayStart: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new WorkdayService(

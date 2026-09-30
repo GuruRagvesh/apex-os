@@ -27,6 +27,8 @@ describe('TVA Attendance Authority (Unit)', () => {
       workSession: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
+        // Start Work first closes any previous-day session left open; none here.
+        findMany: jest.fn().mockResolvedValue([]),
       },
       breakLog: {
         create: jest.fn(),
@@ -48,7 +50,7 @@ describe('TVA Attendance Authority (Unit)', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AccessPolicyService, useValue: { checkAccess: jest.fn() } },
         { provide: EventLoggerService, useValue: { log: jest.fn().mockResolvedValue(null) } },
-        { provide: TicketLedgerService, useValue: { pauseActiveLogsForUser: jest.fn(), resumeLogsForBreak: jest.fn() } },
+        { provide: TicketLedgerService, useValue: { pauseActiveLogsForUser: jest.fn(), resumeLogsForBreak: jest.fn(), resumeAfterWorkdayStart: jest.fn().mockResolvedValue(undefined) } },
         { provide: NotificationEventService, useValue: { sendNotification: jest.fn() } },
         {
           provide: AttendanceAuthorityService,

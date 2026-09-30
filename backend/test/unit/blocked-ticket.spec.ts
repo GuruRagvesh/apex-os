@@ -166,7 +166,12 @@ describe('Blocked Ticket — TicketsService', () => {
         { provide: EventLoggerService,       useValue: mockLogger   },
         { provide: ConfigService,            useValue: mockConfig   },
         { provide: EventEmitter2,            useValue: mockEmitter  },
-        { provide: TicketLedgerService,      useValue: { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } },
+        { provide: TicketLedgerService,      useValue: {
+          startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn(),
+          // Block pauses and unblock resumes the assignee timer.
+          endActiveLogsForTicket: jest.fn().mockResolvedValue(undefined),
+          startAssigneeTimer: jest.fn().mockResolvedValue(undefined),
+        } },
         { provide: TicketImportService,      useValue: {} },
       ],
     }).compile();

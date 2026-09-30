@@ -1,0 +1,112 @@
+name: CI
+
+# Typecheck, unit tests, builds, whitespace, and the database-backed suites.
+#
+# The database suites run only against the throwaway PostgreSQL service below,
+# named apex_os_attendance_integration on loopback -- the only database their
+# guard (backend/test/integration-pg/db-guard.ts) accepts. This workflow uses
+# no secrets, never reaches a hosted database, and does not deploy.
+#
+# Every step runs the same npm script a developer runs locally.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, unit tests and builds
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Whitespace (git diff --check)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git diff --check "$BASE_SHA" HEAD
+          else
+            git diff --check HEAD~1 HEAD
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Backend typecheck
+        run: npm run typecheck --workspace backend
+
+      - name: Frontend typecheck
+        run: npm run typecheck --workspace frontend
+
+      - name: Backend unit tests
+        run: npm run test:unit --workspace backend
+
+      - name: Backend build
+        run: npm run build --workspace backend
+
+      - name: Frontend build
+        run: npm run build --workspace frontend
+
+  database:
+    name: PostgreSQL integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: apex_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: apex_os_attendance_integration
+          TZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U apex_test -d apex_os_attendance_integration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://apex_test@127.0.0.1:5432/apex_os_attendance_integration?schema=public
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Apply migrations to the throwaway database
+        run: npm run db:migrate:deploy --workspace backend
+
+      - name: PostgreSQL suites (ticket time engine, attendance)
+        run: npm run test:int --workspace backend
+
+      - name: API integration suites
+        run: npm run test:api --workspace backend

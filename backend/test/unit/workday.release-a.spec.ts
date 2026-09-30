@@ -45,6 +45,7 @@ describe('WorkdayService Release A corruption guards', () => {
     ticketLedger = {
       pauseActiveLogsForUser: jest.fn().mockResolvedValue({}),
       resumeLogsForBreak: jest.fn().mockResolvedValue({}),
+      resumeAfterWorkdayStart: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new WorkdayService(

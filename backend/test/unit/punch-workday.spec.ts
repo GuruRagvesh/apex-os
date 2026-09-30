@@ -531,6 +531,7 @@ function realWorkdayRig(
       pausedLedgers.push(args);
       return Promise.resolve(undefined);
     }),
+    resumeAfterWorkdayStart: jest.fn().mockResolvedValue(undefined),
   };
 
   const eventLogger: any = { log: jest.fn().mockResolvedValue(undefined) };

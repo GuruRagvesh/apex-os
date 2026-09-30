@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { EventLoggerService } from '../../src/common/services/event-logger.service';
 import { EmailService } from '../../src/modules/platform/email/email.service';
+import { UsersService } from '../../src/modules/core/users/users.service';
 import * as bcrypt from 'bcryptjs';
 
 const mockPrisma = {
@@ -31,6 +32,8 @@ const mockJwt        = { sign: jest.fn().mockReturnValue('mock-token') };
 const mockConfig     = { get: jest.fn().mockReturnValue('mock-secret') };
 const mockEventLogger = { log: jest.fn().mockResolvedValue(undefined) };
 const mockEmailService = { sendOtpEmail: jest.fn() };
+// OTP flows never create users; register() is the only UsersService caller.
+const mockUsersService = { create: jest.fn() };
 
 describe('AuthService — OTP', () => {
   let service: AuthService;
@@ -48,6 +51,7 @@ describe('AuthService — OTP', () => {
         { provide: ConfigService,      useValue: mockConfig       },
         { provide: EventLoggerService, useValue: mockEventLogger  },
         { provide: EmailService,       useValue: mockEmailService },
+        { provide: UsersService,       useValue: mockUsersService },
       ],
     }).compile();
 
@@ -220,6 +224,7 @@ describe('AuthService — login', () => {
         { provide: ConfigService,      useValue: mockConfig       },
         { provide: EventLoggerService, useValue: mockEventLogger  },
         { provide: EmailService,       useValue: mockEmailService },
+        { provide: UsersService,       useValue: mockUsersService },
       ],
     }).compile();
 

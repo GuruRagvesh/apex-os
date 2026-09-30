@@ -1,18 +1,15 @@
 /**
  * Auth helpers for integration tests.
- * Returns a valid JWT for each test-role account.
+ * Returns a valid JWT for each integration-only role account, seeded by
+ * test/integration/global-setup.ts into the isolated integration database.
  */
 import * as request from 'supertest';
 import { INestApplication } from '@nestjs/common';
+import { INTEGRATION_PASSWORD, INTEGRATION_USERS } from './integration-users';
 
-export const TEST_USERS = {
-  superadmin: { email: 'superadmin@apex.local', password: 'Apex@local1' },
-  admin:      { email: 'admin@apex.local',      password: 'Apex@local1' },
-  manager:    { email: 'manager@apex.local',    password: 'Apex@local1' },
-  teamlead:   { email: 'teamlead@apex.local',   password: 'Apex@local1' },
-  employee:   { email: 'employee@apex.local',   password: 'Apex@local1' },
-  intern:     { email: 'intern@apex.local',     password: 'Apex@local1' },
-} as const;
+export const TEST_USERS = Object.fromEntries(
+  Object.entries(INTEGRATION_USERS).map(([key, u]) => [key, { email: u.email, password: INTEGRATION_PASSWORD }]),
+) as { [K in keyof typeof INTEGRATION_USERS]: { email: string; password: string } };
 
 export type RoleKey = keyof typeof TEST_USERS;
 

@@ -121,6 +121,10 @@ describe('TicketsService — status transitions', () => {
           // behavior, not ledger persistence itself, so the mock just needs to succeed.
           endReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1', decision: 'REWORK' }),
           getTicketTimers: jest.fn(), startWorkLog: jest.fn(), endActiveLog: jest.fn(), getActiveLogForTicket: jest.fn(),
+          startAssigneeTimer: jest.fn().mockResolvedValue(undefined),
+          endActiveLogsForTicket: jest.fn().mockResolvedValue(undefined),
+          resumeNextWaitingTicket: jest.fn().mockResolvedValue(undefined),
+          closeReworkSegment: jest.fn().mockResolvedValue(undefined),
         } },
         { provide: TicketImportService, useValue: {} },
       ],
