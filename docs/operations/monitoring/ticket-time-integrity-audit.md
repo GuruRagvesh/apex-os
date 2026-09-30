@@ -1,8 +1,9 @@
 # Ticket timer integrity audit
 
 A read-only report of ticket timer records that contradict the Phase 1 timer
-rules. It finds problems; it never fixes them. Reconciliation (Phase 2D1) is a
-separate tool with its own approval gate.
+rules. It finds problems; it never fixes them. The Phase 2D1 cleanup
+(`npm run ticket-time:cleanup`) is a separate tool with its own approval gate;
+see [`../deployment/TICKET_TIMER_GUARDRAIL_RELEASE.md`](../deployment/TICKET_TIMER_GUARDRAIL_RELEASE.md).
 
 ## What it is allowed to touch
 
@@ -61,7 +62,7 @@ Every check covers ASSIGNEE (employee) timer rows unless noted.
 | `ACTIVE_LOG_WITH_INVALID_WORK_SESSION` | Active log with no linked WorkSession, or linked to one that belongs to another user, is closed (`logoutAt` set, `LOGGED_OUT` or `AUTO_CLOSED`), or has been superseded by a later-dated session of the same user |
 | `ACTIVE_LOG_NOT_PRIMARY_ASSIGNEE` | Active log owned by someone other than the primary assignee |
 | `ACTIVE_LOG_ON_UNASSIGNED_TICKET` | Active log on a ticket with no primary assignee |
-| `ACTIVE_LOG_OLDER_THAN_THRESHOLD` | Active log running longer than `--stale-hours` |
+| `ACTIVE_LOG_OLDER_THAN_THRESHOLD` | Active log running longer than `--stale-hours`. A warning only: the Phase 2D1 cleanup never closes a timer for age alone |
 | `CLOSED_LOG_MISSING_DURATION` | Closed log (any owner) without `durationSeconds` |
 | `OPEN_LOG_WITH_DURATION` | Open log (any owner) with a `durationSeconds` |
 | `NEGATIVE_DURATION_OR_INVERTED_RANGE` | Negative duration, or `endedAt` before `startedAt` (any owner) |
@@ -97,4 +98,4 @@ Running this against production needs, in order:
 4. A fresh, verified backup.
 
 Only then can the report be run and reviewed. Any repair is the Phase 2D1
-reconciliation tool, under its own approval.
+cleanup tool, under its own approval.

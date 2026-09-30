@@ -166,7 +166,8 @@ describe('AnalyticsService', () => {
       expect(result.averageDelaySeconds).toBe(36000 - 8 * 3600); // 10h - 8h = 2h = 7200s
       expect(prisma.ticket.findMany).toHaveBeenCalledWith(expect.objectContaining({
         select: expect.objectContaining({
-          timeLogs: expect.objectContaining({ where: { ownerType: 'ASSIGNEE', stage: { in: ['WORK', 'REWORK'] } } }),
+          // Only productive rows: repaired / marker rows (countsAsWork = false) never count.
+          timeLogs: expect.objectContaining({ where: { ownerType: 'ASSIGNEE', stage: { in: ['WORK', 'REWORK'] }, countsAsWork: true } }),
         }),
       }));
     });

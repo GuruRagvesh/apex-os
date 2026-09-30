@@ -373,20 +373,36 @@ export async function runReadOnlyAudit(prisma: TransactionalClient, options: Aud
 
 const LOOPBACK_ADDR = new Set(['127.0.0.1', '::1']);
 
-/** Runs every check against `client`, which must already be in a read-only transaction. */
-export async function runChecks(client: QueryClient, options: AuditOptions): Promise<AuditReport> {
+export interface ServerIdentity {
+  db: string;
+  addr: string | null;
+  port: string;
+  version: string;
+  read_only: string;
+}
+
+/**
+ * Gate two: the server, not the URL, says where we are. Shared with the
+ * Phase 2D1 cleanup tool so both refuse exactly the same servers.
+ */
+export async function assertTargetServer(client: QueryClient): Promise<ServerIdentity> {
   const [who] = await client.$queryRawUnsafe<any[]>(
     `SELECT current_database() AS db, host(inet_server_addr()) AS addr,
             inet_server_port()::text AS port, current_setting('server_version') AS version,
             current_setting('transaction_read_only') AS read_only`,
   );
-  // Gate two: the server, not the URL, says where we are.
   if (who.db !== AUDIT_DB_NAME) {
-    throw new AuditConfigError(`Server reports database "${who.db}", refusing to audit.`);
+    throw new AuditConfigError(`Server reports database "${who.db}", refusing to continue.`);
   }
   if (who.addr && !LOOPBACK_ADDR.has(String(who.addr))) {
     throw new AuditConfigError(`Server reports address "${who.addr}", which is not loopback.`);
   }
+  return who;
+}
+
+/** Runs every check against `client`, which must already be in a read-only transaction. */
+export async function runChecks(client: QueryClient, options: AuditOptions): Promise<AuditReport> {
+  const who = await assertTargetServer(client);
   if (who.read_only !== 'on') {
     throw new AuditConfigError('The audit transaction is not read-only; refusing to query.');
   }
