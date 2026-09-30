@@ -122,6 +122,9 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
 
   afterAll(async () => {
     jest.useRealTimers();
+    // Leave no timer fixtures behind: a post-run integrity audit of the
+    // integration database must read CLEAN.
+    await prisma?.$executeRawUnsafe(`TRUNCATE TABLE users, roles RESTART IDENTITY CASCADE`);
     await prisma?.$disconnect();
   });
 
