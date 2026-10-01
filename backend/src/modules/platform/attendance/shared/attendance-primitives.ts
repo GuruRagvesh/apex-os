@@ -369,3 +369,205 @@ export function completionAgainstRequirement(input: {
     label: delta >= 0 ? `Completed — ${suffix}` : `Short by ${hhmm(-delta)} — ${suffix}`,
   };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Second-precision presence, and the display classification
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Attendance presence in SECONDS. Exact, never rounded.
+ *
+ * presenceMinutes() rounds to the nearest minute, which is right for display
+ * and wrong for classification: Math.round(539.98) is 540, so 08:59:59 would
+ * satisfy a nine-hour requirement it misses by a second. Classification needs
+ * the unrounded value, so it gets its own function rather than a flag on the
+ * old one -- a caller cannot then forget which one it asked for.
+ *
+ * Null when either punch is missing, for the same reason as presenceMinutes: an
+ * incomplete day has not failed the requirement, it has not answered it.
+ */
+export function presenceSeconds(
+  punchInAt: Date | string | null | undefined,
+  punchOutAt: Date | string | null | undefined,
+): number | null {
+  const inMs = toTime(punchInAt);
+  const outMs = toTime(punchOutAt);
+  if (inMs === null || outMs === null) return null;
+  return Math.max(0, Math.floor((outMs - inMs) / 1000));
+}
+
+/**
+ * The display states the calendar renders.
+ *
+ * DELIBERATELY SEPARATE FROM THE STORED STATUS. The stored status is the
+ * official business outcome; this is how a day is shown to the person whose day
+ * it was, and they answer different questions. A day can be officially PRESENT
+ * and still need to read "9 hours not met", and collapsing the two would lose
+ * that.
+ *
+ * No colours here. Colour is presentation and lives in the frontend's single
+ * mapping. This is business state.
+ */
+export type DisplayAttendanceState =
+  | 'PRESENT'
+  | 'LATE'
+  | 'NINE_HOURS_NOT_MET'
+  | 'HALF_DAY'
+  | 'INSUFFICIENT_PRESENCE'
+  | 'ON_LEAVE'
+  | 'HOLIDAY'
+  | 'WEEKLY_OFF'
+  | 'MISSING_PUNCH'
+  | 'OPEN'
+  | 'NOT_APPLICABLE'
+  | 'UNKNOWN';
+
+export interface DisplayClassification {
+  state: DisplayAttendanceState;
+  /** Shown beside the state, because one colour can mean several things. */
+  reasons: string[];
+  /** Exact and unrounded. Null when it could not be measured. */
+  presenceSeconds: number | null;
+  lateBySeconds: number | null;
+  shortBySeconds: number | null;
+  /** An approved correction produced the current values. */
+  regularized: boolean;
+  /** A correction is awaiting a decision. It changes nothing else. */
+  regularizationPending: boolean;
+}
+
+export interface DisplayClassificationInput {
+  /** The stored official status, when the day was evaluated. */
+  officialStatus: string | null;
+  regularized: boolean;
+  regularizationPending: boolean;
+  punchInAt: Date | string | null;
+  punchOutAt: Date | string | null;
+  /** Null when the calendar could not be confirmed. */
+  workingDay: boolean | null;
+  /** The day is still running, so nothing about it is final. */
+  dayOpen: boolean;
+  /** Arrival threshold, HH:mm. From the applicable shift, never a constant. */
+  arrivalThreshold: string | null;
+  arrivalGraceMinutes: number;
+  /** Arrival in minutes past midnight, company time. */
+  arrivalMinutes: number | null;
+  /** Required presence in SECONDS, from the day's own policy provenance. */
+  requiredSeconds: number | null;
+  /** Presence below which the day is insufficient, in seconds. */
+  minimumSeconds: number;
+}
+
+/**
+ * How one employee-day should read on the calendar.
+ *
+ * ORDER IS THE RULE. Non-working days and leave settle before any duration is
+ * considered, an open day is never given a final verdict, and a pending
+ * correction is reported WITHOUT changing the state, because a request is not a
+ * decision.
+ *
+ * Thresholds are arguments. The arrival boundary was hardcoded as 10:30 in the
+ * console, which applied the Team-Lead entry window to every employee and made
+ * a 10:00 arrival on a 09:30 shift read on time. The caller resolves the
+ * applicable shift by date and passes it in.
+ *
+ * COMPARISONS USE EXACT SECONDS AND ARE INCLUSIVE AT THE BOUNDARY: 09:00:00
+ * meets a nine-hour requirement and 08:59:59 does not.
+ */
+export function classifyForDisplay(input: DisplayClassificationInput): DisplayClassification {
+  const seconds = presenceSeconds(input.punchInAt, input.punchOutAt);
+  const reasons: string[] = [];
+
+  const late = lateMinutesFrom(
+    input.arrivalMinutes,
+    input.arrivalThreshold,
+    input.arrivalGraceMinutes,
+  );
+  const shortfall =
+    seconds === null || input.requiredSeconds === null
+      ? null
+      : Math.max(0, input.requiredSeconds - seconds);
+
+  const base = {
+    presenceSeconds: seconds,
+    lateBySeconds: late.lateMinutes == null ? null : late.lateMinutes * 60,
+    shortBySeconds: shortfall && shortfall > 0 ? shortfall : null,
+    regularized: input.regularized,
+    regularizationPending: input.regularizationPending,
+  };
+
+  if (input.regularized) reasons.push('Regularized');
+  // Reported, never applied.
+  if (input.regularizationPending) reasons.push('Regularization pending');
+
+  // Non-working days settle before durations: somebody who worked a holiday is
+  // still on a holiday as far as the calendar is concerned, and the evidence
+  // shows in the day detail.
+  if (input.officialStatus === 'HOLIDAY') return { ...base, state: 'HOLIDAY', reasons };
+  if (input.officialStatus === 'WEEKLY_OFF') return { ...base, state: 'WEEKLY_OFF', reasons };
+  if (input.workingDay === false) return { ...base, state: 'WEEKLY_OFF', reasons };
+
+  // HALF DAY IS NEVER DERIVED FROM A DURATION HERE.
+  //
+  // Rendered only when the canonical record already says so, which today means
+  // an approved half-day leave. The four-to-nine-hour band is
+  // NINE_HOURS_NOT_MET, and inventing a duration trigger for half day would be
+  // a policy decision this layer has no authority to make.
+  if (input.officialStatus === 'HALF_DAY') return { ...base, state: 'HALF_DAY', reasons };
+
+  if (input.officialStatus === 'ON_LEAVE' || input.officialStatus === 'LWP') {
+    return { ...base, state: 'ON_LEAVE', reasons };
+  }
+  if (input.officialStatus === 'NOT_APPLICABLE') {
+    return { ...base, state: 'NOT_APPLICABLE', reasons };
+  }
+
+  // An unconfirmed calendar is not a verdict about the employee.
+  if (input.workingDay === null && !input.officialStatus) {
+    reasons.push('Calendar not confirmed');
+    return { ...base, state: 'UNKNOWN', reasons };
+  }
+
+  // A day still running has not failed anything yet.
+  if (input.dayOpen) {
+    reasons.push('Day still open');
+    return { ...base, state: 'OPEN', reasons };
+  }
+
+  // One punch, or none. Reported as incomplete rather than measured.
+  if (seconds === null) {
+    if (input.punchInAt && !input.punchOutAt) reasons.push('Punch out missing');
+    else if (!input.punchInAt && input.punchOutAt) reasons.push('Punch in missing');
+    else reasons.push('No punch recorded');
+    return { ...base, state: 'MISSING_PUNCH', reasons };
+  }
+
+  // Below the floor: insufficient, whatever time they arrived.
+  if (seconds < input.minimumSeconds) {
+    reasons.push('Less than the minimum presence');
+    if (late.reason === 'LATE') reasons.push('Late');
+    return { ...base, state: 'INSUFFICIENT_PRESENCE', reasons };
+  }
+
+  // An unprovable requirement cannot be failed.
+  if (input.requiredSeconds === null) {
+    reasons.push('Required time unresolved');
+    return { ...base, state: 'UNKNOWN', reasons };
+  }
+
+  // Short of the requirement. Applies even to somebody who arrived early, and
+  // it is NOT half day.
+  if (seconds < input.requiredSeconds) {
+    reasons.push('9 hours not met');
+    if (late.reason === 'LATE') reasons.push('Late');
+    return { ...base, state: 'NINE_HOURS_NOT_MET', reasons };
+  }
+
+  // Requirement met. Working later does not undo a late arrival.
+  if (late.reason === 'LATE') {
+    reasons.push('Late');
+    return { ...base, state: 'LATE', reasons };
+  }
+
+  return { ...base, state: 'PRESENT', reasons };
+}
