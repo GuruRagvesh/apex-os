@@ -206,7 +206,10 @@ export function WorkdayBar() {
   const punchOverlay = punchType ? (
     <PunchModal
       type={punchType}
-      onClose={() => setPunchType(null)}
+      // A punch finished on a phone (QR handoff) closes the modal without
+      // onPunched, so closing also refreshes the shared workday state that the
+      // ticket creation controls read.
+      onClose={() => { setPunchType(null); refetch(); }}
       onPunched={() => { setPunchType(null); refetch(); }}
     />
   ) : null;

@@ -33,6 +33,8 @@ describe('TicketsService.update — REVIEW-entry notification to resolved approv
     prisma = {
       // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
       $transaction: jest.fn((fn: any) => fn(prisma)),
+      // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
+      $queryRaw: jest.fn(async () => [existingTicket]),
       ticket: {
         update: jest.fn(async ({ data }: any) => ({ ...existingTicket, ...data, assignedTo: { id: existingTicket.assignedToId } })),
       },
@@ -81,6 +83,8 @@ describe('TicketsService.update — REVIEW-entry notification to resolved approv
       { getSlaConfig: jest.fn().mockResolvedValue({ review: { HIGH: 24 } }), decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
       ticketLedger,
       {} as any, // ticketImport
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
   }
 

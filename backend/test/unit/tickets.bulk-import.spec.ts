@@ -30,6 +30,7 @@ function makePrisma() {
       }),
     },
     ticketAssignee: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    activityLog: { create: jest.fn().mockResolvedValue({}) },
   };
 
   const prisma: any = {
@@ -63,6 +64,8 @@ function makeService(prisma: any, ticketImport: any = {}, ticketAccess: any = {}
     { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
     { startReviewCycle: jest.fn(), endReviewCycle: jest.fn() } as any, // ticketLedger
     ticketImport, // ticketImport
+    { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+    { now: () => new Date() } as any, // tva
   );
 }
 

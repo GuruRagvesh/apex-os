@@ -38,6 +38,8 @@ describe('P1-D ticket attachment security', () => {
       new TicketTimingService(prisma, { now: () => new Date(), elapsedSeconds: () => 0 } as any),
       { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any, // ticketLedger
       {} as any, // ticketImport (not used by attachment download)
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
   });
 

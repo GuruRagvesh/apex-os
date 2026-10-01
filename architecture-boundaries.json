@@ -104,6 +104,8 @@
       "@apex/operations-tickets-lifecycle/api": "platforms/operations/tickets/lifecycle/frontend/api",
       "@apex/operations-tickets-lifecycle/screens/KanbanScreen": "platforms/operations/tickets/lifecycle/frontend/screens/KanbanScreen",
       "@apex/operations-tickets-lifecycle/components/ticket-row": "platforms/operations/tickets/lifecycle/frontend/components/ticket-row",
+      "@apex/operations-tickets-lifecycle/components/ticket-creation-gate": "platforms/operations/tickets/lifecycle/frontend/components/ticket-creation-gate",
+      "@apex/operations-tickets-lifecycle/shared/ticket-creation-gate": "platforms/operations/tickets/lifecycle/shared/ticket-creation-gate",
       "@apex/operations-tickets-lifecycle/shared/ticket-vocabulary": "platforms/operations/tickets/lifecycle/shared/ticket-vocabulary",
       "@apex/shared-utilities/use-debounce": "shared/utilities/use-debounce",
       "@apex/shared-utilities/use-theme": "shared/utilities/use-theme",

@@ -32,6 +32,8 @@ describe('TicketsService approval/rejection permission checks by ticket type', (
         { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any,
         { startReviewCycle: jest.fn(), endReviewCycle: jest.fn() } as any,
         {} as any,
+        { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+        { now: () => new Date() } as any, // tva
       ),
       ticketAccess,
     };

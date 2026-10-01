@@ -206,25 +206,33 @@ export interface WorkBudgetState {
   cycle: 'ORIGINAL' | 'REWORK';
 }
 
+// Running comes from the ledger: timers.activeClock where the response carries
+// it (the ticket page), else the same ledger fact on workBudget (list views).
+function isWorkClockRunning(ticket: Record<string, any>): boolean {
+  if (ticket?.timers?.activeClock) return ticket.timers.activeClock === 'EMPLOYEE_WORK';
+  return !!ticket?.workBudget?.running;
+}
+
 export function computeWorkBudget(ticket: Record<string, any>, nowMs: number = Date.now()): WorkBudgetState | null {
   const b = ticket?.workBudget;
+  const running = isWorkClockRunning(ticket);
   if (!b || !['OPEN', 'IN_PROGRESS'].includes(ticket?.status)) return null;
   if (!b.estimatedMinutes || b.estimatedMinutes <= 0) {
     // A rework sent back without an estimate has no budget of its own. Say so
     // rather than falling back to the SLA deadline or the original estimate.
     if (b.cycle !== 'REWORK') return null;
     const worked = Math.floor((b.workedSeconds ?? 0) / 60);
-    return { label: 'No rework estimate', over: false, running: !!b.running, workedMinutes: worked, estimatedMinutes: 0, cycle: 'REWORK' };
+    return { label: 'No rework estimate', over: false, running, workedMinutes: worked, estimatedMinutes: 0, cycle: 'REWORK' };
   }
   // While running, count on from the moment the backend measured it.
-  const sinceAsOf = b.running && b.asOf ? Math.max(0, (nowMs - new Date(b.asOf).getTime()) / 1000) : 0;
+  const sinceAsOf = running && b.asOf ? Math.max(0, (nowMs - new Date(b.asOf).getTime()) / 1000) : 0;
   const workedSeconds = (b.workedSeconds ?? 0) + sinceAsOf;
   const workedMinutes = Math.floor(workedSeconds / 60);
   const leftMinutes = b.estimatedMinutes - workedMinutes;
   return {
     label: leftMinutes >= 0 ? `${formatDuration(leftMinutes)} left` : `${formatDuration(leftMinutes)} over estimate`,
     over: leftMinutes < 0,
-    running: !!b.running,
+    running,
     workedMinutes,
     estimatedMinutes: b.estimatedMinutes,
     cycle: b.cycle === 'REWORK' ? 'REWORK' : 'ORIGINAL',

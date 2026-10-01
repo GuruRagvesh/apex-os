@@ -1,5 +1,6 @@
 'use client';
 import { useRouter } from 'next/navigation';
+import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 
 const ACTIONS_BY_ROLE: Record<string, Array<{ label: string; url: string; primary?: boolean }>> = {
   EMPLOYEE: [
@@ -42,22 +43,28 @@ const ACTIONS_BY_ROLE: Record<string, Array<{ label: string; url: string; primar
 export function QuickActionStrip({ role }: { role?: string }) {
   const router = useRouter();
   const actions = ACTIONS_BY_ROLE[role ?? ''] ?? ACTIONS_BY_ROLE['EMPLOYEE'];
+  const ticketGate = useTicketCreationGate();
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      {actions.map((a) => (
-        <button key={a.url} onClick={() => router.push(a.url)} style={{
-          fontSize: 12, fontWeight: 500, padding: '6px 14px', borderRadius: 20, cursor: 'pointer', border: 'none',
-          background: a.primary ? 'var(--accent)' : 'var(--bg-tertiary)',
-          color: a.primary ? '#fff' : 'var(--text-secondary)',
-          transition: 'opacity 0.15s',
-        }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-        >
-          {a.label}
-        </button>
-      ))}
+      {actions.map((a) => {
+        const disabled = a.url === '/tickets/new' && !ticketGate.allowed;
+        return (
+          // aria-disabled (not disabled) keeps the button focusable so the reason is reachable by keyboard.
+          <button key={a.url} onClick={() => { if (!disabled) router.push(a.url); }} aria-disabled={disabled || undefined} title={disabled ? ticketGate.reason ?? undefined : undefined} aria-label={disabled ? `${a.label} — ${ticketGate.reason ?? ''}` : undefined} style={{
+            fontSize: 12, fontWeight: 500, padding: '6px 14px', borderRadius: 20, cursor: disabled ? 'not-allowed' : 'pointer', border: 'none',
+            background: a.primary ? 'var(--accent)' : 'var(--bg-tertiary)',
+            color: a.primary ? '#fff' : 'var(--text-secondary)',
+            opacity: disabled ? 0.5 : 1,
+            transition: 'opacity 0.15s',
+          }}
+            onMouseEnter={e => { if (!disabled) e.currentTarget.style.opacity = '0.85'; }}
+            onMouseLeave={e => { if (!disabled) e.currentTarget.style.opacity = '1'; }}
+          >
+            {a.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -14,6 +14,8 @@ describe('TicketsService — FP-13.2 Permissions', () => {
   const mockPrisma: any = {
     // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
     $transaction: jest.fn((fn: any) => fn(mockPrisma)),
+    // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
+    $queryRaw: jest.fn(async () => [(await mockPrisma.ticket.findFirst?.()) ?? (await mockPrisma.ticket.findUnique?.())].filter(Boolean)),
     ticket: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -61,6 +63,8 @@ describe('TicketsService — FP-13.2 Permissions', () => {
       mockTiming as any,
       { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn() } as any, // ticketLedger
       {} as any, // ticketImport (not used by permission checks)
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
   });
 

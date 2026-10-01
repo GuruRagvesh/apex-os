@@ -14,6 +14,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { TicketStatus } from '@prisma/client';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
+import { ActiveWorkdayPolicyService } from '../../src/common/services/active-workday-policy.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { HierarchyApprovalService } from '../../src/common/services/hierarchy-approval.service';
@@ -32,6 +33,8 @@ import { TVAService } from '../../src/common/services/tva.service';
 const mockPrisma: any = {
   // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
   $transaction: jest.fn((fn: any) => fn(mockPrisma)),
+  // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
+  $queryRaw: jest.fn(async () => [await mockPrisma.ticket.findUnique()].filter(Boolean)),
   ticket: {
     findFirst:  jest.fn(),
     findUnique: jest.fn(),
@@ -96,6 +99,7 @@ describe('TicketsService — unassignPrimary / removeSecondaryAssignee', () => {
       providers: [
         { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         TicketsService,
+        { provide: ActiveWorkdayPolicyService, useValue: { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } },
         AccessPolicyService,
         HierarchyApprovalService,
         TicketAccessService,

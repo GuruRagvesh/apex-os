@@ -43,6 +43,8 @@ describe('TicketsService.create — QUERY/HELP cross-department routing', () => 
       activityLog: { create: jest.fn().mockResolvedValue({}) },
       appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       $queryRaw: jest.fn().mockResolvedValue([{ max: 0 }]),
+      // create() runs in one transaction (workday policy, ticket, assignees, activity log).
+      $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     prisma.ticket.create.mockImplementation(({ data }: any) =>
       Promise.resolve({ id: 'ticket-1', ticketId: 'TKT-001', assignedTo: null, ...data }),
@@ -60,6 +62,8 @@ describe('TicketsService.create — QUERY/HELP cross-department routing', () => 
       { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
       { startReviewCycle: jest.fn(), endReviewCycle: jest.fn() } as any, // ticketLedger
       {} as any, // ticketImport
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
   }
 
