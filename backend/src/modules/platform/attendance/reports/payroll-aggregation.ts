@@ -1,4 +1,9 @@
 import { PunchSource } from '@prisma/client';
+import {
+  NON_WORKING_STATUSES,
+  PRESENT_STATUSES,
+  presenceMinutes as sharedPresenceMinutes,
+} from '../shared/attendance-primitives';
 
 /**
  * Monthly attendance facts for payroll.
@@ -87,21 +92,17 @@ export interface PayrollSummaryRow {
   unresolvedDays: number;
 }
 
-const PRESENT_STATUSES = new Set(['PRESENT', 'LATE', 'LATE_EXEMPTED']);
-const NON_WORKING_STATUSES = new Set(['WEEKLY_OFF', 'HOLIDAY']);
-
 /**
- * Attendance presence in minutes: punch out minus punch in, or null.
+ * Attendance presence in minutes for one day's facts.
  *
- * The single invariant this whole module exists to preserve. Workday span and
- * worked minutes are reported alongside as separate columns and are NEVER
- * substituted here, because only presence is measured against the requirement.
+ * A thin adapter over the shared primitive, kept so this module's existing
+ * callers keep their DayFacts-shaped signature. The RULE lives in
+ * shared/attendance-primitives.ts, which is the only place it is written now --
+ * it previously existed here, inline in the console, twice in the evaluator and
+ * inline in the users module.
  */
 export function presenceMinutes(day: DayFacts): number | null {
-  if (!day.punchInAt || !day.punchOutAt) return null;
-  const ms = new Date(day.punchOutAt).getTime() - new Date(day.punchInAt).getTime();
-  if (!Number.isFinite(ms)) return null;
-  return Math.max(0, Math.round(ms / 60_000));
+  return sharedPresenceMinutes(day.punchInAt, day.punchOutAt);
 }
 
 function countLeave(days: DayFacts[], type: string): number {

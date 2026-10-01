@@ -12,6 +12,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { ROLES } from '../../../../shared/constants/roles';
 import { registerCsv, registerFileName, type RegisterResult } from './register-report';
 import { buildRegisterWorkbook } from './register-workbook';
+import { presenceMinutes } from '../shared/attendance-primitives';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -437,15 +438,13 @@ export class AttendanceConsoleService {
       }),
     ]);
 
-    const presenceSpanMinutes =
-      official?.punchInAt && official?.punchOutAt
-        ? Math.max(
-            0,
-            Math.floor(
-              (official.punchOutAt.getTime() - official.punchInAt.getTime()) / 60_000,
-            ),
-          )
-        : null;
+    // Shared primitive rather than an inline span. This also fixes a real
+    // divergence: this site used Math.floor while the payroll path used
+    // Math.round, so for a span carrying seconds the console and the figure
+    // Finance receives could differ by a minute. The payroll rounding is the
+    // figure of record -- any finalized month was computed with it -- so the
+    // console moves to match it rather than the other way round.
+    const presenceSpanMinutes = presenceMinutes(official?.punchInAt, official?.punchOutAt);
 
     return {
       businessDate,

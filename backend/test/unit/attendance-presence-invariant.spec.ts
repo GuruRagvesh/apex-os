@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve } from 'path';
+import { presenceMinutes } from '../../src/modules/platform/attendance/shared/attendance-primitives';
 
 // Attendance presence is punch out minus punch in. Nothing else.
 //
@@ -127,17 +128,35 @@ describe('every incomplete case still reaches a human', () => {
 
 describe('the other two surfaces already agreed', () => {
   it('the console returns null for an incomplete pair', () => {
-    const console = readFileSync(
+    // CONVERTED FROM A SOURCE-SHAPE MATCH TO A BEHAVIOURAL ONE.
+    //
+    // This asserted that the console's assignment contained the literal text
+    // `official?.punchInAt && official?.punchOutAt`. That pinned the FORM of an
+    // inline expression, which was reasonable while the expression was inline --
+    // but the rule now lives in one shared primitive, and refactoring the
+    // console to call it broke a test whose stated intent it actually satisfied.
+    //
+    // The rule is now tested directly, and the console is separately tested for
+    // DELEGATING to it. Together those are stronger than the regex: the first
+    // cannot pass if the rule is wrong, the second cannot pass if the console
+    // goes back to computing its own span.
+    expect(presenceMinutes('2026-09-14T04:11:00.000Z', null)).toBeNull();
+    expect(presenceMinutes(null, '2026-09-14T13:29:00.000Z')).toBeNull();
+    expect(presenceMinutes(null, null)).toBeNull();
+    // Null and not zero, which would read as "present for no time".
+    expect(presenceMinutes('2026-09-14T04:11:00.000Z', null)).not.toBe(0);
+  });
+
+  it('the console delegates rather than computing its own span', () => {
+    const consoleSrc = readFileSync(
       resolve(__dirname, '../../src/modules/platform/attendance/console/attendance-console.service.ts'),
       'utf8',
     );
-    const assignment = console.slice(
-      console.indexOf('const presenceSpanMinutes'),
-      console.indexOf('return {', console.indexOf('const presenceSpanMinutes')),
-    );
 
-    expect(assignment).toMatch(/official\?\.punchInAt && official\?\.punchOutAt/);
-    expect(assignment).toMatch(/:\s*null;/);
+    expect(consoleSrc).toMatch(/from '\.\.\/shared\/attendance-primitives'/);
+    expect(consoleSrc).toMatch(/presenceMinutes\(official\?\.punchInAt, official\?\.punchOutAt\)/);
+    // And no second implementation left anywhere in the file.
+    expect(consoleSrc).not.toMatch(/punchOutAt\.getTime\(\) - [\s\S]{0,40}punchInAt\.getTime\(\)/);
   });
 
   it("the employee's own view returns null too", () => {
