@@ -144,6 +144,39 @@ export function presenceMinutes(
   return Math.max(0, Math.round((outMs - inMs) / 60_000));
 }
 
+/**
+ * The earliest time work actually started among a day's sessions.
+ *
+ * REPLACES `sessions[0]?.startWorkAt`, which was positional and therefore wrong
+ * whenever the day's earliest-created session has no start time. An ON_LEAVE
+ * session is the ordinary way that happens: the leave scheduler writes one at
+ * 00:01 with no startWorkAt, so it sorts first by createdAt, and a positional
+ * read returned null for a day the employee then genuinely worked. Attendance
+ * recorded worked minutes with no arrival, which leaves presence uncomputable
+ * and flows into payroll.
+ *
+ * A null start is NOT corrupt data and is not treated as such. An ON_LEAVE row
+ * is legitimate and stays visible everywhere else; it simply is not a statement
+ * about when anybody arrived, so it cannot answer this question.
+ *
+ * Compared by TIMESTAMP, not by array position, so the answer does not depend
+ * on how the caller's query happened to be ordered -- and a later re-login
+ * cannot displace the original start, because the earliest always wins.
+ *
+ * An unparseable timestamp is skipped rather than poisoning the comparison with
+ * NaN, which would otherwise make the result depend on iteration order.
+ */
+export function earliestSessionStart(
+  sessions: Array<{ startWorkAt: Date | string | null | undefined }>,
+): Date | null {
+  return sessions.reduce<Date | null>((earliest, session) => {
+    const ms = toTime(session?.startWorkAt);
+    if (ms === null) return earliest;
+    const value = new Date(ms);
+    return !earliest || value < earliest ? value : earliest;
+  }, null);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Employment eligibility, by date
 // ════════════════════════════════════════════════════════════════════════════

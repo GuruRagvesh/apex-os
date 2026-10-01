@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { earliestSessionStart } from '../shared/attendance-primitives';
 import { createHash } from 'crypto';
 import type { DailyAttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -473,7 +474,12 @@ export class DailyAttendanceEvaluatorService {
         context,
         leave,
         flags,
-        punchInAt: correctedIn ?? punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null,
+        // THE EARLIEST SESSION THAT ACTUALLY STARTED WORK, not the earliest
+        // session. sessions[0] is positional and is null whenever the day's
+        // first-created row has no startWorkAt -- which an ON_LEAVE session,
+        // written by the leave scheduler at 00:01, ordinarily does.
+        punchInAt:
+          correctedIn ?? punchIn?.serverOccurredAt ?? earliestSessionStart(sessions) ?? null,
         punchOutAt: correctedOut ?? punchOut?.serverOccurredAt ?? null,
         punchInEvidenceId: punchIn?.id ?? null,
         punchOutEvidenceId: punchOut?.id ?? null,
@@ -512,7 +518,10 @@ export class DailyAttendanceEvaluatorService {
     let workedMinutes = closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0);
     const breakMinutes = closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0);
 
-    const punchInAt = correctedIn ?? punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null;
+    // Same rule as the half-day branch above: earliest genuine start, by
+    // timestamp, never by array position.
+    const punchInAt =
+      correctedIn ?? punchIn?.serverOccurredAt ?? earliestSessionStart(sessions) ?? null;
     const punchOutAt = correctedOut ?? punchOut?.serverOccurredAt ?? null;
     // The ONE place official worked time is derived rather than read. A
     // correction is a statement that the recorded session is wrong, so there is

@@ -1,6 +1,7 @@
 import {
   PRESENT_STATUSES,
   clockToMinutes,
+  earliestSessionStart,
   completionAgainstRequirement,
   employmentOnDate,
   employmentOverlapsRange,
@@ -341,5 +342,101 @@ describe('the required presence has one resolver', () => {
     expect(resolveRequiredPresence(0, 555).source).toBe('ATTENDANCE_POLICY');
     expect(resolveRequiredPresence(-60, 555).source).toBe('ATTENDANCE_POLICY');
     expect(resolveRequiredPresence(0, 0).source).toBe('SYSTEM_FALLBACK');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+/**
+ * THE SESSION START BASIS IS A TIMESTAMP, NOT AN ARRAY INDEX.
+ *
+ * `sessions[0]?.startWorkAt` was positional and therefore wrong whenever the
+ * day's earliest-created row has no start time. An ON_LEAVE session is the
+ * ordinary way that happens -- the leave scheduler writes one at 00:01 with no
+ * startWorkAt -- so a positional read returned null for a day the employee then
+ * genuinely worked, and attendance recorded worked minutes with no arrival.
+ *
+ * ARRAYS ARE DELIBERATELY UNSORTED so that reading position instead of
+ * comparing timestamps cannot pass by coincidence.
+ */
+describe('A3. the earliest genuine work start', () => {
+  const S = (iso: string | null) => ({ startWorkAt: iso ? new Date(iso) : null });
+
+  it('1. SESSIONS ARRIVING UNSORTED STILL YIELD THE EARLIEST', () => {
+    // Index 0 is 14:33 and the last is 16:12, so neither "first" nor "last"
+    // can pass here.
+    const out = earliestSessionStart([
+      S('2026-09-14T14:33:00.000Z'),
+      S('2026-09-14T09:04:00.000Z'),
+      S('2026-09-14T16:12:00.000Z'),
+    ]);
+
+    expect(out).toEqual(new Date('2026-09-14T09:04:00.000Z'));
+  });
+
+  it('2. A NULL FIRST START DOES NOT HIDE A LATER REAL ONE', () => {
+    // The regression. sessions[0].startWorkAt is null -- an ON_LEAVE row --
+    // and the positional read produced null for a day that was worked.
+    const out = earliestSessionStart([S(null), S('2026-09-14T10:17:00.000Z')]);
+
+    expect(out).toEqual(new Date('2026-09-14T10:17:00.000Z'));
+    expect(out).not.toBeNull();
+  });
+
+  it('3. A LATER RE-LOGIN DOES NOT REPLACE THE ORIGINAL WORK START', () => {
+    // Same-day re-login creates a second session. The original start must
+    // survive it, which taking the earliest guarantees by construction.
+    const original = '2026-09-14T04:11:00.000Z';
+    const relogin = '2026-09-14T11:48:00.000Z';
+
+    expect(earliestSessionStart([S(original), S(relogin)])).toEqual(new Date(original));
+    // And in the other order, because order must not matter.
+    expect(earliestSessionStart([S(relogin), S(original)])).toEqual(new Date(original));
+  });
+
+  it('4. THE RESULT IS DETERMINISTIC ACROSS EVERY PERMUTATION', () => {
+    const rows = [
+      S(null),
+      S('2026-09-14T13:29:00.000Z'),
+      S('2026-09-14T04:11:00.000Z'),
+      S('2026-09-14T09:37:00.000Z'),
+    ];
+    const expected = new Date('2026-09-14T04:11:00.000Z');
+
+    // All 24 orderings of four elements.
+    const permute = <T,>(xs: T[]): T[][] =>
+      xs.length <= 1 ? [xs] : xs.flatMap((x, i) =>
+        permute([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]));
+
+    const answers = new Set(permute(rows).map((p) => earliestSessionStart(p)?.toISOString()));
+
+    expect(answers.size).toBe(1);
+    expect([...answers][0]).toBe(expected.toISOString());
+  });
+
+  it('5. MALFORMED AND MISSING TIMESTAMPS FAIL SAFELY', () => {
+    // Skipped rather than poisoning the comparison with NaN, which would make
+    // the answer depend on iteration order.
+    expect(
+      earliestSessionStart([
+        { startWorkAt: 'not-a-date' },
+        { startWorkAt: undefined },
+        S(null),
+        S('2026-09-14T10:17:00.000Z'),
+      ]),
+    ).toEqual(new Date('2026-09-14T10:17:00.000Z'));
+
+    // Nothing usable at all is null, never the epoch and never today.
+    expect(earliestSessionStart([])).toBeNull();
+    expect(earliestSessionStart([S(null), S(null)])).toBeNull();
+    expect(earliestSessionStart([{ startWorkAt: 'rubbish' }])).toBeNull();
+  });
+
+  it('accepts ISO strings as well as Dates', () => {
+    expect(
+      earliestSessionStart([
+        { startWorkAt: '2026-09-14T13:29:00.000Z' },
+        { startWorkAt: '2026-09-14T04:11:00.000Z' },
+      ]),
+    ).toEqual(new Date('2026-09-14T04:11:00.000Z'));
   });
 });
