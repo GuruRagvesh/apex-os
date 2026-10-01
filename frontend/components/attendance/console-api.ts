@@ -1,5 +1,4 @@
 import { api, unwrap as r } from '@apex/shared-auth';
-import { monthRange, registerFileName } from './register-month';
 
 /**
  * HR / manager attendance console transport (HC-1).
@@ -113,52 +112,7 @@ export interface RegisterResult {
   employees: RegisterEmployee[];
 }
 
-export async function getRegister(from?: string, to?: string): Promise<RegisterResult> {
-  return r(api.get('/attendance/console/register', { params: { from, to } }));
-}
 
-/**
- * Downloads the register through the AUTHENTICATED client.
- *
- * Not a plain <a href>: auth is a Bearer token injected by a request
- * interceptor, and a browser-initiated navigation carries no such header, so
- * the link would simply 401. The bytes are fetched with the token attached and
- * handed to the browser as an object URL, which is revoked immediately -- it
- * holds the whole file in memory until it is, and this page stays open all day.
- *
- * The server names the file, and the same server call produces the numbers on
- * screen, so a download can never contain a different answer from the table.
- */
-export async function downloadAttendance(month: string): Promise<void> {
-  // ONE DOWNLOAD, ONE SOURCE.
-  //
-  // Was `/attendance/console/register/export.{xlsx|csv}`, which rendered a
-  // summary-only sheet through a second independent report + workbook stack.
-  // This endpoint returns the canonical two-sheet workbook built from the same
-  // rows the console displays, so a download cannot contain a different answer
-  // from the table. The format argument is gone with the CSV path: there is one
-  // file and it is xlsx.
-  const blob = await r<Blob>(
-    api.get(`/attendance/report/${month}/download`, {
-      responseType: 'blob',
-    }),
-  );
-
-  const url = URL.createObjectURL(blob);
-  try {
-    const link = document.createElement('a');
-    link.href = url;
-    // Named here rather than read from Content-Disposition: the response
-    // interceptor returns response.data, so the headers never reach this code.
-    // registerFileName() is pinned to the server's own naming by test.
-    link.download = `Apex_OS_Attendance_${month}.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
 
 export async function getDayDetail(userId: string, businessDate: string) {
   return r(api.get(`/attendance/console/detail/${userId}/${businessDate}`));

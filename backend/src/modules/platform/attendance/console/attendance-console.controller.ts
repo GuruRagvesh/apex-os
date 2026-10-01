@@ -78,15 +78,6 @@ export class AttendanceConsoleController {
     return this.console.reviewQueue(user, { from, to, limit: limit ? Number(limit) : undefined });
   }
 
-  @Get('register')
-  register(
-    @CurrentUser() user: any,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('departmentId') departmentId?: string,
-  ) {
-    return this.console.monthlyRegister(user, { from, to, departmentId });
-  }
 
 
   @Get('detail/:userId/:businessDate')
