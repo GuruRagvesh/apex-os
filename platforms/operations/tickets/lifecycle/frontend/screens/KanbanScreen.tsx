@@ -25,6 +25,7 @@ import { TimingTicker } from '@apex/operations-tickets-sla/components/OverdueTic
 import { SkeletonKanbanColumn } from '@apex/shared-ui/components/skeleton';
 import { Plus, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { CreateTicketLink } from '../components/ticket-creation-gate';
 import toast from 'react-hot-toast';
 
 const COLUMNS = [
@@ -286,9 +287,9 @@ function DroppableColumn({
           >
             <span className="text-2xl mb-1" style={{ color: 'var(--text-tertiary)' }}>+</span>
             <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>No tickets here</p>
-            <Link href="/tickets/new" className="text-xs hover:underline mt-0.5" style={{ color: 'var(--accent)' }} onClick={(e) => e.stopPropagation()}>
+            <CreateTicketLink className="text-xs hover:underline mt-0.5" style={{ color: 'var(--accent)' }} onClick={(e) => e.stopPropagation()}>
               Create a new ticket
-            </Link>
+            </CreateTicketLink>
           </div>
         )}
       </div>
@@ -446,9 +447,9 @@ export default function KanbanScreen() {
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
-          <Link href="/tickets/new" className="apex-btn-new-ticket">
+          <CreateTicketLink className="apex-btn-new-ticket">
             <Plus size={16} /> New Ticket
-          </Link>
+          </CreateTicketLink>
         </div>
       </div>
 

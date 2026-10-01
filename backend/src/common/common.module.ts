@@ -9,6 +9,7 @@ import { HierarchyApprovalService } from './services/hierarchy-approval.service'
 import { CompanyDateService } from './services/company-date.service';
 import { AttendanceAuthorityService } from './services/attendance-authority.service';
 import { TVAService } from './services/tva.service';
+import { ActiveWorkdayPolicyService } from './services/active-workday-policy.service';
 import { TvaController } from './controllers/tva.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 
@@ -27,6 +28,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     CompanyDateService,
     AttendanceAuthorityService,
     TVAService,
+    ActiveWorkdayPolicyService,
   ],
   exports: [
     EventLoggerService,
@@ -39,6 +41,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     CompanyDateService,
     AttendanceAuthorityService,
     TVAService,
+    ActiveWorkdayPolicyService,
   ],
 })
 export class CommonModule {}

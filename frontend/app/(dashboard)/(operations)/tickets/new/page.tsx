@@ -14,6 +14,12 @@ import { ArrowLeft, Sparkles, Loader2, Clock, Plus, Copy, Trash2, Download, Uplo
 import { formatRole } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn } from '@apex/shared-utilities';
 import { MultiSelect } from '@apex/shared-ui/components/multi-select';
+import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
+import {
+  isActiveWorkdayRequiredError,
+  PUNCH_IN_TO_CREATE_MESSAGE,
+  WORKDAY_TODAY_QUERY_KEY,
+} from '@apex/operations-tickets-lifecycle/shared/ticket-creation-gate';
 
 // ─── Request Types ──────────────────────────────────────────────────────────
 // Task / Query / Help are real Ticket.type enum values (stored honestly). The
@@ -156,6 +162,10 @@ export default function CreateTicketsPage() {
 
   const [rows, setRows] = useState<TicketRow[]>([makeRow()]);
   const [submitting, setSubmitting] = useState(false);
+  // Creation needs an active workday. The backend enforces it; this mirrors
+  // its answer so the page says why instead of failing on submit.
+  const creationGate = useTicketCreationGate();
+  const canCreate = creationGate.allowed;
 
   // ── Reference data ─────────────────────────────────────────────────────────
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
@@ -440,9 +450,16 @@ export default function CreateTicketsPage() {
     }
   };
 
+  const handleActiveWorkdayRequired = (err: any): boolean => {
+    if (!isActiveWorkdayRequiredError(err)) return false;
+    toast.error(err?.message || PUNCH_IN_TO_CREATE_MESSAGE);
+    qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting || !canCreate) return;
 
     // Validate every row first; surface row-level errors without creating anything.
     const validated = rows.map((row) => ({ ...row, errors: validateRow(row) }));
@@ -459,6 +476,7 @@ export default function CreateTicketsPage() {
       const created = await ticketsApi.createBulk(payloads) as any[];
       onSuccess(created);
     } catch (err: any) {
+      if (handleActiveWorkdayRequired(err)) return;
       if (Array.isArray(err?.errors)) {
         applyRowErrors(err.errors);
         toast.error(err.message || 'Some rows are invalid — no tickets were created');
@@ -496,7 +514,7 @@ export default function CreateTicketsPage() {
   };
 
   const createFromPreview = async () => {
-    if (!preview || preview.errorCount > 0 || submitting) return;
+    if (!preview || preview.errorCount > 0 || submitting || !canCreate) return;
     setSubmitting(true);
     try {
       const payloads = preview.rows.map((row: any) => row.payload);
@@ -504,6 +522,7 @@ export default function CreateTicketsPage() {
       setPreview(null);
       onSuccess(created);
     } catch (err: any) {
+      if (handleActiveWorkdayRequired(err)) return;
       toast.error(err?.message || 'Failed to create tickets from the file');
     } finally {
       setSubmitting(false);
@@ -534,7 +553,8 @@ export default function CreateTicketsPage() {
             style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
             <Download size={13} /> Download Excel Template
           </button>
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing}
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing || !canCreate}
+            title={!canCreate ? creationGate.reason ?? undefined : undefined}
             className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border transition-colors disabled:opacity-50"
             style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
             {importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Import from Excel
@@ -542,6 +562,14 @@ export default function CreateTicketsPage() {
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onFilePicked} />
         </div>
       </div>
+
+      {!canCreate && creationGate.reason && (
+        <div role="status" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-3"
+          style={{ backgroundColor: 'var(--color-warning-bg, rgba(245,158,11,0.1))', border: '1px solid rgba(245,158,11,0.35)', color: 'var(--color-warning, #b45309)' }}>
+          <Clock size={14} />
+          <span>{creationGate.reason}</span>
+        </div>
+      )}
 
       {preselectedProjectName && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-3"
@@ -843,7 +871,8 @@ export default function CreateTicketsPage() {
 
         {/* Submit */}
         <div className="flex items-center gap-3 pt-1">
-          <button type="submit" disabled={submitting}
+          <button type="submit" disabled={submitting || !canCreate}
+            title={!canCreate ? creationGate.reason ?? undefined : undefined}
             className="apex-btn-primary flex-1 font-semibold py-2.5 flex items-center justify-center gap-2 disabled:opacity-50">
             {submitting ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : submitLabel}
           </button>
@@ -859,7 +888,7 @@ export default function CreateTicketsPage() {
       {preview && (
         <ImportPreview
           preview={preview}
-          submitting={submitting}
+          submitting={submitting || !canCreate}
           onClose={() => setPreview(null)}
           onCreate={createFromPreview}
         />

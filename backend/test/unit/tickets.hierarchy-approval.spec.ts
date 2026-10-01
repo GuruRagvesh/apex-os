@@ -345,6 +345,8 @@ describe('TicketsService.approve — rating suppression for self-assigned', () =
       user: { findUnique: jest.fn().mockResolvedValue({ currentStatus: 'ACTIVE' }) },
     };
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));
+    // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
+    prisma.$queryRaw = jest.fn(async () => [ticket]);
     const ticket = { id: 't1', ticketId: 'TKT-001', status: TicketStatus.REVIEW, createdById: 'emp1', assignedToId: 'emp1', assignees: [] };
     const ticketAccess = {
       findAccessibleTicket: jest.fn().mockResolvedValue(ticket),
@@ -367,6 +369,8 @@ describe('TicketsService.approve — rating suppression for self-assigned', () =
       { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any,
       ticketLedger as any,
       {} as any,
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
     // Don't run the real status-update machinery — approve() only needs it to resolve.
     // approve() now prepares and commits the DONE transition inside its own

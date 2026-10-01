@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { CreateTicketLink } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { usePathname, useRouter } from 'next/navigation';
 import { Bell, Plus, CheckCheck, RefreshCw, Search, Loader2, User, Palette, SlidersHorizontal, Camera, LogOut, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
@@ -237,8 +238,7 @@ export function TopBar() {
         )}
 
         {/* New Ticket */}
-        <Link
-          href="/tickets/new"
+        <CreateTicketLink
           className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl text-white transition-colors"
           style={{ backgroundColor: '#2563EB' }}
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1D4ED8')}
@@ -246,7 +246,7 @@ export function TopBar() {
         >
           <Plus size={14} />
           New Ticket
-        </Link>
+        </CreateTicketLink>
 
         {/* Workday status dot */}
         <div className="relative">

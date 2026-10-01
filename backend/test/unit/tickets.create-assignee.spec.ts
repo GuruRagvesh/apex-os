@@ -20,6 +20,8 @@ describe('TicketsService.create — assignedToId resolution (cuid, not UUID)', (
       activityLog: { create: jest.fn().mockResolvedValue({}) },
       appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       $queryRaw: jest.fn().mockResolvedValue([{ max: 0 }]),
+      // create() runs in one transaction (workday policy, ticket, assignees, activity log).
+      $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     notificationEventService = { sendNotification: jest.fn().mockResolvedValue(null) };
 
@@ -35,6 +37,8 @@ describe('TicketsService.create — assignedToId resolution (cuid, not UUID)', (
       { decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
       { startReviewCycle: jest.fn(), endReviewCycle: jest.fn() } as any, // ticketLedger (not used by create())
       {} as any, // ticketImport (not used by create())
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
   });
 

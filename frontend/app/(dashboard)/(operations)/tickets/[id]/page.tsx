@@ -1230,7 +1230,7 @@ export default function TicketDetailPage() {
           </p>
           {ticket.timers && (
             <div className="flex gap-4 mt-3 text-xs font-medium text-slate-600">
-              <span className="flex items-center gap-1"><Clock size={12} /> Total Ticket Time: {Math.floor(ticket.timers.totalTicketSeconds / 3600)}h {Math.floor((ticket.timers.totalTicketSeconds % 3600) / 60)}m</span>
+              <span className="flex items-center gap-1" title="Time since work first started, up to completion"><Clock size={12} /> Ticket age: {Math.floor(ticket.timers.totalTicketSeconds / 3600)}h {Math.floor((ticket.timers.totalTicketSeconds % 3600) / 60)}m</span>
               <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'EMPLOYEE_WORK' && 'text-blue-600')}><User size={12} /> Employee Work Time: {Math.floor(ticket.timers.employeeWorkSeconds / 3600)}h {Math.floor((ticket.timers.employeeWorkSeconds % 3600) / 60)}m</span>
               <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'REVIEWER_APPROVAL' && 'text-purple-600')}><CheckCircle size={12} /> Approval Time: {Math.floor(ticket.timers.reviewerApprovalSeconds / 3600)}h {Math.floor((ticket.timers.reviewerApprovalSeconds % 3600) / 60)}m</span>
             </div>

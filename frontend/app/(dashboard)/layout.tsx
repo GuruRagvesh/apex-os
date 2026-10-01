@@ -8,6 +8,7 @@ import { TopBar } from '@/components/layout/topbar';
 import { ColdStartBanner } from '@apex/apps-web/components/cold-start-banner';
 import { QuickActionDock } from '@/components/ui/QuickActionDock';
 import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalette';
+import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
@@ -21,6 +22,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const isManagerOrAbove = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
+  const ticketGate = useTicketCreationGate({ enabled: hasHydrated && isAuthenticated });
 
   // Only decide auth AFTER the persisted store has rehydrated from localStorage.
   // Redirecting while hasHydrated is false is what logged users out on every refresh:
@@ -54,7 +56,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   const paletteActions = [
-    {
+    ...(!ticketGate.allowed ? [] : [{
       id: 'new-ticket',
       label: 'Create New Ticket',
       description: 'Open a new support or task ticket',
@@ -62,7 +64,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       shortcut: 'N',
       category: 'tickets',
       onClick: () => router.push('/tickets/new'),
-    },
+    }]),
     {
       id: 'due-today',
       label: 'View Due Today',

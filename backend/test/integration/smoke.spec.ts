@@ -383,9 +383,47 @@ describe('API Smoke Tests', () => {
       db = app.get(PrismaService);
     });
 
+    // Creating a ticket requires an active workday (Phase 3).
+    const startWorkday = (token: string) =>
+      request(app.getHttpServer()).post('/api/workday/start').set('Authorization', token).send({}).expect(201);
+
+    it('0. creating a ticket while punched out is refused with 409 ACTIVE_WORKDAY_REQUIRED', async () => {
+      const adminToken = await bearerFor(app, 'admin');
+      const admin = await db.user.findFirst({ where: { email: TEST_USERS.admin.email } });
+      await db.workSession.updateMany({
+        where: { userId: admin.id, logoutAt: null },
+        data: { status: 'LOGGED_OUT', logoutAt: new Date() },
+      });
+      const before = await db.ticket.count();
+      
+      const res = await request(app.getHttpServer())
+        .post('/api/tickets')
+        .set('Authorization', adminToken)
+        .send({ title: `Punched-out Ticket ${Date.now()}`, category: 'IT', priority: 'MEDIUM' })
+        .expect(409);
+      expect(res.body).toEqual({ statusCode: 409, code: 'ACTIVE_WORKDAY_REQUIRED', message: 'Punch In before creating a ticket.' });
+
+      const today = await request(app.getHttpServer())
+        .get('/api/workday/today')
+        .set('Authorization', adminToken)
+        .expect(200);
+      expect(today.body.ticketCreation).toEqual({ allowed: false, code: 'ACTIVE_WORKDAY_REQUIRED', message: 'Punch In before creating a ticket.' });
+      expect(await db.ticket.count()).toBe(before);
+
+      await startWorkday(adminToken);
+      const after = await request(app.getHttpServer())
+        .get('/api/workday/today')
+        .set('Authorization', adminToken)
+        .expect(200);
+      expect(after.body.ticketCreation).toEqual({ allowed: true });
+    });
+
     it('1. ticket status change creates visible event', async () => {
       const adminToken = await bearerFor(app, 'admin');
-      
+      const admin = await db.user.findFirst({ where: { email: TEST_USERS.admin.email } });
+      await startWorkday(adminToken);
+
+      // Starting work needs a primary owner (Phase 3), so the ticket is assigned.
       const ticketRes = await request(app.getHttpServer())
         .post('/api/tickets')
         .set('Authorization', adminToken)
@@ -393,9 +431,10 @@ describe('API Smoke Tests', () => {
           title: `Test Status Ticket ${Date.now()}`,
           category: 'IT',
           priority: 'MEDIUM',
+          assignedToId: admin.id,
         })
         .expect(201);
-      
+
       const ticketId = ticketRes.body.id;
       
       await request(app.getHttpServer())
@@ -419,6 +458,7 @@ describe('API Smoke Tests', () => {
 
     it('2. comment add creates visible event', async () => {
       const adminToken = await bearerFor(app, 'admin');
+      await startWorkday(adminToken);
       
       const ticketRes = await request(app.getHttpServer())
         .post('/api/tickets')
@@ -517,6 +557,7 @@ describe('API Smoke Tests', () => {
       const testDept = await db.department.findFirst();
       await db.user.update({ where: { id: leadUser.id }, data: { departmentId: testDept.id } });
       await db.user.update({ where: { id: empUser.id }, data: { departmentId: testDept.id } });
+      await startWorkday(empToken);
 
       const ticketRes = await request(app.getHttpServer())
         .post('/api/tickets')
@@ -564,6 +605,7 @@ describe('API Smoke Tests', () => {
 
       await db.user.update({ where: { id: empUser.id }, data: { departmentId: testDept.id } });
       await db.user.update({ where: { id: unrelatedUser.id }, data: { departmentId: unrelatedDept.id } });
+      await startWorkday(adminToken);
 
       const ticketRes = await request(app.getHttpServer())
         .post('/api/tickets')

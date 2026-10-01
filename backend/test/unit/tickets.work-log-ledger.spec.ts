@@ -129,6 +129,8 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       // The worker has an open, working session unless a test says otherwise.
       workSession: { findFirst: jest.fn().mockResolvedValue({ id: 'ws-1', status: 'WORKING', logoutAt: null, breakLogs: [] }) },
       $executeRaw: jest.fn().mockResolvedValue(1),
+      // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
+      $queryRaw: jest.fn(async () => [{ status: TicketStatus.OPEN, assignedToId: 'worker-1' }]),
       $transaction: jest.fn(async (fn: any) => fn(prisma)),
     };
 
@@ -164,6 +166,8 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       { getSlaConfig: jest.fn().mockResolvedValue({ review: { MEDIUM: 24 } }), decorateTicket: jest.fn((t: any) => Promise.resolve(t)) } as any, // ticketTiming
       ticketLedger,
       {} as any, // ticketImport
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
   });
 

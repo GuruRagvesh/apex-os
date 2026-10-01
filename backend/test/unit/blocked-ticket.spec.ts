@@ -16,6 +16,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { TicketStatus } from '@prisma/client';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
+import { ActiveWorkdayPolicyService } from '../../src/common/services/active-workday-policy.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
@@ -157,6 +158,7 @@ describe('Blocked Ticket — TicketsService', () => {
       providers: [
         { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         TicketsService,
+        { provide: ActiveWorkdayPolicyService, useValue: { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } },
         AccessPolicyService,
         HierarchyApprovalService,
         TicketAccessService,

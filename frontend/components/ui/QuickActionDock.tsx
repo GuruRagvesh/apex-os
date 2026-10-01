@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
+import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 
 /**
  * Where the Workday lifecycle actually happens.
@@ -27,6 +28,7 @@ export function QuickActionDock() {
   const user = useAuthStore(s => s.user);
   const role: string = (user?.role as any)?.name ?? '';
   const status: string = (user as any)?.currentStatus ?? 'OFFLINE';
+  const ticketGate = useTicketCreationGate();
 
   // Alt+Q shortcut
   useEffect(() => {
@@ -68,6 +70,7 @@ export function QuickActionDock() {
   const actions = [
     {
       label: '+ Ticket', emoji: '🎫', color: '#3b82f6',
+      disabled: !ticketGate.allowed, title: ticketGate.reason ?? undefined,
       onClick: () => doAction(() => router.push('/tickets/new')),
     },
     // Every entry below navigates. `status` still decides what is shown and
@@ -118,7 +121,7 @@ export function QuickActionDock() {
         }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
             {actions.map((a, i) => (
-              <button key={i} onClick={a.onClick} disabled={(a as any).disabled}
+              <button key={i} onClick={a.onClick} disabled={(a as any).disabled} title={(a as any).title}
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
                   padding: 10, borderRadius: 10, border: 'none', cursor: (a as any).disabled ? 'not-allowed' : 'pointer',
