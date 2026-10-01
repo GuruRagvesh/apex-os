@@ -12,7 +12,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { ROLES } from '../../../../shared/constants/roles';
 import { registerCsv, registerFileName, type RegisterResult } from './register-report';
 import { buildRegisterWorkbook } from './register-workbook';
-import { presenceMinutes } from '../shared/attendance-primitives';
+import { employmentOnDate, presenceMinutes } from '../shared/attendance-primitives';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -78,10 +78,15 @@ export interface ConsoleScope {
 
 export interface EvaluationCommandResult {
   businessDates: string[];
+  /** Eligible employee-days, not candidates times dates. */
   requested: number;
   evaluated: number;
   unchanged: number;
   skipped: number;
+  /** Employee-days outside the employment window. A settled fact. */
+  notEmployed: number;
+  /** Employee-days whose employment could not be established. A data gap. */
+  employmentUnresolved: number;
   failed: Array<{ userId: string; businessDate: string; error: string }>;
 }
 
@@ -906,45 +911,111 @@ export class AttendanceConsoleService {
       throw new BadRequestException(`Range is limited to ${MAX_RANGE_DAYS} days`);
     }
 
-    const userWhere: any = { isActive: true };
+    // WHO WAS EMPLOYED ON THE DATES BEING EVALUATED.
+    //
+    // This was `{ isActive: true }`: historical evaluation filtered on today's
+    // account flag. Backfilling September would have created official rows for
+    // current employees only and silently skipped anybody who had since left,
+    // baking the gap into the official record for the people least able to
+    // notice. Somebody who worked until 25 September is a September employee.
+    //
+    // TWO STAGES, AND THE SECOND IS AUTHORITATIVE. The query narrows to a
+    // SUPERSET by employment-window overlap, because a per-date predicate
+    // cannot be expressed usefully in SQL here. employmentOnDate() from the
+    // shared primitives then rules on each employee-date. The query can only
+    // ever be too generous, never too strict, so the two cannot disagree about
+    // eligibility: the primitive decides, and the query merely avoids loading
+    // the whole user table.
+    // Midday, so a timezone offset cannot push the boundary onto the wrong
+    // day. This filter is deliberately a SUPERSET -- employmentOnDate rules
+    // on each date below -- so being a few hours generous here is harmless
+    // and being strict would not be.
+    const midday = (d: string) => new Date(`${d}T12:00:00.000Z`);
+    const rangeStart = dates[0];
+    const rangeEnd = dates[dates.length - 1];
+
+    const userWhere: any = {
+      AND: [
+        // Started on or before the end of the range, or no start recorded.
+        { OR: [{ joiningDate: null }, { joiningDate: { lte: this.tva.companyDayEnd(midday(rangeEnd)) } }] },
+        // Had not already left before the range began.
+        {
+          OR: [
+            { lastWorkingDate: null },
+            { lastWorkingDate: { gte: this.tva.companyDayStart(midday(rangeStart)) } },
+          ],
+        },
+      ],
+    };
     if (input.employeeId) userWhere.id = input.employeeId;
     if (input.departmentId) userWhere.departmentId = input.departmentId;
 
     const employees = await this.prisma.user.findMany({
       where: userWhere,
-      select: { id: true },
+      select: { id: true, joiningDate: true, lastWorkingDate: true },
     });
 
-    const units = employees.length * dates.length;
-    if (units > MAX_EVALUATION_UNITS) {
+    // Eligible employee-days, not candidates times dates. Counting the raw
+    // product would spend the cap on dates nobody was employed for, and
+    // including former employees -- the point of this change -- would push an
+    // ordinary month over the limit for no reason.
+    const work: Array<{ userId: string; businessDate: string }> = [];
+    let notEmployed = 0;
+    let employmentUnresolved = 0;
+
+    for (const employee of employees) {
+      const joining = employee.joiningDate
+        ? this.tva.companyBusinessDate(employee.joiningDate)
+        : null;
+      const lastWorking = employee.lastWorkingDate
+        ? this.tva.companyBusinessDate(employee.lastWorkingDate)
+        : null;
+
+      for (const businessDate of dates) {
+        const employment = employmentOnDate(joining, lastWorking, businessDate);
+        if (employment.employedOnDate) {
+          work.push({ userId: employee.id, businessDate });
+          continue;
+        }
+        // Two buckets rather than one, because they mean different things to an
+        // operator. BEFORE_JOINING and AFTER_LAST_WORKING_DATE are settled
+        // facts; NO_JOINING_DATE is a gap in the employee record that somebody
+        // has to fill, and folding it into "skipped" would hide a data problem
+        // behind a correct-looking total.
+        if (employment.reason === 'NO_JOINING_DATE') employmentUnresolved += 1;
+        else notEmployed += 1;
+      }
+    }
+
+    if (work.length > MAX_EVALUATION_UNITS) {
       throw new BadRequestException(
-        `This would evaluate ${units} employee-days. Narrow the range or the selection (limit ${MAX_EVALUATION_UNITS}).`,
+        `This would evaluate ${work.length} employee-days. Narrow the range or the selection (limit ${MAX_EVALUATION_UNITS}).`,
       );
     }
 
     const result: EvaluationCommandResult = {
       businessDates: dates,
-      requested: units,
+      requested: work.length,
       evaluated: 0,
       unchanged: 0,
       skipped: 0,
+      notEmployed,
+      employmentUnresolved,
       failed: [],
     };
 
-    for (const employee of employees) {
-      for (const businessDate of dates) {
-        try {
-          const out = await this.evaluator.evaluateAndPersist(employee.id, businessDate);
-          if (out.persisted) result.evaluated += 1;
-          else if (out.reason === 'UNCHANGED') result.unchanged += 1;
-          else result.skipped += 1;
-        } catch (err: any) {
-          result.failed.push({
-            userId: employee.id,
-            businessDate,
-            error: err?.message ?? 'Evaluation failed',
-          });
-        }
+    for (const { userId, businessDate } of work) {
+      try {
+        const out = await this.evaluator.evaluateAndPersist(userId, businessDate);
+        if (out.persisted) result.evaluated += 1;
+        else if (out.reason === 'UNCHANGED') result.unchanged += 1;
+        else result.skipped += 1;
+      } catch (err: any) {
+        result.failed.push({
+          userId,
+          businessDate,
+          error: err?.message ?? 'Evaluation failed',
+        });
       }
     }
 
@@ -962,6 +1033,8 @@ export class AttendanceConsoleService {
         evaluated: result.evaluated,
         unchanged: result.unchanged,
         skipped: result.skipped,
+        notEmployed: result.notEmployed,
+        employmentUnresolved: result.employmentUnresolved,
         failed: result.failed.length,
       },
     }).catch(() => {});

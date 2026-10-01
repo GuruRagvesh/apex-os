@@ -16,6 +16,13 @@ const dateOnly = new Date(`${DATE}T00:00:00.000Z`);
 const employee = (id: string, name = id) => ({
   id, name, email: `${id}@x.com`, employeeId: `E-${id}`,
   department: { id: 'dept-1', name: 'Ops' },
+  // Employment dates are now REQUIRED for a historical evaluation to include
+  // anybody: runEvaluation decides eligibility per date from the employment
+  // window rather than from today's isActive flag, so a fixture with no
+  // joining date is correctly reported as employmentUnresolved and skipped.
+  // Joined well before the dates these tests use, and still employed.
+  joiningDate: new Date('2024-01-01T00:00:00.000Z'),
+  lastWorkingDate: null,
 });
 
 /** A stored day on a specific business date. */
