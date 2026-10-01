@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException,
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { TicketStatus, NotificationType } from '@prisma/client';
+import { Prisma, TicketStatus, NotificationType } from '@prisma/client';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { NotificationEventService } from '../notifications/notification-event.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
@@ -17,6 +17,19 @@ function isUUID(str: string): boolean {
 }
 
 // SLA hours are read from DB via TicketTimingService.getSlaConfig() — no local constants needed.
+
+/**
+ * Side effects of a ticket change that must never run for a change that did
+ * not commit: notifications, websocket events, the in-process event bus and
+ * the operational event log. Queued while the transaction runs, executed after.
+ */
+type AfterCommit = Array<() => unknown>;
+
+/**
+ * A business change plus its employee-timer change, in one transaction. The
+ * per-worker advisory lock and the one-active-timer index are taken inside it.
+ */
+const TIMER_TRANSACTION = { maxWait: 10_000, timeout: 20_000 };
 
 @Injectable()
 export class TicketsService {
@@ -142,13 +155,28 @@ export class TicketsService {
 
   // After a worker's running ticket stops for a ticket reason (review, done,
   // open, block, unassign, handover), the next ticket they have waiting starts
-  // automatically. Best-effort: never affects the transition that triggered it.
-  private async resumeNextWaitingFor(userIds: string[] | undefined, leftTicketId: string) {
+  // automatically, in the same transaction as the change that stopped it: a
+  // failure rolls that change back rather than leaving the worker half-resumed.
+  private async resumeNextWaitingFor(
+    userIds: string[] | undefined,
+    leftTicketId: string,
+    tx: Prisma.TransactionClient,
+  ) {
     for (const workerId of userIds ?? []) {
+      await this.ticketLedger.resumeNextWaitingTicket(workerId, leftTicketId, tx);
+    }
+  }
+
+  /**
+   * Runs the side effects a committed ticket change queued. Each is isolated:
+   * a failed notification is logged and never undoes, or blocks, the change.
+   */
+  private async runAfterCommit(afterCommit: AfterCommit) {
+    for (const effect of afterCommit) {
       try {
-        await this.ticketLedger.resumeNextWaitingTicket?.(workerId, leftTicketId);
+        await effect();
       } catch (err: any) {
-        this.logger.error(`Auto-resume of next ticket failed for user ${workerId} after ticket ${leftTicketId} stopped: ${err?.message}`);
+        this.logger.warn(`Post-commit side effect failed: ${err?.message}`);
       }
     }
   }
@@ -1252,6 +1280,28 @@ export class TicketsService {
     user?: any,
     opts?: { suppressCompletionNotification?: boolean; reviewDecisionRecorded?: boolean },
   ) {
+    const prepared = await this.prepareUpdate(id, data, userId, user, opts);
+    const afterCommit: AfterCommit = [];
+    const ticket = await this.prisma.$transaction(
+      (tx) => this.commitUpdate(tx, prepared, userId, opts, afterCommit),
+      TIMER_TRANSACTION,
+    );
+    await this.runAfterCommit(afterCommit);
+    return this.addSla(ticket);
+  }
+
+  /**
+   * Validation, access checks and field derivation for update(). Reads only:
+   * every write happens in commitUpdate(), inside one transaction with the
+   * timer change it requires.
+   */
+  private async prepareUpdate(
+    id: string,
+    data: any,
+    userId: string,
+    user?: any,
+    opts?: { suppressCompletionNotification?: boolean; reviewDecisionRecorded?: boolean },
+  ) {
     // Extract assigneeIds (not a Ticket column)
     const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
     delete data.assigneeIds;
@@ -1317,15 +1367,15 @@ export class TicketsService {
     }
 
     // ── REVIEW → IN_PROGRESS (rework): reset review stamps + recalculate executionDueAt ──
+    // Every send-back opens a new rework cycle, whichever path it came from.
+    // reject() records its own decision (with feedback and the rework
+    // estimate); a direct status change (Kanban, stepper) is recorded by
+    // commitUpdate(), in the same transaction as the status write.
+    const recordReworkDecision =
+      data.status === TicketStatus.IN_PROGRESS &&
+      existing.status === TicketStatus.REVIEW &&
+      !opts?.reviewDecisionRecorded;
     if (data.status === TicketStatus.IN_PROGRESS && existing.status === TicketStatus.REVIEW) {
-      // Every send-back opens a new rework cycle, whichever path it came from.
-      // reject() records its own decision (with feedback and the rework
-      // estimate) first; a direct status change (Kanban, stepper) is recorded
-      // here. Persisted before the status write, so a failure leaves the
-      // ticket in REVIEW rather than reopened with no cycle.
-      if (!opts?.reviewDecisionRecorded) {
-        await this.persistReviewDecision(existing, 'REWORK', userId, { reworkStartedAt: new Date() });
-      }
       data.reworkCount = { increment: 1 };
       data.submittedAt = null;
       data.reviewStartedAt = null;
@@ -1410,23 +1460,48 @@ export class TicketsService {
         changedById: userId,
       }));
 
-    const ticket = await this.prisma.ticket.update({
+    return { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision };
+  }
+
+  /**
+   * Every write of an update, in the caller's transaction: the review/rework
+   * decision a direct REVIEW → IN_PROGRESS needs, the ticket row, its history
+   * and activity rows, the employee timer change the new status/assignee
+   * requires, the next-ticket auto-resume, and the secondary assignees. A
+   * timer failure throws and rolls all of it back (a one-active-timer conflict
+   * surfaces as 409). Notifications, websocket events and the operational
+   * event log are queued in `afterCommit` and only run once this has committed.
+   */
+  private async commitUpdate(
+    tx: Prisma.TransactionClient,
+    prepared: Awaited<ReturnType<TicketsService['prepareUpdate']>>,
+    userId: string,
+    opts: { suppressCompletionNotification?: boolean; reviewDecisionRecorded?: boolean } | undefined,
+    afterCommit: AfterCommit,
+  ) {
+    const { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision } = prepared;
+
+    if (recordReworkDecision) {
+      await this.persistReviewDecision(existing, 'REWORK', userId, { reworkStartedAt: new Date() }, tx);
+    }
+
+    const ticket = await tx.ticket.update({
       where: { id: ticketDbId },
       data,
       include: this.includeOptions,
     });
 
     if (historyEntries.length > 0) {
-      await this.prisma.ticketHistory.createMany({ data: historyEntries });
+      await tx.ticketHistory.createMany({ data: historyEntries });
     }
 
     const action = data.status ? 'STATUS_CHANGED' : data.assignedToId ? 'TICKET_ASSIGNED' : 'TICKET_UPDATED';
     // Non-status, non-assign edits → TICKET_UPDATED audit
     if (!data.status && !data.assignedToId) {
-      this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticketDbId, action: OperationalAction.TICKET_UPDATED, metadata: { ticketId: existing.ticketId, fields: Object.keys(data) } }).catch(() => {});
+      afterCommit.push(() => this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticketDbId, action: OperationalAction.TICKET_UPDATED, metadata: { ticketId: existing.ticketId, fields: Object.keys(data) } }));
     }
 
-    await this.prisma.activityLog.create({
+    await tx.activityLog.create({
       data: {
         userId,
         action,
@@ -1441,6 +1516,39 @@ export class TicketsService {
     });
 
     if (data.status) {
+      // ── Actual worked-time ledger: start on entering IN_PROGRESS, end on leaving it ──
+      // This is the real worked-time tracker (TicketTimeLog via TicketLedgerService) —
+      // entirely separate from the SLA/due-date countdown (TicketTimingService), which
+      // is untouched here and correctly keeps running regardless of break/end-day.
+      // The clock always belongs to the ticket's primary assignee; `userId` (the
+      // actor) is only the audit actor, so a manager or reviewer moving the ticket
+      // never gets a timer. Runs in this transaction: a ledger failure rolls the
+      // status transition back instead of leaving it without its timer change.
+      if (data.status === TicketStatus.IN_PROGRESS && existing.status !== TicketStatus.IN_PROGRESS) {
+        if (ticket.assignedToId) {
+          await this.ticketLedger.startAssigneeTimer({
+            ticketId: ticket.id,
+            workerId: ticket.assignedToId,
+            mode: 'START',
+            source: LEDGER_SOURCES.TICKET_STATUS,
+          }, tx);
+        }
+      } else if (data.status !== TicketStatus.IN_PROGRESS) {
+        // Whoever holds the clock, it stops: nobody times a ticket that is not
+        // IN_PROGRESS. Decided from the status just written (this transaction
+        // holds the ticket row), not from the pre-transaction read: the worker
+        // locks taken here also make a timer start that raced this change
+        // either visible (and closed) or wait and find the ticket ineligible.
+        const ended = await this.ticketLedger.endActiveLogsForTicket(
+          ticket.id, LEDGER_PAUSE_REASONS.STATUS_CHANGE, undefined, tx,
+          [existing.assignedToId, ticket.assignedToId],
+        );
+        if (data.status !== TicketStatus.OPEN && (existing.status === TicketStatus.IN_PROGRESS || ended.count > 0)) {
+          await this.ticketLedger.closeReworkSegment(ticket.id, undefined, tx);
+        }
+        await this.resumeNextWaitingFor(ended.userIds, ticket.id, tx);
+      }
+
       const statusActionMap: Record<string, OperationalAction> = {
         IN_PROGRESS: OperationalAction.TICKET_STARTED,
         REVIEW: OperationalAction.TICKET_SUBMITTED_FOR_REVIEW,
@@ -1454,74 +1562,38 @@ export class TicketsService {
         ? OperationalAction.TICKET_REOPENED
         : (statusActionMap[data.status] ?? null);
       if (mappedAction) {
-        this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: mappedAction, fromState: existing.status, toState: data.status, metadata: { ticketId: ticket.ticketId } }).catch(() => {});
+        afterCommit.push(() => this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: mappedAction, fromState: existing.status, toState: data.status, metadata: { ticketId: ticket.ticketId } }));
       }
-      this.eventEmitter.emit('ticket.status_changed', {
+      afterCommit.push(() => this.eventEmitter.emit('ticket.status_changed', {
         ticket,
         oldStatus: existing.status,
         newStatus: data.status,
         userId,
-      });
-      this.gateway.emitTicketStatusChanged(ticket.id, data.status, userId);
-
-      // ── Actual worked-time ledger: start on entering IN_PROGRESS, end on leaving it ──
-      // This is the real worked-time tracker (TicketTimeLog via TicketLedgerService) —
-      // entirely separate from the SLA/due-date countdown (TicketTimingService), which
-      // is untouched here and correctly keeps running regardless of break/end-day.
-      // The clock always belongs to the ticket's primary assignee; `userId` (the
-      // actor) is only the audit actor, so a manager or reviewer moving the ticket
-      // never gets a timer. startAssigneeTimer() is idempotent and enforces one
-      // active ticket per worker under a per-worker lock. Wrapped like every other
-      // side effect in this block — a ledger failure must never corrupt the status
-      // transition that already committed above.
-      try {
-        if (data.status === TicketStatus.IN_PROGRESS && existing.status !== TicketStatus.IN_PROGRESS) {
-          if (ticket.assignedToId) {
-            await this.ticketLedger.startAssigneeTimer({
-              ticketId: ticket.id,
-              workerId: ticket.assignedToId,
-              mode: 'START',
-              source: LEDGER_SOURCES.TICKET_STATUS,
-            });
-          }
-        } else if (existing.status === TicketStatus.IN_PROGRESS && data.status !== TicketStatus.IN_PROGRESS) {
-          // Whoever holds the clock, it stops: nobody times a ticket that has left
-          // IN_PROGRESS.
-          const ended = await this.ticketLedger.endActiveLogsForTicket(ticket.id, LEDGER_PAUSE_REASONS.STATUS_CHANGE);
-          if (data.status !== TicketStatus.OPEN) {
-            await this.ticketLedger.closeReworkSegment(ticket.id);
-          }
-          await this.resumeNextWaitingFor(ended?.userIds, ticket.id);
-        }
-      } catch (err: any) {
-        this.logger.error(`Work-log ledger update failed for ${ticket.ticketId}: ${err?.message}`);
-      }
+      }));
+      afterCommit.push(() => this.gateway.emitTicketStatusChanged(ticket.id, data.status, userId));
 
       if (data.status === TicketStatus.DONE || data.status === TicketStatus.CLOSED) {
         // Notify reporter (createdBy) that their ticket is done.
         // Suppressed when called from approve() which sends its own targeted notification
         // to prevent duplicate "Ticket resolved" + "Ticket approved" spam to the same user.
         if (!opts?.suppressCompletionNotification && existing.createdById && existing.createdById !== userId) {
-          try {
-            await this.notificationEventService.sendNotification(
-              existing.createdById,
-              'ticketResolved',
-              {
-                title: `Ticket resolved: ${ticket.ticketId}`,
-                message: `${ticket.title} has been marked ${data.status}`,
-                type: NotificationType.SUCCESS,
-                link: `/tickets/${ticket.id}`,
-                entityId: ticket.id,
-                entityType: 'TICKET',
-              }
-            );
-          } catch (_e) { /* never crash main operation */ }
+          afterCommit.push(() => this.notificationEventService.sendNotification(
+            existing.createdById,
+            'ticketResolved',
+            {
+              title: `Ticket resolved: ${ticket.ticketId}`,
+              message: `${ticket.title} has been marked ${data.status}`,
+              type: NotificationType.SUCCESS,
+              link: `/tickets/${ticket.id}`,
+              entityId: ticket.id,
+              entityType: 'TICKET',
+            }
+          ));
         }
       } else if (data.status === TicketStatus.REVIEW && enteringReview) {
         // Notify whoever is actually responsible for reviewing this ticket — never
-        // the submitter. Wrapped so a resolution failure can only skip the
-        // notification, and can never affect the status transition itself.
-        try {
+        // the submitter. A resolution failure can only skip the notification.
+        afterCommit.push(async () => {
           const recipients = await this.resolveReviewNotificationRecipients(ticket);
           for (const recipientId of recipients) {
             if (recipientId === userId) continue;
@@ -1538,80 +1610,79 @@ export class TicketsService {
               }
             );
           }
-        } catch (_e) { /* never crash main operation */ }
+        });
       }
     }
 
     // Reassigning a ticket that stays IN_PROGRESS hands the clock over: the old
     // assignee's segment ends, and the new assignee's starts only if they are
     // working and not already timing another ticket (an assignment never
-    // silently pauses someone else's current work).
+    // silently pauses someone else's current work). Same transaction as the
+    // reassignment: a failed handover never leaves two owners or none.
     const reassignedInProgress =
       data.assignedToId !== undefined &&
       data.assignedToId !== existing.assignedToId &&
       existing.status === TicketStatus.IN_PROGRESS &&
       ticket.status === TicketStatus.IN_PROGRESS;
     if (reassignedInProgress) {
-      try {
-        const ended = await this.ticketLedger.endActiveLogsForTicket(ticket.id, LEDGER_PAUSE_REASONS.UNASSIGNED);
-        // The previous assignee moves on to their next waiting ticket.
-        await this.resumeNextWaitingFor(ended?.userIds, ticket.id);
-        if (ticket.assignedToId) {
-          await this.ticketLedger.startAssigneeTimer({
-            ticketId: ticket.id,
-            workerId: ticket.assignedToId,
-            mode: 'HANDOVER',
-            source: LEDGER_SOURCES.TICKET_STATUS,
-          });
-        }
-      } catch (err: any) {
-        this.logger.error(`Work-log handover failed for ${ticket.ticketId}: ${err?.message}`);
+      // Both the old and the new primary assignee are locked up front, in one
+      // sorted order, before the old clock is closed and the new one started.
+      const ended = await this.ticketLedger.endActiveLogsForTicket(
+        ticket.id, LEDGER_PAUSE_REASONS.UNASSIGNED, undefined, tx,
+        [existing.assignedToId, ticket.assignedToId],
+      );
+      // The previous assignee moves on to their next waiting ticket.
+      await this.resumeNextWaitingFor(ended.userIds, ticket.id, tx);
+      if (ticket.assignedToId) {
+        await this.ticketLedger.startAssigneeTimer({
+          ticketId: ticket.id,
+          workerId: ticket.assignedToId,
+          mode: 'HANDOVER',
+          source: LEDGER_SOURCES.TICKET_STATUS,
+        }, tx);
       }
     }
 
     if (data.assignedToId && data.assignedToId !== existing.assignedToId && ticket.assignedTo) {
-      this.eventEmitter.emit('ticket.assigned', {
+      afterCommit.push(() => this.eventEmitter.emit('ticket.assigned', {
         ticket,
         assigneeId: data.assignedToId,
         assignedBy: userId,
-      });
-      this.eventLogger.log({
+      }));
+      afterCommit.push(() => this.eventLogger.log({
         actorId: userId,
         entityType: 'Ticket',
         entityId: ticket.id,
         action: OperationalAction.TICKET_ASSIGNED,
         metadata: { ticketId: ticket.ticketId, assigneeId: data.assignedToId, assigneeName: ticket.assignedTo.name },
-      }).catch(() => {});
-      try {
-        await this.notificationEventService.sendNotification(
-          ticket.assignedTo.id,
-          'assignedTicket',
-          {
-            title: this.ticketAssignedTitle(ticket.type, ticket.ticketId, true),
-            message: ticket.title,
-            type: NotificationType.INFO,
-            link: `/tickets/${ticket.id}`,
-            entityId: ticket.id,
-            entityType: 'TICKET',
-          }
-        );
-      } catch (_e) { /* never crash main op */ }
+      }));
+      afterCommit.push(() => this.notificationEventService.sendNotification(
+        ticket.assignedTo.id,
+        'assignedTicket',
+        {
+          title: this.ticketAssignedTitle(ticket.type, ticket.ticketId, true),
+          message: ticket.title,
+          type: NotificationType.INFO,
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        }
+      ));
     }
 
     // Update multiple assignees if provided
     if (assigneeIds !== undefined) {
-      await this.prisma.ticketAssignee.deleteMany({ where: { ticketId: ticketDbId } });
+      await tx.ticketAssignee.deleteMany({ where: { ticketId: ticketDbId } });
       if (assigneeIds.length > 0) {
-        await this.prisma.ticketAssignee.createMany({
+        await tx.ticketAssignee.createMany({
           data: assigneeIds.map((uid) => ({ ticketId: ticketDbId, userId: uid })),
           skipDuplicates: true,
         });
       }
     }
 
-    return this.addSla(ticket);
+    return ticket;
   }
-
   async updateStatus(id: string, status: TicketStatus, userId: string, user?: any) {
     return this.update(id, { status }, userId, user);
   }
@@ -1630,76 +1701,75 @@ export class TicketsService {
     if (ticket.isBlocked) throw new BadRequestException('Ticket is already blocked');
     if (user) await this.ticketAccess.assertCanBlockTicket(user, ticket);
 
-    const updated = await this.prisma.ticket.update({
-      where: { id: ticket.id },
-      data: { isBlocked: true, blockedAt: new Date(), blockedReason: reason.trim(), blockedById: userId },
-      include: this.includeOptions,
-    });
+    // The block and the stop of the worker's clock commit together: blocked
+    // time is never productive, and a timer failure leaves the ticket unblocked.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const blocked = await tx.ticket.update({
+        where: { id: ticket.id },
+        data: { isBlocked: true, blockedAt: new Date(), blockedReason: reason.trim(), blockedById: userId },
+        include: this.includeOptions,
+      });
+      await tx.ticketHistory.create({
+        data: { ticketId: ticket.id, field: 'isBlocked', oldValue: 'false', newValue: 'true', changedById: userId },
+      });
+      await tx.activityLog.create({
+        data: {
+          userId,
+          action: 'TICKET_BLOCKED',
+          entityType: 'TICKET',
+          entityId: ticket.id,
+          details: { ticketId: ticket.ticketId, reason: reason.trim() },
+        },
+      });
+      const ended = await this.ticketLedger.endActiveLogsForTicket(
+        ticket.id, LEDGER_PAUSE_REASONS.BLOCKED, undefined, tx, [blocked.assignedToId],
+      );
+      await this.resumeNextWaitingFor(ended.userIds, ticket.id, tx);
+      return blocked;
+    }, TIMER_TRANSACTION);
 
-    await this.prisma.ticketHistory.create({
-      data: { ticketId: ticket.id, field: 'isBlocked', oldValue: 'false', newValue: 'true', changedById: userId },
-    });
-    await this.prisma.activityLog.create({
-      data: {
-        userId,
-        action: 'TICKET_BLOCKED',
-        entityType: 'TICKET',
+    const afterCommit: AfterCommit = [
+      () => this.eventLogger.log({
+        actorId: userId,
+        entityType: 'Ticket',
         entityId: ticket.id,
-        details: { ticketId: ticket.ticketId, reason: reason.trim() },
-      },
-    });
-    this.eventLogger.log({
-      actorId: userId,
-      entityType: 'Ticket',
-      entityId: ticket.id,
-      action: OperationalAction.TICKET_BLOCKED,
-      fromState: ticket.status,
-      metadata: { ticketId: ticket.ticketId, reason: reason.trim() },
-    }).catch(() => {});
-    this.gateway.emitTicketStatusChanged(ticket.id, 'BLOCKED', userId);
-
-    // Blocked time is never productive: stop the worker's clock (BLOCKED).
-    try {
-      const ended = await this.ticketLedger.endActiveLogsForTicket(ticket.id, LEDGER_PAUSE_REASONS.BLOCKED);
-      await this.resumeNextWaitingFor(ended?.userIds, ticket.id);
-    } catch (err: any) {
-      this.logger.error(`Failed to pause ticket timer on block for ${ticket.ticketId}: ${err?.message}`);
-    }
-
+        action: OperationalAction.TICKET_BLOCKED,
+        fromState: ticket.status,
+        metadata: { ticketId: ticket.ticketId, reason: reason.trim() },
+      }),
+      () => this.gateway.emitTicketStatusChanged(ticket.id, 'BLOCKED', userId),
+    ];
     // Notify assignee (if different from blocker) that their ticket is blocked
     if (ticket.assignedTo && ticket.assignedToId !== userId) {
-      try {
-        await this.notificationEventService.sendNotification(
-          ticket.assignedToId,
-          'ticketBlocked',
-          {
-            title: `Ticket blocked: ${ticket.ticketId}`,
-            message: reason.trim(),
-            type: NotificationType.WARNING,
-            link: `/tickets/${ticket.id}`,
-            entityId: ticket.id,
-            entityType: 'TICKET',
-          },
-        );
-      } catch (_e) { /* never crash main op */ }
+      afterCommit.push(() => this.notificationEventService.sendNotification(
+        ticket.assignedToId,
+        'ticketBlocked',
+        {
+          title: `Ticket blocked: ${ticket.ticketId}`,
+          message: reason.trim(),
+          type: NotificationType.WARNING,
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        },
+      ));
     }
     // Notify creator (if different from blocker and assignee)
     if (ticket.createdById && ticket.createdById !== userId && ticket.createdById !== ticket.assignedToId) {
-      try {
-        await this.notificationEventService.sendNotification(
-          ticket.createdById,
-          'ticketBlocked',
-          {
-            title: `Ticket blocked: ${ticket.ticketId}`,
-            message: reason.trim(),
-            type: NotificationType.WARNING,
-            link: `/tickets/${ticket.id}`,
-            entityId: ticket.id,
-            entityType: 'TICKET',
-          },
-        );
-      } catch (_e) { /* never crash main op */ }
+      afterCommit.push(() => this.notificationEventService.sendNotification(
+        ticket.createdById,
+        'ticketBlocked',
+        {
+          title: `Ticket blocked: ${ticket.ticketId}`,
+          message: reason.trim(),
+          type: NotificationType.WARNING,
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        },
+      ));
     }
+    await this.runAfterCommit(afterCommit);
 
     return this.addSla(updated);
   }
@@ -1715,68 +1785,67 @@ export class TicketsService {
     }
     if (user) await this.ticketAccess.assertCanBlockTicket(user, ticket);
 
-    const updated = await this.prisma.ticket.update({
-      where: { id: ticket.id },
-      data: { isBlocked: false, blockedAt: null, blockedReason: null, blockedById: null },
-      include: this.includeOptions,
-    });
-
-    await this.prisma.ticketHistory.create({
-      data: { ticketId: ticket.id, field: 'isBlocked', oldValue: 'true', newValue: 'false', changedById: userId },
-    });
-    await this.prisma.activityLog.create({
-      data: {
-        userId,
-        action: 'TICKET_UNBLOCKED',
-        entityType: 'TICKET',
-        entityId: ticket.id,
-        details: { ticketId: ticket.ticketId },
-      },
-    });
-    this.eventLogger.log({
-      actorId: userId,
-      entityType: 'Ticket',
-      entityId: ticket.id,
-      action: OperationalAction.TICKET_UNBLOCKED,
-      fromState: 'BLOCKED',
-      toState: ticket.status,
-      metadata: { ticketId: ticket.ticketId },
-    }).catch(() => {});
-    this.gateway.emitTicketStatusChanged(ticket.id, ticket.status, userId);
-
-    // Resume only when it is safe: still IN_PROGRESS, same primary assignee,
-    // worker working, and no other ticket already being timed (UNBLOCK mode
-    // never pauses another ticket). All re-checked under the worker's lock.
-    if (updated.status === TicketStatus.IN_PROGRESS && updated.assignedToId) {
-      try {
+    // The unblock and the resume decision commit together.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const unblocked = await tx.ticket.update({
+        where: { id: ticket.id },
+        data: { isBlocked: false, blockedAt: null, blockedReason: null, blockedById: null },
+        include: this.includeOptions,
+      });
+      await tx.ticketHistory.create({
+        data: { ticketId: ticket.id, field: 'isBlocked', oldValue: 'true', newValue: 'false', changedById: userId },
+      });
+      await tx.activityLog.create({
+        data: {
+          userId,
+          action: 'TICKET_UNBLOCKED',
+          entityType: 'TICKET',
+          entityId: ticket.id,
+          details: { ticketId: ticket.ticketId },
+        },
+      });
+      // Resume only when it is safe: still IN_PROGRESS, same primary assignee,
+      // worker working, and no other ticket already being timed (UNBLOCK mode
+      // never pauses another ticket). All re-checked under the worker's lock.
+      if (unblocked.status === TicketStatus.IN_PROGRESS && unblocked.assignedToId) {
         await this.ticketLedger.startAssigneeTimer({
           ticketId: ticket.id,
-          workerId: updated.assignedToId,
+          workerId: unblocked.assignedToId,
           mode: 'UNBLOCK',
           source: LEDGER_SOURCES.TICKET_STATUS,
-        });
-      } catch (err: any) {
-        this.logger.error(`Failed to resume ticket timer on unblock for ${ticket.ticketId}: ${err?.message}`);
+        }, tx);
       }
-    }
+      return unblocked;
+    }, TIMER_TRANSACTION);
 
+    const afterCommit: AfterCommit = [
+      () => this.eventLogger.log({
+        actorId: userId,
+        entityType: 'Ticket',
+        entityId: ticket.id,
+        action: OperationalAction.TICKET_UNBLOCKED,
+        fromState: 'BLOCKED',
+        toState: ticket.status,
+        metadata: { ticketId: ticket.ticketId },
+      }),
+      () => this.gateway.emitTicketStatusChanged(ticket.id, ticket.status, userId),
+    ];
     // Notify assignee that the blocker has been resolved
     if (ticket.assignedToId && ticket.assignedToId !== userId) {
-      try {
-        await this.notificationEventService.sendNotification(
-          ticket.assignedToId,
-          'ticketBlocked',
-          {
-            title: `Ticket unblocked: ${ticket.ticketId}`,
-            message: `${ticket.title} is no longer blocked. Resume work.`,
-            type: NotificationType.SUCCESS,
-            link: `/tickets/${ticket.id}`,
-            entityId: ticket.id,
-            entityType: 'TICKET',
-          },
-        );
-      } catch (_e) { /* never crash main op */ }
+      afterCommit.push(() => this.notificationEventService.sendNotification(
+        ticket.assignedToId,
+        'ticketBlocked',
+        {
+          title: `Ticket unblocked: ${ticket.ticketId}`,
+          message: `${ticket.title} is no longer blocked. Resume work.`,
+          type: NotificationType.SUCCESS,
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        },
+      ));
     }
+    await this.runAfterCommit(afterCommit);
 
     return this.addSla(updated);
   }
@@ -1818,70 +1887,67 @@ export class TicketsService {
     const data: any = { assignedToId: null };
     if (wasInProgress) data.status = TicketStatus.OPEN;
 
-    const updated = await this.prisma.ticket.update({
-      where: { id: ticket.id },
-      data,
-      include: this.includeOptions,
-    });
+    // The unassign and the stop of the removed assignee's clock commit together,
+    // so a clock can never keep running against someone no longer responsible.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const unassigned = await tx.ticket.update({
+        where: { id: ticket.id },
+        data,
+        include: this.includeOptions,
+      });
+      await tx.ticketHistory.createMany({
+        data: [
+          { ticketId: ticket.id, field: 'assignedToId', oldValue: previousAssigneeId, newValue: null, changedById: userId },
+          ...(wasInProgress
+            ? [{ ticketId: ticket.id, field: 'status', oldValue: ticket.status, newValue: TicketStatus.OPEN, changedById: userId }]
+            : []),
+        ],
+      });
+      await tx.activityLog.create({
+        data: {
+          userId,
+          action: 'TICKET_UNASSIGNED',
+          entityType: 'TICKET',
+          entityId: ticket.id,
+          details: { ticketId: ticket.ticketId, removedAssigneeId: previousAssigneeId, movedBackToOpen: wasInProgress },
+        },
+      });
+      const ended = await this.ticketLedger.endActiveLogsForTicket(
+        ticket.id, LEDGER_PAUSE_REASONS.UNASSIGNED, undefined, tx, [previousAssigneeId],
+      );
+      await this.resumeNextWaitingFor(ended.userIds, ticket.id, tx);
+      return unassigned;
+    }, TIMER_TRANSACTION);
 
-    await this.prisma.ticketHistory.createMany({
-      data: [
-        { ticketId: ticket.id, field: 'assignedToId', oldValue: previousAssigneeId, newValue: null, changedById: userId },
-        ...(wasInProgress
-          ? [{ ticketId: ticket.id, field: 'status', oldValue: ticket.status, newValue: TicketStatus.OPEN, changedById: userId }]
-          : []),
-      ],
-    });
-    await this.prisma.activityLog.create({
-      data: {
-        userId,
-        action: 'TICKET_UNASSIGNED',
-        entityType: 'TICKET',
+    const afterCommit: AfterCommit = [
+      () => this.eventLogger.log({
+        actorId: userId,
+        entityType: 'Ticket',
         entityId: ticket.id,
-        details: { ticketId: ticket.ticketId, removedAssigneeId: previousAssigneeId, movedBackToOpen: wasInProgress },
-      },
-    });
-    this.eventLogger.log({
-      actorId: userId,
-      entityType: 'Ticket',
-      entityId: ticket.id,
-      action: OperationalAction.TICKET_UNASSIGNED,
-      fromState: ticket.status,
-      toState: updated.status,
-      metadata: { ticketId: ticket.ticketId, removedAssigneeId: previousAssigneeId },
-    }).catch(() => {});
-    this.gateway.emitTicketStatusChanged(ticket.id, updated.status, userId);
-
-    // Best-effort: stop the removed assignee's active work clock on this ticket so it
-    // doesn't keep running against someone no longer responsible for it. Never blocks
-    // the unassign itself — the ticket's own record (above) is already the source of
-    // truth, and a clock left open here is a harmless, separately-correctable gap,
-    // not silent data loss.
-    try {
-      const ended = await this.ticketLedger.endActiveLogsForTicket(ticket.id, LEDGER_PAUSE_REASONS.UNASSIGNED);
-      await this.resumeNextWaitingFor(ended?.userIds, ticket.id);
-    } catch (err: any) {
-      this.logger.error(`Failed to pause ticket timer after unassign for ${ticket.ticketId}: ${err?.message}`);
-    }
-
+        action: OperationalAction.TICKET_UNASSIGNED,
+        fromState: ticket.status,
+        toState: updated.status,
+        metadata: { ticketId: ticket.ticketId, removedAssigneeId: previousAssigneeId },
+      }),
+      () => this.gateway.emitTicketStatusChanged(ticket.id, updated.status, userId),
+    ];
     if (previousAssigneeId !== userId) {
-      try {
-        await this.notificationEventService.sendNotification(
-          previousAssigneeId,
-          'statusChanged',
-          {
-            title: `Removed from ticket: ${ticket.ticketId}`,
-            message: wasInProgress
-              ? `${ticket.title} was unassigned and moved back to Open.`
-              : `You were removed from ${ticket.title}.`,
-            type: NotificationType.WARNING,
-            link: `/tickets/${ticket.id}`,
-            entityId: ticket.id,
-            entityType: 'TICKET',
-          },
-        );
-      } catch (_e) { /* never crash main op */ }
+      afterCommit.push(() => this.notificationEventService.sendNotification(
+        previousAssigneeId,
+        'statusChanged',
+        {
+          title: `Removed from ticket: ${ticket.ticketId}`,
+          message: wasInProgress
+            ? `${ticket.title} was unassigned and moved back to Open.`
+            : `You were removed from ${ticket.title}.`,
+          type: NotificationType.WARNING,
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        },
+      ));
     }
+    await this.runAfterCommit(afterCommit);
 
     return this.addSla(updated);
   }
@@ -1983,6 +2049,7 @@ export class TicketsService {
       reworkStartedAt?: Date;
       reworkEstimatedMinutes?: number | null;
     },
+    tx?: Prisma.TransactionClient,
   ) {
     const closeArgs = {
       ticketId: ticket.id,
@@ -2000,15 +2067,15 @@ export class TicketsService {
     const actionLabel = decision === 'APPROVED' ? 'approved' : 'sent back for rework';
     let cycle: any;
     try {
-      cycle = await this.ticketLedger.endReviewCycle(closeArgs);
+      cycle = await this.ticketLedger.endReviewCycle(closeArgs, tx);
       if (!cycle) {
         await this.ticketLedger.startReviewCycle({
           ticketId: ticket.id,
           assigneeId: this.primaryAssigneeId(ticket),
           reviewerId,
           reviewStartedAt: ticket.reviewStartedAt ?? ticket.submittedAt ?? new Date(),
-        });
-        cycle = await this.ticketLedger.endReviewCycle(closeArgs);
+        }, tx);
+        cycle = await this.ticketLedger.endReviewCycle(closeArgs, tx);
       }
     } catch (err: any) {
       this.logger.error(`Review cycle persistence failed for ticket ${ticket.ticketId}: ${err?.message}`);
@@ -2081,31 +2148,36 @@ export class TicketsService {
         : ratings;
     }
 
-    // Persist the review decision BEFORE transitioning status. If this throws, the ticket
-    // must stay in REVIEW — it must never silently reach DONE with no record of the decision.
-    await this.persistReviewDecision(ticket, 'APPROVED', userId, effectiveRatings);
-
-    // suppressCompletionNotification=true: update() skips its generic "Ticket resolved"
+    // suppressCompletionNotification=true: the update skips its generic "Ticket resolved"
     // notification so we can send a more specific "Ticket approved" message here instead.
-    const updated = await this.update(ticket.id, { status: TicketStatus.DONE }, userId, user, { suppressCompletionNotification: true });
+    const opts = { suppressCompletionNotification: true };
+    const prepared = await this.prepareUpdate(ticket.id, { status: TicketStatus.DONE }, userId, user, opts);
+
+    // The review decision, the move to DONE and the timer stop commit together:
+    // the ticket never reaches DONE without its decision, and a recorded
+    // decision never survives a transition that failed.
+    const afterCommit: AfterCommit = [];
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.persistReviewDecision(ticket, 'APPROVED', userId, effectiveRatings, tx);
+      return this.commitUpdate(tx, prepared, userId, opts, afterCommit);
+    }, TIMER_TRANSACTION);
 
     // Single targeted notification to reporter — "Ticket approved" (not generic "resolved")
-    try {
-      await this.notificationEventService.sendNotification(
-        ticket.createdById,
-        'ticketResolved',
-        {
-          title: `Ticket approved: ${ticket.ticketId}`,
-          message: ticket.title,
-          type: NotificationType.SUCCESS,
-          link: `/tickets/${ticket.id}`,
-          entityId: ticket.id,
-          entityType: 'TICKET',
-        }
-      );
-    } catch (_e) { /* never crash main op */ }
+    afterCommit.push(() => this.notificationEventService.sendNotification(
+      ticket.createdById,
+      'ticketResolved',
+      {
+        title: `Ticket approved: ${ticket.ticketId}`,
+        message: ticket.title,
+        type: NotificationType.SUCCESS,
+        link: `/tickets/${ticket.id}`,
+        entityId: ticket.id,
+        entityType: 'TICKET',
+      }
+    ));
+    await this.runAfterCommit(afterCommit);
 
-    return updated;
+    return this.addSla(updated);
   }
 
   async reject(id: string, comment: string, userId: string, user?: any, reworkEstimatedMinutes?: number | null) {
@@ -2137,46 +2209,48 @@ export class TicketsService {
 
     if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.IN_PROGRESS);
 
-    // Persist the rework decision/feedback BEFORE transitioning status — same ordering
-    // guarantee as approve(). If this throws, the ticket must stay in REVIEW rather than
-    // silently reopening with no record of why it was sent back.
-    // reworkStartedAt is stamped here, before the ticket re-enters IN_PROGRESS,
-    // so the worker's first rework segment always falls inside the cycle.
-    await this.persistReviewDecision(ticket, 'REWORK', userId, {
-      feedback: comment,
-      reworkStartedAt: new Date(),
-      reworkEstimatedMinutes: reworkEstimatedMinutes ?? null,
-    });
+    const opts = { reviewDecisionRecorded: true };
+    const prepared = await this.prepareUpdate(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user, opts);
 
-    const [updated] = await Promise.all([
-      this.update(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user, { reviewDecisionRecorded: true }),
-      this.prisma.comment.create({
+    // The rework decision/feedback, the new rework cycle, the move back to
+    // IN_PROGRESS with its REWORK timer and the rejection comment commit
+    // together. reworkStartedAt is stamped before the timer starts, so the
+    // worker's first rework segment always falls inside the cycle.
+    const afterCommit: AfterCommit = [];
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.persistReviewDecision(ticket, 'REWORK', userId, {
+        feedback: comment,
+        reworkStartedAt: new Date(),
+        reworkEstimatedMinutes: reworkEstimatedMinutes ?? null,
+      }, tx);
+      const reopened = await this.commitUpdate(tx, prepared, userId, opts, afterCommit);
+      await tx.comment.create({
         data: {
           ticketId: ticket.id,
           authorId: userId,
           content: `[REJECTED] ${comment}`,
         },
-      }),
-    ]);
+      });
+      return reopened;
+    }, TIMER_TRANSACTION);
 
-    try {
-      if (ticket.assignedToId && ticket.assignedToId !== userId) {
-        await this.notificationEventService.sendNotification(
-          ticket.assignedToId,
-          'statusChanged',
-          {
-            title: `Ticket rejected: ${ticket.ticketId}`,
-            message: ticket.title,
-            type: NotificationType.WARNING,
-            link: `/tickets/${ticket.id}`,
-            entityId: ticket.id,
-            entityType: 'TICKET',
-          }
-        );
-      }
-    } catch (_e) { /* never crash main op */ }
+    if (ticket.assignedToId && ticket.assignedToId !== userId) {
+      afterCommit.push(() => this.notificationEventService.sendNotification(
+        ticket.assignedToId,
+        'statusChanged',
+        {
+          title: `Ticket rejected: ${ticket.ticketId}`,
+          message: ticket.title,
+          type: NotificationType.WARNING,
+          link: `/tickets/${ticket.id}`,
+          entityId: ticket.id,
+          entityType: 'TICKET',
+        }
+      ));
+    }
+    await this.runAfterCommit(afterCommit);
 
-    return updated;
+    return this.addSla(updated);
   }
 
   async getHistory(id: string, user?: any) {

@@ -111,12 +111,16 @@ describe('TVA Attendance Authority (Unit)', () => {
       logoutAt: null,
       breakLogs: [],
     });
+    // Phase 2D2: the break is written in one transaction that first re-reads
+    // the locked session.
+    mockPrisma.workSession.findUnique.mockResolvedValue({ id: 'session-1', status: 'WORKING', logoutAt: null });
     mockPrisma.breakLog.create.mockResolvedValue({ id: 'break-1' });
 
     await workdayService.startBreak('user-1', { breakType: 'LUNCH' });
 
-    expect(attendanceAuthority.updateWorkSession).toHaveBeenCalledWith('session-1', expect.objectContaining({ status: 'ON_BREAK' }));
-    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'ON_BREAK');
+    // Trailing argument: the break's transaction client.
+    expect(attendanceAuthority.updateWorkSession).toHaveBeenCalledWith('session-1', expect.objectContaining({ status: 'ON_BREAK' }), expect.anything());
+    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'ON_BREAK', undefined, expect.anything());
   });
 
   it('5. resume writes through authority (end break)', async () => {
@@ -127,14 +131,15 @@ describe('TVA Attendance Authority (Unit)', () => {
       totalBreakMinutes: 10,
       breakLogs: [{ id: 'break-1', startAt: new Date(Date.now() - 15 * 60000) }],
     });
+    mockPrisma.workSession.findUnique.mockResolvedValue({ id: 'session-1', status: 'ON_BREAK', logoutAt: null });
 
     await workdayService.endBreak('user-1');
 
     expect(attendanceAuthority.updateWorkSession).toHaveBeenCalledWith('session-1', expect.objectContaining({
       status: 'WORKING',
       totalBreakMinutes: 25,
-    }));
-    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'WORKING', expect.any(Date));
+    }), expect.anything());
+    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'WORKING', expect.any(Date), expect.anything());
   });
 
   it('6. end day writes through authority', async () => {
@@ -158,7 +163,8 @@ describe('TVA Attendance Authority (Unit)', () => {
       status: 'LOGGED_OUT',
       totalWorkMinutes: 60,
     }), expect.anything()); // 3rd arg: the finalizer's transaction client
-    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'LOGGED_OUT');
+    // Same transaction as the session close and ticket-timer pause (Phase 2D2).
+    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'LOGGED_OUT', undefined, expect.anything());
   });
 
   it('7. direct prisma writes no longer exist outside AttendanceAuthorityService', () => {

@@ -18,6 +18,8 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
   let ticketLedger: TicketLedgerService;
   let service: TicketsService;
   let timeLogTable: ReturnType<typeof makeTicketTimeLogTable>;
+  let gateway: { emitTicketStatusChanged: jest.Mock; emitTicketCreated: jest.Mock };
+  let eventEmitter: { emit: jest.Mock };
 
   const NOW = new Date('2026-07-02T10:00:00Z');
 
@@ -113,6 +115,8 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
         // startAssigneeTimer() re-reads the ticket under the worker lock: it must be
         // IN_PROGRESS, unblocked and still assigned to the worker.
         findUnique: jest.fn().mockResolvedValue({ id: 'ticket-1', status: 'IN_PROGRESS', isBlocked: false, assignedToId: 'worker-1' }),
+        // Next-ticket auto-resume after a stop: nothing else is waiting here.
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(async ({ data }: any) => ({
           ...makeTicketFixture(), ...data, assignedTo: { id: 'worker-1', name: 'Worker One' },
         })),
@@ -146,12 +150,14 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       } as any,
     );
 
+    gateway = { emitTicketStatusChanged: jest.fn(), emitTicketCreated: jest.fn() };
+    eventEmitter = { emit: jest.fn() };
     service = new TicketsService(
       prisma,
-      { emitTicketStatusChanged: jest.fn(), emitTicketCreated: jest.fn() } as any, // gateway
+      gateway as any, // gateway
       { sendNotification: jest.fn().mockResolvedValue(null) } as any, // notificationEventService
       { get: jest.fn() } as any, // configService
-      { emit: jest.fn() } as any, // eventEmitter
+      eventEmitter as any, // eventEmitter
       { log: jest.fn().mockReturnValue({ catch: jest.fn() }) } as any, // eventLogger
       ticketAccess,
       { resolveTaskCreationApprover: jest.fn(), resolvePrimaryApproverFor: jest.fn().mockResolvedValue(null) } as any, // hierarchyApprovalService
@@ -323,12 +329,19 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     expect(active[0]).toMatchObject({ userId: 'worker-1', stage: 'REWORK' });
   });
 
-  it('a ledger failure never blocks the status transition itself', async () => {
+  // Phase 2D2 reverses the old fail-open rule: a status change and the timer
+  // change it requires commit together, so a ledger failure fails the whole
+  // transition (PostgreSQL rollback is proven in integration-pg/t5) and no
+  // "status changed" event is announced for a change that did not commit.
+  it('a ledger failure fails the status transition and emits nothing', async () => {
     ticketAccess.findAccessibleTicket.mockResolvedValue(makeTicketFixture({ status: TicketStatus.OPEN }));
     (timeLogTable.create as jest.Mock).mockRejectedValueOnce(new Error('db write failed'));
 
-    const result = await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'worker-1', worker);
+    await expect(
+      service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'worker-1', worker),
+    ).rejects.toThrow('db write failed');
 
-    expect(result.status).toBe(TicketStatus.IN_PROGRESS);
+    expect(gateway.emitTicketStatusChanged).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 });

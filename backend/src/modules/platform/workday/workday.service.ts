@@ -17,6 +17,12 @@ import { TVAService } from '../../../common/services/tva.service';
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
 const DAILY_BREAK_ALLOWANCE_MINUTES = 60;
 
+/**
+ * A workday change plus the employee-timer change it requires (pause on break /
+ * idle / end day, resume on start / break end / resume), in one transaction.
+ */
+const WORKDAY_TIMER_TRANSACTION = { maxWait: 10_000, timeout: 20_000 };
+
 export interface FinalizeWorkSessionOptions {
   effectiveEndAt: Date;
   terminalStatus: 'LOGGED_OUT' | 'AUTO_CLOSED';
@@ -233,6 +239,12 @@ export class WorkdayService {
 
     await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
 
+    // Next-day / next-session auto resume of the ticket the worker's day (not
+    // the ticket) paused, in this same transaction: the ledger re-checks the
+    // session it now sees as WORKING, and a resume failure rolls the workday
+    // start back rather than leaving the person WORKING with a stranded timer.
+    await this.ticketLedger.resumeAfterWorkdayStart(userId, tx);
+
     return { session: session!, wasAutoClosed };
   }
 
@@ -311,24 +323,12 @@ export class WorkdayService {
       entityId: session.id,
       action: OperationalAction.WORKDAY_STARTED,
     }).catch(() => {});
-
-    await this.resumeTicketAfterWorkdayStart(userId);
-  }
-
-  // Next-day / next-session auto resume of the ticket the worker's day (not the
-  // ticket) paused. Runs post-commit, so the session is already WORKING when the
-  // ledger re-checks it. Best-effort: a ledger failure never undoes a workday start.
-  private async resumeTicketAfterWorkdayStart(userId: string) {
-    try {
-      await this.ticketLedger.resumeAfterWorkdayStart(userId);
-    } catch (err: any) {
-      this.logger.error(`Ticket auto-resume after workday start failed for ${userId}: ${err?.message}`);
-    }
   }
 
   async startWork(userId: string) {
-    const { session, wasAutoClosed } = await this.prisma.$transaction((tx) =>
-      this.startWorkInTransaction(tx, userId),
+    const { session, wasAutoClosed } = await this.prisma.$transaction(
+      (tx) => this.startWorkInTransaction(tx, userId),
+      WORKDAY_TIMER_TRANSACTION,
     );
     await this.afterWorkStarted(userId, session, wasAutoClosed);
     return { session, message: 'Workday started' };
@@ -356,7 +356,7 @@ export class WorkdayService {
       };
     }
 
-    const result = await this.finalizeWorkSession(session.id, {
+    const options: FinalizeWorkSessionOptions = {
       effectiveEndAt: now,
       terminalStatus: 'LOGGED_OUT',
       closureReason: 'ENDED_BY_USER',
@@ -364,9 +364,10 @@ export class WorkdayService {
       eventSource: 'manual',
       attendanceEventType: 'LOGOUT',
       ticketPauseReason: 'LOGOUT',
-    });
-
-    await this.attendanceAuthority.setUserStatus(userId, 'LOGGED_OUT');
+    };
+    // Session close, ticket-timer pause and the user's LOGGED_OUT status commit
+    // together; the closure audit follows once they have.
+    const result = await this.finalizeWorkSessionWithPresence(session.id, options, 'LOGGED_OUT');
 
     return {
       session: result.session,
@@ -522,8 +523,8 @@ export class WorkdayService {
    * kind of parallel write that produces drift between the dashboard and the
    * lists. endWork() performs exactly this call at exactly this point.
    */
-  async markUserLoggedOut(userId: string) {
-    await this.attendanceAuthority.setUserStatus(userId, 'LOGGED_OUT');
+  async markUserLoggedOut(userId: string, tx?: Prisma.TransactionClient) {
+    await this.attendanceAuthority.setUserStatus(userId, 'LOGGED_OUT', undefined, tx);
   }
 
   /**
@@ -568,6 +569,31 @@ export class WorkdayService {
     return this.afterWorkSessionFinalized(txResult, options);
   }
 
+  /**
+   * Closes a session and sets its user's presence in ONE transaction: the
+   * break closure and totals, the terminal session fields, the employee-timer
+   * pause and the user status (LOGGED_OUT for End Day and the scheduler's
+   * auto-close / auto-stop, OFFLINE for idle auto-logout) commit together or
+   * not at all. The closure audit runs only after the commit.
+   *
+   * `didClose` is false when the session was already terminal (an idempotent
+   * reconciliation pass); callers send their "auto-closed" notification only
+   * when it is true, so a retry never notifies twice.
+   */
+  async finalizeWorkSessionWithPresence(
+    sessionId: string,
+    options: FinalizeWorkSessionOptions,
+    userStatus: 'LOGGED_OUT' | 'OFFLINE',
+  ) {
+    const txResult = await this.prisma.$transaction(async (tx) => {
+      const closed = await this.finalizeWorkSessionInTransaction(tx, sessionId, options);
+      await this.attendanceAuthority.setUserStatus(closed.userId, userStatus, undefined, tx);
+      return closed;
+    }, WORKDAY_TIMER_TRANSACTION);
+    const result = await this.afterWorkSessionFinalized(txResult, options);
+    return { ...result, didClose: txResult.didClose, userId: txResult.userId };
+  }
+
   async startBreak(userId: string, dto: { breakType: string; estimatedMinutes?: number }) {
     const today = this.getTodayDate();
     const now = this.tva.now();
@@ -591,39 +617,46 @@ export class WorkdayService {
       throw new BadRequestException('No active working session');
     }
 
-    const breakLog = await this.prisma.breakLog.create({
-      data: {
+    // The break record, ON_BREAK session and user status, the BREAK_START
+    // event and the ticket-timer pause commit together: a failed pause can
+    // never leave someone ON_BREAK with a productive timer still running.
+    const breakLog = await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionStillIn(tx, session.id, 'WORKING', 'User is already on a break.');
+
+      const created = await tx.breakLog.create({
+        data: {
+          userId,
+          workSessionId: session.id,
+          breakType: dto.breakType,
+          estimatedMinutes: dto.estimatedMinutes,
+          startAt: now,
+          reason: dto.breakType,
+          source: 'MANUAL_BREAK',
+        },
+      });
+
+      await this.attendanceAuthority.updateWorkSession(session.id, { status: 'ON_BREAK' }, tx);
+
+      await tx.attendanceEvent.create({
+        data: {
+          userId,
+          workSessionId: session.id,
+          eventType: 'BREAK_START',
+          metadata: { breakType: dto.breakType },
+        },
+      });
+
+      await this.attendanceAuthority.setUserStatus(userId, 'ON_BREAK', undefined, tx);
+
+      await this.ticketLedger.pauseActiveLogsForUser({
         userId,
-        workSessionId: session.id,
-        breakType: dto.breakType,
-        estimatedMinutes: dto.estimatedMinutes,
-        startAt: now,
-        reason: dto.breakType,
-        source: 'MANUAL_BREAK',
-      },
-    });
+        pauseReason: 'BREAK',
+        breakLogId: created.id,
+        endedAt: now,
+      }, tx);
 
-    await this.attendanceAuthority.updateWorkSession(session.id, {
-      status: 'ON_BREAK',
-    });
-
-    await this.prisma.attendanceEvent.create({
-      data: {
-        userId,
-        workSessionId: session.id,
-        eventType: 'BREAK_START',
-        metadata: { breakType: dto.breakType },
-      },
-    });
-
-    await this.attendanceAuthority.setUserStatus(userId, 'ON_BREAK');
-
-    await this.ticketLedger.pauseActiveLogsForUser({
-      userId,
-      pauseReason: 'BREAK',
-      breakLogId: breakLog.id,
-      endedAt: now,
-    });
+      return created;
+    }, WORKDAY_TIMER_TRANSACTION);
 
     this.eventLogger.log({
       actorId: userId,
@@ -663,33 +696,33 @@ export class WorkdayService {
       (now.getTime() - openBreak.startAt.getTime()) / 60000,
     ));
 
-    const updated = await this.prisma.breakLog.update({
-      where: { id: openBreak.id },
-      data: { endAt: now, durationMinutes },
-    });
+    // The break close, WORKING session and user status, the BREAK_END event
+    // and the ticket resume commit together. A resume failure rolls the whole
+    // break end back, so the person is still ON_BREAK and can simply retry —
+    // never WORKING with the ticket this break paused left stranded.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionStillIn(tx, session.id, 'ON_BREAK', 'No active break found.');
 
-    // Note: To increment totalBreakMinutes safely without direct Prisma, we can read current and add,
-    // or we can just fetch session.totalBreakMinutes and add durationMinutes.
-    // Let's assume AttendanceAuthority requires raw values.
-    await this.attendanceAuthority.updateWorkSession(session.id, {
-      status: 'WORKING',
-      totalBreakMinutes: (session.totalBreakMinutes ?? 0) + (openBreak.breakType !== 'MEETING' ? durationMinutes : 0),
-    });
+      const closed = await tx.breakLog.update({
+        where: { id: openBreak.id },
+        data: { endAt: now, durationMinutes },
+      });
 
-    await this.prisma.attendanceEvent.create({
-      data: { userId, workSessionId: session.id, eventType: 'BREAK_END' },
-    });
+      await this.attendanceAuthority.updateWorkSession(session.id, {
+        status: 'WORKING',
+        totalBreakMinutes: (session.totalBreakMinutes ?? 0) + (openBreak.breakType !== 'MEETING' ? durationMinutes : 0),
+      }, tx);
 
-    await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now);
+      await tx.attendanceEvent.create({
+        data: { userId, workSessionId: session.id, eventType: 'BREAK_END' },
+      });
 
-    // The break is already closed and the session is WORKING again; a ticket
-    // resume failure must not turn that into a 500 (a retry would then get
-    // "No active break found"). Best-effort, logged, like the workday-start resume.
-    try {
-      await this.ticketLedger.resumeLogsForBreak(openBreak.id, userId);
-    } catch (err: any) {
-      this.logger.error(`Ticket auto-resume after break end failed for user ${userId} (break ${openBreak.id}): ${err?.message}`);
-    }
+      await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
+
+      await this.ticketLedger.resumeLogsForBreak(openBreak.id, userId, tx);
+
+      return closed;
+    }, WORKDAY_TIMER_TRANSACTION);
 
     this.eventLogger.log({
       actorId: userId,
@@ -706,36 +739,37 @@ export class WorkdayService {
     const today = this.getTodayDate();
     const now = this.tva.now();
 
-    if (idleDuration >= 20) {
-      const wentIdle = await this.attendanceAuthority.updateManyWorkSessions(
-        { userId, date: today, status: 'WORKING' },
-        { status: 'IDLE' }
-      );
-      await this.attendanceAuthority.setUserStatus(userId, 'IDLE');
+    // The IDLE session and user status, the back-dated ticket pause and the
+    // IDLE_DETECTED event commit together: idle is never ticket work.
+    await this.prisma.$transaction(async (tx) => {
+      if (idleDuration >= 20) {
+        const wentIdle = await this.attendanceAuthority.updateManyWorkSessions(
+          { userId, date: today, status: 'WORKING' },
+          { status: 'IDLE' },
+          tx,
+        );
+        await this.attendanceAuthority.setUserStatus(userId, 'IDLE', undefined, tx);
 
-      // Idle is not ticket work: pause this person's own ticket clock, back-dated
-      // to when the idle period began. Resuming work picks it back up.
-      if (wentIdle?.count > 0) {
-        try {
+        // Pause this person's own ticket clock, back-dated to when the idle
+        // period began. Resuming work picks it back up.
+        if (wentIdle?.count > 0) {
           await this.ticketLedger.pauseActiveLogsForUser({
             userId,
             pauseReason: LEDGER_PAUSE_REASONS.IDLE,
             endedAt: new Date(now.getTime() - idleDuration * 60_000),
-          });
-        } catch (err: any) {
-          this.logger.error(`Ticket pause on idle failed for ${userId}: ${err?.message}`);
+          }, tx);
         }
       }
-    }
 
-    await this.prisma.attendanceEvent.create({
-      data: {
-        userId,
-        eventType: 'IDLE_DETECTED',
-        source: 'system',
-        metadata: { idleDuration },
-      },
-    });
+      await tx.attendanceEvent.create({
+        data: {
+          userId,
+          eventType: 'IDLE_DETECTED',
+          source: 'system',
+          metadata: { idleDuration },
+        },
+      });
+    }, WORKDAY_TIMER_TRANSACTION);
 
     return { status: 'ok' };
   }
@@ -757,22 +791,44 @@ export class WorkdayService {
       return { message: 'Resumed', updated: 1 };
     }
 
-    const session = await this.attendanceAuthority.updateManyWorkSessions(
-      { userId, date: today, status: { in: ['IDLE', 'ON_BREAK', 'LOGGED_IN'] } },
-      { status: 'WORKING' }
-    );
+    // WORKING again and the ticket the person's day paused resumed, together.
+    // Counting restarts now; the idle stretch stays out.
+    const session = await this.prisma.$transaction(async (tx) => {
+      const resumed = await this.attendanceAuthority.updateManyWorkSessions(
+        { userId, date: today, status: { in: ['IDLE', 'ON_BREAK', 'LOGGED_IN'] } },
+        { status: 'WORKING' },
+        tx,
+      );
 
-    await this.prisma.attendanceEvent.create({
-      data: { userId, eventType: 'RESUME_WORK', source: 'manual' },
-    });
+      await tx.attendanceEvent.create({
+        data: { userId, eventType: 'RESUME_WORK', source: 'manual' },
+      });
 
-    await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now);
+      await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
 
-    // Back from idle (or a LOGGED_IN session starting): resume the ticket the
-    // person's day paused. Counting restarts now; the idle stretch stays out.
-    if (session.count > 0) await this.resumeTicketAfterWorkdayStart(userId);
+      if (resumed.count > 0) await this.ticketLedger.resumeAfterWorkdayStart(userId, tx);
+      return resumed;
+    }, WORKDAY_TIMER_TRANSACTION);
 
     return { message: 'Resumed', updated: session.count };
+  }
+
+  /**
+   * Row-locks a work session inside a workday transaction and re-checks it is
+   * still in the state the caller validated before opening it, so two
+   * concurrent break starts / ends cannot both pass the check.
+   */
+  private async lockSessionStillIn(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+    expectedStatus: string,
+    conflictMessage: string,
+  ) {
+    await tx.$queryRaw`SELECT id FROM "work_sessions" WHERE id = ${sessionId} FOR UPDATE`;
+    const locked = await tx.workSession.findUnique({ where: { id: sessionId }, select: { status: true, logoutAt: true } });
+    if (!locked || locked.logoutAt || locked.status !== expectedStatus) {
+      throw new ConflictException(conflictMessage);
+    }
   }
 
   async resumeAutoClosedWork(userId: string) {
@@ -788,28 +844,32 @@ export class WorkdayService {
       throw new Error('No auto-closed session found for today');
     }
 
-    const newSession = await this.attendanceAuthority.createWorkSession({
-      userId,
-      date: today,
-      loginAt: now,
-      startWorkAt: now,
-      status: 'WORKING',
-      continuationOfSessionId: oldSession.id,
-    });
-
-    await this.prisma.attendanceEvent.create({
-      data: {
+    // The continuation session, START_WORK event, WORKING status and the
+    // ticket resume commit together.
+    const newSession = await this.prisma.$transaction(async (tx) => {
+      const created = await this.attendanceAuthority.createWorkSession({
         userId,
-        workSessionId: newSession.id,
-        eventType: 'START_WORK',
-        source: 'USER_RESUMED_AFTER_AUTO_CLOSE',
-      },
-    });
+        date: today,
+        loginAt: now,
+        startWorkAt: now,
+        status: 'WORKING',
+        continuationOfSessionId: oldSession.id,
+      }, tx);
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { currentStatus: 'WORKING', lastActiveAt: now },
-    });
+      await tx.attendanceEvent.create({
+        data: {
+          userId,
+          workSessionId: created.id,
+          eventType: 'START_WORK',
+          source: 'USER_RESUMED_AFTER_AUTO_CLOSE',
+        },
+      });
+
+      await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
+
+      await this.ticketLedger.resumeAfterWorkdayStart(userId, tx);
+      return created;
+    }, WORKDAY_TIMER_TRANSACTION);
 
     this.eventLogger.log({
       actorId: userId,
@@ -817,8 +877,6 @@ export class WorkdayService {
       entityId: newSession.id,
       action: OperationalAction.WORKDAY_STARTED,
     }).catch(() => {});
-
-    await this.resumeTicketAfterWorkdayStart(userId);
 
     return { session: newSession, message: 'Workday resumed after auto-close' };
   }

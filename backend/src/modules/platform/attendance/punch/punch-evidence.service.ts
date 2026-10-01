@@ -368,6 +368,9 @@ export class PunchEvidenceService {
           ticketPauseReason: 'LOGOUT',
         });
         workSessionId = txResult.session.id;
+        // Same authority and, as in End Day, the same transaction as the
+        // session close and ticket-timer pause.
+        await this.workday.markUserLoggedOut(userId, tx);
         after = async () => {
           await this.workday.afterWorkSessionFinalized(txResult, {
             effectiveEndAt: serverOccurredAt,
@@ -378,8 +381,6 @@ export class PunchEvidenceService {
             attendanceEventType: 'LOGOUT',
             ticketPauseReason: 'LOGOUT',
           });
-          // Same authority, same point in the sequence as End Day.
-          await this.workday.markUserLoggedOut(userId);
         };
       }
 
@@ -423,7 +424,9 @@ export class PunchEvidenceService {
       });
 
       return { evidence: row, workdayAfter: after };
-    });
+      // Headroom for the ticket-timer resume/pause that now runs inside this
+      // transaction (Phase 2D2), matching the workday service's own budget.
+    }, { maxWait: 10_000, timeout: 20_000 });
 
     // Post-commit only. Workday's own notification and audit fire here, after
     // the punch is genuinely real, exactly as the public startWork/endWork

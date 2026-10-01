@@ -31,7 +31,9 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // ── Mock Prisma ───────────────────────────────────────────────────────────────
-const mockPrisma = {
+const mockPrisma: any = {
+  // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
+  $transaction: jest.fn((fn: any) => fn(mockPrisma)),
   ticket: {
     findFirst:  jest.fn(),
     findUnique: jest.fn(),
@@ -169,7 +171,7 @@ describe('Blocked Ticket — TicketsService', () => {
         { provide: TicketLedgerService,      useValue: {
           startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), getTicketTimers: jest.fn(),
           // Block pauses and unblock resumes the assignee timer.
-          endActiveLogsForTicket: jest.fn().mockResolvedValue(undefined),
+          endActiveLogsForTicket: jest.fn().mockResolvedValue({ count: 0, logIds: [], userIds: [] }),
           startAssigneeTimer: jest.fn().mockResolvedValue(undefined),
         } },
         { provide: TicketImportService,      useValue: {} },
