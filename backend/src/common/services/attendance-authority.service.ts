@@ -97,9 +97,11 @@ export class AttendanceAuthorityService {
     data: {
       status?: string;
       logoutAt?: Date;
-    }
+    },
+    tx?: Prisma.TransactionClient,
   ) {
-    return this.prisma.workSession.updateMany({
+    const client = tx ?? this.prisma;
+    return client.workSession.updateMany({
       where,
       data,
     });

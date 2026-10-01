@@ -344,6 +344,7 @@ describe('TicketsService.approve — rating suppression for self-assigned', () =
       comment: { create: jest.fn().mockResolvedValue({}) },
       user: { findUnique: jest.fn().mockResolvedValue({ currentStatus: 'ACTIVE' }) },
     };
+    prisma.$transaction = jest.fn((fn: any) => fn(prisma));
     const ticket = { id: 't1', ticketId: 'TKT-001', status: TicketStatus.REVIEW, createdById: 'emp1', assignedToId: 'emp1', assignees: [] };
     const ticketAccess = {
       findAccessibleTicket: jest.fn().mockResolvedValue(ticket),
@@ -368,7 +369,11 @@ describe('TicketsService.approve — rating suppression for self-assigned', () =
       {} as any,
     );
     // Don't run the real status-update machinery — approve() only needs it to resolve.
-    jest.spyOn(service as any, 'update').mockResolvedValue({ id: 't1', status: TicketStatus.DONE });
+    // approve() now prepares and commits the DONE transition inside its own
+    // transaction (Phase 2D2), so those two halves are what gets stubbed.
+    jest.spyOn(service as any, 'prepareUpdate').mockResolvedValue({});
+    jest.spyOn(service as any, 'commitUpdate').mockResolvedValue({ id: 't1', status: TicketStatus.DONE });
+    jest.spyOn(service as any, 'addSla').mockImplementation(async (t: any) => t);
     return { service, getCaptured: () => captured };
   }
 

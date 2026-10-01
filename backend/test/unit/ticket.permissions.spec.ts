@@ -11,7 +11,9 @@ describe('TicketsService — FP-13.2 Permissions', () => {
   let access: TicketAccessService;
   let policy: AccessPolicyService;
   
-  const mockPrisma = {
+  const mockPrisma: any = {
+    // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
+    $transaction: jest.fn((fn: any) => fn(mockPrisma)),
     ticket: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),

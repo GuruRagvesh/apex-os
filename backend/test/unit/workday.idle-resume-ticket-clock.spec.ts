@@ -19,6 +19,10 @@ describe('WorkdayService — idle / resume keep the assignee ticket clock honest
       user: { update: jest.fn().mockResolvedValue({}) },
     };
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));
+    // Break end (Phase 2D2) row-locks and re-reads the session inside its
+    // transaction; by default that is the same session findFirst returns.
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.workSession.findUnique = jest.fn((args: any) => prisma.workSession.findFirst(args));
 
     attendanceAuthority = {
       setUserStatus: jest.fn().mockResolvedValue({}),
@@ -51,7 +55,7 @@ describe('WorkdayService — idle / resume keep the assignee ticket clock honest
         userId: 'u1',
         pauseReason: 'IDLE',
         endedAt: new Date(NOW.getTime() - 30 * 60_000),
-      });
+      }, expect.anything()); // Phase 2D2: inside the idle transition's transaction
     });
 
     it('does not pause anything under the idle threshold', async () => {
@@ -91,7 +95,7 @@ describe('WorkdayService — idle / resume keep the assignee ticket clock honest
       }));
       // Closed before today's session is created, and the ticket then resumes.
       expect(finalize.mock.invocationCallOrder[0]).toBeLessThan(attendanceAuthority.createWorkSession.mock.invocationCallOrder[0]);
-      expect(ticketLedger.resumeAfterWorkdayStart).toHaveBeenCalledWith('u1');
+      expect(ticketLedger.resumeAfterWorkdayStart).toHaveBeenCalledWith('u1', expect.anything());
     });
 
     it('does nothing extra when no previous day is open', async () => {
@@ -118,7 +122,7 @@ describe('WorkdayService — idle / resume keep the assignee ticket clock honest
       await service.resumeWork('u1');
 
       expect(prisma.breakLog.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'bl1' } }));
-      expect(ticketLedger.resumeLogsForBreak).toHaveBeenCalledWith('bl1', 'u1');
+      expect(ticketLedger.resumeLogsForBreak).toHaveBeenCalledWith('bl1', 'u1', expect.anything());
       expect(attendanceAuthority.updateManyWorkSessions).not.toHaveBeenCalled();
     });
 
@@ -128,7 +132,7 @@ describe('WorkdayService — idle / resume keep the assignee ticket clock honest
       await service.resumeWork('u1');
 
       expect(attendanceAuthority.updateManyWorkSessions).toHaveBeenCalled();
-      expect(ticketLedger.resumeAfterWorkdayStart).toHaveBeenCalledWith('u1');
+      expect(ticketLedger.resumeAfterWorkdayStart).toHaveBeenCalledWith('u1', expect.anything());
     });
 
     it('does not resume a ticket when there was nothing to resume', async () => {

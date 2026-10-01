@@ -65,7 +65,8 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     };
 
     workdayServiceMock = {
-      finalizeWorkSession: jest.fn(),
+      // Phase 2D2: close + timer pause + presence in one transaction.
+      finalizeWorkSessionWithPresence: jest.fn().mockResolvedValue({ didClose: true }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -96,7 +97,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
   it('6. autoClose false skips policy auto-stop', async () => {
     settingsService.getWorkdayPolicy.mockResolvedValue({ autoClose: false });
     await service.autoCloseMidnightSessions();
-    expect(workdayServiceMock.finalizeWorkSession).not.toHaveBeenCalled();
+    expect(workdayServiceMock.finalizeWorkSessionWithPresence).not.toHaveBeenCalled();
   });
 
   it('7. stale session closes at configured autoCloseTime, not midnight', async () => {
@@ -119,8 +120,8 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalled();
-    const [sessionId, options] = workdayServiceMock.finalizeWorkSession.mock.calls[0];
+    expect(workdayServiceMock.finalizeWorkSessionWithPresence).toHaveBeenCalled();
+    const [sessionId, options] = workdayServiceMock.finalizeWorkSessionWithPresence.mock.calls[0];
     expect(sessionId).toBe('session-1');
 
     // Check that effectiveEndAt was set based on the configured autoCloseTime '22:00'
@@ -146,7 +147,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    const options = workdayServiceMock.finalizeWorkSession.mock.calls[0][1];
+    const options = workdayServiceMock.finalizeWorkSessionWithPresence.mock.calls[0][1];
 
     // The session anchor is 2026-06-01T10:00:00Z, which is 2026-06-01 15:30 IST.
     // Cutoff time in IST is 2026-06-01 23:59. UTC = 2026-06-01 18:29:00Z
@@ -172,7 +173,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     await service.autoCloseMidnightSessions();
     // It should not close since it's today and before cutoff (assuming current time is before 23:59)
     // Actually, shouldPolicyAutoStop will handle it, but it might return false unless we're past the time.
-    expect(workdayServiceMock.finalizeWorkSession).not.toHaveBeenCalled();
+    expect(workdayServiceMock.finalizeWorkSessionWithPresence).not.toHaveBeenCalled();
   });
 
   it('10. repeated scheduler run does not duplicate notification', async () => {
@@ -207,7 +208,7 @@ describe('SchedulerService - FP-19A Workday Auto-Close', () => {
     ]);
 
     await service.autoCloseMidnightSessions();
-    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalled();
+    expect(workdayServiceMock.finalizeWorkSessionWithPresence).toHaveBeenCalled();
   });
 });
 
@@ -230,7 +231,7 @@ describe('SchedulerService - autoLogoutInactive (path D)', () => {
       workSession: { findFirst: jest.fn() },
     };
 
-    workdayServiceMock = { finalizeWorkSession: jest.fn().mockResolvedValue({}) };
+    workdayServiceMock = { finalizeWorkSessionWithPresence: jest.fn().mockResolvedValue({ didClose: true }) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -257,20 +258,21 @@ describe('SchedulerService - autoLogoutInactive (path D)', () => {
     expect(prisma.user.findMany).not.toHaveBeenCalled();
   });
 
-  it('idle user with an open IDLE session: finalizer called with LOGGED_OUT + AUTO_LOGOUT_INACTIVE, then user set OFFLINE', async () => {
+  it('idle user with an open IDLE session: finalizer called with LOGGED_OUT + AUTO_LOGOUT_INACTIVE, with OFFLINE in the same transaction', async () => {
     prisma.user.findMany.mockResolvedValue([{ id: 'user-1' }]);
     prisma.workSession.findFirst.mockResolvedValue({ id: 'session-1', userId: 'user-1', status: 'IDLE' });
 
     await service.autoLogoutInactive();
 
-    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalledWith('session-1', expect.objectContaining({
+    expect(workdayServiceMock.finalizeWorkSessionWithPresence).toHaveBeenCalledWith('session-1', expect.objectContaining({
       terminalStatus: 'LOGGED_OUT',
       closureReason: 'AUTO_LOGOUT_INACTIVE',
       attendanceEventType: 'AUTO_LOGOUT',
       ticketPauseReason: 'AUTO_LOGOUT',
       eventSource: 'system',
-    }));
-    expect(attendanceAuthorityMock.setUserStatus).toHaveBeenCalledWith('user-1', 'OFFLINE');
+    }), 'OFFLINE');
+    // OFFLINE is set inside the closure's own transaction, not as a separate write.
+    expect(attendanceAuthorityMock.setUserStatus).not.toHaveBeenCalled();
   });
 
   it('idle user with no matching session: finalizer not called, user still set OFFLINE', async () => {
@@ -279,7 +281,7 @@ describe('SchedulerService - autoLogoutInactive (path D)', () => {
 
     await service.autoLogoutInactive();
 
-    expect(workdayServiceMock.finalizeWorkSession).not.toHaveBeenCalled();
+    expect(workdayServiceMock.finalizeWorkSessionWithPresence).not.toHaveBeenCalled();
     expect(attendanceAuthorityMock.setUserStatus).toHaveBeenCalledWith('user-2', 'OFFLINE');
   });
 });
@@ -304,7 +306,7 @@ describe('SchedulerService - midnight-boundary auto-close (session spanning midn
     settingsService = {
       getWorkdayPolicy: jest.fn().mockResolvedValue({ autoClose: true, autoCloseTime: '23:59', timezone: 'UTC' }),
     };
-    workdayServiceMock = { finalizeWorkSession: jest.fn().mockResolvedValue({}) };
+    workdayServiceMock = { finalizeWorkSessionWithPresence: jest.fn().mockResolvedValue({ didClose: true }) };
 
     // "Now" is 00:05 on day N+1 — inside the cron's first 00:00-00:15 tick.
     const nowJustAfterMidnight = new Date('2026-06-11T00:05:00.000Z');
@@ -343,8 +345,8 @@ describe('SchedulerService - midnight-boundary auto-close (session spanning midn
 
     await service.autoCloseMidnightSessions();
 
-    expect(workdayServiceMock.finalizeWorkSession).toHaveBeenCalled();
-    const [sessionId, options] = workdayServiceMock.finalizeWorkSession.mock.calls[0];
+    expect(workdayServiceMock.finalizeWorkSessionWithPresence).toHaveBeenCalled();
+    const [sessionId, options] = workdayServiceMock.finalizeWorkSessionWithPresence.mock.calls[0];
     expect(sessionId).toBe('session-midnight');
     expect(options.closureReason).toBe('AUTO_CLOSE'); // retrospective/stale branch, not POLICY_AUTO_STOP
     expect(options.terminalStatus).toBe('AUTO_CLOSED');

@@ -226,7 +226,9 @@ export class SchedulerService {
           const { shouldStop, cutoffUtc } = shouldPolicyAutoStop(session, session.user, policy, nowGlobal, currentCompanyDateStr, sessionCompanyDateStr);
           
           if (shouldStop && cutoffUtc) {
-            await this.workdayService.finalizeWorkSession(session.id, {
+            // Session close, break closure, timer pause and LOGGED_OUT commit
+            // together (Phase 2D2); the notification follows only a real close.
+            const closed = await this.workdayService.finalizeWorkSessionWithPresence(session.id, {
               effectiveEndAt: cutoffUtc,
               terminalStatus: 'AUTO_CLOSED',
               closureReason: 'POLICY_AUTO_STOP',
@@ -234,20 +236,20 @@ export class SchedulerService {
               eventSource: 'system',
               attendanceEventType: 'POLICY_AUTO_STOP',
               ticketPauseReason: 'POLICY_AUTO_STOP',
-            });
+            }, 'LOGGED_OUT');
 
-            await this.attendanceAuthority.setUserStatus(session.userId, 'LOGGED_OUT');
-
-            try {
-              await this.notificationEventService.sendNotification(session.userId, 'system', {
-                title: 'Workday auto-stopped',
-                message: 'Your workday was automatically stopped based on the company workday policy.',
-                type: NotificationType.WARNING,
-                link: '/dashboard',
-                entityType: 'WORKDAY',
-                entityId: session.id,
-              });
-            } catch (_e) {}
+            if (closed.didClose) {
+              try {
+                await this.notificationEventService.sendNotification(session.userId, 'system', {
+                  title: 'Workday auto-stopped',
+                  message: 'Your workday was automatically stopped based on the company workday policy.',
+                  type: NotificationType.WARNING,
+                  link: '/dashboard',
+                  entityType: 'WORKDAY',
+                  entityId: session.id,
+                });
+              } catch (_e) {}
+            }
 
             policyStopCount++;
           }
@@ -261,7 +263,9 @@ export class SchedulerService {
         const offsetString = formatInTimeZone(sessionAnchor, timezone, 'xxx');
         const retrospectiveCutoff = new Date(`${cutoffIso}${offsetString}`);
 
-        await this.workdayService.finalizeWorkSession(session.id, {
+        // Session close, break closure, timer pause and LOGGED_OUT commit
+        // together (Phase 2D2); the notification follows only a real close.
+        const closed = await this.workdayService.finalizeWorkSessionWithPresence(session.id, {
           effectiveEndAt: retrospectiveCutoff,
           terminalStatus: 'AUTO_CLOSED',
           closureReason: 'AUTO_CLOSE',
@@ -269,21 +273,21 @@ export class SchedulerService {
           eventSource: 'system',
           attendanceEventType: 'AUTO_CLOSE',
           ticketPauseReason: 'SYSTEM',
-        });
-
-        await this.attendanceAuthority.setUserStatus(session.userId, 'LOGGED_OUT');
+        }, 'LOGGED_OUT');
 
         // Notify user about auto-close
-        try {
-          await this.notificationEventService.sendNotification(session.userId, 'system', {
-            title: 'Workday auto-closed',
-            message: 'Your workday was automatically closed at the company day boundary.',
-            type: NotificationType.WARNING,
-            link: '/dashboard',
-            entityType: 'WORKDAY',
-            entityId: session.id,
-          });
-        } catch (_e) {}
+        if (closed.didClose) {
+          try {
+            await this.notificationEventService.sendNotification(session.userId, 'system', {
+              title: 'Workday auto-closed',
+              message: 'Your workday was automatically closed at the company day boundary.',
+              type: NotificationType.WARNING,
+              link: '/dashboard',
+              entityType: 'WORKDAY',
+              entityId: session.id,
+            });
+          } catch (_e) {}
+        }
         
         closedCount++;
       }
@@ -350,7 +354,8 @@ export class SchedulerService {
       });
 
       if (session) {
-        await this.workdayService.finalizeWorkSession(session.id, {
+        // Session close, timer pause and OFFLINE commit together (Phase 2D2).
+        await this.workdayService.finalizeWorkSessionWithPresence(session.id, {
           effectiveEndAt: now,
           terminalStatus: 'LOGGED_OUT',
           closureReason: 'AUTO_LOGOUT_INACTIVE',
@@ -358,10 +363,11 @@ export class SchedulerService {
           attendanceEventType: 'AUTO_LOGOUT',
           eventMetadata: { reason: '2 hours idle' },
           ticketPauseReason: 'AUTO_LOGOUT',
-        });
+        }, 'OFFLINE');
+      } else {
+        // No idle session to close: presence is the only change.
+        await this.attendanceAuthority.setUserStatus(user.id, 'OFFLINE');
       }
-
-      await this.attendanceAuthority.setUserStatus(user.id, 'OFFLINE');
     }
     if (idleUsers.length > 0) {
       console.log(`[Scheduler] Auto-logout: ${idleUsers.length} idle users logged out.`);

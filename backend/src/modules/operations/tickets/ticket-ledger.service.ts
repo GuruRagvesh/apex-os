@@ -121,6 +121,9 @@ export function isProductiveLog(l: { countsAsWork?: boolean | null }): boolean {
   return l.countsAsWork === true;
 }
 
+export const ONE_ACTIVE_TIMER_CONFLICT =
+  'Another timer for this worker started at the same moment. Please try again.';
+
 export const ONE_ACTIVE_TIMER_INDEX = 'ticket_time_logs_one_active_assignee_per_user';
 
 /**
@@ -504,6 +507,18 @@ export class TicketLedgerService {
    * manager and the worker starting tickets at the same moment, or a punch-out
    * racing a start all queue here instead of each writing an active log.
    */
+  /**
+   * Runs `fn` in the caller's transaction when one is given, so the ledger
+   * change commits or rolls back with the caller's business change; otherwise
+   * in a transaction of its own. Never nests an independent transaction.
+   */
+  private inTransaction<T>(
+    tx: Prisma.TransactionClient | undefined,
+    fn: (client: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return tx ? fn(tx) : this.prisma.$transaction(fn);
+  }
+
   private async lockWorkerTimers(tx: Prisma.TransactionClient, userId: string) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'ticket-timer:' + userId}))`;
   }
@@ -573,24 +588,65 @@ export class TicketLedgerService {
    * itself stops being workable (leaves IN_PROGRESS, is blocked, is handed to
    * someone else): the actor is irrelevant, the clock belongs to the ticket's
    * worker and must not survive the transition.
+   *
+   * Lock first, then read. The caller names the workers who could be starting
+   * this ticket's clock right now (the primary assignee before and after the
+   * change); they are timer-locked even when nothing is running yet, together
+   * with any holder already on the ticket (including a corrupt row owned by
+   * someone unexpected). These initially known workers are de-duplicated and
+   * locked in sorted order. Only then are the active rows re-read and closed.
+   * A start that won the race has therefore committed and is seen here; one
+   * that lost waits on the lock and re-reads a ticket that is no longer
+   * workable. The caller has already written the ticket row, so the order is
+   * always ticket row, then worker locks.
+   *
+   * If a writer that bypassed the ledger introduces an unexpected holder after
+   * that, each newly discovered batch is sorted and locked in turn; there is no
+   * single global order across those discovery rounds. Normal production timer
+   * paths only ever involve the expected workers, so they stay serialized.
    */
-  async endActiveLogsForTicket(ticketId: string, pauseReason: string, endedAt?: Date) {
-    const holders = await this.prisma.ticketTimeLog.findMany({
-      where: { ticketId, endedAt: null },
-      select: { userId: true },
-    });
-    const userIds = [...new Set(holders.map((h) => h.userId))].sort();
-    if (userIds.length === 0) return { count: 0, logIds: [] as string[], userIds };
+  async endActiveLogsForTicket(
+    ticketId: string,
+    pauseReason: string,
+    endedAt?: Date,
+    tx?: Prisma.TransactionClient,
+    workerIds: Array<string | null | undefined> = [],
+  ) {
+    return this.inTransaction(tx, async (client) => {
+      const locked = new Set<string>();
+      const lockAll = async (ids: Iterable<string>) => {
+        for (const userId of [...new Set(ids)].filter((id) => !locked.has(id)).sort()) {
+          await this.lockWorkerTimers(client, userId);
+          locked.add(userId);
+        }
+      };
 
-    return this.prisma.$transaction(async (tx) => {
-      for (const userId of userIds) await this.lockWorkerTimers(tx, userId);
-      const active = await tx.ticketTimeLog.findMany({ where: { ticketId, endedAt: null } });
+      const holders = await client.ticketTimeLog.findMany({
+        where: { ticketId, endedAt: null },
+        select: { userId: true },
+      });
+      await lockAll([
+        ...workerIds.filter((id): id is string => Boolean(id)),
+        ...holders.map((h) => h.userId),
+      ]);
+
+      // Re-read under the locks. A holder that appeared meanwhile outside the
+      // locked set can only be a writer that bypassed the ledger: lock that
+      // batch too (sorted within the batch) and read again, so even a corrupt
+      // row is closed rather than missed.
+      let active = await client.ticketTimeLog.findMany({ where: { ticketId, endedAt: null } });
+      while (active.some((l) => !locked.has(l.userId))) {
+        await lockAll(active.map((l) => l.userId));
+        active = await client.ticketTimeLog.findMany({ where: { ticketId, endedAt: null } });
+      }
+
       const at = endedAt ?? this.tva.now();
       const logIds: string[] = [];
       for (const log of active) {
-        await this.closeLog(tx, log, at, pauseReason);
+        await this.closeLog(client, log, at, pauseReason);
         logIds.push(log.id);
       }
+      const userIds = [...new Set(active.map((l) => l.userId))].sort();
       return { count: logIds.length, logIds, userIds };
     });
   }
@@ -606,20 +662,19 @@ export class TicketLedgerService {
    * through startAssigneeTimer (RESUME), which re-checks everything under the
    * worker's lock, so a race can only make it do less, never overlap.
    */
-  async resumeNextWaitingTicket(workerId: string, excludeTicketId?: string) {
-    const [active, session] = await Promise.all([
-      this.prisma.ticketTimeLog.findFirst({ where: { userId: workerId, endedAt: null }, select: { id: true } }),
-      this.prisma.workSession.findFirst({
-        where: { userId: workerId },
-        orderBy: { createdAt: 'desc' },
-        select: { status: true, logoutAt: true },
-      }),
-    ]);
+  async resumeNextWaitingTicket(workerId: string, excludeTicketId?: string, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
+    const active = await db.ticketTimeLog.findFirst({ where: { userId: workerId, endedAt: null }, select: { id: true } });
+    const session = await db.workSession.findFirst({
+      where: { userId: workerId },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true, logoutAt: true },
+    });
     if (active || !session || session.logoutAt || !WORKING_SESSION_STATUSES.includes(session.status)) {
       return { outcome: 'NOTHING_TO_DO' as const };
     }
 
-    const waiting = await this.prisma.ticket.findMany({
+    const waiting = await db.ticket.findMany({
       where: {
         assignedToId: workerId,
         status: 'IN_PROGRESS',
@@ -631,7 +686,7 @@ export class TicketLedgerService {
     });
     if (waiting.length === 0) return { outcome: 'NOTHING_TO_DO' as const };
 
-    const lastEnded = await this.prisma.ticketTimeLog.groupBy({
+    const lastEnded = await db.ticketTimeLog.groupBy({
       by: ['ticketId'],
       where: {
         userId: workerId,
@@ -655,7 +710,7 @@ export class TicketLedgerService {
         workerId,
         mode: 'RESUME',
         source: LEDGER_SOURCES.SYSTEM,
-      });
+      }, tx);
       if (result.outcome === 'STARTED' || result.outcome === 'ALREADY_ACTIVE') return result;
       if (result.outcome !== 'INELIGIBLE') return result; // worker unavailable / busy: stop
     }
@@ -711,21 +766,29 @@ export class TicketLedgerService {
     mode: AssigneeTimerMode;
     source: string;
     stage?: string;
-  }): Promise<{ outcome: AssigneeTimerOutcome; log?: any; pausedLogIds?: string[] }> {
-    // The worker lock serialises every ledger writer, so the one-active-timer
-    // unique index (Phase 2D1) should never fire here. If a writer outside the
-    // lock slipped a row in, the whole attempt rolled back; re-run it once so
-    // it sees that row and takes the normal switch / idempotent / wait path.
+  }, tx?: Prisma.TransactionClient): Promise<{ outcome: AssigneeTimerOutcome; log?: any; pausedLogIds?: string[] }> {
+    // Inside a caller's transaction a unique-index failure has already aborted
+    // that transaction, so nothing can be retried here: report the conflict and
+    // let the caller's whole business change roll back (HTTP 409).
+    if (tx) {
+      try {
+        return await this.startAssigneeTimerOnce(input, tx);
+      } catch (err) {
+        if (isOneActiveTimerViolation(err)) throw new ConflictException(ONE_ACTIVE_TIMER_CONFLICT);
+        throw err;
+      }
+    }
+    // Standalone: the worker lock serialises every ledger writer, so the
+    // one-active-timer unique index (Phase 2D1) should never fire here. If a
+    // writer outside the lock slipped a row in, the whole attempt rolled back;
+    // re-run it once so it sees that row and takes the normal switch /
+    // idempotent / wait path.
     for (let attempt = 1; ; attempt += 1) {
       try {
         return await this.startAssigneeTimerOnce(input);
       } catch (err) {
         if (!isOneActiveTimerViolation(err)) throw err;
-        if (attempt >= 2) {
-          throw new ConflictException(
-            'Another timer for this worker started at the same moment. Please try again.',
-          );
-        }
+        if (attempt >= 2) throw new ConflictException(ONE_ACTIVE_TIMER_CONFLICT);
       }
     }
   }
@@ -736,9 +799,9 @@ export class TicketLedgerService {
     mode: AssigneeTimerMode;
     source: string;
     stage?: string;
-  }): Promise<{ outcome: AssigneeTimerOutcome; log?: any; pausedLogIds?: string[] }> {
+  }, outerTx?: Prisma.TransactionClient): Promise<{ outcome: AssigneeTimerOutcome; log?: any; pausedLogIds?: string[] }> {
     const { ticketId, workerId, mode } = input;
-    return this.prisma.$transaction(async (tx) => {
+    return this.inTransaction(outerTx, async (tx) => {
       await this.lockWorkerTimers(tx, workerId);
 
       const ticket = await tx.ticket.findUnique({
@@ -847,8 +910,9 @@ export class TicketLedgerService {
    * paused, and only if it is still workable by this worker. Never resumes a
    * ticket paused by anything else, never creates a second active log.
    */
-  async resumeLogsForBreak(breakLogId: string, userId: string) {
-    const candidate = await this.prisma.ticketTimeLog.findFirst({
+  async resumeLogsForBreak(breakLogId: string, userId: string, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
+    const candidate = await db.ticketTimeLog.findFirst({
       where: { userId, breakLogId, pauseReason: LEDGER_PAUSE_REASONS.BREAK, ownerType: LEDGER_OWNER_TYPES.ASSIGNEE },
       orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
     });
@@ -859,12 +923,12 @@ export class TicketLedgerService {
         mode: 'RESUME',
         source: LEDGER_SOURCES.WORKDAY,
         stage: candidate.stage,
-      });
+      }, tx);
       if (result.outcome === 'STARTED' || result.outcome === 'ALREADY_ACTIVE') return [result.log];
     }
     // The ticket this break paused has left IN_PROGRESS (or there was none):
     // pick up the next waiting one rather than leave the worker with no clock.
-    const next = await this.resumeNextWaitingTicket(userId);
+    const next = await this.resumeNextWaitingTicket(userId, undefined, tx);
     return 'log' in next && next.log ? [next.log] : [];
   }
 
@@ -877,8 +941,9 @@ export class TicketLedgerService {
    * there is no fallback to an older ticket. The new segment starts now, so
    * the time between days is never counted.
    */
-  async resumeAfterWorkdayStart(userId: string) {
-    const latest = await this.prisma.ticketTimeLog.findFirst({
+  async resumeAfterWorkdayStart(userId: string, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
+    const latest = await db.ticketTimeLog.findFirst({
       where: { userId, ownerType: LEDGER_OWNER_TYPES.ASSIGNEE, endedAt: { not: null } },
       orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
     });
@@ -889,13 +954,13 @@ export class TicketLedgerService {
         mode: 'RESUME',
         source: LEDGER_SOURCES.WORKDAY,
         stage: latest.stage,
-      });
+      }, tx);
       if (result.outcome === 'STARTED' || result.outcome === 'ALREADY_ACTIVE') return result;
     }
     // The last segment was a deliberate stop (review, done, block...) or its
     // ticket is no longer workable: start the next waiting ticket instead, so
     // yesterday's IN_PROGRESS work is never stranded.
-    const next = await this.resumeNextWaitingTicket(userId);
+    const next = await this.resumeNextWaitingTicket(userId, undefined, tx);
     return next.outcome === 'NOTHING_TO_DO' ? { outcome: 'NO_CANDIDATE' as const } : next;
   }
 
@@ -904,15 +969,16 @@ export class TicketLedgerService {
    * productive seconds from the ledger. Call after the worker's log has been
    * closed. Idempotent: returns null when no rework segment is open.
    */
-  async closeReworkSegment(ticketId: string, endedAt?: Date) {
-    const cycle = await this.prisma.reviewCycleLog.findFirst({
+  async closeReworkSegment(ticketId: string, endedAt?: Date, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
+    const cycle = await db.reviewCycleLog.findFirst({
       where: { ticketId, decision: 'REWORK', reworkStartedAt: { not: null }, reworkEndedAt: null },
       orderBy: { cycleNo: 'desc' },
     });
     if (!cycle) return null;
 
     const at = endedAt ?? this.tva.now();
-    const agg = await this.prisma.ticketTimeLog.aggregate({
+    const agg = await db.ticketTimeLog.aggregate({
       where: {
         ticketId,
         ownerType: LEDGER_OWNER_TYPES.ASSIGNEE,
@@ -923,7 +989,7 @@ export class TicketLedgerService {
       _sum: { durationSeconds: true },
     });
 
-    return this.prisma.reviewCycleLog.update({
+    return db.reviewCycleLog.update({
       where: { id: cycle.id },
       data: { reworkEndedAt: at, reworkWorkSeconds: agg._sum.durationSeconds ?? 0 },
     });
@@ -946,15 +1012,16 @@ export class TicketLedgerService {
     assigneeId?: string;
     reviewerId?: string;
     reviewStartedAt?: Date;
-  }) {
-    const existing = await this.prisma.reviewCycleLog.findFirst({
+  }, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
+    const existing = await db.reviewCycleLog.findFirst({
       where: { ticketId: input.ticketId },
       orderBy: { cycleNo: 'desc' },
     });
 
     const cycleNo = existing ? existing.cycleNo + 1 : 1;
 
-    return this.prisma.reviewCycleLog.create({
+    return db.reviewCycleLog.create({
       data: {
         ticketId: input.ticketId,
         cycleNo,
@@ -980,14 +1047,15 @@ export class TicketLedgerService {
     employeePerformanceRating?: number | null;
     employeeAttitudeRating?: number | null;
     ratingComment?: string | null;
-  }) {
+  }, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
     let cycle;
     if (input.cycleNo) {
-      cycle = await this.prisma.reviewCycleLog.findUnique({
+      cycle = await db.reviewCycleLog.findUnique({
         where: { ticketId_cycleNo: { ticketId: input.ticketId, cycleNo: input.cycleNo } },
       });
     } else {
-      cycle = await this.prisma.reviewCycleLog.findFirst({
+      cycle = await db.reviewCycleLog.findFirst({
         where: { ticketId: input.ticketId, decision: null },
         orderBy: { cycleNo: 'desc' },
       });
@@ -999,7 +1067,7 @@ export class TicketLedgerService {
     let assigneeStartBound = new Date(0);
 
     if (cycle.cycleNo > 1) {
-      const prevCycle = await this.prisma.reviewCycleLog.findUnique({
+      const prevCycle = await db.reviewCycleLog.findUnique({
         where: { ticketId_cycleNo: { ticketId: input.ticketId, cycleNo: cycle.cycleNo - 1 } },
       });
       if (prevCycle?.reworkStartedAt) {
@@ -1007,7 +1075,7 @@ export class TicketLedgerService {
       }
     }
 
-    const assigneeLogs = await this.prisma.ticketTimeLog.aggregate({
+    const assigneeLogs = await db.ticketTimeLog.aggregate({
       where: {
         ticketId: input.ticketId,
         ownerType: 'ASSIGNEE',
@@ -1017,7 +1085,7 @@ export class TicketLedgerService {
       _sum: { durationSeconds: true },
     });
 
-    const reviewerLogs = await this.prisma.ticketTimeLog.aggregate({
+    const reviewerLogs = await db.ticketTimeLog.aggregate({
       where: {
         ticketId: input.ticketId,
         ownerType: 'REVIEWER',
@@ -1029,7 +1097,7 @@ export class TicketLedgerService {
     const assigneeWorkSeconds = input.assigneeWorkSeconds ?? assigneeLogs._sum.durationSeconds ?? 0;
     const reviewerWorkSeconds = input.reviewerWorkSeconds ?? reviewerLogs._sum.durationSeconds ?? 0;
 
-    return this.prisma.reviewCycleLog.update({
+    return db.reviewCycleLog.update({
       where: { id: cycle.id },
       data: {
         decision: input.decision,

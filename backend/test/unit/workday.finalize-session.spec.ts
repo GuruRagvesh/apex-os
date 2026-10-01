@@ -373,7 +373,8 @@ describe('WorkdayService.endWork — routes through finalizeWorkSession', () => 
 
     expect(prisma.breakLog.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'b1' } }));
     expect(result.summary).toEqual({ totalWorkMinutes: 90, totalBreakMinutes: 30 });
-    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'LOGGED_OUT');
+    // Same transaction as the session close and ticket-timer pause (Phase 2D2).
+    expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('user-1', 'LOGGED_OUT', undefined, expect.anything());
     expect(ticketLedger.pauseActiveLogsForUser).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1', pauseReason: 'LOGOUT' }),
       prisma,
