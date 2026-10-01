@@ -181,15 +181,26 @@ console's Monthly Register column. §12 requires one resolver.
 
 ### 4.5 Required minutes, four sources
 
+**CORRECTED 2026-10-01.** An earlier revision of this section listed
+`settings/attendance-policy-settings.ts:204` as "the shared resolver". That is wrong for this
+base: neither that file nor the whole `attendance/settings/` module exists on `origin/main` at
+`3f0aee2`. They were added in `c7f52ec` on the unmerged branch
+`feature/attendance-settings-control-center`. The error came from conflating that branch's state
+with main's, and it matters because it changes what "duplicate" means here.
+
+On this base there is **no shared resolver at all**:
+
 | Site | Form |
 |---|---|
-| `settings/attendance-policy-settings.ts:204` | `resolveRequiredPresence()` — **the shared resolver** |
-| `evaluation/daily-attendance-evaluator.service.ts:602` | `context.shift?.min ?? policy?.min ?? 540` — **re-implements the same precedence inline** |
-| `reports/payroll-report.service.ts:234` | `toRegisterRow(e, d, 540)` — hardcoded |
-| `settings.service.ts:41` | `minimumWorkdayMinutes: 540` |
+| `evaluation/daily-attendance-evaluator.service.ts:602` | `context.shift?.min ?? policy?.min ?? 540` — the **only** implementation, inline in the evaluator |
+| `reports/payroll-report.service.ts:234` | `toRegisterRow(e, d, 540)` — hardcoded constant |
+| `settings.service.ts:41` | `minimumWorkdayMinutes: 540` — a third 540 |
+| `workday.service.ts:964–965` | its own `'09:30'`/`'18:30'` defaults |
 
-The evaluator duplicating `resolveRequiredPresence` is the worst of these: the two could diverge
-and the evaluator is authoritative.
+So this is not "three copies plus a canonical one"; it is four independent constants and no owner.
+`shared/attendance-primitives.ts` is now that owner. When the settings branch merges, its copy
+should import from the primitives rather than the two coexisting — the note on
+`resolveRequiredPresence` records this.
 
 ### 4.6 Backfill eligibility uses today's account state
 
@@ -269,7 +280,7 @@ Ordered so each step is independently verifiable and nothing destructive runs ea
 
 | # | Step | Gate |
 |---|---|---|
-| 1 | **Shared primitives** (§40): one `presenceMinutes`, one present-status set, one late resolver, one required-minutes resolver, one date-based eligibility resolver. Pure functions, mutation-tested. | tests |
+| 1 | **DONE** — `shared/attendance-primitives.ts`: one `presenceMinutes`, one present-status set, one late resolver, one required-minutes resolver, date-based employment eligibility (single-date and range). Pure, 40 tests, **22/22 mutants killed**. | tests ✓ |
 | 2 | **Migrate every reader** to the primitives; delete the five inline presence copies, the duplicate status set, `LATE_AFTER`, the evaluator's inline required-minutes. | parity |
 | 3 | **One reporting service** (§15) producing `DailyAttendanceReportRow` (26 cols) + `MonthlyAttendanceSummaryRow` (19 cols); monthly is an aggregation of daily, keyed on `userId`. | tests |
 | 4 | **One workbook builder** (§17), two sheets; retire `register-workbook.ts`; console and export both consume step 3. | workbook tests |
