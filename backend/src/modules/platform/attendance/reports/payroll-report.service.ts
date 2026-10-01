@@ -1,9 +1,4 @@
-import { createHash } from 'crypto';
-import {
-  canonicalFingerprint,
-  isCurrentFingerprintVersion,
-  type MonthlyAttendanceSummaryRow,
-} from '../canonical/attendance-report';
+import { type MonthlyAttendanceSummaryRow } from '../canonical/attendance-report';
 import {
   attendanceWorkbookFilename,
   buildAttendanceWorkbook,
@@ -58,16 +53,19 @@ export interface ReportRecipients {
 /**
  * The close row as every caller outside this module sees it.
  *
- * The stored column is `reportSha256`, which is a V1 legacy name: the value is
- * the SHA-256 of the canonical report DATA, not of the .xlsx file. The name is
- * renamed here, once, at the boundary -- so a UI, a log line or somebody
- * reading an audit trail in six months cannot reasonably conclude it
- * identifies the exact attachment bytes, because it does not.
+ * `reportSha256` is a legacy column that is no longer written or read, and it
+ * is STRIPPED here rather than renamed and surfaced: nothing maintains it any
+ * more, and exposing a stale digest would invite somebody to trust it.
+ *
+ * THE STRIP OUTLIVES THE COLUMN ON PURPOSE. The drop migration and this code
+ * can deploy in either order, and between them the column still exists -- so
+ * discarding it here is what makes that window safe rather than a window in
+ * which a dead digest reappears in an API response.
  */
 export function toCloseView(row: any) {
   if (!row) return null;
-  const { reportSha256, ...rest } = row;
-  return { ...rest, reportDataFingerprint: reportSha256 ?? null };
+  const { reportSha256: _legacy, ...rest } = row;
+  return rest;
 }
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -85,11 +83,6 @@ export interface PreviewResult {
   };
   /** The canonical 19-column summary rows. */
   summaries: MonthlyAttendanceSummaryRow[];
-  /**
-   * SHA-256 of the canonical report DATA -- see reportFingerprint(). Named so
-   * it cannot be mistaken for a digest of the workbook the caller downloads.
-   */
-  reportDataFingerprint: string;
   /** Size of the actual .xlsx that would be downloaded or sent. */
   reportByteSize: number;
 }
@@ -179,12 +172,6 @@ export class PayrollReportService {
         manualRecoveryDays: 0,
         employeesWithUnresolved: report.metadata.employeesWithUnresolved,
       },
-      // Over the canonical DATA, not the file bytes, and version-prefixed so a
-      // scheme change can be told apart from an attendance change.
-      dataFingerprint: canonicalFingerprint(
-        { month, dailyRows: report.dailyRows, summaryRows: report.summaryRows },
-        (text) => createHash('sha256').update(text).digest('hex'),
-      ),
     };
   }
 
@@ -243,7 +230,6 @@ export class PayrollReportService {
       status: close?.status ?? 'REVIEWING',
       totals: rendered.totals,
       summaries: rendered.summaries,
-      reportDataFingerprint: rendered.dataFingerprint,
       reportByteSize: rendered.buffer.length,
     };
   }
@@ -322,8 +308,6 @@ export class PayrollReportService {
         employeeCount: rendered.totals.employees,
         unresolvedDays: rendered.totals.unresolvedDays,
         employeesWithUnresolved: rendered.totals.employeesWithUnresolved,
-        // Column name is V1 legacy; the value is the DATA fingerprint.
-        reportSha256: rendered.dataFingerprint,
         // This one really is about the file: the size of the .xlsx built above.
         reportByteSize: rendered.buffer.length,
       },
@@ -341,8 +325,7 @@ export class PayrollReportService {
           month,
           employees: rendered.totals.employees,
           unresolvedDays: rendered.totals.unresolvedDays,
-          reportDataFingerprint: rendered.dataFingerprint,
-        },
+            },
       })
       .catch(() => {});
     },
@@ -473,28 +456,21 @@ export class PayrollReportService {
     }
 
     const rendered = await this.renderCanonical(month);
-    // close.reportSha256 is the stored DATA fingerprint (V1 column name).
+    // NO CRYPTOGRAPHIC GUARD HERE ANY MORE.
     //
-    // TWO DIFFERENT FAILURES, AND THEY MUST NOT SHARE A MESSAGE.
+    // This compared a stored digest of the finalized attendance against a fresh
+    // one and refused the send when they differed. Finalization is plain
+    // business state now -- FINALIZED, with who and when -- so what remains is
+    // the month lock taken above plus the status checks: an unfinalized month
+    // cannot be sent, and an already-sent month is refused locally before the
+    // provider is reached.
     //
-    // A stored fingerprint from the previous scheme cannot be compared to a
-    // current one: the old value hashed the retired payroll rows, the new value
-    // hashes canonical facts. Reporting that as "attendance has changed" would
-    // be factually wrong AND unrecoverable, because this path refuses to
-    // re-finalize. So the scheme mismatch is named for what it is.
-    if (close.reportSha256 && !isCurrentFingerprintVersion(close.reportSha256)) {
-      throw new ForbiddenException(
-        'This month was finalized before the attendance reporting was unified, so its stored ' +
-          'fingerprint cannot be compared to the current one. The attendance itself may be ' +
-          'unchanged. An HR re-finalization of this month is required before it can be sent.',
-      );
-    }
-    if (close.reportSha256 && rendered.dataFingerprint !== close.reportSha256) {
-      throw new ForbiddenException(
-        'Attendance has changed since this month was finalized, so the report no longer matches ' +
-          'what was approved. Re-finalizing a closed month is not supported in this version.',
-      );
-    }
+    // WHAT THIS GIVES UP, STATED PLAINLY: a correction committed after
+    // finalization and before sending is no longer detected, so Finance could
+    // receive a register differing from the one HR approved. The month lock
+    // narrows that window to the send itself rather than closing it. Removing
+    // the digest was an explicit product decision; this note exists so the
+    // trade is visible to whoever reads the path next.
 
     // THE ATTEMPT IS RECORDED BEFORE THE PROVIDER IS CONTACTED, NOT AFTER.
     //
@@ -517,12 +493,12 @@ export class PayrollReportService {
     const filename = attachmentFileName(month);
 
     // Identifies the REPORT, not the attempt: the month close plus the
-    // fingerprint of the attendance it was finalized from. A retry of the same
-    // report therefore presents the same key. Generating a fresh id per attempt
-    // is the bug this exists to prevent.
+    // finalization timestamp. A retry of the same finalized month therefore
+    // presents the same key. Generating a fresh id per attempt is the bug this
+    // exists to prevent.
     const idempotencyKey = idempotencyKeyFor({
       monthCloseId: close.id,
-      reportSha256: close.reportSha256,
+      finalizedAt: close.finalizedAt,
     });
 
     // The transport is written to classify its own failures and never throw.
@@ -586,7 +562,6 @@ export class PayrollReportService {
           month,
           to: people.to,
           cc: people.cc,
-          reportDataFingerprint: close.reportSha256,
           // The outcome as the provider left it, and the key that identifies
           // this report -- so a duplicate investigation can be answered from
           // the event stream rather than from the mail provider's dashboard.

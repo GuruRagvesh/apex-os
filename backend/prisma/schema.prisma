@@ -1903,7 +1903,6 @@ model AttendanceMonthClose {
   /// is a ZIP whose entry headers carry clock timestamps, so file digests are
   /// not reproducible. A true file digest becomes possible only once the
   /// finalized bytes are themselves stored.
-  reportSha256   String?
 
   /// Size of the actual generated and sent .xlsx. This one IS about the file.
   reportByteSize Int?
