@@ -7,7 +7,7 @@ import { useAuthStore } from '@apex/core-identity';
 import { canPrepare } from './import-presentation';
 import { ManualRecoveryForm } from './ManualRecoveryForm';
 import {
-  downloadRegister,
+  downloadAttendance,
   finalizeDay,
   getConsoleAccess,
   getRegister,
@@ -154,17 +154,20 @@ export function AttendanceConsole() {
   });
 
   /**
-   * Both files come from the server, from the same call that produced the table
-   * above. Nothing is recomputed here, so the download cannot disagree with
-   * what HR is looking at.
+   * ONE DOWNLOAD.
+   *
+   * The file comes from the server, from the canonical report service, and the
+   * frontend builds no spreadsheet of its own. There was previously an xlsx and
+   * a CSV rendered by a second, independent report stack; both are gone and
+   * this returns the approved two-sheet workbook.
    */
-  const download = async (format: 'xlsx' | 'csv') => {
-    setDownloading(format);
+  const download = async () => {
+    setDownloading('xlsx');
     try {
-      await downloadRegister(month, format);
+      await downloadAttendance(month);
       setError(null);
     } catch {
-      setError('The register could not be downloaded.');
+      setError('The attendance file could not be downloaded.');
     } finally {
       setDownloading(null);
     }
@@ -431,20 +434,15 @@ export function AttendanceConsole() {
                   </p>
                 )}
               </div>
+              {/* ONE ACTION. There were two buttons rendering two different
+                  files from two different report stacks. */}
               <div className="flex gap-2">
                 <button
-                  onClick={() => download('xlsx')}
+                  onClick={() => download()}
                   disabled={!register || downloading !== null}
                   className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-3 py-2 text-sm disabled:opacity-40"
                 >
-                  {downloading === 'xlsx' ? 'Preparing…' : 'Download Excel'}
-                </button>
-                <button
-                  onClick={() => download('csv')}
-                  disabled={!register || downloading !== null}
-                  className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-3 py-2 text-sm disabled:opacity-40"
-                >
-                  {downloading === 'csv' ? 'Preparing…' : 'Download CSV'}
+                  {downloading ? 'Preparing…' : 'Download Attendance'}
                 </button>
               </div>
             </div>

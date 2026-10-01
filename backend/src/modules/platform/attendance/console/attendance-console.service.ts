@@ -10,8 +10,6 @@ import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import { LeaveBalanceService } from '../../../operations/leave/leave-balance.service';
 import { formatInTimeZone } from 'date-fns-tz';
 import { ROLES } from '../../../../shared/constants/roles';
-import { registerCsv, registerFileName, type RegisterResult } from './register-report';
-import { buildRegisterWorkbook } from './register-workbook';
 import { employmentOnDate, presenceMinutes } from '../shared/attendance-primitives';
 
 /**
@@ -837,39 +835,6 @@ export class AttendanceConsoleService {
     };
   }
 
-  /**
-   * The register as a downloadable file.
-   *
-   * Calls monthlyRegister() and renders what it returns. The workbook and the
-   * CSV are two encodings of ONE result, not two reports -- neither exporter
-   * queries anything or recomputes a figure, so a number in the spreadsheet
-   * cannot disagree with the number HR was looking at when they pressed the
-   * button. Scope and authorization come from the same call, so an export can
-   * never reach further than the screen.
-   */
-  async exportRegister(
-    actor: any,
-    filters: { from?: string; to?: string; departmentId?: string },
-    format: 'xlsx' | 'csv',
-  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
-    const result = (await this.monthlyRegister(actor, filters)) as unknown as RegisterResult;
-
-    if (format === 'csv') {
-      return {
-        buffer: Buffer.from(registerCsv(result), 'utf8'),
-        filename: registerFileName(result.month, 'csv'),
-        contentType: 'text/csv; charset=utf-8',
-      };
-    }
-
-    const wb = buildRegisterWorkbook(result, this.tva.now());
-    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
-    return {
-      buffer,
-      filename: registerFileName(result.month, 'xlsx'),
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    };
-  }
 
   // ───────────────────────────────────────────────────────────────────────
   // Commands

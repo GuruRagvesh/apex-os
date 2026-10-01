@@ -129,14 +129,17 @@ export async function getRegister(from?: string, to?: string): Promise<RegisterR
  * The server names the file, and the same server call produces the numbers on
  * screen, so a download can never contain a different answer from the table.
  */
-export async function downloadRegister(
-  month: string,
-  format: 'xlsx' | 'csv',
-): Promise<void> {
-  const { from, to } = monthRange(month);
+export async function downloadAttendance(month: string): Promise<void> {
+  // ONE DOWNLOAD, ONE SOURCE.
+  //
+  // Was `/attendance/console/register/export.{xlsx|csv}`, which rendered a
+  // summary-only sheet through a second independent report + workbook stack.
+  // This endpoint returns the canonical two-sheet workbook built from the same
+  // rows the console displays, so a download cannot contain a different answer
+  // from the table. The format argument is gone with the CSV path: there is one
+  // file and it is xlsx.
   const blob = await r<Blob>(
-    api.get(`/attendance/console/register/export.${format}`, {
-      params: { from, to },
+    api.get(`/attendance/report/${month}/download`, {
       responseType: 'blob',
     }),
   );
@@ -148,7 +151,7 @@ export async function downloadRegister(
     // Named here rather than read from Content-Disposition: the response
     // interceptor returns response.data, so the headers never reach this code.
     // registerFileName() is pinned to the server's own naming by test.
-    link.download = registerFileName(month, format);
+    link.download = `Apex_OS_Attendance_${month}.xlsx`;
     document.body.appendChild(link);
     link.click();
     link.remove();

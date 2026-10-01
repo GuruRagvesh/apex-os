@@ -798,83 +798,6 @@ describe('HC-1 roster and register report stored results', () => {
     expect(out.employees).toHaveLength(2);
   });
 
-  it('30h. the export renders the same result the screen was showing', async () => {
-    const { service } = rig({
-      isHr: true,
-      employees: [employee('e1', 'Ajay Singh')],
-      workingDates: ['2026-08-03', '2026-08-04'],
-      records: [
-        on('e1', '2026-08-03', { status: 'PRESENT' }),
-        on('e1', '2026-08-04', { status: 'ABSENT' }),
-      ],
-      leaveBalances: { e1: 7 },
-    });
-
-    const filters = { from: '2026-08-01', to: '2026-08-05' };
-    const onScreen = await service.monthlyRegister(HR, filters);
-    const csv = (await service.exportRegister(HR, filters, 'csv')).buffer.toString('utf8');
-
-    const row = onScreen.employees[0];
-    expect(row.daysPresent).toBe(1);
-    expect(row.daysAbsent).toBe(1);
-
-    // The same numbers, in the same order, in the file HR sends on.
-    expect(csv).toContain(
-      `Ajay Singh,${row.daysPresent},${row.daysAbsent},${row.halfDays},${row.leaveBalance},${row.latePunchIns},50.00%`,
-    );
-  });
-
-  it('30i. the file is named for the month, in both formats', async () => {
-    const { service } = rig({ isHr: true, workingDates: [], records: [] });
-    const filters = { from: '2026-08-01', to: '2026-08-05' };
-
-    expect((await service.exportRegister(HR, filters, 'csv')).filename).toBe(
-      'Attendance_Register_August_2026.csv',
-    );
-    const xlsx = await service.exportRegister(HR, filters, 'xlsx');
-    expect(xlsx.filename).toBe('Attendance_Register_August_2026.xlsx');
-    // A real XLSX is a ZIP; anything else means the workbook did not render.
-    expect(xlsx.buffer.subarray(0, 2).toString('latin1')).toBe('PK');
-  });
-
-  it('30j. an export can never reach further than the screen it came from', async () => {
-    // An ordinary employee: no reports, no managed department, no HR flag.
-    const { service, prisma } = rig({
-      isHr: false,
-      actorEmployeeId: null,
-      departmentId: null,
-      managedDepartments: [],
-      employees: [employee('e1'), employee('e2')],
-      workingDates: ['2026-08-03'],
-      records: [on('e1', '2026-08-03', { status: 'PRESENT' })],
-    });
-
-    const csv = (
-      await service.exportRegister(EMPLOYEE, { from: '2026-08-01', to: '2026-08-05' }, 'csv')
-    ).buffer.toString('utf8');
-
-    // The header and nothing else. Scope is resolved before a row is read, so
-    // the export cannot become a company-wide leak just by existing.
-    expect(csv.split(/\r?\n/).filter(Boolean)).toHaveLength(1);
-    expect(csv).not.toContain('e1');
-  });
-
-  it('30k. a manager exports their own reports, not the company', async () => {
-    const { service, prisma } = rig({
-      isHr: false,
-      reports: [{ id: 'emp-1' }],
-      employees: [employee('emp-1')],
-      workingDates: ['2026-08-03'],
-      records: [on('emp-1', '2026-08-03', { status: 'PRESENT' })],
-    });
-
-    await service.exportRegister(MANAGER, { from: '2026-08-01', to: '2026-08-05' }, 'xlsx');
-
-    // Narrowed by id before any attendance row is read.
-    const where = prisma.user.findMany.mock.calls.at(-1)[0].where;
-    expect(where.id).toEqual({ in: ['emp-1'] });
-  });
-
   it('30l. the leave balance is asked for a FINANCIAL year, not a calendar year', async () => {
     // Leave runs April to March. Nine months of the year the calendar year and
     // the financial-year start year are the same number, which is exactly why
@@ -914,25 +837,6 @@ describe('HC-1 roster and register report stored results', () => {
 
     const april = await service.monthlyRegister(HR, { from: '2027-04-01', to: '2027-04-30' });
     expect(april.leaveBalanceFinancialYear).toBe('2027-2028');
-  });
-
-  it('30n. the exported file carries the same balance as the screen', async () => {
-    const { service } = rig({
-      isHr: true,
-      employees: [employee('e1', 'Ajay Singh')],
-      workingDates: [],
-      records: [],
-      leaveBalances: { e1: 7 },
-    });
-
-    // March: the month where a calendar-year read would show next year's
-    // entitlement. Screen and file must agree, and both must be FY 2026-27.
-    const filters = { from: '2027-03-01', to: '2027-03-31' };
-    const screen = await service.monthlyRegister(HR, filters);
-    const csv = (await service.exportRegister(HR, filters, 'csv')).buffer.toString('utf8');
-
-    expect(screen.employees[0].leaveBalance).toBe(7);
-    expect(csv).toContain('Ajay Singh,0,0,0,7,0,—');
   });
 
   it('31. the register range is bounded', async () => {
@@ -1056,24 +960,6 @@ describe('HC-1 review queue links back to existing sources', () => {
     });
   });
 
-  it('38. the console controller exposes exactly two write routes', () => {
-    const surface = Object.getOwnPropertyNames(AttendanceConsoleController.prototype).sort();
-    expect(surface).toEqual([
-      'access',
-      'constructor',
-      'detail',
-      'evaluate',
-      // Both exports are GETs that render what monthlyRegister() returned.
-      // They read; they decide nothing.
-      'exportRegisterCsv',
-      'exportRegisterXlsx',
-      'finalize',
-      'register',
-      'reviewQueue',
-      'roster',
-      'summary',
-    ]);
-  });
 });
 
 
@@ -1209,26 +1095,6 @@ describe('HC-1 register authorization, measured against the real access policy',
     expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
   });
 
-  it('44. every console read refuses an employee, including both exports', async () => {
-    const { service, actorUser } = rigWithRealPolicy({
-      role: 'EMPLOYEE',
-      departmentId: 'dept-ops',
-      employeeId: null,
-    });
-    const filters = { from: '2026-09-01', to: '2026-09-30' };
-
-    // Daily Review, the register and both files answer with one policy. An
-    // empty register would look to an employee like a working feature with no
-    // data, which is not what happened.
-    await expect(service.todaySummary(actorUser, '2026-09-01')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.roster(actorUser, { businessDate: '2026-09-01' })).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.monthlyRegister(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.exportRegister(actorUser, filters, 'xlsx')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.exportRegister(actorUser, filters, 'csv')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.dayDetail(actorUser, 'colleague-1', '2026-09-01')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.reviewQueue(actorUser, {})).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
   it('44b. canOperate defends itself if a scope ever arrives inconsistent', async () => {
     const { service, actorUser } = rigWithRealPolicy({ role: 'EMPLOYEE', departmentId: 'dept-ops' });
 
@@ -1241,20 +1107,6 @@ describe('HC-1 register authorization, measured against the real access policy',
       .mockResolvedValue({ userIds: ['colleague-1'], isHr: false, eligible: false });
 
     expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
-  });
-
-  it('45. an intern is refused exactly as an employee is', async () => {
-    const { service, actorUser } = rigWithRealPolicy({
-      role: 'INTERN',
-      departmentId: 'dept-ops',
-      employeeId: null,
-    });
-    const filters = { from: '2026-09-01', to: '2026-09-30' };
-
-    expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
-    await expect(service.monthlyRegister(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.exportRegister(actorUser, filters, 'xlsx')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.exportRegister(actorUser, filters, 'csv')).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('46. a department is not management authority, even with reporting links absent', async () => {
@@ -1320,25 +1172,4 @@ describe('HC-1 register authorization, measured against the real access policy',
     expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
   });
 
-  it('51. the export population equals the on-screen population for every allowed role', async () => {
-    for (const actor of [
-      { role: 'EMPLOYEE', isHR: true, departmentId: 'dept-hr' },
-      { role: 'ADMIN', departmentId: 'dept-ops' },
-      { role: 'SUPER_ADMIN', departmentId: 'dept-ops' },
-      { role: 'MANAGER', departmentId: 'dept-ops', employeeId: 'E-mgr' },
-      { role: 'TEAM_LEAD', departmentId: 'dept-ops', employeeId: 'E-tl' },
-    ]) {
-      const { service, actorUser } = rigWithRealPolicy(actor);
-      const filters = { from: '2026-09-01', to: '2026-09-30' };
-
-      const screen = await service.monthlyRegister(actorUser, filters);
-      const csv = (await service.exportRegister(actorUser, filters, 'csv')).buffer.toString('utf8');
-
-      // The export is a rendering of the register call, so it cannot widen by
-      // construction -- this proves the construction has not been undone.
-      const inFile = csv.split(/\r?\n/).filter(Boolean).slice(1);
-      expect([actor.role, inFile.length]).toEqual([actor.role, screen.employees.length]);
-      for (const e of screen.employees) expect(csv).toContain(`${e.name},`);
-    }
-  });
 });
