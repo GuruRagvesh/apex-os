@@ -17,7 +17,9 @@ import { TicketTimingService } from '../../src/common/services/ticket-timing.ser
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-const mockPrisma = {
+const mockPrisma: any = {
+  // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
+  $transaction: jest.fn((fn: any) => fn(mockPrisma)),
   ticket: {
     findUnique: jest.fn(),
     findFirst: jest.fn(),
@@ -92,7 +94,7 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
             endActiveLog: jest.fn(),
             getActiveLogForTicket: jest.fn(),
             startAssigneeTimer: jest.fn().mockResolvedValue(undefined),
-            endActiveLogsForTicket: jest.fn().mockResolvedValue(undefined),
+            endActiveLogsForTicket: jest.fn().mockResolvedValue({ count: 0, logIds: [], userIds: [] }),
             resumeNextWaitingTicket: jest.fn().mockResolvedValue(undefined),
             closeReworkSegment: jest.fn().mockResolvedValue(undefined),
           },

@@ -10,6 +10,7 @@ describe('WorkdayService Release A corruption guards', () => {
   let prisma: any;
   let attendanceAuthority: any;
   let ticketLedger: any;
+  let eventLogger: { log: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -34,6 +35,9 @@ describe('WorkdayService Release A corruption guards', () => {
     // finalize takes a `SELECT ... FOR UPDATE` row lock before writing
     // terminal fields; the double just has to answer it.
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    // Break start/end (Phase 2D2) re-read the row-locked session inside their
+    // transaction; by default that is the same session findFirst returns.
+    prisma.workSession.findUnique = jest.fn((args: any) => prisma.workSession.findFirst(args));
 
     attendanceAuthority = {
       setUserStatus: jest.fn().mockResolvedValue({}),
@@ -48,10 +52,11 @@ describe('WorkdayService Release A corruption guards', () => {
       resumeAfterWorkdayStart: jest.fn().mockResolvedValue(undefined),
     };
 
+    eventLogger = { log: jest.fn().mockResolvedValue({}) };
     service = new WorkdayService(
       prisma,
       {} as any,
-      { log: jest.fn().mockResolvedValue({}) } as any,
+      eventLogger as any,
       ticketLedger,
       { sendNotification: jest.fn().mockResolvedValue({}) } as any,
       attendanceAuthority,
@@ -205,7 +210,12 @@ describe('WorkdayService Release A corruption guards', () => {
     expect(ticketLedger.resumeLogsForBreak).not.toHaveBeenCalled();
   });
 
-  it('endBreak still succeeds (and logs) when the ticket auto-resume fails after the break is closed', async () => {
+  // Phase 2D2 reverses the old fail-open rule: the break close, WORKING status
+  // and ticket resume commit together, so a resume failure fails the break end
+  // (the PostgreSQL rollback itself is proven in integration-pg/t5) and nothing
+  // announces a break end that did not commit. The person stays ON_BREAK and
+  // can retry.
+  it('endBreak fails, and announces nothing, when the ticket auto-resume fails', async () => {
     prisma.workSession.findFirst.mockResolvedValue({
       id: 'open-session',
       status: 'ON_BREAK',
@@ -215,12 +225,10 @@ describe('WorkdayService Release A corruption guards', () => {
     });
     prisma.breakLog.update.mockResolvedValue({ id: 'break-1' });
     ticketLedger.resumeLogsForBreak.mockRejectedValueOnce(new Error('ledger unavailable'));
-    const logSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
 
-    await expect(service.endBreak('user-1')).resolves.toMatchObject({ durationMinutes: 15 });
-    expect(prisma.breakLog.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'break-1' } }));
-    expect(ticketLedger.resumeLogsForBreak).toHaveBeenCalledWith('break-1', 'user-1');
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('user user-1 (break break-1)'));
+    await expect(service.endBreak('user-1')).rejects.toThrow('ledger unavailable');
+    expect(ticketLedger.resumeLogsForBreak).toHaveBeenCalledWith('break-1', 'user-1', expect.anything());
+    expect(eventLogger.log).not.toHaveBeenCalled();
   });
 
   it('endBreak rejects multiple open breaks without mutating either break', async () => {

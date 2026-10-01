@@ -53,6 +53,9 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
     // finalize takes a `SELECT ... FOR UPDATE` row lock before writing
     // terminal fields; the double just has to answer it.
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    // Break start/end (Phase 2D2) re-read the row-locked session inside their
+    // transaction; by default that is the same session findFirst returns.
+    prisma.workSession.findUnique.mockImplementation((args: any) => prisma.workSession.findFirst(args));
 
     attendanceAuthority = {
       setUserStatus: jest.fn().mockResolvedValue({}),

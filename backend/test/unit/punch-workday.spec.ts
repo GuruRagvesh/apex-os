@@ -343,7 +343,8 @@ describe('PE-4 punch closes a workday', () => {
     // Side effects run AFTER the commit, and the presence flip goes through the
     // workday engine's authority rather than a second writer of user status.
     expect(workday.afterWorkSessionFinalized).toHaveBeenCalledTimes(1);
-    expect(workday.markUserLoggedOut).toHaveBeenCalledWith('emp-1');
+    // Inside the punch transaction, with the session close (Phase 2D2).
+    expect(workday.markUserLoggedOut).toHaveBeenCalledWith('emp-1', expect.anything());
     expect(
       workday.afterWorkSessionFinalized.mock.invocationCallOrder[0],
     ).toBeGreaterThan(

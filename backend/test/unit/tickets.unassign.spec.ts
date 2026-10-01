@@ -29,7 +29,9 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TVAService } from '../../src/common/services/tva.service';
 
-const mockPrisma = {
+const mockPrisma: any = {
+  // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
+  $transaction: jest.fn((fn: any) => fn(mockPrisma)),
   ticket: {
     findFirst:  jest.fn(),
     findUnique: jest.fn(),
@@ -56,7 +58,7 @@ const mockEmail    = { sendTicketAssigned: jest.fn(), sendTicketResolved: jest.f
 const mockLogger   = { log: jest.fn().mockResolvedValue(undefined) };
 const mockConfig   = { get: jest.fn().mockReturnValue('http://localhost:3000') };
 const mockEmitter  = { emit: jest.fn(), emitAsync: jest.fn() };
-const mockLedger   = { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), endActiveLog: jest.fn().mockResolvedValue({}), endActiveLogsForTicket: jest.fn().mockResolvedValue({ count: 1, logIds: [] }) };
+const mockLedger   = { startReviewCycle: jest.fn(), endReviewCycle: jest.fn(), endActiveLog: jest.fn().mockResolvedValue({}), endActiveLogsForTicket: jest.fn().mockResolvedValue({ count: 1, logIds: [], userIds: [] }) };
 const mockImport   = {};
 
 function makeTicket(overrides: any = {}) {
@@ -88,7 +90,7 @@ describe('TicketsService — unassignPrimary / removeSecondaryAssignee', () => {
     mockPrisma.ticket.findUnique.mockImplementation(async () => makeTicket());
     mockPrisma.ticket.update.mockImplementation(async ({ data }: any) => ({ ...makeTicket(), ...data }));
     mockLedger.endActiveLog.mockResolvedValue({});
-    mockLedger.endActiveLogsForTicket.mockResolvedValue({ count: 1, logIds: [] });
+    mockLedger.endActiveLogsForTicket.mockResolvedValue({ count: 1, logIds: [], userIds: [] });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -156,7 +158,8 @@ describe('TicketsService — unassignPrimary / removeSecondaryAssignee', () => {
         ],
       });
       // Every clock on the ticket stops, whoever holds it (not only emp1's).
-      expect(mockLedger.endActiveLogsForTicket).toHaveBeenCalledWith('tkt1', 'UNASSIGNED');
+      // ...inside the unassign's own transaction (Phase 2D2).
+      expect(mockLedger.endActiveLogsForTicket).toHaveBeenCalledWith('tkt1', 'UNASSIGNED', undefined, mockPrisma, ['emp1']);
     });
 
     it('never calls ticket.update if status is REVIEW — blocks with the required message', async () => {

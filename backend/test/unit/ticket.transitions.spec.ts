@@ -22,7 +22,9 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ForbiddenException } from '@nestjs/common';
 
-const mockPrisma = {
+const mockPrisma: any = {
+  // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
+  $transaction: jest.fn((fn: any) => fn(mockPrisma)),
   ticket: {
     findUnique: jest.fn(),
     findFirst: jest.fn(),
@@ -122,7 +124,7 @@ describe('TicketsService — status transitions', () => {
           endReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1', decision: 'REWORK' }),
           getTicketTimers: jest.fn(), startWorkLog: jest.fn(), endActiveLog: jest.fn(), getActiveLogForTicket: jest.fn(),
           startAssigneeTimer: jest.fn().mockResolvedValue(undefined),
-          endActiveLogsForTicket: jest.fn().mockResolvedValue(undefined),
+          endActiveLogsForTicket: jest.fn().mockResolvedValue({ count: 0, logIds: [], userIds: [] }),
           resumeNextWaitingTicket: jest.fn().mockResolvedValue(undefined),
           closeReworkSegment: jest.fn().mockResolvedValue(undefined),
         } },

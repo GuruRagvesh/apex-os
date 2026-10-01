@@ -89,6 +89,8 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
   beforeEach(() => {
     reviewCycleLogTable = makeReviewCycleLogTable();
     prisma = {
+      // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
+      $transaction: jest.fn((fn: any) => fn(prisma)),
       ticket: {
         update: jest.fn(async ({ data }: any) => ({ ...makeTicketFixture(), ...data })),
       },
@@ -101,8 +103,22 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
       reviewCycleLog: reviewCycleLogTable,
       ticketTimeLog: {
         aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 } }),
+        // reject() → IN_PROGRESS now starts the assignee's REWORK timer inside
+        // the same transaction (Phase 2D2), so the real ledger needs these.
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(async ({ data }: any) => ({ id: 'log-1', ...data })),
+      },
+      // Worker lock, and the worker's WORKING session for the rework timer.
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      workSession: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'session-1', status: 'WORKING', logoutAt: null, breakLogs: [] }),
       },
     };
+    // The ledger re-reads the ticket under the worker's lock: after reject() it
+    // is IN_PROGRESS for its primary assignee.
+    prisma.ticket.findUnique = jest.fn(async () => ({
+      id: 'ticket-db-1', status: TicketStatus.IN_PROGRESS, isBlocked: false, assignedToId: 'assignee-1',
+    }));
 
     ticketAccess = {
       findAccessibleTicket: jest.fn(async (_id: string, _user: any, _include: any) => makeTicketFixture()),

@@ -31,6 +31,8 @@ describe('TicketsService.update — REVIEW-entry notification to resolved approv
 
   function setup(existingTicket: any) {
     prisma = {
+      // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
+      $transaction: jest.fn((fn: any) => fn(prisma)),
       ticket: {
         update: jest.fn(async ({ data }: any) => ({ ...existingTicket, ...data, assignedTo: { id: existingTicket.assignedToId } })),
       },
@@ -40,6 +42,12 @@ describe('TicketsService.update — REVIEW-entry notification to resolved approv
       },
       ticketHistory: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       activityLog: { create: jest.fn().mockResolvedValue({}) },
+      // Leaving IN_PROGRESS stops the timer and closes any rework segment in
+      // the same transaction (Phase 2D2): nothing is running in these fixtures.
+      ticketTimeLog: { findMany: jest.fn().mockResolvedValue([]) },
+      // Worker timer lock taken before the stop re-reads (Phase 2D2 race fix).
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      reviewCycleLog: { findFirst: jest.fn().mockResolvedValue(null) },
     };
 
     ticketAccess = {
