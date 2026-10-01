@@ -7,6 +7,7 @@ import { TVAService } from '../../src/common/services/tva.service';
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
+import { ActiveWorkdayPolicyService } from '../../src/common/services/active-workday-policy.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { NotificationEventService } from '../../src/modules/operations/notifications/notification-event.service';
 import { EventsGateway } from '../../src/modules/platform/gateway/events.gateway';
@@ -25,6 +26,8 @@ import { ForbiddenException } from '@nestjs/common';
 const mockPrisma: any = {
   // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
   $transaction: jest.fn((fn: any) => fn(mockPrisma)),
+  // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
+  $queryRaw: jest.fn(async () => [(await mockPrisma.ticket.findFirst?.()) ?? (await mockPrisma.ticket.findUnique?.())].filter(Boolean)),
   ticket: {
     findUnique: jest.fn(),
     findFirst: jest.fn(),
@@ -105,6 +108,7 @@ describe('TicketsService — status transitions', () => {
       providers: [
         { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         TicketsService,
+        { provide: ActiveWorkdayPolicyService, useValue: { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } },
         AccessPolicyService,
         HierarchyApprovalService,
         TicketAccessService,
@@ -302,13 +306,16 @@ describe('TicketsService — status transitions', () => {
       );
     });
 
-    it('does not crash and sends no notification when assignedToId is null', async () => {
+    it('refuses to send an ownerless ticket back to IN_PROGRESS, and notifies nobody (Phase 3 owner invariant)', async () => {
       const unassigned = makeTicket({ status: 'REVIEW', assignedToId: null, createdById: 'creator1' });
       mockPrisma.ticket.findFirst.mockResolvedValue(unassigned);
       mockPrisma.ticket.findUnique.mockResolvedValue(unassigned);
       mockPrisma.ticket.update.mockResolvedValue({ ...unassigned, status: 'IN_PROGRESS', assignedTo: null });
 
-      await expect(service.reject('tkt1', 'Needs rework', 'mgr1')).resolves.toBeDefined();
+      await expect(service.reject('tkt1', 'Needs rework', 'mgr1')).rejects.toMatchObject({
+        response: { statusCode: 400, code: 'PRIMARY_ASSIGNEE_REQUIRED' },
+      });
+      expect(mockPrisma.ticket.update).not.toHaveBeenCalled();
       expect(mockNotif.sendNotification).not.toHaveBeenCalled();
     });
 

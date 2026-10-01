@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import Link from 'next/link';
+import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { cn } from '@apex/shared-utilities';
 import { dashboardApi } from '../api';
 import { changeRequestsApi } from '@apex/core-users-change-requests/api';
@@ -39,14 +40,15 @@ export default function HomePage() {
   const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
   const isManagerOrAbove = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
 
+  const ticketGate = useTicketCreationGate();
   const dashboardPaletteActions = [
-    {
+    ...(!ticketGate.allowed ? [] : [{
       id: 'new-ticket',
       label: 'Create New Ticket',
       description: 'Open a new ticket in your scope',
       icon: <Ticket size={15} />,
       onClick: () => router.push('/tickets/new'),
-    },
+    }]),
     {
       id: 'due-today',
       label: 'View Due Today',

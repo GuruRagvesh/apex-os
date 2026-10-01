@@ -25,6 +25,7 @@ import { ConflictException } from '@nestjs/common';
 import { TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { TVAService } from '../../src/common/services/tva.service';
+import { ActiveWorkdayPolicyService } from '../../src/common/services/active-workday-policy.service';
 import { AttendanceAuthorityService } from '../../src/common/services/attendance-authority.service';
 import { TicketLedgerService } from '../../src/modules/operations/tickets/ticket-ledger.service';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
@@ -167,6 +168,8 @@ describe('T5 atomic ticket/workday + timer transitions (PostgreSQL)', () => {
       { getSlaConfig: async () => ({ review: { MEDIUM: 24 } }), decorateTicket: async (t: any) => t } as any,
       ledger,
       {} as any,
+      new ActiveWorkdayPolicyService(tva),
+      tva,
     );
     expect((await oneActiveIndexState(prisma)).valid).toBe(true);
   });

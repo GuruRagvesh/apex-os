@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -9,6 +9,8 @@ import { EventLoggerService, OperationalAction } from '../../../common/services/
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { HierarchyApprovalService } from '../../../common/services/hierarchy-approval.service';
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
+import { ActiveWorkdayPolicyService } from '../../../common/services/active-workday-policy.service';
+import { TVAService } from '../../../common/services/tva.service';
 import { TicketLedgerService, LEDGER_PAUSE_REASONS, LEDGER_STAGES, LEDGER_OWNER_TYPES, LEDGER_SOURCES } from './ticket-ledger.service';
 import { TicketImportService } from './ticket-import.service';
 
@@ -31,6 +33,15 @@ type AfterCommit = Array<() => unknown>;
  */
 const TIMER_TRANSACTION = { maxWait: 10_000, timeout: 20_000 };
 
+export const PRIMARY_ASSIGNEE_REQUIRED = 'PRIMARY_ASSIGNEE_REQUIRED';
+
+type UpdateOptions = {
+  suppressCompletionNotification?: boolean;
+  reviewDecisionRecorded?: boolean;
+  /** reject() only: the estimate for the rework cycle it opens. */
+  reworkEstimatedMinutes?: number | null;
+};
+
 @Injectable()
 export class TicketsService {
   private readonly logger = new Logger(TicketsService.name);
@@ -47,6 +58,8 @@ export class TicketsService {
     private ticketTiming: TicketTimingService,
     private ticketLedger: TicketLedgerService,
     private ticketImport: TicketImportService,
+    private activeWorkdayPolicy: ActiveWorkdayPolicyService,
+    private tva: TVAService,
   ) {}
 
   private get frontendUrl() {
@@ -164,6 +177,49 @@ export class TicketsService {
   ) {
     for (const workerId of userIds ?? []) {
       await this.ticketLedger.resumeNextWaitingTicket(workerId, leftTicketId, tx);
+    }
+  }
+
+  /**
+   * Row-locks a ticket for the rest of the caller's transaction and returns the
+   * committed status and primary owner. Anything decided from them is decided
+   * from this read, never from the read made before the transaction opened.
+   * Lock order stays: ticket row first, then worker timer locks.
+   *
+   * FOR NO KEY UPDATE, the lock an UPDATE of this row takes anyway: it
+   * serializes ticket changes against each other, but not against inserts that
+   * only reference the ticket (a ticket_time_logs row's foreign key takes FOR
+   * KEY SHARE), so a timer resume elsewhere never waits on a ticket edit.
+   */
+  private async lockTicketRow(tx: Prisma.TransactionClient, ticketId: string) {
+    const [row] = await tx.$queryRaw<Array<{ status: TicketStatus; assignedToId: string | null }>>`
+      SELECT status, "assignedToId" FROM "tickets" WHERE id = ${ticketId} FOR NO KEY UPDATE
+    `;
+    if (!row) throw new NotFoundException('Ticket not found');
+    return row;
+  }
+
+  /** True while the ticket has a rework cycle that started and has not ended. */
+  private async hasOpenReworkCycle(client: Prisma.TransactionClient | PrismaService, ticketId: string) {
+    return !!(await client.reviewCycleLog.findFirst({
+      where: { ticketId, decision: 'REWORK', reworkStartedAt: { not: null }, reworkEndedAt: null },
+      select: { id: true },
+    }));
+  }
+
+  /**
+   * Every IN_PROGRESS ticket has a primary owner, whose timer it runs on.
+   * Checked for changes that touch the status or the owner, so an edit to an
+   * unrelated field never fails on someone else's earlier data.
+   */
+  private assertPrimaryOwnerForStatus(data: any, status: string, primaryAssigneeId: string | null | undefined) {
+    if (data.status === undefined && data.assignedToId === undefined) return;
+    if (status === TicketStatus.IN_PROGRESS && !primaryAssigneeId) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: PRIMARY_ASSIGNEE_REQUIRED,
+        message: 'Assign a primary owner before moving this ticket to In Progress.',
+      });
     }
   }
 
@@ -513,6 +569,11 @@ export class TicketsService {
     let assigneeIds: string[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
     delete data.assigneeIds;
 
+    // A new ticket starts OPEN (the column default) or PENDING_APPROVAL (set
+    // below). Creation never puts a ticket straight into work, so a client
+    // cannot create one IN_PROGRESS without its timer.
+    delete data.status;
+
     // Enforce self-assign for EMPLOYEE / INTERN — TASK only. QUERY/HELP are
     // requests directed AT someone else (often in another department), so
     // forcing them back onto the creator would defeat cross-department routing.
@@ -536,7 +597,7 @@ export class TicketsService {
       data.approvalState = 'PENDING';
       data.approvalType = 'TASK_CREATION';
       data.approverId = tl.id;
-      data.approvalRequestedAt = new Date().toISOString();
+      data.approvalRequestedAt = this.tva.now().toISOString();
     }
 
 
@@ -664,14 +725,15 @@ export class TicketsService {
     // Only set executionDueAt if scheduledStartAt is in the future (not past midnight UTC edge cases)
     const scheduledBase = data.scheduledStartAt ? new Date(data.scheduledStartAt) : null;
     const actualBase = data.actualStartAt ? new Date(data.actualStartAt) : null;
-    const baseForExec = scheduledBase && scheduledBase.getTime() > Date.now() ? scheduledBase : null;
+    const nowMs = this.tva.now().getTime();
+    const baseForExec = scheduledBase && scheduledBase.getTime() > nowMs ? scheduledBase : null;
     const executionDueAt = this.calcExecutionDueAt(
       baseForExec,
       actualBase,
       data.estimatedMinutes,
     );
     // Never store an executionDueAt that is already in the past
-    if (executionDueAt && executionDueAt.getTime() > Date.now()) {
+    if (executionDueAt && executionDueAt.getTime() > nowMs) {
       data.executionDueAt = executionDueAt;
     }
 
@@ -722,48 +784,53 @@ export class TicketsService {
     }
   }
 
-  // Shared by create() and createBulk() — assignee notifications + audit trail
-  // for a ticket that has already been inserted. Extracted verbatim from
-  // create() (no behavior change).
-  private async fireTicketCreatedSideEffects(ticket: any, assigneeIds: string[], userId: string) {
-    // Create multiple assignees if provided
+  // Shared by create() and createBulk(): the rows a new ticket needs besides
+  // itself (its assignees and the activity log entry). Written inside the
+  // creating transaction, so they exist exactly when the ticket does.
+  private async writeTicketCreationRecords(
+    tx: Prisma.TransactionClient,
+    ticket: any,
+    assigneeIds: string[],
+    userId: string,
+  ) {
     if (assigneeIds.length > 0) {
-      await this.prisma.ticketAssignee.createMany({
+      await tx.ticketAssignee.createMany({
         data: assigneeIds.map((uid) => ({ ticketId: ticket.id, userId: uid })),
         skipDuplicates: true,
       });
-      // Notify each additional assignee
-      for (const uid of assigneeIds) {
-        if (uid === ticket.assignedToId) continue; // primary assignee notified below
-        try {
-          await this.notificationEventService.sendNotification(
-            uid,
-            'assignedTicket',
-            {
-              title: this.ticketAssignedTitle(ticket.type, ticket.ticketId),
-              message: ticket.title,
-              type: NotificationType.INFO,
-              link: `/tickets/${ticket.id}`,
-              entityId: ticket.id,
-              entityType: 'TICKET',
-            }
-          );
-        } catch (_e) { /* never crash main op */ }
-      }
     }
+    await tx.activityLog.create({
+      data: {
+        userId,
+        action: 'TICKET_CREATED',
+        entityType: 'TICKET',
+        entityId: ticket.id,
+        details: { ticketId: ticket.ticketId, title: ticket.title, category: ticket.category, priority: ticket.priority },
+      },
+    });
+  }
 
-    try {
-      await this.prisma.activityLog.create({
-        data: {
-          userId,
-          action: 'TICKET_CREATED',
-          entityType: 'TICKET',
-          entityId: ticket.id,
-          details: { ticketId: ticket.ticketId, title: ticket.title, category: ticket.category, priority: ticket.priority },
-        },
-      });
-    } catch (err: any) {
-      this.logger.error(`Failed to write activity log for created ticket ${ticket.ticketId}: ${err?.message}`);
+  // Shared by create() and createBulk(): notifications, websocket and event-bus
+  // events and the operational event log for a ticket whose creation has
+  // already committed. Never runs for a creation that rolled back.
+  private async fireTicketCreatedSideEffects(ticket: any, assigneeIds: string[], userId: string) {
+    // Notify each additional assignee
+    for (const uid of assigneeIds) {
+      if (uid === ticket.assignedToId) continue; // primary assignee notified below
+      try {
+        await this.notificationEventService.sendNotification(
+          uid,
+          'assignedTicket',
+          {
+            title: this.ticketAssignedTitle(ticket.type, ticket.ticketId),
+            message: ticket.title,
+            type: NotificationType.INFO,
+            link: `/tickets/${ticket.id}`,
+            entityId: ticket.id,
+            entityType: 'TICKET',
+          }
+        );
+      } catch (_e) { /* never crash main op */ }
     }
 
     this.eventLogger.log({ actorId: userId, entityType: 'Ticket', entityId: ticket.id, action: OperationalAction.TICKET_CREATED, toState: 'OPEN', metadata: { ticketId: ticket.ticketId, title: ticket.title } }).catch(() => {});
@@ -788,6 +855,17 @@ export class TicketsService {
     }
   }
 
+  // Human ticket creation (POST /tickets and POST /tickets/bulk, which also
+  // carries Excel import) requires the creator to be punched in, for every
+  // role. There is no system-owned creation path today: seed scripts write
+  // through Prisma directly and the scheduler only sends reminders for
+  // existing tickets. A future system path must not call create()/createBulk()
+  // and must document why it is exempt.
+  //
+  // The policy check, the ticket, its assignees and its activity log commit in
+  // one transaction that share-locks the creator's open work session, so a
+  // concurrent Punch Out or auto-close either finishes first (creation is then
+  // refused) or waits until the ticket exists. Creation never starts a timer.
   async create(data: any, userId: string, user?: any) {
     const normalized = await this.normalizeTicketCreateData(data, userId, user);
     data = normalized.data;
@@ -801,34 +879,42 @@ export class TicketsService {
     // use, so count+1 lands on an ID that already exists and every collision
     // re-derives the same doomed base. The high-water mark is unaffected by
     // deletions, and we still retry on unique-constraint (P2002) violations to
-    // stay correct when concurrent inserts race for the same number.
+    // stay correct when concurrent inserts race for the same number. A P2002
+    // aborts the PostgreSQL transaction, so each attempt is its own
+    // transaction and re-checks the workday policy.
     let ticket: any;
     const maxAttempts = 25;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      // Re-read the high-water mark each attempt so concurrent inserts already
-      // committed by other requests are taken into account. The regex guard
-      // ignores any malformed/legacy IDs so the CAST never errors, and the
-      // numeric CAST keeps ordering correct beyond TKT-999 (lexical sort would
-      // place "TKT-1000" before "TKT-999").
-      const rows = await this.prisma.$queryRaw<Array<{ max: number }>>`
-        SELECT COALESCE(MAX(CAST(SUBSTRING("ticketId" FROM 5) AS INTEGER)), 0)::int AS max
-        FROM "tickets"
-        WHERE "ticketId" ~ '^TKT-[0-9]+$'
-      `;
-      const highWaterMark = Number(rows?.[0]?.max ?? 0);
-      // Deterministic forward step guarantees progress; jitter after the first
-      // attempt spreads simultaneous creators apart to avoid thundering-herd
-      // collisions under heavy concurrency.
+      // Jitter after the first attempt spreads simultaneous creators apart to
+      // avoid thundering-herd collisions under heavy concurrency.
       const jitter = attempt === 0 ? 0 : Math.floor(Math.random() * (attempt + 1));
-      const nextNumber = highWaterMark + 1 + attempt + jitter;
-      const ticketId = `TKT-${String(nextNumber).padStart(3, '0')}`;
+      let ticketId = '';
       try {
-        ticket = await this.prisma.ticket.create({
-          data: { ...data, ticketId, createdById: userId },
-          include: this.includeOptions,
-        });
+        ticket = await this.prisma.$transaction(async (tx) => {
+          await this.activeWorkdayPolicy.assertActiveWorkdayLocked(tx, userId);
+
+          // Re-read the high-water mark each attempt so concurrent inserts already
+          // committed by other requests are taken into account. The regex guard
+          // ignores any malformed/legacy IDs so the CAST never errors, and the
+          // numeric CAST keeps ordering correct beyond TKT-999 (lexical sort would
+          // place "TKT-1000" before "TKT-999").
+          const rows = await tx.$queryRaw<Array<{ max: number }>>`
+            SELECT COALESCE(MAX(CAST(SUBSTRING("ticketId" FROM 5) AS INTEGER)), 0)::int AS max
+            FROM "tickets"
+            WHERE "ticketId" ~ '^TKT-[0-9]+$'
+          `;
+          const highWaterMark = Number(rows?.[0]?.max ?? 0);
+          ticketId = `TKT-${String(highWaterMark + 1 + attempt + jitter).padStart(3, '0')}`;
+          const created = await tx.ticket.create({
+            data: { ...data, ticketId, createdById: userId },
+            include: this.includeOptions,
+          });
+          await this.writeTicketCreationRecords(tx, created, assigneeIds, userId);
+          return created;
+        }, TIMER_TRANSACTION);
         break;
       } catch (err: any) {
+        if (err instanceof ConflictException) throw err;
         // P2002 = unique constraint violation — ID was taken by a concurrent insert, retry
         if (err?.code === 'P2002' && err?.meta?.target?.includes('ticketId')) {
           // Log the collision (ID + attempt only — no ticket payload/secrets).
@@ -947,10 +1033,11 @@ export class TicketsService {
   // writes; if any row fails, zero tickets are created. Only once every row
   // passes does a single transaction insert them all, so a failure partway
   // through (e.g. a rare concurrent ticketId collision) rolls back everything
-  // instead of leaving a partial batch behind. Side effects (notifications,
-  // activity log, audit log) intentionally run after the transaction commits —
-  // they must never be the reason a successful creation gets rolled back, and
-  // by the time they run the tickets are already real and visible regardless.
+  // instead of leaving a partial batch behind. The same transaction checks the
+  // creator is punched in (see create()) and writes each ticket's assignees and
+  // activity log. Notifications, websocket events and the operational event log
+  // run only after it commits — they must never be the reason a successful
+  // creation gets rolled back, and never announce one that rolled back.
   async createBulk(rows: any[], userId: string, user?: any): Promise<any[]> {
     const MAX_ROWS = 100;
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -978,6 +1065,7 @@ export class TicketsService {
     let createdTickets: any[];
     try {
       createdTickets = await this.prisma.$transaction(async (tx) => {
+        await this.activeWorkdayPolicy.assertActiveWorkdayLocked(tx, userId);
         const created: any[] = [];
         for (const row of validatedRows) {
           const hwm = await tx.$queryRaw<Array<{ max: number }>>`
@@ -991,17 +1079,13 @@ export class TicketsService {
             data: { ...row.data, ticketId, createdById: userId },
             include: this.includeOptions,
           });
-          if (row.assigneeIds.length > 0) {
-            await tx.ticketAssignee.createMany({
-              data: row.assigneeIds.map((uid) => ({ ticketId: ticket.id, userId: uid })),
-              skipDuplicates: true,
-            });
-          }
+          await this.writeTicketCreationRecords(tx, ticket, row.assigneeIds, userId);
           created.push(ticket);
         }
         return created;
-      });
+      }, TIMER_TRANSACTION);
     } catch (err: any) {
+      if (err instanceof ConflictException) throw err;
       this.logger.error(`Bulk ticket creation failed, transaction rolled back: ${err?.message}`);
       throw new BadRequestException('Could not create tickets — no tickets were created. Please try again.');
     }
@@ -1278,7 +1362,7 @@ export class TicketsService {
     data: any,
     userId: string,
     user?: any,
-    opts?: { suppressCompletionNotification?: boolean; reviewDecisionRecorded?: boolean },
+    opts?: UpdateOptions,
   ) {
     const prepared = await this.prepareUpdate(id, data, userId, user, opts);
     const afterCommit: AfterCommit = [];
@@ -1300,7 +1384,7 @@ export class TicketsService {
     data: any,
     userId: string,
     user?: any,
-    opts?: { suppressCompletionNotification?: boolean; reviewDecisionRecorded?: boolean },
+    opts?: UpdateOptions,
   ) {
     // Extract assigneeIds (not a Ticket column)
     const assigneeIds: string[] | undefined = Array.isArray(data.assigneeIds) ? data.assigneeIds : undefined;
@@ -1366,24 +1450,38 @@ export class TicketsService {
       }
     }
 
+    // Starting work needs a primary owner, whose timer the move starts. Assigning
+    // one in the same request is fine; secondary assignees alone never are.
+    // Checked only after the permission checks above (403 before this 400), and
+    // re-checked against the locked row in commitUpdate().
+    this.assertPrimaryOwnerForStatus(
+      data,
+      data.status ?? existing.status,
+      data.assignedToId !== undefined ? data.assignedToId : existing.assignedToId,
+    );
+
+    // Ticket lifecycle stamps below come from the TVA clock, like the timer ledger.
+    const now = this.tva.now();
+
     // ── REVIEW → IN_PROGRESS (rework): reset review stamps + recalculate executionDueAt ──
     // Every send-back opens a new rework cycle, whichever path it came from.
     // reject() records its own decision (with feedback and the rework
     // estimate); a direct status change (Kanban, stepper) is recorded by
     // commitUpdate(), in the same transaction as the status write.
-    const recordReworkDecision =
-      data.status === TicketStatus.IN_PROGRESS &&
-      existing.status === TicketStatus.REVIEW &&
-      !opts?.reviewDecisionRecorded;
-    if (data.status === TicketStatus.IN_PROGRESS && existing.status === TicketStatus.REVIEW) {
+    const isRework = data.status === TicketStatus.IN_PROGRESS && existing.status === TicketStatus.REVIEW;
+    const recordReworkDecision = isRework && !opts?.reviewDecisionRecorded;
+    if (isRework) {
       data.reworkCount = { increment: 1 };
       data.submittedAt = null;
       data.reviewStartedAt = null;
       data.reviewDueAt = null;
-      data.actualStartAt = existing.actualStartAt ?? new Date();
-      if (existing.estimatedMinutes) {
-        data.executionDueAt = new Date(Date.now() + existing.estimatedMinutes * 60_000);
-      }
+      data.actualStartAt = existing.actualStartAt ?? now;
+      // A rework cycle is due on its own estimate, never the original one; a
+      // cycle without an estimate has no due time.
+      const reworkEstimatedMinutes = opts?.reworkEstimatedMinutes ?? null;
+      data.executionDueAt = reworkEstimatedMinutes
+        ? new Date(now.getTime() + reworkEstimatedMinutes * 60_000)
+        : null;
     }
 
     // ── DONE/CLOSED → OPEN/IN_PROGRESS (reopen): clear stale completion and review stamps ──
@@ -1395,29 +1493,39 @@ export class TicketsService {
       data.reviewStartedAt = null;
       data.reviewDueAt = null;
       if (data.status === TicketStatus.IN_PROGRESS && existing.estimatedMinutes) {
-        data.executionDueAt = new Date(Date.now() + existing.estimatedMinutes * 60_000);
+        data.executionDueAt = new Date(now.getTime() + existing.estimatedMinutes * 60_000);
       }
     }
 
     // ── Execution timer: stamp actualStartAt + executionDueAt ────────────────
     if (data.status === TicketStatus.IN_PROGRESS && !existing.actualStartAt && !data.actualStartAt) {
-      data.actualStartAt = new Date();
+      data.actualStartAt = now;
     }
-    if (data.status === TicketStatus.IN_PROGRESS && !existing.executionDueAt) {
-      const base: Date = existing.scheduledStartAt ?? data.actualStartAt ?? new Date();
+    if (data.status === TicketStatus.IN_PROGRESS && !isRework && !existing.executionDueAt) {
+      const base: Date = existing.scheduledStartAt ?? data.actualStartAt ?? now;
       const mins: number | null | undefined = existing.estimatedMinutes;
       const due = this.calcExecutionDueAt(base, null, mins);
       if (due) data.executionDueAt = due;
     }
 
     // ── Recalculate executionDueAt when estimatedMinutes is updated ───────────
-    if (data.estimatedMinutes !== undefined && !existing.submittedAt) {
+    // estimatedMinutes is the ORIGINAL cycle's estimate. While a rework cycle is
+    // open its due date belongs to that cycle's own estimate, so editing the
+    // original estimate leaves the rework due date as it is.
+    // This read is before the transaction; commitUpdate() re-checks it under
+    // the ticket row lock, because a rework can open in between.
+    const reworkCycleOpen = isRework || (
+      data.estimatedMinutes !== undefined && await this.hasOpenReworkCycle(this.prisma, ticketDbId)
+    );
+    let dueFromOriginalEstimate = false;
+    if (data.estimatedMinutes !== undefined && !existing.submittedAt && !reworkCycleOpen) {
       const baseTime = existing.actualStartAt || existing.scheduledStartAt;
       if (baseTime) {
         const newExecutionDueAt = new Date(
           new Date(baseTime).getTime() + data.estimatedMinutes * 60_000,
         );
         data.executionDueAt = newExecutionDueAt;
+        dueFromOriginalEstimate = true;
       }
     }
 
@@ -1427,7 +1535,6 @@ export class TicketsService {
     // re-deriving it from a field this same call is about to change.
     const enteringReview = data.status === TicketStatus.REVIEW && !existing.submittedAt;
     if (enteringReview) {
-      const now = new Date();
       data.submittedAt = now;
       data.reviewStartedAt = now;
       const reviewHours = await this.getReviewSlaHoursForPriority(existing.priority);
@@ -1436,16 +1543,16 @@ export class TicketsService {
 
     // ── Completion stamps ────────────────────────────────────────────────────
     if (data.status === TicketStatus.DONE) {
-      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = new Date();
-      if (!existing.closedAt) data.closedAt = new Date();
-      data.resolvedAt = new Date();
+      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = now;
+      if (!existing.closedAt) data.closedAt = now;
+      data.resolvedAt = now;
     }
 
     if (data.status === TicketStatus.CLOSED) {
-      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = new Date();
-      if (!existing.closedAt) data.closedAt = new Date();
-      if (!existing.cancelledAt) data.cancelledAt = new Date();
-      data.resolvedAt = new Date();
+      if (!existing.actualCompletedAt && !data.actualCompletedAt) data.actualCompletedAt = now;
+      if (!existing.closedAt) data.closedAt = now;
+      if (!existing.cancelledAt) data.cancelledAt = now;
+      data.resolvedAt = now;
     }
 
     // Track history for changed fields
@@ -1460,7 +1567,7 @@ export class TicketsService {
         changedById: userId,
       }));
 
-    return { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision };
+    return { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision, now, dueFromOriginalEstimate };
   }
 
   /**
@@ -1476,13 +1583,30 @@ export class TicketsService {
     tx: Prisma.TransactionClient,
     prepared: Awaited<ReturnType<TicketsService['prepareUpdate']>>,
     userId: string,
-    opts: { suppressCompletionNotification?: boolean; reviewDecisionRecorded?: boolean } | undefined,
+    opts: UpdateOptions | undefined,
     afterCommit: AfterCommit,
   ) {
-    const { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision } = prepared;
+    const { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision, now, dueFromOriginalEstimate } = prepared;
+
+    // The owner check in prepareUpdate() read the ticket before this transaction.
+    // Re-check the final state against the locked, committed row: a concurrent
+    // unassign may have removed the owner since.
+    const locked = await this.lockTicketRow(tx, ticketDbId);
+    this.assertPrimaryOwnerForStatus(
+      data,
+      data.status ?? locked.status,
+      data.assignedToId !== undefined ? data.assignedToId : locked.assignedToId,
+    );
+
+    // A due date prepared from the original estimate must not land on a rework
+    // that opened after prepareUpdate() looked: every rework start takes this
+    // same row lock, so under it the open-cycle answer is final.
+    if (dueFromOriginalEstimate && await this.hasOpenReworkCycle(tx, ticketDbId)) {
+      delete data.executionDueAt;
+    }
 
     if (recordReworkDecision) {
-      await this.persistReviewDecision(existing, 'REWORK', userId, { reworkStartedAt: new Date() }, tx);
+      await this.persistReviewDecision(existing, 'REWORK', userId, { reworkStartedAt: now }, tx);
     }
 
     const ticket = await tx.ticket.update({
@@ -1706,7 +1830,7 @@ export class TicketsService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const blocked = await tx.ticket.update({
         where: { id: ticket.id },
-        data: { isBlocked: true, blockedAt: new Date(), blockedReason: reason.trim(), blockedById: userId },
+        data: { isBlocked: true, blockedAt: this.tva.now(), blockedReason: reason.trim(), blockedById: userId },
         include: this.includeOptions,
       });
       await tx.ticketHistory.create({
@@ -1872,24 +1996,37 @@ export class TicketsService {
 
     if (user) await this.ticketAccess.assertCanAssignTicket(user, ticket, null);
 
-    if ([TicketStatus.DONE, TicketStatus.CLOSED].includes(ticket.status)) {
-      throw new BadRequestException('Cannot unassign a completed or closed ticket');
-    }
-    if (ticket.status === TicketStatus.REVIEW) {
-      throw new BadRequestException('Move ticket back to In Progress/Open before unassigning.');
-    }
-    if (!ticket.assignedToId) {
-      throw new BadRequestException('Ticket has no primary assignee to unassign');
-    }
+    const assertUnassignable = (state: { status: TicketStatus; assignedToId: string | null }) => {
+      if (([TicketStatus.DONE, TicketStatus.CLOSED] as TicketStatus[]).includes(state.status)) {
+        throw new BadRequestException('Cannot unassign a completed or closed ticket');
+      }
+      if (state.status === TicketStatus.REVIEW) {
+        throw new BadRequestException('Move ticket back to In Progress/Open before unassigning.');
+      }
+      if (!state.assignedToId) {
+        throw new BadRequestException('Ticket has no primary assignee to unassign');
+      }
+    };
+    assertUnassignable(ticket);
 
-    const previousAssigneeId = ticket.assignedToId;
-    const wasInProgress = ticket.status === TicketStatus.IN_PROGRESS;
-    const data: any = { assignedToId: null };
-    if (wasInProgress) data.status = TicketStatus.OPEN;
+    // Decided inside the transaction from the locked row, not from the read
+    // above: a ticket that moved to IN_PROGRESS since must go back to OPEN, or
+    // it would be left IN_PROGRESS with no owner.
+    let previousAssigneeId: string = ticket.assignedToId!;
+    let previousStatus: TicketStatus = ticket.status;
+    let wasInProgress = false;
 
     // The unassign and the stop of the removed assignee's clock commit together,
     // so a clock can never keep running against someone no longer responsible.
     const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await this.lockTicketRow(tx, ticket.id);
+      assertUnassignable(locked);
+      previousAssigneeId = locked.assignedToId!;
+      previousStatus = locked.status;
+      wasInProgress = locked.status === TicketStatus.IN_PROGRESS;
+      const data: any = { assignedToId: null };
+      if (wasInProgress) data.status = TicketStatus.OPEN;
+
       const unassigned = await tx.ticket.update({
         where: { id: ticket.id },
         data,
@@ -1899,7 +2036,7 @@ export class TicketsService {
         data: [
           { ticketId: ticket.id, field: 'assignedToId', oldValue: previousAssigneeId, newValue: null, changedById: userId },
           ...(wasInProgress
-            ? [{ ticketId: ticket.id, field: 'status', oldValue: ticket.status, newValue: TicketStatus.OPEN, changedById: userId }]
+            ? [{ ticketId: ticket.id, field: 'status', oldValue: previousStatus, newValue: TicketStatus.OPEN, changedById: userId }]
             : []),
         ],
       });
@@ -1925,7 +2062,7 @@ export class TicketsService {
         entityType: 'Ticket',
         entityId: ticket.id,
         action: OperationalAction.TICKET_UNASSIGNED,
-        fromState: ticket.status,
+        fromState: previousStatus,
         toState: updated.status,
         metadata: { ticketId: ticket.ticketId, removedAssigneeId: previousAssigneeId },
       }),
@@ -2073,7 +2210,7 @@ export class TicketsService {
           ticketId: ticket.id,
           assigneeId: this.primaryAssigneeId(ticket),
           reviewerId,
-          reviewStartedAt: ticket.reviewStartedAt ?? ticket.submittedAt ?? new Date(),
+          reviewStartedAt: ticket.reviewStartedAt ?? ticket.submittedAt ?? this.tva.now(),
         }, tx);
         cycle = await this.ticketLedger.endReviewCycle(closeArgs, tx);
       }
@@ -2158,6 +2295,7 @@ export class TicketsService {
     // decision never survives a transition that failed.
     const afterCommit: AfterCommit = [];
     const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockTicketRow(tx, ticket.id); // ticket row first, as in every ticket change
       await this.persistReviewDecision(ticket, 'APPROVED', userId, effectiveRatings, tx);
       return this.commitUpdate(tx, prepared, userId, opts, afterCommit);
     }, TIMER_TRANSACTION);
@@ -2209,7 +2347,7 @@ export class TicketsService {
 
     if (user) await this.ticketAccess.assertCanTransitionTicket(user, ticket, TicketStatus.IN_PROGRESS);
 
-    const opts = { reviewDecisionRecorded: true };
+    const opts: UpdateOptions = { reviewDecisionRecorded: true, reworkEstimatedMinutes: reworkEstimatedMinutes ?? null };
     const prepared = await this.prepareUpdate(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, user, opts);
 
     // The rework decision/feedback, the new rework cycle, the move back to
@@ -2218,9 +2356,10 @@ export class TicketsService {
     // worker's first rework segment always falls inside the cycle.
     const afterCommit: AfterCommit = [];
     const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockTicketRow(tx, ticket.id); // ticket row first, as in every ticket change
       await this.persistReviewDecision(ticket, 'REWORK', userId, {
         feedback: comment,
-        reworkStartedAt: new Date(),
+        reworkStartedAt: prepared.now,
         reworkEstimatedMinutes: reworkEstimatedMinutes ?? null,
       }, tx);
       const reopened = await this.commitUpdate(tx, prepared, userId, opts, afterCommit);

@@ -52,6 +52,8 @@ describe('TicketsService.getRoutingOptions', () => {
       {} as any, // ticketTiming
       {} as any, // ticketLedger
       {} as any, // ticketImport
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
   }
 

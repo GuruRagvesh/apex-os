@@ -20,6 +20,8 @@ describe('B2 Ticket Creation Approval', () => {
         count: jest.fn().mockResolvedValue(0),
       },
       $queryRaw: jest.fn().mockResolvedValue([{ max: 122 }]),
+      // create() runs in one transaction (workday policy, ticket, assignees, activity log).
+      $transaction: jest.fn(async (cb: any) => cb(prisma)),
       activityLog: {
         create: jest.fn(),
       },
@@ -58,6 +60,8 @@ describe('B2 Ticket Creation Approval', () => {
       { decorateTicket: jest.fn(t => Promise.resolve(t)) } as any, // ticketTiming
       {} as any, // ticketLedger
       {} as any, // ticketImport
+      { assertActiveWorkdayLocked: jest.fn().mockResolvedValue({ sessionId: 'ws-1', status: 'WORKING' }) } as any, // activeWorkdayPolicy
+      { now: () => new Date() } as any, // tva
     );
   });
 

@@ -14,6 +14,7 @@ import { STATUS_LABELS } from '@apex/operations-tickets-lifecycle/shared/ticket-
 import { cn } from '@apex/shared-utilities';
 import { Plus, Search, RefreshCw, Download, AlertTriangle, UserCheck } from 'lucide-react';
 import Link from 'next/link';
+import { CreateTicketLink } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { getCompanyTodayStart, getCompanyTodayEnd } from '@/lib/company-date';
 
@@ -182,10 +183,10 @@ export default function TicketsPage() {
             <Download size={15} />
             Export
           </button>
-          <Link href="/tickets/new" className="apex-btn-new-ticket">
+          <CreateTicketLink className="apex-btn-new-ticket">
             <Plus size={16} />
             New Ticket
-          </Link>
+          </CreateTicketLink>
         </div>
       </div>
 
@@ -382,9 +383,9 @@ export default function TicketsPage() {
             </div>
             <p className="apex-empty-title">No tickets found</p>
             <p className="apex-empty-desc">Try adjusting your filters or create a new ticket.</p>
-            <Link href="/tickets/new" className="mt-3 text-sm font-medium" style={{ color: 'var(--accent)' }}>
+            <CreateTicketLink className="mt-3 text-sm font-medium" style={{ color: 'var(--accent)' }}>
               Create one →
-            </Link>
+            </CreateTicketLink>
           </div>
         )}
 

@@ -12,6 +12,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 import { TVAService } from '../../../common/services/tva.service';
+import { isPunchedInSession, ticketCreationState } from '../../../common/services/active-workday-policy.service';
 
 // Combined daily allowance for all break types (lunch + restroom + tea + other).
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
@@ -991,6 +992,9 @@ export class WorkdayService {
       exceededBreakMinutes,
       needsAutoCloseConsent,
       autoCloseTime,
+      // Same rule POST /tickets enforces (ActiveWorkdayPolicyService): the
+      // latest session of the company day decides.
+      ticketCreation: ticketCreationState(isPunchedInSession(session)),
     };
   }
 
