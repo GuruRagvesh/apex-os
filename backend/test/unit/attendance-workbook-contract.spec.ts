@@ -102,6 +102,7 @@ function report() {
         ],
       ],
     ]),
+    lateCutoff: { clock: '10:30', source: 'SYSTEM_FALLBACK' },
     timeFormatter: fmt,
   });
 }

@@ -21,7 +21,22 @@
  * to review, and the UI's job is to explain why, not to reconcile it away.
  */
 
-export const REQUIRED_PRESENCE_MINUTES = 540;
+/**
+ * The requirement to use when the caller does not know the real one.
+ *
+ * A FALLBACK, NOT THE RULE, and the rename is the point. The real requirement
+ * is per employee-day -- shift first, then attendance policy, then this -- and
+ * the backend resolves it that way in resolveRequiredPresence(). This constant
+ * is the last of those three, sitting in React because GET /attendance/daily
+ * does not yet return the resolved figure.
+ *
+ * Anyone who HAS the real requirement passes it in. When the My Attendance
+ * dashboard serves a backend-resolved requirement, this and the comparison
+ * below both go: classification belongs on the server, with the rows it
+ * classified. Until then this is a labelled fallback rather than a second
+ * opinion pretending to be the rule.
+ */
+export const FALLBACK_REQUIRED_PRESENCE_MINUTES = 540;
 
 export type EvidenceCoverage = 'FULL' | 'PARTIAL' | 'NONE';
 
@@ -39,6 +54,11 @@ export interface PresenceInput {
   sessionCount: number;
   /** Sessions with no punch evidence attached to them. */
   unevidencedSessions: number;
+  /**
+   * The resolved requirement for THIS day, when the caller knows it.
+   * Omitted falls back to the company figure -- see the constant above.
+   */
+  requiredMinutes?: number | null;
 }
 
 export interface PresenceAssessment {
@@ -64,9 +84,37 @@ function minutesBetween(a: string | null, b: string | null): number | null {
   return Math.max(0, Math.round(ms / 60000));
 }
 
+/**
+ * Exact elapsed seconds, floored. The figure the REQUIREMENT is judged on.
+ *
+ * SEPARATE FROM minutesBetween ON PURPOSE, AND THIS WAS A LIVE DEFECT.
+ *
+ * minutesBetween rounds, which is right for display -- it is the figure of
+ * record the backend also shows. It is wrong for a comparison: a presence of
+ * 08:59:59 is 539.98 minutes, rounds to 540, and the day was reported as having
+ * MET the nine-hour requirement one second short. Every employee a second under
+ * passed.
+ *
+ * Floor, and never round, so the classification cannot credit time that was not
+ * spent. This mirrors presenceSeconds() in the backend primitives, which is the
+ * one that decides; these two must not disagree.
+ */
+function secondsBetween(a: string | null, b: string | null): number | null {
+  if (!a || !b) return null;
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(0, Math.floor(ms / 1000));
+}
+
 export function assessPresence(input: PresenceInput): PresenceAssessment {
   // Policy definition. Deliberately the ONLY thing that feeds presence.
   const presenceMinutes = minutesBetween(input.punchInAt, input.punchOutAt);
+  // The same span, unrounded, for the comparison below.
+  const presenceSeconds = secondsBetween(input.punchInAt, input.punchOutAt);
+  const requiredMinutes =
+    typeof input.requiredMinutes === 'number' && input.requiredMinutes > 0
+      ? input.requiredMinutes
+      : FALLBACK_REQUIRED_PRESENCE_MINUTES;
   const sessionSpanMinutes = minutesBetween(input.firstSessionStart, input.lastSessionEnd);
 
   const coverage: EvidenceCoverage =
@@ -90,11 +138,15 @@ export function assessPresence(input: PresenceInput): PresenceAssessment {
 
   return {
     presenceMinutes,
-    requiredMinutes: REQUIRED_PRESENCE_MINUTES,
+    requiredMinutes,
     // Unknown stays unknown: an incomplete day has not failed the requirement,
     // it simply has not answered it yet.
+    //
+    // JUDGED ON SECONDS, DISPLAYED IN MINUTES. presenceMinutes is what the
+    // employee reads; presenceSeconds is what decides. Comparing the rounded
+    // figure is the defect described at secondsBetween().
     meetsRequirement:
-      presenceMinutes === null ? null : presenceMinutes >= REQUIRED_PRESENCE_MINUTES,
+      presenceSeconds === null ? null : presenceSeconds >= requiredMinutes * 60,
     workedMinutes: input.workedMinutes,
     sessionSpanMinutes,
     sessionCount: input.sessionCount,

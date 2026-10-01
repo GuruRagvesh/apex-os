@@ -6,6 +6,9 @@ import { AccessPolicyService } from '../../../../common/services/access-policy.s
 import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import {
   employmentOnDate,
+  LATE_CUTOFF_SETTING_KEY,
+  parseConfiguredCutoff,
+  resolveLateCutoff,
   resolveRequiredPresence,
 } from '../shared/attendance-primitives';
 import {
@@ -182,10 +185,16 @@ export class AttendanceReportService {
     const [policies, shifts] = await Promise.all([
       // NO `as any` HERE, DELIBERATELY. An earlier version selected
       // `officialStartTime` and `graceMinutes` from AttendancePolicy behind a
-      // cast. Neither exists on this schema -- the arrival threshold lives on
-      // ShiftPolicy.startTime -- so the cast compiled happily and would have
-      // made Late Arrival read "—" for every employee forever. The compiler
-      // checks these selects now.
+      // cast. Neither exists on this schema, so the cast compiled happily and
+      // would have made Late Arrival read "—" for every employee forever. The
+      // compiler checks these selects now, which is the only reason that class
+      // of mistake cannot come back.
+      //
+      // ONLY minimumWorkingMinutes IS TAKEN FROM THE SHIFT. startTime and
+      // graceMinutes used to be selected here to build the arrival threshold
+      // and are no longer read: the cutoff is one company value, resolved
+      // above. They are dropped rather than left selected, so nothing suggests
+      // this query still has a say in lateness.
       policyIds.length
         ? this.prisma.attendancePolicy.findMany({
             where: { id: { in: policyIds as string[] } },
@@ -195,12 +204,33 @@ export class AttendanceReportService {
       shiftIds.length
         ? this.prisma.shiftPolicy.findMany({
             where: { id: { in: shiftIds as string[] } },
-            select: { id: true, minimumWorkingMinutes: true, startTime: true, graceMinutes: true },
+            select: { id: true, minimumWorkingMinutes: true },
           })
         : Promise.resolve([]),
     ]);
     const policyById = new Map((policies as any[]).map((p) => [p.id, p]));
     const shiftById = new Map((shifts as any[]).map((s) => [s.id, s]));
+
+    // THE LATE CUTOFF, RESOLVED ONCE FOR THE WHOLE REPORT.
+    //
+    // Once, above the per-employee loop, because it is a company figure: one
+    // report cannot hold two cutoffs, and resolving it per row is how a
+    // company-wide rule turns back into a per-employee one by accident.
+    //
+    // Read straight from the setting row rather than through SettingsService,
+    // which would mean importing SettingsModule and with it EmailModule into a
+    // module whose whole design note is that it stays thin. The key and the
+    // parsing both live in attendance-primitives, so there is still one owner.
+    //
+    // A missing or unreadable setting is not an error: resolveLateCutoff()
+    // returns the company fallback and labels where it came from, so a report
+    // never fails to render over a configuration row.
+    const cutoffSetting = await this.prisma.appSetting
+      .findUnique({ where: { key: LATE_CUTOFF_SETTING_KEY }, select: { value: true } })
+      .catch(() => null);
+    const lateCutoff = resolveLateCutoff(
+      cutoffSetting ? parseConfiguredCutoff((cutoffSetting as any).value) : undefined,
+    );
 
     // The calendar, resolved ONCE for the month. `sources` says whether it
     // could be established at all: when it could not, the day reports
@@ -342,13 +372,27 @@ export class AttendanceReportService {
               }
             : null,
           requiredMinutes: requirement,
-          // The shift the day itself recorded. AttendancePolicy carries no
-          // start time on this schema, so a day with no resolvable shift has
-          // NO proven threshold and claims no lateness -- rather than falling
-          // back to a company default, which is how the console's hardcoded
-          // 10:30 came to be applied to everybody.
-          arrivalThreshold: shift?.startTime ?? null,
-          arrivalGraceMinutes: shift?.graceMinutes ?? 0,
+          // THE COMPANY CUTOFF, THE SAME ONE FOR EVERY ROW IN THIS REPORT.
+          //
+          // Resolved once per report, above the loop, not per employee -- which
+          // is the whole content of the decision. This line previously read
+          // `shift?.startTime`, deriving the cutoff from each employee's own
+          // shift, and the comment that stood here argued against a company
+          // default on the grounds that it was "how the console's hardcoded
+          // 10:30 came to be applied to everybody".
+          //
+          // THAT REASONING WAS OVERRULED, AND THE DISTINCTION IT MISSED IS THE
+          // POINT: the console's defect was that 10:30 was HARDCODED IN A
+          // SERVICE, not that it was company-wide. Company-wide is what the
+          // company means by late. One resolved, configurable value applied
+          // uniformly is the fix for the hardcoding; per-employee thresholds
+          // were a different rule nobody asked for.
+          arrivalThreshold: lateCutoff.clock,
+          // ZERO, AND NOT shift.graceMinutes. The cutoff has the grace baked
+          // in -- see COMPANY_LATE_CUTOFF_FALLBACK. Adding a shift's grace on
+          // top would move some employees' cutoff to 11:00 and put back the
+          // per-person variation this change removes.
+          arrivalGraceMinutes: 0,
           arrivalMinutes: this.arrivalMinutes(firstIn),
         });
       }
@@ -361,6 +405,7 @@ export class AttendanceReportService {
       employees: reportEmployees,
       daysByUser,
       timeFormatter: (d: Date) => formatInTimeZone(d, this.tva.companyTimezone(), 'HH:mm'),
+      lateCutoff,
     });
   }
 }

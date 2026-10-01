@@ -607,6 +607,21 @@ export interface MonthReport {
     days: number;
     unresolvedDays: number;
     employeesWithUnresolved: number;
+    /**
+     * The late cutoff this report was built against, and where it came from.
+     *
+     * REPORTED SO THE FRONTEND NEVER HAS TO KNOW IT. A console that prints
+     * "late after 10:30" from its own constant is a second copy of the rule,
+     * free to drift from the one the rows were actually classified with. This
+     * carries the real value out with the rows it decided, so the label and the
+     * data cannot disagree.
+     *
+     * `source` travels with it because SYSTEM_FALLBACK and
+     * INVALID_CONFIGURED_VALUE are not the same news: the first is the ordinary
+     * unconfigured case, the second means somebody typed something that is not
+     * a time and everyone's lateness is being judged against the fallback.
+     */
+    lateCutoff: { clock: string; source: string };
   };
 }
 
@@ -616,6 +631,7 @@ export function buildMonthReport(input: {
   employees: ReportEmployee[];
   daysByUser: Map<string, DayInput[]>;
   timeFormatter: (d: Date) => string;
+  lateCutoff: { clock: string; source: string };
 }): MonthReport {
   const dailyRows: DailyAttendanceReportRow[] = [];
   for (const employee of input.employees) {
@@ -637,6 +653,7 @@ export function buildMonthReport(input: {
       days: dailyRows.length,
       unresolvedDays: summaryRows.reduce((n, s) => n + s.unresolvedDays, 0),
       employeesWithUnresolved: summaryRows.filter((s) => s.unresolvedDays > 0).length,
+      lateCutoff: input.lateCutoff,
     },
   };
 }

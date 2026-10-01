@@ -79,6 +79,114 @@ export function resolveRequiredPresence(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// The company-wide late-arrival cutoff
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The company-wide late cutoff: arrive after this and the day reads LATE.
+ *
+ * ONE COMPANY VALUE, DELIBERATELY NOT PER EMPLOYEE. This was a product
+ * decision, and the alternative was explicitly rejected: deriving the cutoff
+ * from each employee's own shift start made "late" mean a different wall-clock
+ * time for different people, which is not what the company means by late.
+ *
+ * ALREADY INCLUSIVE OF GRACE. 10:30 is the cutoff, not a shift start that grace
+ * is then added to -- the half hour past the 10:00 shift IS the grace, spent.
+ * Adding shift grace on top would push some employees to 11:00 and quietly
+ * reintroduce the per-person variation this value exists to remove.
+ *
+ * THE FALLBACK, NOT THE SETTING. The configured value wins; this is what the
+ * company means when nothing is configured. It is named as a fallback so a
+ * reader cannot mistake it for the place to change the cutoff -- that is
+ * configuration, changeable without a deploy.
+ */
+export const COMPANY_LATE_CUTOFF_FALLBACK = '10:30';
+
+/**
+ * Where the configured cutoff lives: one AppSetting row, company-wide.
+ *
+ * NOT A COLUMN ON AttendancePolicy, and that was considered first. Attendance
+ * policies are versioned and there are several active at once -- one series per
+ * shift pattern, each with V1/V2/V3 -- so a cutoff stored there can disagree
+ * with itself, and "which active policy's 10:30 is the company's 10:30" has no
+ * answer. A single keyed setting cannot hold two values, which is the property
+ * a company-wide figure needs. It also needs no migration, so the cutoff is
+ * changeable without a deploy.
+ */
+export const LATE_CUTOFF_SETTING_KEY = 'attendance.lateCutoff';
+
+/**
+ * Pulls the cutoff out of whatever the Json setting column holds.
+ *
+ * Accepts a bare string and an object with a `clock` key, because the setting
+ * is written by hand at least once before any UI exists for it, and both shapes
+ * are the obvious thing to write. Anything else is not a cutoff and becomes
+ * null, which resolveLateCutoff() reports as INVALID_CONFIGURED_VALUE rather
+ * than passing off as "nothing configured" -- a typo and an unset value are
+ * different facts and must not arrive here looking the same.
+ */
+export function parseConfiguredCutoff(value: unknown): string | null | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    const clock = (value as any).clock ?? (value as any).lateCutoff;
+    if (typeof clock === 'string') return clock;
+  }
+  // Present but not a cutoff: a number, a boolean, an array.
+  //
+  // null, NOT undefined, and the two are not interchangeable here. undefined
+  // means nothing is configured, which is the ordinary case and resolves to the
+  // company fallback quietly. null means somebody configured something that is
+  // not a time, which is a mistake that has to stay visible. Collapsing them
+  // would make a typo indistinguishable from an unset value -- the exact thing
+  // the comment above promises not to do.
+  return null;
+}
+
+export type LateCutoffSource =
+  | 'CONFIGURED'
+  | 'SYSTEM_FALLBACK'
+  | 'INVALID_CONFIGURED_VALUE';
+
+export interface ResolvedLateCutoff {
+  /** HH:mm in company local time. Never null -- see below. */
+  clock: string;
+  source: LateCutoffSource;
+}
+
+/**
+ * The cutoff this report runs against, and where it came from.
+ *
+ * NEVER RETURNS NULL, for the same reason resolveRequiredPresence does not: a
+ * caller handed null has to invent something, and every caller that invented
+ * one invented its own 10:30 -- the console had it hardcoded as LATE_AFTER and
+ * applied it to everybody, which is the duplication this replaces.
+ *
+ * AN UNPARSEABLE CONFIGURED VALUE DOES NOT THROW, AND DOES NOT PASS SILENTLY.
+ * Throwing would fail the whole month's report for all 56 employees over one
+ * mistyped setting, and lateness is a display state -- not a reason to refuse
+ * to show attendance. Falling back silently would hide the typo until somebody
+ * noticed everyone's lateness had moved. So it falls back AND says
+ * INVALID_CONFIGURED_VALUE, which a caller can surface.
+ */
+export function resolveLateCutoff(
+  configured: string | null | undefined,
+): ResolvedLateCutoff {
+  // Nothing configured. The ordinary case, and not a problem.
+  if (configured === undefined) {
+    return { clock: COMPANY_LATE_CUTOFF_FALLBACK, source: 'SYSTEM_FALLBACK' };
+  }
+  // Configured, but not a time. Includes null from parseConfiguredCutoff (the
+  // setting held a number or an array) and the empty string (somebody cleared
+  // the field instead of removing the setting). Both are mistakes, and neither
+  // may be reported as "nothing configured".
+  if (typeof configured !== 'string' || clockToMinutes(configured) === null) {
+    return { clock: COMPANY_LATE_CUTOFF_FALLBACK, source: 'INVALID_CONFIGURED_VALUE' };
+  }
+  return { clock: configured, source: 'CONFIGURED' };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Status
 // ════════════════════════════════════════════════════════════════════════════
 

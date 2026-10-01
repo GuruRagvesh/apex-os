@@ -41,6 +41,8 @@ function build() {
     attendanceRegularization: { findMany: jest.fn(async () => []) },
     attendancePolicy: { findMany: jest.fn(async () => []) },
     shiftPolicy: { findMany: jest.fn(async () => []) },
+    // Nothing configured, so the report runs on the company fallback cutoff.
+    appSetting: { findUnique: jest.fn(async () => null) },
   };
 
   const service = new AttendanceReportService(

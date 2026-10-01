@@ -142,6 +142,7 @@ const report = (): MonthReport =>
     generatedAt: new Date('2026-10-01T09:00:00.000Z'),
     employees: EMPLOYEES,
     daysByUser: DAYS,
+    lateCutoff: { clock: '10:30', source: 'SYSTEM_FALLBACK' },
     timeFormatter: fmt,
   });
 

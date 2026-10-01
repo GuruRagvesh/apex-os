@@ -502,6 +502,7 @@ describe('the monthly summary IS the daily rows', () => {
       generatedAt: new Date('2026-10-01T00:00:00.000Z'),
       employees: [a, b],
       daysByUser,
+      lateCutoff: { clock: '10:30', source: 'SYSTEM_FALLBACK' },
       timeFormatter: fmt,
     });
 
@@ -540,6 +541,7 @@ describe('the monthly summary IS the daily rows', () => {
       generatedAt: new Date('2026-10-01T00:00:00.000Z'),
       employees: [EMP],
       daysByUser: new Map([['u-1', [day({ rawPunches: [punch('PUNCH_IN', '04:11')] })]]]),
+      lateCutoff: { clock: '10:30', source: 'SYSTEM_FALLBACK' },
       timeFormatter: fmt,
     });
 
