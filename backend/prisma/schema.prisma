@@ -1326,7 +1326,6 @@ model DailyAttendance {
   calculationReason String?
   locked            Boolean               @default(false)
   lockedAt          DateTime?
-  policyVersion     String?
 
   // ── Evaluation layer (AE-1) ─────────────────────────────────────────────
   // Provenance ids are stored WITHOUT foreign keys on purpose. This is a

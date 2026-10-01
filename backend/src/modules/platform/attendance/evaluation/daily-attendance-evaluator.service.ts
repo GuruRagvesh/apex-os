@@ -947,10 +947,10 @@ export class DailyAttendanceEvaluatorService {
       punchInEvidenceId: r.provenance.punchInEvidenceId,
       punchOutEvidenceId: r.provenance.punchOutEvidenceId,
       workSessionIds: r.provenance.workSessionIds,
-      policyVersion:
-        r.provenance.attendancePolicyVersion != null
-          ? String(r.provenance.attendancePolicyVersion)
-          : null,
+      // policyVersion is gone. It held String(attendancePolicyVersion) -- a
+      // stringified copy of an Int column on the same row -- written here and
+      // read nowhere. attendancePolicyId and attendancePolicyVersion above are
+      // the provenance that actually proves which policy decided this day.
     };
   }
   private explicitHalfDay(input: {
