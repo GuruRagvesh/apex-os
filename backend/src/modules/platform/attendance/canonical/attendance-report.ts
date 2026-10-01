@@ -640,3 +640,85 @@ export function buildMonthReport(input: {
     },
   };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// The month-close fingerprint
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A stable fingerprint of the month's CANONICAL attendance facts.
+ *
+ * ANCHORED TO THE CANONICAL DATASET, not to a workbook. The month-close guard
+ * previously hashed payroll-aggregation's own PayrollSummaryRow/RegisterRow --
+ * the output of a second, independent attendance interpretation -- so "has the
+ * attendance changed since HR approved it" was answered by a different engine
+ * from the one the console showed.
+ *
+ * NOT A HASH OF THE FILE. An XLSX is a ZIP and its entry headers carry clock
+ * timestamps, so two renders of identical data differ by bytes and hash
+ * differently. The question the guard asks is about the DATA.
+ *
+ * VERSIONED, AND THE PREFIX IS LOAD-BEARING. Changing what is hashed
+ * invalidates every previously stored value, and a bare hash comparison would
+ * then report "attendance has changed since this month was finalized" when only
+ * the scheme had -- for a month that cannot be re-finalized. The prefix lets the
+ * caller tell those two apart and say which actually happened.
+ *
+ * THE KEY LISTS ARE FROZEN rather than read from the row, so adding a reporting
+ * column does not silently invalidate stored fingerprints. Adding a field to
+ * either list is a deliberate, migration-bearing decision.
+ */
+export const FINGERPRINT_VERSION = 'v2';
+
+const FINGERPRINT_DAILY_KEYS = [
+  'attendanceStatus', 'breakTime', 'compOff', 'completion', 'date', 'department',
+  'designation', 'employeeId', 'employeeName', 'employeeType', 'hoursWorked',
+  'lateArrival', 'leave', 'leaveDeducted', 'leaveType', 'lwpUnpaid',
+  'manualCorrection', 'missingPunch', 'present', 'absent', 'halfDay', 'punchIn',
+  'punchOut', 'remarks', 'dataSource', 'totalPresenceTime',
+] as const;
+
+const FINGERPRINT_SUMMARY_KEYS = [
+  'absentDays', 'attendanceDeductions', 'clUsed', 'daysBelowNineHours',
+  'department', 'designation', 'employeeId', 'employeeName', 'employeeType',
+  'halfDays', 'lateDays', 'leaveDays', 'lwpUnpaidDays', 'presentDays',
+  'totalBreakHours', 'totalPresenceHours', 'totalWorkHours', 'unresolvedDays',
+  'workingDays',
+] as const;
+
+export function canonicalFingerprint(
+  input: {
+    month: string;
+    dailyRows: DailyAttendanceReportRow[];
+    summaryRows: MonthlyAttendanceSummaryRow[];
+  },
+  sha256: (text: string) => string,
+): string {
+  const pick = (row: any, keys: readonly string[]) => keys.map((k) => [k, row[k]]);
+  // THE REQUIREMENT IS HASHED SEPARATELY, from raw rather than from a visible
+  // column, because no visible column carries it on its own. A requirement that
+  // changes without flipping the verdict leaves every displayed string
+  // identical -- 558 minutes of presence reads "Completed - presence" against
+  // 540 and against 480 -- yet the basis of the official record did change, and
+  // a guard that could not see that would let it pass unremarked.
+  const basis = (row: DailyAttendanceReportRow) => [
+    ['requiredMinutes', row.raw.requiredMinutes],
+  ];
+  const canonical = JSON.stringify({
+    month: input.month,
+    // Sorted by the one stable key a row has, so the hash does not depend on
+    // the order the database happened to return employees in.
+    daily: [...input.dailyRows]
+      .sort((a, b) => `${a.userId}|${a.date}`.localeCompare(`${b.userId}|${b.date}`))
+      .map((r) => [...pick(r, FINGERPRINT_DAILY_KEYS), ...basis(r)]),
+    summary: [...input.summaryRows]
+      .sort((a, b) => a.userId.localeCompare(b.userId))
+      .map((s) => pick(s, FINGERPRINT_SUMMARY_KEYS)),
+  });
+  return `${FINGERPRINT_VERSION}:${sha256(canonical)}`;
+}
+
+/** Was this stored fingerprint produced by the current scheme? */
+export function isCurrentFingerprintVersion(stored: string | null | undefined): boolean {
+  return typeof stored === 'string' && stored.startsWith(`${FINGERPRINT_VERSION}:`);
+}

@@ -79,7 +79,19 @@ export class AttendanceReportService {
    *
    * One pass: read the facts in bulk, then build both datasets from them.
    */
-  async monthReport(actor: any, month: string): Promise<MonthReport> {
+  async monthReport(
+    actor: any,
+    month: string,
+    /**
+     * Pins the report's instant instead of reading the clock.
+     *
+     * The month-close lifecycle passes the stored finalizedAt so a finalized
+     * month renders identically every time it is regenerated -- a live clock
+     * would print a different "generated at" on each download and change the
+     * bytes. Omitted, it is now().
+     */
+    generatedAt?: Date,
+  ): Promise<MonthReport> {
     if (!this.accessPolicy.isHrOrAdmin(actor)) {
       throw new ForbiddenException('Only HR can read the attendance report');
     }
@@ -345,7 +357,7 @@ export class AttendanceReportService {
 
     return buildMonthReport({
       month,
-      generatedAt: this.tva.now(),
+      generatedAt: generatedAt ?? this.tva.now(),
       employees: reportEmployees,
       daysByUser,
       timeFormatter: (d: Date) => formatInTimeZone(d, this.tva.companyTimezone(), 'HH:mm'),

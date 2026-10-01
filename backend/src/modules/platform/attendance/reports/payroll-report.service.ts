@@ -1,5 +1,16 @@
 import { createHash } from 'crypto';
 import {
+  canonicalFingerprint,
+  isCurrentFingerprintVersion,
+  type MonthlyAttendanceSummaryRow,
+} from '../canonical/attendance-report';
+import {
+  attendanceWorkbookFilename,
+  buildAttendanceWorkbook,
+  workbookToBuffer,
+} from '../canonical/attendance-workbook';
+import { AttendanceReportService } from '../canonical/attendance-report.service';
+import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -11,19 +22,6 @@ import { AccessPolicyService } from '../../../../common/services/access-policy.s
 import { EventLoggerService } from '../../../../common/services/event-logger.service';
 import { SettingsService } from '../../settings/settings.service';
 import { EmailService } from '../../email/email.service';
-import {
-  monthTotals,
-  summarise,
-  toRegisterRow,
-  type DayFacts,
-  type EmployeeMeta,
-} from './payroll-aggregation';
-import {
-  buildPayrollWorkbook,
-  reportFingerprint,
-  workbookFilename,
-  workbookToBuffer,
-} from './payroll-workbook';
 import { lockAttendanceMonth } from '../evaluation/attendance-month-lock';
 
 /**
@@ -78,8 +76,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export interface PreviewResult {
   month: string;
   status: string;
-  totals: ReturnType<typeof monthTotals>;
-  summaries: ReturnType<typeof summarise>[];
+  totals: {
+    employees: number;
+    days: number;
+    unresolvedDays: number;
+    manualRecoveryDays: number;
+    employeesWithUnresolved: number;
+  };
+  /** The canonical 19-column summary rows. */
+  summaries: MonthlyAttendanceSummaryRow[];
   /**
    * SHA-256 of the canonical report DATA -- see reportFingerprint(). Named so
    * it cannot be mistaken for a digest of the workbook the caller downloads.
@@ -108,6 +113,7 @@ export class PayrollReportService {
     private readonly eventLogger: EventLoggerService,
     private readonly settings: SettingsService,
     private readonly email: EmailService,
+    private readonly attendanceReport: AttendanceReportService,
   ) {}
 
   private assertHr(actor: any) {
@@ -129,89 +135,6 @@ export class PayrollReportService {
     return { from, to: `${month}-${String(last).padStart(2, '0')}` };
   }
 
-  /**
-   * Gathers the month's facts.
-   *
-   * Punch sources come from the evidence rows rather than being inferred: a
-   * manual recovery, a phone punch and a web punch are three different claims
-   * about how attendance was established, and Finance is entitled to see which.
-   */
-  private async gather(month: string) {
-    const { from, to } = this.bounds(month);
-    const gte = this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`));
-    const lte = this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`));
-
-    const employees = await this.prisma.user.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        name: true,
-        employeeId: true,
-        department: { select: { name: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
-    const ids = employees.map((e) => e.id);
-
-    const [records, evidence, regularizations, leaves] = await Promise.all([
-      this.prisma.dailyAttendance.findMany({
-        where: { userId: { in: ids }, date: { gte, lte } },
-        orderBy: [{ userId: 'asc' }, { date: 'asc' }],
-      }),
-      this.prisma.attendancePunchEvidence.findMany({
-        where: { userId: { in: ids }, businessDate: { gte, lte } },
-        select: { id: true, source: true },
-      }),
-      this.prisma.attendanceRegularization.findMany({
-        where: { userId: { in: ids }, date: { gte, lte } },
-        select: { id: true, entrySource: true },
-      }),
-      this.prisma.leaveRequest.findMany({
-        where: { userId: { in: ids }, status: 'APPROVED' },
-        select: { id: true, type: true },
-      }),
-    ]);
-
-    const sourceById = new Map(evidence.map((e) => [e.id, e.source as string]));
-    const recoveryIds = new Set(
-      regularizations.filter((r) => r.entrySource === 'MANUAL_RECOVERY').map((r) => r.id),
-    );
-    const leaveTypeById = new Map(leaves.map((l) => [l.id, l.type as string]));
-
-    const meta: EmployeeMeta[] = employees.map((e) => ({
-      id: e.id,
-      employeeId: e.employeeId,
-      name: e.name,
-      department: e.department?.name ?? null,
-    }));
-
-    const facts: DayFacts[] = records.map((r) => ({
-      userId: r.userId,
-      date: r.date.toISOString().slice(0, 10),
-      status: r.status,
-      evaluationState: r.evaluationState,
-      punchInAt: r.punchInAt?.toISOString() ?? null,
-      punchOutAt: r.punchOutAt?.toISOString() ?? null,
-      punchInSource: r.punchInEvidenceId ? (sourceById.get(r.punchInEvidenceId) ?? null) : null,
-      punchOutSource: r.punchOutEvidenceId ? (sourceById.get(r.punchOutEvidenceId) ?? null) : null,
-      workedMinutes: r.workedMinutes,
-      breakMinutes: r.breakMinutes,
-      lateMinutes: r.lateMinutes,
-      leaveDeducted: r.leaveDeducted,
-      lwpDeducted: r.lwpDeducted,
-      leaveType: r.leaveRequestId ? (leaveTypeById.get(r.leaveRequestId) ?? null) : null,
-      exceptionFlags: r.exceptionFlags ?? [],
-      regularizationId: r.lastRegularizationId ?? null,
-      viaManualRecovery: r.lastRegularizationId
-        ? recoveryIds.has(r.lastRegularizationId)
-        : false,
-      // Session span is not stored on the record; the register reports it as
-      // unavailable rather than substituting worked minutes for it.
-      sessionSpanMinutes: null,
-    }));
-
-    return { meta, facts };
-  }
 
   /**
    * Builds the workbook and its hash.
@@ -220,42 +143,48 @@ export class PayrollReportService {
    * send time the file is rebuilt and compared, so data that changed after
    * finalisation is caught rather than quietly delivered.
    */
+  /**
+   * The month, rendered for the Finance lifecycle.
+   *
+   * CONSUMES THE CANONICAL DATASET. It previously called its own gather() and
+   * payroll-aggregation's summarise()/toRegisterRow() -- a second, independent
+   * attendance interpretation -- so finalize and send were anchored to a
+   * different engine from the one the console displayed. One dataset now feeds
+   * the console, the user download and this.
+   *
+   * The Finance artifact IS the approved two-sheet workbook. There is no
+   * separate Finance format, because a second builder would be a second place
+   * attendance could be decided.
+   */
   private async render(month: string, close: any, actorLabel: string) {
-    const { meta, facts } = await this.gather(month);
-    const byUser = new Map<string, DayFacts[]>();
-    for (const f of facts) {
-      const list = byUser.get(f.userId) ?? [];
-      list.push(f);
-      byUser.set(f.userId, list);
-    }
-
-    const summaries = meta.map((e) => summarise(e, byUser.get(e.id) ?? []));
-    const register = meta.flatMap((e) =>
-      (byUser.get(e.id) ?? []).map((d) => toRegisterRow(e, d, 540)),
+    const report = await this.attendanceReport.monthReport(
+      // Finalization and delivery must describe the same data, so the instant
+      // is pinned to the stored close row rather than the clock. A live clock
+      // would print a different "generated at" on every download of an
+      // already-closed month, and the bytes would differ each time.
+      { role: { name: 'HR' }, id: actorLabel },
+      month,
+      close?.finalizedAt ?? new Date(0),
     );
 
-    const wb = buildPayrollWorkbook({
-      month,
-      companyLabel: 'TechnoEdge',
-      summaries,
-      register,
-      // Fixed for a finalized month so the cover sheet reads the same however
-      // often it is regenerated; a live clock would print a different
-      // "generated at" on every download of an already-closed month.
-      generatedAt: close?.finalizedAt ?? new Date(0),
-      generatedBy: actorLabel,
-      finalizedAt: close?.finalizedAt ?? null,
-      finalizedBy: close?.finalizedBy?.name ?? null,
-    });
+    const buffer = await workbookToBuffer(buildAttendanceWorkbook(report));
 
-    const buffer = await workbookToBuffer(wb);
     return {
       buffer,
-      summaries,
-      totals: monthTotals(summaries, facts),
-      // Over the DATA, not the file bytes: an XLSX is a ZIP and its entry
-      // headers carry clock timestamps, so file hashes are not reproducible.
-      dataFingerprint: reportFingerprint({ month, summaries, register }),
+      summaries: report.summaryRows,
+      totals: {
+        employees: report.metadata.employees,
+        days: report.metadata.days,
+        unresolvedDays: report.metadata.unresolvedDays,
+        manualRecoveryDays: 0,
+        employeesWithUnresolved: report.metadata.employeesWithUnresolved,
+      },
+      // Over the canonical DATA, not the file bytes, and version-prefixed so a
+      // scheme change can be told apart from an attendance change.
+      dataFingerprint: canonicalFingerprint(
+        { month, dailyRows: report.dailyRows, summaryRows: report.summaryRows },
+        (text) => createHash('sha256').update(text).digest('hex'),
+      ),
     };
   }
 
@@ -332,7 +261,7 @@ export class PayrollReportService {
 
     return {
       buffer: rendered.buffer,
-      filename: workbookFilename(month, Boolean(close?.finalizedAt)),
+      filename: attendanceWorkbookFilename(month),
     };
   }
 
@@ -545,6 +474,21 @@ export class PayrollReportService {
 
     const rendered = await this.renderCanonical(month);
     // close.reportSha256 is the stored DATA fingerprint (V1 column name).
+    //
+    // TWO DIFFERENT FAILURES, AND THEY MUST NOT SHARE A MESSAGE.
+    //
+    // A stored fingerprint from the previous scheme cannot be compared to a
+    // current one: the old value hashed the retired payroll rows, the new value
+    // hashes canonical facts. Reporting that as "attendance has changed" would
+    // be factually wrong AND unrecoverable, because this path refuses to
+    // re-finalize. So the scheme mismatch is named for what it is.
+    if (close.reportSha256 && !isCurrentFingerprintVersion(close.reportSha256)) {
+      throw new ForbiddenException(
+        'This month was finalized before the attendance reporting was unified, so its stored ' +
+          'fingerprint cannot be compared to the current one. The attendance itself may be ' +
+          'unchanged. An HR re-finalization of this month is required before it can be sent.',
+      );
+    }
     if (close.reportSha256 && rendered.dataFingerprint !== close.reportSha256) {
       throw new ForbiddenException(
         'Attendance has changed since this month was finalized, so the report no longer matches ' +

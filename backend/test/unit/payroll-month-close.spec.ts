@@ -18,6 +18,30 @@ import {
 // The email transport is stubbed throughout. No real message is sent by a test.
 
 const NOW = new Date('2026-09-01T06:00:00.000Z');
+
+/** One canonical summary row, so the lifecycle's stored counts are real. */
+const DEFAULT_SUMMARY_ROW: any = {
+  userId: 'emp-1',
+  employeeName: 'Rahul',
+  employeeId: 'TE-014',
+  department: 'Engineering',
+  designation: 'Engineer',
+  employeeType: 'Full-time',
+  workingDays: 21,
+  presentDays: 20,
+  absentDays: 1,
+  halfDays: 0,
+  leaveDays: 0,
+  lateDays: 2,
+  daysBelowNineHours: 1,
+  totalPresenceHours: 180.5,
+  totalWorkHours: 171,
+  totalBreakHours: 12,
+  clUsed: 0,
+  lwpUnpaidDays: 0,
+  attendanceDeductions: 0,
+  unresolvedDays: 0,
+};
 const HR = { id: 'hr-1', name: 'Priya', role: { name: 'HR' } };
 const EMPLOYEE = { id: 'emp-1', name: 'Rahul', role: { name: 'EMPLOYEE' } };
 
@@ -26,7 +50,15 @@ function build(over: any = {}) {
   // Every real close row has a primary key. Fixtures that omitted it were
   // describing a row that cannot exist, and the idempotency key rightly
   // refuses to be built from one.
-  if (over.close) closes.set(over.close.month, { id: 'mc-1', reportSha256: 'fp-report', ...over.close });
+  // A CURRENT-SCHEME value by default. A bare V1-style digest is now
+  // correctly refused by the scheme guard, which is what the
+  // 'finalized before the reporting was unified' test exercises deliberately.
+  if (over.close)
+    closes.set(over.close.month, {
+      id: 'mc-1',
+      reportSha256: 'v2:' + 'f'.repeat(64),
+      ...over.close,
+    });
   const audit: any[] = [];
   const sent: any[] = [];
 
@@ -104,16 +136,58 @@ function build(over: any = {}) {
           : { outcome: 'REJECTED', reason: 'validation_error' };
       }),
     } as any,
+    // THE CANONICAL DATASET, as a double.
+    //
+    // The lifecycle no longer derives attendance: it asks the canonical report
+    // service and fingerprints what comes back. A fixture therefore supplies
+    // canonical rows rather than DailyAttendance records, and the fingerprint
+    // under test is computed over THOSE rows -- which is the point of the
+    // change.
+    {
+      monthReport: jest.fn(async (_actor: any, month: string, generatedAt?: Date) => {
+        const rows = over.summaryRows ?? [DEFAULT_SUMMARY_ROW];
+        const days = over.dailyRows ?? [];
+        return {
+        month,
+        dailyRows: days,
+        // ONE EMPLOYEE BY DEFAULT. The counts the lifecycle stores are derived
+        // from this, so a fixture describing nothing would let "stores counts
+        // computed from the data" pass against zeros.
+        summaryRows: rows,
+        // DERIVED FROM THE SAME ARRAY the double returns.
+        //
+        // This counted `over.summaryRows ?? []` while summaryRows defaulted to
+        // [DEFAULT_SUMMARY_ROW], so a report carried one row and claimed zero
+        // employees -- the double contradicted itself, and eight tests failed
+        // on the implementation's behalf.
+        metadata: {
+          generatedAt: generatedAt ?? NOW,
+          employees: rows.length,
+          days: days.length,
+          unresolvedDays: rows.reduce((n: number, r: any) => n + (r.unresolvedDays ?? 0), 0),
+          employeesWithUnresolved: rows.filter((r: any) => (r.unresolvedDays ?? 0) > 0).length,
+        },
+        };
+      }),
+    } as any,
   );
 
   // Pins what renderCanonical produces, so a fixture can carry a REAL
   // fingerprint and the comparison against it is deliberate rather than
   // accidental. Tests that want a mismatch pass a different value; tests about
   // the real digest format leave it unset and get the genuine implementation.
-  if (over.renderFingerprint) {
+  // DEFAULTS TO AGREEING WITH THE STORED VALUE.
+  //
+  // The fingerprint is computed over canonical rows now, so a fixture's stored
+  // digest and a freshly computed one no longer coincide by accident. The
+  // send-path tests are about delivery, not about the guard, so the render is
+  // pinned to the stored value unless a test deliberately wants a mismatch --
+  // which it states by passing a different renderFingerprint.
+  const pinned = over.renderFingerprint ?? over.close?.reportSha256;
+  if (pinned) {
     jest.spyOn(service as any, 'renderCanonical').mockImplementation(async () => ({
       buffer: Buffer.from('synthetic-workbook'),
-      dataFingerprint: over.renderFingerprint,
+      dataFingerprint: pinned,
       totals: { employees: 1, unresolvedDays: 0, employeesWithUnresolved: 0 },
     }));
   }
@@ -186,7 +260,7 @@ describe('the lifecycle never skips a step', () => {
 });
 
 describe('every figure is derived, never supplied', () => {
-  it('stores counts computed from the data', async () => {
+  it('stores counts computed from the CANONICAL data', async () => {
     const { service, closes } = build();
     await service.finalize(HR, '2026-08');
     const row = closes.get('2026-08');
@@ -205,7 +279,9 @@ describe('every figure is derived, never supplied', () => {
     await service.finalize(HR, '2026-08');
     const row = closes.get('2026-08');
 
-    expect(row.reportSha256).toMatch(/^[0-9a-f]{64}$/);
+    // Version-prefixed on purpose: a bare digest could not be told apart
+    // from one produced by the retired scheme.
+    expect(row.reportSha256).toMatch(/^v2:[0-9a-f]{64}$/);
     expect(row.reportByteSize).toBeGreaterThan(0);
   });
 
@@ -290,14 +366,14 @@ describe('sending is explicit and honest', () => {
     unresolvedDays: 0,
     employeesWithUnresolved: 0,
     // finalize() always stores this; a FINALIZED row without one cannot exist.
-    reportSha256: 'fp-finalized-report',
+    reportSha256: 'v2:' + 'f'.repeat(64),
     finalizedBy: { name: 'Priya' },
   };
 
   it('delivers and records the recipient at send time', async () => {
     // Copied onto the row so changing the setting next month cannot rewrite
     // who an already-sent report went to.
-    const { service, closes, sent } = build({ close: finalized, renderFingerprint: 'fp-finalized-report' });
+    const { service, closes, sent } = build({ close: finalized });
     await service.send(HR, '2026-08');
     const row = closes.get('2026-08');
 
@@ -309,7 +385,7 @@ describe('sending is explicit and honest', () => {
   });
 
   it('never records SENT when delivery failed', async () => {
-    const { service, closes } = build({ close: finalized, sendOk: false, renderFingerprint: 'fp-finalized-report' });
+    const { service, closes } = build({ close: finalized, sendOk: false });
 
     await expect(service.send(HR, '2026-08')).rejects.toThrow(/could not be delivered/i);
     const row = closes.get('2026-08');
@@ -338,7 +414,6 @@ describe('sending is explicit and honest', () => {
         deliveryStatus: 'UNKNOWN',
         deliveryFirstAttemptAt: new Date('2026-09-01T00:00:00.000Z'),
       },
-      renderFingerprint: 'fp-finalized-report',
     });
 
     await service.send(HR, '2026-08');
@@ -356,7 +431,6 @@ describe('sending is explicit and honest', () => {
         deliveryStatus: 'UNKNOWN',
         deliveryFirstAttemptAt: first,
       },
-      renderFingerprint: 'fp-finalized-report',
     });
 
     await service.send(HR, '2026-08');
@@ -372,7 +446,6 @@ describe('sending is explicit and honest', () => {
         // Frozen clock is 2026-09-01T06:00Z, so this is three days old.
         deliveryFirstAttemptAt: new Date('2026-08-29T06:00:00.000Z'),
       },
-      renderFingerprint: 'fp-finalized-report',
     });
 
     await expect(service.send(HR, '2026-08')).rejects.toThrow(/idempotency window has expired/i);
@@ -383,7 +456,7 @@ describe('sending is explicit and honest', () => {
   });
 
   it('records a thrown transport error as UNKNOWN, which is not the same as failed', async () => {
-    const { service, closes } = build({ close: finalized, sendThrows: true, renderFingerprint: 'fp-finalized-report' });
+    const { service, closes } = build({ close: finalized, sendThrows: true });
 
     await expect(service.send(HR, '2026-08')).rejects.toThrow(/could not be delivered/i);
     expect(closes.get('2026-08').deliveryStatus).toBe('UNKNOWN');
@@ -392,14 +465,14 @@ describe('sending is explicit and honest', () => {
   });
 
   it('allows a retry of the same finalized month', async () => {
-    const { service, closes } = build({ close: { ...finalized, deliveryStatus: 'FAILED' }, renderFingerprint: 'fp-finalized-report' });
+    const { service, closes } = build({ close: { ...finalized, deliveryStatus: 'FAILED' } });
     await service.send(HR, '2026-08');
 
     expect(closes.get('2026-08').status).toBe('SENT');
   });
 
   it('refuses when no Finance recipient is configured', async () => {
-    const { service } = build({ close: finalized, recipient: null, renderFingerprint: 'fp-finalized-report' });
+    const { service } = build({ close: finalized, recipient: null });
 
     await expect(service.send(HR, '2026-08')).rejects.toThrow(/no finance recipient/i);
   });
@@ -415,7 +488,11 @@ describe('sending is explicit and honest', () => {
     // materially different attendance under the old approval would
     // misrepresent what HR agreed to.
     const { service } = build({
-      close: { ...finalized, reportSha256: 'a'.repeat(64) },
+      // Same scheme, different digest: this must read as an ATTENDANCE
+      // change, which is a different failure from a scheme change.
+      close: { ...finalized, reportSha256: 'v2:' + 'a'.repeat(64) },
+      // Stated on both sides so the mismatch is deliberate.
+      renderFingerprint: 'v2:' + 'b'.repeat(64),
     });
 
     await expect(service.send(HR, '2026-08')).rejects.toThrow(/no longer matches/i);
@@ -503,7 +580,7 @@ describe('audit', () => {
   it('records a failed send as a failure', async () => {
     const { service, audit } = build({
       close: { month: '2026-08', status: 'FINALIZED', finalizedBy: { name: 'Priya' } },
-      renderFingerprint: 'fp-report',
+      renderFingerprint: 'v2:' + 'f'.repeat(64),
       sendOk: false,
     });
 
@@ -548,7 +625,12 @@ describe('the stored digest is never presented as a file hash', () => {
   const SURFACE = [
     'prisma/schema.prisma',
     'src/modules/platform/attendance/reports/payroll-report.service.ts',
-    'src/modules/platform/attendance/reports/payroll-workbook.ts',
+    // payroll-workbook.ts is gone -- it was the second attendance engine. The
+    // canonical workbook and the fingerprint that replaced it are scanned
+    // instead, so the guard still covers every file that could describe the
+    // digest as a hash of the file.
+    'src/modules/platform/attendance/canonical/attendance-workbook.ts',
+    'src/modules/platform/attendance/canonical/attendance-report.ts',
     '../frontend/components/attendance/payroll-api.ts',
     '../frontend/components/attendance/PayrollMonthClose.tsx',
   ];
@@ -560,7 +642,7 @@ describe('the stored digest is never presented as a file hash', () => {
     const status: any = await service.status(HR, '2026-08');
 
     for (const shape of [preview, finalized, status]) {
-      expect(shape.reportDataFingerprint).toMatch(/^[0-9a-f]{64}$/);
+      expect(shape.reportDataFingerprint).toMatch(/^v2:[0-9a-f]{64}$/);
       expect('reportSha256' in shape).toBe(false);
     }
   });
@@ -568,7 +650,7 @@ describe('the stored digest is never presented as a file hash', () => {
   it('renames at the boundary rather than leaking the column through send', async () => {
     const { service } = build({
       close: { month: '2026-08', status: 'FINALIZED', finalizedById: 'hr-1' },
-      renderFingerprint: 'fp-report',
+      renderFingerprint: 'v2:' + 'f'.repeat(64),
     });
     const sentRow: any = await service.send(HR, '2026-08');
 
