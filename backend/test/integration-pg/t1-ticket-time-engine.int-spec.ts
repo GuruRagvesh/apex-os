@@ -707,7 +707,7 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     expect(timers.lifecycle.endState).toBe('DONE');
     expect(timers.totalTicketSeconds).toBe(4 * 3600);
     expect(timers.employeeWorkSeconds).toBe(2 * 3600);
-    expect(timers.reviewerApprovalSeconds).toBe(2 * 3600);
+    expect(timers.reviewTurnaroundSeconds).toBe(2 * 3600); // wall-clock time in REVIEW (Phase 4 name)
     expect(timers.original).toEqual({ estimatedMinutes: 240, actualSeconds: 2 * 3600 });
     // No reviewer/manager timer was ever created.
     expect(await prisma.ticketTimeLog.count({ where: { userId: MANAGER } })).toBe(0);
@@ -736,7 +736,10 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     await move(t.id, TicketStatus.REVIEW); // Q: 30m + 30m of rework, the break excluded (P)
 
     let cycles = await prisma.reviewCycleLog.findMany({ where: { ticketId: t.id }, orderBy: { cycleNo: 'asc' } });
-    expect(cycles).toHaveLength(1);
+    // Phase 4: the resubmission at 08:30 opened review cycle 2 right away (undecided).
+    expect(cycles).toHaveLength(2);
+    expect(cycles[1]).toMatchObject({ decision: null });
+    expect(cycles[1].reviewStartedAt!.toISOString()).toBe(D1('08:30').toISOString());
     expect(cycles[0]).toMatchObject({ decision: 'REWORK', reworkEstimatedMinutes: 120, reworkWorkSeconds: 3600 });
     expect(cycles[0].reworkEndedAt!.toISOString()).toBe(D1('08:30').toISOString());
     expect((await prisma.ticket.findUnique({ where: { id: t.id } }))!.estimatedMinutes).toBe(240); // O
@@ -748,7 +751,9 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     await move(t.id, TicketStatus.REVIEW);
 
     cycles = await prisma.reviewCycleLog.findMany({ where: { ticketId: t.id }, orderBy: { cycleNo: 'asc' } });
-    expect(cycles).toHaveLength(2);
+    // Two decided rework cycles, plus cycle 3 opened by the 09:45 resubmission (Phase 4).
+    expect(cycles).toHaveLength(3);
+    expect(cycles[2]).toMatchObject({ decision: null });
     expect(cycles[1]).toMatchObject({ decision: 'REWORK', reworkEstimatedMinutes: null, reworkWorkSeconds: 45 * 60 });
     expect(cycles[0].reworkWorkSeconds).toBe(3600); // R: first cycle preserved
 

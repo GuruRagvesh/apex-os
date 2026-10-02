@@ -615,7 +615,7 @@ export default function AnalyticsScreen() {
               Your Review Metrics
             </h2>
             <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-              Review time is counted from when a ticket enters REVIEW until a decision is made.
+              Reviewer active time counts only while you have a review started (Start Review); review turnaround and the SLA run from submission to your decision. Withdrawn submissions are not counted as reviews.
             </p>
           </div>
 
@@ -636,9 +636,9 @@ export default function AnalyticsScreen() {
                   color="green"
                 />
                 <MetricCard
-                  label="Avg. Reviewer Time"
+                  label="Avg. Reviewer Active Time"
                   value={fmtSeconds((reviewerMetrics as any).averageApprovalSeconds)}
-                  sub="Average active time per review cycle"
+                  sub="Active review time (Start Review) per timed review"
                   icon={<Clock size={16} />}
                   color="blue"
                 />
@@ -683,7 +683,7 @@ export default function AnalyticsScreen() {
                 <MetricCard
                   label="SLA Breaches"
                   value={(reviewerMetrics as any).approvalSlaBreaches ?? 0}
-                  sub="Reviews that exceeded the review SLA limit"
+                  sub="Review turnaround (submission to decision) beyond the review SLA"
                   icon={<AlertTriangle size={16} />}
                   color={(reviewerMetrics as any).approvalSlaBreaches > 0 ? 'red' : 'green'}
                 />

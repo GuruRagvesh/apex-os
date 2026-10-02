@@ -24,6 +24,8 @@ export const LEDGER_SOURCES = {
   WORKDAY: 'WORKDAY',
   TICKET_STATUS: 'TICKET_STATUS',
   MANUAL: 'MANUAL',
+  // A reviewer's explicit Start Review. Reviewer time never starts any other way.
+  REVIEW_ACTION: 'REVIEW_ACTION',
 };
 
 export const LEDGER_PAUSE_REASONS = {
@@ -53,6 +55,17 @@ export const LEDGER_PAUSE_REASONS = {
   // or duplicate active timer with countsAsWork = false. A deliberate stop:
   // never auto-resumed.
   INTEGRITY_REPAIR: 'INTEGRITY_REPAIR',
+  // Reviewer timer stops (Phase 4). All are deliberate: a reviewer timer never
+  // resumes by itself, the reviewer starts it again.
+  REVIEW_PAUSED: 'REVIEW_PAUSED',
+  // The person's own employee timer, paused because they started a review.
+  // Resumed when that review clock stops (resumeAfterReview), never by the
+  // workday's own resume, which treats it like any deliberate stop.
+  REVIEW_SWITCHED: 'REVIEW_SWITCHED',
+  REVIEW_DECISION: 'REVIEW_DECISION',
+  REVIEW_WITHDRAWN: 'REVIEW_WITHDRAWN',
+  // The ticket left REVIEW some other way, or its assignee changed while in review.
+  REVIEW_ENDED: 'REVIEW_ENDED',
 };
 
 // A segment that ended for one of these reasons was interrupted by the worker's
@@ -124,17 +137,38 @@ export function isProductiveLog(l: { countsAsWork?: boolean | null }): boolean {
 export const ONE_ACTIVE_TIMER_CONFLICT =
   'Another timer for this worker started at the same moment. Please try again.';
 
-export const ONE_ACTIVE_TIMER_INDEX = 'ticket_time_logs_one_active_assignee_per_user';
+/**
+ * One active timed ticket per user, across employee (ASSIGNEE) and reviewer
+ * (REVIEWER) timers. Phase 4 replaced the Phase 2D1 ASSIGNEE-only index with
+ * this one; the old name is still recognised for databases mid-release.
+ */
+export const ONE_ACTIVE_TIMER_INDEX = 'ticket_time_logs_one_active_timed_per_user';
+export const LEGACY_ONE_ACTIVE_TIMER_INDEX = 'ticket_time_logs_one_active_assignee_per_user';
+
+/** Owner types that run a timed clock; at most one active row per user across them. */
+export const TIMED_OWNER_TYPES = [LEDGER_OWNER_TYPES.ASSIGNEE, LEDGER_OWNER_TYPES.REVIEWER];
+
+/** Safe reviewer-timer refusals (codes are stable API, messages are user-facing). */
+export const REVIEWER_TIMER_ERRORS = {
+  OTHER_REVIEW_ACTIVE: {
+    code: 'OTHER_REVIEW_ACTIVE',
+    message: 'You are already reviewing another ticket. Pause that review first.',
+  },
+  REVIEWER_NOT_WORKING: {
+    code: 'REVIEWER_NOT_WORKING',
+    message: 'Resume work before starting a review.',
+  },
+} as const;
 
 /**
- * True when `err` is the database refusing a second active ASSIGNEE timer for
- * one user (the Phase 2D1 partial unique index), however Prisma surfaced it.
+ * True when `err` is the database refusing a second active timed row for one
+ * user (the one-active-timer partial unique index), however Prisma surfaced it.
  */
 export function isOneActiveTimerViolation(err: unknown): boolean {
   const e = err as { code?: string; message?: string; meta?: Record<string, unknown> } | null;
   if (!e) return false;
   const text = `${e.message ?? ''} ${JSON.stringify(e.meta ?? {})}`;
-  if (text.includes(ONE_ACTIVE_TIMER_INDEX)) return true;
+  if (text.includes(ONE_ACTIVE_TIMER_INDEX) || text.includes(LEGACY_ONE_ACTIVE_TIMER_INDEX)) return true;
   if (e.code !== 'P2002') return false;
   const target = e.meta?.target;
   const fields = Array.isArray(target) ? target : [target];
@@ -166,17 +200,26 @@ export class TicketLedgerService {
    *   original / rework  the original cycle is compared against
    *                      Ticket.estimatedMinutes; each rework cycle against its
    *                      own ReviewCycleLog.reworkEstimatedMinutes.
-   *   review             wall-clock time in REVIEW, a separate clock. No
-   *                      reviewer or manager timer exists.
+   *   reviewer work      productive REVIEWER ledger time: only while a
+   *                      reviewer has explicitly started review and is
+   *                      working. Never counted as employee work.
+   *   review turnaround  wall-clock time in REVIEW (the review SLA clock). It
+   *                      keeps running through breaks and while no reviewer
+   *                      clock runs; it is never reviewer work.
    *
-   * totalTicketSeconds / employeeWorkSeconds / reviewerApprovalSeconds /
-   * activeClock keep the names the ticket page already reads.
+   * activeClock is the ledger's live clock: EMPLOYEE_WORK (an ASSIGNEE row is
+   * running), REVIEWER_WORK (a REVIEWER row is running) or NONE. Being in
+   * REVIEW alone is not a running clock.
    */
   async getTicketTimers(ticket: any) {
     const now = this.tva.now();
-    const [logs, cycles] = await Promise.all([
+    const [logs, reviewerLogs, cycles] = await Promise.all([
       this.prisma.ticketTimeLog.findMany({
         where: { ticketId: ticket.id, ownerType: LEDGER_OWNER_TYPES.ASSIGNEE },
+        orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.ticketTimeLog.findMany({
+        where: { ticketId: ticket.id, ownerType: LEDGER_OWNER_TYPES.REVIEWER },
         orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.reviewCycleLog.findMany({
@@ -229,6 +272,10 @@ export class TicketLedgerService {
     const inReview = ticket.status === 'REVIEW' && ticket.reviewStartedAt;
     if (inReview) reviewSeconds += this.tva.elapsedSeconds(ticket.reviewStartedAt, now);
 
+    const reviewerWorkSeconds = reviewerLogs
+      .filter(isProductiveLog)
+      .reduce((acc: number, l: any) => acc + logSeconds(l), 0);
+
     const lifecycleStartedAt: Date | null = ticket.actualStartAt ?? logs[0]?.startedAt ?? null;
     let lifecycleEndedAt: Date | null = null;
     let lifecycleEndState: 'DONE' | 'CLOSED' | null = null;
@@ -243,18 +290,23 @@ export class TicketLedgerService {
       ? this.tva.elapsedSeconds(lifecycleStartedAt, lifecycleEndedAt ?? now)
       : 0;
 
-    const active = logs.find((l: any) => !l.endedAt) ?? null;
-    const activeClock = active ? 'EMPLOYEE_WORK' : inReview ? 'REVIEWER_APPROVAL' : 'NONE';
+    const activeEmployee = logs.find((l: any) => !l.endedAt) ?? null;
+    const activeReviewer = reviewerLogs.find((l: any) => !l.endedAt) ?? null;
+    const active = activeEmployee ?? activeReviewer;
+    const activeClock = activeEmployee ? 'EMPLOYEE_WORK' : activeReviewer ? 'REVIEWER_WORK' : 'NONE';
     const pause = active ? null : (await this.getPauseStates([ticket])).get(ticket.id) ?? null;
 
     return {
       pause,
       totalTicketSeconds: lifecycleSeconds,
       employeeWorkSeconds,
-      reviewerApprovalSeconds: reviewSeconds,
+      // Wall-clock time in REVIEW (review SLA / turnaround). Not reviewer work.
+      reviewTurnaroundSeconds: reviewSeconds,
+      // Productive reviewer time, from explicit Start Review segments only.
+      reviewerWorkSeconds,
       activeClock,
       active: active
-        ? { userId: active.userId, stage: active.stage, startedAt: active.startedAt }
+        ? { userId: active.userId, ownerType: active.ownerType, stage: active.stage, startedAt: active.startedAt }
         : null,
       lifecycle: {
         startedAt: lifecycleStartedAt,
@@ -1007,6 +1059,126 @@ export class TicketLedgerService {
     return this.startWorkLog(input);
   }
 
+  /**
+   * Starts the reviewer's active-work clock on a ticket in REVIEW. The caller
+   * (TicketsService.startReview) has already authorised the reviewer, locked
+   * the ticket row, required an active workday and ensured an open review
+   * cycle, all in `tx`.
+   *
+   * Under the reviewer's timer lock it re-reads the reviewer's active rows:
+   *   - this ticket's reviewer clock already running → ALREADY_RUNNING (idempotent)
+   *   - another review clock running → 409 (one review at a time)
+   *   - reviewer not WORKING (on break, idle, no open session) → 409
+   * Otherwise the person's own running employee timer (if any) is paused
+   * (REVIEW_SWITCHED) and one REVIEWER row starts at the same instant, stage
+   * REVIEW, countsAsWork = true, all in the caller's transaction.
+   * resumeAfterReview() puts the employee work back when the review stops.
+   */
+  async startReviewerTimer(
+    input: { ticketId: string; reviewerId: string },
+    tx: Prisma.TransactionClient,
+  ): Promise<{ outcome: 'STARTED' | 'ALREADY_RUNNING'; log: any; switchedLogIds: string[] }> {
+    await this.lockWorkerTimers(tx, input.reviewerId);
+    const active = await tx.ticketTimeLog.findMany({
+      where: { userId: input.reviewerId, endedAt: null },
+      orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
+    });
+    const same = active.find((l) => l.ticketId === input.ticketId && l.ownerType === LEDGER_OWNER_TYPES.REVIEWER);
+    if (same) return { outcome: 'ALREADY_RUNNING', log: same, switchedLogIds: [] };
+    if (active.some((l) => l.ownerType === LEDGER_OWNER_TYPES.REVIEWER)) {
+      throw new ConflictException(REVIEWER_TIMER_ERRORS.OTHER_REVIEW_ACTIVE);
+    }
+
+    const availability = await this.workerAvailability(tx, input.reviewerId);
+    if (availability.state !== 'WORKING') throw new ConflictException(REVIEWER_TIMER_ERRORS.REVIEWER_NOT_WORKING);
+
+    try {
+      const now = this.tva.now();
+      // The person's own employee clock stops at the instant review starts.
+      const switchedLogIds: string[] = [];
+      for (const l of active.filter((a) => a.ownerType === LEDGER_OWNER_TYPES.ASSIGNEE)) {
+        await this.closeLog(tx, l, now, LEDGER_PAUSE_REASONS.REVIEW_SWITCHED);
+        switchedLogIds.push(l.id);
+      }
+      const log = await tx.ticketTimeLog.create({
+        data: {
+          ticketId: input.ticketId,
+          userId: input.reviewerId,
+          stage: LEDGER_STAGES.REVIEW,
+          ownerType: LEDGER_OWNER_TYPES.REVIEWER,
+          source: LEDGER_SOURCES.REVIEW_ACTION,
+          countsAsWork: true,
+          startedAt: now,
+          workSessionId: availability.workSessionId,
+        },
+      });
+      return { outcome: 'STARTED', log, switchedLogIds };
+    } catch (err) {
+      if (isOneActiveTimerViolation(err)) throw new ConflictException(ONE_ACTIVE_TIMER_CONFLICT);
+      throw err;
+    }
+  }
+
+  /**
+   * Stops the reviewer's own clock on one ticket. Idempotent: nothing running
+   * returns { paused: false }. Never touches anyone else's rows.
+   */
+  async pauseReviewerTimer(
+    input: { ticketId: string; reviewerId: string; pauseReason: string },
+    tx: Prisma.TransactionClient,
+  ): Promise<{ paused: boolean; log?: any }> {
+    await this.lockWorkerTimers(tx, input.reviewerId);
+    const running = await tx.ticketTimeLog.findFirst({
+      where: {
+        ticketId: input.ticketId,
+        userId: input.reviewerId,
+        ownerType: LEDGER_OWNER_TYPES.REVIEWER,
+        endedAt: null,
+      },
+    });
+    if (!running) return { paused: false };
+    const log = await this.closeLog(tx, running, this.tva.now(), input.pauseReason);
+    return { paused: true, log };
+  }
+
+  /**
+   * After a review clock stops for a review reason (Pause Review, a decision,
+   * a withdrawal, the ticket leaving REVIEW): put the person's employee work
+   * back, in the caller's transaction. Only while they are WORKING with
+   * nothing else running; on break, idle or off shift nothing resumes here
+   * (the normal workday resume handles it later). The exact ticket the review
+   * paused resumes if it is still workable, otherwise the next waiting one.
+   */
+  async resumeAfterReview(userId: string, tx: Prisma.TransactionClient) {
+    const availability = await this.workerAvailability(tx, userId);
+    if (availability.state !== 'WORKING') return { outcome: 'NOTHING_TO_DO' as const };
+    const running = await tx.ticketTimeLog.findFirst({ where: { userId, endedAt: null }, select: { id: true } });
+    if (running) return { outcome: 'NOTHING_TO_DO' as const };
+
+    const latest = await tx.ticketTimeLog.findFirst({
+      where: { userId, ownerType: LEDGER_OWNER_TYPES.ASSIGNEE, endedAt: { not: null } },
+      orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
+    });
+    if (latest?.pauseReason === LEDGER_PAUSE_REASONS.REVIEW_SWITCHED) {
+      const result = await this.startAssigneeTimer({
+        ticketId: latest.ticketId,
+        workerId: userId,
+        mode: 'RESUME',
+        source: LEDGER_SOURCES.SYSTEM,
+      }, tx);
+      if (result.outcome === 'STARTED' || result.outcome === 'ALREADY_ACTIVE') return result;
+    }
+    return this.resumeNextWaitingTicket(userId, undefined, tx);
+  }
+
+  /** The ticket's open (undecided) review cycle, if any. */
+  async findOpenReviewCycle(ticketId: string, tx?: Prisma.TransactionClient) {
+    return (tx ?? this.prisma).reviewCycleLog.findFirst({
+      where: { ticketId, decision: null },
+      orderBy: { cycleNo: 'desc' },
+    });
+  }
+
   async startReviewCycle(input: {
     ticketId: string;
     assigneeId?: string;
@@ -1085,10 +1257,15 @@ export class TicketLedgerService {
       _sum: { durationSeconds: true },
     });
 
+    // Productive reviewer time only: closed REVIEWER rows that count as work
+    // (never repair rows or markers). Callers close the reviewer clock before
+    // the decision, so its last segment is included.
     const reviewerLogs = await db.ticketTimeLog.aggregate({
       where: {
         ticketId: input.ticketId,
-        ownerType: 'REVIEWER',
+        ownerType: LEDGER_OWNER_TYPES.REVIEWER,
+        countsAsWork: true,
+        endedAt: { not: null },
         startedAt: { gte: cycle.reviewStartedAt || new Date(0), lte: reviewEndedAt },
       },
       _sum: { durationSeconds: true },

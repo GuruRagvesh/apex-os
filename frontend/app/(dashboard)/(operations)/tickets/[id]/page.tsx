@@ -13,6 +13,8 @@ import { cn, formatDate, getInitials, formatRelativeTime } from '@apex/shared-ut
 import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-lifecycle';
 import { computeClientTimingState, computeWorkBudget, dueCountdownText, pauseLabel } from '@apex/operations-tickets-sla';
 import { SkeletonTicketDetail } from '@apex/shared-ui/components/skeleton';
+import { reviewControls, reviewDecisionLabel, formatHoursMinutes } from '@apex/operations-tickets-lifecycle/shared/review-controls';
+import { WORKDAY_TODAY_QUERY_KEY } from '@apex/operations-tickets-lifecycle/shared/ticket-creation-gate';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
 import {
@@ -47,7 +49,10 @@ function workTimerStatus(ticket: any): { label: string; cls: string } {
       return ticket?.timers?.activeClock === 'EMPLOYEE_WORK'
         ? { label: 'Running', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' }
         : { ...paused, label: pauseLabel(ticket) ?? 'Paused' };
-    case 'REVIEW':      return { label: 'Waiting for review', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' };
+    // Under review only while a reviewer's clock actually runs (ledger), never from status alone.
+    case 'REVIEW':      return ticket?.timers?.activeClock === 'REVIEWER_WORK'
+        ? { label: 'Under review', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' }
+        : { label: 'Waiting for review', cls: 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-300' };
     case 'DONE':
     case 'CLOSED':      return { label: 'Completed', cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' };
     case 'OPEN':
@@ -592,7 +597,7 @@ export default function TicketDetailPage() {
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [blockReason, setBlockReason] = useState('');
 
-  const { data: ticket, isLoading } = useQuery({
+  const { data: ticket, isLoading, isError: ticketLoadFailed } = useQuery({
     queryKey: ['ticket', id],
     queryFn: () => ticketsApi.getOne(id) as Promise<any>,
     // The work timer is paused/resumed by the assignee's own workday (break, end
@@ -874,6 +879,31 @@ export default function TicketDetailPage() {
     onError: () => toast.error('Failed to reject ticket'),
   });
 
+  // Review clock and withdrawal. After success the ticket, its history, the
+  // ticket lists and the workday (the clocks it reports) are all refreshed.
+  const refreshAfterReviewAction = () => {
+    qc.invalidateQueries({ queryKey: ['ticket', id] });
+    qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+    qc.invalidateQueries({ queryKey: ['tickets'] });
+    qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
+  };
+  const startReviewMutation = useMutation({
+    mutationFn: () => ticketsApi.startReview(ticket.id),
+    onSuccess: () => { refreshAfterReviewAction(); toast.success('Review started'); },
+    // The backend's safe message (e.g. "Punch In before starting a review.").
+    onError: (e: any) => { refreshAfterReviewAction(); toast.error(e?.message || 'Could not start the review'); },
+  });
+  const pauseReviewMutation = useMutation({
+    mutationFn: () => ticketsApi.pauseReview(ticket.id),
+    onSuccess: () => { refreshAfterReviewAction(); toast.success('Review paused'); },
+    onError: (e: any) => { refreshAfterReviewAction(); toast.error(e?.message || 'Could not pause the review'); },
+  });
+  const withdrawMutation = useMutation({
+    mutationFn: () => ticketsApi.withdraw(ticket.id),
+    onSuccess: () => { refreshAfterReviewAction(); toast.success('Submission withdrawn — the ticket is back In Progress'); },
+    onError: (e: any) => { refreshAfterReviewAction(); toast.error(e?.message || 'Could not withdraw the submission'); },
+  });
+
   const editMutation = useMutation({
     mutationFn: (data: any) => ticketsApi.update(ticket.id, data),
     onSuccess: () => {
@@ -979,6 +1009,10 @@ export default function TicketDetailPage() {
   const isSelfAssigned = Boolean(ticket.selfAssigned);
   const ratingsAllowed = !isSelfAssigned && ticket.type !== 'HELP';
   const canApprove = Boolean(ticket.viewerCanApprove) && ticket.status === 'REVIEW';
+  const review = reviewControls(ticket, user?.id, { isLoading, isError: ticketLoadFailed });
+  const reviewActionPending =
+    startReviewMutation.isPending || pauseReviewMutation.isPending || withdrawMutation.isPending ||
+    approveMutation.isPending || rejectMutation.isPending;
   // The self-assigned worker is in REVIEW but must wait for their reporting hierarchy.
   const isSelfWorkerAwaitingReview =
     isSelfAssigned && ticket.createdById === user?.id && ticket.status === 'REVIEW' && !canApprove;
@@ -1232,7 +1266,8 @@ export default function TicketDetailPage() {
             <div className="flex gap-4 mt-3 text-xs font-medium text-slate-600">
               <span className="flex items-center gap-1" title="Time since work first started, up to completion"><Clock size={12} /> Ticket age: {Math.floor(ticket.timers.totalTicketSeconds / 3600)}h {Math.floor((ticket.timers.totalTicketSeconds % 3600) / 60)}m</span>
               <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'EMPLOYEE_WORK' && 'text-blue-600')}><User size={12} /> Employee Work Time: {Math.floor(ticket.timers.employeeWorkSeconds / 3600)}h {Math.floor((ticket.timers.employeeWorkSeconds % 3600) / 60)}m</span>
-              <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'REVIEWER_APPROVAL' && 'text-purple-600')}><CheckCircle size={12} /> Approval Time: {Math.floor(ticket.timers.reviewerApprovalSeconds / 3600)}h {Math.floor((ticket.timers.reviewerApprovalSeconds % 3600) / 60)}m</span>
+              <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'REVIEWER_WORK' && 'text-purple-600')} title="Time a reviewer actively spent reviewing (Start Review to Pause / decision)"><CheckCircle size={12} /> Reviewer active: {formatHoursMinutes(ticket.timers.reviewerWorkSeconds)}</span>
+              <span className="flex items-center gap-1" title="Wall-clock time in review (the review SLA clock); keeps running while nobody is reviewing"><Clock size={12} /> Review turnaround: {formatHoursMinutes(ticket.timers.reviewTurnaroundSeconds)}</span>
             </div>
           )}
         </div>
@@ -1382,6 +1417,25 @@ export default function TicketDetailPage() {
         </div>
       )}
 
+      {/* Withdraw Submission — only the ticket's own assignee, only while in REVIEW */}
+      {review.canWithdraw && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border p-3" style={{ borderColor: 'var(--border-primary)' }}>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Submitted for review. Withdraw it to keep working; this is not counted as rework.
+          </p>
+          <button
+            type="button"
+            onClick={() => withdrawMutation.mutate()}
+            disabled={reviewActionPending}
+            aria-busy={withdrawMutation.isPending}
+            className="text-sm font-medium px-3 py-1.5 rounded-lg border disabled:opacity-50"
+            style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+          >
+            {withdrawMutation.isPending ? 'Withdrawing…' : 'Withdraw Submission'}
+          </button>
+        </div>
+      )}
+
       {/* Approvals Banner */}
       {canApprove && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -1390,6 +1444,34 @@ export default function TicketDetailPage() {
               ? 'This self-assigned ticket is awaiting your review — approve (comment only) or send back'
               : 'This ticket is awaiting review — approve or send back'}
           </p>
+          {/* Reviewer active-work clock: explicit start/pause, shown running only from the ledger */}
+          <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Review timer">
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }} aria-live="polite">
+              {review.reviewRunningForViewer ? 'Your review timer is running.' : 'Your review timer is paused.'}
+            </span>
+            {review.canPauseReview ? (
+              <button
+                type="button"
+                onClick={() => pauseReviewMutation.mutate()}
+                disabled={reviewActionPending}
+                aria-busy={pauseReviewMutation.isPending}
+                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-300 text-amber-800 disabled:opacity-50"
+              >
+                {pauseReviewMutation.isPending ? 'Pausing…' : 'Pause Review'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => startReviewMutation.mutate()}
+                disabled={!review.canStartReview || reviewActionPending}
+                title={review.disabledReason ?? undefined}
+                aria-busy={startReviewMutation.isPending}
+                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-600 text-white disabled:opacity-50"
+              >
+                {startReviewMutation.isPending ? 'Starting…' : 'Start Review'}
+              </button>
+            )}
+          </div>
           {rejectMode ? (
             <div className="space-y-2">
               <input
@@ -1411,7 +1493,7 @@ export default function TicketDetailPage() {
               <div className="flex gap-2">
                 <button
                   onClick={() => rejectMutation.mutate()}
-                  disabled={!rejectComment.trim() || rejectMutation.isPending}
+                  disabled={!rejectComment.trim() || reviewActionPending || !review.canDecide}
                   className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
                 >
                   <XCircle size={14} /> Confirm Reject
@@ -1474,7 +1556,7 @@ export default function TicketDetailPage() {
               <div className="flex gap-2">
                 <button
                   onClick={() => approveMutation.mutate()}
-                  disabled={approveMutation.isPending || (ratingsAllowed && (!taskEfficiencyRating || !employeePerformanceRating || !employeeAttitudeRating))}
+                  disabled={reviewActionPending || !review.canDecide || (ratingsAllowed && (!taskEfficiencyRating || !employeePerformanceRating || !employeeAttitudeRating))}
                   className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
                 >
                   <CheckCircle size={14} /> {isSelfAssigned ? 'Approve & Complete' : 'Approve Task'}
@@ -1629,15 +1711,19 @@ export default function TicketDetailPage() {
                       <span className={cn('text-xs px-2 py-0.5 rounded font-medium', 
                         cycle.decision === 'APPROVED' ? 'bg-green-100 text-green-700' :
                         cycle.decision === 'REWORK' ? 'bg-red-100 text-red-700' :
+                        cycle.decision === 'WITHDRAWN' || cycle.decision === 'CANCELLED' ? 'bg-sky-100 text-sky-700' :
                         'bg-slate-100 text-slate-700'
                       )}>
-                        {cycle.decision || 'PENDING'}
+                        {reviewDecisionLabel(cycle.decision)}
                       </span>
                     </div>
                     
                     <div className="text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
                       <span>Started: {formatDate(cycle.reviewStartedAt)}</span>
                       {cycle.reviewEndedAt && <span>Ended: {formatDate(cycle.reviewEndedAt)}</span>}
+                      {(cycle.decision === 'APPROVED' || cycle.decision === 'REWORK') && (
+                        <span title="Time the reviewer actively spent on this review">Reviewer active: {formatHoursMinutes(cycle.reviewerWorkSeconds)}</span>
+                      )}
                     </div>
 
                     <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-2">

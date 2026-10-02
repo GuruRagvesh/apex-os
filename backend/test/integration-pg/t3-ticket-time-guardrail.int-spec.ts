@@ -112,7 +112,10 @@ describe('T3 ticket timer guardrail (PostgreSQL)', () => {
    *  - W has an active timer on a REVIEW ticket and one on a blocked ticket
    *    that "starts" in the future (clock skew).
    *  - W2 is OFFLINE with a session-less active timer.
-   *  - M has an active REVIEWER timer, which the cleanup must not touch.
+   *  - M has an active REVIEWER timer with no work session and no open review
+   *    cycle. Before Phase 4 the cleanup ignored reviewer rows; since Phase 4
+   *    reviewer clocks are real and share the one-active guardrail, so this
+   *    invalid one is closed too (never a valid reviewer clock; see t8).
    */
   async function seedMess() {
     await log({ id: 'l-1', ticketId: 't-1', startedAt: at('2026-08-13T05:00:00Z'), workSessionId: 's-today' });
@@ -158,23 +161,26 @@ describe('T3 ticket timer guardrail (PostgreSQL)', () => {
       const r = await runCleanupDryRun(prisma as any, opts());
       expect(await fingerprint()).toEqual(before);
 
-      expect(r).toMatchObject({ result: 'CHANGES_REQUIRED', inspectedActiveRows: 5, rowsToClose: 4, affectedUsers: 2 });
+      expect(r).toMatchObject({ result: 'CHANGES_REQUIRED', inspectedActiveRows: 6, rowsToClose: 5, affectedUsers: 3 });
       expect(r.database).toMatchObject({ name: 'apex_os_attendance_integration', address: '127.0.0.1' });
       expect(r.survivors).toEqual([{ userId: W, keptLogId: 'l-2', keptTicketKey: 'TKT-G-2', closedLogIds: ['l-1'] }]);
       // Ordered by user id, then log id.
-      expect(r.samples.map((s) => [s.logId, s.reasons])).toEqual([
+      const employeeSamples = r.samples.filter((s) => s.logId !== 'l-reviewer');
+      expect(employeeSamples.map((s) => [s.logId, s.reasons])).toEqual([
         ['l-1', ['DUPLICATE_NOT_SURVIVOR']],
         ['l-future', ['TICKET_BLOCKED']],
         ['l-review', ['TICKET_NOT_IN_PROGRESS']],
         ['l-w2', ['USER_NOT_WORKING', 'NO_OPEN_WORKING_SESSION', 'SESSION_MISSING']],
       ]);
-      expect(Object.fromEntries(Object.entries(r.reasonCounts).filter(([, n]) => n > 0))).toEqual({
+      // The reviewer clock is judged by reviewer rules, never by assignee ones.
+      const reviewer = r.samples.find((s) => s.logId === 'l-reviewer')!;
+      expect(reviewer.reasons).toEqual(expect.arrayContaining(['REVIEWER_WITHOUT_OPEN_REVIEW_CYCLE', 'SESSION_MISSING']));
+      expect(reviewer.reasons).not.toContain('NOT_PRIMARY_ASSIGNEE');
+      expect(r.reasonCounts).toMatchObject({
         TICKET_NOT_IN_PROGRESS: 1,
         TICKET_BLOCKED: 1,
-        USER_NOT_WORKING: 1,
-        NO_OPEN_WORKING_SESSION: 1,
-        SESSION_MISSING: 1,
         DUPLICATE_NOT_SURVIVOR: 1,
+        REVIEWER_WITHOUT_OPEN_REVIEW_CYCLE: 1,
       });
     });
 
@@ -184,7 +190,7 @@ describe('T3 ticket timer guardrail (PostgreSQL)', () => {
       const b = await runCleanupDryRun(prisma as any, opts({ sampleLimit: 2 }));
       expect(a).toEqual(b);
       expect(a.samples).toHaveLength(2);
-      expect(a.rowsToClose).toBe(4);
+      expect(a.rowsToClose).toBe(5);
       expect(JSON.stringify(a)).not.toMatch(/@integration\.invalid|Person u-guard|not-a-real-hash/);
     });
   });
@@ -196,15 +202,15 @@ describe('T3 ticket timer guardrail (PostgreSQL)', () => {
       await seedMess();
       const untouched = {
         history: await rowsHash(`id = 'l-history'`),
-        reviewer: await rowsHash(`id = 'l-reviewer'`),
         survivor: await rowsHash(`id = 'l-2'`),
       };
       const others = await fingerprint(['tickets', 'users', 'work_sessions', 'review_cycle_logs']);
 
       const r = await runCleanupApply(prisma as any, opts());
-      expect(r).toMatchObject({ mode: 'apply', result: 'APPLIED', rowsToClose: 4, affectedUsers: 2 });
+      expect(r).toMatchObject({ mode: 'apply', result: 'APPLIED', rowsToClose: 5, affectedUsers: 3 });
 
-      const closed = await prisma.ticketTimeLog.findMany({ where: { id: { in: ['l-1', 'l-review', 'l-future', 'l-w2'] } }, orderBy: { id: 'asc' } });
+      const closed = await prisma.ticketTimeLog.findMany({ where: { id: { in: ['l-1', 'l-review', 'l-future', 'l-w2', 'l-reviewer'] } }, orderBy: { id: 'asc' } });
+      expect(closed).toHaveLength(5);
       for (const l of closed) {
         const end = l.startedAt > REPAIR_AT ? l.startedAt : REPAIR_AT;
         expect(l.endedAt).toEqual(end);
@@ -227,7 +233,6 @@ describe('T3 ticket timer guardrail (PostgreSQL)', () => {
       expect(await prisma.ticketTimeLog.count()).toBe(7); // nothing deleted
       expect({
         history: await rowsHash(`id = 'l-history'`),
-        reviewer: await rowsHash(`id = 'l-reviewer'`),
         survivor: await rowsHash(`id = 'l-2'`),
       }).toEqual(untouched);
       expect(await fingerprint(['tickets', 'users', 'work_sessions', 'review_cycle_logs'])).toEqual(others);
@@ -367,7 +372,7 @@ describe('T3 ticket timer guardrail (PostgreSQL)', () => {
       workBudget: x.workBudget,
       totalTicketSeconds: x.totalTicketSeconds,
       lifecycle: x.lifecycle,
-      reviewerApprovalSeconds: x.reviewerApprovalSeconds,
+      reviewTurnaroundSeconds: x.reviewTurnaroundSeconds,
       activeClock: x.activeClock,
     });
 
@@ -417,7 +422,7 @@ describe('T3 ticket timer guardrail (PostgreSQL)', () => {
     it('refuses to create the index while duplicates exist, and changes nothing', async () => {
       await seedMess();
       const before = await fingerprint();
-      await expect(applyOneActiveMigration(prisma)).rejects.toThrow(/more than one active ASSIGNEE timer/);
+      await expect(applyOneActiveMigration(prisma)).rejects.toThrow(/more than one active timed ticket/);
       expect((await oneActiveIndexState(prisma)).exists).toBe(false);
       expect(await fingerprint()).toEqual(before);
     });
@@ -430,21 +435,24 @@ describe('T3 ticket timer guardrail (PostgreSQL)', () => {
       expect(state.exists && state.valid).toBe(true);
       expect(state.definition).toBe(
         `CREATE UNIQUE INDEX ${ONE_ACTIVE_INDEX} ON public.ticket_time_logs USING btree ("userId") ` +
-          `WHERE (("endedAt" IS NULL) AND ("ownerType" = 'ASSIGNEE'::text))`,
+          `WHERE (("endedAt" IS NULL) AND ("ownerType" = ANY (ARRAY['ASSIGNEE'::text, 'REVIEWER'::text])))`,
       );
     });
 
-    it('rejects a second active ASSIGNEE timer and allows everything the engine legitimately writes', async () => {
+    // Since Phase 4 the guardrail covers active ASSIGNEE and REVIEWER rows together.
+    it('rejects a second active timed row (employee or reviewer) and allows everything else the engine writes', async () => {
       await applyOneActiveMigration(prisma);
       await log({ id: 'l-1', ticketId: 't-1', startedAt: at('2026-08-13T05:00:00Z'), workSessionId: 's-today' });
 
       await expect(log({ id: 'l-second', ticketId: 't-2', startedAt: at('2026-08-13T05:30:00Z') })).rejects.toMatchObject({ code: 'P2002' });
 
-      // Ended rows, zero-length markers, reviewer/manager timers and another user's timer are all fine.
+      // A reviewer clock for a user who already runs an employee clock is refused too.
+      await expect(log({ id: 'l-rev-1', ticketId: 't-3', ownerType: 'REVIEWER', stage: 'REVIEW', startedAt: at('2026-08-13T05:00:00Z') })).rejects.toMatchObject({ code: 'P2002' });
+
+      // Ended rows (employee or reviewer), zero-length markers, manager rows and another user's timer are all fine.
       await log({ id: 'l-ended-1', ticketId: 't-2', startedAt: at('2026-08-13T04:00:00Z'), endedAt: at('2026-08-13T04:10:00Z'), durationSeconds: 600 });
       await log({ id: 'l-ended-2', ticketId: 't-2', startedAt: at('2026-08-13T04:20:00Z'), endedAt: at('2026-08-13T04:20:00Z'), durationSeconds: 0, countsAsWork: false, pauseReason: 'AWAITING_WORKDAY' });
-      await log({ id: 'l-rev-1', ticketId: 't-3', ownerType: 'REVIEWER', stage: 'REVIEW', startedAt: at('2026-08-13T05:00:00Z') });
-      await log({ id: 'l-rev-2', ticketId: 't-2', ownerType: 'REVIEWER', stage: 'REVIEW', startedAt: at('2026-08-13T05:00:00Z') });
+      await log({ id: 'l-rev-ended', ticketId: 't-3', ownerType: 'REVIEWER', stage: 'REVIEW', startedAt: at('2026-08-13T04:30:00Z'), endedAt: at('2026-08-13T04:40:00Z'), durationSeconds: 600 });
       await log({ id: 'l-mgr', ticketId: 't-2', ownerType: 'MANAGER', stage: 'WORK', startedAt: at('2026-08-13T05:00:00Z') });
       await log({ id: 'l-other-user', ticketId: 't-5', userId: W2, startedAt: at('2026-08-13T05:00:00Z') });
 

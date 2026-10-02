@@ -8,6 +8,7 @@ import { AccessPolicyService } from '../../../common/services/access-policy.serv
 import { calculateWorkdayRuntime } from '../workday/workday.calculation';
 import { LeaveBalanceService } from '../../operations/leave/leave-balance.service';
 import { TVAService } from '../../../common/services/tva.service';
+import { computeReviewerMetrics, REVIEW_METRICS_CYCLE_SELECT, toMetricsCycle } from '../../../common/services/review-metrics';
 
 @Injectable()
 export class DashboardService {
@@ -498,26 +499,20 @@ export class DashboardService {
     const roleName: string = user?.role?.name ?? user?.role ?? '';
     if (!['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)) return null;
 
+    // Same rows and the same calculator as the analytics reviewer metrics
+    // (src/common/services/review-metrics.ts), so the two always agree.
     const reviewCycles = await this.prisma.reviewCycleLog.findMany({
       where: { reviewerId: user.id, decision: { not: null } },
-      select: { reviewerWorkSeconds: true, ticket: { select: { priority: true } } },
+      select: REVIEW_METRICS_CYCLE_SELECT,
     });
-
     const config = await this.ticketTiming.getSlaConfig();
-    let slaBreaches = 0;
+    const m = computeReviewerMetrics(reviewCycles.map(toMetricsCycle), config.review);
 
-    reviewCycles.forEach(c => {
-      const priority = c.ticket?.priority ?? 'MEDIUM';
-      const limitHours = config.review[priority] ?? config.review['MEDIUM'] ?? 24;
-      const limitSeconds = limitHours * 3600;
-      if ((c.reviewerWorkSeconds || 0) > limitSeconds) {
-        slaBreaches++;
-      }
-    });
-
-    const completedReviews = reviewCycles.length;
-    const totalApprovalSeconds = reviewCycles.reduce((acc, c) => acc + (c.reviewerWorkSeconds || 0), 0);
-    const avgApprovalTime = completedReviews > 0 ? totalApprovalSeconds / completedReviews : 0;
+    const completedReviews = m.decidedReviews;
+    // Reviewer active time per timed review (not wall-clock time in REVIEW).
+    const avgApprovalTime = m.averageReviewerActiveSeconds;
+    // Review turnaround beyond the configured review SLA.
+    const slaBreaches = m.reviewSlaBreaches;
 
     const pendingReviews = await this.prisma.ticket.count({
       where: { status: 'REVIEW', reviewDueAt: { not: null } },

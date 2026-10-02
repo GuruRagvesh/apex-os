@@ -205,7 +205,7 @@ describe('ticket timing labels (3D)', () => {
     expect(computeWorkBudget(base({ timers: { activeClock: 'EMPLOYEE_WORK' } }), t0)!.running).toBe(true);
     // A stale workBudget.running never overrides the ledger's activeClock.
     expect(computeWorkBudget(base({ timers: { activeClock: 'NONE' } }), t0)!.running).toBe(false);
-    expect(computeWorkBudget(base({ timers: { activeClock: 'REVIEWER_APPROVAL' } }), t0)!.running).toBe(false);
+    expect(computeWorkBudget(base({ timers: { activeClock: 'REVIEWER_WORK' } }), t0)!.running).toBe(false); // a reviewer's clock is not employee work
     expect(workBudgetBadge(base({ timers: { activeClock: 'NONE' } }), t0)).toMatchObject({ tone: 'paused' });
   });
 

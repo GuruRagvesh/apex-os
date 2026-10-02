@@ -279,7 +279,9 @@ describe('T5 atomic ticket/workday + timer transitions (PostgreSQL)', () => {
       failNextTransactionOn('ticketTimeLog', 'create');
       await expectFullRollback(() => tickets.reject(t.id, 'needs another pass', M, undefined, 30));
       expect((await ticketRow(t.id))!).toMatchObject({ status: 'REVIEW', reworkCount: 0 });
-      expect(await count('review_cycle_logs')).toBe(0);
+      // Phase 4: the submission opened its review cycle; it stays undecided.
+      expect(await count('review_cycle_logs')).toBe(1);
+      expect(await count('review_cycle_logs', 'decision IS NOT NULL')).toBe(0);
       expect(await count('comments')).toBe(0);
     });
   });
