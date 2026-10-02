@@ -14,6 +14,7 @@ import {
 import {
   buildMonthReport,
   type DayInput,
+  type MonthlyAttendanceSummaryRow,
   type MonthReport,
   type ReportEmployee,
 } from './attendance-report';
@@ -99,7 +100,97 @@ export class AttendanceReportService {
       throw new ForbiddenException('Only HR can read the attendance report');
     }
     this.assertMonth(month);
+    // null = every employee. The company report.
+    return this.assemble(month, generatedAt, null);
+  }
 
+  /**
+   * One month of the AUTHENTICATED EMPLOYEE'S OWN attendance.
+   *
+   * SAME ASSEMBLY AS HR'S REPORT, scoped to one person. That is the entire
+   * point of this method existing rather than the employee view having its own
+   * builder: if My Attendance computed its own figures, an employee and the
+   * payroll register could disagree about the same day, and the employee has no
+   * way to tell which is the official one.
+   *
+   * NOT GET /attendance/daily. That route re-evaluates every day live, so a
+   * finalized month can show the employee something other than what Finance
+   * received -- the stored official record is what was approved, and a fresh
+   * evaluation against today's policy is not. This path reads stored rows and
+   * never evaluates.
+   *
+   * SCOPED BY THE JWT SUBJECT, with no userId parameter anywhere in the chain,
+   * so there is no cross-employee read to get wrong. A missing subject is
+   * refused rather than defaulting to a query that would match everybody.
+   */
+  async myMonth(actor: any, month: string): Promise<MonthReport> {
+    const userId = actor?.id ?? actor?.sub;
+    if (!userId) {
+      throw new ForbiddenException('Only a signed-in employee can read their own attendance');
+    }
+    this.assertMonth(month);
+    return this.assemble(month, undefined, [userId]);
+  }
+
+  /**
+   * Twelve monthly summaries for the authenticated employee, one per month.
+   *
+   * DELIBERATELY NOT A 365-DAY CALENDAR. A year view answers "how did my months
+   * compare", and fetching a year of days to answer it would move thousands of
+   * rows to render twelve numbers.
+   *
+   * TWELVE ASSEMBLIES, AND THE COST IS ACCEPTED KNOWINGLY. Each month resolves
+   * its own business calendar, so a single-pass version would need a second
+   * assembly path shaped around a year -- a second engine, which is the one
+   * thing this design does not permit. Scoped to ONE employee the per-month
+   * queries are small, and a year view is opened occasionally rather than on
+   * every page load. If it ever becomes a problem the fix is a cache in front
+   * of this, not a parallel builder behind it.
+   *
+   * A month with no data yields a summary of zeros rather than being omitted,
+   * so the twelve slots are always present and the UI never has to decide what
+   * a missing month means.
+   */
+  async myYear(
+    actor: any,
+    year: string,
+  ): Promise<{
+    year: string;
+    months: Array<{ month: string; summary: MonthlyAttendanceSummaryRow | null }>;
+  }> {
+    const userId = actor?.id ?? actor?.sub;
+    if (!userId) {
+      throw new ForbiddenException('Only a signed-in employee can read their own attendance');
+    }
+    if (!/^\d{4}$/.test(year ?? '')) {
+      throw new BadRequestException('Year must be yyyy');
+    }
+
+    const months: Array<{ month: string; summary: MonthlyAttendanceSummaryRow | null }> = [];
+    for (let m = 1; m <= 12; m += 1) {
+      const month = `${year}-${String(m).padStart(2, '0')}`;
+      const report = await this.assemble(month, undefined, [userId]);
+      // One employee, so at most one summary row. null when the employee was
+      // not employed in that month at all, which is a real answer and not a
+      // zero -- somebody who joined in June has no May.
+      months.push({ month, summary: report.summaryRows[0] ?? null });
+    }
+
+    return { year, months };
+  }
+
+  /**
+   * The one assembly. Authorization is the caller's job; this builds.
+   *
+   * `onlyUserIds` null means every employee whose employment overlaps the
+   * month. A list restricts it, and is how the self-service view reuses this
+   * without a second builder.
+   */
+  private async assemble(
+    month: string,
+    generatedAt: Date | undefined,
+    onlyUserIds: string[] | null,
+  ): Promise<MonthReport> {
     const { from, to, y, m } = this.bounds(month);
     const dates = this.dates(from, to);
     const gte = this.tva.companyDateOnly(new Date(`${from}T12:00:00.000Z`));
@@ -110,6 +201,12 @@ export class AttendanceReportService {
     const employees = await this.prisma.user.findMany({
       where: {
         AND: [
+          // The self-service restriction, when there is one. An AND member
+          // rather than a replacement for the employment-window clauses, so a
+          // single-employee view still answers "were they employed that day"
+          // the same way the company report does -- an employee reading their
+          // own joining month must not see days before they joined.
+          ...(onlyUserIds ? [{ id: { in: onlyUserIds } }] : []),
           {
             OR: [
               { joiningDate: null },

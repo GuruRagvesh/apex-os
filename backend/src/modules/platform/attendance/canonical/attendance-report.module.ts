@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AttendanceReportService } from './attendance-report.service';
 import { AttendanceReportController } from './attendance-report.controller';
+import { MyAttendanceController } from './my-attendance.controller';
 import { BusinessCalendarModule } from '../calendar/business-calendar.module';
 
 /**
@@ -14,7 +15,9 @@ import { BusinessCalendarModule } from '../calendar/business-calendar.module';
  */
 @Module({
   imports: [BusinessCalendarModule],
-  controllers: [AttendanceReportController],
+  // Two controllers, one service. The employee view and the HR report are
+  // the same assembly scoped differently, which is what keeps them agreeing.
+  controllers: [AttendanceReportController, MyAttendanceController],
   providers: [AttendanceReportService],
   exports: [AttendanceReportService],
 })
