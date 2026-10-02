@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 import { useAuthStore } from '@apex/core-identity';
 import { workdayStatusKeys } from '@/lib/workday-status-keys';
+import { ManagerCompOffPanel } from './ManagerCompOffPanel';
 import {
   compOffKeys,
   getMyCompOffCredits,
@@ -266,6 +267,17 @@ export function EmployeeAttendanceDashboard({ employeeId }: { employeeId?: strin
           </p>
         )}
       </section>
+
+      {/*
+        Acting on somebody else's comp off.
+
+        Hosted here rather than on a new screen: this is already the
+        manager/HR scoped view of one employee, so it is where somebody is
+        standing when they decide to recognise a weekend. The panel renders
+        only if the SERVER lets the viewer read that employee's credits, which
+        is the same authority the actions need -- no role check in the browser.
+      */}
+      {!isSelf && subjectId && <ManagerCompOffPanel employeeId={subjectId} />}
 
       {/* ── What is in hand: leave and comp off, self only ───────────────── */}
       {isSelf && (

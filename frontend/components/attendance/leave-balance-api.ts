@@ -10,32 +10,35 @@ import { api, unwrap as r } from '@apex/shared-auth';
  *
  * The response interceptor in `@apex/shared-auth` already returns
  * `response.data`, so these must NOT unwrap a second `.data`.
+ *
+ * THE SHAPES AND THE EXPIRY WINDOW LIVE IN leave-balance-rules.ts, and are
+ * re-exported here. Two reasons: a pure presentation module has to reach them
+ * without importing this file's authenticated client, and every existing
+ * consumer keeps importing them from here.
+ *
+ * They were briefly defined in BOTH files -- including two copies of
+ * expiringSoon(), each with its own 30-day window, one used by the leave card
+ * and the other by the dashboard presentation. Nothing linked them, so
+ * narrowing the window in one place would have moved the figure on one screen
+ * and not the other.
  */
 
-/** What GET /leave/balance returns for one leave type. */
-export interface LeaveBalance {
-  allocation: number;
-  approved: number;
-  pending: number;
-  balance: number;
-}
+export type {
+  CompOffCredit,
+  LeaveBalance,
+  PersonalLeaveType,
+} from './leave-balance-rules';
+export {
+  expiringSoon,
+  LEAVE_TYPE_LABEL,
+  PERSONAL_LEAVE_TYPES,
+} from './leave-balance-rules';
 
-export interface CompOffCredit {
-  id: string;
-  earnedFromBusinessDate: string;
-  earnedAt: string;
-  expiresAt: string;
-  status: string;
-}
-
-/** The leave types an employee sees on their own attendance page. */
-export const PERSONAL_LEAVE_TYPES = ['CASUAL', 'EMERGENCY'] as const;
-export type PersonalLeaveType = (typeof PERSONAL_LEAVE_TYPES)[number];
-
-export const LEAVE_TYPE_LABEL: Record<PersonalLeaveType, string> = {
-  CASUAL: 'Casual Leave',
-  EMERGENCY: 'Emergency Leave',
-};
+import type {
+  CompOffCredit,
+  LeaveBalance,
+  PersonalLeaveType,
+} from './leave-balance-rules';
 
 export async function getMyLeaveBalance(type: PersonalLeaveType): Promise<LeaveBalance> {
   return r(api.get('/leave/balance', { params: { type } }));
@@ -52,6 +55,16 @@ export async function getMyLeaveBalance(type: PersonalLeaveType): Promise<LeaveB
 export const compOffKeys = {
   credits: (viewerId: string | null | undefined) =>
     ['comp-off-credits', viewerId ?? 'anonymous'] as const,
+  /**
+   * Another employee's credits, keyed by WHOSE they are.
+   *
+   * Separate from `credits` on purpose: that one is keyed by the viewer
+   * because it returns the viewer's own, and reusing it here would file one
+   * employee's credits under the manager who looked at them -- so the next
+   * team member opened would be served the previous one's.
+   */
+  employeeCredits: (employeeId: string) =>
+    ['comp-off-credits', 'employee', employeeId] as const,
 };
 
 export async function getMyCompOffCredits(): Promise<CompOffCredit[]> {
@@ -59,18 +72,54 @@ export async function getMyCompOffCredits(): Promise<CompOffCredit[]> {
   return Array.isArray(rows) ? rows : [];
 }
 
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// Acting on somebody else's comp off
+// ════════════════════════════════════════════════════════════════════════════
+//
+// WHETHER THE VIEWER MAY ACT IS THE SERVER'S ANSWER, NOT A ROLE CHECK HERE.
+// All three calls below are authorized identically in CompOffService: HR and
+// Admin anywhere, a manager inside the departments they manage. The UI decides
+// what to show by whether the read SUCCEEDS, rather than re-deriving the rule
+// from a role in the auth store -- a second copy of an authorization rule in a
+// browser is one that can disagree with the real one, and the browser's copy
+// is the one nobody can trust.
+
+/** One employee's available credits. 403 when the caller may not act on them. */
+export async function getEmployeeCompOffCredits(
+  employeeId: string,
+): Promise<CompOffCredit[]> {
+  return r(api.get(`/leave/comp-off/employee/${employeeId}`));
+}
+
+export interface GrantCompOffInput {
+  employeeId: string;
+  /** The qualifying day that was worked, yyyy-MM-dd. */
+  earnedFromBusinessDate: string;
+  reason: string;
+}
+
 /**
- * Credits expiring within `days`, soonest first.
+ * Grants one credit.
  *
- * Comp off is consumed oldest-expiry-first, so the nearest expiry is the one
- * an employee actually needs to act on.
+ * THE EXPIRY IS NOT SENT. It is the server's to decide from the employee's
+ * policy, and a client that could name it could grant itself a longer one.
+ * The resulting expiry comes back on the response.
  */
-export function expiringSoon(credits: CompOffCredit[], now: Date, days = 30): CompOffCredit[] {
-  const limit = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-  return credits
-    .filter((c) => {
-      const at = new Date(c.expiresAt);
-      return !Number.isNaN(at.getTime()) && at <= limit;
-    })
-    .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
+export async function grantCompOff(input: GrantCompOffInput): Promise<CompOffCredit> {
+  return r(api.post('/leave/comp-off/grant', input));
+}
+
+/**
+ * Moves one credit's expiry forward.
+ *
+ * The ceiling is re-decided server-side whatever date arrives here; a picker
+ * constrained in the UI is a convenience, never the enforcement.
+ */
+export async function extendCompOff(
+  creditId: string,
+  input: { newExpiry: string; reason: string },
+): Promise<CompOffCredit> {
+  return r(api.post(`/leave/comp-off/${creditId}/extend`, input));
 }
