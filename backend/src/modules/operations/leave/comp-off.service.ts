@@ -6,6 +6,12 @@ import { AccessPolicyService } from '../../../common/services/access-policy.serv
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { BusinessCalendarService } from '../../platform/attendance/calendar/business-calendar.service';
 import { EmployeeTimelineService } from '../../platform/attendance/timeline/employee-timeline.service';
+import {
+  addDays,
+  defaultExpiry,
+  resolveValidity,
+  type CompOffValidityPolicy,
+} from './comp-off-workflow';
 
 /**
  * Comp Off credits.
@@ -90,23 +96,50 @@ export class CompOffService {
     };
   }
 
-  /** Expiry exactly N company-calendar days after the earned business date. */
-  expiresOn(earnedFromBusinessDate: string, expiryDays = 30): Date {
-    const earned = new Date(`${earnedFromBusinessDate}T00:00:00.000Z`);
-    if (Number.isNaN(earned.getTime())) throw new Error('Invalid earned business date');
-    earned.setUTCDate(earned.getUTCDate() + expiryDays);
-    return earned;
+  /**
+   * Expiry N company-calendar days after a date.
+   *
+   * KEPT ONLY AS AN ARITHMETIC HELPER. It no longer carries a default, because
+   * a default here was one of three copies of the entitlement rule -- the
+   * other two sat in expiryDaysFor below. The rule now lives in
+   * comp-off-workflow.ts and this does nothing but add days.
+   */
+  expiresOn(fromBusinessDate: string, expiryDays: number): Date {
+    const from = new Date(`${fromBusinessDate}T00:00:00.000Z`);
+    if (Number.isNaN(from.getTime())) throw new Error('Invalid business date');
+    return addDays(from, expiryDays);
   }
 
-  /** Expiry days from the employee's effective leave policy, defaulting to 30. */
-  private async expiryDaysFor(employeeId: string, businessDate: string): Promise<number> {
+  /**
+   * The employee's effective comp off validity policy.
+   *
+   * Returns the POLICY, not a number, so the one resolver in
+   * comp-off-workflow.ts decides what it means. This used to return a number
+   * and default it to 30 in two places, which is how one entitlement rule came
+   * to have three independent copies and no import linking them.
+   *
+   * An employee on no leave policy gets an empty policy object rather than an
+   * invented figure: defaultExpiry then applies the company fallback, in the
+   * one place that fallback is written down.
+   */
+  private async validityPolicyFor(
+    employeeId: string,
+    businessDate: string,
+  ): Promise<CompOffValidityPolicy> {
     const profile = await this.timeline.findProfileOn(employeeId, businessDate);
-    if (!profile?.assignedLeavePolicyId) return 30;
+    if (!profile?.assignedLeavePolicyId) return {};
     const policy = await this.prisma.leavePolicy.findUnique({
       where: { id: profile.assignedLeavePolicyId },
-      select: { compOffExpiryDays: true },
+      select: { compOffExpiryDays: true, compOffMaximumValidityDays: true },
     });
-    return policy?.compOffExpiryDays ?? 30;
+    return {
+      defaultValidityDays: policy?.compOffExpiryDays ?? null,
+      // Read as well as the default, or expiryCeiling would return null for
+      // every policy and mayExtend would refuse every extension with
+      // NO_MAXIMUM_CONFIGURED -- a configured ceiling that nothing loads is
+      // indistinguishable from no ceiling at all.
+      maximumTotalValidityDays: policy?.compOffMaximumValidityDays ?? null,
+    };
   }
 
   /**
@@ -142,10 +175,27 @@ export class CompOffService {
     const earnedDate = this.tva.companyDateOnly(
       new Date(`${input.earnedFromBusinessDate}T00:00:00.000Z`),
     );
-    const expiryDays = await this.expiryDaysFor(
+    const validityPolicy = await this.validityPolicyFor(
       input.employeeId,
       input.earnedFromBusinessDate,
     );
+
+    // VALIDITY RUNS FROM THE GRANT, NOT FROM THE DAY WORKED, and this is a
+    // change. It used to be measured from earnedFromBusinessDate, which
+    // silently shortened every credit by however long the approval took -- a
+    // day worked on 10 August and granted on 5 September arrived with most of
+    // its life already spent. comp-off-workflow.ts records the decision that
+    // validity starts when the credit is granted.
+    const grantedOn = this.tva.companyDateOnly(this.tva.now());
+    const expiresAt = defaultExpiry(grantedOn, validityPolicy);
+    if (!expiresAt) {
+      // An incoherent policy. Refused rather than guessed, because a credit
+      // whose expiry nobody can defend is worse than no credit.
+      throw new BadRequestException(
+        resolveValidity(validityPolicy).reason ??
+          'This employee comp off validity policy is not configured coherently.',
+      );
+    }
 
     let credit;
     try {
@@ -154,7 +204,7 @@ export class CompOffService {
           employeeId: input.employeeId,
           earnedFromBusinessDate: earnedDate,
           earnedFromWorkSessionId: input.earnedFromWorkSessionId ?? null,
-          expiresAt: this.expiresOn(input.earnedFromBusinessDate, expiryDays),
+          expiresAt,
           status: 'AVAILABLE',
         },
       });

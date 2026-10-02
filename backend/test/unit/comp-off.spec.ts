@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TVAService } from '../../src/common/services/tva.service';
+import { addDays } from '../../src/modules/operations/leave/comp-off-workflow';
 import {
   CompOffAlreadyGrantedError,
   CompOffService,
@@ -36,6 +37,8 @@ interface RigOptions {
   credits?: Array<{ id: string; expiresAt: string; earnedAt?: string }>;
   createThrows?: any;
   expiryDays?: number;
+  /** The employee is on no leave policy, so the company fallback applies. */
+  noProfilePolicy?: boolean;
 }
 
 function rig(opts: RigOptions = {}) {
@@ -93,7 +96,9 @@ function rig(opts: RigOptions = {}) {
     findProfileOn: jest.fn().mockResolvedValue({
       assignedHolidayCalendarId: 'cal-1',
       assignedWeeklyOffPolicyId: 'week-1',
-      assignedLeavePolicyId: 'lp-1',
+      // An employee on no leave policy falls back to the company figure, in
+      // the one place that figure is written down.
+      assignedLeavePolicyId: opts.noProfilePolicy ? null : 'lp-1',
     }),
   };
   const accessPolicy: any = { isHrOrAdmin: () => opts.isHr === true };
@@ -121,9 +126,13 @@ describe('Comp off source qualification', () => {
     expect(out.qualifies).toBe(expected);
   });
 
-  it('expires exactly 30 calendar days after the earned business date', () => {
+  it('expiresOn adds calendar days and nothing else', () => {
+    // It no longer carries a default. The default was one of three copies of
+    // the entitlement rule; the rule now lives in comp-off-workflow.ts and
+    // this is arithmetic.
     const { service } = rig();
     expect(service.expiresOn('2026-11-08', 30).toISOString().slice(0, 10)).toBe('2026-12-08');
+    expect(service.expiresOn('2026-11-08', 45).toISOString().slice(0, 10)).toBe('2026-12-23');
   });
 
   it('contains no automatic WorkSession-to-credit creation path', () => {
@@ -173,14 +182,40 @@ describe('Comp off manual grant', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('grants on a qualifying day with expiry 30 days out', async () => {
+  it('DATES VALIDITY FROM THE GRANT, not from the day that was worked', async () => {
+    // CHANGED DELIBERATELY. This used to assert earned + 30, measuring a
+    // credit's life from the day the work happened -- so a day worked on
+    // 10 August and granted on 5 September arrived with most of its validity
+    // already spent, shortened by however long the approval took.
+    // comp-off-workflow.ts records management's decision that validity starts
+    // when the credit is granted.
     const { service, created } = rig({ isHr: true });
     const credit = await service.grantManual(HR, input);
 
     expect(created).toHaveLength(1);
     expect(created[0].employeeId).toBe('emp-1');
     expect(created[0].status).toBe('AVAILABLE');
-    expect(credit.expiresAt.toISOString().slice(0, 10)).toBe('2026-12-08');
+
+    // The fixture policy configures 30 days, which still wins over the company
+    // default -- a configured policy is the point of having one.
+    const grantedOn = tvaOf().companyDateOnly(new Date());
+    expect(credit.expiresAt.toISOString().slice(0, 10)).toBe(
+      addDays(grantedOn, 30).toISOString().slice(0, 10),
+    );
+    // And emphatically not the old answer, which the earned date would give.
+    expect(credit.expiresAt.toISOString().slice(0, 10)).not.toBe('2026-12-08');
+  });
+
+  it('FALLS BACK TO 45 DAYS when the employee is on no leave policy', async () => {
+    // The company figure, applied in one place. It used to be 30, written
+    // inline twice in this service.
+    const { service } = rig({ isHr: true, noProfilePolicy: true });
+    const credit = await service.grantManual(HR, input);
+
+    const grantedOn = tvaOf().companyDateOnly(new Date());
+    expect(credit.expiresAt.toISOString().slice(0, 10)).toBe(
+      addDays(grantedOn, 45).toISOString().slice(0, 10),
+    );
   });
 
   it('never inspects how long anybody worked', async () => {

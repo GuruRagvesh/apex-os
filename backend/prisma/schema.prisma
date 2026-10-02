@@ -1255,7 +1255,23 @@ model LeavePolicy {
   secondHalfInLatest               String                      @default("14:30")
   secondHalfOutTime                String                      @default("18:30")
   /// Comp Off credits are independent of annual paid-leave allocations.
-  compOffExpiryDays                Int                         @default(30)
+  ///
+  /// Days a credit lives from the date it is GRANTED, not from the day that
+  /// was worked: dating validity from the worked day shortened every credit by
+  /// however long the approval took.
+  ///
+  /// Default raised from 30 to the approved company figure of 45. Existing
+  /// rows keep whatever they already hold -- a default only applies to rows
+  /// created after it, so no employee's current credits move.
+  compOffExpiryDays                Int                         @default(45)
+  /// The furthest a credit's expiry may ever be extended, in days from the
+  /// grant. Measured from the grant and never from the latest extension,
+  /// which is what stops a credit being walked forward indefinitely one
+  /// extension at a time.
+  ///
+  /// Nullable, and null is NOT an unlimited ceiling: it is an absent rule, and
+  /// an extension is refused rather than being given an invented limit.
+  compOffMaximumValidityDays       Int?
   isActive                         Boolean                     @default(true)
   createdAt                        DateTime                    @default(now())
   updatedAt                        DateTime                    @updatedAt
