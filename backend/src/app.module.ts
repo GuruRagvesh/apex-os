@@ -45,6 +45,7 @@ import { PayrollReportModule } from './modules/platform/attendance/reports/payro
 import { AttendanceConsoleModule } from './modules/platform/attendance/console/attendance-console.module';
 import { AttendanceReportModule } from './modules/platform/attendance/canonical/attendance-report.module';
 import { EmployeeAttendanceSummaryModule } from './modules/platform/attendance/summary/employee-attendance-summary.module';
+import { ArchiveDeleteModule } from './modules/platform/archive/archive-delete.module';
 import { AttendanceImportModule } from './modules/platform/attendance/import/attendance-import.module';
 import { AttendanceExceptionModule } from './modules/platform/attendance/exceptions/attendance-exception.module';
 import { AttendanceProcessingModule } from './modules/platform/attendance/processing/attendance-processing.module';
@@ -102,6 +103,7 @@ const isTest = process.env.NODE_ENV === 'test';
     AttendanceConsoleModule,
     AttendanceReportModule,
     EmployeeAttendanceSummaryModule,
+    ArchiveDeleteModule,
     AttendanceImportModule,
     AttendanceProcessingModule,
     AttendanceExceptionModule,
