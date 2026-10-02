@@ -175,3 +175,84 @@ describe('the schema can actually do what the classification intends', () => {
     expect(audit.needsNullable.map((r) => relationKey(r.model, r.field))).toEqual([]);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Cascades, and other ways shared history could start disappearing
+// ════════════════════════════════════════════════════════════════════════════
+describe('no database-level cascade can erase company history', () => {
+  it('EVERY onDelete: Cascade ON A USER RELATION IS CLASSIFIED DELETE_WITH_USER', () => {
+    // A cascade is the database deleting a row because the User went, with no
+    // service involved and nothing to review it. That is correct for a
+    // membership row and catastrophic for a ticket or an audit event -- so
+    // the two must never be allowed to meet. Adding `onDelete: Cascade` to a
+    // retained relation fails here rather than in production.
+    const cascades = extractUserRelations(SCHEMA).filter((r) => r.onDelete === 'Cascade');
+
+    expect(cascades.length).toBeGreaterThan(0);
+    for (const relation of cascades) {
+      const rule = RULES_BY_KEY.get(relationKey(relation.model, relation.field));
+      expect(rule).toBeDefined();
+      expect(`${relationKey(relation.model, relation.field)} -> ${rule!.action}`).toBe(
+        `${relationKey(relation.model, relation.field)} -> DELETE_WITH_USER`,
+      );
+    }
+  });
+
+  it('names the models that cascade, so a new one is a visible change', () => {
+    const cascades = extractUserRelations(SCHEMA)
+      .filter((r) => r.onDelete === 'Cascade')
+      .map((r) => r.model)
+      .sort();
+
+    // All memberships or the person's own records. The project, team,
+    // department and role each survive their member leaving.
+    expect(cascades).toEqual([
+      'AttendanceRegularization',
+      'DailyAttendance',
+      'EmployeeAttendanceProfile',
+      'EmployeeDocument',
+      'ProjectMember',
+      'TeamMember',
+      'UserDepartmentMembership',
+      'UserRoleAssignment',
+    ]);
+  });
+});
+
+describe('the legacy permanent delete has not become a bypass', () => {
+  it('STILL REFUSES WHEN ANY LINKED RECORD EXISTS', () => {
+    // Migration A made ten actor columns nullable. That is what Archive &
+    // Delete needs -- and it is also exactly the change that could quietly
+    // let the OLD path start succeeding where it used to be blocked, deleting
+    // an employee with no archive at all.
+    //
+    // It counts rows rather than relying on foreign keys to stop it, so it is
+    // unaffected. Asserted against the source because the behaviour is a
+    // refusal, and a refusal that quietly stopped happening is the failure.
+    const source = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+
+    expect(source).toMatch(/Cannot permanently delete user with linked records/);
+    expect(source).toMatch(/blockers/);
+  });
+
+  it('there are exactly two user-delete call sites, and both are accounted for', () => {
+    // One is the legacy guarded path above; one is inside the archive-delete
+    // transaction. A third appearing is a bypass until somebody says
+    // otherwise.
+    const { execSync } = require('child_process');
+    const root = require('path').resolve(__dirname, '../../src');
+    const hits = execSync(
+      `grep -rn "user\.delete(" "${root}" --include=*.ts || true`,
+      { encoding: 'utf8' },
+    )
+      .split('\n')
+      .filter(Boolean);
+
+    expect(hits).toHaveLength(2);
+    expect(hits.join(' ')).toMatch(/users\.service\.ts/);
+    expect(hits.join(' ')).toMatch(/archive-delete\.service\.ts/);
+  });
+});
