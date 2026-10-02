@@ -108,6 +108,14 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
 
   const worker = { id: 'worker-1', role: { name: 'EMPLOYEE' } };
 
+  /** manager-1 started reviewing ticket-1: their reviewer row is running. */
+  function managerIsReviewing() {
+    timeLogTable.rows.push({
+      id: 'review-log-1', ticketId: 'ticket-1', userId: 'manager-1', stage: 'REVIEW', ownerType: 'REVIEWER', source: 'REVIEW_ACTION',
+      startedAt: new Date('2026-07-02T09:45:00Z'), endedAt: null, durationSeconds: null, pauseReason: null, breakLogId: null,
+    });
+  }
+
   beforeEach(() => {
     timeLogTable = makeTicketTimeLogTable();
     prisma = {
@@ -126,6 +134,8 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       activityLog: { create: jest.fn().mockResolvedValue({}) },
       ticketTimeLog: timeLogTable,
       reviewCycleLog: makeReviewCycleTable(),
+      // Entering REVIEW binds pending proof; a decision locks the cycle's evidence.
+      attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       // The worker has an open, working session unless a test says otherwise.
       workSession: { findFirst: jest.fn().mockResolvedValue({ id: 'ws-1', status: 'WORKING', logoutAt: null, breakLogs: [] }) },
       $executeRaw: jest.fn().mockResolvedValue(1),
@@ -136,6 +146,8 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
 
     ticketAccess = {
       findAccessibleTicket: jest.fn(async () => makeTicketFixture()),
+      // A direct send-back is a review decision: authority is re-checked under the lock.
+      viewerCanApprove: jest.fn().mockResolvedValue(true),
       assertCanTransitionTicket: jest.fn().mockResolvedValue(undefined),
       assertCanAssignTicket: jest.fn().mockResolvedValue(undefined),
       assertCanUpdateTicket: jest.fn().mockResolvedValue(undefined),
@@ -251,12 +263,28 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       startedAt: new Date('2026-07-02T08:00:00Z'), endedAt: new Date('2026-07-02T09:30:00Z'),
       durationSeconds: 5400, pauseReason: 'STATUS_CHANGE', breakLogId: null,
     });
+    managerIsReviewing();
 
     await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
 
     const activeLogs = timeLogTable.rows.filter((r) => r.endedAt === null);
     expect(activeLogs).toHaveLength(1);
     expect(activeLogs[0].id).not.toBe('log-old');
+    expect(activeLogs[0].userId).toBe('worker-1');
+  });
+
+  it('5c. a direct send-back without a started review is refused (409 REVIEW_NOT_STARTED) and writes nothing', async () => {
+    ticketAccess.findAccessibleTicket.mockResolvedValue(
+      makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: new Date('2026-07-02T09:30:00Z') }),
+    );
+    const err: any = await service
+      .update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } })
+      .then(() => null, (e) => e);
+    expect(err?.getStatus?.()).toBe(409);
+    expect(err.getResponse()).toMatchObject({ code: 'REVIEW_NOT_STARTED' });
+    expect(prisma.ticket.update).not.toHaveBeenCalled();
+    expect(prisma.reviewCycleLog.rows).toHaveLength(0);
+    expect(timeLogTable.rows).toHaveLength(0);
   });
 
   it('6. a log started via update() can still be paused by the existing, untouched pauseActiveLogsForUser (break-start compatibility)', async () => {
@@ -323,6 +351,7 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     ticketAccess.findAccessibleTicket.mockResolvedValue(
       makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: NOW, reviewStartedAt: NOW }),
     );
+    managerIsReviewing();
 
     await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
 

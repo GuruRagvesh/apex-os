@@ -636,6 +636,7 @@ describe('T8 reviewer active-work clock and withdrawal (PostgreSQL)', () => {
 
   it('16a. approval holds the ticket: a concurrent withdrawal waits, then gets 409 — one decision', async () => {
     const t = await inReview();
+    await tickets.startReview(t.id, R, userObj(R));
     const pause = pauseNextTransactionAfter('$queryRaw', null, 1); // approve's ticket row lock
     const approving = tickets.approve(t.id, R, userObj(R), { taskEfficiencyRating: 4, employeePerformanceRating: 4, employeeAttitudeRating: 4 } as any);
     await parked(pause, approving);
@@ -653,6 +654,7 @@ describe('T8 reviewer active-work clock and withdrawal (PostgreSQL)', () => {
 
   it('16b. withdrawal holds the ticket: a concurrent approval waits, then gets 409 — one decision', async () => {
     const t = await inReview();
+    await tickets.startReview(t.id, R, userObj(R));
     const pause = pauseNextTransactionAfter('$queryRaw', null, 1); // commitUpdate's ticket row lock
     const withdrawing = tickets.withdraw(t.id, W, userObj(W));
     await parked(pause, withdrawing);
@@ -669,6 +671,7 @@ describe('T8 reviewer active-work clock and withdrawal (PostgreSQL)', () => {
 
   it('16c. approval versus rejection: the second decision is refused, never recorded', async () => {
     const t = await inReview();
+    await tickets.startReview(t.id, R, userObj(R));
     const pause = pauseNextTransactionAfter('$queryRaw', null, 1);
     const approving = tickets.approve(t.id, R, userObj(R), { taskEfficiencyRating: 4, employeePerformanceRating: 4, employeeAttitudeRating: 4 } as any);
     await parked(pause, approving);
@@ -706,6 +709,7 @@ describe('T8 reviewer active-work clock and withdrawal (PostgreSQL)', () => {
 
     advance(300);
     await tickets.update(t.id, { status: TicketStatus.REVIEW }, W);
+    await tickets.startReview(t.id, R, userObj(R)); // a reviewer's send-back needs a started review
     advance(60);
     await tickets.update(t.id, { status: TicketStatus.IN_PROGRESS }, R);
     expect((await cyclesOf(t.id)).map((c) => c.decision)).toEqual(['WITHDRAWN', 'REWORK']);
@@ -762,12 +766,18 @@ describe('T8 reviewer active-work clock and withdrawal (PostgreSQL)', () => {
       } as any,
     });
     advance(60);
+    // The decision needs a running review: R resumes it and decides at the same
+    // instant, so no further reviewer time accrues.
+    await tickets.startReview(a.id, R, userObj(R));
     await tickets.approve(a.id, R, userObj(R), { taskEfficiencyRating: 5, employeePerformanceRating: 5, employeeAttitudeRating: 5 } as any);
     expect((await cyclesOf(a.id))[0].reviewerWorkSeconds).toBe(600);
     expect((await timersOf(a.id)).reviewerWorkSeconds).toBe(600);
 
     const b = await inReview();
-    await tickets.reject(b.id, 'redo', R, userObj(R)); // decided without starting the clock
+    // Started and decided at the same instant: a decision needs a started
+    // review, but zero seconds of it is still an untimed review.
+    await tickets.startReview(b.id, R, userObj(R));
+    await tickets.reject(b.id, 'redo', R, userObj(R));
 
     const c = await inReview();
     await tickets.withdraw(c.id, W, userObj(W)); // a withdrawal is not a review of R's

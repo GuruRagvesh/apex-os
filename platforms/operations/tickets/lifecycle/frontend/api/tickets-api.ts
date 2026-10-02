@@ -36,6 +36,15 @@ export const ticketsApi = {
   // Reviewer active-work clock (separate from the review SLA clock).
   startReview: (id: string) => r(api.post(`/tickets/${id}/review/start`, {})),
   pauseReview: (id: string) => r(api.post(`/tickets/${id}/review/pause`, {})),
+  // The caller's own running clock (employee work or review) and its ticket.
+  getActiveTimer: () => r(api.get('/tickets/active-timer')),
+  // Submit for review with optional proof of completion, in one request.
+  // No file is the plain submission ("Skip for now").
+  submitForReview: (id: string, file?: File | null) => {
+    const form = new FormData();
+    if (file) form.append('file', file);
+    return r(api.post(`/tickets/${id}/submit-review`, form, { headers: { 'Content-Type': 'multipart/form-data' } }));
+  },
   // The assignee pulls their own submission back from review (not rework).
   withdraw: (id: string, reason?: string) => r(api.post(`/tickets/${id}/withdraw`, { reason: reason ?? undefined })),
   reject: (id: string, comment: string, reworkEstimatedMinutes?: number | null) =>
@@ -44,10 +53,13 @@ export const ticketsApi = {
   approveTicketCreation: (id: string) => r(api.post(`/tickets/${id}/approval`, { action: 'APPROVE' })),
   rejectTicketCreation: (id: string, reason: string) => r(api.post(`/tickets/${id}/approval`, { action: 'REJECT', reason })),
   getHistory: (id: string) => r(api.get(`/tickets/${id}/history`)),
-  uploadAttachment: (id: string, file: File, isPoc = false) => {
+  // The backend records the authenticated user as the uploader; `purpose`
+  // only says what the file is for (and is re-checked there).
+  uploadAttachment: (id: string, file: File, isPoc = false, purpose?: string) => {
     const form = new FormData();
     form.append('file', file);
     if (isPoc) form.append('isPoc', 'true');
+    if (purpose) form.append('purpose', purpose);
     return r(api.post(`/tickets/${id}/attachments`, form, { headers: { 'Content-Type': 'multipart/form-data' } }));
   },
   fetchAttachmentBlob: async (ticketId: string, attachmentId: string, mode: 'inline' | 'download' = 'inline') => {

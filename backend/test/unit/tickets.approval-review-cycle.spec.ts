@@ -110,7 +110,12 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
         // the same transaction (Phase 2D2), so the real ledger needs these.
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(async ({ data }: any) => ({ id: 'log-1', ...data })),
+        // The reviewer started the review: their reviewer row is running.
+        findFirst: jest.fn(async ({ where }: any) =>
+          where?.ownerType === 'REVIEWER' ? { id: 'review-log-1', ownerType: 'REVIEWER', userId: where.userId } : null),
       },
+      // A decision locks the cycle's evidence.
+      attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       // Worker lock, and the worker's WORKING session for the rework timer.
       $executeRaw: jest.fn().mockResolvedValue(0),
       workSession: {

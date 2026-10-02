@@ -14,6 +14,13 @@ import { getTicketVisibility, PRIORITY_DOT } from '@apex/operations-tickets-life
 import { computeClientTimingState, computeWorkBudget, dueCountdownText, pauseLabel } from '@apex/operations-tickets-sla';
 import { SkeletonTicketDetail } from '@apex/shared-ui/components/skeleton';
 import { reviewControls, reviewDecisionLabel, formatHoursMinutes } from '@apex/operations-tickets-lifecycle/shared/review-controls';
+import {
+  ACTIVE_TIMER_QUERY_KEY, NO_CURRENT_PROOF_MESSAGE, SUBMIT_PROOF_PROMPT,
+  attachmentProtectionLabel, attachmentPurposeLabel, groupAttachments, previewKind,
+  reviewStartPrompt, shouldOpenEvidenceFirst, uploadPurposeFor,
+  type ReviewStartPrompt, type TicketAttachment,
+} from '@apex/operations-tickets-lifecycle/shared/review-workspace';
+import { useActiveTimer } from '@apex/operations-tickets-lifecycle/components/active-review-banner';
 import { WORKDAY_TODAY_QUERY_KEY } from '@apex/operations-tickets-lifecycle/shared/ticket-creation-gate';
 import { useSocket } from '@/hooks/useSocket';
 import toast from 'react-hot-toast';
@@ -21,7 +28,7 @@ import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
   Copy, CheckCircle, XCircle, History, Paperclip, Upload,
   FileText, AlertTriangle, Sparkles, ChevronDown, ChevronUp, ChevronRight, Loader2,
-  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock, Star, UserMinus,
+  Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock, Star, UserMinus, Lock,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -203,16 +210,32 @@ function humanValue(field: string, value: string | null) {
 }
 
 // ─── Attachment card ──────────────────────────────────────────────────────────
-function AttachmentCard({ att, ticketId, canDelete, onDelete }: { att: any; ticketId: string; canDelete?: boolean; onDelete?: (id: string) => void }) {
-  const isImage = att.mimeType?.startsWith('image/');
-  const isPdf = att.mimeType === 'application/pdf';
+// Capabilities come from the backend: canDelete is true only for the uploader
+// of an attachment that is not locked evidence. Nothing here derives it from a
+// role, from being a participant, or from owning the ticket.
+function AttachmentCard({ att, ticketId, onDelete, highlight, inlinePreview }: {
+  att: TicketAttachment & Record<string, any>;
+  ticketId: string;
+  onDelete?: (id: string) => void;
+  /** The latest proof of the current review cycle. */
+  highlight?: boolean;
+  /** Show the image or PDF itself under the card (never a download). */
+  inlinePreview?: boolean;
+}) {
+  const kind = previewKind(att);
+  const isImage = kind === 'image';
+  const isPdf = kind === 'pdf';
   const isDoc = att.mimeType?.includes('word') || att.filename?.endsWith('.doc') || att.filename?.endsWith('.docx');
   const sizeKb = att.size ? Math.round(att.size / 1024) : null;
+  const purposeLabel = attachmentPurposeLabel(att);
+  const protection = attachmentProtectionLabel(att);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  // Images always get a thumbnail; a PDF is fetched only when shown inline.
+  const wantsPreview = isImage || (isPdf && Boolean(inlinePreview));
 
   useEffect(() => {
-    if (!isImage) return;
+    if (!wantsPreview) return;
     let objectUrl: string | null = null;
     let cancelled = false;
     setLoadingPreview(true);
@@ -230,7 +253,7 @@ function AttachmentCard({ att, ticketId, canDelete, onDelete }: { att: any; tick
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [att.id, isImage, ticketId]);
+  }, [att.id, wantsPreview, ticketId]);
 
   const openBlob = async (mode: 'inline' | 'download') => {
     try {
@@ -256,81 +279,120 @@ function AttachmentCard({ att, ticketId, canDelete, onDelete }: { att: any; tick
 
   return (
     <div
-      className="flex items-start gap-2 p-2.5 rounded-lg transition-colors border"
-      style={{ borderColor: 'var(--border-primary)' }}
-      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
-      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+      className="rounded-lg border transition-colors"
+      style={{
+        borderColor: highlight ? '#a855f7' : 'var(--border-primary)',
+        boxShadow: highlight ? '0 0 0 1px #a855f7' : undefined,
+      }}
     >
-      {/* Thumbnail / Icon */}
-      <div
-        className="w-10 h-10 rounded overflow-hidden flex-shrink-0 flex items-center justify-center"
-        style={{ backgroundColor: 'var(--bg-tertiary)' }}
-      >
-        {isImage && previewUrl ? (
-          <img src={previewUrl} alt={att.filename} className="w-full h-full object-cover" />
-        ) : isImage && loadingPreview ? (
-          <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
-        ) : isPdf ? (
-          <FileText size={18} className="text-red-400" />
-        ) : isDoc ? (
-          <FileText size={18} className="text-blue-400" />
-        ) : (
-          <FileText size={18} style={{ color: 'var(--text-tertiary)' }} />
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <p className="text-xs font-medium truncate max-w-[120px]" style={{ color: 'var(--text-secondary)' }}>{att.filename}</p>
-          {att.isPoc && (
-            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
-              POC
-            </span>
+      <div className="flex items-start gap-2 p-2.5">
+        {/* Thumbnail / Icon */}
+        <div
+          className="w-10 h-10 rounded overflow-hidden flex-shrink-0 flex items-center justify-center"
+          style={{ backgroundColor: 'var(--bg-tertiary)' }}
+        >
+          {isImage && previewUrl ? (
+            <img src={previewUrl} alt={att.filename} className="w-full h-full object-cover" />
+          ) : wantsPreview && loadingPreview ? (
+            <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
+          ) : isPdf ? (
+            <FileText size={18} className="text-red-400" />
+          ) : isDoc ? (
+            <FileText size={18} className="text-blue-400" />
+          ) : (
+            <FileText size={18} style={{ color: 'var(--text-tertiary)' }} />
           )}
         </div>
-        <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-          {sizeKb ? `${sizeKb} KB · ` : ''}
-          {att.createdAt ? new Date(att.createdAt).toLocaleDateString() : ''}
-        </p>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-xs font-medium truncate max-w-[180px]" style={{ color: 'var(--text-secondary)' }} title={att.filename}>{att.filename}</p>
+            {purposeLabel && (
+              <span className={cn(
+                'inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded',
+                att.purpose === 'POC' || att.isPoc ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700',
+              )}>
+                {purposeLabel}
+              </span>
+            )}
+            {highlight && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-600 text-white">Latest</span>
+            )}
+            {att.cycleNo ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>
+                Cycle {att.cycleNo}
+              </span>
+            ) : null}
+            {protection && (
+              <span className="inline-flex items-center gap-0.5 text-[10px]" style={{ color: 'var(--text-tertiary)' }} title={protection}>
+                {/* The reason is read once, from the visible line below. */}
+                <Lock size={10} aria-hidden="true" />
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
+            {sizeKb ? `${sizeKb} KB · ` : ''}
+            {att.createdAt ? new Date(att.createdAt).toLocaleDateString() : ''}
+            {att.uploadedBy?.name ? ` · by ${att.uploadedBy.name}` : att.legacyProtected ? ' · uploader not recorded' : ''}
+          </p>
+          {protection && (
+            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{protection}</p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={handleView}
+            title="View"
+            aria-label={`View ${att.filename}`}
+            className="p-1 rounded transition-colors"
+            style={{ color: 'var(--text-tertiary)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+          >
+            <Eye size={13} />
+          </button>
+          <button
+            onClick={handleDownload}
+            title="Download"
+            aria-label={`Download ${att.filename}`}
+            className="p-1 rounded transition-colors"
+            style={{ color: 'var(--text-tertiary)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+          >
+            <Download size={13} />
+          </button>
+          {att.canDelete === true && onDelete && (
+            <button
+              onClick={() => {
+                if (confirm('Delete this attachment?')) {
+                  onDelete(att.id);
+                }
+              }}
+              title="Delete"
+              aria-label={`Delete ${att.filename}`}
+              className="p-1 rounded transition-colors text-red-400 hover:text-red-500 hover:bg-red-50/10"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 flex-shrink-0">
-        <button
-          onClick={handleView}
-          title="View"
-          className="p-1 rounded transition-colors"
-          style={{ color: 'var(--text-tertiary)' }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-        >
-          <Eye size={13} />
-        </button>
-        <button
-          onClick={handleDownload}
-          title="Download"
-          className="p-1 rounded transition-colors"
-          style={{ color: 'var(--text-tertiary)' }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-        >
-          <Download size={13} />
-        </button>
-        {canDelete && (
-          <button
-            onClick={() => {
-              if (confirm('Delete this attachment?')) {
-                onDelete?.(att.id);
-              }
-            }}
-            title="Delete"
-            className="p-1 rounded transition-colors text-red-400 hover:text-red-500 hover:bg-red-50/10"
-          >
-            <Trash2 size={13} />
-          </button>
-        )}
-      </div>
+      {/* Inline preview: images and PDFs only; other formats use View / Download. */}
+      {inlinePreview && previewUrl && isImage && (
+        <div className="px-2.5 pb-2.5">
+          <img src={previewUrl} alt={att.filename} className="w-full max-h-96 object-contain rounded" style={{ backgroundColor: 'var(--bg-tertiary)' }} />
+        </div>
+      )}
+      {inlinePreview && previewUrl && isPdf && (
+        <div className="px-2.5 pb-2.5">
+          <iframe src={previewUrl} title={`Preview of ${att.filename}`} className="w-full h-96 rounded border" style={{ borderColor: 'var(--border-primary)' }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -441,6 +503,72 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
   );
 }
 
+// ─── Review-start gate ────────────────────────────────────────────────────────
+// Shown to an authorized reviewer who is not timing this review. Opening the
+// page changed no timer; only Start Review does, through the backend, which
+// pauses the reviewer's running ticket and starts the review together.
+function ReviewStartGate({ prompt, starting, onStart, onViewOnly, onGoBack }: {
+  prompt: ReviewStartPrompt;
+  starting: boolean;
+  onStart: () => void;
+  onViewOnly: () => void;
+  onGoBack: () => void;
+}) {
+  const firstRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { firstRef.current?.focus(); }, []);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      onKeyDown={(e) => { if (e.key === 'Escape') onViewOnly(); }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="review-gate-title"
+        aria-describedby="review-gate-message"
+        className="apex-card rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4"
+      >
+        <h3 id="review-gate-title" className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>{prompt.title}</h3>
+        <div id="review-gate-message" className="space-y-2">
+          {prompt.message && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{prompt.message}</p>}
+          <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+            View Only lets you read the ticket and its attachments. Approve and Send Back need a started review.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button
+            ref={prompt.canStart ? firstRef : undefined}
+            type="button"
+            onClick={onStart}
+            disabled={!prompt.canStart || starting}
+            aria-busy={starting}
+            className="w-full py-2.5 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg disabled:opacity-40"
+          >
+            {starting ? 'Starting…' : prompt.startLabel}
+          </button>
+          <button
+            ref={prompt.canStart ? undefined : firstRef}
+            type="button"
+            onClick={onViewOnly}
+            className="w-full py-2.5 text-sm rounded-lg border"
+            style={{ color: 'var(--text-primary)', borderColor: 'var(--border-primary)' }}
+          >
+            View Only
+          </button>
+          <button
+            type="button"
+            onClick={onGoBack}
+            className="w-full py-2.5 text-sm rounded-lg"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── POC Upload Modal ─────────────────────────────────────────────────────────
 function PocUploadModal({
   ticketId,
@@ -476,9 +604,9 @@ function PocUploadModal({
             <Paperclip size={18} style={{ color: 'var(--accent)' }} />
           </div>
           <div>
-            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Upload Proof of Completion</h3>
+            <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Submit for review</h3>
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Moving this ticket to Review requires uploading proof of work completed.
+              {SUBMIT_PROOF_PROMPT}
             </p>
           </div>
         </div>
@@ -515,14 +643,14 @@ function PocUploadModal({
             <>
               <Upload size={24} className="mx-auto mb-2" style={{ color: 'var(--text-tertiary)' }} />
               <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Drop files here or click to upload</p>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Supports: PDF, PNG, JPG, DOC (max 5MB)</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Optional · images, PDF, Word, Excel, CSV, text or ZIP (max 5 MB)</p>
             </>
           )}
           <input
             ref={fileRef}
             type="file"
             className="hidden"
-            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+            accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
           />
         </div>
@@ -532,6 +660,7 @@ function PocUploadModal({
           <button
             onClick={onSkip}
             disabled={isUploading}
+            title="Submit for review without an attachment"
             className="flex-1 py-2.5 text-sm rounded-lg border transition-colors disabled:opacity-50"
             style={{
               color: 'var(--text-secondary)',
@@ -590,6 +719,9 @@ export default function TicketDetailPage() {
   // POC upload modal state
   const [showPocModal, setShowPocModal] = useState(false);
   const [pocUploading, setPocUploading] = useState(false);
+  // The reviewer chose View Only on the review-start prompt (no timer started).
+  const [viewOnly, setViewOnly] = useState(false);
+  useEffect(() => { setViewOnly(false); }, [id]);
   // Edit modal state
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
@@ -606,6 +738,9 @@ export default function TicketDetailPage() {
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   });
+
+  // The viewer's running clock, from the ledger: names the ticket a review start would pause.
+  const { data: activeTimer, isSuccess: activeTimerKnown, isError: activeTimerFailed } = useActiveTimer();
 
   const { data: users } = useQuery({
     queryKey: ['users'],
@@ -741,26 +876,28 @@ export default function TicketDetailPage() {
     }
   };
 
-  const handlePocUploadAndSubmit = async (file: File) => {
+  // One request: the submission and its optional proof commit together, or
+  // nothing is submitted and nothing is attached.
+  const submitForReview = async (file: File | null) => {
     setPocUploading(true);
     try {
-      await ticketsApi.uploadAttachment(ticket.id, file, true);
-      await ticketsApi.updateStatus(ticket.id, 'REVIEW');
+      await ticketsApi.submitForReview(ticket.id, file);
       qc.invalidateQueries({ queryKey: ['ticket', id] });
       qc.invalidateQueries({ queryKey: ['ticket-history', id] });
-      toast.success('POC uploaded and ticket moved to Review');
+      qc.invalidateQueries({ queryKey: ['tickets'] });
+      qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
+      toast.success(file ? 'Submitted for review with proof of completion' : 'Submitted for review');
       setShowPocModal(false);
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to upload POC or update status');
+      toast.error(e?.message || 'Could not submit for review. Nothing was submitted or attached.');
     } finally {
       setPocUploading(false);
     }
   };
 
-  const handlePocSkip = async () => {
-    setShowPocModal(false);
-    updateStatus.mutate('REVIEW');
-  };
+  const handlePocUploadAndSubmit = (file: File) => submitForReview(file);
+  const handlePocSkip = () => submitForReview(null);
 
   const assignMutation = useMutation({
     mutationFn: (assignedToId: string) => ticketsApi.assign(ticket.id, assignedToId),
@@ -857,6 +994,8 @@ export default function TicketDetailPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ticket', id] });
       qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
       toast.success('Ticket approved ✓');
     },
     onError: (e: any) => toast.error(e?.message || 'Failed to approve ticket'),
@@ -871,12 +1010,14 @@ export default function TicketDetailPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ticket', id] });
       qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
       toast.success('Ticket sent back to In Progress');
       setRejectMode(false);
       setRejectComment('');
       setReworkEstimateHours('');
     },
-    onError: () => toast.error('Failed to reject ticket'),
+    onError: (e: any) => toast.error(e?.message || 'Failed to reject ticket'),
   });
 
   // Review clock and withdrawal. After success the ticket, its history, the
@@ -886,6 +1027,7 @@ export default function TicketDetailPage() {
     qc.invalidateQueries({ queryKey: ['ticket-history', id] });
     qc.invalidateQueries({ queryKey: ['tickets'] });
     qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
+    qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
   };
   const startReviewMutation = useMutation({
     mutationFn: () => ticketsApi.startReview(ticket.id),
@@ -916,7 +1058,8 @@ export default function TicketDetailPage() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => ticketsApi.uploadAttachment(ticket.id, file),
+    // The backend records the viewer as the uploader and re-checks the purpose.
+    mutationFn: (file: File) => ticketsApi.uploadAttachment(ticket.id, file, false, uploadPurposeFor(ticket, user?.id)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ticket', id] });
       toast.success('File uploaded');
@@ -931,7 +1074,8 @@ export default function TicketDetailPage() {
       qc.invalidateQueries({ queryKey: ['ticket', id] });
       toast.success('Attachment deleted');
     },
-    onError: () => toast.error('Failed to delete attachment'),
+    // The backend's safe reason (not the uploader, locked evidence, legacy).
+    onError: (e: any) => toast.error(e?.message || 'Failed to delete attachment'),
   });
 
   const blockMutation = useMutation({
@@ -966,6 +1110,19 @@ export default function TicketDetailPage() {
     uploadMutation.mutate(file);
     e.target.value = '';
   };
+
+  // Evidence first: once the reviewer is in this review (started it, or chose
+  // View Only), current-cycle proof opens the Attachments tab. Once per review
+  // cycle, so the reviewer can still move between tabs freely.
+  const evidenceShownFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ticket || ticket.status !== 'REVIEW' || ticket.viewerCanApprove !== true) return;
+    const entered = viewOnly || reviewControls(ticket, user?.id, { isLoading: false, isError: false }).reviewRunningForViewer;
+    const key = `${ticket.id}:${ticket.currentReviewCycle?.id ?? ''}`;
+    if (!entered || evidenceShownFor.current === key) return;
+    evidenceShownFor.current = key;
+    if (shouldOpenEvidenceFirst(ticket)) setActiveTab('attachments');
+  }, [ticket, viewOnly, user?.id]);
 
   const breadcrumbs = useMemo(() => {
     if (fromContext === 'project' && fromProjectId && fromProjectName) {
@@ -1013,6 +1170,11 @@ export default function TicketDetailPage() {
   const reviewActionPending =
     startReviewMutation.isPending || pauseReviewMutation.isPending || withdrawMutation.isPending ||
     approveMutation.isPending || rejectMutation.isPending;
+  // Mandatory before any decision; shown once the running clock is known so the
+  // prompt can name the ticket a start would pause.
+  const showReviewGate = review.needsReviewStart && !viewOnly && (activeTimerKnown || activeTimerFailed);
+  const grouped = groupAttachments(ticket.attachments, ticket.currentReviewCycle?.id);
+  const attachmentDelete = (attId: string) => deleteAttachmentMutation.mutate(attId);
   // The self-assigned worker is in REVIEW but must wait for their reporting hierarchy.
   const isSelfWorkerAwaitingReview =
     isSelfAssigned && ticket.createdById === user?.id && ticket.status === 'REVIEW' && !canApprove;
@@ -1047,6 +1209,17 @@ export default function TicketDetailPage() {
         ? { backgroundColor: 'var(--border-secondary)' }
         : undefined}
       />
+
+      {/* Review-start gate: Start Review, View Only or Go Back. Opening the page started nothing. */}
+      {showReviewGate && (
+        <ReviewStartGate
+          prompt={reviewStartPrompt(ticket, activeTimer)}
+          starting={startReviewMutation.isPending}
+          onStart={() => startReviewMutation.mutate()}
+          onViewOnly={() => setViewOnly(true)}
+          onGoBack={handleBack}
+        />
+      )}
 
       {/* POC Upload Modal */}
       {showPocModal && (
@@ -1462,7 +1635,9 @@ export default function TicketDetailPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => startReviewMutation.mutate()}
+                // Where a started review is required, reopen the prompt so the
+                // reviewer sees which ticket the start will pause.
+                onClick={() => (review.needsReviewStart ? setViewOnly(false) : startReviewMutation.mutate())}
                 disabled={!review.canStartReview || reviewActionPending}
                 title={review.disabledReason ?? undefined}
                 aria-busy={startReviewMutation.isPending}
@@ -1472,6 +1647,11 @@ export default function TicketDetailPage() {
               </button>
             )}
           </div>
+          {review.decisionBlockedReason && (
+            <p className="text-xs text-amber-800 mb-2" role="note">
+              {viewOnly ? 'View Only. ' : ''}{review.decisionBlockedReason}
+            </p>
+          )}
           {rejectMode ? (
             <div className="space-y-2">
               <input
@@ -1556,6 +1736,7 @@ export default function TicketDetailPage() {
               <div className="flex gap-2">
                 <button
                   onClick={() => approveMutation.mutate()}
+                  title={review.decisionBlockedReason ?? undefined}
                   disabled={reviewActionPending || !review.canDecide || (ratingsAllowed && (!taskEfficiencyRating || !employeePerformanceRating || !employeeAttitudeRating))}
                   className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
                 >
@@ -1563,7 +1744,9 @@ export default function TicketDetailPage() {
                 </button>
                 <button
                   onClick={() => setRejectMode(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-medium rounded-lg border border-red-200 transition-colors"
+                  disabled={reviewActionPending || !review.canDecide}
+                  title={review.decisionBlockedReason ?? undefined}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-medium rounded-lg border border-red-200 transition-colors disabled:opacity-40"
                 >
                   <XCircle size={14} /> Send Back for Rework
                 </button>
@@ -1752,9 +1935,36 @@ export default function TicketDetailPage() {
               </div>
             )}
 
-            {/* Attachments Tab */}
+            {/* Attachments Tab — while in review, the current cycle's proof comes first */}
             {activeTab === 'attachments' && (
-              <div className="p-5 space-y-4">
+              <div className="p-5 space-y-5">
+                {ticket.status === 'REVIEW' && (
+                  <section aria-labelledby="current-evidence-heading" className="space-y-2">
+                    <h4 id="current-evidence-heading" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+                      Proof of completion{ticket.currentReviewCycle ? ` — review cycle ${ticket.currentReviewCycle.cycleNo}` : ''}
+                    </h4>
+                    {grouped.currentProof.length > 0 ? (
+                      <div className="space-y-2">
+                        {grouped.currentProof.map((att: any, i: number) => (
+                          <AttachmentCard key={att.id} att={att} ticketId={ticket.id} onDelete={attachmentDelete} highlight={i === 0} inlinePreview={i === 0} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{NO_CURRENT_PROOF_MESSAGE}</p>
+                    )}
+                    {grouped.currentFeedback.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Review feedback</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {grouped.currentFeedback.map((att: any) => (
+                            <AttachmentCard key={att.id} att={att} ticketId={ticket.id} onDelete={attachmentDelete} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                )}
+
                 <div
                   className="border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer"
                   style={{ borderColor: 'var(--border-primary)' }}
@@ -1774,23 +1984,57 @@ export default function TicketDetailPage() {
                   <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
                     {uploadMutation.isPending ? 'Uploading...' : 'Drop a file or click to upload'}
                   </p>
-                  <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Max 5 MB · Images, PDFs, docs</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                    Max 5 MB · Images, PDFs, docs
+                    {uploadPurposeFor(ticket, user?.id) === 'REVIEW_FEEDBACK' ? ' · saved as review feedback for this cycle' : ''}
+                  </p>
                   <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
                 </div>
 
-                {ticket.attachments?.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {ticket.attachments.map((att: any) => (
-                      <AttachmentCard
-                        key={att.id}
-                        att={att}
-                        ticketId={ticket.id}
-                        canDelete={canDelete || canEdit}
-                        onDelete={(attId) => deleteAttachmentMutation.mutate(attId)}
-                      />
+                {grouped.pendingProof.length > 0 && (
+                  <section className="space-y-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Proof for the next submission</h4>
+                    <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Attached to the review and locked when this ticket is submitted for review.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {grouped.pendingProof.map((att: any) => (
+                        <AttachmentCard key={att.id} att={att} ticketId={ticket.id} onDelete={attachmentDelete} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {grouped.other.length > 0 && (
+                  <section className="space-y-2">
+                    {ticket.status === 'REVIEW' && (
+                      <h4 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Other files</h4>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {grouped.other.map((att: any) => (
+                        <AttachmentCard key={att.id} att={att} ticketId={ticket.id} onDelete={attachmentDelete} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {grouped.previous.length > 0 && (
+                  <section aria-labelledby="previous-evidence-heading" className="space-y-3">
+                    <h4 id="previous-evidence-heading" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Previous evidence</h4>
+                    {grouped.previous.map((group) => (
+                      <div key={group.cycleNo ?? 'legacy'} className="space-y-2">
+                        <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                          {group.cycleNo ? `Review cycle ${group.cycleNo}` : 'Earlier proof (review cycle not recorded)'}
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {group.items.map((att: any) => (
+                            <AttachmentCard key={att.id} att={att} ticketId={ticket.id} onDelete={attachmentDelete} />
+                          ))}
+                        </div>
+                      </div>
                     ))}
-                  </div>
-                ) : (
+                  </section>
+                )}
+
+                {!(ticket.attachments?.length > 0) && (
                   <p className="text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>No attachments yet</p>
                 )}
               </div>
