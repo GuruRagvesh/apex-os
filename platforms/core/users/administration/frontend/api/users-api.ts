@@ -93,6 +93,15 @@ export const usersApi = {
    *
    * Returns where the archive went, so an administrator can find it later.
    */
+  /**
+   * Whether this environment permits Archive & Delete at all.
+   *
+   * Used only to hide a button that cannot work. The delete endpoint
+   * re-decides it, so a stale or ignored answer changes nothing.
+   */
+  archiveDeleteAvailability: () =>
+    r(api.get('/users/archive-delete/availability')) as Promise<{ enabled: boolean }>,
+
   archiveDelete: (id: string) =>
     r(api.delete(`/users/${id}/archive-delete`)) as Promise<{
       deleted: boolean;

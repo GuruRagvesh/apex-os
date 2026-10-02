@@ -106,6 +106,17 @@ export default function UsersPage() {
     },
   });
 
+  // Whether this environment permits the destructive action. Hiding only --
+  // the server refuses regardless, so a stale answer is harmless.
+  const { data: archiveDeleteAvailability } = useQuery({
+    queryKey: ['archive-delete-availability'],
+    queryFn: () => usersApi.archiveDeleteAvailability(),
+    enabled: hasHydrated && isAdmin,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const archiveDeleteEnabled = archiveDeleteAvailability?.enabled === true;
+
   const archiveDeleteMutation = useMutation({
     mutationFn: (id: string) => usersApi.archiveDelete(id),
     onSuccess: (result: any) => {
@@ -358,10 +369,12 @@ export default function UsersPage() {
                     </button>
                     {/*
                       Archive & Delete. Shown to Admin and Super Admin only,
-                      and never for your own row -- the server refuses both,
-                      so this is about not offering something that cannot
-                      work, not about enforcement.
+                      never for your own row, and only where the environment
+                      has the feature switched on -- the server refuses all
+                      three, so this is about not offering something that
+                      cannot work, not about enforcement.
                     */}
+                    {archiveDeleteEnabled && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -378,6 +391,7 @@ export default function UsersPage() {
                     >
                       <Archive size={14} />
                     </button>
+                    )}
                     <button
                       type="button"
                       onClick={async (e) => {

@@ -1,4 +1,4 @@
-import { Controller, Delete, Param, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Param, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -24,6 +24,21 @@ import { ArchiveDeleteService } from './archive-delete.service';
 @ApiBearerAuth()
 export class ArchiveDeleteController {
   constructor(private readonly archiveDelete: ArchiveDeleteService) {}
+
+  /**
+   * Whether this deployment permits the destructive action at all.
+   *
+   * EXISTS SO THE UI CAN HIDE A BUTTON IT CANNOT USE, and for no stronger
+   * purpose. The endpoint below re-decides it regardless of what this
+   * returned, so a client that ignored it, cached it, or called the delete
+   * directly is refused identically. Hiding is courtesy; the gate is
+   * enforcement.
+   */
+  @Get('archive-delete/availability')
+  @ApiOperation({ summary: 'Whether Archive & Delete is enabled on this environment' })
+  async availability() {
+    return { enabled: await this.archiveDelete.isEnabled() };
+  }
 
   @Delete(':id/archive-delete')
   @ApiOperation({

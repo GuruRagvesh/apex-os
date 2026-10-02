@@ -17,6 +17,10 @@ import {
   type EmployeeArchiveStorage,
 } from './storage/employee-archive-storage';
 import { USER_RELATION_RULES } from './user-relation-classification';
+import {
+  EMPLOYEE_LIFECYCLE_SETTING_KEY,
+  isArchiveDeleteEnabled,
+} from './employee-lifecycle-settings';
 
 /**
  * One irreversible action: archive an employee to Drive, prove it arrived,
@@ -53,6 +57,37 @@ export class ArchiveDeleteService {
   // ════════════════════════════════════════════════════════════════════════
   // Guards
   // ════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Is destructive deletion permitted on this deployment at all?
+   *
+   * READ FROM THE DATABASE, NOT FROM THE BUILD. A deployment is switched on
+   * by a decision somebody records, not by shipping a different artifact, so
+   * production and staging run identical code and differ by one row.
+   *
+   * CHECKED FIRST, BEFORE AUTHORIZATION. A Super Admin on a deployment where
+   * the feature is off is refused for the same reason an employee is: it is
+   * not available here. Reading it straight from the setting row rather than
+   * through SettingsService keeps this module free of SettingsModule, which
+   * pulls EmailModule with it.
+   */
+  async isEnabled(): Promise<boolean> {
+    const row = await this.prisma.appSetting
+      .findUnique({ where: { key: EMPLOYEE_LIFECYCLE_SETTING_KEY }, select: { value: true } })
+      .catch(() => null);
+    // An unreadable settings table means OFF. The failure direction is
+    // chosen: unavailable costs a support request, available costs somebody
+    // their account.
+    return isArchiveDeleteEnabled(row ? (row as any).value : null);
+  }
+
+  private async assertEnabled(): Promise<void> {
+    if (!(await this.isEnabled())) {
+      throw new ForbiddenException(
+        'Archive & Delete is not enabled on this environment.',
+      );
+    }
+  }
 
   /**
    * Admin and Super Admin only.
@@ -183,6 +218,9 @@ export class ArchiveDeleteService {
   // ════════════════════════════════════════════════════════════════════════
 
   async archiveAndDelete(actor: any, targetUserId: string) {
+    // The environment gate comes before everything, including the role check:
+    // on a deployment where this is off, it is off for Super Admin too.
+    await this.assertEnabled();
     this.assertAdmin(actor);
 
     const target = await this.prisma.user.findUnique({

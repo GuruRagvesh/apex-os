@@ -57,6 +57,13 @@ interface Opts {
   collectorThrows?: Error;
   /** Make the ledger create collide, as a concurrent claim would. */
   claimRace?: boolean;
+  /**
+   * The environment gate. Defaults ON here so the existing tests exercise
+   * the workflow -- the OFF behaviour has its own describe block, because a
+   * rig that defaulted off would make every other test pass for the wrong
+   * reason.
+   */
+  featureEnabled?: boolean;
 }
 
 function rig(opts: Opts = {}) {
@@ -98,6 +105,11 @@ function rig(opts: Opts = {}) {
   });
 
   const prisma: any = {
+    appSetting: {
+      findUnique: jest.fn(async () => ({
+        value: { archiveDeleteEnabled: opts.featureEnabled !== false },
+      })),
+    },
     user: {
       findUnique: jest.fn(async () => target),
       count: jest.fn(async () => opts.otherSuperAdmins ?? 1),
@@ -659,5 +671,87 @@ describe('the ledger and repeated requests', () => {
       .mock.invocationCallOrder[0];
     expect(claimed).toBeGreaterThan(0);
     expect(storage.uploads).toHaveLength(1);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// The environment gate
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Archive & Delete ships finished but switched off. It destroys an account
+// irreversibly and has never run against real data, so the first real use
+// must not also be the first use: production deploys with it off, staging
+// turns it on against a synthetic employee, and production is enabled later,
+// deliberately, by somebody who decided to.
+describe('the destructive action is off unless this environment enables it', () => {
+  it('REFUSES EVEN A SUPER ADMIN when the feature is off', async () => {
+    const { service, prisma, storage } = rig({ featureEnabled: false });
+
+    await expect(service.archiveAndDelete(SUPER, 'u-1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    // Nothing was read, uploaded or deleted. The refusal is the first thing
+    // that happens, before authorization and before the target is loaded.
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(storage.uploads).toEqual([]);
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+
+  it('says it is the ENVIRONMENT, not the person', async () => {
+    // An administrator refused by the flag must not go looking for a missing
+    // permission they already have.
+    const { service } = rig({ featureEnabled: false });
+
+    await expect(service.archiveAndDelete(ADMIN, 'u-1')).rejects.toThrow(
+      /not enabled on this environment/i,
+    );
+  });
+
+  it('DEFAULTS OFF when the setting row does not exist', async () => {
+    // A fresh deployment has no row. It must be off, not on.
+    const { service, prisma } = rig();
+    prisma.appSetting.findUnique = jest.fn(async () => null);
+
+    await expect(service.isEnabled()).resolves.toBe(false);
+    await expect(service.archiveAndDelete(ADMIN, 'u-1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('DEFAULTS OFF when the settings table cannot be read', async () => {
+    const { service, prisma } = rig();
+    prisma.appSetting.findUnique = jest.fn(async () => {
+      throw new Error('relation "app_settings" does not exist');
+    });
+
+    await expect(service.isEnabled()).resolves.toBe(false);
+  });
+
+  it.each([
+    ['the string "true"', 'true'],
+    ['a number', 1],
+    ['an unrelated object', { somethingElse: true }],
+    ['an empty object', {}],
+    ['null', null],
+  ])('TREATS %s AS OFF, not as truthy', async (_label, value) => {
+    // Anything other than exactly `true` is off. A setting that happened to
+    // be non-empty must not enable an irreversible operation.
+    const { service, prisma } = rig();
+    prisma.appSetting.findUnique = jest.fn(async () => ({
+      value: { archiveDeleteEnabled: value },
+    }));
+
+    await expect(service.isEnabled()).resolves.toBe(false);
+  });
+
+  it('is ON only for exactly true', async () => {
+    // Without this the tests above could all be satisfied by a function that
+    // always returns false.
+    const { service } = rig({ featureEnabled: true });
+
+    await expect(service.isEnabled()).resolves.toBe(true);
+    await expect(service.archiveAndDelete(ADMIN, 'u-1')).resolves.toMatchObject({
+      deleted: true,
+    });
   });
 });
