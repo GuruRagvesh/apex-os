@@ -37,6 +37,8 @@ interface RigOptions {
   credits?: Array<{ id: string; expiresAt: string; earnedAt?: string }>;
   createThrows?: any;
   expiryDays?: number;
+  /** The policy ceiling, in days from the grant. */
+  maxValidityDays?: number;
   /** The employee is on no leave policy, so the company fallback applies. */
   noProfilePolicy?: boolean;
 }
@@ -85,7 +87,10 @@ function rig(opts: RigOptions = {}) {
       findMany: jest.fn().mockResolvedValue([]),
     },
     leavePolicy: {
-      findUnique: jest.fn().mockResolvedValue({ compOffExpiryDays: opts.expiryDays ?? 30 }),
+      findUnique: jest.fn().mockResolvedValue({
+        compOffExpiryDays: opts.expiryDays ?? 30,
+        compOffMaximumValidityDays: opts.maxValidityDays ?? null,
+      }),
     },
   };
 
@@ -204,6 +209,30 @@ describe('Comp off manual grant', () => {
     );
     // And emphatically not the old answer, which the earned date would give.
     expect(credit.expiresAt.toISOString().slice(0, 10)).not.toBe('2026-12-08');
+  });
+
+  it('REFUSES TO GRANT under an incoherent validity policy', async () => {
+    // A ceiling below the default would make the credit born already past its
+    // maximum and un-extendable from the moment it was granted. Refused rather
+    // than guessed: a credit whose expiry nobody can defend is worse than no
+    // credit.
+    //
+    // This is also what proves the configured ceiling is actually LOADED. The
+    // grant itself only needs the default, so a service that silently stopped
+    // reading compOffMaximumValidityDays would behave identically everywhere
+    // else -- and this policy would quietly resolve as valid.
+    const { service, created } = rig({ isHr: true, expiryDays: 45, maxValidityDays: 30 });
+
+    await expect(service.grantManual(HR, input)).rejects.toBeInstanceOf(BadRequestException);
+    expect(created).toHaveLength(0);
+  });
+
+  it('grants normally when the ceiling sits above the default', async () => {
+    // The other side, so the test above cannot pass by refusing everything.
+    const { service, created } = rig({ isHr: true, expiryDays: 45, maxValidityDays: 60 });
+
+    await service.grantManual(HR, input);
+    expect(created).toHaveLength(1);
   });
 
   it('FALLS BACK TO 45 DAYS when the employee is on no leave policy', async () => {

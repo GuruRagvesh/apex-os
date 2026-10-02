@@ -5,7 +5,14 @@ import { CurrentUser } from '../../../../shared/decorators/current-user.decorato
 import { AttendanceReportService } from './attendance-report.service';
 
 /**
- * My Attendance: the employee's own canonical record.
+ * My Attendance: the employee's own canonical record, by YEAR.
+ *
+ * NO MONTH ROUTE HERE, DELIBERATELY. GET /attendance/employee/me/summary
+ * already serves the employee's month, and it is the richer surface -- today's
+ * live state, the KPIs, the lock state, and a manager/HR scoped variant. A
+ * second month endpoint would be two ways to ask one question, each free to
+ * answer differently, which is the duplication this reconciliation removes.
+ * The year has no other owner, so it lives here.
  *
  * SAME DATA HR SEES, SCOPED TO ONE PERSON. These routes call the canonical
  * assembly, not a self-service copy of it, so an employee and the payroll
@@ -26,30 +33,6 @@ import { AttendanceReportService } from './attendance-report.service';
 @ApiBearerAuth()
 export class MyAttendanceController {
   constructor(private readonly report: AttendanceReportService) {}
-
-  /**
-   * One month: the days, the summary, and the rules the month was read under.
-   *
-   * `summary` is the KPI row the dashboard renders. It is the SAME nineteen
-   * figures the monthly register carries, computed by the same builder -- the
-   * dashboard presents them, it does not calculate them. A KPI computed in
-   * React would be a second opinion with no way to tell which one payroll used.
-   */
-  @Get('month/:month')
-  @ApiOperation({ summary: "The authenticated employee's own canonical month" })
-  async month(@CurrentUser() user: any, @Param('month') month: string) {
-    const report = await this.report.myMonth(user, month);
-
-    return {
-      month: report.month,
-      days: report.dailyRows,
-      // At most one row: the assembly was scoped to one employee. null when the
-      // employee was not employed during the month at all, which the UI shows
-      // as "not employed" rather than as a month of zeros.
-      summary: report.summaryRows[0] ?? null,
-      metadata: report.metadata,
-    };
-  }
 
   /**
    * Twelve monthly summaries for a year.

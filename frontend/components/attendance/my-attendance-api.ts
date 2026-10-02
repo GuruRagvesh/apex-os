@@ -1,12 +1,13 @@
 import { api, unwrap as r } from '@apex/shared-auth';
-import type {
-  AttendanceReportMetadata,
-  DailyAttendanceReportRow,
-  MonthlyAttendanceSummaryRow,
-} from './canonical-report-api';
+import type { MonthlyAttendanceSummaryRow } from './canonical-report-api';
 
 /**
- * The employee's own canonical attendance.
+ * The employee's own canonical attendance, by YEAR.
+ *
+ * MONTH IS NOT HERE, DELIBERATELY. EmployeeAttendanceDashboard owns the month
+ * through /attendance/employee/me/summary -- the richer, already-tested
+ * surface. A second client for the same month would be two ways to ask one
+ * question, free to answer differently.
  *
  * THE SAME ROWS HR READS, scoped to the caller by the server. The types are
  * reused from the HR client rather than redeclared, so the two cannot describe
@@ -22,14 +23,6 @@ import type {
  * opinion with no way to tell which one payroll used.
  */
 
-export interface MyAttendanceMonth {
-  month: string;
-  days: DailyAttendanceReportRow[];
-  /** null when the employee was not employed during this month at all. */
-  summary: MonthlyAttendanceSummaryRow | null;
-  metadata: AttendanceReportMetadata;
-}
-
 export interface MyAttendanceYear {
   year: string;
   /**
@@ -38,11 +31,6 @@ export interface MyAttendanceYear {
    * caller never has to work out which months are missing.
    */
   months: Array<{ month: string; summary: MonthlyAttendanceSummaryRow | null }>;
-}
-
-/** yyyy-MM. */
-export async function getMyAttendanceMonth(month: string): Promise<MyAttendanceMonth> {
-  return r(api.get(`/attendance/me/month/${month}`));
 }
 
 /** yyyy. Twelve monthly summaries, not a year of days. */

@@ -48,7 +48,38 @@ export function createTvaDouble(now: Date, timezone = 'Asia/Kolkata') {
   const elapsedSeconds = (start: Date, end?: Date): number =>
     Math.max(0, Math.floor((at(end).getTime() - start.getTime()) / 1000));
 
+  /** Matching TVAService.elapsedMinutes(): whole minutes, floored, never negative. */
+  const elapsedMinutes = (start: Date, end?: Date): number =>
+    Math.floor(elapsedSeconds(start, end) / 60);
+
+  /**
+   * The instant a wall-clock company time falls on, matching
+   * TVAService.companyInstantAt() line for line -- including its rejections.
+   *
+   * Reproduced rather than stubbed for the reason this whole file exists: a
+   * double that answered every "18:30" with a plausible Date would happily
+   * accept "25:00" and "half six" too, and the caller's guard against a
+   * malformed shift time would then be tested against nothing.
+   */
+  const companyInstantAt = (businessDate: string, hhmm: string): Date | null => {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm?.trim() ?? '');
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours > 23 || minutes > 59) return null;
+
+    const anchor = new Date(`${businessDate}T12:00:00.000Z`);
+    if (Number.isNaN(anchor.getTime())) return null;
+
+    const hh = String(hours).padStart(2, '0');
+    const mm = String(minutes).padStart(2, '0');
+    return new Date(
+      formatInTimeZone(anchor, timezone, `yyyy-MM-dd'T'${hh}:${mm}:00.000XXX`),
+    );
+  };
+
   return {
+    companyInstantAt: jest.fn(companyInstantAt),
     now: jest.fn(() => now),
     companyTimezone: jest.fn(companyTimezone),
     companyDateOnly: jest.fn(companyDateOnly),
@@ -57,5 +88,6 @@ export function createTvaDouble(now: Date, timezone = 'Asia/Kolkata') {
     companyBusinessDate: jest.fn(companyBusinessDate),
     companyToday: jest.fn(() => companyBusinessDate()),
     elapsedSeconds: jest.fn(elapsedSeconds),
+    elapsedMinutes: jest.fn(elapsedMinutes),
   };
 }

@@ -41,6 +41,19 @@ export async function getMyLeaveBalance(type: PersonalLeaveType): Promise<LeaveB
   return r(api.get('/leave/balance', { params: { type } }));
 }
 
+/**
+ * Cache keys for the viewer's own comp off, owned next to the endpoint.
+ *
+ * THE VIEWER IS IN THE KEY, AND THAT IS NOT DECORATION. The credits endpoint
+ * is scoped to whoever is signed in, so a key that did not name the viewer
+ * would let one employee's cached credits be served to whoever logged in next
+ * on the same browser.
+ */
+export const compOffKeys = {
+  credits: (viewerId: string | null | undefined) =>
+    ['comp-off-credits', viewerId ?? 'anonymous'] as const,
+};
+
 export async function getMyCompOffCredits(): Promise<CompOffCredit[]> {
   const rows = await r<CompOffCredit[]>(api.get('/leave/comp-off/me'));
   return Array.isArray(rows) ? rows : [];

@@ -129,6 +129,8 @@ export class AttendanceReportService {
    * refused rather than defaulting to a query that would match everybody.
    */
   async myMonth(actor: any, month: string): Promise<MonthReport> {
+    // Also the building block for myYear, so the subject check and the scope
+    // below are applied once per month there too.
     const userId = actor?.id ?? actor?.sub;
     if (!userId) {
       throw new ForbiddenException('Only a signed-in employee can read their own attendance');
@@ -174,7 +176,11 @@ export class AttendanceReportService {
     const months: Array<{ month: string; summary: MonthlyAttendanceSummaryRow | null }> = [];
     for (let m = 1; m <= 12; m += 1) {
       const month = `${year}-${String(m).padStart(2, '0')}`;
-      const report = await this.assemble(month, undefined, [userId]);
+      // Through myMonth, not assemble, so the self-scoped read has exactly
+      // one path. A year that reached past it would be a second place for the
+      // scope to be got wrong, and the scope is the only thing standing
+      // between one employee and another employee's attendance.
+      const report = await this.myMonth(actor, month);
       // One employee, so at most one summary row. null when the employee was
       // not employed in that month at all, which is a real answer and not a
       // zero -- somebody who joined in June has no May.
