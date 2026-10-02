@@ -343,6 +343,8 @@ describe('TicketsService.approve — rating suppression for self-assigned', () =
     const prisma: any = {
       comment: { create: jest.fn().mockResolvedValue({}) },
       user: { findUnique: jest.fn().mockResolvedValue({ currentStatus: 'ACTIVE' }) },
+      // A decision locks the cycle's evidence.
+      attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     };
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));
     // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
@@ -363,6 +365,8 @@ describe('TicketsService.approve — rating suppression for self-assigned', () =
       endActiveLogsForTicket: jest.fn().mockResolvedValue({ count: 0, logIds: [], userIds: [] }),
       findOpenReviewCycle: jest.fn().mockResolvedValue(null),
       resumeAfterReview: jest.fn().mockResolvedValue({ outcome: 'NOTHING_TO_DO' }),
+      // A review decision needs the decider's running review (they started it).
+      findActiveReviewerLog: jest.fn().mockResolvedValue({ id: 'review-log-1', ownerType: 'REVIEWER' }),
     };
     const service = new TicketsService(
       prisma,

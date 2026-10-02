@@ -23,12 +23,13 @@ export class UploadsService {
     }
   }
 
-  async uploadTicketAttachment(
-    ticketId: string,
-    file: Express.Multer.File,
-    isPoc = false,
-    pocFor?: string,
-  ) {
+  /**
+   * Stores a ticket file and returns its storage reference. Writes no
+   * database row: the attachment row (owner, purpose, cycle, lock) is written
+   * by TicketsService under the ticket row lock, which discards the stored
+   * file through discardStoredFile() if that write fails.
+   */
+  async storeTicketFile(ticketId: string, file: { originalname: string; mimetype: string; size: number; buffer: Buffer }) {
     let url = '';
 
     if (this.configured) {
@@ -46,21 +47,22 @@ export class UploadsService {
       url = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     }
 
-    return this.prisma.attachment.create({
-      data: {
-        ticketId,
-        filename: file.originalname,
-        url,
-        size: file.size,
-        mimeType: file.mimetype,
-        isPoc,
-        pocFor: pocFor ?? (isPoc ? ticketId : undefined),
-      },
-    });
+    return url;
   }
 
-  async deleteAttachment(attachmentId: string) {
-    return this.prisma.attachment.delete({ where: { id: attachmentId } });
+  /**
+   * Undoes storeTicketFile() for a file whose attachment row was never
+   * written (a refused or failed upload/submission). Never called for a file
+   * that has a row. Inline (base64) storage has nothing to remove.
+   */
+  async discardStoredFile(reference: string) {
+    if (!this.configured || !reference?.startsWith('cloudinary:authenticated:')) return;
+    const [, , resourceType, publicId] = reference.split(':');
+    if (!publicId) return;
+    await cloudinary.uploader.destroy(decodeURIComponent(publicId), {
+      resource_type: resourceType || 'raw',
+      type: 'authenticated',
+    });
   }
 
   async readAttachment(attachment: { url: string; mimeType?: string | null }) {

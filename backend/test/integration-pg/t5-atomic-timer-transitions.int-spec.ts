@@ -137,6 +137,14 @@ describe('T5 atomic ticket/workday + timer transitions (PostgreSQL)', () => {
     expectNothingAnnounced();
   }
 
+  /** A review decision needs the decider's running review: the manager starts it. */
+  async function managerReviews(ticketId: string) {
+    if ((await prisma.workSession.count({ where: { userId: M, status: 'WORKING' } })) === 0) {
+      await workday.startWork(M);
+    }
+    await tickets.startReview(ticketId, M);
+  }
+
   /** W has ticket `t` running (IN_PROGRESS, active ASSIGNEE log). */
   async function running(fields: Record<string, any> = {}) {
     const t = await newTicket(fields);
@@ -276,6 +284,7 @@ describe('T5 atomic ticket/workday + timer transitions (PostgreSQL)', () => {
     it('rework (reject): the REWORK timer start fails → still REVIEW, no decision, no cycle, no comment', async () => {
       const t = await running();
       await tickets.update(t.id, { status: TicketStatus.REVIEW }, W);
+      await managerReviews(t.id);
       failNextTransactionOn('ticketTimeLog', 'create');
       await expectFullRollback(() => tickets.reject(t.id, 'needs another pass', M, undefined, 30));
       expect((await ticketRow(t.id))!).toMatchObject({ status: 'REVIEW', reworkCount: 0 });
@@ -300,6 +309,7 @@ describe('T5 atomic ticket/workday + timer transitions (PostgreSQL)', () => {
     it('reject: the REWORK timer already started, then the comment write fails → no timer, no cycle', async () => {
       const t = await running();
       await tickets.update(t.id, { status: TicketStatus.REVIEW }, W);
+      await managerReviews(t.id);
       failNextTransactionOn('comment', 'create');
       await expectFullRollback(() => tickets.reject(t.id, 'needs another pass', M, undefined, 30));
       expect(await activeLogs(W)).toHaveLength(0);
@@ -421,6 +431,7 @@ describe('T5 atomic ticket/workday + timer transitions (PostgreSQL)', () => {
       await tickets.update(t.id, { status: TicketStatus.REVIEW }, W);
       expect(await activeLogs(W)).toHaveLength(0);
 
+      await managerReviews(t.id);
       await tickets.reject(t.id, 'needs another pass', M, undefined, 30);
       const [log] = await activeLogs(W);
       expect(log).toMatchObject({ ticketId: t.id, stage: 'REWORK', countsAsWork: true });

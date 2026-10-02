@@ -61,8 +61,80 @@ export const REVIEW_ERRORS = {
     statusCode: 409, code: 'REVIEW_DECISION_REQUIRED',
     message: 'Use Approve to complete a ticket that is in review.',
   },
+  NOT_STARTED: {
+    statusCode: 409, code: 'REVIEW_NOT_STARTED',
+    message: 'Start Review before approving or sending this ticket back.',
+  },
+  ALREADY_IN_REVIEW: {
+    statusCode: 409, code: 'TICKET_ALREADY_IN_REVIEW',
+    message: 'This ticket is already in review.',
+  },
 } as const;
 export const PUNCH_IN_TO_REVIEW_MESSAGE = 'Punch In before starting a review.';
+
+/**
+ * Review decisions on the ticket types a reviewer hierarchy decides (every
+ * type except QUERY and HELP, whose decisions belong to the requester or the
+ * HELP assignee) need the decider's own running review timer.
+ */
+export function reviewTimerRequired(ticket: { type?: string | null } | null | undefined): boolean {
+  return ticket?.type !== 'QUERY' && ticket?.type !== 'HELP';
+}
+
+/** Safe attachment refusals: stable codes, user-facing messages, no internals. */
+export const ATTACHMENT_ERRORS = {
+  NOT_OWNER: {
+    statusCode: 403, code: 'ATTACHMENT_NOT_OWNER',
+    message: 'Only the person who uploaded this attachment can delete it.',
+  },
+  LEGACY_PROTECTED: {
+    statusCode: 403, code: 'ATTACHMENT_LEGACY_PROTECTED',
+    message: 'This attachment was uploaded before uploaders were recorded, so it cannot be deleted.',
+  },
+  LOCKED: {
+    statusCode: 409, code: 'ATTACHMENT_LOCKED',
+    message: 'This attachment is locked as review evidence and cannot be deleted.',
+  },
+  POC_NOT_ALLOWED: {
+    statusCode: 403, code: 'POC_NOT_ALLOWED',
+    message: "Only the ticket's assignees can add proof of completion while it is in progress or in review.",
+  },
+  FEEDBACK_NOT_ALLOWED: {
+    statusCode: 403, code: 'REVIEW_FEEDBACK_NOT_ALLOWED',
+    message: 'Only a reviewer of this ticket can add review feedback while it is in review.',
+  },
+  INVALID_PURPOSE: {
+    statusCode: 400, code: 'ATTACHMENT_PURPOSE_INVALID',
+    message: 'Unknown attachment purpose.',
+  },
+} as const;
+
+export const ATTACHMENT_LOCK_REASONS = {
+  SUBMITTED_FOR_REVIEW: 'SUBMITTED_FOR_REVIEW',
+} as const;
+
+const ATTACHMENT_PURPOSES = ['REFERENCE', 'GENERAL', 'POC', 'REVIEW_FEEDBACK'] as const;
+type AttachmentPurposeValue = typeof ATTACHMENT_PURPOSES[number];
+
+/** What every attachment response is built from (never the stored url). */
+const ATTACHMENT_INCLUDE = {
+  uploadedBy: { select: { id: true, name: true } },
+  reviewCycle: { select: { id: true, cycleNo: true, decision: true } },
+};
+
+/** A received file; stored only once the change it belongs to is allowed. */
+export interface IncomingAttachmentFile {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
+/** File storage, owned by the caller. `discard` undoes a `store` whose database write failed. */
+export interface AttachmentStorage {
+  store(ticketId: string, file: IncomingAttachmentFile): Promise<string>;
+  discard(url: string): Promise<void>;
+}
 
 type UpdateOptions = {
   suppressCompletionNotification?: boolean;
@@ -223,8 +295,8 @@ export class TicketsService {
    * KEY SHARE), so a timer resume elsewhere never waits on a ticket edit.
    */
   private async lockTicketRow(tx: Prisma.TransactionClient, ticketId: string) {
-    const [row] = await tx.$queryRaw<Array<{ status: TicketStatus; assignedToId: string | null }>>`
-      SELECT status, "assignedToId" FROM "tickets" WHERE id = ${ticketId} FOR NO KEY UPDATE
+    const [row] = await tx.$queryRaw<Array<{ status: TicketStatus; assignedToId: string | null; type: string | null }>>`
+      SELECT status, "assignedToId", type::text AS type FROM "tickets" WHERE id = ${ticketId} FOR NO KEY UPDATE
     `;
     if (!row) throw new NotFoundException('Ticket not found');
     return row;
@@ -278,12 +350,26 @@ export class TicketsService {
     return tickets.map((t: any) => (t?.id && budgets.has(t.id) ? { ...t, workBudget: budgets.get(t.id) } : t));
   }
 
-  sanitizeAttachmentForResponse(ticketId: string, attachment: any) {
+  /**
+   * The only shape an attachment leaves the API in: no stored url, and the
+   * capabilities the backend decides. Deletion belongs to the uploader alone,
+   * and never to locked evidence or a legacy (uploader unknown) attachment;
+   * no role, participant or ticket ownership grants it.
+   */
+  sanitizeAttachmentForResponse(ticketId: string, attachment: any, viewerId?: string) {
     if (!attachment) return attachment;
     const safe = { ...attachment };
     delete safe.url;
+    delete safe.reviewCycle;
     return {
       ...safe,
+      purpose: attachment.purpose ?? (attachment.isPoc ? 'POC' : 'GENERAL'),
+      uploadedBy: attachment.uploadedBy ? { id: attachment.uploadedBy.id, name: attachment.uploadedBy.name } : null,
+      legacyProtected: !attachment.uploadedById,
+      locked: Boolean(attachment.lockedAt),
+      lockReason: attachment.lockReason ?? null,
+      cycleNo: attachment.reviewCycle?.cycleNo ?? null,
+      canDelete: Boolean(viewerId) && attachment.uploadedById === viewerId && !attachment.lockedAt,
       previewUrl: `/api/tickets/${ticketId}/attachments/${attachment.id}/download?mode=inline`,
       downloadUrl: `/api/tickets/${ticketId}/attachments/${attachment.id}/download?mode=download`,
     };
@@ -548,7 +634,7 @@ export class TicketsService {
         include: { author: { select: { id: true, name: true, avatar: true, role: true } } },
         orderBy: { createdAt: 'asc' },
       },
-      attachments: { orderBy: { createdAt: 'desc' } },
+      attachments: { orderBy: { createdAt: 'desc' }, include: ATTACHMENT_INCLUDE },
       reviewCycles: { orderBy: { cycleNo: 'asc' } },
     };
     const ticket = user
@@ -567,7 +653,20 @@ export class TicketsService {
       this.logger.error(`Ticket timers failed for ${ticket.ticketId}: ${err?.message}`);
       return null;
     });
-    return { ...decorated, selfAssigned, viewerCanApprove, timers };
+    // The cycle whose evidence is "current": the open one while in review.
+    // Evidence of earlier cycles is shown as previous evidence.
+    const openCycle = ticket.status === TicketStatus.REVIEW
+      ? [...((ticket as any).reviewCycles ?? [])].reverse().find((c: any) => !c.decision) ?? null
+      : null;
+    return {
+      ...decorated,
+      attachments: ((ticket as any).attachments ?? []).map((a: any) => this.sanitizeAttachmentForResponse(ticket.id, a, user?.id)),
+      selfAssigned,
+      viewerCanApprove,
+      timers,
+      reviewTimerRequired: reviewTimerRequired(ticket),
+      currentReviewCycle: openCycle ? { id: openCycle.id, cycleNo: openCycle.cycleNo } : null,
+    };
   }
 
   async assertCanUploadAttachment(user: any, ticket: any) {
@@ -588,6 +687,179 @@ export class TicketsService {
     });
     if (!attachment) throw new NotFoundException('Attachment not found');
     return attachment;
+  }
+
+  /** The viewer's one running clock (employee work or review), with its ticket. */
+  async getActiveTimer(userId: string) {
+    return this.ticketLedger.getActiveTimerForUser(userId);
+  }
+
+  private isTicketWorker(ticket: any, userId: string) {
+    return ticket.assignedToId === userId ||
+      Boolean(ticket.assignees?.some?.((a: any) => (a?.userId ?? a?.user?.id) === userId));
+  }
+
+  /** What an upload is for. Ownership is always the authenticated uploader. */
+  private async resolveUploadPurpose(ticket: any, body: any, user: any): Promise<AttachmentPurposeValue> {
+    const raw = typeof body?.purpose === 'string' && body.purpose.trim() ? body.purpose.trim().toUpperCase() : null;
+    const legacyPoc = body?.isPoc === 'true' || body?.isPoc === true;
+    const purpose = (raw ?? (legacyPoc ? 'POC' : 'GENERAL')) as AttachmentPurposeValue;
+    if (!ATTACHMENT_PURPOSES.includes(purpose)) throw new BadRequestException(ATTACHMENT_ERRORS.INVALID_PURPOSE);
+    if (purpose === 'POC') {
+      const accepting = ticket.status === TicketStatus.IN_PROGRESS || ticket.status === TicketStatus.REVIEW;
+      if (!accepting || !this.isTicketWorker(ticket, user.id)) throw new ForbiddenException(ATTACHMENT_ERRORS.POC_NOT_ALLOWED);
+    }
+    if (purpose === 'REVIEW_FEEDBACK') {
+      if (ticket.status !== TicketStatus.REVIEW || !(await this.ticketAccess.viewerCanApprove(user, ticket))) {
+        throw new ForbiddenException(ATTACHMENT_ERRORS.FEEDBACK_NOT_ALLOWED);
+      }
+    }
+    return purpose;
+  }
+
+  private logAttachmentEvent(action: OperationalAction, actorId: string, ticket: any, attachment: any) {
+    Promise.resolve(this.eventLogger.log({
+      actorId,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action,
+      metadata: {
+        ticketId: ticket.ticketId,
+        attachmentId: attachment.id,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        purpose: attachment.purpose,
+        reviewCycleId: attachment.reviewCycleId ?? null,
+      },
+    })).catch(() => {});
+  }
+
+  /**
+   * Upload. Access and purpose are checked first, then the file is stored,
+   * then its row is written under the ticket row lock, so it never races a
+   * submission binding proof to its cycle. A row that cannot be written gets
+   * its stored file discarded.
+   */
+  async uploadAttachment(id: string, file: IncomingAttachmentFile, body: any, user: any, storage: AttachmentStorage) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const ticket = await this.findTicketForReview(id, user);
+    await this.assertCanUploadAttachment(user, ticket);
+    const purpose = await this.resolveUploadPurpose(ticket, body, user);
+    const url = await storage.store(ticket.id, file);
+    let created: any;
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
+        const locked = await this.lockTicketRow(tx, ticket.id);
+        const data: Prisma.AttachmentUncheckedCreateInput = {
+          ticketId: ticket.id,
+          filename: file.originalname,
+          url,
+          size: file.size,
+          mimeType: file.mimetype,
+          uploadedById: user.id,
+          purpose,
+          isPoc: purpose === 'POC',
+          pocFor: purpose === 'POC' ? ticket.id : null,
+        };
+        // Re-checked under the lock: the ticket may have moved since.
+        if (purpose === 'REVIEW_FEEDBACK' && locked.status !== TicketStatus.REVIEW) {
+          throw new ConflictException(REVIEW_ERRORS.NOT_IN_REVIEW);
+        }
+        if (purpose === 'POC' && locked.status !== TicketStatus.IN_PROGRESS && locked.status !== TicketStatus.REVIEW) {
+          throw new ForbiddenException(ATTACHMENT_ERRORS.POC_NOT_ALLOWED);
+        }
+        if ((purpose === 'POC' || purpose === 'REVIEW_FEEDBACK') && locked.status === TicketStatus.REVIEW) {
+          const cycle = await this.ticketLedger.findOpenReviewCycle(ticket.id, tx);
+          if (cycle) data.reviewCycleId = cycle.id;
+          // Proof added while under review is evidence of record at once;
+          // reviewer feedback locks when the decision completes.
+          if (purpose === 'POC') {
+            data.lockedAt = this.tva.now();
+            data.lockReason = ATTACHMENT_LOCK_REASONS.SUBMITTED_FOR_REVIEW;
+          }
+        }
+        return tx.attachment.create({ data, include: ATTACHMENT_INCLUDE });
+      });
+    } catch (err) {
+      await storage.discard(url).catch(() => undefined);
+      throw err;
+    }
+    this.logAttachmentEvent(OperationalAction.ATTACHMENT_UPLOADED, user.id, ticket, created);
+    return this.sanitizeAttachmentForResponse(ticket.id, created, user.id);
+  }
+
+  /**
+   * Delete: only the uploader, never locked evidence, never a legacy
+   * attachment whose uploader is unknown. Locked evidence answers 409 to every
+   * caller. Decided under the ticket row lock against the stored row, so a
+   * submission locking this proof at the same moment either wins (409 here)
+   * or finds it already gone.
+   */
+  async deleteAttachment(id: string, attachmentId: string, user: any) {
+    const ticket = await this.findTicketForReview(id, user);
+    await this.assertCanUploadAttachment(user, ticket);
+    const removed = await this.prisma.$transaction(async (tx) => {
+      await this.lockTicketRow(tx, ticket.id);
+      const attachment = await tx.attachment.findFirst({ where: { id: attachmentId, ticketId: ticket.id } });
+      if (!attachment) throw new NotFoundException('Attachment not found');
+      if (!attachment.uploadedById) throw new ForbiddenException(ATTACHMENT_ERRORS.LEGACY_PROTECTED);
+      if (attachment.lockedAt) throw new ConflictException(ATTACHMENT_ERRORS.LOCKED);
+      if (attachment.uploadedById !== user.id) throw new ForbiddenException(ATTACHMENT_ERRORS.NOT_OWNER);
+      await tx.attachment.delete({ where: { id: attachment.id } });
+      return attachment;
+    });
+    this.logAttachmentEvent(OperationalAction.ATTACHMENT_DELETED, user.id, ticket, removed);
+    return { success: true };
+  }
+
+  /**
+   * Submit for review with optional proof of completion, as one operation.
+   * The submission is validated first (the same rules as any move to
+   * REVIEW); only then is the proof stored. The status change, the review
+   * cycle and the proof's row (bound to that cycle and locked) commit
+   * together; if they do not, the stored file is discarded, so a failed
+   * submission leaves no evidence behind. Without a file this is the plain
+   * submission ("Skip for now").
+   */
+  async submitForReview(id: string, user: any, file: IncomingAttachmentFile | undefined, storage: AttachmentStorage) {
+    const ticket = await this.findTicketForReview(id, user);
+    if (ticket.status === TicketStatus.REVIEW) throw new ConflictException(REVIEW_ERRORS.ALREADY_IN_REVIEW);
+    if (file) await this.assertCanUploadAttachment(user, ticket);
+    const prepared = await this.prepareUpdate(ticket.id, { status: TicketStatus.REVIEW }, user.id, user);
+    const url = file ? await storage.store(ticket.id, file) : null;
+    const afterCommit: AfterCommit = [];
+    let proof: any = null;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.commitUpdate(tx, prepared, user.id, undefined, afterCommit);
+        if (file && url) {
+          const cycle = await this.ticketLedger.findOpenReviewCycle(ticket.id, tx);
+          proof = await tx.attachment.create({
+            data: {
+              ticketId: ticket.id,
+              filename: file.originalname,
+              url,
+              size: file.size,
+              mimeType: file.mimetype,
+              uploadedById: user.id,
+              purpose: 'POC',
+              isPoc: true,
+              pocFor: ticket.id,
+              reviewCycleId: cycle?.id ?? null,
+              lockedAt: prepared.now,
+              lockReason: ATTACHMENT_LOCK_REASONS.SUBMITTED_FOR_REVIEW,
+            },
+          });
+        }
+      }, TIMER_TRANSACTION);
+    } catch (err) {
+      if (url) await storage.discard(url).catch(() => undefined);
+      throw err;
+    }
+    await this.runAfterCommit(afterCommit);
+    if (proof) this.logAttachmentEvent(OperationalAction.ATTACHMENT_UPLOADED, user.id, ticket, proof);
+    return this.findOne(ticket.id, user);
   }
 
   // Shared by create() and createBulk()/import-preview validation — every
@@ -1617,7 +1889,7 @@ export class TicketsService {
         changedById: userId,
       }));
 
-    return { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision, isWithdrawal, now, dueFromOriginalEstimate };
+    return { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision, isWithdrawal, now, dueFromOriginalEstimate, actor: user };
   }
 
   /**
@@ -1659,6 +1931,13 @@ export class TicketsService {
     // otherwise another decision (approve, reject, withdrawal) committed first.
     if (existing.status === TicketStatus.REVIEW && locked.status !== TicketStatus.REVIEW && data.status !== undefined) {
       throw new ConflictException(REVIEW_ERRORS.ALREADY_DECIDED);
+    }
+
+    // A reviewer's direct send-back (Kanban, stepper) is a review decision:
+    // the same authority, claim and running-review rules as reject().
+    if (recordReworkDecision && reviewTimerRequired(locked)) {
+      await this.assertReviewAuthorityLocked(tx, ticketDbId, userId, prepared.actor);
+      await this.assertReviewTimerRunning(tx, ticketDbId, userId);
     }
 
     // Leaving REVIEW, or changing the assignee while in it, stops any running
@@ -1711,13 +1990,19 @@ export class TicketsService {
     // Entering REVIEW opens the review cycle now (submission time), so the
     // turnaround clock and any reviewer work belong to a real cycle.
     if (data.status === TicketStatus.REVIEW && locked.status !== TicketStatus.REVIEW) {
-      if (!(await this.ticketLedger.findOpenReviewCycle(ticket.id, tx))) {
+      const cycle = (await this.ticketLedger.findOpenReviewCycle(ticket.id, tx)) ??
         await this.ticketLedger.startReviewCycle({
           ticketId: ticket.id,
           assigneeId: this.primaryAssigneeId(ticket),
           reviewStartedAt: ticket.reviewStartedAt ?? now,
         }, tx);
-      }
+      // Proof uploaded for this submission and not yet bound to any cycle
+      // becomes this cycle's evidence of record, locked, in this transaction.
+      // Legacy attachments (uploader unknown) are never bound to a cycle.
+      await tx.attachment.updateMany({
+        where: { ticketId: ticket.id, purpose: 'POC', reviewCycleId: null, lockedAt: null, uploadedById: { not: null } },
+        data: { reviewCycleId: cycle.id, lockedAt: now, lockReason: ATTACHMENT_LOCK_REASONS.SUBMITTED_FOR_REVIEW },
+      });
     }
 
     const action = data.status ? 'STATUS_CHANGED' : data.assignedToId ? 'TICKET_ASSIGNED' : 'TICKET_UPDATED';
@@ -2283,6 +2568,8 @@ export class TicketsService {
     const locked = await this.lockTicketRow(tx, ticketId);
     if (locked.status !== TicketStatus.REVIEW) throw new ConflictException(REVIEW_ERRORS.ALREADY_DECIDED);
     await this.assertReviewAuthorityLocked(tx, ticketId, userId, user);
+    // Reviewer-hierarchy decisions need the decider's own running review.
+    if (reviewTimerRequired(locked)) await this.assertReviewTimerRunning(tx, ticketId, userId);
     const stopped = await this.ticketLedger.endActiveLogsForTicket(ticketId, LEDGER_PAUSE_REASONS.REVIEW_DECISION, undefined, tx);
     return { locked, reviewersStopped: stopped.userIds };
   }
@@ -2305,6 +2592,13 @@ export class TicketsService {
       throw new ConflictException(REVIEW_ERRORS.CLAIMED);
     }
     return open;
+  }
+
+  /** The decider's own reviewer clock must be running on this ticket. */
+  private async assertReviewTimerRunning(tx: Prisma.TransactionClient, ticketId: string, userId: string) {
+    if (!(await this.ticketLedger.findActiveReviewerLog(ticketId, userId, tx))) {
+      throw new ConflictException(REVIEW_ERRORS.NOT_STARTED);
+    }
   }
 
   private async findTicketForReview(id: string, user?: any) {
@@ -2520,6 +2814,13 @@ export class TicketsService {
         `Could not save the review decision for ${ticket.ticketId} — the ticket was not ${actionLabel}. Please try again.`,
       );
     }
+
+    // The cycle's evidence is final once its review ends: reviewer feedback
+    // (and any proof still unlocked) can no longer be deleted or replaced.
+    await (tx ?? this.prisma).attachment.updateMany({
+      where: { reviewCycleId: cycle.id, lockedAt: null },
+      data: { lockedAt: this.tva.now(), lockReason: `REVIEW_${decision}` },
+    });
 
     return cycle;
   }

@@ -6,6 +6,9 @@
  * - Withdraw Submission only for the ticket's primary assignee while in REVIEW.
  * - "Review running" only from the ledger: timers.activeClock ===
  *   'REVIEWER_WORK' and the running row is the viewer's. Never from status.
+ * - Where the backend requires it (ticket.reviewTimerRequired), Approve and
+ *   Send Back stay unavailable until the viewer's own review is running; the
+ *   backend refuses such a decision too (409 REVIEW_NOT_STARTED).
  * - Everything is disabled while the ticket is loading or could not be read.
  */
 
@@ -20,12 +23,19 @@ export interface ReviewControls {
   canPauseReview: boolean;
   canDecide: boolean;
   canWithdraw: boolean;
+  /** The backend requires the viewer's running review before a decision. */
+  reviewTimerRequired: boolean;
+  /** Show the mandatory Start Review / View Only / Go Back prompt. */
+  needsReviewStart: boolean;
+  /** Why Approve / Send Back are unavailable while the ticket is otherwise ready. */
+  decisionBlockedReason: string | null;
   /** Why controls are unavailable right now, if they are. */
   disabledReason: string | null;
 }
 
 export const REVIEW_STATE_UNVERIFIED = 'Unable to load this ticket. Refresh and try again.';
 export const REVIEW_STATE_LOADING = 'Loading…';
+export const REVIEW_START_REQUIRED = 'Start Review to approve or send this ticket back.';
 
 export function reviewControls(
   ticket: any,
@@ -41,6 +51,9 @@ export function reviewControls(
 
   const disabledReason = query.isError ? REVIEW_STATE_UNVERIFIED : query.isLoading || !ticket ? REVIEW_STATE_LOADING : null;
   const ready = disabledReason === null;
+  // Absent means an older backend: treat as required, the safe direction.
+  const reviewTimerRequired = ticket?.reviewTimerRequired !== false;
+  const decisionNeedsStart = isReviewer && reviewTimerRequired && !reviewRunningForViewer;
 
   return {
     inReview,
@@ -49,8 +62,11 @@ export function reviewControls(
     reviewRunning,
     canStartReview: ready && isReviewer && !reviewRunningForViewer,
     canPauseReview: ready && isReviewer && reviewRunningForViewer,
-    canDecide: ready && isReviewer,
+    canDecide: ready && isReviewer && !decisionNeedsStart,
     canWithdraw: ready && inReview && isAssignee,
+    reviewTimerRequired,
+    needsReviewStart: ready && decisionNeedsStart,
+    decisionBlockedReason: ready && decisionNeedsStart ? REVIEW_START_REQUIRED : null,
     disabledReason,
   };
 }

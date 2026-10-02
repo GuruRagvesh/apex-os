@@ -41,6 +41,9 @@ const mockPrisma: any = {
     create: jest.fn(),
     createMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
+  // Entering REVIEW binds pending proof to its cycle; a decision locks the cycle's evidence.
+  attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+
   ticketAssignee: {
     findMany: jest.fn().mockResolvedValue([]),
     upsert: jest.fn(),
@@ -124,6 +127,8 @@ describe('TicketsService — status transitions', () => {
           startReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1' }),
           // Phase 4: entering REVIEW opens a cycle unless one is already open.
           findOpenReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1', cycleNo: 1 }),
+          // A review decision needs the decider's running review (they started it).
+          findActiveReviewerLog: jest.fn().mockResolvedValue({ id: 'review-log-1', ownerType: 'REVIEWER' }),
           // approve()/reject() now require persistReviewDecision to resolve to a truthy
           // ReviewCycleLog row or they throw — this suite tests notification/transition
           // behavior, not ledger persistence itself, so the mock just needs to succeed.

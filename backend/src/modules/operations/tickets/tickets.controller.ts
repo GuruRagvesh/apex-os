@@ -5,7 +5,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { TicketsService } from './tickets.service';
+import { AttachmentStorage, TicketsService } from './tickets.service';
 import { UploadsService } from '../../platform/uploads/uploads.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -14,16 +14,46 @@ import { Roles } from '../../../shared/decorators/roles.decorator';
 import { ROLES } from '../../../shared/constants/roles';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 
+/** Ticket attachments: 5 MB; images, PDFs, common office documents, text and ZIP. */
+const TICKET_ATTACHMENT_UPLOAD = {
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req: any, file: Express.Multer.File, cb: (error: Error | null, accept: boolean) => void) => {
+    const ALLOWED_MIME = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain', 'text/csv',
+      'application/zip',
+    ];
+    if (ALLOWED_MIME.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new BadRequestException(`File type "${file.mimetype}" is not allowed`), false);
+    }
+  },
+};
+
 @ApiTags('Tickets')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('tickets')
 export class TicketsController {
+  /** File storage for ticket attachments; the service decides when to store or discard. */
+  private readonly attachmentStorage: AttachmentStorage;
+
   constructor(
     private ticketsService: TicketsService,
     private uploadsService: UploadsService,
     private eventLogger: EventLoggerService,
-  ) {}
+  ) {
+    this.attachmentStorage = {
+      store: (ticketId, file) => this.uploadsService.storeTicketFile(ticketId, file),
+      discard: (url) => this.uploadsService.discardStoredFile(url),
+    };
+  }
 
   @Get()
   findAll(@Query() query: any, @CurrentUser() user: any) { return this.ticketsService.findAll(query, user); }
@@ -86,6 +116,14 @@ export class TicketsController {
     return this.ticketsService.getRoutingDepartments(query.type);
   }
 
+  // The caller's own running clock (employee work or review) and its ticket.
+  // Static route: must stay above @Get(':id').
+  @Get('active-timer')
+  @Header('Cache-Control', 'no-store')
+  getActiveTimer(@CurrentUser() user: any) {
+    return this.ticketsService.getActiveTimer(user.id);
+  }
+
   @Get(':id/attachments/:attachmentId/download')
   async downloadAttachment(
     @Param('id') id: string,
@@ -142,69 +180,40 @@ export class TicketsController {
     return this.ticketsService.previewImport(file.buffer, user.id, user);
   }
 
+  // The uploader is always the authenticated user; the body may only say what
+  // the file is for (purpose, or the legacy isPoc flag). Ownership, locking
+  // and the review cycle are decided by the service.
   @Post(':id/attachments')
-  @UseInterceptors(FileInterceptor('file', {
-    limits: { fileSize: 5 * 1024 * 1024 },  // 5 MB max
-    fileFilter: (_req, file, cb) => {
-      // Allow images, PDFs, common office docs, and plain text
-      const ALLOWED_MIME = [
-        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
-        'application/pdf',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'text/plain', 'text/csv',
-        'application/zip',
-      ];
-      if (ALLOWED_MIME.includes(file.mimetype)) {
-        cb(null, true);
-      } else {
-        cb(new BadRequestException(`File type "${file.mimetype}" is not allowed`), false);
-      }
-    },
-  }))
-  async uploadAttachment(
+  @UseInterceptors(FileInterceptor('file', TICKET_ATTACHMENT_UPLOAD))
+  uploadAttachment(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body() body: any,
     @CurrentUser() user: any,
   ) {
-    const ticket = await this.ticketsService.findOne(id, user);
-    await this.ticketsService.assertCanUploadAttachment(user, ticket);
-    const isPoc = body?.isPoc === 'true' || body?.isPoc === true;
-    const attachment = await this.uploadsService.uploadTicketAttachment(ticket.id, file, isPoc, ticket.id);
-    this.eventLogger.log({
-      actorId: user.id,
-      entityType: 'Ticket',
-      entityId: ticket.id,
-      action: OperationalAction.ATTACHMENT_UPLOADED,
-      metadata: { ticketId: ticket.ticketId, filename: file.originalname, mimeType: file.mimetype, size: file.size },
-    }).catch(() => {});
-    return this.ticketsService.sanitizeAttachmentForResponse(ticket.id, attachment);
+    return this.ticketsService.uploadAttachment(id, file, { purpose: body?.purpose, isPoc: body?.isPoc }, user, this.attachmentStorage);
   }
 
+  // Only the uploader, never locked evidence, never a legacy attachment.
   @Delete(':id/attachments/:attachmentId')
-  async deleteAttachment(
+  deleteAttachment(
     @Param('id') id: string,
     @Param('attachmentId') attachmentId: string,
     @CurrentUser() user: any,
   ) {
-    const ticket = await this.ticketsService.findOne(id, user);
-    await this.ticketsService.assertCanUploadAttachment(user, ticket);
-    const attachment = await this.ticketsService.getAttachmentForDownload(id, attachmentId, user);
-    
-    await this.uploadsService.deleteAttachment(attachment.id);
-    
-    this.eventLogger.log({
-      actorId: user.id,
-      entityType: 'Ticket',
-      entityId: ticket.id,
-      action: OperationalAction.ATTACHMENT_DELETED,
-      metadata: { ticketId: ticket.ticketId, filename: attachment.filename },
-    }).catch(() => {});
-    
-    return { success: true };
+    return this.ticketsService.deleteAttachment(id, attachmentId, user);
+  }
+
+  // Submit for review with optional proof of completion, in one transaction.
+  // No file is the plain submission ("Skip for now").
+  @Post(':id/submit-review')
+  @UseInterceptors(FileInterceptor('file', TICKET_ATTACHMENT_UPLOAD))
+  submitForReview(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() user: any,
+  ) {
+    return this.ticketsService.submitForReview(id, user, file, this.attachmentStorage);
   }
 
   @Put(':id')

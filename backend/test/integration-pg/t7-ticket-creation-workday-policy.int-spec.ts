@@ -750,8 +750,16 @@ describe('T7 ticket creation requires an active workday (PostgreSQL)', () => {
       const t = await fixtureTicket({ estimatedMinutes: 120 });
       await tickets.update(t.id, { status: TicketStatus.IN_PROGRESS }, W);
       await tickets.update(t.id, { status: TicketStatus.REVIEW }, W);
+      await managerReviews(t.id);
       resetEffects();
       return t;
+    }
+    /** A review decision needs the decider's running review: the manager starts it. */
+    async function managerReviews(ticketId: string) {
+      if ((await prisma.workSession.count({ where: { userId: M, status: 'WORKING' } })) === 0) {
+        await workday.startWork(M);
+      }
+      await tickets.startReview(ticketId, M);
     }
     /**
      * Tickets and ledger on one TVA clock set a few minutes ahead of the wall
@@ -796,6 +804,7 @@ describe('T7 ticket creation requires an active workday (PostgreSQL)', () => {
         data: { startedAt: new Date(Date.now() - 10 * 60_000) },
       });
       await tickets.update(t.id, { status: TicketStatus.REVIEW }, W);
+      await managerReviews(t.id);
       const before = (await tickets.findOne(t.id)).timers;
       expect(before.original.actualSeconds).toBeGreaterThanOrEqual(600);
 
@@ -843,6 +852,7 @@ describe('T7 ticket creation requires an active workday (PostgreSQL)', () => {
 
       // Meanwhile the ticket is submitted and sent back with a 30-minute rework.
       await tickets.update(t.id, { status: TicketStatus.REVIEW }, W);
+      await managerReviews(t.id);
       const { at, service } = onTvaClock();
       await service.reject(t.id, 'tighten the copy', M, undefined, 30);
       const reworkDue = new Date(at.getTime() + 30 * 60_000);

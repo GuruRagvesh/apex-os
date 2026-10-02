@@ -1171,6 +1171,37 @@ export class TicketLedgerService {
     return this.resumeNextWaitingTicket(userId, undefined, tx);
   }
 
+  /** The person's own running reviewer row on this ticket, if any. */
+  async findActiveReviewerLog(ticketId: string, userId: string, tx?: Prisma.TransactionClient) {
+    return (tx ?? this.prisma).ticketTimeLog.findFirst({
+      where: { ticketId, userId, ownerType: LEDGER_OWNER_TYPES.REVIEWER, endedAt: null },
+    });
+  }
+
+  /**
+   * The person's one running timed clock (employee work or review), with the
+   * ticket it belongs to, or null. Read-only; drives the review-start prompt
+   * and the app-wide "Reviewing …" banner. Never inferred from page state.
+   */
+  async getActiveTimerForUser(userId: string) {
+    const log = await this.prisma.ticketTimeLog.findFirst({
+      where: { userId, endedAt: null, ownerType: { in: TIMED_OWNER_TYPES } },
+      orderBy: { startedAt: 'desc' },
+      include: { ticket: { select: { id: true, ticketId: true, title: true, status: true } } },
+    });
+    if (!log) return { activeClock: 'NONE' as const, active: null };
+    const now = this.tva.now();
+    return {
+      activeClock: log.ownerType === LEDGER_OWNER_TYPES.REVIEWER ? 'REVIEWER_WORK' as const : 'EMPLOYEE_WORK' as const,
+      active: {
+        ownerType: log.ownerType,
+        startedAt: log.startedAt,
+        elapsedSeconds: Math.max(0, Math.floor((now.getTime() - log.startedAt.getTime()) / 1000)),
+        ticket: log.ticket,
+      },
+    };
+  }
+
   /** The ticket's open (undecided) review cycle, if any. */
   async findOpenReviewCycle(ticketId: string, tx?: Prisma.TransactionClient) {
     return (tx ?? this.prisma).reviewCycleLog.findFirst({
