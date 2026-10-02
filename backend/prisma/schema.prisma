@@ -95,6 +95,7 @@ model User {
   projectMembers            ProjectMember[]
   assigneeCycles            ReviewCycleLog[]               @relation("CycleAssignee")
   reviewerCycles            ReviewCycleLog[]               @relation("CycleReviewer")
+  uploadedAttachments       Attachment[]                   @relation("AttachmentUploader")
   ticketAssignments         TicketAssignee[]
   ticketHistory             TicketHistory[]
   ticketTimeLogs            TicketTimeLog[]
@@ -389,10 +390,49 @@ model Attachment {
   ticketId  String
   createdAt DateTime @default(now())
   isPoc     Boolean  @default(false)
+  /// Legacy (pre-ownership): always the ticket's own id. Kept for older
+  /// readers; the review cycle a proof belongs to is `reviewCycleId`.
   pocFor    String?
-  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  /// The authenticated uploader. Null only for attachments uploaded before
+  /// ownership was recorded: those are "legacy protected" (never deletable
+  /// through the normal API). Never guessed or backfilled.
+  uploadedById  String?
+  /// Who uploaded it, after their account was deleted. See FormerEmployee.
+  ///
+  /// NOTE: clearing uploadedById also makes this attachment "legacy
+  /// protected" by this model's own rule -- a null uploader is never
+  /// deletable through the normal API. For evidence whose owner has left
+  /// that is the safe direction, and it is a deliberate consequence
+  /// rather than one nobody noticed.
+  formerUploaderId String?
+  purpose       AttachmentPurpose @default(GENERAL)
+  /// The review cycle a proof of completion (POC) or a reviewer's feedback
+  /// file belongs to. Null for reference/general files and for a POC that was
+  /// uploaded but not yet submitted.
+  reviewCycleId String?
+  /// Set once the attachment is evidence of record (a submitted POC, or
+  /// review feedback whose decision completed). A locked attachment is never
+  /// deleted or replaced through the API, not even by its uploader.
+  lockedAt      DateTime?
+  lockReason    String?
+  ticket        Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  uploadedBy    User?             @relation("AttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  reviewCycle   ReviewCycleLog?   @relation(fields: [reviewCycleId], references: [id], onDelete: SetNull)
 
+  @@index([ticketId, createdAt])
+  @@index([uploadedById])
+  @@index([reviewCycleId])
   @@map("attachments")
+  formerUploader FormerEmployee? @relation("AttachmentFormerUploader", fields: [formerUploaderId], references: [id], onDelete: Restrict)
+}
+
+/// What an attachment is for. Ownership and locking, not purpose, decide who
+/// may delete it.
+enum AttachmentPurpose {
+  REFERENCE
+  GENERAL
+  POC
+  REVIEW_FEEDBACK
 }
 
 model LeaveRequest {
@@ -823,6 +863,7 @@ model ReviewCycleLog {
   assignee                  User?     @relation("CycleAssignee", fields: [assigneeId], references: [id])
   reviewer                  User?     @relation("CycleReviewer", fields: [reviewerId], references: [id])
   ticket                    Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  attachments               Attachment[]
 
   @@unique([ticketId, cycleNo])
   @@index([ticketId])
@@ -2313,6 +2354,7 @@ model FormerEmployee {
   changeRequests       EmployeeProfileChangeRequest[] @relation("ChangeRequestFormerRequester")
   leadActivities       LeadActivity[]                 @relation("LeadActivityFormerActor")
   followUps            FollowUp[]                     @relation("FollowUpFormerActor")
+  attachments          Attachment[]                   @relation("AttachmentFormerUploader")
 
   @@index([formerUserId])
   @@map("former_employees")

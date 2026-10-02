@@ -106,25 +106,40 @@ describe('AnalyticsService', () => {
   });
 
   describe('getReviewerMetrics', () => {
-    it('calculates reviewer metrics and SLA breaches', async () => {
+    // Phase 4: reviewer ACTIVE time (frozen productive REVIEWER seconds) and
+    // review TURNAROUND (submission → decision, the SLA clock) are separate.
+    it('separates reviewer active time from review turnaround; SLA uses turnaround; WITHDRAWN is excluded', async () => {
       prisma.reviewCycleLog.findMany.mockResolvedValue([
-        { decision: 'APPROVED', reviewerWorkSeconds: 3600, ticket: { priority: 'MEDIUM' }, reviewEndedAt: new Date('2026-06-06T10:00:00Z') }, // 1h
-        { decision: 'REWORK', reviewerWorkSeconds: 90000, ticket: { priority: 'MEDIUM' }, reviewEndedAt: new Date('2026-06-06T11:00:00Z') } // 25h (breach > 24h)
+        // 1h of active review; turnaround 2h → within the 24h MEDIUM SLA.
+        { decision: 'APPROVED', reviewerWorkSeconds: 3600, ticket: { priority: 'MEDIUM' },
+          reviewStartedAt: new Date('2026-06-06T08:00:00Z'), reviewEndedAt: new Date('2026-06-06T10:00:00Z') },
+        // Only 30 min of active review, but 25h turnaround → an SLA breach.
+        { decision: 'REWORK', reviewerWorkSeconds: 1800, ticket: { priority: 'MEDIUM' },
+          reviewStartedAt: new Date('2026-06-05T10:00:00Z'), reviewEndedAt: new Date('2026-06-06T11:00:00Z') },
+        // Decided without starting the review clock: counts as a review, not in the active-time average.
+        { decision: 'APPROVED', reviewerWorkSeconds: 0, ticket: { priority: 'MEDIUM' },
+          reviewStartedAt: new Date('2026-06-06T09:00:00Z'), reviewEndedAt: new Date('2026-06-06T09:30:00Z') },
+        // A withdrawal is not a reviewer decision: never an approval, rejection, breach or active time.
+        { decision: 'WITHDRAWN', reviewerWorkSeconds: 99999, ticket: { priority: 'MEDIUM' },
+          reviewStartedAt: new Date('2026-06-01T00:00:00Z'), reviewEndedAt: new Date('2026-06-06T09:45:00Z') },
       ]);
       prisma.ticket.count.mockResolvedValue(4); // backlog
 
       const result = await service.getReviewerMetrics('user-1', { id: 'user-1' });
 
-      expect(result.completedApprovalsCount).toBe(2);
-      expect(result.approvalPercent).toBe(50);
-      expect(result.rejectionPercent).toBe(50);
-      expect(result.averageApprovalSeconds).toBe((3600 + 90000) / 2);
-      expect(result.totalApprovalSeconds).toBe(3600 + 90000);
+      expect(result.completedApprovalsCount).toBe(3);
+      expect(result.withdrawnCount).toBe(1);
+      expect(result.approvalPercent).toBe(67);
+      expect(result.rejectionPercent).toBe(33);
+      expect(result.totalApprovalSeconds).toBe(3600 + 1800);
+      expect(result.timedReviewsCount).toBe(2);
+      expect(result.averageApprovalSeconds).toBe((3600 + 1800) / 2);
+      expect(result.averageTurnaroundSeconds).toBe((7200 + 90000 + 1800) / 3);
       expect(result.approvalSlaBreaches).toBe(1);
-      expect(result.approvalSlaBreachRate).toBe(50);
+      expect(result.approvalSlaBreachRate).toBe(33);
       expect(result.pendingApprovalsCount).toBe(4);
-      expect(result.approvalsToday).toBe(2);
-      expect(result.approvalsThisWeek).toBe(2);
+      expect(result.approvalsToday).toBe(3);
+      expect(result.approvalsThisWeek).toBe(3);
     });
   });
 

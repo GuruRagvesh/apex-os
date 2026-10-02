@@ -49,7 +49,10 @@ describe('TicketsService.update — REVIEW-entry notification to resolved approv
       ticketTimeLog: { findMany: jest.fn().mockResolvedValue([]) },
       // Worker timer lock taken before the stop re-reads (Phase 2D2 race fix).
       $executeRaw: jest.fn().mockResolvedValue(0),
-      reviewCycleLog: { findFirst: jest.fn().mockResolvedValue(null) },
+      // Phase 4: entering REVIEW opens a review cycle in the same transaction.
+      reviewCycleLog: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn(async ({ data }: any) => ({ id: 'cycle-new', ...data })) },
+      // Entering REVIEW binds any pending proof to the new cycle.
+      attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     };
 
     ticketAccess = {

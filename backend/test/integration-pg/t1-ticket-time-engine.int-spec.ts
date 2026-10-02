@@ -346,6 +346,14 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     expect(timers.employeeWorkSeconds).toBe(10 * 60);
   });
 
+  /** A review decision needs the decider's running review: the manager starts it. */
+  async function managerReviews(ticketId: string) {
+    if ((await prisma.workSession.count({ where: { userId: MANAGER, status: 'WORKING' } })) === 0) {
+      await workday.startWork(MANAGER);
+    }
+    await tickets.startReview(ticketId, MANAGER);
+  }
+
   it('QA-3. time left = cycle estimate − productive work; frozen on break; rework uses its own estimate; every ticket response carries it', async () => {
     await workday.startWork(WORKER);
     const t = await newTicket({ estimatedMinutes: 60 });
@@ -371,6 +379,7 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     setNow(D1('04:40'));
     await move(t.id, TicketStatus.REVIEW);
     setNow(D1('05:00'));
+    await managerReviews(t.id);
     await tickets.reject(t.id, 'Redo', MANAGER, undefined, 30);
     setNow(D1('05:10'));
     b = (await ledger.getWorkBudgets([await prisma.ticket.findUnique({ where: { id: t.id } })])).get(t.id)!;
@@ -697,6 +706,7 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     expect(await activeLogs()).toHaveLength(0);
 
     setNow(D1('08:30'));
+    await managerReviews(t.id);
     await tickets.approve(t.id, MANAGER);
     expect(await activeLogs()).toHaveLength(0);
 
@@ -707,10 +717,11 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     expect(timers.lifecycle.endState).toBe('DONE');
     expect(timers.totalTicketSeconds).toBe(4 * 3600);
     expect(timers.employeeWorkSeconds).toBe(2 * 3600);
-    expect(timers.reviewerApprovalSeconds).toBe(2 * 3600);
+    expect(timers.reviewTurnaroundSeconds).toBe(2 * 3600); // wall-clock time in REVIEW (Phase 4 name)
     expect(timers.original).toEqual({ estimatedMinutes: 240, actualSeconds: 2 * 3600 });
-    // No reviewer/manager timer was ever created.
-    expect(await prisma.ticketTimeLog.count({ where: { userId: MANAGER } })).toBe(0);
+    // The manager never timed employee work; their only row is the review
+    // they started (a decision needs one), stopped by the approval.
+    expect(await prisma.ticketTimeLog.count({ where: { userId: MANAGER, ownerType: { not: 'REVIEWER' } } })).toBe(0);
   });
 
   it('N/O/P/Q/R. rework belongs to the worker, has its own estimate, excludes breaks, and two reworks are separate', async () => {
@@ -723,6 +734,7 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
 
     // Rework 1 with a 2h estimate, sent back by the manager.
     setNow(D1('07:00'));
+    await managerReviews(t.id);
     await tickets.reject(t.id, 'Fix the totals', MANAGER, undefined, 120);
     let active = await activeLogs();
     expect(active).toHaveLength(1);
@@ -736,19 +748,25 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     await move(t.id, TicketStatus.REVIEW); // Q: 30m + 30m of rework, the break excluded (P)
 
     let cycles = await prisma.reviewCycleLog.findMany({ where: { ticketId: t.id }, orderBy: { cycleNo: 'asc' } });
-    expect(cycles).toHaveLength(1);
+    // Phase 4: the resubmission at 08:30 opened review cycle 2 right away (undecided).
+    expect(cycles).toHaveLength(2);
+    expect(cycles[1]).toMatchObject({ decision: null });
+    expect(cycles[1].reviewStartedAt!.toISOString()).toBe(D1('08:30').toISOString());
     expect(cycles[0]).toMatchObject({ decision: 'REWORK', reworkEstimatedMinutes: 120, reworkWorkSeconds: 3600 });
     expect(cycles[0].reworkEndedAt!.toISOString()).toBe(D1('08:30').toISOString());
     expect((await prisma.ticket.findUnique({ where: { id: t.id } }))!.estimatedMinutes).toBe(240); // O
 
     // Rework 2 via a direct status change (Kanban path), no estimate.
     setNow(D1('09:00'));
+    await managerReviews(t.id);
     await move(t.id, TicketStatus.IN_PROGRESS, MANAGER);
     setNow(D1('09:45'));
     await move(t.id, TicketStatus.REVIEW);
 
     cycles = await prisma.reviewCycleLog.findMany({ where: { ticketId: t.id }, orderBy: { cycleNo: 'asc' } });
-    expect(cycles).toHaveLength(2);
+    // Two decided rework cycles, plus cycle 3 opened by the 09:45 resubmission (Phase 4).
+    expect(cycles).toHaveLength(3);
+    expect(cycles[2]).toMatchObject({ decision: null });
     expect(cycles[1]).toMatchObject({ decision: 'REWORK', reworkEstimatedMinutes: null, reworkWorkSeconds: 45 * 60 });
     expect(cycles[0].reworkWorkSeconds).toBe(3600); // R: first cycle preserved
 
@@ -757,7 +775,11 @@ describe('T1 ticket time engine (PostgreSQL)', () => {
     const timers = await ledger.getTicketTimers(row);
     expect(timers.original.actualSeconds).toBe(2 * 3600);
     expect(timers.reworks.map((r: any) => [r.estimatedMinutes, r.actualSeconds])).toEqual([[120, 3600], [null, 45 * 60]]);
-    expect(await prisma.ticketTimeLog.count({ where: { userId: MANAGER } })).toBe(0);
+    // The manager never timed employee work: their only rows are the two reviews
+    // they started (a send-back needs one), both closed by their decisions.
+    expect(await prisma.ticketTimeLog.count({ where: { userId: MANAGER, ownerType: { not: 'REVIEWER' } } })).toBe(0);
+    expect(await prisma.ticketTimeLog.count({ where: { userId: MANAGER, ownerType: 'REVIEWER', endedAt: { not: null } } })).toBe(2);
+    expect(await prisma.ticketTimeLog.count({ where: { userId: MANAGER, endedAt: null } })).toBe(0);
   });
 
   it('T. a ticket without a Start Time is created, started and timed normally', async () => {

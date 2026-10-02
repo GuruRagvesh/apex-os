@@ -933,6 +933,7 @@ export class UsersService {
       managerAccess,
       reviewCyclesAssignee,
       reviewCyclesReviewer,
+      attachmentsUploaded,
       changeRequestsBy,
       changeRequestsTarget,
       changeRequestsApproving,
@@ -966,6 +967,9 @@ export class UsersService {
       (this.prisma as any).managerDeptAccess.count({ where: { managerId: userId } }),
       (this.prisma as any).reviewCycleLog.count({ where: { assigneeId: userId } }),
       (this.prisma as any).reviewCycleLog.count({ where: { reviewerId: userId } }),
+      // Ticket attachments keep their uploader: never nulled, reassigned or
+      // deleted with the user (attachments.uploadedById is ON DELETE RESTRICT).
+      this.prisma.attachment.count({ where: { uploadedById: userId } }),
       (this.prisma as any).employeeProfileChangeRequest.count({ where: { requestedById: userId } }),
       (this.prisma as any).employeeProfileChangeRequest.count({ where: { targetUserId: userId } }),
       (this.prisma as any).employeeProfileChangeRequest.count({ where: { currentApproverId: userId } }),
@@ -1008,6 +1012,7 @@ export class UsersService {
     if (managerAccess)           blockers['Manager Dept Access']         = managerAccess;
     if (reviewCyclesAssignee)    blockers['Review Cycles (Assignee)']    = reviewCyclesAssignee;
     if (reviewCyclesReviewer)    blockers['Review Cycles (Reviewer)']    = reviewCyclesReviewer;
+    if (attachmentsUploaded)     blockers['Ticket Attachments Uploaded'] = attachmentsUploaded;
     if (changeRequestsBy)        blockers['Change Requests Created']     = changeRequestsBy;
     if (changeRequestsTarget)    blockers['Change Requests (Target)']    = changeRequestsTarget;
     if (changeRequestsApproving) blockers['Change Requests (Approver)']  = changeRequestsApproving;

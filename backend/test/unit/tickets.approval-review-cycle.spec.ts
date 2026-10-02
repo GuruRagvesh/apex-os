@@ -94,6 +94,7 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
       // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
       $queryRaw: jest.fn(async () => [makeTicketFixture()]),
       ticket: {
+        findUnique: jest.fn(async () => makeTicketFixture()),
         update: jest.fn(async ({ data }: any) => ({ ...makeTicketFixture(), ...data })),
       },
       user: {
@@ -109,7 +110,12 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
         // the same transaction (Phase 2D2), so the real ledger needs these.
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(async ({ data }: any) => ({ id: 'log-1', ...data })),
+        // The reviewer started the review: their reviewer row is running.
+        findFirst: jest.fn(async ({ where }: any) =>
+          where?.ownerType === 'REVIEWER' ? { id: 'review-log-1', ownerType: 'REVIEWER', userId: where.userId } : null),
       },
+      // A decision locks the cycle's evidence.
+      attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       // Worker lock, and the worker's WORKING session for the rework timer.
       $executeRaw: jest.fn().mockResolvedValue(0),
       workSession: {
@@ -124,6 +130,8 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
 
     ticketAccess = {
       findAccessibleTicket: jest.fn(async (_id: string, _user: any, _include: any) => makeTicketFixture()),
+      // Phase 4: review authority is re-checked against the locked ticket.
+      viewerCanApprove: jest.fn().mockResolvedValue(true),
       assertCanTransitionTicket: jest.fn().mockResolvedValue(undefined),
       assertCanAssignTicket: jest.fn().mockResolvedValue(undefined),
       assertCanUpdateTicket: jest.fn().mockResolvedValue(undefined),

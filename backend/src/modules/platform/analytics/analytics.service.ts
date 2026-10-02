@@ -6,6 +6,7 @@ import { AccessPolicyService } from '../../../common/services/access-policy.serv
 import { TVAService } from '../../../common/services/tva.service';
 import { TicketStatus } from '@prisma/client';
 import { LEDGER_OWNER_TYPES, LEDGER_STAGES } from '../../operations/tickets/ticket-ledger.service';
+import { computeReviewerMetrics, REVIEW_METRICS_CYCLE_SELECT, toMetricsCycle } from '../../../common/services/review-metrics';
 
 // Productive employee time = the primary assignee's WORK and REWORK ledger
 // segments that count as work. (The ledger never writes a stage called
@@ -88,17 +89,13 @@ export class AnalyticsService {
   async getReviewerMetrics(targetUserId: string, currentUser: any) {
     await this.assertCanViewUser(targetUserId, currentUser);
 
+    // Definitions: src/common/services/review-metrics.ts (shared with the dashboard).
     const reviewCycles = await this.prisma.reviewCycleLog.findMany({
       where: { reviewerId: targetUserId, decision: { not: null } },
-      select: { decision: true, reviewerWorkSeconds: true, reviewEndedAt: true, ticket: { select: { priority: true } } },
+      select: REVIEW_METRICS_CYCLE_SELECT,
     });
-
     const config = await this.ticketTiming.getSlaConfig();
-    let approvalSlaBreaches = 0;
-
-    const completedApprovalsCount = reviewCycles.length;
-    const approvedCount = reviewCycles.filter(c => c.decision === 'APPROVED').length;
-    const reworkCount = reviewCycles.filter(c => c.decision === 'REWORK').length;
+    const m = computeReviewerMetrics(reviewCycles.map(toMetricsCycle), config.review);
 
     let approvalsToday = 0;
     let approvalsThisWeek = 0;
@@ -106,40 +103,32 @@ export class AnalyticsService {
     const todayStart = this.tva.companyDayStart();
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - 7);
-
-    reviewCycles.forEach(c => {
-      const priority = c.ticket?.priority ?? 'MEDIUM';
-      const limitHours = config.review[priority] ?? config.review['MEDIUM'] ?? 24;
-      const limitSeconds = limitHours * 3600;
-      if ((c.reviewerWorkSeconds || 0) > limitSeconds) {
-        approvalSlaBreaches++;
-      }
-      if (c.reviewEndedAt) {
-        if (c.reviewEndedAt >= todayStart) approvalsToday++;
-        if (c.reviewEndedAt >= weekStart) approvalsThisWeek++;
-      }
-    });
-
-    const approvalPercent = completedApprovalsCount > 0 ? Math.round((approvedCount / completedApprovalsCount) * 100) : 0;
-    const rejectionPercent = completedApprovalsCount > 0 ? Math.round((reworkCount / completedApprovalsCount) * 100) : 0;
-    const approvalSlaBreachRate = completedApprovalsCount > 0 ? Math.round((approvalSlaBreaches / completedApprovalsCount) * 100) : 0;
-
-    const totalApprovalSeconds = reviewCycles.reduce((acc, c) => acc + (c.reviewerWorkSeconds || 0), 0);
-    const averageApprovalSeconds = completedApprovalsCount > 0 ? totalApprovalSeconds / completedApprovalsCount : 0;
+    for (const c of reviewCycles) {
+      // Decisions only: a withdrawal is not a review the reviewer completed.
+      if (!['APPROVED', 'REWORK'].includes(c.decision ?? '') || !c.reviewEndedAt) continue;
+      if (c.reviewEndedAt >= todayStart) approvalsToday++;
+      if (c.reviewEndedAt >= weekStart) approvalsThisWeek++;
+    }
 
     const pendingApprovalsCount = await this.prisma.ticket.count({
       where: { status: 'REVIEW', reviewDueAt: { not: null } }, // Depending on assignment rules
     });
 
     return {
-      completedApprovalsCount,
-      averageApprovalSeconds,
-      totalApprovalSeconds,
-      approvalPercent,
-      rejectionPercent,
+      completedApprovalsCount: m.decidedReviews,
+      // Reviewer ACTIVE time (explicit Start Review segments), per timed review.
+      averageApprovalSeconds: m.averageReviewerActiveSeconds,
+      totalApprovalSeconds: m.reviewerActiveSeconds,
+      timedReviewsCount: m.timedReviews,
+      // Review TURNAROUND (wall clock, the SLA clock), a separate figure.
+      averageTurnaroundSeconds: m.averageTurnaroundSeconds,
+      withdrawnCount: m.withdrawn,
+      approvalPercent: m.approvalPercent,
+      rejectionPercent: m.rejectionPercent,
       pendingApprovalsCount,
-      approvalSlaBreaches,
-      approvalSlaBreachRate,
+      // Turnaround versus the configured review SLA, never reviewer active time.
+      approvalSlaBreaches: m.reviewSlaBreaches,
+      approvalSlaBreachRate: m.reviewSlaBreachRate,
       approvalsToday,
       approvalsThisWeek,
     };

@@ -69,6 +69,7 @@ export class EmployeeArchiveCollectorService {
     { key: 'tickets/history', model: 'TicketHistory', field: 'changedBy', delegate: 'ticketHistory', column: 'changedById' },
     { key: 'tickets/time-logs', model: 'TicketTimeLog', field: 'user', delegate: 'ticketTimeLog', column: 'userId' },
     { key: 'tickets/comments', model: 'Comment', field: 'author', delegate: 'comment', column: 'authorId' },
+    { key: 'tickets/attachments', model: 'Attachment', field: 'uploadedBy', delegate: 'attachment', column: 'uploadedById' },
 
     // Membership. The project, team and department all survive.
     { key: 'projects/memberships', model: 'ProjectMember', field: 'user', delegate: 'projectMember', column: 'userId' },

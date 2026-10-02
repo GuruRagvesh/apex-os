@@ -35,9 +35,112 @@ const TIMER_TRANSACTION = { maxWait: 10_000, timeout: 20_000 };
 
 export const PRIMARY_ASSIGNEE_REQUIRED = 'PRIMARY_ASSIGNEE_REQUIRED';
 
+/** Safe review refusals: stable codes, user-facing messages, no internals. */
+export const REVIEW_ERRORS = {
+  NOT_IN_REVIEW: {
+    statusCode: 409, code: 'TICKET_NOT_IN_REVIEW',
+    message: 'This ticket is no longer in review. Refresh to see its latest state.',
+  },
+  ALREADY_DECIDED: {
+    statusCode: 409, code: 'REVIEW_ALREADY_DECIDED',
+    message: 'This review was already decided. Refresh to see the latest state.',
+  },
+  NOT_AUTHORIZED: {
+    statusCode: 403, code: 'REVIEWER_NOT_AUTHORIZED',
+    message: 'Only a reviewer for this ticket can start or pause its review.',
+  },
+  WITHDRAW_NOT_ALLOWED: {
+    statusCode: 403, code: 'WITHDRAW_NOT_ALLOWED',
+    message: "Only the ticket's assignee can withdraw this submission.",
+  },
+  CLAIMED: {
+    statusCode: 409, code: 'REVIEW_CLAIMED',
+    message: 'Another reviewer is already reviewing this ticket.',
+  },
+  DECISION_REQUIRED: {
+    statusCode: 409, code: 'REVIEW_DECISION_REQUIRED',
+    message: 'Use Approve to complete a ticket that is in review.',
+  },
+  NOT_STARTED: {
+    statusCode: 409, code: 'REVIEW_NOT_STARTED',
+    message: 'Start Review before approving or sending this ticket back.',
+  },
+  ALREADY_IN_REVIEW: {
+    statusCode: 409, code: 'TICKET_ALREADY_IN_REVIEW',
+    message: 'This ticket is already in review.',
+  },
+} as const;
+export const PUNCH_IN_TO_REVIEW_MESSAGE = 'Punch In before starting a review.';
+
+/**
+ * Review decisions on the ticket types a reviewer hierarchy decides (every
+ * type except QUERY and HELP, whose decisions belong to the requester or the
+ * HELP assignee) need the decider's own running review timer.
+ */
+export function reviewTimerRequired(ticket: { type?: string | null } | null | undefined): boolean {
+  return ticket?.type !== 'QUERY' && ticket?.type !== 'HELP';
+}
+
+/** Safe attachment refusals: stable codes, user-facing messages, no internals. */
+export const ATTACHMENT_ERRORS = {
+  NOT_OWNER: {
+    statusCode: 403, code: 'ATTACHMENT_NOT_OWNER',
+    message: 'Only the person who uploaded this attachment can delete it.',
+  },
+  LEGACY_PROTECTED: {
+    statusCode: 403, code: 'ATTACHMENT_LEGACY_PROTECTED',
+    message: 'This attachment was uploaded before uploaders were recorded, so it cannot be deleted.',
+  },
+  LOCKED: {
+    statusCode: 409, code: 'ATTACHMENT_LOCKED',
+    message: 'This attachment is locked as review evidence and cannot be deleted.',
+  },
+  POC_NOT_ALLOWED: {
+    statusCode: 403, code: 'POC_NOT_ALLOWED',
+    message: "Only the ticket's assignees can add proof of completion while it is in progress or in review.",
+  },
+  FEEDBACK_NOT_ALLOWED: {
+    statusCode: 403, code: 'REVIEW_FEEDBACK_NOT_ALLOWED',
+    message: 'Only a reviewer of this ticket can add review feedback while it is in review.',
+  },
+  INVALID_PURPOSE: {
+    statusCode: 400, code: 'ATTACHMENT_PURPOSE_INVALID',
+    message: 'Unknown attachment purpose.',
+  },
+} as const;
+
+export const ATTACHMENT_LOCK_REASONS = {
+  SUBMITTED_FOR_REVIEW: 'SUBMITTED_FOR_REVIEW',
+} as const;
+
+const ATTACHMENT_PURPOSES = ['REFERENCE', 'GENERAL', 'POC', 'REVIEW_FEEDBACK'] as const;
+type AttachmentPurposeValue = typeof ATTACHMENT_PURPOSES[number];
+
+/** What every attachment response is built from (never the stored url). */
+const ATTACHMENT_INCLUDE = {
+  uploadedBy: { select: { id: true, name: true } },
+  reviewCycle: { select: { id: true, cycleNo: true, decision: true } },
+};
+
+/** A received file; stored only once the change it belongs to is allowed. */
+export interface IncomingAttachmentFile {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
+/** File storage, owned by the caller. `discard` undoes a `store` whose database write failed. */
+export interface AttachmentStorage {
+  store(ticketId: string, file: IncomingAttachmentFile): Promise<string>;
+  discard(url: string): Promise<void>;
+}
+
 type UpdateOptions = {
   suppressCompletionNotification?: boolean;
   reviewDecisionRecorded?: boolean;
+  /** withdraw() only: the assignee pulls their own submission back from review. */
+  withdrawal?: boolean;
   /** reject() only: the estimate for the rework cycle it opens. */
   reworkEstimatedMinutes?: number | null;
 };
@@ -192,8 +295,8 @@ export class TicketsService {
    * KEY SHARE), so a timer resume elsewhere never waits on a ticket edit.
    */
   private async lockTicketRow(tx: Prisma.TransactionClient, ticketId: string) {
-    const [row] = await tx.$queryRaw<Array<{ status: TicketStatus; assignedToId: string | null }>>`
-      SELECT status, "assignedToId" FROM "tickets" WHERE id = ${ticketId} FOR NO KEY UPDATE
+    const [row] = await tx.$queryRaw<Array<{ status: TicketStatus; assignedToId: string | null; type: string | null }>>`
+      SELECT status, "assignedToId", type::text AS type FROM "tickets" WHERE id = ${ticketId} FOR NO KEY UPDATE
     `;
     if (!row) throw new NotFoundException('Ticket not found');
     return row;
@@ -247,12 +350,26 @@ export class TicketsService {
     return tickets.map((t: any) => (t?.id && budgets.has(t.id) ? { ...t, workBudget: budgets.get(t.id) } : t));
   }
 
-  sanitizeAttachmentForResponse(ticketId: string, attachment: any) {
+  /**
+   * The only shape an attachment leaves the API in: no stored url, and the
+   * capabilities the backend decides. Deletion belongs to the uploader alone,
+   * and never to locked evidence or a legacy (uploader unknown) attachment;
+   * no role, participant or ticket ownership grants it.
+   */
+  sanitizeAttachmentForResponse(ticketId: string, attachment: any, viewerId?: string) {
     if (!attachment) return attachment;
     const safe = { ...attachment };
     delete safe.url;
+    delete safe.reviewCycle;
     return {
       ...safe,
+      purpose: attachment.purpose ?? (attachment.isPoc ? 'POC' : 'GENERAL'),
+      uploadedBy: attachment.uploadedBy ? { id: attachment.uploadedBy.id, name: attachment.uploadedBy.name } : null,
+      legacyProtected: !attachment.uploadedById,
+      locked: Boolean(attachment.lockedAt),
+      lockReason: attachment.lockReason ?? null,
+      cycleNo: attachment.reviewCycle?.cycleNo ?? null,
+      canDelete: Boolean(viewerId) && attachment.uploadedById === viewerId && !attachment.lockedAt,
       previewUrl: `/api/tickets/${ticketId}/attachments/${attachment.id}/download?mode=inline`,
       downloadUrl: `/api/tickets/${ticketId}/attachments/${attachment.id}/download?mode=download`,
     };
@@ -517,7 +634,7 @@ export class TicketsService {
         include: { author: { select: { id: true, name: true, avatar: true, role: true } } },
         orderBy: { createdAt: 'asc' },
       },
-      attachments: { orderBy: { createdAt: 'desc' } },
+      attachments: { orderBy: { createdAt: 'desc' }, include: ATTACHMENT_INCLUDE },
       reviewCycles: { orderBy: { cycleNo: 'asc' } },
     };
     const ticket = user
@@ -536,7 +653,20 @@ export class TicketsService {
       this.logger.error(`Ticket timers failed for ${ticket.ticketId}: ${err?.message}`);
       return null;
     });
-    return { ...decorated, selfAssigned, viewerCanApprove, timers };
+    // The cycle whose evidence is "current": the open one while in review.
+    // Evidence of earlier cycles is shown as previous evidence.
+    const openCycle = ticket.status === TicketStatus.REVIEW
+      ? [...((ticket as any).reviewCycles ?? [])].reverse().find((c: any) => !c.decision) ?? null
+      : null;
+    return {
+      ...decorated,
+      attachments: ((ticket as any).attachments ?? []).map((a: any) => this.sanitizeAttachmentForResponse(ticket.id, a, user?.id)),
+      selfAssigned,
+      viewerCanApprove,
+      timers,
+      reviewTimerRequired: reviewTimerRequired(ticket),
+      currentReviewCycle: openCycle ? { id: openCycle.id, cycleNo: openCycle.cycleNo } : null,
+    };
   }
 
   async assertCanUploadAttachment(user: any, ticket: any) {
@@ -557,6 +687,179 @@ export class TicketsService {
     });
     if (!attachment) throw new NotFoundException('Attachment not found');
     return attachment;
+  }
+
+  /** The viewer's one running clock (employee work or review), with its ticket. */
+  async getActiveTimer(userId: string) {
+    return this.ticketLedger.getActiveTimerForUser(userId);
+  }
+
+  private isTicketWorker(ticket: any, userId: string) {
+    return ticket.assignedToId === userId ||
+      Boolean(ticket.assignees?.some?.((a: any) => (a?.userId ?? a?.user?.id) === userId));
+  }
+
+  /** What an upload is for. Ownership is always the authenticated uploader. */
+  private async resolveUploadPurpose(ticket: any, body: any, user: any): Promise<AttachmentPurposeValue> {
+    const raw = typeof body?.purpose === 'string' && body.purpose.trim() ? body.purpose.trim().toUpperCase() : null;
+    const legacyPoc = body?.isPoc === 'true' || body?.isPoc === true;
+    const purpose = (raw ?? (legacyPoc ? 'POC' : 'GENERAL')) as AttachmentPurposeValue;
+    if (!ATTACHMENT_PURPOSES.includes(purpose)) throw new BadRequestException(ATTACHMENT_ERRORS.INVALID_PURPOSE);
+    if (purpose === 'POC') {
+      const accepting = ticket.status === TicketStatus.IN_PROGRESS || ticket.status === TicketStatus.REVIEW;
+      if (!accepting || !this.isTicketWorker(ticket, user.id)) throw new ForbiddenException(ATTACHMENT_ERRORS.POC_NOT_ALLOWED);
+    }
+    if (purpose === 'REVIEW_FEEDBACK') {
+      if (ticket.status !== TicketStatus.REVIEW || !(await this.ticketAccess.viewerCanApprove(user, ticket))) {
+        throw new ForbiddenException(ATTACHMENT_ERRORS.FEEDBACK_NOT_ALLOWED);
+      }
+    }
+    return purpose;
+  }
+
+  private logAttachmentEvent(action: OperationalAction, actorId: string, ticket: any, attachment: any) {
+    Promise.resolve(this.eventLogger.log({
+      actorId,
+      entityType: 'Ticket',
+      entityId: ticket.id,
+      action,
+      metadata: {
+        ticketId: ticket.ticketId,
+        attachmentId: attachment.id,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        purpose: attachment.purpose,
+        reviewCycleId: attachment.reviewCycleId ?? null,
+      },
+    })).catch(() => {});
+  }
+
+  /**
+   * Upload. Access and purpose are checked first, then the file is stored,
+   * then its row is written under the ticket row lock, so it never races a
+   * submission binding proof to its cycle. A row that cannot be written gets
+   * its stored file discarded.
+   */
+  async uploadAttachment(id: string, file: IncomingAttachmentFile, body: any, user: any, storage: AttachmentStorage) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const ticket = await this.findTicketForReview(id, user);
+    await this.assertCanUploadAttachment(user, ticket);
+    const purpose = await this.resolveUploadPurpose(ticket, body, user);
+    const url = await storage.store(ticket.id, file);
+    let created: any;
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
+        const locked = await this.lockTicketRow(tx, ticket.id);
+        const data: Prisma.AttachmentUncheckedCreateInput = {
+          ticketId: ticket.id,
+          filename: file.originalname,
+          url,
+          size: file.size,
+          mimeType: file.mimetype,
+          uploadedById: user.id,
+          purpose,
+          isPoc: purpose === 'POC',
+          pocFor: purpose === 'POC' ? ticket.id : null,
+        };
+        // Re-checked under the lock: the ticket may have moved since.
+        if (purpose === 'REVIEW_FEEDBACK' && locked.status !== TicketStatus.REVIEW) {
+          throw new ConflictException(REVIEW_ERRORS.NOT_IN_REVIEW);
+        }
+        if (purpose === 'POC' && locked.status !== TicketStatus.IN_PROGRESS && locked.status !== TicketStatus.REVIEW) {
+          throw new ForbiddenException(ATTACHMENT_ERRORS.POC_NOT_ALLOWED);
+        }
+        if ((purpose === 'POC' || purpose === 'REVIEW_FEEDBACK') && locked.status === TicketStatus.REVIEW) {
+          const cycle = await this.ticketLedger.findOpenReviewCycle(ticket.id, tx);
+          if (cycle) data.reviewCycleId = cycle.id;
+          // Proof added while under review is evidence of record at once;
+          // reviewer feedback locks when the decision completes.
+          if (purpose === 'POC') {
+            data.lockedAt = this.tva.now();
+            data.lockReason = ATTACHMENT_LOCK_REASONS.SUBMITTED_FOR_REVIEW;
+          }
+        }
+        return tx.attachment.create({ data, include: ATTACHMENT_INCLUDE });
+      });
+    } catch (err) {
+      await storage.discard(url).catch(() => undefined);
+      throw err;
+    }
+    this.logAttachmentEvent(OperationalAction.ATTACHMENT_UPLOADED, user.id, ticket, created);
+    return this.sanitizeAttachmentForResponse(ticket.id, created, user.id);
+  }
+
+  /**
+   * Delete: only the uploader, never locked evidence, never a legacy
+   * attachment whose uploader is unknown. Locked evidence answers 409 to every
+   * caller. Decided under the ticket row lock against the stored row, so a
+   * submission locking this proof at the same moment either wins (409 here)
+   * or finds it already gone.
+   */
+  async deleteAttachment(id: string, attachmentId: string, user: any) {
+    const ticket = await this.findTicketForReview(id, user);
+    await this.assertCanUploadAttachment(user, ticket);
+    const removed = await this.prisma.$transaction(async (tx) => {
+      await this.lockTicketRow(tx, ticket.id);
+      const attachment = await tx.attachment.findFirst({ where: { id: attachmentId, ticketId: ticket.id } });
+      if (!attachment) throw new NotFoundException('Attachment not found');
+      if (!attachment.uploadedById) throw new ForbiddenException(ATTACHMENT_ERRORS.LEGACY_PROTECTED);
+      if (attachment.lockedAt) throw new ConflictException(ATTACHMENT_ERRORS.LOCKED);
+      if (attachment.uploadedById !== user.id) throw new ForbiddenException(ATTACHMENT_ERRORS.NOT_OWNER);
+      await tx.attachment.delete({ where: { id: attachment.id } });
+      return attachment;
+    });
+    this.logAttachmentEvent(OperationalAction.ATTACHMENT_DELETED, user.id, ticket, removed);
+    return { success: true };
+  }
+
+  /**
+   * Submit for review with optional proof of completion, as one operation.
+   * The submission is validated first (the same rules as any move to
+   * REVIEW); only then is the proof stored. The status change, the review
+   * cycle and the proof's row (bound to that cycle and locked) commit
+   * together; if they do not, the stored file is discarded, so a failed
+   * submission leaves no evidence behind. Without a file this is the plain
+   * submission ("Skip for now").
+   */
+  async submitForReview(id: string, user: any, file: IncomingAttachmentFile | undefined, storage: AttachmentStorage) {
+    const ticket = await this.findTicketForReview(id, user);
+    if (ticket.status === TicketStatus.REVIEW) throw new ConflictException(REVIEW_ERRORS.ALREADY_IN_REVIEW);
+    if (file) await this.assertCanUploadAttachment(user, ticket);
+    const prepared = await this.prepareUpdate(ticket.id, { status: TicketStatus.REVIEW }, user.id, user);
+    const url = file ? await storage.store(ticket.id, file) : null;
+    const afterCommit: AfterCommit = [];
+    let proof: any = null;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.commitUpdate(tx, prepared, user.id, undefined, afterCommit);
+        if (file && url) {
+          const cycle = await this.ticketLedger.findOpenReviewCycle(ticket.id, tx);
+          proof = await tx.attachment.create({
+            data: {
+              ticketId: ticket.id,
+              filename: file.originalname,
+              url,
+              size: file.size,
+              mimeType: file.mimetype,
+              uploadedById: user.id,
+              purpose: 'POC',
+              isPoc: true,
+              pocFor: ticket.id,
+              reviewCycleId: cycle?.id ?? null,
+              lockedAt: prepared.now,
+              lockReason: ATTACHMENT_LOCK_REASONS.SUBMITTED_FOR_REVIEW,
+            },
+          });
+        }
+      }, TIMER_TRANSACTION);
+    } catch (err) {
+      if (url) await storage.discard(url).catch(() => undefined);
+      throw err;
+    }
+    await this.runAfterCommit(afterCommit);
+    if (proof) this.logAttachmentEvent(OperationalAction.ATTACHMENT_UPLOADED, user.id, ticket, proof);
+    return this.findOne(ticket.id, user);
   }
 
   // Shared by create() and createBulk()/import-preview validation — every
@@ -1460,6 +1763,12 @@ export class TicketsService {
       data.assignedToId !== undefined ? data.assignedToId : existing.assignedToId,
     );
 
+    // A ticket in REVIEW completes only through approve(), which records the
+    // review decision; a plain status change would leave the cycle undecided.
+    if (existing.status === TicketStatus.REVIEW && data.status === TicketStatus.DONE && !opts?.reviewDecisionRecorded) {
+      throw new ConflictException(REVIEW_ERRORS.DECISION_REQUIRED);
+    }
+
     // Ticket lifecycle stamps below come from the TVA clock, like the timer ledger.
     const now = this.tva.now();
 
@@ -1468,8 +1777,21 @@ export class TicketsService {
     // reject() records its own decision (with feedback and the rework
     // estimate); a direct status change (Kanban, stepper) is recorded by
     // commitUpdate(), in the same transaction as the status write.
-    const isRework = data.status === TicketStatus.IN_PROGRESS && existing.status === TicketStatus.REVIEW;
+    // The ticket's own worker pulling a submission back before any reviewer
+    // decision is a WITHDRAWAL, not rework: no rework count, cycle, estimate or
+    // REWORK timer. Everyone else sending it back is a reviewer's REWORK.
+    const isReviewExit = data.status === TicketStatus.IN_PROGRESS && existing.status === TicketStatus.REVIEW;
+    const isWithdrawal = isReviewExit && !opts?.reviewDecisionRecorded &&
+      (opts?.withdrawal === true || userId === existing.assignedToId);
+    const isRework = isReviewExit && !isWithdrawal;
     const recordReworkDecision = isRework && !opts?.reviewDecisionRecorded;
+    if (isWithdrawal) {
+      // The review clock for this submission ends; the cycle keeps its honest
+      // history. executionDueAt is left as it was.
+      data.submittedAt = null;
+      data.reviewStartedAt = null;
+      data.reviewDueAt = null;
+    }
     if (isRework) {
       data.reworkCount = { increment: 1 };
       data.submittedAt = null;
@@ -1501,7 +1823,7 @@ export class TicketsService {
     if (data.status === TicketStatus.IN_PROGRESS && !existing.actualStartAt && !data.actualStartAt) {
       data.actualStartAt = now;
     }
-    if (data.status === TicketStatus.IN_PROGRESS && !isRework && !existing.executionDueAt) {
+    if (data.status === TicketStatus.IN_PROGRESS && !isReviewExit && !existing.executionDueAt) {
       const base: Date = existing.scheduledStartAt ?? data.actualStartAt ?? now;
       const mins: number | null | undefined = existing.estimatedMinutes;
       const due = this.calcExecutionDueAt(base, null, mins);
@@ -1567,7 +1889,7 @@ export class TicketsService {
         changedById: userId,
       }));
 
-    return { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision, now, dueFromOriginalEstimate };
+    return { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision, isWithdrawal, now, dueFromOriginalEstimate, actor: user };
   }
 
   /**
@@ -1586,7 +1908,7 @@ export class TicketsService {
     opts: UpdateOptions | undefined,
     afterCommit: AfterCommit,
   ) {
-    const { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision, now, dueFromOriginalEstimate } = prepared;
+    const { existing, ticketDbId, data, assigneeIds, historyEntries, enteringReview, recordReworkDecision, isWithdrawal, now, dueFromOriginalEstimate } = prepared;
 
     // The owner check in prepareUpdate() read the ticket before this transaction.
     // Re-check the final state against the locked, committed row: a concurrent
@@ -1605,6 +1927,52 @@ export class TicketsService {
       delete data.executionDueAt;
     }
 
+    // A change prepared against a ticket in REVIEW must still find it in REVIEW:
+    // otherwise another decision (approve, reject, withdrawal) committed first.
+    if (existing.status === TicketStatus.REVIEW && locked.status !== TicketStatus.REVIEW && data.status !== undefined) {
+      throw new ConflictException(REVIEW_ERRORS.ALREADY_DECIDED);
+    }
+
+    // A reviewer's direct send-back (Kanban, stepper) is a review decision:
+    // the same authority, claim and running-review rules as reject().
+    if (recordReworkDecision && reviewTimerRequired(locked)) {
+      await this.assertReviewAuthorityLocked(tx, ticketDbId, userId, prepared.actor);
+      await this.assertReviewTimerRunning(tx, ticketDbId, userId);
+    }
+
+    // Leaving REVIEW, or changing the assignee while in it, stops any running
+    // reviewer clock first, so the decision below freezes its final seconds.
+    // A reviewer clock never resumes by itself.
+    const leavingReview = locked.status === TicketStatus.REVIEW && (
+      (data.status !== undefined && data.status !== TicketStatus.REVIEW) ||
+      (data.assignedToId !== undefined && data.assignedToId !== locked.assignedToId)
+    );
+    let reviewersStopped: string[] = [];
+    if (leavingReview) {
+      const stopped = await this.ticketLedger.endActiveLogsForTicket(
+        ticketDbId,
+        isWithdrawal ? LEDGER_PAUSE_REASONS.REVIEW_WITHDRAWN
+          : recordReworkDecision || opts?.reviewDecisionRecorded ? LEDGER_PAUSE_REASONS.REVIEW_DECISION
+          : LEDGER_PAUSE_REASONS.REVIEW_ENDED,
+        undefined,
+        tx,
+      );
+      reviewersStopped = stopped.userIds;
+    }
+
+    // Leaving REVIEW back to OPEN, or closing (cancelling) it, ends the open
+    // cycle as CANCELLED: never a reviewer decision, never left open for the
+    // next submission to inherit.
+    if (
+      locked.status === TicketStatus.REVIEW &&
+      (data.status === TicketStatus.OPEN || data.status === TicketStatus.CLOSED)
+    ) {
+      await this.persistReviewDecision(existing, 'CANCELLED', null, undefined, tx);
+    }
+
+    if (isWithdrawal) {
+      await this.persistReviewDecision(existing, 'WITHDRAWN', null, undefined, tx);
+    }
     if (recordReworkDecision) {
       await this.persistReviewDecision(existing, 'REWORK', userId, { reworkStartedAt: now }, tx);
     }
@@ -1617,6 +1985,24 @@ export class TicketsService {
 
     if (historyEntries.length > 0) {
       await tx.ticketHistory.createMany({ data: historyEntries });
+    }
+
+    // Entering REVIEW opens the review cycle now (submission time), so the
+    // turnaround clock and any reviewer work belong to a real cycle.
+    if (data.status === TicketStatus.REVIEW && locked.status !== TicketStatus.REVIEW) {
+      const cycle = (await this.ticketLedger.findOpenReviewCycle(ticket.id, tx)) ??
+        await this.ticketLedger.startReviewCycle({
+          ticketId: ticket.id,
+          assigneeId: this.primaryAssigneeId(ticket),
+          reviewStartedAt: ticket.reviewStartedAt ?? now,
+        }, tx);
+      // Proof uploaded for this submission and not yet bound to any cycle
+      // becomes this cycle's evidence of record, locked, in this transaction.
+      // Legacy attachments (uploader unknown) are never bound to a cycle.
+      await tx.attachment.updateMany({
+        where: { ticketId: ticket.id, purpose: 'POC', reviewCycleId: null, lockedAt: null, uploadedById: { not: null } },
+        data: { reviewCycleId: cycle.id, lockedAt: now, lockReason: ATTACHMENT_LOCK_REASONS.SUBMITTED_FOR_REVIEW },
+      });
     }
 
     const action = data.status ? 'STATUS_CHANGED' : data.assignedToId ? 'TICKET_ASSIGNED' : 'TICKET_UPDATED';
@@ -1650,11 +2036,15 @@ export class TicketsService {
       // status transition back instead of leaving it without its timer change.
       if (data.status === TicketStatus.IN_PROGRESS && existing.status !== TicketStatus.IN_PROGRESS) {
         if (ticket.assignedToId) {
+          // A withdrawal resumes normal WORK and never displaces another
+          // running clock (RESUME): if the worker is not working, or is timing
+          // something else, the ticket waits for the normal auto-resume.
           await this.ticketLedger.startAssigneeTimer({
             ticketId: ticket.id,
             workerId: ticket.assignedToId,
-            mode: 'START',
+            mode: isWithdrawal ? 'RESUME' : 'START',
             source: LEDGER_SOURCES.TICKET_STATUS,
+            ...(isWithdrawal ? { stage: LEDGER_STAGES.WORK } : {}),
           }, tx);
         }
       } else if (data.status !== TicketStatus.IN_PROGRESS) {
@@ -1805,7 +2195,16 @@ export class TicketsService {
       }
     }
 
+    // Whoever was reviewing gets their own employee work back (only if working).
+    await this.resumeAfterReviewFor(reviewersStopped, tx);
+
     return ticket;
+  }
+
+  private async resumeAfterReviewFor(userIds: string[], tx: Prisma.TransactionClient) {
+    for (const userId of [...new Set(userIds)].sort()) {
+      await this.ticketLedger.resumeAfterReview(userId, tx);
+    }
   }
   async updateStatus(id: string, status: TicketStatus, userId: string, user?: any) {
     return this.update(id, { status }, userId, user);
@@ -2159,6 +2558,186 @@ export class TicketsService {
     return this.addSla(updated);
   }
 
+  /**
+   * The start of every review decision: lock the ticket row, require it to be
+   * still in REVIEW (a decision or withdrawal queued behind another one gets
+   * 409, never a second decision), then stop any running reviewer clock so the
+   * cycle freezes its final reviewer seconds.
+   */
+  private async lockReviewForDecision(tx: Prisma.TransactionClient, ticketId: string, userId: string, user?: any) {
+    const locked = await this.lockTicketRow(tx, ticketId);
+    if (locked.status !== TicketStatus.REVIEW) throw new ConflictException(REVIEW_ERRORS.ALREADY_DECIDED);
+    await this.assertReviewAuthorityLocked(tx, ticketId, userId, user);
+    // Reviewer-hierarchy decisions need the decider's own running review.
+    if (reviewTimerRequired(locked)) await this.assertReviewTimerRunning(tx, ticketId, userId);
+    const stopped = await this.ticketLedger.endActiveLogsForTicket(ticketId, LEDGER_PAUSE_REASONS.REVIEW_DECISION, undefined, tx);
+    return { locked, reviewersStopped: stopped.userIds };
+  }
+
+  /**
+   * Under the ticket row lock: the actor is still an authorized reviewer of
+   * the ticket as it now stands, and no other reviewer has claimed the open
+   * review cycle. The first reviewer to Start Review claims it; a different
+   * reviewer cannot start, approve or reject it (409 REVIEW_CLAIMED).
+   */
+  private async assertReviewAuthorityLocked(tx: Prisma.TransactionClient, ticketId: string, userId: string, user?: any) {
+    if (user) {
+      const current = await tx.ticket.findUnique({ where: { id: ticketId }, include: { assignees: true } });
+      if (!current || !(await this.ticketAccess.viewerCanApprove(user, current))) {
+        throw new ForbiddenException(REVIEW_ERRORS.NOT_AUTHORIZED);
+      }
+    }
+    const open = await this.ticketLedger.findOpenReviewCycle(ticketId, tx);
+    if (open?.reviewerId && open.reviewerId !== userId) {
+      throw new ConflictException(REVIEW_ERRORS.CLAIMED);
+    }
+    return open;
+  }
+
+  /** The decider's own reviewer clock must be running on this ticket. */
+  private async assertReviewTimerRunning(tx: Prisma.TransactionClient, ticketId: string, userId: string) {
+    if (!(await this.ticketLedger.findActiveReviewerLog(ticketId, userId, tx))) {
+      throw new ConflictException(REVIEW_ERRORS.NOT_STARTED);
+    }
+  }
+
+  private async findTicketForReview(id: string, user?: any) {
+    const ticket = user
+      ? await this.ticketAccess.findAccessibleTicket(id, user, { assignees: true })
+      : await this.prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: { assignees: true } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    return ticket;
+  }
+
+  /**
+   * Start Review: the reviewer's active-work clock, separate from the review
+   * turnaround (SLA) clock that started at submission. One transaction, lock
+   * order ticket row → reviewer's work session (share) → reviewer's timer lock.
+   */
+  async startReview(id: string, userId: string, user?: any) {
+    const ticket = await this.findTicketForReview(id, user);
+    if (ticket.status !== TicketStatus.REVIEW) throw new ConflictException(REVIEW_ERRORS.NOT_IN_REVIEW);
+    if (user && !(await this.ticketAccess.viewerCanApprove(user, ticket))) {
+      throw new ForbiddenException(REVIEW_ERRORS.NOT_AUTHORIZED);
+    }
+
+    const afterCommit: AfterCommit = [];
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await this.lockTicketRow(tx, ticket.id);
+      if (locked.status !== TicketStatus.REVIEW) throw new ConflictException(REVIEW_ERRORS.NOT_IN_REVIEW);
+      // Authority and the claim are re-checked against the locked ticket.
+      let cycle = await this.assertReviewAuthorityLocked(tx, ticket.id, userId, user);
+      await this.activeWorkdayPolicy.assertActiveWorkdayLocked(tx, userId, PUNCH_IN_TO_REVIEW_MESSAGE);
+
+      // Tickets submitted before review cycles opened at submission get theirs now.
+      if (!cycle) {
+        cycle = await this.ticketLedger.startReviewCycle({
+          ticketId: ticket.id,
+          assigneeId: this.primaryAssigneeId(ticket),
+          reviewStartedAt: ticket.reviewStartedAt ?? ticket.submittedAt ?? this.tva.now(),
+        }, tx);
+      }
+      if (!cycle.reviewerId) {
+        // The first reviewer to start claims the review.
+        await tx.reviewCycleLog.update({ where: { id: cycle.id }, data: { reviewerId: userId } });
+      }
+
+      const started = await this.ticketLedger.startReviewerTimer({ ticketId: ticket.id, reviewerId: userId }, tx);
+      if (started.outcome === 'STARTED') {
+        await tx.activityLog.create({
+          data: {
+            userId, action: 'REVIEW_STARTED', entityType: 'TICKET', entityId: ticket.id,
+            details: { ticketId: ticket.ticketId, cycleNo: cycle.cycleNo },
+          },
+        });
+        afterCommit.push(() => this.eventLogger.log({
+          actorId: userId, entityType: 'Ticket', entityId: ticket.id,
+          action: OperationalAction.TICKET_REVIEW_STARTED, metadata: { ticketId: ticket.ticketId },
+        }));
+        afterCommit.push(() => this.gateway.emitTicketStatusChanged(ticket.id, TicketStatus.REVIEW, userId));
+      }
+    }, TIMER_TRANSACTION);
+    await this.runAfterCommit(afterCommit);
+    return this.findOne(ticket.id, user);
+  }
+
+  /** Pause Review: stops the caller's own reviewer clock on this ticket. Idempotent. */
+  async pauseReview(id: string, userId: string, user?: any) {
+    const ticket = await this.findTicketForReview(id, user);
+    const afterCommit: AfterCommit = [];
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockTicketRow(tx, ticket.id);
+      const paused = await this.ticketLedger.pauseReviewerTimer({
+        ticketId: ticket.id, reviewerId: userId, pauseReason: LEDGER_PAUSE_REASONS.REVIEW_PAUSED,
+      }, tx);
+      if (paused.paused) {
+        // Pausing review hands the person their own employee work back.
+        await this.ticketLedger.resumeAfterReview(userId, tx);
+        await tx.activityLog.create({
+          data: {
+            userId, action: 'REVIEW_PAUSED', entityType: 'TICKET', entityId: ticket.id,
+            details: { ticketId: ticket.ticketId, seconds: paused.log?.durationSeconds ?? 0 },
+          },
+        });
+        afterCommit.push(() => this.eventLogger.log({
+          actorId: userId, entityType: 'Ticket', entityId: ticket.id,
+          action: OperationalAction.TICKET_REVIEW_PAUSED, metadata: { ticketId: ticket.ticketId },
+        }));
+        afterCommit.push(() => this.gateway.emitTicketStatusChanged(ticket.id, ticket.status, userId));
+      }
+    }, TIMER_TRANSACTION);
+    await this.runAfterCommit(afterCommit);
+    return this.findOne(ticket.id, user);
+  }
+
+  /**
+   * Withdraw Submission: the ticket's own primary assignee pulls it back from
+   * REVIEW before any reviewer decision. Recorded as a WITHDRAWN review cycle:
+   * no rework count, no rework estimate, no REWORK timer. The reviewer clock
+   * stops, the cycle decision, status, history, activity log, comment and the
+   * worker's WORK timer (only if they are working with nothing else running)
+   * commit together.
+   */
+  async withdraw(id: string, userId: string, user?: any, reason?: string) {
+    const ticket = await this.findTicketForReview(id, user);
+    if (ticket.status !== TicketStatus.REVIEW) throw new ConflictException(REVIEW_ERRORS.NOT_IN_REVIEW);
+    if (ticket.assignedToId !== userId) throw new ForbiddenException(REVIEW_ERRORS.WITHDRAW_NOT_ALLOWED);
+
+    // The withdrawal rule above replaces the generic transition permission:
+    // the generic rule forbids an assignee from sending back their own work,
+    // which is exactly what a reviewer's rework is, not a withdrawal.
+    const opts: UpdateOptions = { withdrawal: true };
+    const prepared = await this.prepareUpdate(ticket.id, { status: TicketStatus.IN_PROGRESS }, userId, undefined, opts);
+    const note = (reason ?? '').trim();
+
+    const afterCommit: AfterCommit = [];
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const reopened = await this.commitUpdate(tx, prepared, userId, opts, afterCommit);
+      await tx.comment.create({
+        data: {
+          ticketId: ticket.id,
+          authorId: userId,
+          content: `[WITHDRAWN] ${note || 'Submission withdrawn from review by the assignee.'}`,
+        },
+      });
+      await tx.activityLog.create({
+        data: {
+          userId, action: 'REVIEW_WITHDRAWN', entityType: 'TICKET', entityId: ticket.id,
+          details: { ticketId: ticket.ticketId },
+        },
+      });
+      return reopened;
+    }, TIMER_TRANSACTION);
+
+    afterCommit.push(() => this.eventLogger.log({
+      actorId: userId, entityType: 'Ticket', entityId: ticket.id,
+      action: OperationalAction.TICKET_REVIEW_WITHDRAWN, fromState: TicketStatus.REVIEW, toState: TicketStatus.IN_PROGRESS,
+      metadata: { ticketId: ticket.ticketId },
+    }));
+    await this.runAfterCommit(afterCommit);
+    return this.addSla(updated);
+  }
+
   // The rating applies to the ticket's primary worker. assignedToId (legacy single-assignee
   // field) wins when present; multi-assignee tickets fall back to the first row in
   // `assignees` so a rating still lands on someone rather than being silently dropped.
@@ -2167,16 +2746,16 @@ export class TicketsService {
     return ticket.assignedToId ?? ticket.assignees?.[0]?.userId ?? undefined;
   }
 
-  // Closes the ticket's current ReviewCycleLog with a decision + ratings/feedback.
-  // If no cycle was ever opened for this ticket (true for every ticket today, since
-  // nothing currently calls startReviewCycle when a ticket enters REVIEW), one is
-  // started retroactively using the ticket's own reviewStartedAt column, then closed
-  // immediately — so tickets already sitting in REVIEW before this fix shipped are
-  // still handled correctly.
+  // Closes the ticket's current (open) ReviewCycleLog with a decision + ratings/feedback.
+  // Since Phase 4 every submission opens its cycle when the ticket enters REVIEW
+  // (commitUpdate), so an open cycle normally exists. The retroactive branch below is
+  // a fallback only for legacy tickets that were already in REVIEW before that
+  // shipped: it opens the cycle from the ticket's own reviewStartedAt and closes it
+  // immediately, so those tickets are still decided correctly.
   private async persistReviewDecision(
     ticket: any,
-    decision: 'APPROVED' | 'REWORK',
-    reviewerId: string,
+    decision: 'APPROVED' | 'REWORK' | 'WITHDRAWN' | 'CANCELLED',
+    reviewerId: string | null,
     ratings?: {
       taskEfficiencyRating?: number | null;
       employeePerformanceRating?: number | null;
@@ -2191,7 +2770,9 @@ export class TicketsService {
     const closeArgs = {
       ticketId: ticket.id,
       decision,
-      reviewerId,
+      // A withdrawal is not a reviewer decision: keep whatever reviewer the
+      // cycle already has (undefined leaves the column untouched).
+      reviewerId: reviewerId ?? undefined,
       feedback: ratings?.feedback ?? undefined,
       taskEfficiencyRating: ratings?.taskEfficiencyRating ?? null,
       employeePerformanceRating: ratings?.employeePerformanceRating ?? null,
@@ -2201,7 +2782,10 @@ export class TicketsService {
       reworkEstimatedMinutes: decision === 'REWORK' ? ratings?.reworkEstimatedMinutes ?? null : undefined,
     };
 
-    const actionLabel = decision === 'APPROVED' ? 'approved' : 'sent back for rework';
+    const actionLabel = decision === 'APPROVED' ? 'approved'
+      : decision === 'WITHDRAWN' ? 'withdrawn from review'
+      : decision === 'CANCELLED' ? 'moved out of review'
+      : 'sent back for rework';
     let cycle: any;
     try {
       cycle = await this.ticketLedger.endReviewCycle(closeArgs, tx);
@@ -2209,7 +2793,7 @@ export class TicketsService {
         await this.ticketLedger.startReviewCycle({
           ticketId: ticket.id,
           assigneeId: this.primaryAssigneeId(ticket),
-          reviewerId,
+          reviewerId: reviewerId ?? undefined,
           reviewStartedAt: ticket.reviewStartedAt ?? ticket.submittedAt ?? this.tva.now(),
         }, tx);
         cycle = await this.ticketLedger.endReviewCycle(closeArgs, tx);
@@ -2230,6 +2814,13 @@ export class TicketsService {
         `Could not save the review decision for ${ticket.ticketId} — the ticket was not ${actionLabel}. Please try again.`,
       );
     }
+
+    // The cycle's evidence is final once its review ends: reviewer feedback
+    // (and any proof still unlocked) can no longer be deleted or replaced.
+    await (tx ?? this.prisma).attachment.updateMany({
+      where: { reviewCycleId: cycle.id, lockedAt: null },
+      data: { lockedAt: this.tva.now(), lockReason: `REVIEW_${decision}` },
+    });
 
     return cycle;
   }
@@ -2287,7 +2878,7 @@ export class TicketsService {
 
     // suppressCompletionNotification=true: the update skips its generic "Ticket resolved"
     // notification so we can send a more specific "Ticket approved" message here instead.
-    const opts = { suppressCompletionNotification: true };
+    const opts: UpdateOptions = { suppressCompletionNotification: true, reviewDecisionRecorded: true };
     const prepared = await this.prepareUpdate(ticket.id, { status: TicketStatus.DONE }, userId, user, opts);
 
     // The review decision, the move to DONE and the timer stop commit together:
@@ -2295,9 +2886,11 @@ export class TicketsService {
     // decision never survives a transition that failed.
     const afterCommit: AfterCommit = [];
     const updated = await this.prisma.$transaction(async (tx) => {
-      await this.lockTicketRow(tx, ticket.id); // ticket row first, as in every ticket change
+      const { reviewersStopped } = await this.lockReviewForDecision(tx, ticket.id, userId, user);
       await this.persistReviewDecision(ticket, 'APPROVED', userId, effectiveRatings, tx);
-      return this.commitUpdate(tx, prepared, userId, opts, afterCommit);
+      const done = await this.commitUpdate(tx, prepared, userId, opts, afterCommit);
+      await this.resumeAfterReviewFor(reviewersStopped, tx);
+      return done;
     }, TIMER_TRANSACTION);
 
     // Single targeted notification to reporter — "Ticket approved" (not generic "resolved")
@@ -2356,7 +2949,7 @@ export class TicketsService {
     // worker's first rework segment always falls inside the cycle.
     const afterCommit: AfterCommit = [];
     const updated = await this.prisma.$transaction(async (tx) => {
-      await this.lockTicketRow(tx, ticket.id); // ticket row first, as in every ticket change
+      const { reviewersStopped } = await this.lockReviewForDecision(tx, ticket.id, userId, user);
       await this.persistReviewDecision(ticket, 'REWORK', userId, {
         feedback: comment,
         reworkStartedAt: prepared.now,
@@ -2370,6 +2963,7 @@ export class TicketsService {
           content: `[REJECTED] ${comment}`,
         },
       });
+      await this.resumeAfterReviewFor(reviewersStopped, tx);
       return reopened;
     }, TIMER_TRANSACTION);
 

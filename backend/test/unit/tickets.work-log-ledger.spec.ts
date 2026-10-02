@@ -108,6 +108,14 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
 
   const worker = { id: 'worker-1', role: { name: 'EMPLOYEE' } };
 
+  /** manager-1 started reviewing ticket-1: their reviewer row is running. */
+  function managerIsReviewing() {
+    timeLogTable.rows.push({
+      id: 'review-log-1', ticketId: 'ticket-1', userId: 'manager-1', stage: 'REVIEW', ownerType: 'REVIEWER', source: 'REVIEW_ACTION',
+      startedAt: new Date('2026-07-02T09:45:00Z'), endedAt: null, durationSeconds: null, pauseReason: null, breakLogId: null,
+    });
+  }
+
   beforeEach(() => {
     timeLogTable = makeTicketTimeLogTable();
     prisma = {
@@ -126,16 +134,20 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       activityLog: { create: jest.fn().mockResolvedValue({}) },
       ticketTimeLog: timeLogTable,
       reviewCycleLog: makeReviewCycleTable(),
+      // Entering REVIEW binds pending proof; a decision locks the cycle's evidence.
+      attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       // The worker has an open, working session unless a test says otherwise.
       workSession: { findFirst: jest.fn().mockResolvedValue({ id: 'ws-1', status: 'WORKING', logoutAt: null, breakLogs: [] }) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
-      $queryRaw: jest.fn(async () => [{ status: TicketStatus.OPEN, assignedToId: 'worker-1' }]),
+      $queryRaw: jest.fn(async () => [await ticketAccess.findAccessibleTicket()]),
       $transaction: jest.fn(async (fn: any) => fn(prisma)),
     };
 
     ticketAccess = {
       findAccessibleTicket: jest.fn(async () => makeTicketFixture()),
+      // A direct send-back is a review decision: authority is re-checked under the lock.
+      viewerCanApprove: jest.fn().mockResolvedValue(true),
       assertCanTransitionTicket: jest.fn().mockResolvedValue(undefined),
       assertCanAssignTicket: jest.fn().mockResolvedValue(undefined),
       assertCanUpdateTicket: jest.fn().mockResolvedValue(undefined),
@@ -240,6 +252,8 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     expect(activeLogs[0].id).toBe('log-seed');
   });
 
+  // A reviewer sends it back (rework). The worker pulling their own submission
+  // back is a withdrawal instead (Phase 4), covered below.
   it('5b. rework re-entry (REVIEW → IN_PROGRESS) ends the old log and leaves exactly one new active log', async () => {
     ticketAccess.findAccessibleTicket.mockResolvedValue(
       makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: new Date('2026-07-02T09:30:00Z') }),
@@ -249,12 +263,28 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       startedAt: new Date('2026-07-02T08:00:00Z'), endedAt: new Date('2026-07-02T09:30:00Z'),
       durationSeconds: 5400, pauseReason: 'STATUS_CHANGE', breakLogId: null,
     });
+    managerIsReviewing();
 
-    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'worker-1', worker);
+    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
 
     const activeLogs = timeLogTable.rows.filter((r) => r.endedAt === null);
     expect(activeLogs).toHaveLength(1);
     expect(activeLogs[0].id).not.toBe('log-old');
+    expect(activeLogs[0].userId).toBe('worker-1');
+  });
+
+  it('5c. a direct send-back without a started review is refused (409 REVIEW_NOT_STARTED) and writes nothing', async () => {
+    ticketAccess.findAccessibleTicket.mockResolvedValue(
+      makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: new Date('2026-07-02T09:30:00Z') }),
+    );
+    const err: any = await service
+      .update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } })
+      .then(() => null, (e) => e);
+    expect(err?.getStatus?.()).toBe(409);
+    expect(err.getResponse()).toMatchObject({ code: 'REVIEW_NOT_STARTED' });
+    expect(prisma.ticket.update).not.toHaveBeenCalled();
+    expect(prisma.reviewCycleLog.rows).toHaveLength(0);
+    expect(timeLogTable.rows).toHaveLength(0);
   });
 
   it('6. a log started via update() can still be paused by the existing, untouched pauseActiveLogsForUser (break-start compatibility)', async () => {
@@ -321,6 +351,7 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     ticketAccess.findAccessibleTicket.mockResolvedValue(
       makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: NOW, reviewStartedAt: NOW }),
     );
+    managerIsReviewing();
 
     await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
 
@@ -331,6 +362,27 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     const active = timeLogTable.rows.filter((r) => r.endedAt === null);
     expect(active).toHaveLength(1);
     expect(active[0]).toMatchObject({ userId: 'worker-1', stage: 'REWORK' });
+  });
+
+  it('11b. the worker pulling their own submission back is WITHDRAWN: no rework count, WORK-stage timer', async () => {
+    ticketAccess.findAccessibleTicket.mockResolvedValue(
+      makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: NOW, reviewStartedAt: NOW }),
+    );
+
+    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'worker-1', worker);
+
+    const cycles = prisma.reviewCycleLog.rows;
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0]).toMatchObject({ decision: 'WITHDRAWN' });
+    expect(cycles[0].reworkStartedAt ?? null).toBeNull();
+    expect(cycles[0].reworkEstimatedMinutes ?? null).toBeNull();
+    const written = (prisma.ticket.update as jest.Mock).mock.calls.at(-1)[0].data;
+    expect(written.reworkCount).toBeUndefined();
+    expect(written).toMatchObject({ submittedAt: null, reviewStartedAt: null, reviewDueAt: null });
+    expect(written.executionDueAt).toBeUndefined();
+    const active = timeLogTable.rows.filter((r) => r.endedAt === null);
+    expect(active).toHaveLength(1);
+    expect(active[0]).toMatchObject({ userId: 'worker-1', stage: 'WORK', ownerType: 'ASSIGNEE' });
   });
 
   // Phase 2D2 reverses the old fail-open rule: a status change and the timer

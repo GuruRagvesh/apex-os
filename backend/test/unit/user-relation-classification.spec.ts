@@ -89,9 +89,9 @@ describe('what the classification actually says', () => {
     // retained to deleted -- fails rather than passing unnoticed.
     const audit = auditClassification(SCHEMA);
 
-    expect(audit.total).toBe(45);
+    expect(audit.total).toBe(46);
     expect(rulesFor('DELETE_WITH_USER')).toHaveLength(22);
-    expect(rulesFor('RETAIN_WITH_SNAPSHOT')).toHaveLength(15);
+    expect(rulesFor('RETAIN_WITH_SNAPSHOT')).toHaveLength(16);
     expect(rulesFor('RETAIN_AND_NULL_ACTOR')).toHaveLength(5);
     expect(rulesFor('BLOCK_DELETE')).toHaveLength(3);
   });

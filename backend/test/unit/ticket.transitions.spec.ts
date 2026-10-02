@@ -27,7 +27,7 @@ const mockPrisma: any = {
   // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
   $transaction: jest.fn((fn: any) => fn(mockPrisma)),
   // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
-  $queryRaw: jest.fn(async () => [(await mockPrisma.ticket.findFirst?.()) ?? (await mockPrisma.ticket.findUnique?.())].filter(Boolean)),
+  $queryRaw: jest.fn(async () => [(await mockPrisma.ticket.findUnique?.()) ?? (await mockPrisma.ticket.findFirst?.())].filter(Boolean)),
   ticket: {
     findUnique: jest.fn(),
     findFirst: jest.fn(),
@@ -41,6 +41,9 @@ const mockPrisma: any = {
     create: jest.fn(),
     createMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
+  // Entering REVIEW binds pending proof to its cycle; a decision locks the cycle's evidence.
+  attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+
   ticketAssignee: {
     findMany: jest.fn().mockResolvedValue([]),
     upsert: jest.fn(),
@@ -122,6 +125,10 @@ describe('TicketsService — status transitions', () => {
         { provide: EventEmitter2,         useValue: mockEventEmitter },
         { provide: TicketLedgerService,   useValue: {
           startReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1' }),
+          // Phase 4: entering REVIEW opens a cycle unless one is already open.
+          findOpenReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1', cycleNo: 1 }),
+          // A review decision needs the decider's running review (they started it).
+          findActiveReviewerLog: jest.fn().mockResolvedValue({ id: 'review-log-1', ownerType: 'REVIEWER' }),
           // approve()/reject() now require persistReviewDecision to resolve to a truthy
           // ReviewCycleLog row or they throw — this suite tests notification/transition
           // behavior, not ledger persistence itself, so the mock just needs to succeed.
@@ -204,7 +211,9 @@ describe('TicketsService — status transitions', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('allows MANAGER to approve REVIEW → DONE', async () => {
+  // Phase 4: a review completes only through approve(), which records the
+  // decision; a plain REVIEW → DONE status change would leave the cycle open.
+  it('refuses a plain REVIEW → DONE status change, even for a MANAGER (Approve is the way)', async () => {
     mockPrisma.ticket.findUnique.mockResolvedValue(
       makeTicket({ assignedToId: 'emp1', createdById: 'emp2', status: 'REVIEW' }),
     );
@@ -213,7 +222,8 @@ describe('TicketsService — status transitions', () => {
 
     await expect(
       service.updateStatus('tkt1', 'DONE' as any, 'mgr1', user),
-    ).resolves.toBeDefined();
+    ).rejects.toMatchObject({ response: { code: 'REVIEW_DECISION_REQUIRED' } });
+    expect(mockPrisma.ticket.update).not.toHaveBeenCalled();
   });
 
   it('blocks unrelated employee from updating another user\'s ticket', async () => {

@@ -134,6 +134,9 @@ export const USER_RELATION_RULES: readonly RelationRule[] = [
     why: 'Who approved work is attributable history.' },
   { model: 'Comment', field: 'author', fk: 'authorId', action: 'RETAIN_WITH_SNAPSHOT',
     why: 'A discussion thread with holes in it is unreadable.' },
+  { model: 'Attachment', field: 'uploadedBy', fk: 'uploadedById',
+    action: 'RETAIN_WITH_SNAPSHOT',
+    why: 'Evidence on a ticket. Who submitted a proof of completion is what an audit asks.' },
 
   // ── Memberships and grants: rows about access, not history ─────────────
   { model: 'ProjectMember', field: 'user', fk: 'userId', action: 'DELETE_WITH_USER',

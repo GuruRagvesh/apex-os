@@ -9,6 +9,7 @@ import { ColdStartBanner } from '@apex/apps-web/components/cold-start-banner';
 import { QuickActionDock } from '@/components/ui/QuickActionDock';
 import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalette';
 import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
+import { ActiveReviewBanner } from '@apex/operations-tickets-lifecycle/components/active-review-banner';
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
@@ -150,6 +151,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
+        {/* While the viewer's own review timer runs (from the ledger), on every page */}
+        <ActiveReviewBanner />
         <main id="apex-main-content" className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
       <ColdStartBanner />

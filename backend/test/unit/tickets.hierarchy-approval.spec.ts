@@ -343,19 +343,30 @@ describe('TicketsService.approve — rating suppression for self-assigned', () =
     const prisma: any = {
       comment: { create: jest.fn().mockResolvedValue({}) },
       user: { findUnique: jest.fn().mockResolvedValue({ currentStatus: 'ACTIVE' }) },
+      // A decision locks the cycle's evidence.
+      attachment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     };
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));
     // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
     prisma.$queryRaw = jest.fn(async () => [ticket]);
     const ticket = { id: 't1', ticketId: 'TKT-001', status: TicketStatus.REVIEW, createdById: 'emp1', assignedToId: 'emp1', assignees: [] };
+    // Phase 4: review authority is re-checked against the locked ticket.
+    prisma.ticket = { findUnique: jest.fn(async () => ticket) };
     const ticketAccess = {
       findAccessibleTicket: jest.fn().mockResolvedValue(ticket),
+      viewerCanApprove: jest.fn().mockResolvedValue(true),
       assertCanTransitionTicket: jest.fn().mockResolvedValue(undefined),
       isSelfAssigned: jest.fn().mockReturnValue(selfAssigned),
     };
     const ticketLedger = {
       endReviewCycle: jest.fn(async (args: any) => { captured = args; return { id: 'cycle-1', decision: args.decision }; }),
       startReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle-1' }),
+      // Phase 4: a decision stops any running reviewer clock first.
+      endActiveLogsForTicket: jest.fn().mockResolvedValue({ count: 0, logIds: [], userIds: [] }),
+      findOpenReviewCycle: jest.fn().mockResolvedValue(null),
+      resumeAfterReview: jest.fn().mockResolvedValue({ outcome: 'NOTHING_TO_DO' }),
+      // A review decision needs the decider's running review (they started it).
+      findActiveReviewerLog: jest.fn().mockResolvedValue({ id: 'review-log-1', ownerType: 'REVIEWER' }),
     };
     const service = new TicketsService(
       prisma,

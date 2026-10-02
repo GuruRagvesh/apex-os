@@ -30,6 +30,8 @@ const DB = 'apex_os_attendance_integration';
 const row = (over: Partial<ActiveRow> = {}): ActiveRow => ({
   id: 'l-1',
   userId: 'u-1',
+  ownerType: 'ASSIGNEE',
+  hasOpenReviewCycle: false,
   ticketKey: 'TKT-1',
   startedAt: new Date('2026-08-13T05:00:00Z'),
   stage: 'WORK',

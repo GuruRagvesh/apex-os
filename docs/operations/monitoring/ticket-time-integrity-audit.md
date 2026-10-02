@@ -70,6 +70,13 @@ Every check covers ASSIGNEE (employee) timer rows unless noted.
 | `ACTIVE_REWORK_LOG_WITHOUT_OPEN_CYCLE` | Active REWORK log with no open rework cycle |
 | `WORK_LOG_INSIDE_REWORK_CYCLE` | Productive (`countsAsWork`) WORK-stage log that starts inside a rework cycle; zero-length, non-productive markers are ignored |
 | `REWORK_CYCLE_MULTIPLE_ACTIVE_SEGMENTS` | Open rework cycle with more than one active segment |
+| `DUPLICATE_ACTIVE_TIMED_LOGS` | (Phase 4) More than one active timed log for one user across employee (ASSIGNEE) and reviewer (REVIEWER) clocks |
+| `ACTIVE_REVIEWER_LOG_TICKET_NOT_IN_REVIEW` | (Phase 4) Active reviewer clock on a ticket that is not in REVIEW |
+| `ACTIVE_REVIEWER_LOG_WITHOUT_OPEN_REVIEW_CYCLE` | (Phase 4) Active reviewer clock on a ticket with no open (undecided) review cycle |
+| `ACTIVE_REVIEWER_LOG_USER_NOT_WORKING` | (Phase 4) Active reviewer clock while the reviewer is on break, idle, logged out, or has no open WORKING session |
+| `ACTIVE_REVIEWER_LOG_WITH_INVALID_WORK_SESSION` | (Phase 4) Active reviewer clock with a missing, foreign, closed or superseded work session |
+| `REVIEWER_LOG_WRONG_STAGE` | (Phase 4) A REVIEWER log whose stage is not REVIEW (reviewer time must never look like employee work) |
+| `OVERLAPPING_TIMED_RANGES` | (Phase 4) A productive reviewer range overlaps another productive timed range of the same user |
 | `EMPLOYEE_WORK_CONTRADICTS_STATE` | Ticket would show `activeClock = EMPLOYEE_WORK` although its status, block, assignee or worker state forbids it (one row per ticket) |
 
 One corruption often breaks several rules. For example, an active log on an

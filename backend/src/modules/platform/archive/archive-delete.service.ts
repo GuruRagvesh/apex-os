@@ -527,6 +527,7 @@ export const SNAPSHOT_STEPS: ReadonlyArray<{
   { model: 'TicketTimeLog', field: 'user', delegate: 'ticketTimeLog', column: 'userId', snapshotColumn: 'formerActorId' },
   { model: 'ReviewCycleLog', field: 'reviewer', delegate: 'reviewCycleLog', column: 'reviewerId', snapshotColumn: 'formerReviewerId' },
   { model: 'Comment', field: 'author', delegate: 'comment', column: 'authorId', snapshotColumn: 'formerAuthorId' },
+  { model: 'Attachment', field: 'uploadedBy', delegate: 'attachment', column: 'uploadedById', snapshotColumn: 'formerUploaderId' },
   { model: 'OperationalEvent', field: 'actor', delegate: 'operationalEvent', column: 'actorId', snapshotColumn: 'formerActorId' },
   { model: 'ActivityLog', field: 'user', delegate: 'activityLog', column: 'userId', snapshotColumn: 'formerActorId' },
   { model: 'AttendanceMonthClose', field: 'finalizedBy', delegate: 'attendanceMonthClose', column: 'finalizedById', snapshotColumn: 'formerFinalizerId' },

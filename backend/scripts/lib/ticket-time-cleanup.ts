@@ -1,6 +1,8 @@
 /**
- * Phase 2D1 ticket timer cleanup: closes invalid or duplicate ACTIVE employee
- * (ASSIGNEE) timer rows so the one-active-timer unique index can be created.
+ * Ticket timer cleanup: closes invalid or duplicate ACTIVE timed rows, employee
+ * (ASSIGNEE, Phase 2D1) and reviewer (REVIEWER, Phase 4), so the
+ * one-active-timed-ticket unique index can be created. Duplicates are judged
+ * across both owner types: one user, one active timed row.
  *
  * One planner decides what is wrong. The dry run (default) runs it inside a
  * READ ONLY transaction and reports; --apply runs the very same planner inside
@@ -8,12 +10,13 @@
  * and row locks, closes exactly the rows it planned, re-plans, and rolls the
  * whole transaction back unless the result is CLEAN.
  *
- * What it changes, and nothing else: on an active ASSIGNEE row it sets
- * endedAt and updatedAt to the effective end (the repair time, or startedAt
- * for a future-dated row), durationSeconds, countsAsWork = false and
+ * What it changes, and nothing else: on an active ASSIGNEE or REVIEWER row it
+ * sets endedAt and updatedAt to the effective end (the repair time, or
+ * startedAt for a future-dated row), durationSeconds, countsAsWork = false and
  * pauseReason = INTEGRITY_REPAIR. It never deletes a row, never touches ended
- * rows, reviewer/manager rows, tickets, assignments, work sessions, users or
- * SLA fields. countsAsWork = false keeps repaired time out of every
+ * rows (completed history stays as it is), manager/other rows, tickets,
+ * assignments, review cycles, work sessions, users or SLA fields. Age alone is
+ * never a reason to close a row. countsAsWork = false keeps repaired time out of every
  * productive-time total (see isProductiveLog in the ticket ledger).
  *
  * The database gate is the Phase 2C one: dedicated loopback integration
@@ -23,7 +26,10 @@ import { AuditConfigError, QueryClient, ServerIdentity, assertTargetServer } fro
 
 export const REPAIR_PAUSE_REASON = 'INTEGRITY_REPAIR';
 
-/** Why an active employee timer row must be closed. Fixed order for reports. */
+/**
+ * Why an active timed row must be closed. Fixed order for reports. Employee
+ * (ASSIGNEE) reasons are the Phase 2D1 ones; the REVIEWER ones are Phase 4.
+ */
 export const CLEANUP_REASONS = [
   'TICKET_NOT_IN_PROGRESS',
   'TICKET_BLOCKED',
@@ -36,6 +42,9 @@ export const CLEANUP_REASONS = [
   'SESSION_CLOSED',
   'SESSION_SUPERSEDED',
   'REWORK_WITHOUT_OPEN_CYCLE',
+  'REVIEWER_TICKET_NOT_IN_REVIEW',
+  'REVIEWER_WITHOUT_OPEN_REVIEW_CYCLE',
+  'REVIEWER_WRONG_STAGE',
   'DUPLICATE_NOT_SURVIVOR',
 ] as const;
 
@@ -49,6 +58,9 @@ export type CleanupReason = (typeof CLEANUP_REASONS)[number];
 export interface ActiveRow {
   id: string;
   userId: string;
+  /** ASSIGNEE (employee work) or REVIEWER (reviewer active work). */
+  ownerType: string;
+  hasOpenReviewCycle: boolean;
   ticketKey: string;
   startedAt: Date;
   stage: string;
@@ -87,10 +99,18 @@ export interface CleanupPlan {
 /** Invalid-state reasons for one active row, independent of other rows. */
 export function stateReasons(r: ActiveRow): CleanupReason[] {
   const out: CleanupReason[] = [];
-  if (r.ticketStatus !== 'IN_PROGRESS') out.push('TICKET_NOT_IN_PROGRESS');
-  if (r.isBlocked) out.push('TICKET_BLOCKED');
-  if (r.assignedTo === null) out.push('TICKET_UNASSIGNED');
-  else if (r.assignedTo !== r.userId) out.push('NOT_PRIMARY_ASSIGNEE');
+  if (r.ownerType === 'REVIEWER') {
+    // A reviewer clock is only valid on a ticket in REVIEW with an open cycle,
+    // as stage REVIEW, for a reviewer who is working in a valid session.
+    if (r.ticketStatus !== 'REVIEW') out.push('REVIEWER_TICKET_NOT_IN_REVIEW');
+    if (!r.hasOpenReviewCycle) out.push('REVIEWER_WITHOUT_OPEN_REVIEW_CYCLE');
+    if (r.stage !== 'REVIEW') out.push('REVIEWER_WRONG_STAGE');
+  } else {
+    if (r.ticketStatus !== 'IN_PROGRESS') out.push('TICKET_NOT_IN_PROGRESS');
+    if (r.isBlocked) out.push('TICKET_BLOCKED');
+    if (r.assignedTo === null) out.push('TICKET_UNASSIGNED');
+    else if (r.assignedTo !== r.userId) out.push('NOT_PRIMARY_ASSIGNEE');
+  }
   if (r.userStatus !== 'WORKING') out.push('USER_NOT_WORKING');
   if (!r.hasOpenWorkingSession) out.push('NO_OPEN_WORKING_SESSION');
   if (r.sessionMissing) out.push('SESSION_MISSING');
@@ -99,7 +119,7 @@ export function stateReasons(r: ActiveRow): CleanupReason[] {
     if (r.sessionClosed) out.push('SESSION_CLOSED');
     if (r.sessionSuperseded) out.push('SESSION_SUPERSEDED');
   }
-  if (r.stage === 'REWORK' && !r.hasOpenReworkCycle) out.push('REWORK_WITHOUT_OPEN_CYCLE');
+  if (r.ownerType !== 'REVIEWER' && r.stage === 'REWORK' && !r.hasOpenReworkCycle) out.push('REWORK_WITHOUT_OPEN_CYCLE');
   return out;
 }
 
@@ -151,7 +171,10 @@ export function planCleanup(rows: ActiveRow[]): CleanupPlan {
 // ── Database access ──────────────────────────────────────────────────────────
 
 const ACTIVE_ROWS_SQL = `
-  SELECT l.id, l."userId" AS user_id, t."ticketId" AS ticket_key, l."startedAt" AS started_at, l.stage,
+  SELECT l.id, l."userId" AS user_id, l."ownerType" AS owner_type, t."ticketId" AS ticket_key, l."startedAt" AS started_at, l.stage,
+         EXISTS (
+            SELECT 1 FROM review_cycle_logs c
+            WHERE c."ticketId" = l."ticketId" AND c.decision IS NULL) AS has_open_review_cycle,
          EXISTS (
             SELECT 1 FROM review_cycle_logs c
             WHERE c."ticketId" = l."ticketId" AND c.decision = 'REWORK'
@@ -170,7 +193,7 @@ const ACTIVE_ROWS_SQL = `
   JOIN tickets t ON t.id = l."ticketId"
   JOIN users u ON u.id = l."userId"
   LEFT JOIN work_sessions s ON s.id = l."workSessionId"
-  WHERE l."ownerType" = 'ASSIGNEE' AND l."endedAt" IS NULL
+  WHERE l."ownerType" IN ('ASSIGNEE', 'REVIEWER') AND l."endedAt" IS NULL
   ORDER BY l."userId", l.id`;
 
 export async function loadActiveRows(client: QueryClient): Promise<ActiveRow[]> {
@@ -178,6 +201,8 @@ export async function loadActiveRows(client: QueryClient): Promise<ActiveRow[]> 
   return rows.map((r) => ({
     id: String(r.id),
     userId: String(r.user_id),
+    ownerType: String(r.owner_type),
+    hasOpenReviewCycle: Boolean(r.has_open_review_cycle),
     ticketKey: String(r.ticket_key),
     startedAt: new Date(r.started_at),
     stage: String(r.stage),
@@ -278,13 +303,13 @@ export async function runCleanupApply(
       // fixed order so two cleanups cannot deadlock; then the rows themselves.
       const users = await tx.$queryRawUnsafe<any[]>(
         `SELECT DISTINCT "userId" AS user_id FROM ticket_time_logs
-         WHERE "ownerType" = 'ASSIGNEE' AND "endedAt" IS NULL ORDER BY 1`,
+         WHERE "ownerType" IN ('ASSIGNEE', 'REVIEWER') AND "endedAt" IS NULL ORDER BY 1`,
       );
       for (const u of users) {
         await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, `ticket-timer:${u.user_id}`);
       }
       await tx.$queryRawUnsafe(
-        `SELECT id FROM ticket_time_logs WHERE "ownerType" = 'ASSIGNEE' AND "endedAt" IS NULL ORDER BY id FOR UPDATE`,
+        `SELECT id FROM ticket_time_logs WHERE "ownerType" IN ('ASSIGNEE', 'REVIEWER') AND "endedAt" IS NULL ORDER BY id FOR UPDATE`,
       );
 
       const plan = planCleanup(await loadActiveRows(tx));
@@ -297,7 +322,7 @@ export async function runCleanupApply(
                  "countsAsWork" = false,
                  "pauseReason" = $3,
                  "updatedAt" = GREATEST($2::timestamp, "startedAt")
-           WHERE id = $1 AND "ownerType" = 'ASSIGNEE' AND "endedAt" IS NULL`,
+           WHERE id = $1 AND "ownerType" IN ('ASSIGNEE', 'REVIEWER') AND "endedAt" IS NULL`,
           c.logId,
           repairIso,
           REPAIR_PAUSE_REASON,
@@ -372,7 +397,7 @@ export function formatCleanup(r: CleanupReport): string {
     `Ticket timer cleanup (${r.mode}): ${r.result}`,
     `  database   ${r.database.name} @ ${r.database.address ?? 'local socket'}:${r.database.port} (PostgreSQL ${r.database.serverVersion})`,
     `  repair at  ${r.repairAt}`,
-    `  inspected  ${r.inspectedActiveRows} active employee timer rows`,
+    `  inspected  ${r.inspectedActiveRows} active timed rows (employee and reviewer)`,
     `  ${verb} ${r.rowsToClose} rows for ${r.affectedUsers} users`,
     '',
     '  reasons:',

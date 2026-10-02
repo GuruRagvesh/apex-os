@@ -138,6 +138,17 @@ const ACTIVE = `
     WHERE l."ownerType" = 'ASSIGNEE' AND l."endedAt" IS NULL
   )`;
 
+/** Active REVIEWER logs (Phase 4 reviewer active-work clock) joined to ticket and user. */
+const ACTIVE_REVIEWER = `
+  active_reviewer AS (
+    SELECT l.id, l."ticketId", l."userId", l.stage, l."startedAt", l."workSessionId",
+           t."ticketId" AS ticket_key, t.status::text AS ticket_status, u."currentStatus" AS user_status
+    FROM ticket_time_logs l
+    JOIN tickets t ON t.id = l."ticketId"
+    JOIN users u ON u.id = l."userId"
+    WHERE l."ownerType" = 'REVIEWER' AND l."endedAt" IS NULL
+  )`;
+
 const OPEN_REWORK = `
   open_rework AS (
     SELECT c.id, c."ticketId", c."reworkStartedAt"
@@ -323,6 +334,102 @@ export const CHECKS: CheckDef[] = [
       SELECT c.id AS ref, min(a.ticket_key) AS ticket_key, count(*)::text || ' active segments' AS detail
       FROM open_rework c JOIN active a ON a."ticketId" = c."ticketId"
       GROUP BY c.id HAVING count(*) > 1`,
+  },
+  // ── Phase 4: reviewer active-work clock ──────────────────────────────────
+  {
+    code: 'DUPLICATE_ACTIVE_TIMED_LOGS',
+    description:
+      'A user has more than one active timed log across employee (ASSIGNEE) and reviewer (REVIEWER) timers (one timed ticket per user).',
+    unit: 'users',
+    sql: `SELECT l."userId" AS ref, NULL::text AS ticket_key,
+             count(*)::text || ' active timed logs: ' ||
+             string_agg(l."ownerType" || ' ' || t."ticketId", ',' ORDER BY l."ownerType", t."ticketId") AS detail
+      FROM ticket_time_logs l JOIN tickets t ON t.id = l."ticketId"
+      WHERE l."endedAt" IS NULL AND l."ownerType" IN ('ASSIGNEE', 'REVIEWER')
+      GROUP BY l."userId" HAVING count(*) > 1`,
+  },
+  {
+    code: 'ACTIVE_REVIEWER_LOG_TICKET_NOT_IN_REVIEW',
+    description: 'An active REVIEWER log is on a ticket that is not in REVIEW.',
+    unit: 'logs',
+    sql: `WITH ${ACTIVE_REVIEWER}
+      SELECT id AS ref, ticket_key, 'ticket status ' || ticket_status AS detail
+      FROM active_reviewer WHERE ticket_status <> 'REVIEW'`,
+  },
+  {
+    code: 'ACTIVE_REVIEWER_LOG_WITHOUT_OPEN_REVIEW_CYCLE',
+    description: 'An active REVIEWER log is on a ticket with no open (undecided) review cycle.',
+    unit: 'logs',
+    sql: `WITH ${ACTIVE_REVIEWER}
+      SELECT a.id AS ref, a.ticket_key, 'no open review cycle' AS detail
+      FROM active_reviewer a
+      WHERE NOT EXISTS (
+        SELECT 1 FROM review_cycle_logs c WHERE c."ticketId" = a."ticketId" AND c.decision IS NULL)`,
+  },
+  {
+    code: 'ACTIVE_REVIEWER_LOG_USER_NOT_WORKING',
+    description:
+      'An active REVIEWER log belongs to a user who is not WORKING (on break, idle, logged out, or with no open WORKING session).',
+    unit: 'logs',
+    sql: `WITH ${ACTIVE_REVIEWER}
+      SELECT a.id AS ref, a.ticket_key,
+             'user status ' || coalesce(a.user_status, 'NULL') ||
+             CASE WHEN ws.id IS NULL THEN ', no open WORKING session' ELSE '' END AS detail
+      FROM active_reviewer a
+      LEFT JOIN LATERAL (
+        SELECT s.id FROM work_sessions s
+        WHERE s."userId" = a."userId" AND s."logoutAt" IS NULL AND s.status = 'WORKING'
+        LIMIT 1
+      ) ws ON TRUE
+      WHERE a.user_status IS DISTINCT FROM 'WORKING' OR ws.id IS NULL`,
+  },
+  {
+    code: 'ACTIVE_REVIEWER_LOG_WITH_INVALID_WORK_SESSION',
+    description:
+      'An active REVIEWER log has no linked WorkSession, or one that belongs to another user, is closed, or was superseded by a later-dated session.',
+    unit: 'logs',
+    sql: `WITH ${ACTIVE_REVIEWER}
+      SELECT a.id AS ref, a.ticket_key,
+             CASE
+               WHEN s.id IS NULL THEN 'no linked work session'
+               WHEN s."userId" IS DISTINCT FROM a."userId" THEN 'linked session belongs to another user'
+               WHEN s."logoutAt" IS NOT NULL OR s.status IN ('LOGGED_OUT', 'AUTO_CLOSED')
+                 THEN 'session closed (' || s.status || ')'
+               ELSE 'session superseded by a later session'
+             END AS detail
+      FROM active_reviewer a
+      LEFT JOIN work_sessions s ON s.id = a."workSessionId"
+      WHERE s.id IS NULL
+         OR s."userId" IS DISTINCT FROM a."userId"
+         OR s."logoutAt" IS NOT NULL
+         OR s.status IN ('LOGGED_OUT', 'AUTO_CLOSED')
+         OR EXISTS (SELECT 1 FROM work_sessions n WHERE n."userId" = a."userId" AND n.date > s.date)`,
+  },
+  {
+    code: 'REVIEWER_LOG_WRONG_STAGE',
+    description: 'A REVIEWER log has a stage other than REVIEW (reviewer time must never look like employee WORK/REWORK).',
+    unit: 'logs',
+    sql: `SELECT l.id AS ref, t."ticketId" AS ticket_key, 'stage ' || l.stage AS detail
+      FROM ticket_time_logs l JOIN tickets t ON t.id = l."ticketId"
+      WHERE l."ownerType" = 'REVIEWER' AND l.stage <> 'REVIEW'`,
+  },
+  {
+    code: 'OVERLAPPING_TIMED_RANGES',
+    description:
+      'A productive REVIEWER range overlaps another productive timed range (employee or reviewer) of the same user.',
+    unit: 'pairs',
+    sql: `SELECT a.id || '/' || b.id AS ref, NULL::text AS ticket_key,
+             ta."ticketId" || ' (' || a."ownerType" || ') overlaps ' || tb."ticketId" || ' (' || b."ownerType" || ')' AS detail
+      FROM ticket_time_logs a
+      JOIN ticket_time_logs b
+        ON b."userId" = a."userId" AND a.id < b.id
+       AND b."ownerType" IN ('ASSIGNEE', 'REVIEWER') AND b."countsAsWork"
+       AND (a."ownerType" = 'REVIEWER' OR b."ownerType" = 'REVIEWER')
+       AND a."startedAt" < coalesce(b."endedAt", $1::timestamp)
+       AND b."startedAt" < coalesce(a."endedAt", $1::timestamp)
+      JOIN tickets ta ON ta.id = a."ticketId"
+      JOIN tickets tb ON tb.id = b."ticketId"
+      WHERE a."ownerType" IN ('ASSIGNEE', 'REVIEWER') AND a."countsAsWork"`,
   },
   {
     code: 'EMPLOYEE_WORK_CONTRADICTS_STATE',
