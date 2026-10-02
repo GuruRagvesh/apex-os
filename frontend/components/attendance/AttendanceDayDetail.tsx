@@ -130,6 +130,10 @@ export function AttendanceDayDetail({
       lastSessionEnd: ends.length ? ends.sort()[ends.length - 1] : null,
       sessionCount: sessions.length,
       unevidencedSessions: sessions.filter((s) => !evidencedSessionIds.has(s.id)).length,
+      // The server's figures, rendered rather than recomputed.
+      requiredPresenceMinutes: day?.requiredPresenceMinutes ?? null,
+      serverPresenceMinutes: day?.presenceMinutes ?? null,
+      meetsRequirement: day?.meetsRequirement ?? null,
     });
   }, [day, sessions, evidence]);
 

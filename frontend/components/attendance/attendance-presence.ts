@@ -22,21 +22,18 @@
  */
 
 /**
- * The requirement to use when the caller does not know the real one.
+ * THERE IS NO REQUIREMENT CONSTANT HERE ANY MORE, AND THAT IS THE POINT.
  *
- * A FALLBACK, NOT THE RULE, and the rename is the point. The real requirement
- * is per employee-day -- shift first, then attendance policy, then this -- and
- * the backend resolves it that way in resolveRequiredPresence(). This constant
- * is the last of those three, sitting in React because GET /attendance/daily
- * does not yet return the resolved figure.
+ * This file held 540 and compared presence against it, which made the browser
+ * the judge of whether a day met the nine-hour requirement -- a judgement free
+ * to disagree with the evaluator, with nothing able to notice. It had already
+ * been wrong once: the comparison ran on ROUNDED minutes, so 08:59:59 rounded
+ * to 540 and the day passed one second short.
  *
- * Anyone who HAS the real requirement passes it in. When the My Attendance
- * dashboard serves a backend-resolved requirement, this and the comparison
- * below both go: classification belongs on the server, with the rows it
- * classified. Until then this is a labelled fallback rather than a second
- * opinion pretending to be the rule.
+ * The requirement and the verdict now come from the server on the day payload,
+ * decided beside the shortfall exception that uses the same comparison. This
+ * module formats and explains them; it does not decide them.
  */
-export const FALLBACK_REQUIRED_PRESENCE_MINUTES = 540;
 
 export type EvidenceCoverage = 'FULL' | 'PARTIAL' | 'NONE';
 
@@ -54,18 +51,26 @@ export interface PresenceInput {
   sessionCount: number;
   /** Sessions with no punch evidence attached to them. */
   unevidencedSessions: number;
+
   /**
-   * The resolved requirement for THIS day, when the caller knows it.
-   * Omitted falls back to the company figure -- see the constant above.
+   * THE SERVER'S VERDICT, PASSED THROUGH. Not recomputed here.
+   *
+   * All three come from the day payload: the requirement the evaluator
+   * resolved, the presence it measured, and whether it was met. Null means the
+   * server could not answer -- an unfinished day, or one with no requirement
+   * because it is not an attendance situation at all.
    */
-  requiredMinutes?: number | null;
+  requiredPresenceMinutes: number | null;
+  serverPresenceMinutes: number | null;
+  meetsRequirement: boolean | null;
 }
 
 export interface PresenceAssessment {
-  /** Punch out − punch in. Null until BOTH punches exist. */
+  /** Punch out − punch in, as the server measured it. Null until both exist. */
   presenceMinutes: number | null;
-  requiredMinutes: number;
-  /** Null while presence is unknown — an absent answer, not a failing one. */
+  /** Null when the day has no requirement, which is not the same as zero. */
+  requiredMinutes: number | null;
+  /** The server's verdict. Null while presence is unknown — absent, not failing. */
   meetsRequirement: boolean | null;
   /** Operational only. Never compared against the requirement. */
   workedMinutes: number;
@@ -84,37 +89,12 @@ function minutesBetween(a: string | null, b: string | null): number | null {
   return Math.max(0, Math.round(ms / 60000));
 }
 
-/**
- * Exact elapsed seconds, floored. The figure the REQUIREMENT is judged on.
- *
- * SEPARATE FROM minutesBetween ON PURPOSE, AND THIS WAS A LIVE DEFECT.
- *
- * minutesBetween rounds, which is right for display -- it is the figure of
- * record the backend also shows. It is wrong for a comparison: a presence of
- * 08:59:59 is 539.98 minutes, rounds to 540, and the day was reported as having
- * MET the nine-hour requirement one second short. Every employee a second under
- * passed.
- *
- * Floor, and never round, so the classification cannot credit time that was not
- * spent. This mirrors presenceSeconds() in the backend primitives, which is the
- * one that decides; these two must not disagree.
- */
-function secondsBetween(a: string | null, b: string | null): number | null {
-  if (!a || !b) return null;
-  const ms = new Date(b).getTime() - new Date(a).getTime();
-  if (!Number.isFinite(ms)) return null;
-  return Math.max(0, Math.floor(ms / 1000));
-}
-
 export function assessPresence(input: PresenceInput): PresenceAssessment {
-  // Policy definition. Deliberately the ONLY thing that feeds presence.
-  const presenceMinutes = minutesBetween(input.punchInAt, input.punchOutAt);
-  // The same span, unrounded, for the comparison below.
-  const presenceSeconds = secondsBetween(input.punchInAt, input.punchOutAt);
-  const requiredMinutes =
-    typeof input.requiredMinutes === 'number' && input.requiredMinutes > 0
-      ? input.requiredMinutes
-      : FALLBACK_REQUIRED_PRESENCE_MINUTES;
+  // THE SERVER'S FIGURE WHEN IT HAS ONE. The local span is kept only as a
+  // fallback for rendering a day the server has not measured yet -- it is
+  // never compared against anything here.
+  const presenceMinutes =
+    input.serverPresenceMinutes ?? minutesBetween(input.punchInAt, input.punchOutAt);
   const sessionSpanMinutes = minutesBetween(input.firstSessionStart, input.lastSessionEnd);
 
   const coverage: EvidenceCoverage =
@@ -138,15 +118,10 @@ export function assessPresence(input: PresenceInput): PresenceAssessment {
 
   return {
     presenceMinutes,
-    requiredMinutes,
-    // Unknown stays unknown: an incomplete day has not failed the requirement,
-    // it simply has not answered it yet.
-    //
-    // JUDGED ON SECONDS, DISPLAYED IN MINUTES. presenceMinutes is what the
-    // employee reads; presenceSeconds is what decides. Comparing the rounded
-    // figure is the defect described at secondsBetween().
-    meetsRequirement:
-      presenceSeconds === null ? null : presenceSeconds >= requiredMinutes * 60,
+    requiredMinutes: input.requiredPresenceMinutes,
+    // PASSED THROUGH, NOT DECIDED. Unknown stays unknown: an incomplete day
+    // has not failed the requirement, it simply has not answered it yet.
+    meetsRequirement: input.meetsRequirement,
     workedMinutes: input.workedMinutes,
     sessionSpanMinutes,
     sessionCount: input.sessionCount,

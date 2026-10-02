@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { presenceMinutes } from '../../src/modules/platform/attendance/shared/attendance-primitives';
+import { assessPresence } from '../../../frontend/components/attendance/attendance-presence';
 
 // Attendance presence is punch out minus punch in. Nothing else.
 //
@@ -160,13 +161,31 @@ describe('the other two surfaces already agreed', () => {
   });
 
   it("the employee's own view returns null too", () => {
-    const presence = readFileSync(
-      resolve(__dirname, '../../../frontend/components/attendance/attendance-presence.ts'),
-      'utf8',
-    );
+    // ASSERTED BY CALLING IT, NOT BY MATCHING ITS SOURCE.
+    //
+    // This used to pin the exact text `const presenceMinutes =
+    // minutesBetween(input.punchInAt, input.punchOutAt)`, and broke the moment
+    // that line legitimately changed -- the server's measured presence is now
+    // preferred when it has one. A source regex cannot tell a refactor from a
+    // regression; running the function can.
+    const missingPunchOut = assessPresence({
+      punchInAt: '2026-09-14T04:11:00.000Z',
+      punchOutAt: null,
+      workedMinutes: 120,
+      firstSessionStart: '2026-09-14T04:11:00.000Z',
+      lastSessionEnd: null,
+      sessionCount: 1,
+      unevidencedSessions: 0,
+      requiredPresenceMinutes: 540,
+      // The server has not measured it either, so the local span must answer.
+      serverPresenceMinutes: null,
+      meetsRequirement: null,
+    });
 
-    // minutesBetween returns null unless both instants exist.
-    expect(presence).toMatch(/if \(!a \|\| !b\) return null;/);
-    expect(presence).toMatch(/const presenceMinutes = minutesBetween\(input\.punchInAt, input\.punchOutAt\)/);
+    expect(missingPunchOut.presenceMinutes).toBeNull();
+    // Null and not zero, which would read as "present for no time".
+    expect(missingPunchOut.presenceMinutes).not.toBe(0);
+    // And an unanswered day is not a failed one.
+    expect(missingPunchOut.meetsRequirement).toBeNull();
   });
 });

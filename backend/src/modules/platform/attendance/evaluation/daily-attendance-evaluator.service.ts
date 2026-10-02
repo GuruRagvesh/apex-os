@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { earliestSessionStart } from '../shared/attendance-primitives';
+import {
+  earliestSessionStart,
+  resolveRequiredPresence,
+} from '../shared/attendance-primitives';
 import { createHash } from 'crypto';
 import type { DailyAttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -608,7 +611,15 @@ export class DailyAttendanceEvaluatorService {
     // (10:00-19:00) is exactly 540 minutes, which is only reachable if breaks
     // sit inside it. Comparing effective work against 540 would fail everyone
     // who takes a normal lunch, which is what this replaces.
-    const requiredSpan = context.shift?.minimumWorkingMinutes ?? policy?.minimumWorkingMinutes ?? 540;
+    // THROUGH THE SHARED RESOLVER, not inline. This line was
+    // `shift ?? policy ?? 540` -- a fourth copy of the same rule, and the one
+    // resolveRequiredPresence was written to replace: its own doc comment
+    // names this file and line as a place that invented its own 540. Shift
+    // first, then policy, then the system fallback, decided in one place.
+    const requiredSpan = resolveRequiredPresence(
+      context.shift?.minimumWorkingMinutes,
+      policy?.minimumWorkingMinutes,
+    ).minutes;
     const permittedBreak = policy?.permittedBreakMinutes ?? 60;
     const minimumEffectiveWork = policy?.minimumEffectiveWorkMinutes ?? null;
 
@@ -696,6 +707,12 @@ export class DailyAttendanceEvaluatorService {
       lateMinutes,
       leaveDeducted,
       lwpDeducted,
+      requiredPresenceMinutes: requiredSpan,
+      presenceMinutes: presenceSpanMinutes,
+      // Decided here, beside the shortfall flag that uses the same comparison,
+      // so the verdict and the exception cannot disagree.
+      meetsRequirement:
+        presenceSpanMinutes === null ? null : presenceSpanMinutes >= requiredSpan,
       punchInEvidenceId: punchIn?.id ?? null,
       punchOutEvidenceId: punchOut?.id ?? null,
       workSessionIds,
@@ -860,6 +877,13 @@ export class DailyAttendanceEvaluatorService {
       lateMinutes: 0,
       leaveDeducted: 0,
       lwpDeducted: 0,
+      // Not an attendance situation -- exempt, not employed, or a blocked
+      // context -- so there is no requirement to meet and no verdict to give.
+      // Null rather than zero: zero would read as a requirement of no time,
+      // which every day trivially meets.
+      requiredPresenceMinutes: null,
+      presenceMinutes: null,
+      meetsRequirement: null,
       requiresReview: reason === 'CONTEXT_BLOCKED',
       blockingReasons: reason === 'CONTEXT_BLOCKED' ? (context.blockingReasons ?? []) : [],
       provenance: this.provenanceOf(context, {}),
@@ -883,6 +907,10 @@ export class DailyAttendanceEvaluatorService {
     lateMinutes?: number;
     leaveDeducted?: number;
     lwpDeducted?: number;
+    /** Present only for a working day that was actually measured. */
+    requiredPresenceMinutes?: number | null;
+    presenceMinutes?: number | null;
+    meetsRequirement?: boolean | null;
     punchInEvidenceId?: string | null;
     punchOutEvidenceId?: string | null;
     workSessionIds?: string[];
@@ -916,6 +944,9 @@ export class DailyAttendanceEvaluatorService {
       lateMinutes: input.lateMinutes ?? 0,
       leaveDeducted: input.leaveDeducted ?? 0,
       lwpDeducted: input.lwpDeducted ?? 0,
+      requiredPresenceMinutes: input.requiredPresenceMinutes ?? null,
+      presenceMinutes: input.presenceMinutes ?? null,
+      meetsRequirement: input.meetsRequirement ?? null,
       requiresReview,
       blockingReasons: [],
       provenance,

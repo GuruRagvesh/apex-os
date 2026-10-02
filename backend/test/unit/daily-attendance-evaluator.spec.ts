@@ -1094,3 +1094,83 @@ describe('lateness is the company cutoff, not the shift window', () => {
     expect(lastSecond.lateMinutes).toBe(1);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// The nine-hour requirement, to the second
+// ════════════════════════════════════════════════════════════════════════════
+//
+// THE RULE MOVED HERE FROM THE BROWSER. assessPresence() in the frontend used
+// to hold its own 540 and judge the day, which is an official attendance
+// decision taken in React -- free to disagree with this evaluator, with
+// nothing able to notice. It had already been wrong once, comparing ROUNDED
+// minutes so that 08:59:59 rounded to 540 and passed.
+//
+// The verdict is decided here now and carried out on the day payload.
+describe('the presence requirement is decided here, to the second', () => {
+  const span = async (punchIn: string, punchOut: string) => {
+    const { service } = rig({
+      ctx: context(),
+      evidence: [punch('PUNCH_IN', ist(punchIn)), punch('PUNCH_OUT', ist(punchOut))],
+      sessions: [{
+        ...COMPLETE_SESSION,
+        startWorkAt: ist(punchIn),
+        logoutAt: ist(punchOut),
+        totalWorkMinutes: 480,
+        totalBreakMinutes: 60,
+      }],
+    });
+    return service.evaluate('emp-1', DATE);
+  };
+
+  it('08:59:59 DOES NOT MEET the nine hours', async () => {
+    // One second short. Floored to 539 minutes, never rounded up to 540.
+    const result = await span('10:30:00', '19:29:59');
+
+    expect(result.presenceMinutes).toBe(539);
+    expect(result.meetsRequirement).toBe(false);
+    expect(result.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
+  });
+
+  it('09:00:00 MEETS the nine hours exactly', async () => {
+    const result = await span('10:30:00', '19:30:00');
+
+    expect(result.presenceMinutes).toBe(540);
+    expect(result.meetsRequirement).toBe(true);
+    expect(result.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
+  });
+
+  it('reports the requirement it judged against, not just the verdict', async () => {
+    // So the UI can say "540 required" without holding 540 itself.
+    const result = await span('10:30:00', '19:30:00');
+
+    expect(result.requiredPresenceMinutes).toBe(540);
+  });
+
+  it('THE VERDICT AND THE EXCEPTION CANNOT DISAGREE', async () => {
+    // Both come from the same comparison. A day flagged short that also
+    // reported the requirement met would be two answers to one question.
+    for (const [inAt, outAt] of [
+      ['10:30:00', '19:29:59'],
+      ['10:30:00', '19:30:00'],
+      ['10:30:00', '21:00:00'],
+    ]) {
+      const result = await span(inAt, outAt);
+      const flaggedShort = result.exceptionFlags.includes('INSUFFICIENT_PRESENCE_SPAN');
+      expect(result.meetsRequirement).toBe(!flaggedShort);
+    }
+  });
+
+  it('an unfinished day has no verdict, rather than a failing one', async () => {
+    const { service } = rig({
+      ctx: context(),
+      evidence: [punch('PUNCH_IN', ist('10:00:00'))],
+      sessions: [{ ...COMPLETE_SESSION, startWorkAt: ist('10:00:00'), logoutAt: null }],
+    });
+
+    const result = await service.evaluate('emp-1', DATE);
+
+    expect(result.presenceMinutes).toBeNull();
+    expect(result.meetsRequirement).toBeNull();
+    expect(result.meetsRequirement).not.toBe(false);
+  });
+});
