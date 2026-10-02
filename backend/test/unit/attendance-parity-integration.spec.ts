@@ -54,7 +54,7 @@ const day = (date: string, over: Partial<DayInput> = {}): DayInput => ({
   requiredMinutes: 540,
   arrivalThreshold: '09:30',
   arrivalGraceMinutes: 0,
-  arrivalMinutes: null,
+  arrivalSeconds: null,
   ...over,
 });
 
@@ -82,7 +82,7 @@ const DAYS = new Map<string, DayInput[]>([
       // punch-out only
       day('2026-09-03', { rawPunches: [{ type: 'PUNCH_OUT', occurredAt: at('2026-09-03', '13:29') }] }),
       // late, and still Present
-      day('2026-09-04', { rawPunches: pair('2026-09-04'), arrivalMinutes: 9 * 60 + 37 }),
+      day('2026-09-04', { rawPunches: pair('2026-09-04'), arrivalSeconds: (9 * 60 + 37) * 60 }),
       // weekly off
       day('2026-09-05', { workingDay: false }),
       // working day, no evidence at all

@@ -771,19 +771,48 @@ export class DailyAttendanceEvaluatorService {
     }
   }
 
-  /** Minutes past the shift start plus its grace window. Zero when on time. */
+  /**
+   * Minutes past the COMPANY late cutoff. Zero when on time.
+   *
+   * NOT shift.startTime + shift.graceMinutes, which is what this read before.
+   * That gave every employee their own definition of late, and it matched the
+   * company cutoff only because the two configured shifts happened to total
+   * the same 10:30 -- 10:00 + 30 grace, and 09:30 + 60 grace. Every late
+   * fixture in the suite used one of those two shapes, so not one of them
+   * could tell the two rules apart, while the canonical register had already
+   * moved to the company cutoff. A five-minute change to any shift's grace
+   * would have put that employee's stored status at odds with payroll.
+   *
+   * THE CUTOFF IS ALREADY GRACE-INCLUSIVE. 10:30 is not a shift start waiting
+   * for grace to be added to it; the half hour past 10:00 IS the grace, spent.
+   * Adding the shift's grace on top would push some employees out to 11:00 and
+   * put the per-person variation straight back.
+   *
+   * THE SHIFT STILL DECIDES when the day is expected to start and how long it
+   * must run. It no longer decides what counts as late.
+   *
+   * INCLUSIVE TO THE SECOND: 10:30:00 is on time, 10:30:01 is late.
+   *
+   * CEIL, AND NOT FLOOR, AND THIS WAS A REAL DEFECT. Flooring the elapsed
+   * minutes made every arrival from 10:30:01 to 10:30:59 come out as zero
+   * minutes late -- and the status below is decided by `lateMinutes > 0`, so
+   * the whole first minute of lateness was recorded as PRESENT. The tests did
+   * not catch it because they used 10:31. Presence floors for the opposite
+   * reason: it must never credit time that was not spent. Neither rounding
+   * ever flatters the record.
+   */
   private lateMinutes(context: DailyAttendanceContext, punchInAt: Date | null): number {
-    const shift = context.shift;
-    if (!shift || !punchInAt) return 0;
+    if (!punchInAt) return 0;
 
-    // Shift start as a real instant in company time, via the time authority.
-    const shiftStart = this.tva.companyInstantAt(context.businessDate, shift.startTime);
-    if (!shiftStart) return 0;
+    const allowedFrom = this.tva.companyInstantAt(
+      context.businessDate,
+      context.lateCutoff.clock,
+    );
+    if (!allowedFrom) return 0;
 
-    const allowedFrom = new Date(shiftStart.getTime() + (shift.graceMinutes ?? 0) * 60_000);
-
-    const diff = Math.floor((punchInAt.getTime() - allowedFrom.getTime()) / 60_000);
-    return diff > 0 ? diff : 0;
+    const elapsedMs = punchInAt.getTime() - allowedFrom.getTime();
+    if (elapsedMs <= 0) return 0;
+    return Math.ceil(elapsedMs / 60_000);
   }
 
   private provenanceOf(context: DailyAttendanceContext, extra: Partial<EvaluationProvenance>) {

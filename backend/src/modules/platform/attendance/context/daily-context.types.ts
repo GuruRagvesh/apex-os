@@ -1,5 +1,6 @@
 import { AttendanceCategory } from '@prisma/client';
 import { BusinessDayFacts } from '../calendar/business-calendar.types';
+import type { ResolvedLateCutoff } from '../shared/attendance-primitives';
 import {
   AttendanceCoverageReason,
   AttendanceCoverageState,
@@ -186,6 +187,21 @@ export interface DailyAttendanceContext {
 
   profile: ProfileContext | null;
   shift: ShiftContext | null;
+
+  /**
+   * The company-wide late cutoff for this day, and where it came from.
+   *
+   * ON THE CONTEXT, NOT TAKEN FROM THE SHIFT. Lateness is one company rule --
+   * arrive after this clock and the day is late, whatever shift you are on.
+   * It used to be derived from shift.startTime plus shift.graceMinutes, which
+   * gave the right answer only because every configured shift happened to add
+   * up to the same 10:30; changing one shift's grace would have moved that
+   * employee's lateness and silently disagreed with the payroll register.
+   *
+   * The shift still decides when the day is EXPECTED to start and how long it
+   * must run. It no longer decides what counts as late.
+   */
+  lateCutoff: ResolvedLateCutoff;
   attendancePolicy: AttendancePolicyContext | null;
   leavePolicy: LeavePolicyContext | null;
 

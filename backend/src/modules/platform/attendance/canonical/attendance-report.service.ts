@@ -71,11 +71,16 @@ export class AttendanceReportService {
   }
 
   /** Minutes past midnight in company time, for the lateness comparison. */
-  private arrivalMinutes(at: Date | null): number | null {
+  private arrivalSeconds(at: Date | null): number | null {
     if (!at) return null;
-    const hhmm = formatInTimeZone(at, this.tva.companyTimezone(), 'HH:mm');
-    const [h, m] = hhmm.split(':').map(Number);
-    return h * 60 + m;
+    // SECONDS INCLUDED, DELIBERATELY. This formatted 'HH:mm' and returned
+    // h * 60 + m, which threw the seconds away before the comparison -- so an
+    // arrival at 10:30:59 was indistinguishable from 10:30:00 and reported on
+    // time. The cutoff is inclusive to the second, and a figure that cannot
+    // represent seconds cannot implement that.
+    const hms = formatInTimeZone(at, this.tva.companyTimezone(), 'HH:mm:ss');
+    const [h, m, s] = hms.split(':').map(Number);
+    return h * 3600 + m * 60 + s;
   }
 
   /**
@@ -490,7 +495,7 @@ export class AttendanceReportService {
           // top would move some employees' cutoff to 11:00 and put back the
           // per-person variation this change removes.
           arrivalGraceMinutes: 0,
-          arrivalMinutes: this.arrivalMinutes(firstIn),
+          arrivalSeconds: this.arrivalSeconds(firstIn),
         });
       }
       daysByUser.set(e.id, list);

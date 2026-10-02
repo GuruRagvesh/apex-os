@@ -396,16 +396,25 @@ export interface LateResult {
  * register. The caller resolves the applicable shift or policy start by date
  * and passes it here.
  *
- * `arrivalMinutes` is minutes past midnight IN COMPANY TIME. Converting a
+ * `arrivalSeconds` is seconds past midnight IN COMPANY TIME. Converting a
  * timestamp to that is a timezone concern and stays with the caller, which also
  * keeps this function pure.
  */
 export function lateMinutesFrom(
-  arrivalMinutes: number | null | undefined,
+  /**
+   * SECONDS past midnight, not minutes, and the name is the warning.
+   *
+   * This took minutes and the caller derived them with an HH:mm format, which
+   * discarded the seconds -- so 10:30:59 arrived as 630, compared equal to a
+   * 10:30 threshold, and reported ON TIME. The rule is that 10:30:00 is on
+   * time and 10:30:01 is late, and a minute-granular input cannot express the
+   * difference between them at all.
+   */
+  arrivalSeconds: number | null | undefined,
   thresholdClock: string | null | undefined,
   graceMinutes = 0,
 ): LateResult {
-  if (arrivalMinutes == null) return { lateMinutes: null, reason: 'NO_PUNCH_IN' };
+  if (arrivalSeconds == null) return { lateMinutes: null, reason: 'NO_PUNCH_IN' };
 
   const threshold = clockToMinutes(thresholdClock);
   // No proven threshold means no lateness claim. Falling back to a company
@@ -413,10 +422,18 @@ export function lateMinutesFrom(
   if (threshold === null) return { lateMinutes: null, reason: 'NO_THRESHOLD' };
 
   // The window is INCLUSIVE of the threshold plus its grace: arriving exactly
-  // on it is on time.
-  const allowed = threshold + Math.max(0, graceMinutes);
-  if (arrivalMinutes <= allowed) return { lateMinutes: 0, reason: 'ON_TIME' };
-  return { lateMinutes: arrivalMinutes - allowed, reason: 'LATE' };
+  // on it, to the second, is on time.
+  const allowedSeconds = (threshold + Math.max(0, graceMinutes)) * 60;
+  if (arrivalSeconds <= allowedSeconds) return { lateMinutes: 0, reason: 'ON_TIME' };
+
+  // CEIL, AND NOT FLOOR. One second late is late, and flooring it would report
+  // zero minutes -- which every caller reads as on time, because "late" is
+  // tested as lateMinutes > 0. Presence floors for the mirror-image reason: it
+  // must never credit unspent time. Neither rounding ever flatters the record.
+  return {
+    lateMinutes: Math.ceil((arrivalSeconds - allowedSeconds) / 60),
+    reason: 'LATE',
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -559,7 +576,8 @@ export interface DisplayClassificationInput {
   arrivalThreshold: string | null;
   arrivalGraceMinutes: number;
   /** Arrival in minutes past midnight, company time. */
-  arrivalMinutes: number | null;
+  /** Seconds past midnight in company time. See lateMinutesFrom. */
+  arrivalSeconds: number | null;
   /** Required presence in SECONDS, from the day's own policy provenance. */
   requiredSeconds: number | null;
   /** Presence below which the day is insufficient, in seconds. */
@@ -587,7 +605,7 @@ export function classifyForDisplay(input: DisplayClassificationInput): DisplayCl
   const reasons: string[] = [];
 
   const late = lateMinutesFrom(
-    input.arrivalMinutes,
+    input.arrivalSeconds,
     input.arrivalThreshold,
     input.arrivalGraceMinutes,
   );

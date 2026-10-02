@@ -214,7 +214,14 @@ export interface DayInput {
   arrivalGraceMinutes: number;
 
   /** Arrival in minutes past midnight, company time. Null when unknown. */
-  arrivalMinutes: number | null;
+  /**
+   * Arrival as SECONDS past midnight in company time.
+   *
+   * Seconds, not minutes, because the cutoff is inclusive to the second:
+   * 10:30:00 is on time and 10:30:01 is late, and a minute figure cannot tell
+   * those apart. This field held minutes and the difference was invisible.
+   */
+  arrivalSeconds: number | null;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -417,7 +424,7 @@ export function buildDailyRow(
     day.official?.breakMinutes ??
     (closed.length ? closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0) : null);
 
-  const late = lateMinutesFrom(day.arrivalMinutes, day.arrivalThreshold, day.arrivalGraceMinutes);
+  const late = lateMinutesFrom(day.arrivalSeconds, day.arrivalThreshold, day.arrivalGraceMinutes);
   const completion = completionAgainstRequirement({
     presenceMinutes: presence,
     workedMinutes: worked,

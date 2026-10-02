@@ -9,7 +9,11 @@ import { ConfigService } from '@nestjs/config';
 // context resolver are mocked. No database.
 
 const DATE = '2026-08-20'; // a Thursday
-const ist = (hhmm: string) => new Date(`${DATE}T${hhmm}:00.000+05:30`);
+// Accepts HH:mm or HH:mm:ss. The seconds form matters: the late cutoff is
+// inclusive to the second, and a helper that could only express minutes made
+// that boundary untestable.
+const ist = (clock: string) =>
+  new Date(`${DATE}T${clock.length === 5 ? `${clock}:00` : clock}.000+05:30`);
 
 const BASE_SOURCES = {
   assignedHolidayCalendarId: 'hc-1',
@@ -77,6 +81,10 @@ function context(overrides: any = {}) {
   return {
     employeeId: 'emp-1',
     businessDate: DATE,
+    // The company late cutoff, as the real context resolver supplies it.
+    // Overridable, so a fixture can prove the cutoff is read rather than
+    // assumed.
+    lateCutoff: overrides.lateCutoff ?? { clock: '10:30', source: 'SYSTEM_FALLBACK' },
     employment: { isEmployed: true },
     coverage: 'COVERED',
     coverageReason: 'PROFILE_COVERS_DATE',
@@ -980,5 +988,109 @@ describe('AE-1 persistence, provenance and safety', () => {
 
     expect(r1.evaluatedAt.getTime()).not.toBe(0);
     expect(r1.sourceFingerprint).toBe(r2.sourceFingerprint);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// The company late cutoff, in the evaluator
+// ════════════════════════════════════════════════════════════════════════════
+//
+// WHY THESE TESTS LOOK REDUNDANT AND ARE NOT.
+//
+// Every other late fixture in this file uses a shift whose start plus grace
+// comes to exactly 10:30 -- 10:00 + 30, and 09:30 + 60 in the staging block.
+// Both therefore pass whether lateness is judged against the company cutoff or
+// against the employee's own shift, so neither can tell the two rules apart.
+// The suite even calls it "the inclusive 10:30 cutoff" while the code was
+// reading shift.startTime + shift.graceMinutes, which only agreed by
+// coincidence of configuration.
+//
+// These fixtures break that coincidence on purpose: a shift whose own window
+// would give a different answer from the company one.
+describe('lateness is the company cutoff, not the shift window', () => {
+  // 08:00 + 15 = 08:15 under the old rule. 10:30 under the company rule.
+  const EARLY_SHIFT = { startTime: '08:00', endTime: '17:00', graceMinutes: 15 };
+  // 11:00 + 0 = 11:00 under the old rule. 10:30 under the company rule.
+  const LATE_SHIFT = { startTime: '11:00', endTime: '20:00', graceMinutes: 0 };
+
+  const evaluateAt = async (shift: any, punchIn: string, punchOut: string) => {
+    const { service } = rig({
+      ctx: context({ shift }),
+      evidence: [punch('PUNCH_IN', ist(punchIn)), punch('PUNCH_OUT', ist(punchOut))],
+      sessions: [{
+        ...COMPLETE_SESSION,
+        startWorkAt: ist(punchIn),
+        logoutAt: ist(punchOut),
+        totalWorkMinutes: 480,
+        totalBreakMinutes: 60,
+      }],
+    });
+    return service.evaluate('emp-1', DATE);
+  };
+
+  it('does NOT mark an early-shift employee late at 09:00', async () => {
+    // 09:00 is 45 minutes past 08:15, so the shift rule called this late.
+    const result = await evaluateAt(EARLY_SHIFT, '09:00', '18:00');
+
+    expect(result.lateMinutes).toBe(0);
+  });
+
+  it('DOES mark a late-shift employee late at 10:45', async () => {
+    // 10:45 is before 11:00, so the shift rule called this on time.
+    const result = await evaluateAt(LATE_SHIFT, '10:45', '19:45');
+
+    expect(result.lateMinutes).toBe(15);
+  });
+
+  it('gives both shifts the same verdict for the same arrival', async () => {
+    const early = await evaluateAt(EARLY_SHIFT, '10:45', '19:45');
+    const late = await evaluateAt(LATE_SHIFT, '10:45', '19:45');
+
+    expect(early.lateMinutes).toBe(late.lateMinutes);
+    expect(early.lateMinutes).toBe(15);
+  });
+
+  it('READS THE CUTOFF FROM THE CONTEXT rather than holding its own 10:30', async () => {
+    // Proves the evaluator asks the context instead of carrying a constant.
+    // With a 09:00 cutoff configured, an arrival at 09:30 is thirty minutes
+    // late -- which is on time under both 10:30 and either shift window, so
+    // only a genuinely configurable cutoff can produce this answer.
+    const { service } = rig({
+      ctx: context({
+        shift: EARLY_SHIFT,
+        lateCutoff: { clock: '09:00', source: 'CONFIGURED' },
+      }),
+      evidence: [punch('PUNCH_IN', ist('09:30')), punch('PUNCH_OUT', ist('18:30'))],
+      sessions: [{
+        ...COMPLETE_SESSION,
+        startWorkAt: ist('09:30'),
+        logoutAt: ist('18:30'),
+        totalWorkMinutes: 480,
+        totalBreakMinutes: 60,
+      }],
+    });
+
+    const result = await service.evaluate('emp-1', DATE);
+
+    expect(result.lateMinutes).toBe(30);
+  });
+
+  it('HOLDS THE EXACT SECOND BOUNDARY: 10:30:00 on time, 10:30:01 late', async () => {
+    // STATED AT THE SECOND, WHICH IS WHERE THE DEFECT WAS. An earlier version
+    // of this test used 10:31 and passed against code that floored the elapsed
+    // minutes -- so every arrival from 10:30:01 to 10:30:59 produced zero
+    // minutes late, and the status below is decided by lateMinutes > 0. The
+    // whole first minute of lateness was being recorded as PRESENT.
+    const onTime = await evaluateAt(EARLY_SHIFT, '10:30:00', '19:30:00');
+    expect(onTime.lateMinutes).toBe(0);
+    expect(onTime.status).toBe('PRESENT');
+
+    const oneSecond = await evaluateAt(EARLY_SHIFT, '10:30:01', '19:30:01');
+    expect(oneSecond.lateMinutes).toBe(1);
+    expect(oneSecond.status).not.toBe('PRESENT');
+
+    // The last second of the same minute is still late, not rounded away.
+    const lastSecond = await evaluateAt(EARLY_SHIFT, '10:30:59', '19:30:59');
+    expect(lastSecond.lateMinutes).toBe(1);
   });
 });

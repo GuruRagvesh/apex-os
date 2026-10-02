@@ -46,7 +46,7 @@ const day = (over: Partial<DayInput> = {}): DayInput => ({
   requiredMinutes: 540,
   arrivalThreshold: '09:30',
   arrivalGraceMinutes: 0,
-  arrivalMinutes: null,
+  arrivalSeconds: null,
   ...over,
 });
 
@@ -346,7 +346,7 @@ describe('late arrival is independent of status', () => {
   it('16. AN EMPLOYEE CAN BE PRESENT AND LATE AT THE SAME TIME', () => {
     const r = row({
       rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')],
-      arrivalMinutes: 9 * 60 + 37,
+      arrivalSeconds: (9 * 60 + 37) * 60,
       arrivalThreshold: '09:30',
     });
 
@@ -355,19 +355,19 @@ describe('late arrival is independent of status', () => {
   });
 
   it('reports On time rather than a blank when the arrival was punctual', () => {
-    const r = row({ arrivalMinutes: 9 * 60 + 20, arrivalThreshold: '09:30' });
+    const r = row({ arrivalSeconds: (9 * 60 + 20) * 60, arrivalThreshold: '09:30' });
 
     expect(r.lateArrival).toBe('On time');
   });
 
   it('refuses to claim lateness with no proven threshold', () => {
-    const r = row({ arrivalMinutes: 11 * 60, arrivalThreshold: null });
+    const r = row({ arrivalSeconds: 11 * 60 * 60, arrivalThreshold: null });
 
     expect(r.lateArrival).toBe('—');
   });
 
   it('the same arrival against a later shift is on time', () => {
-    const r = row({ arrivalMinutes: 9 * 60 + 37, arrivalThreshold: '10:30' });
+    const r = row({ arrivalSeconds: (9 * 60 + 37) * 60, arrivalThreshold: '10:30' });
 
     expect(r.lateArrival).toBe('On time');
   });
@@ -461,12 +461,12 @@ describe('the monthly summary IS the daily rows', () => {
   it('25. EVERY SUMMARY FIGURE EQUALS THE AGGREGATION OF ITS DAILY ROWS', () => {
     const days: DayInput[] = [
       day({ date: '2026-09-01', rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')] }),
-      day({ date: '2026-09-02', rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')], arrivalMinutes: 9 * 60 + 37 }),
+      day({ date: '2026-09-02', rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')], arrivalSeconds: (9 * 60 + 37) * 60 }),
       // THREE late days and ONE absent day, deliberately unequal. Both were 1,
       // so deriving lateDays from the absent count gave the same answer and a
       // mutant swapping them survived.
-      day({ date: '2026-09-04', rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')], arrivalMinutes: 9 * 60 + 41 }),
-      day({ date: '2026-09-07', rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')], arrivalMinutes: 10 * 60 + 2 }),
+      day({ date: '2026-09-04', rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')], arrivalSeconds: (9 * 60 + 41) * 60 }),
+      day({ date: '2026-09-07', rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')], arrivalSeconds: (10 * 60 + 2) * 60 }),
       day({ date: '2026-09-03' }), // absent
       day({ date: '2026-09-05', workingDay: false }), // weekly off
       day({ date: '2026-09-06', leave: { type: 'CASUAL', isHalfDay: true } }),

@@ -186,27 +186,62 @@ describe('lateness is a quantity, not a status', () => {
     // 09:37 arrival. Against a 09:30 shift it is 7 late; against the Team-Lead
     // 10:30 window it is on time. The same arrival, two correct answers --
     // which is exactly why a hardcoded threshold was wrong.
-    const arrival = 9 * 60 + 37;
+    const arrival = (9 * 60 + 37) * 60;
 
     expect(lateMinutesFrom(arrival, '09:30')).toEqual({ lateMinutes: 7, reason: 'LATE' });
     expect(lateMinutesFrom(arrival, '10:30')).toEqual({ lateMinutes: 0, reason: 'ON_TIME' });
   });
 
   it('25. arriving exactly on the threshold is on time', () => {
-    expect(lateMinutesFrom(570, '09:30').reason).toBe('ON_TIME');
+    expect(lateMinutesFrom(570 * 60, '09:30').reason).toBe('ON_TIME');
   });
 
   it('26. grace extends the window, inclusively', () => {
     // 09:30 + 10 grace: 09:40 on time, 09:41 late by one.
-    expect(lateMinutesFrom(580, '09:30', 10)).toEqual({ lateMinutes: 0, reason: 'ON_TIME' });
-    expect(lateMinutesFrom(581, '09:30', 10)).toEqual({ lateMinutes: 1, reason: 'LATE' });
+    expect(lateMinutesFrom(580 * 60, '09:30', 10)).toEqual({ lateMinutes: 0, reason: 'ON_TIME' });
+    expect(lateMinutesFrom(581 * 60, '09:30', 10)).toEqual({ lateMinutes: 1, reason: 'LATE' });
+  });
+
+  it('26b. ONE SECOND PAST THE THRESHOLD IS LATE, not on time', () => {
+    // THE RULE THE MINUTE-GRANULAR VERSION COULD NOT EXPRESS.
+    //
+    // This took minutes, and the only caller derived them with an HH:mm
+    // format, so every arrival from 09:30:01 to 09:30:59 arrived here as 570
+    // and compared equal to the threshold. A whole minute of lateness was
+    // reported as on time, by both the register and the evaluator.
+    const onTheSecond = 9 * 3600 + 30 * 60;
+
+    expect(lateMinutesFrom(onTheSecond, '09:30')).toEqual({
+      lateMinutes: 0,
+      reason: 'ON_TIME',
+    });
+    expect(lateMinutesFrom(onTheSecond + 1, '09:30')).toEqual({
+      lateMinutes: 1,
+      reason: 'LATE',
+    });
+    // And the last second of that minute is still late, not rounded away.
+    expect(lateMinutesFrom(onTheSecond + 59, '09:30')).toEqual({
+      lateMinutes: 1,
+      reason: 'LATE',
+    });
+  });
+
+  it('26c. CEILS rather than floors, so partial lateness is never erased', () => {
+    // Presence floors because it must never credit unspent time; lateness
+    // ceils because it must never erase lateness that happened. Both round
+    // against flattering the record.
+    const threshold = 9 * 3600 + 30 * 60;
+
+    expect(lateMinutesFrom(threshold + 61, '09:30').lateMinutes).toBe(2);
+    expect(lateMinutesFrom(threshold + 120, '09:30').lateMinutes).toBe(2);
+    expect(lateMinutesFrom(threshold + 121, '09:30').lateMinutes).toBe(3);
   });
 
   it('27. NO PROVEN THRESHOLD MEANS NO LATENESS CLAIM', () => {
     // Falling back to a company default here is how one team's window became
     // everybody's.
-    expect(lateMinutesFrom(600, null)).toEqual({ lateMinutes: null, reason: 'NO_THRESHOLD' });
-    expect(lateMinutesFrom(600, 'garbage')).toEqual({ lateMinutes: null, reason: 'NO_THRESHOLD' });
+    expect(lateMinutesFrom(600 * 60, null)).toEqual({ lateMinutes: null, reason: 'NO_THRESHOLD' });
+    expect(lateMinutesFrom(600 * 60, 'garbage')).toEqual({ lateMinutes: null, reason: 'NO_THRESHOLD' });
   });
 
   it('28. no arrival means no lateness, distinctly from no threshold', () => {
@@ -214,7 +249,7 @@ describe('lateness is a quantity, not a status', () => {
   });
 
   it('29. never reports negative lateness for an early arrival', () => {
-    expect(lateMinutesFrom(8 * 60, '09:30').lateMinutes).toBe(0);
+    expect(lateMinutesFrom(8 * 3600, '09:30').lateMinutes).toBe(0);
   });
 });
 

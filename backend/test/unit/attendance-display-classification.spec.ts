@@ -38,7 +38,7 @@ const spanning = (
     dayOpen: false,
     arrivalThreshold: '10:30',
     arrivalGraceMinutes: 0,
-    arrivalMinutes: h * 60 + m,
+    arrivalSeconds: (h * 60 + m) * 60,
     requiredSeconds: NINE_HOURS,
     minimumSeconds: FOUR_HOURS,
     ...over,

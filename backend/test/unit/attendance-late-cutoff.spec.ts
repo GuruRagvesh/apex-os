@@ -28,11 +28,17 @@ import {
 
 const HR = { id: 'hr-1', role: { name: 'HR' } };
 
-/** 2026-09-10 at an IST wall-clock time. */
-function ist(hhmm: string): Date {
-  const [h, m] = hhmm.split(':').map(Number);
+/**
+ * 2026-09-10 at an IST wall-clock time. Accepts HH:mm or HH:mm:ss.
+ *
+ * SECONDS MATTER HERE. The cutoff is inclusive to the second, and the report
+ * derived arrival with an HH:mm format that discarded them -- so 10:30:59 was
+ * indistinguishable from 10:30:00 and read as on time.
+ */
+function ist(clock: string): Date {
+  const [h, m, s = 0] = clock.split(':').map(Number);
   // IST is UTC+5:30 and has no DST, so one fixed offset is exact here.
-  return new Date(Date.UTC(2026, 8, 10, h - 5, m - 30, 0));
+  return new Date(Date.UTC(2026, 8, 10, h - 5, m - 30, s));
 }
 
 const EARLY_SHIFT = {
@@ -52,7 +58,10 @@ const LATE_SHIFT = {
   graceMinutes: 120,
 };
 
-function build(over: { configuredCutoff?: unknown; hasSetting?: boolean } = {}) {
+function build(
+  over: { configuredCutoff?: unknown; hasSetting?: boolean; punchIn?: string } = {},
+) {
+  const arrival = over.punchIn ?? '10:45';
   const users = [
     { id: 'u-early', name: 'Asha Early', employeeId: 'TE-001' },
     { id: 'u-late', name: 'Bala Late', employeeId: 'TE-002' },
@@ -77,7 +86,7 @@ function build(over: { configuredCutoff?: unknown; hasSetting?: boolean } = {}) 
           date: day,
           status: 'PRESENT',
           evaluationState: 'CALCULATED',
-          punchInAt: ist('10:45'),
+          punchInAt: ist(arrival),
           punchOutAt: ist('19:45'),
           workedMinutes: 540,
           breakMinutes: 0,
@@ -93,7 +102,7 @@ function build(over: { configuredCutoff?: unknown; hasSetting?: boolean } = {}) 
           date: day,
           status: 'PRESENT',
           evaluationState: 'CALCULATED',
-          punchInAt: ist('10:45'),
+          punchInAt: ist(arrival),
           punchOutAt: ist('19:45'),
           workedMinutes: 540,
           breakMinutes: 0,
@@ -138,7 +147,11 @@ function build(over: { configuredCutoff?: unknown; hasSetting?: boolean } = {}) 
   return { service, prisma };
 }
 
-async function rowsFor(over?: { configuredCutoff?: unknown; hasSetting?: boolean }) {
+async function rowsFor(over?: {
+  configuredCutoff?: unknown;
+  hasSetting?: boolean;
+  punchIn?: string;
+}) {
   const report = await build(over).service.monthReport(HR, '2026-09');
   const on = (userId: string) =>
     report.dailyRows.filter((r) => r.userId === userId && r.date === '2026-09-10');
@@ -184,6 +197,23 @@ describe('the late cutoff is company-wide, not per shift', () => {
     // 15 is the figure with NO grace applied, so this pins grace at zero rather
     // than merely checking that the row is late.
     expect(late.raw.lateMinutes).toBe(15);
+  });
+
+  it('IS INCLUSIVE TO THE SECOND: 10:30:00 on time, 10:30:01 late', async () => {
+    // The register has to draw the boundary in the same place the evaluator
+    // does. It derived arrival with HH:mm, which threw the seconds away, so
+    // the whole first minute of lateness was reported as on time.
+    const onTime = await rowsFor({ punchIn: '10:30:00' });
+    expect(onTime.early.lateArrival).toBe('On time');
+    expect(onTime.early.raw.lateMinutes).toBe(0);
+
+    const oneSecond = await rowsFor({ punchIn: '10:30:01' });
+    expect(oneSecond.early.lateArrival).toBe('Late by 00:01');
+    expect(oneSecond.early.raw.lateMinutes).toBe(1);
+
+    // And the last second of that minute is still late.
+    const lastSecond = await rowsFor({ punchIn: '10:30:59' });
+    expect(lastSecond.early.raw.lateMinutes).toBe(1);
   });
 
   it('counts the late day for both employees in the monthly summary', async () => {

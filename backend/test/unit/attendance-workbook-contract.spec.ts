@@ -58,7 +58,7 @@ const day = (over: Partial<DayInput> = {}): DayInput => ({
   requiredMinutes: 540,
   arrivalThreshold: '09:30',
   arrivalGraceMinutes: 0,
-  arrivalMinutes: null,
+  arrivalSeconds: null,
   ...over,
 });
 
@@ -78,7 +78,7 @@ function report() {
         'u-1',
         [
           day({ date: '2026-09-01', rawPunches: [punch('PUNCH_IN', '04:11'), punch('PUNCH_OUT', '13:29')] }),
-          day({ date: '2026-09-02', rawPunches: [punch('PUNCH_IN', '04:11')], arrivalMinutes: 9 * 60 + 37 }),
+          day({ date: '2026-09-02', rawPunches: [punch('PUNCH_IN', '04:11')], arrivalSeconds: (9 * 60 + 37) * 60 }),
           day({ date: '2026-09-03' }), // absent
           day({ date: '2026-09-05', workingDay: false }), // weekly off
         ],

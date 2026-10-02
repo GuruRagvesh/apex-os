@@ -6,6 +6,11 @@ import { EmployeeTimelineService } from '../timeline/employee-timeline.service';
 import { PolicyVersionService } from '../policy/policy-version.service';
 import { applyLegacyEmploymentFallback } from './legacy-employment-fallback';
 import {
+  LATE_CUTOFF_SETTING_KEY,
+  parseConfiguredCutoff,
+  resolveLateCutoff,
+} from '../shared/attendance-primitives';
+import {
   AttendanceApplicability,
   AttendancePolicyContext,
   ContextBlockingReason,
@@ -206,6 +211,21 @@ export class DailyContextService {
       attendanceApplicability = 'REQUIRED';
     }
 
+    // THE COMPANY LATE CUTOFF. One setting row, read here so every consumer of
+    // a context gets the same answer for the same day without each of them
+    // reaching for the settings table separately.
+    //
+    // A missing or unreadable row is NOT a blocking reason: resolveLateCutoff
+    // returns the company fallback and labels where it came from, so the day
+    // still resolves. A context that refused to resolve over a configuration
+    // row would stop the evaluator for everybody.
+    const cutoffSetting = await this.prisma.appSetting
+      .findUnique({ where: { key: LATE_CUTOFF_SETTING_KEY }, select: { value: true } })
+      .catch(() => null);
+    const lateCutoff = resolveLateCutoff(
+      cutoffSetting ? parseConfiguredCutoff((cutoffSetting as any).value) : undefined,
+    );
+
     return {
       employeeId,
       businessDate,
@@ -223,6 +243,7 @@ export class DailyContextService {
           }
         : null,
       shift,
+      lateCutoff,
       attendancePolicy,
       leavePolicy,
       contextResolved,
