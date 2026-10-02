@@ -8,7 +8,7 @@ import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import { useAuthStore } from '@apex/core-identity';
 import { cn, getInitials } from '@apex/shared-utilities';
-import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert, Download, Loader2, Trash2 } from 'lucide-react';
+import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert, Download, Loader2, Trash2, Archive } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -53,6 +53,11 @@ export default function UsersPage() {
   const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<any | null>(null);
+  const [archiveDeleteTarget, setArchiveDeleteTarget] = useState<any | null>(null);
+  // Set only when Drive succeeded and the database step did not -- the two
+  // failures need different words, because one leaves an archive behind and
+  // the other leaves nothing at all.
+  const [archiveDeleteError, setArchiveDeleteError] = useState<string | null>(null);
   const [permanentDeleteBlockers, setPermanentDeleteBlockers] = useState<Record<string, number> | null>(null);
   const [permanentDeleteBlockedUser, setPermanentDeleteBlockedUser] = useState<any | null>(null);
   const [backupDownloadedForUserId, setBackupDownloadedForUserId] = useState<string | null>(null);
@@ -98,6 +103,31 @@ export default function UsersPage() {
     onError: (err: any) => {
       toast.error(err?.message || 'Failed to deactivate user');
       setDeactivateTarget(null);
+    },
+  });
+
+  const archiveDeleteMutation = useMutation({
+    mutationFn: (id: string) => usersApi.archiveDelete(id),
+    onSuccess: (result: any) => {
+      toast.success('Employee archived and deleted');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setArchiveDeleteTarget(null);
+      setArchiveDeleteError(null);
+      // The Drive reference is the only way back to the archive, so it is
+      // shown rather than merely logged. It is an id, not a credential.
+      if (result?.driveFileId) {
+        toast.success(`Archive: ${result.driveFileName ?? result.driveFileId}`, {
+          duration: 8000,
+        });
+      }
+    },
+    onError: (err: any) => {
+      // The employee is never deleted on any failure path, so the message
+      // says so plainly rather than leaving an administrator guessing
+      // whether they need to check.
+      setArchiveDeleteError(
+        err?.message ?? 'Archive and delete failed. The employee was NOT deleted.',
+      );
     },
   });
 
@@ -326,6 +356,28 @@ export default function UsersPage() {
                     >
                       <Edit2 size={14} />
                     </button>
+                    {/*
+                      Archive & Delete. Shown to Admin and Super Admin only,
+                      and never for your own row -- the server refuses both,
+                      so this is about not offering something that cannot
+                      work, not about enforcement.
+                    */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setArchiveDeleteError(null);
+                        setArchiveDeleteTarget(u);
+                      }}
+                      className="p-1.5 rounded-lg transition-colors"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-danger)'; e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      title="Archive to Google Drive and delete"
+                    >
+                      <Archive size={14} />
+                    </button>
                     <button
                       type="button"
                       onClick={async (e) => {
@@ -532,6 +584,64 @@ export default function UsersPage() {
       )}
 
       {/* Permanent Delete Confirmation Modal */}
+      {archiveDeleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>
+              Archive &amp; delete employee?
+            </h3>
+
+            <p className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>
+              <strong>{archiveDeleteTarget.name}</strong>
+              {archiveDeleteTarget.employeeId ? ` · ${archiveDeleteTarget.employeeId}` : ''}
+            </p>
+
+            <p className="text-sm mt-3" style={{ color: 'var(--text-secondary)' }}>
+              This will archive the employee&apos;s records to Google Drive and then
+              permanently remove the account from Apex OS.
+            </p>
+            <p className="text-sm mt-2 mb-5" style={{ color: 'var(--text-secondary)' }}>
+              Shared company history — tickets, comments, approvals and audit records —
+              will be preserved.
+            </p>
+
+            {archiveDeleteError && (
+              <p
+                className="text-sm mb-4 p-3 rounded-lg"
+                style={{ color: 'var(--color-danger)', backgroundColor: 'var(--accent-subtle)' }}
+              >
+                {archiveDeleteError}
+              </p>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => archiveDeleteMutation.mutate(archiveDeleteTarget.id)}
+                disabled={archiveDeleteMutation.isPending}
+                className="apex-btn flex-1 justify-center py-2.5 font-medium disabled:opacity-50 text-white"
+                style={{ backgroundColor: 'var(--color-danger)' }}
+              >
+                {archiveDeleteMutation.isPending ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin" />
+                    Archiving and deleting...
+                  </span>
+                ) : (
+                  'Archive & Delete'
+                )}
+              </button>
+              <button
+                onClick={() => { setArchiveDeleteTarget(null); setArchiveDeleteError(null); }}
+                disabled={archiveDeleteMutation.isPending}
+                className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {permanentDeleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="apex-modal w-full max-w-md p-6 modal-enter">
