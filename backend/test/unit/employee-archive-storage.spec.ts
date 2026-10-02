@@ -247,7 +247,7 @@ describe('the shared comparison treats unknown as failure', () => {
     expectedContentHash: 'md5v',
   };
 
-  it('refuses when the provider reports no size', () => {
+  it('refuses when the provider reports no size, AND SAYS SO', () => {
     const verdict = compareArchive(expected, {
       fileId: 'f1', fileName: 'a.zip', bytes: null, folderId: null, checksum: 'md5v',
     });
@@ -255,14 +255,23 @@ describe('the shared comparison treats unknown as failure', () => {
     // "The provider did not say" is the ABSENCE of evidence, and verification
     // exists to produce positive evidence.
     expect(verdict.verified).toBe(false);
+
+    // THE MESSAGE IS ASSERTED, not just the refusal. Without the explicit
+    // null branch the comparison still rejects -- null !== 100 -- but reports
+    // "expected 100 bytes, found null", which sends somebody looking for a
+    // truncated upload when the real problem is a provider that answered
+    // nothing. Mutation testing found this: removing the branch changed only
+    // the diagnostic, and nothing noticed.
+    expect(verdict.problems.join(' ')).toMatch(/did not report the archive size/i);
   });
 
-  it('refuses when the provider reports no checksum', () => {
+  it('refuses when the provider reports no checksum, AND SAYS SO', () => {
     const verdict = compareArchive(expected, {
       fileId: 'f1', fileName: 'a.zip', bytes: 100, folderId: null, checksum: null,
     });
 
     expect(verdict.verified).toBe(false);
+    expect(verdict.problems.join(' ')).toMatch(/did not report a content checksum/i);
   });
 
   it('refuses when the file id comes back different', () => {

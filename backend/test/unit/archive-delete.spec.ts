@@ -437,6 +437,47 @@ describe('the deletion transaction', () => {
     expect(committed()).toBe(false);
   });
 
+  it('RE-CHECKS THE GUARDS INSIDE THE TRANSACTION, not only before', async () => {
+    // THE CASE THE ORDERING CREATES. Collect, zip, upload and verify all take
+    // real time, and the pre-flight check happened before them. A team lead
+    // assigned, a lead reassigned, or a Super Admin deactivated while the
+    // archive was uploading must still stop the deletion -- otherwise the
+    // guard protects against a state that was true minutes ago.
+    //
+    // Mutation testing found this uncovered: removing the in-transaction
+    // re-check broke nothing, because every blocker test blocked before the
+    // archive and never reached the transaction at all.
+    let calls = 0;
+    const { service, prisma } = rig();
+    // Clean on the pre-flight check, blocked by the time the transaction
+    // opens -- exactly what a concurrent reassignment looks like.
+    prisma.team.count = jest.fn(async () => (++calls > 1 ? 1 : 0));
+
+    await expect(service.archiveAndDelete(ADMIN, 'u-1')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+
+    // It got far enough to archive -- proving the pre-flight check passed --
+    // and still did not delete.
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+    expect(calls).toBeGreaterThan(1);
+  });
+
+  it('RE-CHECKS THE LAST SUPER ADMIN inside the transaction too', async () => {
+    // The same race, on the protection with the worst outcome: two
+    // concurrent deletions could each see a count of two.
+    let calls = 0;
+    const { service, prisma } = rig({
+      target: { ...TARGET, id: 'su-2', role: { name: 'SUPER_ADMIN' } },
+    });
+    prisma.user.count = jest.fn(async () => (++calls > 1 ? 0 : 1));
+
+    await expect(service.archiveAndDelete(SUPER, 'su-2')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+
   it('RECORDS THE FAILURE but keeps the verified archive', async () => {
     const { service, storage, ledger } = rig({ failInTransaction: 'user' });
 
@@ -548,7 +589,7 @@ describe('the ledger and repeated requests', () => {
     expect(ledger().deletedAt).toBeInstanceOf(Date);
   });
 
-  it('REFUSES A REPLAY of an already completed deletion', async () => {
+  it('REFUSES A REPLAY of an already completed deletion, AND SAYS WHY', async () => {
     const { service, prisma } = rig({
       ledger: { formerUserId: 'u-1', status: 'COMPLETED' },
     });
@@ -557,6 +598,16 @@ describe('the ledger and repeated requests', () => {
       ConflictException,
     );
     expect(prisma.user.delete).not.toHaveBeenCalled();
+
+    // THE MESSAGE IS ASSERTED because the refusal alone is not evidence the
+    // right branch ran. Mutation testing found this: deleting the COMPLETED
+    // check entirely still throws ConflictException, from the in-flight
+    // branch below it -- so the test passed while telling an administrator
+    // their finished deletion was "already running", which would have them
+    // waiting for something that finished days ago.
+    await expect(service.archiveAndDelete(ADMIN, 'u-1')).rejects.toThrow(
+      /already been archived and deleted/i,
+    );
   });
 
   it.each(['REQUESTED', 'ARCHIVING', 'ARCHIVED', 'DELETE_STARTED'])(
@@ -567,6 +618,11 @@ describe('the ledger and repeated requests', () => {
 
       await expect(service.archiveAndDelete(ADMIN, 'u-1')).rejects.toBeInstanceOf(
         ConflictException,
+      );
+      // The other half of the pair: an in-flight operation must say it is
+      // running, not that it has finished.
+      await expect(service.archiveAndDelete(ADMIN, 'u-1')).rejects.toThrow(
+        /already running/i,
       );
       expect(prisma.user.delete).not.toHaveBeenCalled();
     },
