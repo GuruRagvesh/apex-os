@@ -104,17 +104,19 @@ describe('who a settled day refuses', () => {
     expect(out.blocked.length).toBeGreaterThan(0);
   });
 
+  // DAY-LEVEL STATES ONLY. 'a finalized but unsent month' used to be in this
+  // list and has been deliberately removed: the rule now draws the line at
+  // finalization rather than delivery, because the fingerprint chain that made
+  // the looser rule safe no longer exists. See 12e.
   const correctableByAHuman = [
     ['a locked day', facts({ day: { locked: true, evaluationState: 'CALCULATED' } })],
     ['a finalized day', facts({ day: { locked: false, evaluationState: 'FINALIZED' } })],
-    ['a finalized but unsent month', facts({ monthClose: { status: 'FINALIZED' } })],
   ] as const;
 
   it.each(correctableByAHuman)('12. INDIVIDUAL_REVIEW is not refused by %s', (_label, f) => {
-    // The line is delivery, not finalization. Before the report leaves, a
-    // reviewed correction is the sanctioned way to repair a month, and send()
-    // re-renders and refuses anything that no longer matches its fingerprint --
-    // so a corrected-but-unsent month cannot reach Finance stale.
+    // A day finalized or locked inside a month that is still open is an
+    // operational state HR is expected to be able to revisit. Only the MONTH
+    // seals history.
     const out = assessSettlement(f, 'INDIVIDUAL_REVIEW');
 
     expect(out.settled).toBe(true);
@@ -152,6 +154,39 @@ describe('who a settled day refuses', () => {
     expect(out.blocked).toEqual(['SENT_MONTH']);
   });
 
+  it('12e. INDIVIDUAL_REVIEW IS NOW REFUSED BY A FINALIZED MONTH', () => {
+    // THE RULE THIS CHANGE EXISTS TO ESTABLISH.
+    //
+    // This previously passed with blocked: []. It was not a careless rule -- it
+    // relied on send() refusing to deliver a report whose data no longer
+    // matched a fingerprint captured at finalization. That fingerprint was
+    // removed by explicit product decision, and nothing downstream notices a
+    // post-finalization change any more, so finalization itself is now the
+    // seal and a reopen is required to get past it.
+    const out = assessSettlement(facts({ monthClose: { status: 'FINALIZED' } }), 'INDIVIDUAL_REVIEW');
+
+    expect(out.blocked).toEqual(['FINALIZED_MONTH']);
+  });
+
+  it('12f. A REOPENED MONTH IS CORRECTABLE AGAIN, which is the point of reopening it', () => {
+    const out = assessSettlement(facts({ monthClose: { status: 'REOPENED' } }), 'INDIVIDUAL_REVIEW');
+
+    expect(out.settled).toBe(false);
+    expect(out.blocked).toEqual([]);
+    // And not merely unblocked -- a reopened month reports no settlement reason
+    // at all, so a preview does not tell HR the month is sealed while letting
+    // them change it.
+    expect(out.reasons).toEqual([]);
+  });
+
+  it('12g. a reopened month admits a BULK correction too', () => {
+    // Deliberate. A reopen is an explicit act by HR saying this month is open
+    // for correction; refusing the importer afterwards would mean a month
+    // reopened to fix an import could not be fixed by re-importing.
+    const out = assessSettlement(facts({ monthClose: { status: 'REOPENED' } }), 'BULK_IMPORT');
+    expect(out.blocked).toEqual([]);
+  });
+
   it('13. an open day in an open month is eligible for either', () => {
     for (const authority of ['BULK_IMPORT', 'INDIVIDUAL_REVIEW'] as const) {
       expect(assessSettlement(facts(), authority).blocked).toEqual([]);
@@ -166,10 +201,18 @@ describe('who a settled day refuses', () => {
   it('15. settled and blocked are different questions', () => {
     // A preview needs to say "this day is finalized" about a day it is
     // nevertheless allowed to change. Collapsing the two would lose that.
-    const out = assessSettlement(facts({ monthClose: { status: 'FINALIZED' } }), 'INDIVIDUAL_REVIEW');
+    //
+    // DEMONSTRATED ON A DAY-LEVEL STATE, not a finalized month, because a
+    // finalized month now blocks. The distinction being tested is unchanged --
+    // reasons describes, blocked refuses -- and a finalized DAY is still the
+    // case where the two genuinely differ.
+    const out = assessSettlement(
+      facts({ day: { locked: false, evaluationState: 'FINALIZED' } }),
+      'INDIVIDUAL_REVIEW',
+    );
 
     expect(out.settled).toBe(true);
-    expect(out.reasons).toEqual(['FINALIZED_MONTH']);
+    expect(out.reasons).toEqual(['FINALIZED_DAY']);
     expect(out.blocked).toEqual([]);
   });
 });
@@ -352,11 +395,32 @@ describe('the settlement gate fires at the only write', () => {
     expect(upserts).toEqual([]);
   });
 
-  it('24b. an INDIVIDUAL correction into a FINALIZED but unsent month still works', async () => {
-    // The behaviour Phase 2B had to preserve. HR repairing a month before it
-    // reaches Finance is the sanctioned workflow, and blocking it would push
-    // people back to editing spreadsheets by hand.
-    const { service } = gateRig({ monthStatus: 'FINALIZED' });
+  it('24b. AN INDIVIDUAL CORRECTION INTO A FINALIZED MONTH IS NOW REFUSED', async () => {
+    // THIS TEST HAS BEEN INVERTED, AND THE REASON MATTERS.
+    //
+    // It previously asserted the correction went through, on the grounds that
+    // HR repairing a month before it reaches Finance is the sanctioned
+    // workflow. That was true while send() still compared a fingerprint and
+    // refused to deliver a changed month. The fingerprint is gone, so the same
+    // correction would now reach Finance unnoticed.
+    //
+    // HR has not lost the workflow -- it costs one explicit, recorded step:
+    // reopen the month, correct it, finalize it again. What is gone is the
+    // ability to change a finalized month WITHOUT that record.
+    const { service, upserts } = gateRig({ monthStatus: 'FINALIZED' });
+
+    await expect(
+      service.reviseForApprovedCorrection((service as any).prisma, 'emp-1', DATE, 'reg-1'),
+    ).rejects.toThrow(SettledAttendanceError);
+
+    // Refused BEFORE the write, not rolled back after it.
+    expect(upserts).toEqual([]);
+  });
+
+  it('24b-ii. the same correction goes through once the month is REOPENED', async () => {
+    // The other half of 24b, and the reason the refusal is not a dead end.
+    // Reaching evaluate() is how this rig proves the gate let the write past.
+    const { service } = gateRig({ monthStatus: 'REOPENED' });
 
     await expect(
       service.reviseForApprovedCorrection((service as any).prisma, 'emp-1', DATE, 'reg-1'),

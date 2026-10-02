@@ -269,21 +269,32 @@ export class PayrollReportService {
     await this.prisma.$transaction(async (tx) => {
     // THE MONTH IS HELD FOR THE WHOLE CLOSE.
     //
-    // Not a formality. Between marking the month FINALIZED and fingerprinting
-    // the render of it, a correction committing in that window would be
-    // included in the fingerprint -- so the digest would match attendance that
-    // changed after the month was declared closed, and send()'s staleness
-    // check would pass on a report it should have refused. Holding the month
-    // across both statements is what makes the fingerprint mean what it says.
+    // Not a formality, and the reason has changed. It used to be that a
+    // correction committing between the status write and the fingerprinting of
+    // the render would be digested into a figure that then matched attendance
+    // changed after the month was closed. There is no fingerprint now.
+    //
+    // What the lock does today is make the seal atomic. The instant this
+    // transaction commits FINALIZED, every correction path is refused by it --
+    // reviseForApprovedCorrection() reads the month under this same lock. A
+    // correction already inside the lock queue when finalization starts either
+    // lands before the seal or is refused by it, and nothing lands in the gap,
+    // because there is no gap to land in.
     await lockAttendanceMonth(tx, month);
 
     const existing = await tx.attendanceMonthClose.findUnique({ where: { month } });
     if (existing?.status === 'FINALIZED' || existing?.status === 'SENT') {
-      // Reopening a finalized month is not designed for V1. Failing closed is
-      // correct: silently re-finalising would change what Finance was told was
-      // approved, with no record that it happened.
+      // STILL REFUSED HERE, BUT NO LONGER A DEAD END.
+      //
+      // Re-finalizing in place would change what Finance was told was approved
+      // with no record that it happened, which is the thing being prevented.
+      // The route through is reopen(): it records who unsealed the month and
+      // why, moves it to REOPENED, and a REOPENED month reaches this line with
+      // a status that is neither FINALIZED nor SENT -- so the second
+      // finalization is permitted, and the reopen stays on the row.
       throw new ForbiddenException(
-        `${month} is already ${existing.status.toLowerCase()}. Reopening a finalized month is not supported.`,
+        `${month} is already ${existing.status.toLowerCase()}. Reopen it first, with a reason, ` +
+          'if its attendance has to be corrected.',
       );
     }
 
@@ -342,9 +353,13 @@ export class PayrollReportService {
     // timeout. A deadlock built out of two correct-looking functions.
     //
     // Committing first is also the honest order: finalization is complete and
-    // durable before anything is emailed, and if a correction slips in between
-    // the two, send() re-renders under its own lock and refuses the now-stale
-    // report. That refusal is the system working.
+    // durable before anything is emailed.
+    //
+    // A correction can no longer slip in between the two. This used to be
+    // covered by send() re-rendering and refusing a report that no longer
+    // matched its fingerprint; the protection now sits earlier, because the
+    // committed FINALIZED status itself refuses every correction path. The
+    // window the fingerprint was watching is closed rather than monitored.
     //
     // Best-effort on purpose. A send failure must not undo a finalization that
     // is already correct, so it is recorded as FAILED and left retryable rather
@@ -356,6 +371,106 @@ export class PayrollReportService {
     }
 
     return this.status(actor, month);
+  }
+
+  /**
+   * Unseals a finalized month so its attendance can be corrected.
+   *
+   * THE DELIBERATE STEP THAT REPLACED A HASH.
+   *
+   * Finalization is the seal: once a month is FINALIZED, every correction path
+   * refuses it -- the evaluator, regularization approval, the importer. This is
+   * the only way past that, and it is built to leave a mark. Who, when, why,
+   * and how many times, all on the close row, none of it cleared by the
+   * re-finalization that follows.
+   *
+   * WHY A REASON IS MANDATORY. A reopen with no reason is the one a payroll
+   * dispute six months later cannot answer. It is enforced here rather than by
+   * a NOT NULL column, because months reopened before this existed have no
+   * reason and must not be invented one.
+   *
+   * THE LENGTH FLOOR PROVES A REASON WAS TYPED, NOT THAT IT IS A GOOD ONE. It
+   * rejects a blank, whitespace and a one-word dismissal; it cannot tell a real
+   * explanation from a plausible-length non-answer, and no length rule could.
+   * The text is kept on the row and in the audit event so the quality of it is
+   * reviewable by a person, which is the only thing that can judge it.
+   *
+   * SENT IS REOPENABLE, AND THAT IS NOT AN OVERSIGHT. Finance is already
+   * holding that report, so the correction will make Apex OS disagree with a
+   * document somebody is working from -- which is a real need (a genuine error
+   * does not stop being an error once it has been emailed) that must be
+   * deliberate and recorded. The reopen records the status it came from, so
+   * "this month was already with Finance when it was reopened" stays answerable
+   * afterwards. Telling Finance is a human step this cannot perform.
+   *
+   * DOES NOT TOUCH A SINGLE ATTENDANCE ROW. It changes only the month's state.
+   * Corrections are then made through the ordinary reviewed paths, each with
+   * its own audit trail, rather than by anything bulk hidden inside a reopen.
+   */
+  async reopen(actor: any, month: string, reason: string) {
+    this.assertHr(actor);
+    this.assertMonth(month);
+
+    const stated = (reason ?? '').trim();
+    if (stated.length < 10) {
+      throw new BadRequestException(
+        'Give a reason for reopening this month. It is recorded against the month close and is ' +
+          'what a later payroll query will be answered from.',
+      );
+    }
+
+    const reopened = await this.prisma.$transaction(async (tx) => {
+      // The same lock finalize() and the correction path take. Without it, a
+      // reopen could commit while a finalization is mid-flight and the month
+      // would end up FINALIZED with a reopen recorded against it -- a row
+      // saying it was unsealed, in a state saying it was not.
+      await lockAttendanceMonth(tx, month);
+
+      const existing = await tx.attendanceMonthClose.findUnique({ where: { month } });
+      if (!existing) {
+        throw new NotFoundException(`${month} has never been closed, so there is nothing to reopen`);
+      }
+      if (existing.status !== 'FINALIZED' && existing.status !== 'SENT') {
+        // OPEN, REVIEWING and REOPENED are all already correctable. Reopening
+        // them would be a no-op that nonetheless wrote a reopen record, which
+        // would make the audit trail claim something happened that did not.
+        throw new ForbiddenException(
+          `${month} is ${existing.status.toLowerCase()} and already accepts corrections. ` +
+            'Only a finalized or sent month needs reopening.',
+        );
+      }
+
+      return tx.attendanceMonthClose.update({
+        where: { month },
+        data: {
+          status: 'REOPENED',
+          reopenedById: actor?.id ?? actor?.sub,
+          reopenedAt: this.tva.now(),
+          reopenReason: stated,
+          // Incremented, never reset. A month reopened three times is a
+          // different story from one reopened once, and payroll should be able
+          // to see which it is looking at.
+          reopenCount: { increment: 1 },
+        },
+      });
+    });
+
+    this.eventLogger
+      .log({
+        actorId: actor?.id ?? actor?.sub,
+        entityType: 'AttendanceMonthClose',
+        entityId: month,
+        action: 'PAYROLL_MONTH_REOPENED',
+        // The state it came FROM is the significant part: reopening a month
+        // Finance already received is a materially different act from reopening
+        // one that was merely finalized, and the audit row has to say which.
+        fromState: 'FINALIZED_OR_SENT',
+        toState: 'REOPENED',
+        metadata: { month, reason: stated, reopenCount: reopened.reopenCount },
+      })
+      .catch(() => {});
+
+    return toCloseView(reopened);
   }
 
   /**
@@ -404,11 +519,19 @@ export class PayrollReportService {
   /**
    * Delivers the finalized workbook to Finance.
    *
-   * Explicit: nothing here runs on a schedule. The report is rebuilt and its
-   * DATA fingerprint compared against what was finalized, so attendance
-   * corrected after finalisation is caught rather than delivered under the old
-   * approval. The question is whether the attendance changed, never whether
-   * two ZIP writers happened to agree on a timestamp.
+   * Explicit: nothing here runs on a schedule. The report is rebuilt from the
+   * canonical month at send time.
+   *
+   * NO STALENESS CHECK HERE, AND NONE IS NEEDED NOW. This used to re-render and
+   * compare a DATA fingerprint against the one captured at finalization, to
+   * catch attendance corrected after approval. That comparison is gone, and so
+   * is the thing it was catching: a FINALIZED month refuses corrections
+   * outright, so a rebuild cannot differ from what was approved unless somebody
+   * explicitly reopened the month -- and a reopened month is not FINALIZED, so
+   * it cannot be sent at all until it is finalized again.
+   *
+   * The guarantee is the same. It is enforced by business state a person can
+   * read off the row rather than by a digest nobody could interpret.
    *
    * A failed send leaves the month FINALIZED with deliveryStatus FAILED. It is
    * never recorded as SENT, so a retry is possible and the record never claims

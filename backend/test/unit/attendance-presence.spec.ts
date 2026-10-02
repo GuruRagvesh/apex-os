@@ -1,6 +1,6 @@
 import {
   assessPresence,
-  REQUIRED_PRESENCE_MINUTES,
+  FALLBACK_REQUIRED_PRESENCE_MINUTES,
 } from '../../../frontend/components/attendance/attendance-presence';
 
 // Attendance presence is defined by policy as punch out minus punch in, and the
@@ -65,7 +65,27 @@ describe('the staging record that prompted this rule', () => {
 
 describe('presence semantics', () => {
   it('uses the policy constant, not an invented number', () => {
-    expect(REQUIRED_PRESENCE_MINUTES).toBe(540);
+    expect(FALLBACK_REQUIRED_PRESENCE_MINUTES).toBe(540);
+  });
+
+  it('takes the requirement from the caller when the caller knows it', () => {
+    // The constant is the LAST resort. A shift requiring 480 must not be judged
+    // against the company figure just because this module holds one.
+    const a = scenario({
+      punchInAt: '2026-08-26T04:30:00.000Z',
+      punchOutAt: '2026-08-26T12:30:00.000Z', // exactly 480 minutes
+      requiredMinutes: 480,
+      sessionCount: 1,
+      unevidencedSessions: 0,
+    });
+
+    expect(a.requiredMinutes).toBe(480);
+    expect(a.meetsRequirement).toBe(true);
+  });
+
+  it('ignores a requirement of zero rather than passing every day', () => {
+    const a = scenario({ requiredMinutes: 0 });
+    expect(a.requiredMinutes).toBe(540);
   });
 
   it('meets the requirement on a genuine full day', () => {
@@ -86,6 +106,42 @@ describe('presence semantics', () => {
     expect(a.workedMinutes).toBe(480);
     expect(a.evidenceMismatch).toBe(false);
     expect(a.coverage).toBe('FULL');
+  });
+
+  it('FALLS SHORT AT ONE SECOND UNDER, which rounding used to hide', async () => {
+    // THE DEFECT THIS TEST EXISTS FOR.
+    //
+    // 08:59:59 of presence is 539.983 minutes. The comparison used to run on
+    // Math.round of that, which is 540, so a day one second short was reported
+    // as having MET the nine-hour requirement. Every employee a second under
+    // passed, and no test caught it because the nearest one was a whole minute
+    // under -- which fails either way.
+    const a = scenario({
+      punchInAt: '2026-08-26T04:30:00.000Z',
+      punchOutAt: '2026-08-26T13:29:59.000Z',
+      sessionCount: 1,
+      unevidencedSessions: 0,
+    });
+
+    expect(a.meetsRequirement).toBe(false);
+
+    // AND THE DISPLAYED FIGURE IS STILL THE ROUNDED ONE. This is not an
+    // oversight: 540 is the figure of record the backend also shows, and the
+    // fix was to stop CLASSIFYING on it, not to stop showing it. The two
+    // assertions together are the whole rule -- displayed 540, and still short.
+    expect(a.presenceMinutes).toBe(540);
+  });
+
+  it('meets the requirement at exactly nine hours, to the second', () => {
+    // The other side of the boundary. 09:00:00 passes; 08:59:59 does not.
+    const a = scenario({
+      punchInAt: '2026-08-26T04:30:00.000Z',
+      punchOutAt: '2026-08-26T13:30:00.000Z',
+      sessionCount: 1,
+      unevidencedSessions: 0,
+    });
+
+    expect(a.meetsRequirement).toBe(true);
   });
 
   it('falls short at one minute under, without rounding it away', () => {

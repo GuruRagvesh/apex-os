@@ -221,12 +221,25 @@ describe('the lifecycle never skips a step', () => {
     await expect(service.send(HR, '2026-08')).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('refuses to re-finalize a finalized month', async () => {
-    // Reopening is not designed for V1. Silently re-finalising would change
-    // what Finance was told had been approved, with no record it happened.
+  it('refuses to re-finalize a finalized month IN PLACE', async () => {
+    // Still refused, and for the original reason: silently re-finalising would
+    // change what Finance was told had been approved with no record it
+    // happened. What changed is that this is no longer a dead end -- the
+    // refusal now names the way through, which is an explicit reopen.
     const { service } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
 
-    await expect(service.finalize(HR, '2026-08')).rejects.toThrow(/not supported/i);
+    await expect(service.finalize(HR, '2026-08')).rejects.toThrow(/reopen it first/i);
+  });
+
+  it('FINALIZES A REOPENED MONTH, which is what makes a correction completable', async () => {
+    // A reopen that could not be followed by a re-finalization would strand the
+    // month: correctable forever and never sendable, because delivery requires
+    // FINALIZED. REOPENED is neither FINALIZED nor SENT, so it falls through
+    // the guard above by design rather than by accident -- this test is what
+    // says so out loud.
+    const { service } = build({ close: { month: '2026-08', status: 'REOPENED' } });
+
+    await expect(service.finalize(HR, '2026-08')).resolves.toBeDefined();
   });
 
   it('refuses to re-finalize a sent month', async () => {
@@ -493,5 +506,198 @@ describe('the close path holds the month it is closing', () => {
     // exactly like working and protects nothing.
     expect(() => monthLockKey('August 2026')).toThrow(/unparseable month/i);
     expect(() => monthLockKey('2026-13')).toThrow(/unparseable month/i);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Reopening a finalized month
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Finalization is the seal that replaced the removed report fingerprint: a
+// FINALIZED month refuses every correction path, and this is the only way past
+// it. So these tests are not about a convenience feature -- they are about the
+// one door in the wall, and whether it records who went through it.
+describe('reopening a finalized month', () => {
+  const lockKeysFrom = (advisoryLocks: any[]) =>
+    advisoryLocks
+      .filter((call) => String(call[0].join('?')).includes('pg_advisory_xact_lock'))
+      .map((call) => call.slice(1));
+
+  const REASON = 'Punch data for 14 Aug was imported against the wrong shift';
+
+  it('refuses an employee, like every other payroll action', async () => {
+    const { service } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
+
+    await expect(service.reopen(EMPLOYEE, '2026-08', REASON)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('REQUIRES A REASON TO HAVE BEEN GIVEN', async () => {
+    // WHAT THIS CAN AND CANNOT GUARANTEE. The floor rejects a blank, a
+    // whitespace-only string and a one-word dismissal. It cannot tell a real
+    // explanation from a plausible-length non-answer -- "as discussed" is
+    // twelve characters and passes. No length rule could do better, so this
+    // asserts only what the rule actually enforces: that somebody typed
+    // something. Whether it was useful is a review question, and the audit row
+    // carries the text so it can be asked.
+    const { service, closes } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
+
+    for (const bad of ['', '   ', 'fix', 'typo', 'wrong']) {
+      await expect(service.reopen(HR, '2026-08', bad)).rejects.toBeInstanceOf(BadRequestException);
+    }
+    // And nothing moved while those were refused.
+    expect(closes.get('2026-08').status).toBe('FINALIZED');
+  });
+
+  it('does not count surrounding whitespace towards the reason', async () => {
+    const { service } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
+
+    // 'fix' padded to past the floor. Trimmed first, so padding cannot buy a
+    // reason its way through.
+    await expect(
+      service.reopen(HR, '2026-08', '          fix          '),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('stores the reason trimmed', async () => {
+    const { service, closes } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
+
+    await service.reopen(HR, '2026-08', '  ' + REASON + '  ');
+
+    expect(closes.get('2026-08').reopenReason).toBe(REASON);
+  });
+
+  it('refuses a month that has never been closed', async () => {
+    const { service } = build();
+
+    await expect(service.reopen(HR, '2026-08', REASON)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it.each(['OPEN', 'REVIEWING', 'REOPENED'])(
+    'refuses to reopen a %s month, which already accepts corrections',
+    async (status) => {
+      // A no-op that still wrote a reopen record would make the audit trail
+      // claim something happened that did not.
+      const { service, closes, audit } = build({ close: { month: '2026-08', status } });
+
+      await expect(service.reopen(HR, '2026-08', REASON)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(closes.get('2026-08').status).toBe(status);
+      expect(audit.filter((e) => e.action === 'PAYROLL_MONTH_REOPENED')).toEqual([]);
+    },
+  );
+
+  it('MOVES A FINALIZED MONTH TO REOPENED and records who, when and why', async () => {
+    const { service, closes } = build({
+      close: { month: '2026-08', status: 'FINALIZED', finalizedById: 'hr-9', reopenCount: 0 },
+    });
+
+    await service.reopen(HR, '2026-08', REASON);
+
+    const row = closes.get('2026-08');
+    expect(row.status).toBe('REOPENED');
+    expect(row.reopenedById).toBe('hr-1');
+    expect(row.reopenedAt).toEqual(NOW);
+    expect(row.reopenReason).toBe(REASON);
+  });
+
+  it('KEEPS THE FINALIZATION PROVENANCE, so the first close is still answerable', async () => {
+    const finalizedAt = new Date('2026-08-31T10:00:00.000Z');
+    const { service, closes } = build({
+      close: { month: '2026-08', status: 'FINALIZED', finalizedById: 'hr-9', finalizedAt },
+    });
+
+    await service.reopen(HR, '2026-08', REASON);
+
+    // Who finalized it and when are NOT cleared by the reopen. A corrected
+    // month has to be able to answer both questions: who approved it the first
+    // time, and who unsealed it.
+    const row = closes.get('2026-08');
+    expect(row.finalizedById).toBe('hr-9');
+    expect(row.finalizedAt).toEqual(finalizedAt);
+  });
+
+  it('counts reopenings rather than overwriting the last one', async () => {
+    const { service, closes } = build({
+      close: { month: '2026-08', status: 'FINALIZED', reopenCount: 2 },
+    });
+
+    await service.reopen(HR, '2026-08', REASON);
+
+    // Incremented, not set to 1. A month reopened three times is a different
+    // story from one reopened once.
+    expect(closes.get('2026-08').reopenCount).toEqual({ increment: 1 });
+  });
+
+  it('REOPENS A SENT MONTH TOO, deliberately', async () => {
+    // Not an oversight. A genuine error does not stop being an error once it
+    // has been emailed, so amending a sent month is a real need -- it simply
+    // has to be deliberate and recorded, which is what this path makes it.
+    const { service, closes } = build({ close: { month: '2026-08', status: 'SENT' } });
+
+    await service.reopen(HR, '2026-08', REASON);
+
+    expect(closes.get('2026-08').status).toBe('REOPENED');
+  });
+
+  it('takes the month lock, transaction-scoped', async () => {
+    const { service, prisma, advisoryLocks } = build({
+      close: { month: '2026-08', status: 'FINALIZED' },
+    });
+
+    await service.reopen(HR, '2026-08', REASON);
+
+    // Without the lock a reopen could commit while a finalization is mid-flight
+    // and leave the row FINALIZED with a reopen recorded against it: a month
+    // saying it was unsealed, in a state saying it was not.
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(lockKeysFrom(advisoryLocks)[0]).toEqual([MONTH_LOCK_NAMESPACE_FOR_TEST, 202608]);
+  });
+
+  it('DOES NOT TOUCH A SINGLE ATTENDANCE ROW', async () => {
+    const { service, prisma } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
+
+    await service.reopen(HR, '2026-08', REASON);
+
+    // A reopen unseals the month; it does not correct it. Corrections go
+    // through the ordinary reviewed paths, each with its own audit trail,
+    // rather than through anything bulk hidden inside this call.
+    expect(prisma.dailyAttendance.findMany).not.toHaveBeenCalled();
+  });
+
+  it('audits the reopen with the reason, not just the fact', async () => {
+    const { service, audit } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
+
+    await service.reopen(HR, '2026-08', REASON);
+
+    const event = audit.find((e) => e.action === 'PAYROLL_MONTH_REOPENED');
+    expect(event).toBeDefined();
+    expect(event.entityType).toBe('AttendanceMonthClose');
+    expect(event.entityId).toBe('2026-08');
+    expect(event.actorId).toBe('hr-1');
+    expect(event.toState).toBe('REOPENED');
+    // The reason is the part a later payroll query is answered from, so it has
+    // to be in the audit row and not only on the close.
+    expect(event.metadata.reason).toBe(REASON);
+  });
+
+  it('A REOPENED MONTH CANNOT BE SENT TO FINANCE', async () => {
+    // The other half of the rule. If a reopened month could still be sent,
+    // reopening would be a way to deliver corrected attendance without anyone
+    // re-approving it -- which is the hole this whole design closes.
+    const { service, sent } = build({ close: { month: '2026-08', status: 'REOPENED' } });
+
+    await expect(service.send(HR, '2026-08')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(sent).toEqual([]);
+  });
+
+  it('refuses a malformed month before it refuses anything else', async () => {
+    const { service } = build();
+
+    for (const bad of ['2026', '2026-13', 'August', '2026-8']) {
+      await expect(service.reopen(HR, bad, REASON)).rejects.toBeInstanceOf(BadRequestException);
+    }
   });
 });

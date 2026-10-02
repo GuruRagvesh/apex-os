@@ -117,6 +117,7 @@ model User {
   punchHandoffs             AttendancePunchHandoff[]
   createdRegularizations    AttendanceRegularization[]     @relation("RegularizationCreator")
   finalizedMonthCloses      AttendanceMonthClose[]         @relation("MonthCloseFinalizer")
+  reopenedMonthCloses       AttendanceMonthClose[]         @relation("MonthCloseReopener")
 
   @@index([departmentId])
   @@index([roleId])
@@ -1875,6 +1876,22 @@ model AttendanceMonthClose {
   finalizedById String?
   finalizedAt   DateTime?
 
+  /// Who last reopened this month, when, and why.
+  ///
+  /// KEPT AFTER RE-FINALIZATION, NOT CLEARED. A month that was reopened and
+  /// finalized again reads FINALIZED, and without these three fields nothing
+  /// would show that it had ever been unsealed -- the correction would be
+  /// invisible in exactly the state Finance is handed. Clearing them on
+  /// re-finalize would make the record tidier and useless.
+  ///
+  /// The reason is REQUIRED by the service that writes them. A reopen nobody
+  /// explained is the one a later payroll dispute cannot answer.
+  reopenedById  String?
+  reopenedAt    DateTime?
+  reopenReason  String?
+  /// How many times this month has been reopened. Never reset.
+  reopenCount   Int       @default(0)
+
   /// Copied from the setting AT SEND TIME. Changing the configured recipient
   /// next month must not rewrite who an already-sent report went to.
   recipientEmail String?
@@ -1893,23 +1910,13 @@ model AttendanceMonthClose {
   sentAt         DateTime?
   deliveryStatus String?
 
-  /// SHA-256 of the CANONICAL REPORT DATA. NOT a digest of the .xlsx file.
-  ///
-  /// The column name is a V1 legacy -- renaming it would cost a migration for
-  /// no behavioural gain -- so the API renames it at the boundary. What it
-  /// holds is a digest of the attendance rows the month was finalized from,
-  /// which answers "did the attendance change between HR approving it and
-  /// Finance receiving it". It does not identify the attachment bytes: an XLSX
-  /// is a ZIP whose entry headers carry clock timestamps, so file digests are
-  /// not reproducible. A true file digest becomes possible only once the
-  /// finalized bytes are themselves stored.
-
   /// Size of the actual generated and sent .xlsx. This one IS about the file.
   reportByteSize Int?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   finalizedBy User?    @relation("MonthCloseFinalizer", fields: [finalizedById], references: [id])
+  reopenedBy  User?    @relation("MonthCloseReopener", fields: [reopenedById], references: [id])
 
   @@index([status])
   @@map("attendance_month_closes")
@@ -1919,6 +1926,17 @@ enum MonthCloseStatus {
   OPEN
   REVIEWING
   FINALIZED
+  /// Deliberately reopened after finalization so history can be corrected.
+  ///
+  /// NOT A STEP BACKWARDS TO OPEN, and that is the whole reason it exists. OPEN
+  /// is a month nobody has closed yet; REOPENED is a month that WAS closed and
+  /// was deliberately unsealed by a named person for a stated reason. Collapsing
+  /// the two would erase the fact that a finalized month had been reopened,
+  /// which is exactly the fact an audit of a corrected month needs.
+  ///
+  /// A reopened month cannot be sent to Finance: delivery requires FINALIZED,
+  /// so corrections must be followed by an explicit re-finalization.
+  REOPENED
   SENT
 }
 
