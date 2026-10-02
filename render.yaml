@@ -21,9 +21,44 @@ services:
     # FRONTEND_URL          → https://your-frontend.onrender.com
     # NODE_ENV              → production
     #
+    # APP_ENV               → production | staging    ← SET THIS ON EVERY SERVICE
+    #
+    #   Not optional, and not cosmetic. Two things key off it:
+    #
+    #     health.controller reports APP_ENV || NODE_ENV || 'development'. A
+    #     staging service with APP_ENV unset and NODE_ENV=production reports
+    #     itself as PRODUCTION, which makes "am I about to touch staging?"
+    #     unanswerable from the health endpoint — the question every
+    #     destructive release step depends on.
+    #
+    #     preventDestructiveOperation() blocks seed/reset/deleteMany scripts
+    #     only when APP_ENV === 'production'. Unset in production, THE GUARD
+    #     IS INACTIVE and those scripts run unguarded.
+    #
+    #   It also labels every employee archive: the manifest records the
+    #   environment it was produced in, and reads 'unknown' without this.
+    #
     # ── Email delivery ────────────────────────────────────────────────────────
     # RESEND_API_KEY        → re_... from https://resend.com
     # RESEND_FROM_EMAIL     → "Apex OS <noreply@your-verified-domain.com>"
+    # ── Employee archive (Google Drive) ───────────────────────────────────────
+    #
+    # Required only where Archive & Delete is enabled. The feature ships OFF
+    # (AppSetting employee_lifecycle.archiveDeleteEnabled, default false), so
+    # production needs neither the flag nor these until that is deliberately
+    # turned on. Staging needs all three to exercise it.
+    #
+    # Without them the archive fails, and because no verified archive means no
+    # deletion, nobody can be deleted. That is the intended failure direction.
+    #
+    # GOOGLE_DRIVE_CLIENT_EMAIL      → service account client_email
+    # GOOGLE_DRIVE_PRIVATE_KEY       → service account private_key (literal 
+ is handled)
+    # GOOGLE_DRIVE_ARCHIVE_FOLDER_ID → the Drive folder id, shared with that account
+    #
+    # Setup and folder-security notes:
+    #   docs/operations/deployment/GOOGLE_DRIVE_ARCHIVE_SETUP.md
+    #
     # ── Optional ──────────────────────────────────────────────────────────────
     # CLOUDINARY_CLOUD_NAME → for file attachment storage
     # CLOUDINARY_API_KEY    → for file attachment storage
