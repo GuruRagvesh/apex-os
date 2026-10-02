@@ -54,7 +54,11 @@ export class ActiveWorkdayPolicyService {
    * After such a wait PostgreSQL returns the row's committed version, so a
    * session the transaction ahead of us closed is read as closed.
    */
-  async assertActiveWorkdayLocked(tx: Prisma.TransactionClient, userId: string): Promise<ActiveWorkday> {
+  async assertActiveWorkdayLocked(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    message: string = ACTIVE_WORKDAY_REQUIRED_MESSAGE,
+  ): Promise<ActiveWorkday> {
     const companyDate = this.tva.companyBusinessDate();
     const [latest] = await tx.$queryRaw<Array<{ id: string; status: string; logoutAt: Date | null }>>`
       SELECT id, status, "logoutAt"
@@ -65,15 +69,15 @@ export class ActiveWorkdayPolicyService {
       LIMIT 1
       FOR SHARE
     `;
-    if (!isPunchedInSession(latest)) throw activeWorkdayRequired();
+    if (!isPunchedInSession(latest)) throw activeWorkdayRequired(message);
     return { sessionId: latest.id, status: latest.status };
   }
 }
 
-export function activeWorkdayRequired() {
+export function activeWorkdayRequired(message: string = ACTIVE_WORKDAY_REQUIRED_MESSAGE) {
   return new ConflictException({
     statusCode: 409,
     code: ACTIVE_WORKDAY_REQUIRED,
-    message: ACTIVE_WORKDAY_REQUIRED_MESSAGE,
+    message,
   });
 }

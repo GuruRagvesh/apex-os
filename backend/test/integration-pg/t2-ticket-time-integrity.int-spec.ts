@@ -127,7 +127,7 @@ describe('T2 ticket timer integrity audit (PostgreSQL)', () => {
   const cases: Array<[string, () => Promise<unknown>, Record<string, number>]> = [
     ['1. two active logs for one user', async () => {
       await log({ id: 'l-dup', ticketId: 't-2', startedAt: at('2026-08-13T05:30:00Z'), workSessionId: 's-today' });
-    }, { DUPLICATE_ACTIVE_ASSIGNEE_LOGS: 1, OVERLAPPING_ASSIGNEE_RANGES: 1 }],
+    }, { DUPLICATE_ACTIVE_ASSIGNEE_LOGS: 1, DUPLICATE_ACTIVE_TIMED_LOGS: 1, OVERLAPPING_ASSIGNEE_RANGES: 1 }],
 
     ['2. active log on a PENDING_APPROVAL ticket', async () => {
       await prisma.ticket.update({ where: { id: 't-1' }, data: { status: 'PENDING_APPROVAL' } });
@@ -229,7 +229,7 @@ describe('T2 ticket timer integrity audit (PostgreSQL)', () => {
       await openRework('t-1', at('2026-08-13T04:00:00Z'));
       await prisma.ticketTimeLog.update({ where: { id: 'l-active' }, data: { stage: 'REWORK' } });
       await log({ id: 'l-rework-2', ticketId: 't-1', stage: 'REWORK', startedAt: at('2026-08-13T05:15:00Z'), workSessionId: 's-today' });
-    }, { REWORK_CYCLE_MULTIPLE_ACTIVE_SEGMENTS: 1, DUPLICATE_ACTIVE_ASSIGNEE_LOGS: 1, OVERLAPPING_ASSIGNEE_RANGES: 1 }],
+    }, { REWORK_CYCLE_MULTIPLE_ACTIVE_SEGMENTS: 1, DUPLICATE_ACTIVE_ASSIGNEE_LOGS: 1, DUPLICATE_ACTIVE_TIMED_LOGS: 1, OVERLAPPING_ASSIGNEE_RANGES: 1 }],
   ];
 
   it.each(cases)('%s', async (_name, corrupt, expected) => {

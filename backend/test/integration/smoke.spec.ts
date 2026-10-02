@@ -12,6 +12,7 @@ import { createTestApp } from '../helpers/app.helper';
 import { bearerFor, loginAs, clearTokenCache, TEST_USERS } from '../helpers/auth.helper';
 import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { LeaveBalanceService } from '../../src/modules/operations/leave/leave-balance.service';
 
 describe('API Smoke Tests', () => {
   let app: INestApplication;
@@ -491,16 +492,30 @@ describe('API Smoke Tests', () => {
       await db.ticket.delete({ where: { id: ticketId } });
     });
 
+    // The next day the leave rules themselves count as a working day: "today"
+    // may be a weekly off or a holiday (e.g. 2 Oct, Gandhi Jayanti), where a
+    // leave request is correctly refused. Asks the same service the API uses.
+    async function nextWorkingDay(userId: string): Promise<Date> {
+      const leaveBalance = app.get(LeaveBalanceService);
+      for (let i = 0; i < 31; i++) {
+        const day = new Date(Date.now() + i * 86_400_000);
+        if ((await leaveBalance.getDurationForRequest(day, day, false, userId)) > 0) return day;
+      }
+      throw new Error('no working day in the next 31 days');
+    }
+
     it('3. leave request creates visible event', async () => {
       const empToken = await bearerFor(app, 'employee');
+      const empUser = await db.user.findFirst({ where: { email: TEST_USERS.employee.email } });
+      const leaveDay = await nextWorkingDay(empUser.id);
 
       const leaveRes = await request(app.getHttpServer())
         .post('/api/leave')
         .set('Authorization', empToken)
         .send({
           type: 'ANNUAL',
-          startDate: new Date(),
-          endDate: new Date(),
+          startDate: leaveDay,
+          endDate: leaveDay,
           reason: 'Test requested leave event',
         })
         .expect(201);

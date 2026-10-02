@@ -272,3 +272,108 @@ exist.
 
 **Operational note:** nobody should start or stop timers between steps 7 and
 9. If someone does, repeat step 8 before step 9.
+
+---
+
+# Phase 4: one active timed ticket per user (employee and reviewer)
+
+> **Documentation only**, under the same rules as above. Nothing here has been
+> run against production or staging.
+
+## What ships
+
+1. **Reviewer active-work clock.** `POST /tickets/:id/review/start` and
+   `/review/pause` write `ticket_time_logs` rows with `ownerType = 'REVIEWER'`,
+   `stage = 'REVIEW'`, `source = 'REVIEW_ACTION'`. Before Phase 4 no production
+   code wrote REVIEWER rows, so `reviewerWorkSeconds` was always 0.
+2. **Migration `20261002000000_one_active_timed_ticket_per_user`.** In one
+   implicit transaction it:
+   1. refuses to continue if any user has more than one row with
+      `endedAt IS NULL AND ownerType IN ('ASSIGNEE','REVIEWER')`
+      (`… user(s) with more than one active timed ticket (employee or reviewer). Run the ticket-time cleanup …`);
+   2. creates
+
+      ```sql
+      CREATE UNIQUE INDEX "ticket_time_logs_one_active_timed_per_user"
+        ON "ticket_time_logs" ("userId")
+        WHERE "endedAt" IS NULL AND "ownerType" IN ('ASSIGNEE', 'REVIEWER');
+      ```
+
+   3. drops the Phase 2D1 index `ticket_time_logs_one_active_assignee_per_user`,
+      which the new one strictly contains.
+
+   It never edits or deletes data. The new index is created before the old one
+   is dropped, so the guarantee never lapses.
+3. **Cleanup and audit.**
+   - The cleanup now also inspects active REVIEWER rows. A reviewer row is
+     closed when its ticket is not in REVIEW, when it has no open review cycle,
+     when its stage is not REVIEW, or for the same workday and session reasons
+     as employee rows.
+   - Duplicates are judged across both owner types. The latest started row
+     survives, as in Phase 2D1.
+   - Repaired rows keep `countsAsWork = false` and
+     `pauseReason = INTEGRITY_REPAIR`. Completed history is never touched, and
+     age alone is never a reason to close a row.
+   - The audit adds `DUPLICATE_ACTIVE_TIMED_LOGS`, the `ACTIVE_REVIEWER_LOG_*`
+     checks, `REVIEWER_LOG_WRONG_STAGE` and `OVERLAPPING_TIMED_RANGES`.
+
+## Release order
+
+Follow the Phase 2D1 order above, with these differences:
+- **Step 8:** the audit must show both `DUPLICATE_ACTIVE_ASSIGNEE_LOGS: 0` and
+  `DUPLICATE_ACTIVE_TIMED_LOGS: 0`.
+- **Step 9:** review the single pending migration
+  `20261002000000_one_active_timed_ticket_per_user`.
+- **Step 10:** verify the new index and confirm the old one is gone:
+
+```sql
+SELECT c.relname, i.indisvalid, pg_get_indexdef(i.indexrelid)
+FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+WHERE c.relname IN ('ticket_time_logs_one_active_timed_per_user',
+                    'ticket_time_logs_one_active_assignee_per_user');
+```
+
+Expected: exactly one row, `ticket_time_logs_one_active_timed_per_user`,
+`indisvalid = true`, with the definition above.
+
+**Deploy the backend before, or together with, the frontend.** The ticket page
+calls the new review endpoints, and reads `timers.activeClock = 'REVIEWER_WORK'`,
+`reviewerWorkSeconds` and `reviewTurnaroundSeconds`.
+
+## If `prisma migrate deploy` fails
+
+Tested end to end in `backend/test/integration-pg/t9-timed-guardrail-migration-deploy.int-spec.ts`:
+- The deploy exits 1 with `P3018` / `P0001` and the message above.
+- No new index is created, the Phase 2D1 index is still in place, and no data
+  changes.
+- `_prisma_migrations` records a failed attempt (`finished_at` and
+  `rolled_back_at` NULL, 0 steps), and later deploys exit with `P3009`.
+
+Recovery:
+1. Run the cleanup dry run, review it, apply it, and confirm the dry run is
+   CLEAN.
+2. Run `npx prisma migrate resolve --rolled-back "20261002000000_one_active_timed_ticket_per_user"`.
+   This is accurate, because nothing was applied.
+3. Run `npx prisma migrate deploy`.
+4. Verify the index as above. `prisma migrate status` must report
+   `Database schema is up to date!` and the audit must be CLEAN.
+
+Never use `migrate resolve --applied` for this migration, and never edit
+`_prisma_migrations` by hand.
+
+## Rollback
+
+The rules above apply unchanged: dropping an index by hand is not a migration
+rollback. Use one of:
+
+- **Remove the cross-type guarantee:** ship a reviewed forward migration that
+  recreates `ticket_time_logs_one_active_assignee_per_user` (the D1 definition)
+  and drops `ticket_time_logs_one_active_timed_per_user`. Before releasing it,
+  confirm that no user has more than one active ASSIGNEE row.
+- **Emergency manual drop of the new index:** record the drift immediately.
+  Before the next deployment, recreate the exact index above (after a CLEAN
+  cleanup dry run) or ship a corrective migration.
+- **Application rollback without a database change:** this is safe. Older
+  application code never writes REVIEWER rows, and the new index still enforces
+  one active ASSIGNEE row per user. Any reviewer rows already active are closed
+  by the next workday pause, or by the cleanup.

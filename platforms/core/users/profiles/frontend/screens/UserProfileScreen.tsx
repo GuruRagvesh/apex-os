@@ -972,7 +972,7 @@ export default function UserProfileScreen() {
                     <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
                       <div className="flex items-center gap-2 text-slate-400 mb-2">
                         <Clock size={16} className="text-blue-500" />
-                        <span className="text-sm font-medium">Avg. Review Time</span>
+                        <span className="text-sm font-medium">Avg. Reviewer Active Time</span>
                       </div>
                       <span className="text-3xl font-black text-white">
                         {fmtSeconds(reviewerMetrics.averageApprovalSeconds)}

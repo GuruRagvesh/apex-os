@@ -33,6 +33,11 @@ export const ticketsApi = {
   updateStatus: (id: string, status: string) => r(api.patch(`/tickets/${id}/status`, { status })),
   assign: (id: string, assignedToId: string) => r(api.patch(`/tickets/${id}/assign`, { assignedToId })),
   approve: (id: string, ratings?: any) => r(api.patch(`/tickets/${id}/approve`, ratings)),
+  // Reviewer active-work clock (separate from the review SLA clock).
+  startReview: (id: string) => r(api.post(`/tickets/${id}/review/start`, {})),
+  pauseReview: (id: string) => r(api.post(`/tickets/${id}/review/pause`, {})),
+  // The assignee pulls their own submission back from review (not rework).
+  withdraw: (id: string, reason?: string) => r(api.post(`/tickets/${id}/withdraw`, { reason: reason ?? undefined })),
   reject: (id: string, comment: string, reworkEstimatedMinutes?: number | null) =>
     r(api.patch(`/tickets/${id}/reject`, { comment, reworkEstimatedMinutes: reworkEstimatedMinutes ?? null })),
   getPendingApprovals: () => r(api.get('/tickets/pending-approvals')),

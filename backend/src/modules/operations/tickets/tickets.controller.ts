@@ -251,6 +251,23 @@ export class TicketsController {
     return this.ticketsService.unblockTicket(id, user.id, user);
   }
 
+  // Reviewer active-work clock (Phase 4). Separate from the review SLA clock.
+  @Post(':id/review/start')
+  startReview(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ticketsService.startReview(id, user.id, user);
+  }
+
+  @Post(':id/review/pause')
+  pauseReview(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ticketsService.pauseReview(id, user.id, user);
+  }
+
+  // The assignee pulls their own submission back from REVIEW (WITHDRAWN, not rework).
+  @Post(':id/withdraw')
+  withdraw(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser() user: any) {
+    return this.ticketsService.withdraw(id, user.id, user, typeof body?.reason === 'string' ? body.reason : undefined);
+  }
+
   @Patch(':id/approve')
   approve(
     @Param('id') id: string,

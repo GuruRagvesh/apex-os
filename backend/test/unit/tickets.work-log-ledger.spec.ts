@@ -130,7 +130,7 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       workSession: { findFirst: jest.fn().mockResolvedValue({ id: 'ws-1', status: 'WORKING', logoutAt: null, breakLogs: [] }) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
-      $queryRaw: jest.fn(async () => [{ status: TicketStatus.OPEN, assignedToId: 'worker-1' }]),
+      $queryRaw: jest.fn(async () => [await ticketAccess.findAccessibleTicket()]),
       $transaction: jest.fn(async (fn: any) => fn(prisma)),
     };
 
@@ -240,6 +240,8 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     expect(activeLogs[0].id).toBe('log-seed');
   });
 
+  // A reviewer sends it back (rework). The worker pulling their own submission
+  // back is a withdrawal instead (Phase 4), covered below.
   it('5b. rework re-entry (REVIEW → IN_PROGRESS) ends the old log and leaves exactly one new active log', async () => {
     ticketAccess.findAccessibleTicket.mockResolvedValue(
       makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: new Date('2026-07-02T09:30:00Z') }),
@@ -250,7 +252,7 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       durationSeconds: 5400, pauseReason: 'STATUS_CHANGE', breakLogId: null,
     });
 
-    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'worker-1', worker);
+    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'manager-1', { id: 'manager-1', role: { name: 'MANAGER' } });
 
     const activeLogs = timeLogTable.rows.filter((r) => r.endedAt === null);
     expect(activeLogs).toHaveLength(1);
@@ -331,6 +333,27 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
     const active = timeLogTable.rows.filter((r) => r.endedAt === null);
     expect(active).toHaveLength(1);
     expect(active[0]).toMatchObject({ userId: 'worker-1', stage: 'REWORK' });
+  });
+
+  it('11b. the worker pulling their own submission back is WITHDRAWN: no rework count, WORK-stage timer', async () => {
+    ticketAccess.findAccessibleTicket.mockResolvedValue(
+      makeTicketFixture({ status: TicketStatus.REVIEW, submittedAt: NOW, reviewStartedAt: NOW }),
+    );
+
+    await service.update('ticket-1', { status: TicketStatus.IN_PROGRESS }, 'worker-1', worker);
+
+    const cycles = prisma.reviewCycleLog.rows;
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0]).toMatchObject({ decision: 'WITHDRAWN' });
+    expect(cycles[0].reworkStartedAt ?? null).toBeNull();
+    expect(cycles[0].reworkEstimatedMinutes ?? null).toBeNull();
+    const written = (prisma.ticket.update as jest.Mock).mock.calls.at(-1)[0].data;
+    expect(written.reworkCount).toBeUndefined();
+    expect(written).toMatchObject({ submittedAt: null, reviewStartedAt: null, reviewDueAt: null });
+    expect(written.executionDueAt).toBeUndefined();
+    const active = timeLogTable.rows.filter((r) => r.endedAt === null);
+    expect(active).toHaveLength(1);
+    expect(active[0]).toMatchObject({ userId: 'worker-1', stage: 'WORK', ownerType: 'ASSIGNEE' });
   });
 
   // Phase 2D2 reverses the old fail-open rule: a status change and the timer

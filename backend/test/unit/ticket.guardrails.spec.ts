@@ -22,7 +22,7 @@ const mockPrisma: any = {
   // Phase 2D2: a ticket/workday change and its timer change run in one transaction.
   $transaction: jest.fn((fn: any) => fn(mockPrisma)),
   // The ticket row lock in a ticket change re-reads status and owner (Phase 3).
-  $queryRaw: jest.fn(async () => [(await mockPrisma.ticket.findFirst?.()) ?? (await mockPrisma.ticket.findUnique?.())].filter(Boolean)),
+  $queryRaw: jest.fn(async () => [(await mockPrisma.ticket.findUnique?.()) ?? (await mockPrisma.ticket.findFirst?.())].filter(Boolean)),
   ticket: {
     findUnique: jest.fn(),
     findFirst: jest.fn(),
@@ -91,6 +91,7 @@ describe('TicketsService — FP-13.1A Guardrails', () => {
           provide: TicketLedgerService,
           useValue: {
             startReviewCycle: jest.fn(),
+            findOpenReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle1', cycleNo: 1 }),
             // approve() refuses to reach DONE unless a review cycle is recorded.
             endReviewCycle: jest.fn().mockResolvedValue({ id: 'cycle1' }),
             getTicketTimers: jest.fn(),
