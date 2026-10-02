@@ -89,13 +89,24 @@ export interface AttendanceMonthReport {
   month: string;
   dailyRows: DailyAttendanceReportRow[];
   summaryRows: MonthlyAttendanceSummaryRow[];
-  metadata: {
-    generatedAt: string;
-    employees: number;
-    days: number;
-    unresolvedDays: number;
-    employeesWithUnresolved: number;
-  };
+  metadata: AttendanceReportMetadata;
+}
+
+export interface AttendanceReportMetadata {
+  generatedAt: string;
+  employees: number;
+  days: number;
+  unresolvedDays: number;
+  employeesWithUnresolved: number;
+  /**
+   * The late cutoff the server classified these rows against.
+   *
+   * READ, NEVER ASSUMED. A screen that printed its own "late after 10:30" would
+   * be a second copy of the rule, free to drift from the one the rows were
+   * actually judged by. `source` says whether it was configured, defaulted, or
+   * misconfigured -- the last of which is worth showing somebody.
+   */
+  lateCutoff: { clock: string; source: string };
 }
 
 /** yyyy-MM. */

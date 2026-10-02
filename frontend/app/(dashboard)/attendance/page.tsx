@@ -2,6 +2,7 @@
 // routes: the screen lives in a component, the route just mounts it.
 import { AttendanceCalendar } from '@/components/attendance/AttendanceCalendar';
 import { AttendanceToday } from '@/components/attendance/AttendanceToday';
+import { MyAttendanceSummary } from '@/components/attendance/MyAttendanceSummary';
 
 export default function AttendancePage() {
   return (
@@ -14,6 +15,15 @@ export default function AttendancePage() {
       </div>
       {/* Today first: the question the page is opened with. History below. */}
       <AttendanceToday />
+      {/*
+        The official record, then the day-by-day view.
+
+        Order is deliberate: the summary is what payroll reads, so it comes
+        before the calendar, which shows live operational detail for one day at
+        a time. Somebody checking "how many late days do I have" should meet the
+        authoritative answer first rather than counting cells.
+      */}
+      <MyAttendanceSummary />
       <AttendanceCalendar />
     </div>
   );
