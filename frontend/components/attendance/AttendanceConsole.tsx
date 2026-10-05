@@ -7,10 +7,8 @@ import { useAuthStore } from '@apex/core-identity';
 import { canPrepare } from './import-presentation';
 import { ManualRecoveryForm } from './ManualRecoveryForm';
 import {
-  downloadRegister,
   finalizeDay,
   getConsoleAccess,
-  getRegister,
   getRoster,
   getSummary,
   runEvaluation,
@@ -26,6 +24,12 @@ import {
   monthRange,
   shiftMonth,
 } from './register-month';
+import {
+  downloadAttendance,
+  getAttendanceReport,
+  type DailyAttendanceReportRow,
+  type MonthlyAttendanceSummaryRow,
+} from './canonical-report-api';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -72,7 +76,11 @@ export function AttendanceConsole() {
   const [businessDate, setBusinessDate] = useState(initialBusinessDate);
   const [tab, setTab] = useState<keyof typeof TAB_LABEL>('roster');
   const [month, setMonth] = useState(() => currentMonth());
-  const [downloading, setDownloading] = useState<'xlsx' | 'csv' | null>(null);
+  const [downloading, setDownloading] = useState<'xlsx' | null>(null);
+  // Filters the daily rows by name or employee id. Client-side on purpose:
+  // the month is already in memory, so a round trip per keystroke would be
+  // slower and could show a different dataset from the one being filtered.
+  const [search, setSearch] = useState('');
   // The employee whose day is being recovered by hand, if any.
   const [recovering, setRecovering] = useState<{
     id: string;
@@ -109,12 +117,15 @@ export function AttendanceConsole() {
   // manufacture twenty-one absences.
   const range = monthRange(month);
   const {
-    data: register,
+    data: report,
     isLoading: registerLoading,
     isError: registerFailed,
   } = useQuery({
-    queryKey: ['console-register', month],
-    queryFn: () => getRegister(range.from, range.to),
+    // CANONICAL. Was getRegister(), which ran a second, independent monthly
+    // calculation against /attendance/console/register. The table and the
+    // download now read the same service method, so they cannot disagree.
+    queryKey: ['attendance-report', month],
+    queryFn: () => getAttendanceReport(month),
     enabled: !!access?.hasTeam && tab === 'register',
     staleTime: 60_000,
   });
@@ -122,7 +133,7 @@ export function AttendanceConsole() {
   const refreshAll = () => {
     queryClient.invalidateQueries({ queryKey: ['console-summary'] });
     queryClient.invalidateQueries({ queryKey: ['console-roster'] });
-    queryClient.invalidateQueries({ queryKey: ['console-register'] });
+    queryClient.invalidateQueries({ queryKey: ['attendance-report'] });
   };
 
   const evaluate = useMutation({
@@ -154,17 +165,20 @@ export function AttendanceConsole() {
   });
 
   /**
-   * Both files come from the server, from the same call that produced the table
-   * above. Nothing is recomputed here, so the download cannot disagree with
-   * what HR is looking at.
+   * ONE DOWNLOAD.
+   *
+   * The file comes from the server, from the canonical report service, and the
+   * frontend builds no spreadsheet of its own. There was previously an xlsx and
+   * a CSV rendered by a second, independent report stack; both are gone and
+   * this returns the approved two-sheet workbook.
    */
-  const download = async (format: 'xlsx' | 'csv') => {
-    setDownloading(format);
+  const download = async () => {
+    setDownloading('xlsx');
     try {
-      await downloadRegister(month, format);
+      await downloadAttendance(month);
       setError(null);
     } catch {
-      setError('The register could not be downloaded.');
+      setError('The attendance file could not be downloaded.');
     } finally {
       setDownloading(null);
     }
@@ -420,42 +434,43 @@ export function AttendanceConsole() {
                     HR is asked at the end of the month is how many working days
                     it contained, and that answer does not change on the 2nd. */}
                 <p className="apex-text text-2xl font-semibold leading-tight">
-                  {register?.workingDays ?? '—'}
+                  {report?.summaryRows?.[0]?.workingDays ?? '—'}
                 </p>
                 {/* Leave runs April to March while this page is named after a
                     calendar month, so for January, February and March the two
                     disagree. A balance nobody can date is not a fact. */}
-                {register && (
+                {report && (
                   <p className="apex-text-subtle mt-0.5 text-[11px]">
-                    Leave balance: FY {register.leaveBalanceFinancialYear}
+                    {report.metadata.employees} employees · {report.metadata.days} days
+                    {report.metadata.unresolvedDays > 0 &&
+                      ` · ${report.metadata.unresolvedDays} unresolved`}
                   </p>
                 )}
               </div>
+              {/* ONE ACTION. There were two buttons rendering two different
+                  files from two different report stacks. */}
               <div className="flex gap-2">
                 <button
-                  onClick={() => download('xlsx')}
-                  disabled={!register || downloading !== null}
+                  onClick={() => download()}
+                  disabled={!report || downloading !== null}
                   className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-3 py-2 text-sm disabled:opacity-40"
                 >
-                  {downloading === 'xlsx' ? 'Preparing…' : 'Download Excel'}
-                </button>
-                <button
-                  onClick={() => download('csv')}
-                  disabled={!register || downloading !== null}
-                  className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-3 py-2 text-sm disabled:opacity-40"
-                >
-                  {downloading === 'csv' ? 'Preparing…' : 'Download CSV'}
+                  {downloading ? 'Preparing…' : 'Download Attendance'}
                 </button>
               </div>
             </div>
           </div>
 
-          {register && !register.calendarResolved && (
+{/* The canonical row says so per day rather than per month: an
+              unconfirmed calendar reads "Calendar not confirmed" on the day
+              itself, so uncertainty is visible where it applies instead of as a
+              banner over figures that may be fine. */}
+          {report && report.dailyRows.some((d) => d.attendanceStatus === 'Calendar not confirmed') && (
             <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
               <p className="text-xs text-amber-800 dark:text-amber-300">
-                No weekly-off policy could be resolved for this month, so weekends
-                are being counted as working days. The working-day total and every
-                percentage below it are unreliable until that is configured.
+                Some days could not be classified as working or non-working, so no
+                weekly-off policy resolved for them. Those rows read “Calendar not
+                confirmed” and are counted as unresolved rather than as absence.
               </p>
             </div>
           )}
@@ -469,43 +484,143 @@ export function AttendanceConsole() {
             </p>
           )}
 
-          {register && (
+{/* MONTHLY SUMMARY -- the approved 19 columns, rendered from the
+              canonical summary rows. Every figure is already decided
+              server-side; nothing here recomputes one. Leave Balance and
+              Attendance % are gone: neither is in the approved contract, and
+              both were derived by the retired register stack. */}
+          {report && (
             <div className="apex-card overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left text-sm">
+              <table className="w-full min-w-[1180px] text-left text-sm">
                 <thead>
                   <tr className="apex-text-subtle text-[11px] uppercase tracking-wide">
                     <th className="pb-2">Employee</th>
+                    <th className="pb-2">ID</th>
+                    <th className="pb-2">Department</th>
+                    <th className="pb-2">Designation</th>
+                    <th className="pb-2">Type</th>
+                    <th className="pb-2 text-right">Working</th>
                     <th className="pb-2 text-right">Present</th>
                     <th className="pb-2 text-right">Absent</th>
-                    <th className="pb-2 text-right">Half days</th>
-                    <th className="pb-2 text-right">Leave balance</th>
-                    <th className="pb-2 text-right">Late punch-ins</th>
-                    <th className="pb-2 text-right">Attendance %</th>
+                    <th className="pb-2 text-right">Half</th>
+                    <th className="pb-2 text-right">Leave</th>
+                    <th className="pb-2 text-right">Late</th>
+                    <th className="pb-2 text-right">&lt;9h</th>
+                    <th className="pb-2 text-right">Presence h</th>
+                    <th className="pb-2 text-right">Work h</th>
+                    <th className="pb-2 text-right">Break h</th>
+                    <th className="pb-2 text-right">CL</th>
+                    <th className="pb-2 text-right">LWP</th>
+                    <th className="pb-2 text-right">Deductions</th>
+                    <th className="pb-2 text-right">Unresolved</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {register.employees.map((e) => (
-                    <tr key={e.userId} className="border-t border-[var(--border-primary)]">
-                      <td className="apex-text py-2 font-medium">{e.name}</td>
-                      <td className="apex-text-muted py-2 text-right">{e.daysPresent}</td>
-                      <td className="apex-text-muted py-2 text-right">{e.daysAbsent}</td>
-                      <td className="apex-text-muted py-2 text-right">{e.halfDays}</td>
-                      <td className="apex-text-muted py-2 text-right">
-                        {formatBalance(e.leaveBalance)}
-                      </td>
-                      <td className="apex-text-muted py-2 text-right">{e.latePunchIns}</td>
-                      <td className="apex-text py-2 text-right">
-                        {formatCompletion(e.attendanceCompletionPercentage)}
+                  {report.summaryRows.map((s: MonthlyAttendanceSummaryRow) => (
+                    <tr key={s.userId} className="border-t border-[var(--border-primary)]">
+                      <td className="apex-text py-2 font-medium">{s.employeeName}</td>
+                      <td className="apex-text-muted py-2">{s.employeeId}</td>
+                      <td className="apex-text-muted py-2">{s.department}</td>
+                      <td className="apex-text-muted py-2">{s.designation}</td>
+                      <td className="apex-text-muted py-2">{s.employeeType}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.workingDays}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.presentDays}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.absentDays}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.halfDays}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.leaveDays}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.lateDays}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.daysBelowNineHours}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.totalPresenceHours}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.totalWorkHours}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.totalBreakHours}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.clUsed}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.lwpUnpaidDays}</td>
+                      <td className="apex-text-muted py-2 text-right">{s.attendanceDeductions}</td>
+                      {/* Marked in the table, not only in the file. */}
+                      <td
+                        className={`py-2 text-right ${
+                          s.unresolvedDays > 0 ? 'font-semibold text-amber-600' : 'apex-text-muted'
+                        }`}
+                      >
+                        {s.unresolvedDays}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {register.employees.length === 0 && (
+              {report.summaryRows.length === 0 && (
                 <p className="apex-text-muted py-6 text-center text-sm">
                   No employees in view.
                 </p>
               )}
+            </div>
+          )}
+
+          {/* DAILY ATTENDANCE -- the same canonical rows the workbook's first
+              sheet carries. A subset of the 26 columns is shown; the file holds
+              them all, and both come from this one fetch. */}
+          {report && report.dailyRows.length > 0 && (
+            <div className="apex-card overflow-x-auto">
+              <div className="mb-2 flex items-center justify-between gap-4">
+                <p className="apex-text text-sm font-semibold">Daily attendance</p>
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Filter by name or ID"
+                  className="apex-text rounded-lg border border-[var(--border-secondary)] bg-transparent px-2.5 py-1.5 text-sm"
+                />
+              </div>
+              <table className="w-full min-w-[1100px] text-left text-sm">
+                <thead>
+                  <tr className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                    <th className="pb-2">Employee</th>
+                    <th className="pb-2">Date</th>
+                    <th className="pb-2">Status</th>
+                    <th className="pb-2">In</th>
+                    <th className="pb-2">Out</th>
+                    <th className="pb-2">Presence</th>
+                    <th className="pb-2">Worked</th>
+                    <th className="pb-2">Break</th>
+                    <th className="pb-2">Late</th>
+                    <th className="pb-2">9h</th>
+                    <th className="pb-2">Missing</th>
+                    <th className="pb-2">Correction</th>
+                    <th className="pb-2">Source</th>
+                    <th className="pb-2">Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.dailyRows
+                    .filter((d: DailyAttendanceReportRow) =>
+                      search.trim() === ''
+                        ? true
+                        : d.employeeName.toLowerCase().includes(search.trim().toLowerCase()) ||
+                          d.employeeId.toLowerCase().includes(search.trim().toLowerCase()),
+                    )
+                    .map((d: DailyAttendanceReportRow) => (
+                      <tr
+                        key={`${d.userId}|${d.date}`}
+                        className="border-t border-[var(--border-primary)]"
+                      >
+                        <td className="apex-text py-2 font-medium">{d.employeeName}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.date}</td>
+                        <td className="apex-text py-2 text-xs">{d.attendanceStatus}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.punchIn}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.punchOut}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.totalPresenceTime}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.hoursWorked}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.breakTime}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.lateArrival}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.completion}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.missingPunch}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.manualCorrection}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.dataSource}</td>
+                        <td className="apex-text-muted py-2 text-xs">{d.remarks}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

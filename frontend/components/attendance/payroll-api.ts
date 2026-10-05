@@ -46,7 +46,6 @@ export interface PayrollPreview {
    * clock timestamps, so the same attendance rendered twice produces different
    * file bytes. What this identifies is the attendance itself.
    */
-  reportDataFingerprint: string;
   /** Size of the actual workbook. This one is about the file. */
   reportByteSize: number;
 }
@@ -62,8 +61,6 @@ export interface MonthClose {
   recipientEmail: string | null;
   sentAt: string | null;
   deliveryStatus: string | null;
-  /** Fingerprint of the finalized Attendance data. Not a file checksum. */
-  reportDataFingerprint: string | null;
   /** Size of the workbook that was generated and sent. */
   reportByteSize: number | null;
 }

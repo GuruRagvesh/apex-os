@@ -1,0 +1,24 @@
+-- Remove DailyAttendance.policyVersion.
+--
+-- A DUPLICATE, PROVEN DEAD BEFORE REMOVAL.
+--
+-- It held String(attendancePolicyVersion) -- a stringified copy of an Int
+-- column on the same row. Written at exactly one site in
+-- DailyAttendanceEvaluatorService and read NOWHERE: zero references across
+-- backend/src, backend/test, frontend, platforms and shared. See
+-- docs/architecture/ATTENDANCE_CANONICALIZATION_AUDIT.md section 2.
+--
+-- The surviving provenance is attendancePolicyId + attendancePolicyVersion,
+-- which is what the evaluator actually uses to prove which policy decided a day
+-- and what the report service reads to resolve a historical requirement.
+--
+-- NOT THE SAME FIELD as AttendanceEvent.policyVersion. That is a different
+-- column on a different model, it has NOT been audited, and it is deliberately
+-- left in place.
+--
+-- SEQUENCING. The application stopped writing this column in the same commit
+-- that adds this migration, so applying it against a database still running the
+-- previous build is safe -- nothing read it either way. Apply on staging first
+-- and confirm `prisma migrate status` is clean before production.
+
+ALTER TABLE "daily_attendance" DROP COLUMN "policyVersion";

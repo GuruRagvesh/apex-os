@@ -1,29 +1,23 @@
-import { createHash } from 'crypto';
+import { type MonthlyAttendanceSummaryRow } from '../canonical/attendance-report';
+import {
+  attendanceWorkbookFilename,
+  buildAttendanceWorkbook,
+  workbookToBuffer,
+} from '../canonical/attendance-workbook';
+import { AttendanceReportService } from '../canonical/attendance-report.service';
 import {
   BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { AccessPolicyService } from '../../../../common/services/access-policy.service';
 import { EventLoggerService } from '../../../../common/services/event-logger.service';
 import { SettingsService } from '../../settings/settings.service';
 import { EmailService } from '../../email/email.service';
-import {
-  monthTotals,
-  summarise,
-  toRegisterRow,
-  type DayFacts,
-  type EmployeeMeta,
-} from './payroll-aggregation';
-import {
-  buildPayrollWorkbook,
-  reportFingerprint,
-  workbookFilename,
-  workbookToBuffer,
-} from './payroll-workbook';
 import { lockAttendanceMonth } from '../evaluation/attendance-month-lock';
 
 /**
@@ -60,16 +54,19 @@ export interface ReportRecipients {
 /**
  * The close row as every caller outside this module sees it.
  *
- * The stored column is `reportSha256`, which is a V1 legacy name: the value is
- * the SHA-256 of the canonical report DATA, not of the .xlsx file. The name is
- * renamed here, once, at the boundary -- so a UI, a log line or somebody
- * reading an audit trail in six months cannot reasonably conclude it
- * identifies the exact attachment bytes, because it does not.
+ * `reportSha256` is a legacy column that is no longer written or read, and it
+ * is STRIPPED here rather than renamed and surfaced: nothing maintains it any
+ * more, and exposing a stale digest would invite somebody to trust it.
+ *
+ * THE STRIP OUTLIVES THE COLUMN ON PURPOSE. The drop migration and this code
+ * can deploy in either order, and between them the column still exists -- so
+ * discarding it here is what makes that window safe rather than a window in
+ * which a dead digest reappears in an API response.
  */
 export function toCloseView(row: any) {
   if (!row) return null;
-  const { reportSha256, ...rest } = row;
-  return { ...rest, reportDataFingerprint: reportSha256 ?? null };
+  const { reportSha256: _legacy, ...rest } = row;
+  return rest;
 }
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -78,13 +75,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export interface PreviewResult {
   month: string;
   status: string;
-  totals: ReturnType<typeof monthTotals>;
-  summaries: ReturnType<typeof summarise>[];
-  /**
-   * SHA-256 of the canonical report DATA -- see reportFingerprint(). Named so
-   * it cannot be mistaken for a digest of the workbook the caller downloads.
-   */
-  reportDataFingerprint: string;
+  totals: {
+    employees: number;
+    days: number;
+    unresolvedDays: number;
+    manualRecoveryDays: number;
+    employeesWithUnresolved: number;
+  };
+  /** The canonical 19-column summary rows. */
+  summaries: MonthlyAttendanceSummaryRow[];
   /** Size of the actual .xlsx that would be downloaded or sent. */
   reportByteSize: number;
 }
@@ -108,6 +107,7 @@ export class PayrollReportService {
     private readonly eventLogger: EventLoggerService,
     private readonly settings: SettingsService,
     private readonly email: EmailService,
+    private readonly attendanceReport: AttendanceReportService,
   ) {}
 
   private assertHr(actor: any) {
@@ -129,89 +129,6 @@ export class PayrollReportService {
     return { from, to: `${month}-${String(last).padStart(2, '0')}` };
   }
 
-  /**
-   * Gathers the month's facts.
-   *
-   * Punch sources come from the evidence rows rather than being inferred: a
-   * manual recovery, a phone punch and a web punch are three different claims
-   * about how attendance was established, and Finance is entitled to see which.
-   */
-  private async gather(month: string) {
-    const { from, to } = this.bounds(month);
-    const gte = this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`));
-    const lte = this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`));
-
-    const employees = await this.prisma.user.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        name: true,
-        employeeId: true,
-        department: { select: { name: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
-    const ids = employees.map((e) => e.id);
-
-    const [records, evidence, regularizations, leaves] = await Promise.all([
-      this.prisma.dailyAttendance.findMany({
-        where: { userId: { in: ids }, date: { gte, lte } },
-        orderBy: [{ userId: 'asc' }, { date: 'asc' }],
-      }),
-      this.prisma.attendancePunchEvidence.findMany({
-        where: { userId: { in: ids }, businessDate: { gte, lte } },
-        select: { id: true, source: true },
-      }),
-      this.prisma.attendanceRegularization.findMany({
-        where: { userId: { in: ids }, date: { gte, lte } },
-        select: { id: true, entrySource: true },
-      }),
-      this.prisma.leaveRequest.findMany({
-        where: { userId: { in: ids }, status: 'APPROVED' },
-        select: { id: true, type: true },
-      }),
-    ]);
-
-    const sourceById = new Map(evidence.map((e) => [e.id, e.source as string]));
-    const recoveryIds = new Set(
-      regularizations.filter((r) => r.entrySource === 'MANUAL_RECOVERY').map((r) => r.id),
-    );
-    const leaveTypeById = new Map(leaves.map((l) => [l.id, l.type as string]));
-
-    const meta: EmployeeMeta[] = employees.map((e) => ({
-      id: e.id,
-      employeeId: e.employeeId,
-      name: e.name,
-      department: e.department?.name ?? null,
-    }));
-
-    const facts: DayFacts[] = records.map((r) => ({
-      userId: r.userId,
-      date: r.date.toISOString().slice(0, 10),
-      status: r.status,
-      evaluationState: r.evaluationState,
-      punchInAt: r.punchInAt?.toISOString() ?? null,
-      punchOutAt: r.punchOutAt?.toISOString() ?? null,
-      punchInSource: r.punchInEvidenceId ? (sourceById.get(r.punchInEvidenceId) ?? null) : null,
-      punchOutSource: r.punchOutEvidenceId ? (sourceById.get(r.punchOutEvidenceId) ?? null) : null,
-      workedMinutes: r.workedMinutes,
-      breakMinutes: r.breakMinutes,
-      lateMinutes: r.lateMinutes,
-      leaveDeducted: r.leaveDeducted,
-      lwpDeducted: r.lwpDeducted,
-      leaveType: r.leaveRequestId ? (leaveTypeById.get(r.leaveRequestId) ?? null) : null,
-      exceptionFlags: r.exceptionFlags ?? [],
-      regularizationId: r.lastRegularizationId ?? null,
-      viaManualRecovery: r.lastRegularizationId
-        ? recoveryIds.has(r.lastRegularizationId)
-        : false,
-      // Session span is not stored on the record; the register reports it as
-      // unavailable rather than substituting worked minutes for it.
-      sessionSpanMinutes: null,
-    }));
-
-    return { meta, facts };
-  }
 
   /**
    * Builds the workbook and its hash.
@@ -220,42 +137,60 @@ export class PayrollReportService {
    * send time the file is rebuilt and compared, so data that changed after
    * finalisation is caught rather than quietly delivered.
    */
-  private async render(month: string, close: any, actorLabel: string) {
-    const { meta, facts } = await this.gather(month);
-    const byUser = new Map<string, DayFacts[]>();
-    for (const f of facts) {
-      const list = byUser.get(f.userId) ?? [];
-      list.push(f);
-      byUser.set(f.userId, list);
-    }
-
-    const summaries = meta.map((e) => summarise(e, byUser.get(e.id) ?? []));
-    const register = meta.flatMap((e) =>
-      (byUser.get(e.id) ?? []).map((d) => toRegisterRow(e, d, 540)),
+  /**
+   * The month, rendered for the Finance lifecycle.
+   *
+   * CONSUMES THE CANONICAL DATASET. It previously called its own gather() and
+   * payroll-aggregation's summarise()/toRegisterRow() -- a second, independent
+   * attendance interpretation -- so finalize and send were anchored to a
+   * different engine from the one the console displayed. One dataset now feeds
+   * the console, the user download and this.
+   *
+   * The Finance artifact IS the approved two-sheet workbook. There is no
+   * separate Finance format, because a second builder would be a second place
+   * attendance could be decided.
+   */
+  private async render(month: string, close: any, actor: any) {
+    const report = await this.attendanceReport.monthReport(
+      // THE REAL ACTOR, NOT A FABRICATED ONE.
+      //
+      // This used to pass `{ role: { name: 'HR' }, id: actorLabel }` -- a shape
+      // built to look authorised rather than to be it. Apex OS has no HR role:
+      // authority is `isHR` on the account, or ADMIN / SUPER_ADMIN, and
+      // AccessPolicyService.isHrOrAdmin() is the only thing that decides. A
+      // literal named "HR" satisfies neither, so monthReport() refused every
+      // finalize and send with "Only HR can read the attendance report".
+      //
+      // Every caller of this method has already passed assertHr(actor), which
+      // consults the same predicate monthReport() uses. Handing the genuine
+      // actor over therefore changes no outcome for an authorised caller and
+      // keeps the inner check meaningful instead of routing around it.
+      //
+      // THE ACTOR NEVER REACHES THE OUTPUT. It is an authorisation input only:
+      // nothing about who rendered the month appears in the workbook or its
+      // metadata, so two authorised people rendering the same finalized month
+      // still produce identical bytes. That is what the note below depends on.
+      actor,
+      month,
+      // Finalization and delivery must describe the same data, so the instant
+      // is pinned to the stored close row rather than the clock. A live clock
+      // would print a different "generated at" on every download of an
+      // already-closed month, and the bytes would differ each time.
+      close?.finalizedAt ?? new Date(0),
     );
 
-    const wb = buildPayrollWorkbook({
-      month,
-      companyLabel: 'TechnoEdge',
-      summaries,
-      register,
-      // Fixed for a finalized month so the cover sheet reads the same however
-      // often it is regenerated; a live clock would print a different
-      // "generated at" on every download of an already-closed month.
-      generatedAt: close?.finalizedAt ?? new Date(0),
-      generatedBy: actorLabel,
-      finalizedAt: close?.finalizedAt ?? null,
-      finalizedBy: close?.finalizedBy?.name ?? null,
-    });
+    const buffer = await workbookToBuffer(buildAttendanceWorkbook(report));
 
-    const buffer = await workbookToBuffer(wb);
     return {
       buffer,
-      summaries,
-      totals: monthTotals(summaries, facts),
-      // Over the DATA, not the file bytes: an XLSX is a ZIP and its entry
-      // headers carry clock timestamps, so file hashes are not reproducible.
-      dataFingerprint: reportFingerprint({ month, summaries, register }),
+      summaries: report.summaryRows,
+      totals: {
+        employees: report.metadata.employees,
+        days: report.metadata.days,
+        unresolvedDays: report.metadata.unresolvedDays,
+        manualRecoveryDays: 0,
+        employeesWithUnresolved: report.metadata.employeesWithUnresolved,
+      },
     };
   }
 
@@ -268,13 +203,46 @@ export class PayrollReportService {
    * differ by a name and the guard fired on every send.
    *
    * Reading the row both times removes the possibility by construction.
+   *
+   * The actor passed through is an authorisation input and nothing else -- see
+   * render(). It is deliberately NOT used to label the output, because that is
+   * exactly the "differ by a name" failure this method exists to prevent.
+   *
+   * `tx` IS NOT OPTIONAL DECORATION WHEN THE CALLER HAS ONE.
+   *
+   * finalize() writes the FINALIZED row through its transaction and then calls
+   * this. Prisma gives an interactive transaction its own connection and the
+   * root client a different pooled one -- the same fact finalize() already
+   * relies on further down to explain why delivery must happen after commit --
+   * so at READ COMMITTED a root read here cannot see that uncommitted write.
+   *
+   * It did exactly that. On a brand-new month the root read returned null and
+   * `close?.finalizedAt ?? new Date(0)` rendered the workbook stamped
+   * 1970-01-01; on a re-finalize after reopen() it returned the previous
+   * committed row and rendered with the PREVIOUS finalizedAt, which is the
+   * worse case because it looks plausible. The stored reportByteSize then
+   * described a file nobody receives, because send() runs after commit, reads
+   * the committed row and emails a correctly dated -- and differently sized --
+   * workbook.
+   *
+   * The authorization bug above hid this: every finalize threw Forbidden
+   * before reaching here. No unit test can catch it either, because the suite
+   * mocks $transaction as `fn => fn(prisma)`, which makes tx and the root
+   * client the same object. It is pinned by a PostgreSQL-backed test instead.
    */
-  private async renderCanonical(month: string) {
-    const close = await this.prisma.attendanceMonthClose.findUnique({
+  private async renderCanonical(
+    month: string,
+    actor: any,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? this.prisma;
+
+    const close = await client.attendanceMonthClose.findUnique({
       where: { month },
       include: { finalizedBy: { select: { name: true } } },
     });
-    return this.render(month, close, (close as any)?.finalizedBy?.name ?? 'HR');
+
+    return this.render(month, close, actor);
   }
 
   /** A preview. Generating one changes no official state beyond REVIEWING. */
@@ -286,7 +254,7 @@ export class PayrollReportService {
       where: { month },
       include: { finalizedBy: { select: { name: true } } },
     });
-    const rendered = await this.render(month, close, actor?.name ?? 'HR');
+    const rendered = await this.render(month, close, actor);
 
     // Looking at a month moves it out of OPEN, which is how the UI can show
     // that somebody has begun the close. It never moves it forward from
@@ -314,7 +282,6 @@ export class PayrollReportService {
       status: close?.status ?? 'REVIEWING',
       totals: rendered.totals,
       summaries: rendered.summaries,
-      reportDataFingerprint: rendered.dataFingerprint,
       reportByteSize: rendered.buffer.length,
     };
   }
@@ -328,11 +295,11 @@ export class PayrollReportService {
       where: { month },
       include: { finalizedBy: { select: { name: true } } },
     });
-    const rendered = await this.render(month, close, actor?.name ?? 'HR');
+    const rendered = await this.render(month, close, actor);
 
     return {
       buffer: rendered.buffer,
-      filename: workbookFilename(month, Boolean(close?.finalizedAt)),
+      filename: attendanceWorkbookFilename(month),
     };
   }
 
@@ -354,21 +321,32 @@ export class PayrollReportService {
     await this.prisma.$transaction(async (tx) => {
     // THE MONTH IS HELD FOR THE WHOLE CLOSE.
     //
-    // Not a formality. Between marking the month FINALIZED and fingerprinting
-    // the render of it, a correction committing in that window would be
-    // included in the fingerprint -- so the digest would match attendance that
-    // changed after the month was declared closed, and send()'s staleness
-    // check would pass on a report it should have refused. Holding the month
-    // across both statements is what makes the fingerprint mean what it says.
+    // Not a formality, and the reason has changed. It used to be that a
+    // correction committing between the status write and the fingerprinting of
+    // the render would be digested into a figure that then matched attendance
+    // changed after the month was closed. There is no fingerprint now.
+    //
+    // What the lock does today is make the seal atomic. The instant this
+    // transaction commits FINALIZED, every correction path is refused by it --
+    // reviseForApprovedCorrection() reads the month under this same lock. A
+    // correction already inside the lock queue when finalization starts either
+    // lands before the seal or is refused by it, and nothing lands in the gap,
+    // because there is no gap to land in.
     await lockAttendanceMonth(tx, month);
 
     const existing = await tx.attendanceMonthClose.findUnique({ where: { month } });
     if (existing?.status === 'FINALIZED' || existing?.status === 'SENT') {
-      // Reopening a finalized month is not designed for V1. Failing closed is
-      // correct: silently re-finalising would change what Finance was told was
-      // approved, with no record that it happened.
+      // STILL REFUSED HERE, BUT NO LONGER A DEAD END.
+      //
+      // Re-finalizing in place would change what Finance was told was approved
+      // with no record that it happened, which is the thing being prevented.
+      // The route through is reopen(): it records who unsealed the month and
+      // why, moves it to REOPENED, and a REOPENED month reaches this line with
+      // a status that is neither FINALIZED nor SENT -- so the second
+      // finalization is permitted, and the reopen stays on the row.
       throw new ForbiddenException(
-        `${month} is already ${existing.status.toLowerCase()}. Reopening a finalized month is not supported.`,
+        `${month} is already ${existing.status.toLowerCase()}. Reopen it first, with a reason, ` +
+          'if its attendance has to be corrected.',
       );
     }
 
@@ -385,7 +363,7 @@ export class PayrollReportService {
       update: marked,
     });
 
-    const rendered = await this.renderCanonical(month);
+    const rendered = await this.renderCanonical(month, actor, tx);
 
     const close = await tx.attendanceMonthClose.update({
       where: { month },
@@ -393,8 +371,6 @@ export class PayrollReportService {
         employeeCount: rendered.totals.employees,
         unresolvedDays: rendered.totals.unresolvedDays,
         employeesWithUnresolved: rendered.totals.employeesWithUnresolved,
-        // Column name is V1 legacy; the value is the DATA fingerprint.
-        reportSha256: rendered.dataFingerprint,
         // This one really is about the file: the size of the .xlsx built above.
         reportByteSize: rendered.buffer.length,
       },
@@ -412,8 +388,7 @@ export class PayrollReportService {
           month,
           employees: rendered.totals.employees,
           unresolvedDays: rendered.totals.unresolvedDays,
-          reportDataFingerprint: rendered.dataFingerprint,
-        },
+            },
       })
       .catch(() => {});
     },
@@ -430,9 +405,13 @@ export class PayrollReportService {
     // timeout. A deadlock built out of two correct-looking functions.
     //
     // Committing first is also the honest order: finalization is complete and
-    // durable before anything is emailed, and if a correction slips in between
-    // the two, send() re-renders under its own lock and refuses the now-stale
-    // report. That refusal is the system working.
+    // durable before anything is emailed.
+    //
+    // A correction can no longer slip in between the two. This used to be
+    // covered by send() re-rendering and refusing a report that no longer
+    // matched its fingerprint; the protection now sits earlier, because the
+    // committed FINALIZED status itself refuses every correction path. The
+    // window the fingerprint was watching is closed rather than monitored.
     //
     // Best-effort on purpose. A send failure must not undo a finalization that
     // is already correct, so it is recorded as FAILED and left retryable rather
@@ -444,6 +423,106 @@ export class PayrollReportService {
     }
 
     return this.status(actor, month);
+  }
+
+  /**
+   * Unseals a finalized month so its attendance can be corrected.
+   *
+   * THE DELIBERATE STEP THAT REPLACED A HASH.
+   *
+   * Finalization is the seal: once a month is FINALIZED, every correction path
+   * refuses it -- the evaluator, regularization approval, the importer. This is
+   * the only way past that, and it is built to leave a mark. Who, when, why,
+   * and how many times, all on the close row, none of it cleared by the
+   * re-finalization that follows.
+   *
+   * WHY A REASON IS MANDATORY. A reopen with no reason is the one a payroll
+   * dispute six months later cannot answer. It is enforced here rather than by
+   * a NOT NULL column, because months reopened before this existed have no
+   * reason and must not be invented one.
+   *
+   * THE LENGTH FLOOR PROVES A REASON WAS TYPED, NOT THAT IT IS A GOOD ONE. It
+   * rejects a blank, whitespace and a one-word dismissal; it cannot tell a real
+   * explanation from a plausible-length non-answer, and no length rule could.
+   * The text is kept on the row and in the audit event so the quality of it is
+   * reviewable by a person, which is the only thing that can judge it.
+   *
+   * SENT IS REOPENABLE, AND THAT IS NOT AN OVERSIGHT. Finance is already
+   * holding that report, so the correction will make Apex OS disagree with a
+   * document somebody is working from -- which is a real need (a genuine error
+   * does not stop being an error once it has been emailed) that must be
+   * deliberate and recorded. The reopen records the status it came from, so
+   * "this month was already with Finance when it was reopened" stays answerable
+   * afterwards. Telling Finance is a human step this cannot perform.
+   *
+   * DOES NOT TOUCH A SINGLE ATTENDANCE ROW. It changes only the month's state.
+   * Corrections are then made through the ordinary reviewed paths, each with
+   * its own audit trail, rather than by anything bulk hidden inside a reopen.
+   */
+  async reopen(actor: any, month: string, reason: string) {
+    this.assertHr(actor);
+    this.assertMonth(month);
+
+    const stated = (reason ?? '').trim();
+    if (stated.length < 10) {
+      throw new BadRequestException(
+        'Give a reason for reopening this month. It is recorded against the month close and is ' +
+          'what a later payroll query will be answered from.',
+      );
+    }
+
+    const reopened = await this.prisma.$transaction(async (tx) => {
+      // The same lock finalize() and the correction path take. Without it, a
+      // reopen could commit while a finalization is mid-flight and the month
+      // would end up FINALIZED with a reopen recorded against it -- a row
+      // saying it was unsealed, in a state saying it was not.
+      await lockAttendanceMonth(tx, month);
+
+      const existing = await tx.attendanceMonthClose.findUnique({ where: { month } });
+      if (!existing) {
+        throw new NotFoundException(`${month} has never been closed, so there is nothing to reopen`);
+      }
+      if (existing.status !== 'FINALIZED' && existing.status !== 'SENT') {
+        // OPEN, REVIEWING and REOPENED are all already correctable. Reopening
+        // them would be a no-op that nonetheless wrote a reopen record, which
+        // would make the audit trail claim something happened that did not.
+        throw new ForbiddenException(
+          `${month} is ${existing.status.toLowerCase()} and already accepts corrections. ` +
+            'Only a finalized or sent month needs reopening.',
+        );
+      }
+
+      return tx.attendanceMonthClose.update({
+        where: { month },
+        data: {
+          status: 'REOPENED',
+          reopenedById: actor?.id ?? actor?.sub,
+          reopenedAt: this.tva.now(),
+          reopenReason: stated,
+          // Incremented, never reset. A month reopened three times is a
+          // different story from one reopened once, and payroll should be able
+          // to see which it is looking at.
+          reopenCount: { increment: 1 },
+        },
+      });
+    });
+
+    this.eventLogger
+      .log({
+        actorId: actor?.id ?? actor?.sub,
+        entityType: 'AttendanceMonthClose',
+        entityId: month,
+        action: 'PAYROLL_MONTH_REOPENED',
+        // The state it came FROM is the significant part: reopening a month
+        // Finance already received is a materially different act from reopening
+        // one that was merely finalized, and the audit row has to say which.
+        fromState: 'FINALIZED_OR_SENT',
+        toState: 'REOPENED',
+        metadata: { month, reason: stated, reopenCount: reopened.reopenCount },
+      })
+      .catch(() => {});
+
+    return toCloseView(reopened);
   }
 
   /**
@@ -492,11 +571,19 @@ export class PayrollReportService {
   /**
    * Delivers the finalized workbook to Finance.
    *
-   * Explicit: nothing here runs on a schedule. The report is rebuilt and its
-   * DATA fingerprint compared against what was finalized, so attendance
-   * corrected after finalisation is caught rather than delivered under the old
-   * approval. The question is whether the attendance changed, never whether
-   * two ZIP writers happened to agree on a timestamp.
+   * Explicit: nothing here runs on a schedule. The report is rebuilt from the
+   * canonical month at send time.
+   *
+   * NO STALENESS CHECK HERE, AND NONE IS NEEDED NOW. This used to re-render and
+   * compare a DATA fingerprint against the one captured at finalization, to
+   * catch attendance corrected after approval. That comparison is gone, and so
+   * is the thing it was catching: a FINALIZED month refuses corrections
+   * outright, so a rebuild cannot differ from what was approved unless somebody
+   * explicitly reopened the month -- and a reopened month is not FINALIZED, so
+   * it cannot be sent at all until it is finalized again.
+   *
+   * The guarantee is the same. It is enforced by business state a person can
+   * read off the row rather than by a digest nobody could interpret.
    *
    * A failed send leaves the month FINALIZED with deliveryStatus FAILED. It is
    * never recorded as SENT, so a retry is possible and the record never claims
@@ -543,14 +630,22 @@ export class PayrollReportService {
       );
     }
 
-    const rendered = await this.renderCanonical(month);
-    // close.reportSha256 is the stored DATA fingerprint (V1 column name).
-    if (close.reportSha256 && rendered.dataFingerprint !== close.reportSha256) {
-      throw new ForbiddenException(
-        'Attendance has changed since this month was finalized, so the report no longer matches ' +
-          'what was approved. Re-finalizing a closed month is not supported in this version.',
-      );
-    }
+    const rendered = await this.renderCanonical(month, actor, tx);
+    // NO CRYPTOGRAPHIC GUARD HERE ANY MORE.
+    //
+    // This compared a stored digest of the finalized attendance against a fresh
+    // one and refused the send when they differed. Finalization is plain
+    // business state now -- FINALIZED, with who and when -- so what remains is
+    // the month lock taken above plus the status checks: an unfinalized month
+    // cannot be sent, and an already-sent month is refused locally before the
+    // provider is reached.
+    //
+    // WHAT THIS GIVES UP, STATED PLAINLY: a correction committed after
+    // finalization and before sending is no longer detected, so Finance could
+    // receive a register differing from the one HR approved. The month lock
+    // narrows that window to the send itself rather than closing it. Removing
+    // the digest was an explicit product decision; this note exists so the
+    // trade is visible to whoever reads the path next.
 
     // THE ATTEMPT IS RECORDED BEFORE THE PROVIDER IS CONTACTED, NOT AFTER.
     //
@@ -573,12 +668,12 @@ export class PayrollReportService {
     const filename = attachmentFileName(month);
 
     // Identifies the REPORT, not the attempt: the month close plus the
-    // fingerprint of the attendance it was finalized from. A retry of the same
-    // report therefore presents the same key. Generating a fresh id per attempt
-    // is the bug this exists to prevent.
+    // finalization timestamp. A retry of the same finalized month therefore
+    // presents the same key. Generating a fresh id per attempt is the bug this
+    // exists to prevent.
     const idempotencyKey = idempotencyKeyFor({
       monthCloseId: close.id,
-      reportSha256: close.reportSha256,
+      finalizedAt: close.finalizedAt,
     });
 
     // The transport is written to classify its own failures and never throw.
@@ -642,7 +737,6 @@ export class PayrollReportService {
           month,
           to: people.to,
           cc: people.cc,
-          reportDataFingerprint: close.reportSha256,
           // The outcome as the provider left it, and the key that identifies
           // this report -- so a duplicate investigation can be answered from
           // the event stream rather than from the mail provider's dashboard.

@@ -19,7 +19,7 @@
  * WHAT IT SERIALIZES
  *
  *   reviseForApprovedCorrection()   the only writer of an official revision
- *   payrollReport.finalize()        month -> FINALIZED + report fingerprint
+ *   payrollReport.finalize()        month -> FINALIZED
  *   payrollReport.send()            report delivered, month -> SENT
  *
  * All three take this lock for the month they concern. Two months never block

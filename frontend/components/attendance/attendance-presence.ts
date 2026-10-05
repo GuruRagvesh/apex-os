@@ -21,7 +21,19 @@
  * to review, and the UI's job is to explain why, not to reconcile it away.
  */
 
-export const REQUIRED_PRESENCE_MINUTES = 540;
+/**
+ * THERE IS NO REQUIREMENT CONSTANT HERE ANY MORE, AND THAT IS THE POINT.
+ *
+ * This file held 540 and compared presence against it, which made the browser
+ * the judge of whether a day met the nine-hour requirement -- a judgement free
+ * to disagree with the evaluator, with nothing able to notice. It had already
+ * been wrong once: the comparison ran on ROUNDED minutes, so 08:59:59 rounded
+ * to 540 and the day passed one second short.
+ *
+ * The requirement and the verdict now come from the server on the day payload,
+ * decided beside the shortfall exception that uses the same comparison. This
+ * module formats and explains them; it does not decide them.
+ */
 
 export type EvidenceCoverage = 'FULL' | 'PARTIAL' | 'NONE';
 
@@ -39,13 +51,26 @@ export interface PresenceInput {
   sessionCount: number;
   /** Sessions with no punch evidence attached to them. */
   unevidencedSessions: number;
+
+  /**
+   * THE SERVER'S VERDICT, PASSED THROUGH. Not recomputed here.
+   *
+   * All three come from the day payload: the requirement the evaluator
+   * resolved, the presence it measured, and whether it was met. Null means the
+   * server could not answer -- an unfinished day, or one with no requirement
+   * because it is not an attendance situation at all.
+   */
+  requiredPresenceMinutes: number | null;
+  serverPresenceMinutes: number | null;
+  meetsRequirement: boolean | null;
 }
 
 export interface PresenceAssessment {
-  /** Punch out − punch in. Null until BOTH punches exist. */
+  /** Punch out − punch in, as the server measured it. Null until both exist. */
   presenceMinutes: number | null;
-  requiredMinutes: number;
-  /** Null while presence is unknown — an absent answer, not a failing one. */
+  /** Null when the day has no requirement, which is not the same as zero. */
+  requiredMinutes: number | null;
+  /** The server's verdict. Null while presence is unknown — absent, not failing. */
   meetsRequirement: boolean | null;
   /** Operational only. Never compared against the requirement. */
   workedMinutes: number;
@@ -65,8 +90,11 @@ function minutesBetween(a: string | null, b: string | null): number | null {
 }
 
 export function assessPresence(input: PresenceInput): PresenceAssessment {
-  // Policy definition. Deliberately the ONLY thing that feeds presence.
-  const presenceMinutes = minutesBetween(input.punchInAt, input.punchOutAt);
+  // THE SERVER'S FIGURE WHEN IT HAS ONE. The local span is kept only as a
+  // fallback for rendering a day the server has not measured yet -- it is
+  // never compared against anything here.
+  const presenceMinutes =
+    input.serverPresenceMinutes ?? minutesBetween(input.punchInAt, input.punchOutAt);
   const sessionSpanMinutes = minutesBetween(input.firstSessionStart, input.lastSessionEnd);
 
   const coverage: EvidenceCoverage =
@@ -90,11 +118,10 @@ export function assessPresence(input: PresenceInput): PresenceAssessment {
 
   return {
     presenceMinutes,
-    requiredMinutes: REQUIRED_PRESENCE_MINUTES,
-    // Unknown stays unknown: an incomplete day has not failed the requirement,
-    // it simply has not answered it yet.
-    meetsRequirement:
-      presenceMinutes === null ? null : presenceMinutes >= REQUIRED_PRESENCE_MINUTES,
+    requiredMinutes: input.requiredPresenceMinutes,
+    // PASSED THROUGH, NOT DECIDED. Unknown stays unknown: an incomplete day
+    // has not failed the requirement, it simply has not answered it yet.
+    meetsRequirement: input.meetsRequirement,
     workedMinutes: input.workedMinutes,
     sessionSpanMinutes,
     sessionCount: input.sessionCount,

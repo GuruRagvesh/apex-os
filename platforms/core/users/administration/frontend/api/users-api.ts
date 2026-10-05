@@ -85,6 +85,35 @@ export const usersApi = {
   verifyDocument: (userId: string, docId: string, status: string, rejectionReason?: string) =>
     r(api.patch(`/users/${userId}/documents/${docId}/verify`, { status, rejectionReason })),
   permanentDelete: (id: string) => r(api.delete(`/users/${id}/permanent`)),
+
+  /**
+   * Archive the employee to Google Drive, verify the archive arrived, then
+   * delete them. One call, because the stages must not be separable: a client
+   * that could invoke the delete alone could delete without archiving.
+   *
+   * Returns where the archive went, so an administrator can find it later.
+   */
+  /**
+   * Whether this environment permits Archive & Delete at all.
+   *
+   * Used only to hide a button that cannot work. The delete endpoint
+   * re-decides it, so a stale or ignored answer changes nothing.
+   */
+  archiveDeleteAvailability: () =>
+    r(api.get('/users/archive-delete/availability')) as Promise<{ enabled: boolean }>,
+
+  archiveDelete: (id: string) =>
+    r(api.delete(`/users/${id}/archive-delete`)) as Promise<{
+      deleted: boolean;
+      formerUserId: string;
+      displayName: string;
+      employeeId: string | null;
+      driveFileId: string;
+      driveFileName: string;
+      archiveBytes: number;
+      archiveChecksum: string;
+      deletedAt: string;
+    }>,
   archiveAfterBackup: (id: string, data: { confirmBackupDownloaded: true }) =>
     r(api.post(`/users/${id}/archive-after-backup`, data)),
 };

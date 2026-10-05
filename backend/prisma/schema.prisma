@@ -118,6 +118,7 @@ model User {
   punchHandoffs             AttendancePunchHandoff[]
   createdRegularizations    AttendanceRegularization[]     @relation("RegularizationCreator")
   finalizedMonthCloses      AttendanceMonthClose[]         @relation("MonthCloseFinalizer")
+  reopenedMonthCloses       AttendanceMonthClose[]         @relation("MonthCloseReopener")
 
   @@index([departmentId])
   @@index([roleId])
@@ -251,7 +252,8 @@ model Ticket {
   projectId              String?
   departmentId           String?
   assignedToId           String?
-  createdById            String
+  createdById            String?
+  formerCreatorId        String?
   dueDate                DateTime?
   resolvedAt             DateTime?
   createdAt              DateTime         @default(now())
@@ -300,7 +302,7 @@ model Ticket {
   timeLogs               TicketTimeLog[]
   watchers               TicketWatcher[]
   assignedTo             User?            @relation("TicketAssignee", fields: [assignedToId], references: [id])
-  createdBy              User             @relation("TicketCreator", fields: [createdById], references: [id])
+  createdBy              User?            @relation("TicketCreator", fields: [createdById], references: [id])
   approver               User?            @relation("TicketApprover", fields: [approverId], references: [id])
   department             Department?      @relation(fields: [departmentId], references: [id])
   requestingDepartment   Department?      @relation("TicketRequestingDepartment", fields: [requestingDepartmentId], references: [id])
@@ -334,6 +336,7 @@ model Ticket {
   @@index([approverId])
   @@index([status, approvalState])
   @@map("tickets")
+  formerCreator          FormerEmployee?  @relation("TicketFormerCreator", fields: [formerCreatorId], references: [id], onDelete: Restrict)
 }
 
 model TicketAssignee {
@@ -366,14 +369,16 @@ model Comment {
   id        String   @id @default(cuid())
   content   String
   ticketId  String
-  authorId  String
+  authorId  String?
+  formerAuthorId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  author    User     @relation(fields: [authorId], references: [id])
+  author    User?    @relation(fields: [authorId], references: [id])
   ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([ticketId])
   @@map("comments")
+  formerAuthor FormerEmployee? @relation("CommentFormerAuthor", fields: [formerAuthorId], references: [id], onDelete: Restrict)
 }
 
 model Attachment {
@@ -392,6 +397,14 @@ model Attachment {
   /// ownership was recorded: those are "legacy protected" (never deletable
   /// through the normal API). Never guessed or backfilled.
   uploadedById  String?
+  /// Who uploaded it, after their account was deleted. See FormerEmployee.
+  ///
+  /// NOTE: clearing uploadedById also makes this attachment "legacy
+  /// protected" by this model's own rule -- a null uploader is never
+  /// deletable through the normal API. For evidence whose owner has left
+  /// that is the safe direction, and it is a deliberate consequence
+  /// rather than one nobody noticed.
+  formerUploaderId String?
   purpose       AttachmentPurpose @default(GENERAL)
   /// The review cycle a proof of completion (POC) or a reviewer's feedback
   /// file belongs to. Null for reference/general files and for a POC that was
@@ -410,6 +423,7 @@ model Attachment {
   @@index([uploadedById])
   @@index([reviewCycleId])
   @@map("attachments")
+  formerUploader FormerEmployee? @relation("AttachmentFormerUploader", fields: [formerUploaderId], references: [id], onDelete: Restrict)
 }
 
 /// What an attachment is for. Ownership and locking, not purpose, decide who
@@ -491,19 +505,21 @@ model Notification {
 
 model ActivityLog {
   id         String   @id @default(cuid())
-  userId     String
+  userId     String?
+  formerActorId String?
   action     String
   entityType String
   entityId   String?
   details    Json?
   createdAt  DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([entityType, entityId])
   @@index([action])
   @@index([createdAt])
   @@map("activity_logs")
+  formerActor FormerEmployee? @relation("ActivityFormerActor", fields: [formerActorId], references: [id], onDelete: Restrict)
 }
 
 model TicketHistory {
@@ -512,14 +528,16 @@ model TicketHistory {
   field       String
   oldValue    String?
   newValue    String?
-  changedById String
+  changedById String?
+  formerActorId String?
   changedAt   DateTime @default(now())
-  changedBy   User     @relation(fields: [changedById], references: [id])
+  changedBy   User?    @relation(fields: [changedById], references: [id])
   ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([ticketId])
   @@index([changedAt])
   @@map("ticket_history")
+  formerActor FormerEmployee? @relation("TicketHistoryFormerActor", fields: [formerActorId], references: [id], onDelete: Restrict)
 }
 
 model TaskType {
@@ -670,7 +688,8 @@ model AttendanceEvent {
 
 model OperationalEvent {
   id           String   @id @default(cuid())
-  actorId      String
+  actorId      String?
+  formerActorId String?
   entityType   String
   entityId     String
   action       String
@@ -684,7 +703,7 @@ model OperationalEvent {
   actorContext String?
   beforeValue  Json?
   afterValue   Json?
-  actor        User     @relation("EventActor", fields: [actorId], references: [id])
+  actor        User?    @relation("EventActor", fields: [actorId], references: [id])
 
   @@index([actorId])
   @@index([entityType, entityId])
@@ -692,6 +711,7 @@ model OperationalEvent {
   @@index([timestamp])
   @@index([actorRoleId])
   @@map("operational_events")
+  formerActor  FormerEmployee? @relation("EventFormerActor", fields: [formerActorId], references: [id], onDelete: Restrict)
 }
 
 model ManagerDeptAccess {
@@ -780,7 +800,8 @@ model TeamMember {
 model TicketTimeLog {
   id              String       @id @default(cuid())
   ticketId        String
-  userId          String
+  userId          String?
+  formerActorId   String?
   stage           String
   ownerType       String
   source          String
@@ -795,7 +816,7 @@ model TicketTimeLog {
   updatedAt       DateTime     @updatedAt
   breakLog        BreakLog?    @relation(fields: [breakLogId], references: [id])
   ticket          Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  user            User         @relation(fields: [userId], references: [id])
+  user            User?        @relation(fields: [userId], references: [id])
   workSession     WorkSession? @relation(fields: [workSessionId], references: [id])
 
   @@index([ticketId])
@@ -809,6 +830,7 @@ model TicketTimeLog {
   // "endedAt" IS NULL AND "ownerType" = 'ASSIGNEE'. Migration
   // 20261001000000_one_active_assignee_timer.
   @@map("ticket_time_logs")
+  formerActor     FormerEmployee? @relation("TicketTimeLogFormerActor", fields: [formerActorId], references: [id], onDelete: Restrict)
 }
 
 model ReviewCycleLog {
@@ -817,6 +839,7 @@ model ReviewCycleLog {
   cycleNo                   Int
   assigneeId                String?
   reviewerId                String?
+  formerReviewerId          String?
   reviewStartedAt           DateTime?
   reviewEndedAt             DateTime?
   decision                  String?
@@ -846,12 +869,14 @@ model ReviewCycleLog {
   @@index([ticketId])
   @@index([cycleNo])
   @@map("review_cycle_logs")
+  formerReviewer            FormerEmployee? @relation("CycleFormerReviewer", fields: [formerReviewerId], references: [id], onDelete: Restrict)
 }
 
 model EmployeeProfileChangeRequest {
   id                String    @id @default(cuid())
   targetUserId      String
-  requestedById     String
+  requestedById     String?
+  formerRequesterId String?
   requestType       String
   status            String    @default("PENDING_TL_APPROVAL")
   changes           Json
@@ -870,7 +895,7 @@ model EmployeeProfileChangeRequest {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   currentApprover   User?     @relation("ChangeRequestCurrentApprover", fields: [currentApproverId], references: [id])
-  requestedBy       User      @relation("ChangeRequestRequester", fields: [requestedById], references: [id])
+  requestedBy       User?     @relation("ChangeRequestRequester", fields: [requestedById], references: [id])
   targetUser        User      @relation("ChangeRequestTarget", fields: [targetUserId], references: [id])
 
   @@index([targetUserId])
@@ -878,6 +903,7 @@ model EmployeeProfileChangeRequest {
   @@index([status])
   @@index([currentApproverId])
   @@map("employee_profile_change_requests")
+  formerRequester   FormerEmployee? @relation("ChangeRequestFormerRequester", fields: [formerRequesterId], references: [id], onDelete: Restrict)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1286,7 +1312,23 @@ model LeavePolicy {
   secondHalfInLatest               String                      @default("14:30")
   secondHalfOutTime                String                      @default("18:30")
   /// Comp Off credits are independent of annual paid-leave allocations.
-  compOffExpiryDays                Int                         @default(30)
+  ///
+  /// Days a credit lives from the date it is GRANTED, not from the day that
+  /// was worked: dating validity from the worked day shortened every credit by
+  /// however long the approval took.
+  ///
+  /// Default raised from 30 to the approved company figure of 45. Existing
+  /// rows keep whatever they already hold -- a default only applies to rows
+  /// created after it, so no employee's current credits move.
+  compOffExpiryDays                Int                         @default(45)
+  /// The furthest a credit's expiry may ever be extended, in days from the
+  /// grant. Measured from the grant and never from the latest extension,
+  /// which is what stops a credit being walked forward indefinitely one
+  /// extension at a time.
+  ///
+  /// Nullable, and null is NOT an unlimited ceiling: it is an absent rule, and
+  /// an extension is refused rather than being given an invented limit.
+  compOffMaximumValidityDays       Int?
   isActive                         Boolean                     @default(true)
   createdAt                        DateTime                    @default(now())
   updatedAt                        DateTime                    @updatedAt
@@ -1358,7 +1400,6 @@ model DailyAttendance {
   calculationReason String?
   locked            Boolean               @default(false)
   lockedAt          DateTime?
-  policyVersion     String?
 
   // ── Evaluation layer (AE-1) ─────────────────────────────────────────────
   // Provenance ids are stored WITHOUT foreign keys on purpose. This is a
@@ -1558,16 +1599,18 @@ model LeadActivity {
   comment       String?
   previousStage String?
   newStage      String?
-  createdById   String
+  createdById   String?
+  formerActorId String?
   occurredAt    DateTime @default(now())
   createdAt     DateTime @default(now())
   lead          Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  createdBy     User     @relation(fields: [createdById], references: [id])
+  createdBy     User?    @relation(fields: [createdById], references: [id])
 
   @@index([leadId])
   @@index([createdById])
   @@index([occurredAt])
   @@map("sales_lead_activities")
+  formerActor   FormerEmployee? @relation("LeadActivityFormerActor", fields: [formerActorId], references: [id], onDelete: Restrict)
 }
 
 model FollowUp {
@@ -1580,16 +1623,18 @@ model FollowUp {
   followupDate String
   followupTime String?
   status       String   @default("Pending")
-  createdById  String
+  createdById  String?
+  formerActorId String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  createdBy    User     @relation(fields: [createdById], references: [id])
+  createdBy    User?    @relation(fields: [createdById], references: [id])
 
   @@index([leadId])
   @@index([status])
   @@index([followupDate])
   @@map("sales_followups")
+  formerActor  FormerEmployee? @relation("FollowUpFormerActor", fields: [formerActorId], references: [id], onDelete: Restrict)
 }
 
 model Requirement {
@@ -1908,6 +1953,24 @@ model AttendanceMonthClose {
   finalizedById String?
   finalizedAt   DateTime?
 
+  /// Who last reopened this month, when, and why.
+  ///
+  /// KEPT AFTER RE-FINALIZATION, NOT CLEARED. A month that was reopened and
+  /// finalized again reads FINALIZED, and without these three fields nothing
+  /// would show that it had ever been unsealed -- the correction would be
+  /// invisible in exactly the state Finance is handed. Clearing them on
+  /// re-finalize would make the record tidier and useless.
+  ///
+  /// The reason is REQUIRED by the service that writes them. A reopen nobody
+  /// explained is the one a later payroll dispute cannot answer.
+  reopenedById  String?
+  formerFinalizerId String?
+  formerReopenerId  String?
+  reopenedAt    DateTime?
+  reopenReason  String?
+  /// How many times this month has been reopened. Never reset.
+  reopenCount   Int       @default(0)
+
   /// Copied from the setting AT SEND TIME. Changing the configured recipient
   /// next month must not rewrite who an already-sent report went to.
   recipientEmail String?
@@ -1926,33 +1989,35 @@ model AttendanceMonthClose {
   sentAt         DateTime?
   deliveryStatus String?
 
-  /// SHA-256 of the CANONICAL REPORT DATA. NOT a digest of the .xlsx file.
-  ///
-  /// The column name is a V1 legacy -- renaming it would cost a migration for
-  /// no behavioural gain -- so the API renames it at the boundary. What it
-  /// holds is a digest of the attendance rows the month was finalized from,
-  /// which answers "did the attendance change between HR approving it and
-  /// Finance receiving it". It does not identify the attachment bytes: an XLSX
-  /// is a ZIP whose entry headers carry clock timestamps, so file digests are
-  /// not reproducible. A true file digest becomes possible only once the
-  /// finalized bytes are themselves stored.
-  reportSha256   String?
-
   /// Size of the actual generated and sent .xlsx. This one IS about the file.
   reportByteSize Int?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   finalizedBy User?    @relation("MonthCloseFinalizer", fields: [finalizedById], references: [id])
+  reopenedBy  User?    @relation("MonthCloseReopener", fields: [reopenedById], references: [id])
 
   @@index([status])
   @@map("attendance_month_closes")
+  formerFinalizer FormerEmployee? @relation("MonthCloseFormerFinalizer", fields: [formerFinalizerId], references: [id], onDelete: Restrict)
+  formerReopener  FormerEmployee? @relation("MonthCloseFormerReopener", fields: [formerReopenerId], references: [id], onDelete: Restrict)
 }
 
 enum MonthCloseStatus {
   OPEN
   REVIEWING
   FINALIZED
+  /// Deliberately reopened after finalization so history can be corrected.
+  ///
+  /// NOT A STEP BACKWARDS TO OPEN, and that is the whole reason it exists. OPEN
+  /// is a month nobody has closed yet; REOPENED is a month that WAS closed and
+  /// was deliberately unsealed by a named person for a stated reason. Collapsing
+  /// the two would erase the fact that a finalized month had been reopened,
+  /// which is exactly the fact an audit of a corrected month needs.
+  ///
+  /// A reopened month cannot be sent to Finance: delivery requires FINALIZED,
+  /// so corrections must be followed by an explicit re-finalization.
+  REOPENED
   SENT
 }
 
@@ -2043,7 +2108,10 @@ model AttendanceImportBatch {
   appliedRows   Int @default(0)
   failedRows    Int @default(0)
 
-  uploadedById  String
+  uploadedById  String?
+  formerUploaderId String?
+  formerApproverId String?
+  formerApplierId  String?
   uploadedAt    DateTime @default(now())
   approvedById  String?
   approvedAt    DateTime?
@@ -2080,7 +2148,7 @@ model AttendanceImportBatch {
   /// evidence explaining that change, and it must be harder to destroy than
   /// the spreadsheet it came from. A finished batch is CANCELLED, never
   /// deleted, and there is no endpoint that deletes one.
-  uploadedBy    User  @relation("AttendanceImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  uploadedBy    User? @relation("AttendanceImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
   approvedBy    User? @relation("AttendanceImportApprover", fields: [approvedById], references: [id], onDelete: Restrict)
   appliedBy     User? @relation("AttendanceImportApplier", fields: [appliedById], references: [id], onDelete: Restrict)
   rows          AttendanceImportRow[]
@@ -2090,6 +2158,9 @@ model AttendanceImportBatch {
   @@index([fileSha256])
   @@index([uploadedAt])
   @@map("attendance_import_batches")
+  formerUploader FormerEmployee? @relation("ImportFormerUploader", fields: [formerUploaderId], references: [id], onDelete: Restrict)
+  formerApprover FormerEmployee? @relation("ImportFormerApprover", fields: [formerApproverId], references: [id], onDelete: Restrict)
+  formerApplier  FormerEmployee? @relation("ImportFormerApplier", fields: [formerApplierId], references: [id], onDelete: Restrict)
 }
 
 model AttendanceImportRow {
@@ -2222,5 +2293,123 @@ enum AttendanceImportRowState {
   /// The day changed between the preview HR approved and the moment of
   /// applying, so the approved comparison no longer described it.
   SKIPPED_STALE
+  FAILED
+}
+
+/// Who somebody WAS, after their account has been deleted.
+///
+/// ONE ROW PER DELETED EMPLOYEE, written inside the deletion transaction and
+/// never deleted afterwards. Records that must stay attributable point here
+/// instead of at the User that no longer exists, so a ticket raised in March
+/// still says who raised it and a finalized payroll month still says who
+/// approved it.
+///
+/// NORMALISED ON PURPOSE. The alternative was denormalised snapshot columns
+/// -- formerActorName, formerActorEmployeeId, formerActorRole -- on each of
+/// the fifteen tables needing attribution: the same three facts written
+/// forty-five times, able to disagree with itself, with nothing to notice if
+/// one copy were written wrong.
+///
+/// DELIBERATELY NOT A User. No email, no password, no role grant, no login.
+/// It is a gravestone, not a disabled account: nothing can authenticate as it
+/// or be assigned work.
+///
+/// THE ARCHIVE IS THE FULL RECORD. This holds only what surviving rows need
+/// in order to read correctly; everything else about the person is in the
+/// verified Drive archive the deletion required.
+model FormerEmployee {
+  id String @id @default(cuid())
+
+  /// The id the User row had, so an archive, an audit event and a surviving
+  /// record can still be joined up afterwards.
+  formerUserId   String  @unique
+  employeeId     String?
+  displayName    String
+  /// Role NAME at deletion, not a Role FK: the role may be renamed or removed
+  /// later and this must stay readable regardless.
+  roleName       String?
+  departmentName String?
+
+  deletedAt   DateTime @default(now())
+  /// Who performed the deletion. Nullable because that administrator may
+  /// themselves be deleted one day, and this row must survive that too.
+  deletedById String?
+
+  /// The Drive archive written before deletion. An identifier an
+  /// administrator can resolve in Drive, not a URL.
+  archiveDriveFileId String?
+
+  tickets              Ticket[]                       @relation("TicketFormerCreator")
+  ticketHistory        TicketHistory[]                @relation("TicketHistoryFormerActor")
+  ticketTimeLogs       TicketTimeLog[]                @relation("TicketTimeLogFormerActor")
+  reviewCycles         ReviewCycleLog[]               @relation("CycleFormerReviewer")
+  comments             Comment[]                      @relation("CommentFormerAuthor")
+  operationalEvents    OperationalEvent[]             @relation("EventFormerActor")
+  activityLogs         ActivityLog[]                  @relation("ActivityFormerActor")
+  monthClosesFinalized AttendanceMonthClose[]         @relation("MonthCloseFormerFinalizer")
+  monthClosesReopened  AttendanceMonthClose[]         @relation("MonthCloseFormerReopener")
+  importsUploaded      AttendanceImportBatch[]        @relation("ImportFormerUploader")
+  importsApproved      AttendanceImportBatch[]        @relation("ImportFormerApprover")
+  importsApplied       AttendanceImportBatch[]        @relation("ImportFormerApplier")
+  changeRequests       EmployeeProfileChangeRequest[] @relation("ChangeRequestFormerRequester")
+  leadActivities       LeadActivity[]                 @relation("LeadActivityFormerActor")
+  followUps            FollowUp[]                     @relation("FollowUpFormerActor")
+  attachments          Attachment[]                   @relation("AttachmentFormerUploader")
+
+  @@index([formerUserId])
+  @@map("former_employees")
+}
+
+/// One permanent row per completed Archive & Delete.
+///
+/// SEPARATE FROM FormerEmployee BECAUSE THEY ANSWER DIFFERENT QUESTIONS.
+/// FormerEmployee is read constantly, by every surviving record that needs a
+/// name. This is read rarely, by somebody asking what happened and whether
+/// the archive can still be retrieved. Merging them would put operational
+/// failure detail on the hot path of rendering a ticket.
+///
+/// NOT A COPY OF THE ARCHIVE. It is a receipt: where the archive went, how
+/// large it was, what it hashed to, who ordered it, and when.
+model EmployeeDeletionLedger {
+  id String @id @default(cuid())
+
+  formerUserId      String  @unique
+  formerEmployeeId  String?
+  formerDisplayName String
+
+  /// Where the archive actually is. Without these the deletion is
+  /// unaccountable, so they are written in the same transaction as the delete.
+  driveFileId   String?
+  driveFileName String?
+  archiveBytes  Int?
+  /// SHA-256 of the uploaded ZIP, for answering "is the file in Drive still
+  /// the one we wrote". Nothing to do with attendance.
+  archiveChecksum String?
+
+  archivedAt DateTime?
+  deletedAt  DateTime?
+
+  initiatedById String?
+
+  status        EmployeeDeletionStatus @default(REQUESTED)
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("employee_deletion_ledger")
+}
+
+/// The states one Archive & Delete passes through.
+///
+/// Deliberately small: a receipt with a progress field, not a workflow engine.
+/// One happy path, one failure state.
+enum EmployeeDeletionStatus {
+  REQUESTED
+  ARCHIVING
+  ARCHIVED
+  DELETE_STARTED
+  COMPLETED
   FAILED
 }

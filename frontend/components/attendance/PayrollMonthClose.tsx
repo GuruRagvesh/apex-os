@@ -218,18 +218,14 @@ export function PayrollMonthClose() {
               tone={close.data.deliveryStatus === 'FAILED' ? 'warn' : 'normal'}
             />
           </dl>
-          {close.data.reportDataFingerprint && (
-            <p
-              className="apex-text-subtle mt-3 break-all text-[11px]"
-              title="Identifies the Attendance data this month was finalized from. It is not a checksum of the Excel file — the same attendance re-rendered produces different file bytes."
-            >
-              Attendance data fingerprint:{' '}
-              {close.data.reportDataFingerprint.slice(0, 16)}…
-              {close.data.reportByteSize
-                ? ` · workbook ${close.data.reportByteSize} bytes`
-                : ''}
+          {/* The attendance data fingerprint is gone -- finalization is plain
+              business state now, so there is no digest to show. The workbook
+              size stays: it is a real fact about the file that was produced. */}
+          {close.data.reportByteSize ? (
+            <p className="apex-text-subtle mt-3 text-[11px]">
+              Workbook {close.data.reportByteSize} bytes
             </p>
-          )}
+          ) : null}
         </div>
       )}
 

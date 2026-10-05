@@ -52,10 +52,18 @@ export class CompOffController {
    * One employee's available credits. HR/Admin only — enforced by the service,
    * which is also what decides it for the grant below.
    */
+  /**
+   * One employee's available credits, for whoever may act on them.
+   *
+   * The same authority as granting and extending, rather than a looser read
+   * rule: a manager needs this to see what there is to extend, and nobody who
+   * cannot act on a credit has a reason to read it here. Reading your OWN
+   * credits is GET me, which is why this refuses self.
+   */
   @Get('employee/:employeeId')
-  @ApiOperation({ summary: 'An employee available comp off credits (HR/Admin)' })
+  @ApiOperation({ summary: 'An employee available comp off credits (HR, Admin, or their manager)' })
   async forEmployee(@CurrentUser() user: any, @Param('employeeId') employeeId: string) {
-    this.compOff.assertHrOrAdmin(user);
+    await this.compOff.assertMayManageFor(user, employeeId);
     return this.compOff.listAvailable(employeeId);
   }
 
@@ -68,7 +76,7 @@ export class CompOffController {
    * that matches: 422 for a day that does not qualify, 409 for a duplicate.
    */
   @Post('grant')
-  @ApiOperation({ summary: 'Grant a comp off credit (HR/Admin)' })
+  @ApiOperation({ summary: 'Grant a comp off credit (HR, Admin, or the employee manager)' })
   async grant(@CurrentUser() user: any, @Body() body: GrantCompOffInput) {
     try {
       return await this.compOff.grantManual(user, body);
@@ -84,5 +92,22 @@ export class CompOffController {
       if (err instanceof BadRequestException) throw err;
       throw err;
     }
+  }
+
+  /**
+   * Moves a credit's expiry forward.
+   *
+   * The ceiling is the service's, measured from the grant date, and the
+   * frontend cannot widen it: a date picker constrained for UX is a
+   * convenience, and this endpoint re-decides it regardless of what arrives.
+   */
+  @Post(':creditId/extend')
+  @ApiOperation({ summary: 'Extend a comp off credit (HR, Admin, or the employee manager)' })
+  async extend(
+    @CurrentUser() user: any,
+    @Param('creditId') creditId: string,
+    @Body() body: { newExpiry: string; reason: string },
+  ) {
+    return this.compOff.extendValidity(user, creditId, body);
   }
 }

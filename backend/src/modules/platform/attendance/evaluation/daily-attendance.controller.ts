@@ -122,6 +122,12 @@ function toEmployeeView(r: DailyAttendanceResult) {
     breakMinutes: r.breakMinutes,
     lateMinutes: r.lateMinutes,
 
+    // The requirement and the verdict, decided server-side. The UI renders
+    // these; it does not recompute them from the punches.
+    requiredPresenceMinutes: r.requiredPresenceMinutes ?? null,
+    presenceMinutes: r.presenceMinutes ?? null,
+    meetsRequirement: r.meetsRequirement ?? null,
+
     isHoliday: r.status === 'HOLIDAY',
     isWeeklyOff: r.status === 'WEEKLY_OFF',
     isLeave: r.status === 'LEAVE' || r.status === 'LWP' || r.status === 'HALF_DAY',

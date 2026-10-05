@@ -94,11 +94,25 @@ describe('T13 attachment-ownership migration via prisma migrate deploy (PostgreS
     expect(deploy.out).toContain(`Applying migration \`${ATTACH}\``);
     expect(deploy.out.match(/Applying migration/g)).toHaveLength(1);
     expect(deploy.out).toContain('All migrations have been successfully applied.');
+    // ATTACH is the most recently finished migration, and nothing was applied
+    // after it.
+    //
+    // This took LIMIT 2 and named the neighbour it expected to find underneath
+    // -- 20261002000000_one_active_timed_ticket_per_user. That neighbour is
+    // whichever migration happened to be newest when this test was written, so
+    // every migration added since silently invalidated the assertion; five have
+    // been, and two of them sort AFTER this one. The identity of the row below
+    // ATTACH proves nothing about the migration under test, and pinning it only
+    // guaranteed the test would rot again on the next migration.
+    //
+    // Equally strict, and durable: if anything had been applied after ATTACH,
+    // ATTACH would not be the top row. That exactly one migration was applied
+    // at all is already asserted above, from the deploy output itself.
     const last = await q<{ migration_name: string }>(
       `SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
-       ORDER BY finished_at DESC, started_at DESC LIMIT 2`,
+       ORDER BY finished_at DESC, started_at DESC LIMIT 1`,
     );
-    expect(last.map((r) => r.migration_name)).toEqual([ATTACH, '20261002000000_one_active_timed_ticket_per_user']);
+    expect(last.map((r) => r.migration_name)).toEqual([ATTACH]);
 
     // ── Objects exactly as designed.
     const labels = await q<{ l: string }>(
@@ -124,7 +138,20 @@ describe('T13 attachment-ownership migration via prisma migrate deploy (PostgreS
       `SELECT conname, confrelid::regclass::text AS target, confdeltype AS on_delete FROM pg_constraint
        WHERE conrelid = 'attachments'::regclass AND contype = 'f' ORDER BY conname`,
     );
+    // The formerUploader key belongs to a LATER migration
+    // (20261003140000_attachment_former_uploader) and is listed here on
+    // purpose. revertToPhase4Schema() rewinds only this migration's own
+    // objects, so that one stays applied and its constraint is still on the
+    // table while this deploy runs. Leaving it out did not make the test
+    // stricter, it made it wrong: it asserted a schema that no database
+    // reaching this line can actually have.
+    //
+    // It is NOT optional, and must not be relaxed to a "contains" check. An
+    // attachment is company evidence whose uploader may have been deleted, and
+    // ON DELETE RESTRICT against former_employees is what stops the tombstone
+    // being removed while an attachment still points at it.
     expect(fks).toEqual([
+      { conname: 'attachments_formerUploaderId_fkey', target: 'former_employees', on_delete: 'r' }, // RESTRICT
       { conname: 'attachments_reviewCycleId_fkey', target: 'review_cycle_logs', on_delete: 'n' }, // SET NULL
       { conname: 'attachments_ticketId_fkey', target: 'tickets', on_delete: 'c' },               // CASCADE (unchanged)
       { conname: 'attachments_uploadedById_fkey', target: 'users', on_delete: 'r' },             // RESTRICT

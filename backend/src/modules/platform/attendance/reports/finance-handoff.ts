@@ -9,7 +9,8 @@
  * WHAT THIS FILE DOES NOT DO
  *
  * It does not decide whether a month may be sent. That is settled by the close
- * status and the data fingerprint, inside the month lock, and it stays there.
+ * status and the finalization timestamp, inside the month lock, and it stays
+ * there.
  */
 
 const MONTHS = [
@@ -56,12 +57,18 @@ export function reportSubject(month: string): string {
  * The provider-side duplicate guard.
  *
  * Deterministic in the two things that identify THIS report: which month close
- * it is, and the fingerprint of the attendance data it was finalized from. A
- * retry of the same report therefore reuses the same key and Resend collapses
- * it; a genuinely different report cannot collide with it.
+ * it is, and WHEN it was finalized. A retry of the same finalized month reuses
+ * the key and Resend collapses it; a month finalized again gets a new
+ * finalizedAt and therefore a new key, so a genuinely different report cannot
+ * collide with the old one.
+ *
+ * WAS BUILT FROM A DATA FINGERPRINT. The hash is gone -- finalization is plain
+ * business state now -- and finalizedAt supplies the same two properties
+ * without one. It is not a weaker key: the fingerprint only ever changed when a
+ * month was re-finalized, which is exactly when finalizedAt changes.
  *
  * NOT a random id per attempt. That is the whole point -- a fresh key on every
- * retry is exactly the bug this prevents, and it is what a well-meaning
+ * retry is the bug this prevents, and it is what a well-meaning
  * "add idempotency" change usually does.
  *
  * Resend retains keys for 24 hours, which covers ordinary network and
@@ -71,16 +78,20 @@ export function reportSubject(month: string): string {
  */
 export function idempotencyKeyFor(input: {
   monthCloseId: string;
-  reportSha256: string | null | undefined;
+  finalizedAt: Date | string | null | undefined;
 }): string {
   if (!input.monthCloseId) throw new Error('An idempotency key needs the month close id');
-  if (!input.reportSha256) {
-    // A month with no stored fingerprint has not been finalized, and an
+  if (!input.finalizedAt) {
+    // A month with no finalization timestamp has not been finalized, and an
     // unfinalized month is never sent. Refusing here rather than inventing a
     // key keeps "the key identifies the report" true.
-    throw new Error('An idempotency key needs the finalized report fingerprint');
+    throw new Error('An idempotency key needs the finalization timestamp');
   }
-  return `attendance-final-report/${input.monthCloseId}/${input.reportSha256}`;
+  const stamp =
+    input.finalizedAt instanceof Date
+      ? input.finalizedAt.toISOString()
+      : new Date(input.finalizedAt).toISOString();
+  return `attendance-final-report/${input.monthCloseId}/${stamp}`;
 }
 
 // ── Delivery outcome ────────────────────────────────────────────────────────

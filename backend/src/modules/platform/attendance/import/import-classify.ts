@@ -129,7 +129,9 @@ const sameMinute = (a: Date | null, b: Date | null): boolean => {
  * Apex OS, not contradicting it, and treating that as a CHANGE would produce
  * thousands of proposals to rewrite records that are already right.
  */
-const PRESENT_EQUIVALENT = new Set(['PRESENT', 'LATE', 'LATE_EXEMPTED']);
+// Was a second, byte-identical copy of this Set. One definition now, so the
+// importer and the reports cannot disagree about what "present" covers.
+import { PRESENT_STATUSES as PRESENT_EQUIVALENT } from '../shared/attendance-primitives';
 
 function statusesAgree(proposed: string, current: string | null): boolean {
   if (!current) return false;
