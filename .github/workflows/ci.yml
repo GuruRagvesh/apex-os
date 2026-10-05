@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXT_TELEMETRY_DISABLED: '1'
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,8 +61,18 @@ jobs:
       - name: Frontend typecheck
         run: npm run typecheck --workspace frontend
 
+      # SERIAL, WITH A LARGER HEAP, AND BOTH HALVES MATTER.
+      #
+      # The unit suite previously exhausted the GitHub runner's memory when
+      # Jest created multiple workers. Running in-band keeps one Node heap and
+      # avoids misleading worker-crash failures.
+      #
+      # CI-ONLY: this changes GitHub Actions test resources, not production
+      # runtime behaviour or local developer defaults.
       - name: Backend unit tests
-        run: npm run test:unit --workspace backend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npm run test:unit --workspace backend -- --runInBand
 
       - name: Backend build
         run: npm run build --workspace backend
@@ -74,6 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://apex_test@127.0.0.1:55432/apex_os_attendance_integration?schema=public
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -91,10 +103,16 @@ jobs:
             -e POSTGRES_DB=apex_os_attendance_integration \
             -e TZ=UTC \
             postgres:18 -c listen_addresses=127.0.0.1 -c port=55432 -c timezone=UTC
+
           for i in $(seq 1 30); do
-            docker exec apex-int-pg pg_isready -h 127.0.0.1 -p 55432 -U apex_test -d apex_os_attendance_integration && exit 0
+            docker exec apex-int-pg pg_isready \
+              -h 127.0.0.1 \
+              -p 55432 \
+              -U apex_test \
+              -d apex_os_attendance_integration && exit 0
             sleep 2
           done
+
           docker logs apex-int-pg
           exit 1
 
@@ -111,7 +129,11 @@ jobs:
         run: npm run db:migrate:deploy --workspace backend
 
       - name: PostgreSQL suites (ticket time engine, attendance)
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
         run: npm run test:int --workspace backend
 
       - name: API integration suites
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
         run: npm run test:api --workspace backend
