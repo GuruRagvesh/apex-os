@@ -3,7 +3,7 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { commentsApi, aiApi } from '@/lib/api';
+import { commentsApi, aiApi, workdayApi } from '@/lib/api';
 import { usersApi } from '@apex/core-users/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { useAuthStore } from '@apex/core-identity';
@@ -741,6 +741,14 @@ export default function TicketDetailPage() {
 
   // The viewer's running clock, from the ledger: names the ticket a review start would pause.
   const { data: activeTimer, isSuccess: activeTimerKnown, isError: activeTimerFailed } = useActiveTimer();
+  // The shared workday answer: while the person is IDLE the idle prompt comes
+  // first (a review cannot start until they resume).
+  const { data: workdayToday } = useQuery({
+    queryKey: WORKDAY_TODAY_QUERY_KEY,
+    queryFn: () => workdayApi.getToday() as Promise<any>,
+    staleTime: 15_000,
+  });
+  const workdayIdle = (workdayToday as any)?.session?.status === 'IDLE';
 
   const { data: users } = useQuery({
     queryKey: ['users'],
@@ -1172,7 +1180,7 @@ export default function TicketDetailPage() {
     approveMutation.isPending || rejectMutation.isPending;
   // Mandatory before any decision; shown once the running clock is known so the
   // prompt can name the ticket a start would pause.
-  const showReviewGate = review.needsReviewStart && !viewOnly && (activeTimerKnown || activeTimerFailed);
+  const showReviewGate = review.needsReviewStart && !viewOnly && !workdayIdle && (activeTimerKnown || activeTimerFailed);
   const grouped = groupAttachments(ticket.attachments, ticket.currentReviewCycle?.id);
   const attachmentDelete = (attId: string) => deleteAttachmentMutation.mutate(attId);
   // The self-assigned worker is in REVIEW but must wait for their reporting hierarchy.

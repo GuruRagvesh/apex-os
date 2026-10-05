@@ -436,6 +436,22 @@ export function WorkdayBar() {
             <button onClick={openEndDay} disabled={!!loading} className="px-3 py-1.5 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 disabled:opacity-50">End Day</button>
           </div>
         </div>
+        {/* Take Break and End Day open their modals from the idle state too. */}
+        {showBreakModal && (
+          <BreakModal
+            onClose={() => setShowBreakModal(false)}
+            onBreakStarted={() => { setShowBreakModal(false); refetch(); }}
+          />
+        )}
+        {showEndModal && (
+          <EndDayModal
+            session={session}
+            elapsedWorkMinutes={elapsed}
+            totalBreakMinutes={liveTotalBreakMinutes}
+            onClose={() => setShowEndModal(false)}
+            onEnded={() => { setShowEndModal(false); refetch(); }}
+          />
+        )}
         {punchOverlay}
       </>
     );

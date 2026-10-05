@@ -24,6 +24,9 @@ const DAILY_BREAK_ALLOWANCE_MINUTES = 60;
  */
 const WORKDAY_TIMER_TRANSACTION = { maxWait: 10_000, timeout: 20_000 };
 
+/** BreakLog.source of a break started from the idle prompt (the person was IDLE). */
+export const BREAK_FROM_IDLE_SOURCE = 'MANUAL_BREAK_FROM_IDLE';
+
 export interface FinalizeWorkSessionOptions {
   effectiveEndAt: Date;
   terminalStatus: 'LOGGED_OUT' | 'AUTO_CLOSED';
@@ -614,15 +617,19 @@ export class WorkdayService {
     if (session && this.isOpenSession(session) && (session.status === 'ON_BREAK' || openBreaks.length > 0)) {
       throw new ConflictException('User is already on a break.');
     }
-    if (!session || !this.isOpenSession(session) || session.status !== 'WORKING') {
+    // A break can start while WORKING, or while IDLE (from the idle prompt).
+    // Idle has already paused the person's clocks, so the break pauses nothing
+    // more; it is marked so that ending it resumes the idle-paused ticket.
+    if (!session || !this.isOpenSession(session) || !['WORKING', 'IDLE'].includes(session.status)) {
       throw new BadRequestException('No active working session');
     }
+    const fromIdle = session.status === 'IDLE';
 
     // The break record, ON_BREAK session and user status, the BREAK_START
     // event and the ticket-timer pause commit together: a failed pause can
     // never leave someone ON_BREAK with a productive timer still running.
     const breakLog = await this.prisma.$transaction(async (tx) => {
-      await this.lockSessionStillIn(tx, session.id, 'WORKING', 'User is already on a break.');
+      await this.lockSessionStillIn(tx, session.id, fromIdle ? 'IDLE' : 'WORKING', 'User is already on a break.');
 
       const created = await tx.breakLog.create({
         data: {
@@ -632,7 +639,7 @@ export class WorkdayService {
           estimatedMinutes: dto.estimatedMinutes,
           startAt: now,
           reason: dto.breakType,
-          source: 'MANUAL_BREAK',
+          source: fromIdle ? BREAK_FROM_IDLE_SOURCE : 'MANUAL_BREAK',
         },
       });
 
@@ -720,7 +727,14 @@ export class WorkdayService {
 
       await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
 
-      await this.ticketLedger.resumeLogsForBreak(openBreak.id, userId, tx);
+      // A break taken from idle paused nothing itself (idle had already): the
+      // employee ticket comes back through the workday resume, which resumes
+      // the idle-paused ticket and never a review.
+      if (openBreak.source === BREAK_FROM_IDLE_SOURCE) {
+        await this.ticketLedger.resumeAfterWorkdayStart(userId, tx);
+      } else {
+        await this.ticketLedger.resumeLogsForBreak(openBreak.id, userId, tx);
+      }
 
       return closed;
     }, WORKDAY_TIMER_TRANSACTION);
@@ -737,27 +751,38 @@ export class WorkdayService {
   }
 
   async reportIdle(userId: string, idleDuration: number) {
+    // Whole minutes of inactivity measured by the client, at most one day.
+    const minutes = typeof idleDuration === 'number' ? idleDuration : Number(idleDuration);
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 24 * 60) {
+      throw new BadRequestException('idleDuration must be a number of minutes between 0 and 1440.');
+    }
     const today = this.getTodayDate();
     const now = this.tva.now();
 
     // The IDLE session and user status, the back-dated ticket pause and the
     // IDLE_DETECTED event commit together: idle is never ticket work.
+    // Only a WORKING session goes IDLE. A report that arrives after the person
+    // has moved on (a break, End Day, another tab already reported) changes no
+    // state: it is recorded as not applied, and never overwrites the newer one.
+    let applied = false;
     await this.prisma.$transaction(async (tx) => {
-      if (idleDuration >= 20) {
+      if (minutes >= 20) {
         const wentIdle = await this.attendanceAuthority.updateManyWorkSessions(
           { userId, date: today, status: 'WORKING' },
           { status: 'IDLE' },
           tx,
         );
-        await this.attendanceAuthority.setUserStatus(userId, 'IDLE', undefined, tx);
+        applied = (wentIdle?.count ?? 0) > 0;
 
-        // Pause this person's own ticket clock, back-dated to when the idle
-        // period began. Resuming work picks it back up.
-        if (wentIdle?.count > 0) {
+        if (applied) {
+          await this.attendanceAuthority.setUserStatus(userId, 'IDLE', undefined, tx);
+          // Pause this person's own clocks (employee work and any review),
+          // back-dated to when the idle period began. Resuming work picks the
+          // employee ticket back up; a review never resumes by itself.
           await this.ticketLedger.pauseActiveLogsForUser({
             userId,
             pauseReason: LEDGER_PAUSE_REASONS.IDLE,
-            endedAt: new Date(now.getTime() - idleDuration * 60_000),
+            endedAt: new Date(now.getTime() - minutes * 60_000),
           }, tx);
         }
       }
@@ -767,12 +792,12 @@ export class WorkdayService {
           userId,
           eventType: 'IDLE_DETECTED',
           source: 'system',
-          metadata: { idleDuration },
+          metadata: { idleDuration: minutes, applied },
         },
       });
     }, WORKDAY_TIMER_TRANSACTION);
 
-    return { status: 'ok' };
+    return { status: 'ok', applied };
   }
 
   async resumeWork(userId: string) {
@@ -801,13 +826,18 @@ export class WorkdayService {
         tx,
       );
 
+      // Nothing to resume (already WORKING, or the day was ended or closed
+      // elsewhere): write nothing. A stale tab's Resume must never mark an
+      // ended day as WORKING.
+      if (resumed.count === 0) return resumed;
+
       await tx.attendanceEvent.create({
         data: { userId, eventType: 'RESUME_WORK', source: 'manual' },
       });
 
       await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
 
-      if (resumed.count > 0) await this.ticketLedger.resumeAfterWorkdayStart(userId, tx);
+      await this.ticketLedger.resumeAfterWorkdayStart(userId, tx);
       return resumed;
     }, WORKDAY_TIMER_TRANSACTION);
 
