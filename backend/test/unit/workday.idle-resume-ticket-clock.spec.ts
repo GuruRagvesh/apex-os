@@ -68,6 +68,28 @@ describe('WorkdayService — idle / resume keep the assignee ticket clock honest
       await service.reportIdle('u1', 30);
       expect(ticketLedger.pauseActiveLogsForUser).not.toHaveBeenCalled();
     });
+
+    it('a stale report (no WORKING session changed) never overwrites the newer state: no IDLE status, recorded as not applied', async () => {
+      attendanceAuthority.updateManyWorkSessions.mockResolvedValue({ count: 0 });
+      await expect(service.reportIdle('u1', 30)).resolves.toEqual({ status: 'ok', applied: false });
+      expect(attendanceAuthority.setUserStatus).not.toHaveBeenCalled();
+      expect(prisma.attendanceEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ eventType: 'IDLE_DETECTED', metadata: { idleDuration: 30, applied: false } }),
+      });
+    });
+
+    it('an applied report sets IDLE and says so', async () => {
+      await expect(service.reportIdle('u1', 25)).resolves.toEqual({ status: 'ok', applied: true });
+      expect(attendanceAuthority.setUserStatus).toHaveBeenCalledWith('u1', 'IDLE', undefined, expect.anything());
+    });
+
+    it('rejects a duration that is not 0–1440 minutes, writing nothing', async () => {
+      for (const bad of [NaN, -1, 1441, Infinity, 'abc' as any]) {
+        await expect(service.reportIdle('u1', bad)).rejects.toThrow('idleDuration must be a number of minutes between 0 and 1440.');
+      }
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.attendanceEvent.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('startWork closes a previous day left open (N1)', () => {
@@ -142,6 +164,16 @@ describe('WorkdayService — idle / resume keep the assignee ticket clock honest
       await service.resumeWork('u1');
 
       expect(ticketLedger.resumeAfterWorkdayStart).not.toHaveBeenCalled();
+    });
+
+    it('a resume with nothing to resume (e.g. a stale tab after End Day) writes nothing and never sets WORKING', async () => {
+      prisma.workSession.findFirst.mockResolvedValue({ id: 'ws1', status: 'LOGGED_OUT', logoutAt: NOW });
+      attendanceAuthority.updateManyWorkSessions.mockResolvedValue({ count: 0 });
+
+      await expect(service.resumeWork('u1')).resolves.toEqual({ message: 'Resumed', updated: 0 });
+
+      expect(attendanceAuthority.setUserStatus).not.toHaveBeenCalled();
+      expect(prisma.attendanceEvent.create).not.toHaveBeenCalled();
     });
   });
 });

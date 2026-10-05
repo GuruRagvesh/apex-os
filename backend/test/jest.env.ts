@@ -34,7 +34,15 @@ process.env.JWT_EXPIRES_IN ??= '1h';
 
 process.env.NODE_ENV = 'test';
 
-// DATABASE_URL is intentionally absent. Do not add one here, and do not point
-// it at staging to turn the integration suites green: those suites failing on
-// "Environment variable not found: DATABASE_URL" is the system correctly
-// refusing to guess which database it should touch.
+// Fail closed against external services before anything imports Prisma (whose
+// client would otherwise fill unset variables from backend/.env): provider
+// settings blanked, an explicit DATABASE_URL checked, outbound network blocked.
+// See test/test-environment-guard.ts.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+require('./test-environment-guard').installTestEnvironmentGuard();
+
+// DATABASE_URL is never set here. When the caller does not export one (unit
+// tests), the guard above sets an unreachable loopback URL so nothing can fall
+// back to a database named in backend/.env. Do not point it at staging to turn
+// the integration suites green: they need the dedicated integration database,
+// exported explicitly and checked by test/integration-pg/db-guard.ts.
