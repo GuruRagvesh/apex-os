@@ -111,6 +111,8 @@ jobs:
         run: npm run db:migrate:deploy --workspace backend
 
       - name: PostgreSQL suites (ticket time engine, attendance)
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
         run: npm run test:int --workspace backend
 
       - name: API integration suites

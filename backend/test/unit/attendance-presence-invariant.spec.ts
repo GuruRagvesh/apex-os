@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve } from 'path';
 import { presenceMinutes } from '../../src/modules/platform/attendance/shared/attendance-primitives';
 import { assessPresence } from '../../../frontend/components/attendance/attendance-presence';
 
