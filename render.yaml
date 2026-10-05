@@ -52,8 +52,7 @@ services:
     # deletion, nobody can be deleted. That is the intended failure direction.
     #
     # GOOGLE_DRIVE_CLIENT_EMAIL      → service account client_email
-    # GOOGLE_DRIVE_PRIVATE_KEY       → service account private_key (literal
- is handled)
+    # GOOGLE_DRIVE_PRIVATE_KEY       → service account private_key (literal \n is handled)
     # GOOGLE_DRIVE_ARCHIVE_FOLDER_ID → the Drive folder id, shared with that account
     #
     # Setup and folder-security notes:
