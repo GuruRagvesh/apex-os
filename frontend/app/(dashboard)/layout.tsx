@@ -11,6 +11,7 @@ import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalett
 import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { ActiveReviewBanner } from '@apex/operations-tickets-lifecycle/components/active-review-banner';
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
+import { IdleWorkflow } from '@/components/workday/IdleWorkflow';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
   Calendar, Activity, LogIn,
@@ -166,6 +167,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       />
       {/* Desktop notification opt-in + workday/approval reminder polling (Phase 1) */}
       <DesktopNotificationManager />
+      {/* Idle detection and the idle prompt: once, for every dashboard page */}
+      <IdleWorkflow />
     </div>
   );
 }
