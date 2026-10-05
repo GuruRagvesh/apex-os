@@ -11,6 +11,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { AccessPolicyService } from '../../../../common/services/access-policy.service';
@@ -149,14 +150,32 @@ export class PayrollReportService {
    * separate Finance format, because a second builder would be a second place
    * attendance could be decided.
    */
-  private async render(month: string, close: any, actorLabel: string) {
+  private async render(month: string, close: any, actor: any) {
     const report = await this.attendanceReport.monthReport(
+      // THE REAL ACTOR, NOT A FABRICATED ONE.
+      //
+      // This used to pass `{ role: { name: 'HR' }, id: actorLabel }` -- a shape
+      // built to look authorised rather than to be it. Apex OS has no HR role:
+      // authority is `isHR` on the account, or ADMIN / SUPER_ADMIN, and
+      // AccessPolicyService.isHrOrAdmin() is the only thing that decides. A
+      // literal named "HR" satisfies neither, so monthReport() refused every
+      // finalize and send with "Only HR can read the attendance report".
+      //
+      // Every caller of this method has already passed assertHr(actor), which
+      // consults the same predicate monthReport() uses. Handing the genuine
+      // actor over therefore changes no outcome for an authorised caller and
+      // keeps the inner check meaningful instead of routing around it.
+      //
+      // THE ACTOR NEVER REACHES THE OUTPUT. It is an authorisation input only:
+      // nothing about who rendered the month appears in the workbook or its
+      // metadata, so two authorised people rendering the same finalized month
+      // still produce identical bytes. That is what the note below depends on.
+      actor,
+      month,
       // Finalization and delivery must describe the same data, so the instant
       // is pinned to the stored close row rather than the clock. A live clock
       // would print a different "generated at" on every download of an
       // already-closed month, and the bytes would differ each time.
-      { role: { name: 'HR' }, id: actorLabel },
-      month,
       close?.finalizedAt ?? new Date(0),
     );
 
@@ -184,13 +203,46 @@ export class PayrollReportService {
    * differ by a name and the guard fired on every send.
    *
    * Reading the row both times removes the possibility by construction.
+   *
+   * The actor passed through is an authorisation input and nothing else -- see
+   * render(). It is deliberately NOT used to label the output, because that is
+   * exactly the "differ by a name" failure this method exists to prevent.
+   *
+   * `tx` IS NOT OPTIONAL DECORATION WHEN THE CALLER HAS ONE.
+   *
+   * finalize() writes the FINALIZED row through its transaction and then calls
+   * this. Prisma gives an interactive transaction its own connection and the
+   * root client a different pooled one -- the same fact finalize() already
+   * relies on further down to explain why delivery must happen after commit --
+   * so at READ COMMITTED a root read here cannot see that uncommitted write.
+   *
+   * It did exactly that. On a brand-new month the root read returned null and
+   * `close?.finalizedAt ?? new Date(0)` rendered the workbook stamped
+   * 1970-01-01; on a re-finalize after reopen() it returned the previous
+   * committed row and rendered with the PREVIOUS finalizedAt, which is the
+   * worse case because it looks plausible. The stored reportByteSize then
+   * described a file nobody receives, because send() runs after commit, reads
+   * the committed row and emails a correctly dated -- and differently sized --
+   * workbook.
+   *
+   * The authorization bug above hid this: every finalize threw Forbidden
+   * before reaching here. No unit test can catch it either, because the suite
+   * mocks $transaction as `fn => fn(prisma)`, which makes tx and the root
+   * client the same object. It is pinned by a PostgreSQL-backed test instead.
    */
-  private async renderCanonical(month: string) {
-    const close = await this.prisma.attendanceMonthClose.findUnique({
+  private async renderCanonical(
+    month: string,
+    actor: any,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? this.prisma;
+
+    const close = await client.attendanceMonthClose.findUnique({
       where: { month },
       include: { finalizedBy: { select: { name: true } } },
     });
-    return this.render(month, close, (close as any)?.finalizedBy?.name ?? 'HR');
+
+    return this.render(month, close, actor);
   }
 
   /** A preview. Generating one changes no official state beyond REVIEWING. */
@@ -202,7 +254,7 @@ export class PayrollReportService {
       where: { month },
       include: { finalizedBy: { select: { name: true } } },
     });
-    const rendered = await this.render(month, close, actor?.name ?? 'HR');
+    const rendered = await this.render(month, close, actor);
 
     // Looking at a month moves it out of OPEN, which is how the UI can show
     // that somebody has begun the close. It never moves it forward from
@@ -243,7 +295,7 @@ export class PayrollReportService {
       where: { month },
       include: { finalizedBy: { select: { name: true } } },
     });
-    const rendered = await this.render(month, close, actor?.name ?? 'HR');
+    const rendered = await this.render(month, close, actor);
 
     return {
       buffer: rendered.buffer,
@@ -311,7 +363,7 @@ export class PayrollReportService {
       update: marked,
     });
 
-    const rendered = await this.renderCanonical(month);
+    const rendered = await this.renderCanonical(month, actor, tx);
 
     const close = await tx.attendanceMonthClose.update({
       where: { month },
@@ -578,7 +630,7 @@ export class PayrollReportService {
       );
     }
 
-    const rendered = await this.renderCanonical(month);
+    const rendered = await this.renderCanonical(month, actor, tx);
     // NO CRYPTOGRAPHIC GUARD HERE ANY MORE.
     //
     // This compared a stored digest of the finalized attendance against a fresh

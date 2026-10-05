@@ -20,6 +20,7 @@ import {
   PayrollReportService,
   RECIPIENT_SETTING_KEY,
 } from '../../src/modules/platform/attendance/reports/payroll-report.service';
+import { AttendanceReportService } from '../../src/modules/platform/attendance/canonical/attendance-report.service';
 import { EmailService } from '../../src/modules/platform/email/email.service';
 import { AttendanceImportModule } from '../../src/modules/platform/attendance/import/attendance-import.module';
 import { AttendanceImportService } from '../../src/modules/platform/attendance/import/attendance-import.service';
@@ -333,6 +334,92 @@ describe('an import correction against the payroll close', () => {
 
     const day = await prisma.dailyAttendance.findFirst({ where: { userId: seed.employees.B.id } });
     expect(day!.punchOutAt?.toISOString()).toBe('2026-08-14T13:10:00.000Z');
+  });
+
+  /**
+   * Captures the `generatedAt` handed to the canonical report, and lets the
+   * real one run underneath so the close still gets genuine totals.
+   *
+   * finalize() renders twice -- once inside its transaction, once more when it
+   * delivers after commit -- and BOTH must describe the same instant, which is
+   * the whole premise of "finalization and delivery must describe the same
+   * DATA". So every captured value is asserted, not just the first.
+   */
+  function captureGeneratedAt() {
+    const service: any = moduleRef.get(AttendanceReportService);
+    const real = service.monthReport.bind(service);
+    const seen: Array<Date | undefined> = [];
+    const spy = jest
+      .spyOn(service, 'monthReport')
+      .mockImplementation(async (...args: any[]) => {
+        seen.push(args[2]);
+        return real(...args);
+      });
+    return { seen, restore: () => spy.mockRestore() };
+  }
+
+  it('12d. finalize renders with the finalizedAt it just wrote, not the epoch', async () => {
+    // THE TRANSACTION-VISIBILITY REGRESSION, PINNED AGAINST REAL POSTGRESQL.
+    //
+    // finalize() writes the FINALIZED row through `tx` and then renders. While
+    // renderCanonical() read the close through the ROOT client, that read ran
+    // on a different pooled connection and could not see the uncommitted row:
+    // on a first close it returned null and the report was stamped
+    // 1970-01-01 by the `?? new Date(0)` fallback.
+    //
+    // A unit test cannot prove this. The unit suite mocks $transaction as
+    // `fn => fn(prisma)`, so tx and the root client are one object and the
+    // distinction does not exist. Only a real connection shows it.
+    await givenAttendance(prisma, seed.employees.B.id, DATE);
+
+    const captured = captureGeneratedAt();
+    try {
+      await payroll.finalize(seed.actors.hr, MONTH);
+    } finally {
+      captured.restore();
+    }
+
+    const close = await prisma.attendanceMonthClose.findUnique({ where: { month: MONTH } });
+    expect(close?.finalizedAt).toBeTruthy();
+
+    expect(captured.seen.length).toBeGreaterThan(0);
+    for (const at of captured.seen) {
+      expect(at).toBeInstanceOf(Date);
+      // Said explicitly rather than left implied by the equality below: the
+      // epoch is the exact value the fallback produced, and naming it here is
+      // what makes a future reader understand what this test is guarding.
+      expect(at!.getTime()).not.toBe(0);
+      expect(at!.toISOString()).toBe(close!.finalizedAt!.toISOString());
+    }
+  });
+
+  it('12e. a re-finalize after reopen renders with the new finalizedAt, not the previous one', async () => {
+    // The subtler half. Here the root read DID return a row -- the previous
+    // committed close -- so the report rendered with the EARLIER finalizedAt
+    // and looked entirely plausible while describing the wrong close.
+    await givenAttendance(prisma, seed.employees.B.id, DATE);
+    await payroll.finalize(seed.actors.hr, MONTH);
+
+    const first = await prisma.attendanceMonthClose.findUnique({ where: { month: MONTH } });
+    expect(first!.finalizedAt).toBeTruthy();
+
+    await payroll.reopen(seed.actors.hr, MONTH, 'Reopened to correct a punch for this test');
+
+    const captured = captureGeneratedAt();
+    try {
+      await payroll.finalize(seed.actors.hr, MONTH);
+    } finally {
+      captured.restore();
+    }
+
+    const second = await prisma.attendanceMonthClose.findUnique({ where: { month: MONTH } });
+    expect(second!.finalizedAt!.getTime()).toBeGreaterThan(first!.finalizedAt!.getTime());
+
+    expect(captured.seen.length).toBeGreaterThan(0);
+    for (const at of captured.seen) {
+      expect(at!.toISOString()).toBe(second!.finalizedAt!.toISOString());
+      expect(at!.toISOString()).not.toBe(first!.finalizedAt!.toISOString());
+    }
   });
 
   it('13b. no message was ever handed to a real transport', () => {
