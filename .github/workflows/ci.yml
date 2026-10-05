@@ -60,8 +60,33 @@ jobs:
       - name: Frontend typecheck
         run: npm run typecheck --workspace frontend
 
+      # SERIAL, WITH A LARGER HEAP, AND BOTH HALVES MATTER.
+      #
+      # This read `npm run test:unit --workspace backend` and the job failed
+      # with a page of `FAIL test/unit/...` lines that looked like broken
+      # functionality and were not. Jest had died of memory exhaustion:
+      #
+      #   FATAL ERROR: Reached heap limit
+      #   Jest worker ran out of memory and crashed
+      #
+      # A killed worker is reported as its whole suite failing, so the suites
+      # named are the ones that happened to be in flight, not the ones that are
+      # broken -- which is why the list changes between runs and why chasing an
+      # individual name on it leads nowhere.
+      #
+      # --runInBand removes the parallel workers, so there is one heap instead
+      # of several competing for the runner's memory, and a crash is a real
+      # crash rather than a scheduling accident.
+      #
+      # CI-ONLY, DELIBERATELY. This is a property of the GitHub runner, not of
+      # the test suite, so it is set on the step rather than in jest.config.js:
+      # a developer running the same command locally is unaffected, and no
+      # application or Render NODE_OPTIONS changes. The PostgreSQL job below
+      # already raises the heap the same way.
       - name: Backend unit tests
-        run: npm run test:unit --workspace backend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npm run test:unit --workspace backend -- --runInBand
 
       - name: Backend build
         run: npm run build --workspace backend
