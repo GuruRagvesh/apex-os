@@ -141,4 +141,6 @@ jobs:
         run: npm run test:int --workspace backend
 
       - name: API integration suites
+        env:
+          NODE_OPTIONS: --max-old-space-size=5120
         run: npm run test:api --workspace backend
