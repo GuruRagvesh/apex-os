@@ -241,57 +241,91 @@ describe('an import correction against the payroll close', () => {
     const realRender = (payroll as any).renderCanonical.bind(payroll);
     const spy = jest
       .spyOn(payroll as any, 'renderCanonical')
-      .mockImplementation(async (month: any) => {
-        const rendered = await realRender(month);
+      // EVERY ARGUMENT, FORWARDED BLIND.
+      //
+      // This took `(month: any)` and called `realRender(month)`. When
+      // renderCanonical gained `actor` and `tx`, the spy silently dropped both:
+      // the real method then ran with actor undefined and rendered through the
+      // root client instead of the transaction, so finalize threw "Only HR can
+      // read the attendance report" and released the lock before this test
+      // could observe it -- which is why the failure looked like a lock
+      // assertion rather than a signature mismatch.
+      //
+      // Spread rather than a named list on purpose. This spy exists to DELAY
+      // the call, not to inspect it, so it has no business knowing the
+      // signature; forwarding blind is what stops the next parameter from
+      // breaking it the same way.
+      .mockImplementation(async (...args: any[]) => {
+        const rendered = await realRender(...args);
         await gate;
         return rendered;
       });
 
     let finalizeDone = false;
-    const finalize = payroll.finalize(seed.actors.hr, MONTH).then(() => {
-      finalizeDone = true;
-    });
+    let finalize: Promise<unknown> | undefined;
+    let applying: Promise<any> | undefined;
 
-    for (let i = 0; i < 100; i++) {
-      if ((await lockRows()).some((r) => r.granted)) break;
-      await sleep(60);
+    try {
+      finalize = payroll.finalize(seed.actors.hr, MONTH).then(() => {
+        finalizeDone = true;
+      });
+
+      for (let i = 0; i < 100; i++) {
+        if ((await lockRows()).some((r) => r.granted)) break;
+        await sleep(60);
+      }
+      expect((await lockRows()).some((r) => r.granted)).toBe(true);
+
+      // The import now tries to correct a day in that month.
+      let applyDone = false;
+      applying = apply.apply(seed.actors.admin, batch.id).then((r) => {
+        applyDone = true;
+        return r;
+      });
+
+      // It must be waiting on the same lock object, not proceeding.
+      for (let i = 0; i < 100; i++) {
+        if ((await lockRows()).length >= 2) break;
+        await sleep(60);
+      }
+      const contended = await lockRows();
+      expect(contended.length).toBeGreaterThanOrEqual(2);
+      expect(contended.some((r) => !r.granted)).toBe(true);
+      expect(applyDone).toBe(false);
+      expect(finalizeDone).toBe(false);
+
+      release();
+      await finalize;
+      const out = await applying;
+
+      // The close completed, and the correction that was queued behind it did
+      // NOT write. It saw a settled month the moment it got the lock.
+      expect(finalizeDone).toBe(true);
+      const close = await prisma.attendanceMonthClose.findUnique({ where: { month: MONTH } });
+      expect(['FINALIZED', 'SENT']).toContain(close!.status);
+
+      expect(out.applied).toBe(0);
+      expect(await prisma.attendanceRegularization.count()).toBe(0);
+      const day = await prisma.dailyAttendance.findFirst({ where: { userId: seed.employees.B.id } });
+      expect(day!.revision).toBe(1);
+      expect(day!.punchOutAt?.toISOString()).toBe('2026-08-14T13:10:00.000Z');
+    } finally {
+      // UNCONDITIONAL, BECAUSE THIS TEST PARKS A TRANSACTION MID-FLIGHT.
+      //
+      // mockRestore() used to sit after the assertions, so the first failing
+      // one skipped it and left the spy installed for tests 13, 12d and 12e --
+      // one defect reported as four.
+      //
+      // release() belongs here for the same reason and is not redundant: a
+      // finalize paused on the gate is holding the month advisory lock inside
+      // an open transaction, and a test that threw while it was parked would
+      // queue every following test behind a lock nothing was going to free.
+      // Settling both promises keeps that teardown inside this test rather
+      // than racing the next one.
+      release();
+      await Promise.allSettled([finalize, applying]);
+      spy.mockRestore();
     }
-    expect((await lockRows()).some((r) => r.granted)).toBe(true);
-
-    // The import now tries to correct a day in that month.
-    let applyDone = false;
-    const applying = apply.apply(seed.actors.admin, batch.id).then((r) => {
-      applyDone = true;
-      return r;
-    });
-
-    // It must be waiting on the same lock object, not proceeding.
-    for (let i = 0; i < 100; i++) {
-      if ((await lockRows()).length >= 2) break;
-      await sleep(60);
-    }
-    const contended = await lockRows();
-    expect(contended.length).toBeGreaterThanOrEqual(2);
-    expect(contended.some((r) => !r.granted)).toBe(true);
-    expect(applyDone).toBe(false);
-    expect(finalizeDone).toBe(false);
-
-    release();
-    await finalize;
-    const out = await applying;
-    spy.mockRestore();
-
-    // The close completed, and the correction that was queued behind it did
-    // NOT write. It saw a settled month the moment it got the lock.
-    expect(finalizeDone).toBe(true);
-    const close = await prisma.attendanceMonthClose.findUnique({ where: { month: MONTH } });
-    expect(['FINALIZED', 'SENT']).toContain(close!.status);
-
-    expect(out.applied).toBe(0);
-    expect(await prisma.attendanceRegularization.count()).toBe(0);
-    const day = await prisma.dailyAttendance.findFirst({ where: { userId: seed.employees.B.id } });
-    expect(day!.revision).toBe(1);
-    expect(day!.punchOutAt?.toISOString()).toBe('2026-08-14T13:10:00.000Z');
   });
 
   it('13. send holds the month across its staleness check, and SENT is absolute', async () => {
