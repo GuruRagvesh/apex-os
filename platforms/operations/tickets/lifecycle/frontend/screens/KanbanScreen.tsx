@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -20,23 +21,31 @@ import { useAuthStore } from '@apex/core-identity';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
 import { DEPT_COLORS } from '../../shared/ticket-vocabulary';
 import { cn, getInitials, formatDate } from '@apex/shared-utilities';
-import { getTicketVisibility, PRIORITY_DOT } from '../../shared/ticket-visibility';
+import { useDebounce } from '@apex/shared-utilities/use-debounce';
+import { getTicketVisibility } from '../../shared/ticket-visibility';
+import {
+  canMoveFromKanbanLane,
+  isKanbanCardOpenKey,
+  isKanbanLaneLocked,
+  kanbanCardHref,
+  shouldOpenKanbanCardOnClick,
+} from '../../shared/kanban-card-interaction';
 import { TimingTicker } from '@apex/operations-tickets-sla/components/OverdueTicker';
 import { SkeletonKanbanColumn } from '@apex/shared-ui/components/skeleton';
-import { Plus, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { Plus, Clock, AlertTriangle, Loader2, Search, X, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { CreateTicketLink } from '../components/ticket-creation-gate';
 import toast from 'react-hot-toast';
 
-const COLUMNS = [
-  { key: 'OPEN',        label: 'Open',        color: 'bg-amber-50/60 border-amber-200/80',    headerColor: 'text-amber-700 bg-amber-100',   accentColor: '#F59E0B' },
-  { key: 'IN_PROGRESS', label: 'In Progress', color: 'bg-blue-50/60 border-blue-200/80',      headerColor: 'text-blue-700 bg-blue-100',     accentColor: '#2563EB' },
-  { key: 'REVIEW',      label: 'Review',      color: 'bg-purple-50/60 border-purple-200/80',  headerColor: 'text-purple-700 bg-purple-100', accentColor: '#7C3AED' },
-  { key: 'DONE',        label: 'Done',        color: 'bg-emerald-50/60 border-emerald-200/80', headerColor: 'text-emerald-700 bg-emerald-100', accentColor: '#10B981' },
-];
+export const KANBAN_COLUMNS = [
+  { key: 'OPEN',        label: 'Open',        color: 'bg-amber-50/60 border-amber-200/80 dark:bg-amber-950/20 dark:border-amber-900/70',       accentColor: '#F59E0B' },
+  { key: 'IN_PROGRESS', label: 'In Progress', color: 'bg-blue-50/60 border-blue-200/80 dark:bg-blue-950/20 dark:border-blue-900/70',          accentColor: '#2563EB' },
+  { key: 'REVIEW',      label: 'Under Review', color: 'bg-purple-50/60 border-purple-200/80 dark:bg-purple-950/20 dark:border-purple-900/70', accentColor: '#7C3AED' },
+  { key: 'DONE',        label: 'Done',        color: 'bg-emerald-50/60 border-emerald-200/80 dark:bg-emerald-950/20 dark:border-emerald-900/70', accentColor: '#10B981' },
+] as const;
 
 // ─── Static card UI (also used for DragOverlay) ───────────────────────────────
-function CardContent({ ticket, isPending, canMove = true }: { ticket: any; isPending?: boolean; canMove?: boolean }) {
+function CardContent({ ticket, isPending, canMove = true, canDrag = canMove }: { ticket: any; isPending?: boolean; canMove?: boolean; canDrag?: boolean }) {
   const deptColor = ticket.department?.color || DEPT_COLORS[ticket.department?.name] || '#e2e8f0';
   const vis = getTicketVisibility({
     status: ticket.status,
@@ -67,12 +76,9 @@ function CardContent({ ticket, isPending, canMove = true }: { ticket: any; isPen
                     ticket.priority === 'HIGH' ? '3px solid #F97316' :
                     ticket.priority === 'MEDIUM' ? '3px solid #2563EB' :
                     '1px solid var(--border-primary)',
-        cursor: canMove ? 'grab' : 'not-allowed',
+        cursor: canDrag ? 'grab' : 'pointer',
       }}
     >
-      {/* Priority dot — absolute top-right */}
-      {!isDone && <span className={cn('absolute top-2 right-2 w-2.5 h-2.5 rounded-full', PRIORITY_DOT[ticket.priority] ?? 'bg-gray-400')} />}
-
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>{ticket.ticketId}</span>
@@ -86,13 +92,8 @@ function CardContent({ ticket, isPending, canMove = true }: { ticket: any; isPen
               ⚠️ OVERDUE
             </span>
           )}
-          {ticket.status === 'REVIEW' && (
-            <span className="flex items-center gap-0.5 text-[9px] font-bold text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-400 px-1.5 py-0.5 rounded">
-              🔍 WAITING FOR REVIEW
-            </span>
-          )}
         </div>
-        <div className="flex items-center gap-1.5 pr-4">
+        <div className="flex items-center gap-1.5">
           {isPending && <Loader2 size={12} className="animate-spin text-indigo-500" />}
           {ticket.priority === 'URGENT' && !isDone && <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />}
         </div>
@@ -169,11 +170,21 @@ function CardContent({ ticket, isPending, canMove = true }: { ticket: any; isPen
 
 // ─── Draggable card wrapper ───────────────────────────────────────────────────
 function DraggableCard({ ticket, columnKey, isPending, canMove }: { ticket: any; columnKey: string; isPending: boolean; canMove: boolean }) {
+  const canDrag = canMoveFromKanbanLane(columnKey, canMove);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: ticket.id,
     data: { columnKey, ticket },
-    disabled: isPending || !canMove,
+    disabled: isPending || !canDrag,
   });
+
+  const router = useRouter();
+  const openTicket = () => router.push(kanbanCardHref(ticket.id));
+  // A drop can be followed by a click on the card; only a plain click opens the ticket.
+  const dragEndedAt = useRef(0);
+  useEffect(() => {
+    if (!isDragging) return;
+    return () => { dragEndedAt.current = Date.now(); };
+  }, [isDragging]);
 
   const style = transform
     ? { transform: CSS.Translate.toString(transform) }
@@ -185,9 +196,18 @@ function DraggableCard({ ticket, columnKey, isPending, canMove }: { ticket: any;
       style={style}
       {...listeners}
       {...attributes}
+      role="link"
+      tabIndex={0}
+      aria-label={isKanbanLaneLocked(columnKey) ? `Open ${ticket.ticketId} to review it` : `Open ${ticket.ticketId}`}
+      onClick={() => {
+        if (shouldOpenKanbanCardOnClick(Date.now(), dragEndedAt.current)) openTicket();
+      }}
+      onKeyDown={(e) => {
+        if (isKanbanCardOpenKey(e.key)) openTicket();
+      }}
       className={cn('touch-none', isDragging && 'opacity-30 cursor-grabbing')}
     >
-      <CardContent ticket={ticket} isPending={isPending} canMove={canMove} />
+      <CardContent ticket={ticket} isPending={isPending} canMove={canMove} canDrag={canDrag} />
     </div>
   );
 }
@@ -203,7 +223,7 @@ function DroppableColumn({
   getNextStatus,
   canMoveCard,
 }: {
-  col: typeof COLUMNS[0];
+  col: typeof KANBAN_COLUMNS[number];
   tickets: any[];
   pendingIds: Set<string>;
   onMovePrev: (id: string) => void;
@@ -218,7 +238,7 @@ function DroppableColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'rounded-2xl border p-3 min-h-[400px] transition-all overflow-hidden',
+        'rounded-2xl border p-3 min-h-[400px] min-w-[17rem] transition-all overflow-hidden flex flex-col',
         col.color,
         isOver && 'ring-2 ring-offset-1',
       )}
@@ -244,30 +264,36 @@ function DroppableColumn({
         </span>
       </div>
 
-      <div className="space-y-2.5">
+      <div className="space-y-2.5 overflow-y-auto pr-1 max-h-[calc(100vh-18rem)]" role="list" aria-label={`${col.label} tickets`}>
         {tickets.map((ticket) => (
-          <div key={ticket.id} className="group relative">
+          <div key={ticket.id} className="group relative" role="listitem">
             <DraggableCard
               ticket={ticket}
               columnKey={col.key}
               isPending={pendingIds.has(ticket.id)}
               canMove={canMoveCard(ticket)}
             />
-            {/* Fallback move buttons for non-drag interactions */}
-            {!pendingIds.has(ticket.id) && canMoveCard(ticket) && (
-              <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {/* Fallback move buttons for non-drag interactions. They sit outside the
+                card wrapper, so pressing one never opens the ticket. REVIEW cards
+                have none: review is decided on the ticket page. */}
+            {!pendingIds.has(ticket.id) && canMoveFromKanbanLane(col.key, canMoveCard(ticket)) && (
+              <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 {getPrevStatus(col.key) && (
                   <button
-                    onClick={() => onMovePrev(ticket.id)}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onMovePrev(ticket.id); }}
                     className="flex-1 text-xs py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-600 transition-colors"
+                    aria-label={`Move ${ticket.ticketId} to ${getPrevStatus(col.key)}`}
                   >
                     ← Back
                   </button>
                 )}
                 {getNextStatus(col.key) && (
                   <button
-                    onClick={() => onMoveNext(ticket.id)}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onMoveNext(ticket.id); }}
                     className="flex-1 text-xs py-1 bg-indigo-100 hover:bg-indigo-200 rounded text-indigo-700 transition-colors"
+                    aria-label={`Move ${ticket.ticketId} to ${getNextStatus(col.key)}`}
                   >
                     Move →
                   </button>
@@ -304,25 +330,31 @@ export default function KanbanScreen() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
   const [departmentId, setDepartmentId] = useState('');
+  const [search, setSearch] = useState('');
   const [localKanban, setLocalKanban] = useState<KanbanData>({});
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [activeTicket, setActiveTicket] = useState<any>(null);
+  const debouncedSearch = useDebounce(search, 300);
 
+  // This is only a broad UI affordance. Exact transitions and role/scope
+  // permission remain exclusively enforced by the backend.
   const canMoveCard = (ticket: any) => {
     if (!user) return false;
     const roleName = (user.role as any)?.name ?? user.role ?? '';
     const isOwner = ticket.createdById === user.id;
     const isAssignee = ticket.assignedToId === user.id ||
-      ticket.assignees?.some((a: any) => a.userId === user.id);
-    const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
-    const isTeamLead = roleName === 'TEAM_LEAD';
-    return isOwner || isAssignee || isManagerPlus || isTeamLead;
+      ticket.assignees?.some((a: any) => (a.userId ?? a.user?.id) === user.id);
+    return isOwner || isAssignee || ['MANAGER', 'ADMIN', 'SUPER_ADMIN', 'TEAM_LEAD'].includes(roleName);
   };
 
-  const { data: kanban, isLoading } = useQuery({
-    queryKey: ['kanban', departmentId],
-    queryFn: () => ticketsApi.getKanban(departmentId ? { departmentId } : {}) as Promise<KanbanData>,
+  const { data: kanban, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ['kanban', { departmentId, search: debouncedSearch }],
+    queryFn: () => ticketsApi.getKanban({
+      ...(departmentId ? { departmentId } : {}),
+      ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    }) as Promise<KanbanData>,
     refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: departments } = useQuery({
@@ -338,8 +370,9 @@ export default function KanbanScreen() {
   const moveMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       ticketsApi.updateStatus(id, status),
-    onError: (_err, variables) => {
-      toast.error('Failed to move ticket — reverting');
+    onError: (err: any, variables) => {
+      // The backend's reason (e.g. "Use Approve to complete a ticket that is in review.")
+      toast.error(err?.message || 'Failed to move ticket — reverting');
       // Revert to server data
       if (kanban) setLocalKanban(kanban);
       setPendingIds((prev) => {
@@ -359,7 +392,12 @@ export default function KanbanScreen() {
       qc.invalidateQueries({ queryKey: ['dashboard-overview'] });
       qc.invalidateQueries({ queryKey: ['ticket-stats'] });
       qc.invalidateQueries({ queryKey: ['activity-feed'] });
+      qc.invalidateQueries({ queryKey: ['active-timer'] });
+      qc.invalidateQueries({ queryKey: ['workday-today'] });
+      qc.invalidateQueries({ queryKey: ['ticket-pending-approvals'] });
+      qc.invalidateQueries({ queryKey: ['approval-reminders-pending-approvals'] });
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['kanban'] }),
   });
 
   const sensors = useSensors(
@@ -367,22 +405,31 @@ export default function KanbanScreen() {
   );
 
   const getNextStatus = (current: string) => {
-    const idx = COLUMNS.findIndex((c) => c.key === current);
-    return idx < COLUMNS.length - 1 ? COLUMNS[idx + 1].key : null;
+    const idx = KANBAN_COLUMNS.findIndex((c) => c.key === current);
+    return idx < KANBAN_COLUMNS.length - 1 ? KANBAN_COLUMNS[idx + 1].key : null;
   };
 
   const getPrevStatus = (current: string) => {
-    const idx = COLUMNS.findIndex((c) => c.key === current);
-    return idx > 0 ? COLUMNS[idx - 1].key : null;
+    const idx = KANBAN_COLUMNS.findIndex((c) => c.key === current);
+    return idx > 0 ? KANBAN_COLUMNS[idx - 1].key : null;
   };
 
   const moveTicket = (ticketId: string, fromColumn: string, toColumn: string) => {
     if (fromColumn === toColumn) return;
+    // Review is decided on the ticket page, never by a board move.
+    if (isKanbanLaneLocked(fromColumn)) {
+      toast.error('Open the ticket to review it: Start Review, then Approve or Send Back');
+      return;
+    }
+
+    const ticket = localKanban[fromColumn]?.find((item) => item.id === ticketId);
+    if (!ticket || !canMoveCard(ticket)) {
+      toast.error('You do not have permission to make that status change');
+      return;
+    }
 
     // Optimistic update
     setLocalKanban((prev) => {
-      const ticket = prev[fromColumn]?.find((t) => t.id === ticketId);
-      if (!ticket) return prev;
       return {
         ...prev,
         [fromColumn]: prev[fromColumn].filter((t) => t.id !== ticketId),
@@ -406,7 +453,7 @@ export default function KanbanScreen() {
     const toColumn = over.id as string;
     const ticket = active.data.current?.ticket;
     if (ticket && !canMoveCard(ticket)) {
-      toast.error('You do not have permission to move this ticket');
+      toast.error('You do not have permission to make that status change');
       return;
     }
     moveTicket(active.id as string, fromColumn, toColumn);
@@ -422,9 +469,9 @@ export default function KanbanScreen() {
     'Showing your assigned work';
 
   return (
-    <div className="space-y-5 h-full">
+    <div className="space-y-5 h-full min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
@@ -433,20 +480,53 @@ export default function KanbanScreen() {
             </span>
           </div>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            {roleDisplay === 'INTERN' ? 'Read-only context: you can only drag tickets where you are the reporter or assignee' : 'Drag cards between columns to update status'}
+            {roleDisplay === 'INTERN' ? 'Restricted scope: you can move only tickets where you are the reporter or assignee' : 'Drag cards between columns to update status'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            value={departmentId}
-            onChange={(e) => setDepartmentId(e.target.value)}
-            className="apex-select"
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full lg:w-auto">
+          <label className="relative flex-1 lg:w-64">
+            <span className="sr-only">Search Kanban tickets</span>
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-tertiary)' }} />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search tickets…"
+              className="apex-input w-full pl-9 pr-9"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                aria-label="Clear Kanban search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </label>
+          <label>
+            <span className="sr-only">Filter Kanban by department</span>
+            <select
+              value={departmentId}
+              onChange={(e) => setDepartmentId(e.target.value)}
+              className="apex-select w-full sm:w-auto"
+            >
+              <option value="">All Departments</option>
+              {Array.isArray(departments) && departments.map((d: any) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="apex-btn apex-btn-secondary px-3"
+            aria-label="Refresh Kanban board"
+            title="Refresh Kanban board"
           >
-            <option value="">All Departments</option>
-            {Array.isArray(departments) && departments.map((d: any) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
+            <RefreshCw size={15} className={cn(isFetching && 'animate-spin')} />
+          </button>
           <CreateTicketLink className="apex-btn-new-ticket">
             <Plus size={16} /> New Ticket
           </CreateTicketLink>
@@ -454,31 +534,43 @@ export default function KanbanScreen() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-4 gap-4">
-          {COLUMNS.map((col) => <SkeletonKanbanColumn key={col.key} cards={3} />)}
+        <div className="overflow-x-auto pb-3" aria-label="Loading Kanban board">
+          <div className="grid grid-cols-4 gap-4 min-w-[70rem]">
+            {KANBAN_COLUMNS.map((col) => <SkeletonKanbanColumn key={col.key} cards={3} />)}
+          </div>
+        </div>
+      ) : isError ? (
+        <div className="rounded-2xl border p-8 text-center" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }} role="alert">
+          <AlertTriangle className="mx-auto mb-3 text-amber-500" size={28} />
+          <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Kanban board could not be loaded</h3>
+          <p className="text-sm mt-1 mb-4" style={{ color: 'var(--text-secondary)' }}>Refresh and try again. No ticket was changed.</p>
+          <button type="button" className="apex-btn apex-btn-secondary" onClick={() => refetch()}>Try again</button>
         </div>
       ) : (
-        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-4 gap-4">
-            {COLUMNS.map((col) => (
-              <DroppableColumn
-                key={col.key}
-                col={col}
-                tickets={localKanban[col.key] ?? []}
-                pendingIds={pendingIds}
-                getPrevStatus={getPrevStatus}
-                getNextStatus={getNextStatus}
-                canMoveCard={canMoveCard}
-                onMovePrev={(id) => {
-                  const prev = getPrevStatus(col.key);
-                  if (prev) moveTicket(id, col.key, prev);
-                }}
-                onMoveNext={(id) => {
-                  const next = getNextStatus(col.key);
-                  if (next) moveTicket(id, col.key, next);
-                }}
-              />
-            ))}
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveTicket(null)}>
+          <div className="overflow-x-auto pb-3 snap-x snap-mandatory" aria-label="Ticket Kanban board">
+            <div className="grid grid-cols-4 gap-4 min-w-[70rem] items-start">
+              {KANBAN_COLUMNS.map((col) => (
+                <section key={col.key} className="snap-start" aria-label={`${col.label} lane`}>
+                  <DroppableColumn
+                    col={col}
+                    tickets={localKanban[col.key] ?? []}
+                    pendingIds={pendingIds}
+                    getPrevStatus={getPrevStatus}
+                    getNextStatus={getNextStatus}
+                    canMoveCard={canMoveCard}
+                    onMovePrev={(id) => {
+                      const prev = getPrevStatus(col.key);
+                      if (prev) moveTicket(id, col.key, prev);
+                    }}
+                    onMoveNext={(id) => {
+                      const next = getNextStatus(col.key);
+                      if (next) moveTicket(id, col.key, next);
+                    }}
+                  />
+                </section>
+              ))}
+            </div>
           </div>
 
           <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
