@@ -16,11 +16,9 @@
  * checked only the day would walk into a closed period and find nothing in its
  * way.
  *
- * OPEN, REVIEWING and REOPENED are NOT settled. REVIEWING means somebody has
- * begun the close and is looking at it; correcting a month under review is the
- * point of reviewing it. REOPENED means a finalized month was deliberately
- * unsealed by a named person in order to be corrected -- refusing corrections
- * in that state would make the reopen pointless.
+ * OPEN and REVIEWING are NOT settled. REVIEWING means somebody has begun the
+ * close and is looking at it; correcting a month under review is the point of
+ * reviewing it.
  *
  * Pure and dependency-free: these decide whether a financially settled period
  * can be rewritten, and that should be provable without a database.
@@ -84,39 +82,24 @@ export function describeSettlement(facts: SettlementFacts): SettlementReason[] {
  * authority to rewrite a financially settled period, and a bulk operation that
  * could would be one click away from silently changing what Finance was told.
  *
- * INDIVIDUAL_REVIEW is refused by both month states: FINALIZED_MONTH and
- * SENT_MONTH. It is still permitted past a LOCKED_DAY or a FINALIZED_DAY, which
- * are per-employee-day operational states inside a month that is still open.
+ * INDIVIDUAL_REVIEW is refused by exactly one: SENT_MONTH.
  *
- * THE LINE IS DRAWN AT FINALIZATION, AND IT USED TO BE DRAWN AT DELIVERY.
+ * The line is drawn at delivery, not at finalization. Before the report leaves,
+ * a reviewed correction is the sanctioned way to repair a month, and the
+ * existing chain holds -- send() re-renders and refuses to deliver a report
+ * whose data no longer matches the fingerprint captured at finalization, so a
+ * corrected-but-unsent month cannot reach Finance stale. A locked day or a
+ * finalized month is therefore still correctable by a human who reviewed it.
  *
- * The previous rule let a reviewed correction rewrite a FINALIZED month, and it
- * was not careless -- it rested on a specific compensating control, which the
- * comment here named: send() re-rendered the month and refused to deliver a
- * report whose data no longer matched a fingerprint captured at finalization.
- * A corrected-but-unsent month therefore could not reach Finance stale. Given
- * that chain, allowing the correction was the better trade, because it let HR
- * repair a month without a separate reopen workflow.
+ * Once the month is SENT, that chain has nothing left to catch: Finance is
+ * holding the report, and no later check re-examines a report that has gone. A
+ * correction after that point does not repair the month, it makes Apex OS
+ * disagree with a document somebody is already working from -- silently, and
+ * with no record on the Finance side that anything moved.
  *
- * THAT CHAIN HAS BEEN REMOVED. The fingerprint is gone by explicit product
- * decision, and with it the only thing that noticed a post-finalization
- * change. Leaving this rule as it was would have left corrections permitted in
- * a finalized month with nothing downstream to catch them -- the one
- * combination the old design never had. The guard did not break; the thing it
- * depended on was deleted from underneath it.
- *
- * So finalization itself is now the seal. A FINALIZED month must be explicitly
- * REOPENED -- by HR or an Admin, with a stated reason, recorded on the close --
- * before its attendance can change, and re-finalized afterwards before Finance
- * can be sent anything. The protection is business state a person can read,
- * which is what was asked for in place of a hash.
- *
- * SENT stays refused for its own independent reason, and reopening a sent
- * month remains the more consequential act: Finance is already holding the
- * report, so a correction there does not repair a month, it makes Apex OS
- * disagree with a document somebody is working from. The reopen path treats it
- * as such rather than refusing it outright, because amending a sent month is a
- * real need -- it simply must be deliberate and recorded.
+ * Reopening a sent month is a real need and a separate, explicit workflow:
+ * amend the report, tell Finance, record that it happened. It is not something
+ * an ordinary correction should be able to do as a side effect.
  */
 export function settlementBlocking(
   reasons: SettlementReason[],
@@ -128,18 +111,8 @@ export function settlementBlocking(
   // permissive branch is the one that has to be asked for by name.
   if (authority !== 'INDIVIDUAL_REVIEW') return reasons;
 
-  // FINALIZATION IS THE LINE, not delivery. Both month-level states refuse;
-  // the day-level ones do not, because a finalized day inside an open month is
-  // an operational state HR is expected to be able to revisit.
-  //
-  // Written as an allow-list of what a reviewed correction may pass -- the day
-  // states -- rather than a deny-list of month states, so a SETTLEMENT REASON
-  // ADDED LATER REFUSES BY DEFAULT instead of being waved through by a filter
-  // that had never heard of it. The previous deny-list is precisely how this
-  // rule came to permit a correction the removed fingerprint was supposed to
-  // catch.
-  const PASSABLE_BY_REVIEW: SettlementReason[] = ['LOCKED_DAY', 'FINALIZED_DAY'];
-  return reasons.filter((reason) => !PASSABLE_BY_REVIEW.includes(reason));
+  // Delivery is the line. Everything short of it stays correctable.
+  return reasons.filter((reason) => reason === 'SENT_MONTH');
 }
 
 /**
@@ -184,13 +157,8 @@ export class SettledAttendanceError extends Error {
 
   constructor(businessDate: string, reasons: SettlementReason[]) {
     super(
-      // NOT "by a bulk correction" any more: a reviewed individual correction
-      // is refused by a finalized month too, and telling HR their change was
-      // blocked as a bulk operation would send them looking for a batch they
-      // never ran.
-      `Attendance for ${businessDate} cannot be changed. ` +
-        describeBlocked(reasons) +
-        ' Reopen the month to correct it.',
+      `Attendance for ${businessDate} cannot be changed by a bulk correction. ` +
+        describeBlocked(reasons),
     );
     this.name = 'SettledAttendanceError';
     this.businessDate = businessDate;

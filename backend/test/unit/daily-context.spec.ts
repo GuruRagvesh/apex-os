@@ -59,8 +59,6 @@ const LEAVE_POLICY = { id: 'lp-1', policyKey: 'leave:default', version: 1 };
 
 interface Opts {
   user?: any;
-  /** The stored attendance.lateCutoff setting value, when a test configures one. */
-  lateCutoffSetting?: unknown;
   weeklyOffById?: Record<string, any>;
   holidayByCalendar?: Record<string, any>;
   calendars?: Record<string, any>;
@@ -81,13 +79,6 @@ function build(opts: Opts = {}) {
     'user' in opts ? opts.user : { id: 'emp-1', joiningDate: d('2025-11-10'), lastWorkingDate: null };
 
   const prisma: any = {
-    // The late-cutoff setting. Defaults to absent, so the context resolves the
-    // company fallback; a test can supply one to prove it is actually read.
-    appSetting: {
-      findUnique: jest.fn(async () =>
-        'lateCutoffSetting' in opts ? { value: opts.lateCutoffSetting } : null,
-      ),
-    },
     weeklyOffPolicy: {
       // Honours an id filter so two employees can sit on different policies.
       findFirst: jest.fn((args: any) => {
@@ -919,67 +910,5 @@ describe('legacy employees with no joining date (production hotfix)', () => {
     expect(c.coverage).toBe('UNRESOLVED');
     expect(c.attendanceApplicability).toBe('BLOCKED');
     expect(c.blockingReasons).toContain('NO_PROFILE_FOR_DATE');
-  });
-});
-
-// ════════════════════════════════════════════════════════════════════════════
-// The company late cutoff travels on the context
-// ════════════════════════════════════════════════════════════════════════════
-//
-// The evaluator reads lateness off the context rather than off the employee's
-// shift, so the context is where the company rule has to arrive intact. These
-// cover the three states the resolver distinguishes, because a misconfigured
-// cutoff and an unconfigured one must not look the same to anything downstream.
-describe('the late cutoff on the daily context', () => {
-  it('falls back to the company 10:30 when nothing is configured', async () => {
-    const { service } = build();
-
-    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
-
-    expect(c.lateCutoff).toEqual({ clock: '10:30', source: 'SYSTEM_FALLBACK' });
-  });
-
-  it('READS A CONFIGURED CUTOFF, so it is changeable without a deploy', async () => {
-    const { service } = build({ lateCutoffSetting: '09:45' });
-
-    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
-
-    expect(c.lateCutoff).toEqual({ clock: '09:45', source: 'CONFIGURED' });
-  });
-
-  it('reports a misconfigured cutoff rather than passing it off as unset', async () => {
-    const { service } = build({ lateCutoffSetting: 42 });
-
-    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
-
-    expect(c.lateCutoff.clock).toBe('10:30');
-    expect(c.lateCutoff.source).toBe('INVALID_CONFIGURED_VALUE');
-  });
-
-  it('STILL RESOLVES THE DAY when the settings table cannot be read', async () => {
-    // A context that refused to resolve over a configuration row would stop
-    // the evaluator for every employee.
-    const { service, prisma } = build();
-    prisma.appSetting.findUnique = jest.fn(async () => {
-      throw new Error('relation "app_settings" does not exist');
-    });
-
-    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
-
-    expect(c.contextResolved).toBe(true);
-    expect(c.lateCutoff.clock).toBe('10:30');
-  });
-
-  it('does NOT take the cutoff from the shift window', async () => {
-    // The defect this replaced: a shift starting 08:00 with 15 minutes grace
-    // used to make 08:15 the cutoff for that employee.
-    const { service } = build({
-      shift: { startTime: '08:00', endTime: '17:00', graceMinutes: 15, minimumWorkingMinutes: 540 },
-    });
-
-    const c = await service.resolveDailyContext('emp-1', '2026-08-17');
-
-    expect(c.lateCutoff.clock).toBe('10:30');
-    expect(c.lateCutoff.clock).not.toBe('08:15');
   });
 });

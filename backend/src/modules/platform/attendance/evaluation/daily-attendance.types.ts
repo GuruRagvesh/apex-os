@@ -168,26 +168,6 @@ export interface DailyAttendanceResult {
   leaveDeducted: number;
   lwpDeducted: number;
 
-  /**
-   * The presence requirement that applied, and whether it was met.
-   *
-   * CARRIED OUT SO NOTHING DOWNSTREAM HAS TO DECIDE IT. The UI held its own
-   * 540 and compared against it, which is an official attendance decision
-   * taken in a browser -- free to disagree with the evaluator, with nothing
-   * able to notice. These are the evaluator's own figures, computed where
-   * INSUFFICIENT_PRESENCE_SPAN is raised.
-   *
-   * `presenceMinutes` is punch out minus punch in, FLOORED, and null until
-   * both punches exist. Floored because a requirement must never be met with
-   * time that was not spent: 08:59:59 is 539 minutes, not 540.
-   *
-   * `meetsRequirement` is null, not false, while presence is unknown. An
-   * unfinished day has not failed the requirement; it has not answered it.
-   */
-  requiredPresenceMinutes: number | null;
-  presenceMinutes: number | null;
-  meetsRequirement: boolean | null;
-
   requiresReview: boolean;
   /**
    * Why the foundation could not explain this day, when it could not.

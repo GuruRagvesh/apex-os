@@ -18,30 +18,6 @@ import {
 // The email transport is stubbed throughout. No real message is sent by a test.
 
 const NOW = new Date('2026-09-01T06:00:00.000Z');
-
-/** One canonical summary row, so the lifecycle's stored counts are real. */
-const DEFAULT_SUMMARY_ROW: any = {
-  userId: 'emp-1',
-  employeeName: 'Rahul',
-  employeeId: 'TE-014',
-  department: 'Engineering',
-  designation: 'Engineer',
-  employeeType: 'Full-time',
-  workingDays: 21,
-  presentDays: 20,
-  absentDays: 1,
-  halfDays: 0,
-  leaveDays: 0,
-  lateDays: 2,
-  daysBelowNineHours: 1,
-  totalPresenceHours: 180.5,
-  totalWorkHours: 171,
-  totalBreakHours: 12,
-  clUsed: 0,
-  lwpUnpaidDays: 0,
-  attendanceDeductions: 0,
-  unresolvedDays: 0,
-};
 const HR = { id: 'hr-1', name: 'Priya', role: { name: 'HR' } };
 const EMPLOYEE = { id: 'emp-1', name: 'Rahul', role: { name: 'EMPLOYEE' } };
 
@@ -50,14 +26,7 @@ function build(over: any = {}) {
   // Every real close row has a primary key. Fixtures that omitted it were
   // describing a row that cannot exist, and the idempotency key rightly
   // refuses to be built from one.
-  // A CURRENT-SCHEME value by default. A bare V1-style digest is now
-  // correctly refused by the scheme guard, which is what the
-  // 'finalized before the reporting was unified' test exercises deliberately.
-  if (over.close)
-    closes.set(over.close.month, {
-      id: 'mc-1',
-      ...over.close,
-    });
+  if (over.close) closes.set(over.close.month, { id: 'mc-1', reportSha256: 'fp-report', ...over.close });
   const audit: any[] = [];
   const sent: any[] = [];
 
@@ -135,46 +104,19 @@ function build(over: any = {}) {
           : { outcome: 'REJECTED', reason: 'validation_error' };
       }),
     } as any,
-    // THE CANONICAL DATASET, as a double.
-    //
-    // The lifecycle no longer derives attendance: it asks the canonical report
-    // service and formats what comes back. A fixture therefore supplies
-    // canonical rows rather than DailyAttendance records.
-    // under test is computed over THOSE rows -- which is the point of the
-    // change.
-    {
-      monthReport: jest.fn(async (_actor: any, month: string, generatedAt?: Date) => {
-        const rows = over.summaryRows ?? [DEFAULT_SUMMARY_ROW];
-        const days = over.dailyRows ?? [];
-        return {
-        month,
-        dailyRows: days,
-        // ONE EMPLOYEE BY DEFAULT. The counts the lifecycle stores are derived
-        // from this, so a fixture describing nothing would let "stores counts
-        // computed from the data" pass against zeros.
-        summaryRows: rows,
-        // DERIVED FROM THE SAME ARRAY the double returns.
-        //
-        // This counted `over.summaryRows ?? []` while summaryRows defaulted to
-        // [DEFAULT_SUMMARY_ROW], so a report carried one row and claimed zero
-        // employees -- the double contradicted itself, and eight tests failed
-        // on the implementation's behalf.
-        metadata: {
-          generatedAt: generatedAt ?? NOW,
-          employees: rows.length,
-          days: days.length,
-          unresolvedDays: rows.reduce((n: number, r: any) => n + (r.unresolvedDays ?? 0), 0),
-          employeesWithUnresolved: rows.filter((r: any) => (r.unresolvedDays ?? 0) > 0).length,
-        },
-        };
-      }),
-    } as any,
   );
 
   // Pins what renderCanonical produces, so a fixture can carry a REAL
   // fingerprint and the comparison against it is deliberate rather than
   // accidental. Tests that want a mismatch pass a different value; tests about
   // the real digest format leave it unset and get the genuine implementation.
+  if (over.renderFingerprint) {
+    jest.spyOn(service as any, 'renderCanonical').mockImplementation(async () => ({
+      buffer: Buffer.from('synthetic-workbook'),
+      dataFingerprint: over.renderFingerprint,
+      totals: { employees: 1, unresolvedDays: 0, employeesWithUnresolved: 0 },
+    }));
+  }
 
   return { service, prisma, closes, audit, sent, advisoryLocks };
 }
@@ -221,25 +163,12 @@ describe('the lifecycle never skips a step', () => {
     await expect(service.send(HR, '2026-08')).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('refuses to re-finalize a finalized month IN PLACE', async () => {
-    // Still refused, and for the original reason: silently re-finalising would
-    // change what Finance was told had been approved with no record it
-    // happened. What changed is that this is no longer a dead end -- the
-    // refusal now names the way through, which is an explicit reopen.
+  it('refuses to re-finalize a finalized month', async () => {
+    // Reopening is not designed for V1. Silently re-finalising would change
+    // what Finance was told had been approved, with no record it happened.
     const { service } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
 
-    await expect(service.finalize(HR, '2026-08')).rejects.toThrow(/reopen it first/i);
-  });
-
-  it('FINALIZES A REOPENED MONTH, which is what makes a correction completable', async () => {
-    // A reopen that could not be followed by a re-finalization would strand the
-    // month: correctable forever and never sendable, because delivery requires
-    // FINALIZED. REOPENED is neither FINALIZED nor SENT, so it falls through
-    // the guard above by design rather than by accident -- this test is what
-    // says so out loud.
-    const { service } = build({ close: { month: '2026-08', status: 'REOPENED' } });
-
-    await expect(service.finalize(HR, '2026-08')).resolves.toBeDefined();
+    await expect(service.finalize(HR, '2026-08')).rejects.toThrow(/not supported/i);
   });
 
   it('refuses to re-finalize a sent month', async () => {
@@ -257,7 +186,7 @@ describe('the lifecycle never skips a step', () => {
 });
 
 describe('every figure is derived, never supplied', () => {
-  it('stores counts computed from the CANONICAL data', async () => {
+  it('stores counts computed from the data', async () => {
     const { service, closes } = build();
     await service.finalize(HR, '2026-08');
     const row = closes.get('2026-08');
@@ -268,6 +197,24 @@ describe('every figure is derived, never supplied', () => {
     expect(row.finalizedAt).toEqual(NOW);
   });
 
+  it('records a fingerprint of the data and the size of the workbook', async () => {
+    // reportSha256 is the V1 column name. Its value is a digest of the
+    // canonical Attendance DATA, not of the .xlsx -- see the guards at the
+    // bottom of this file.
+    const { service, closes } = build();
+    await service.finalize(HR, '2026-08');
+    const row = closes.get('2026-08');
+
+    expect(row.reportSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(row.reportByteSize).toBeGreaterThan(0);
+  });
+
+  it('accepts no count, fingerprint or total from the caller', () => {
+    // finalize takes only the actor and the month. Anything else would let the
+    // number that justifies a payroll run be supplied by the thing it justifies.
+    expect(PayrollReportService.prototype.finalize.length).toBe(2);
+    expect(PayrollReportService.prototype.send.length).toBe(2);
+  });
 });
 
 describe('finalizing delivers, and a failed delivery does not undo it', () => {
@@ -332,6 +279,146 @@ describe('finalizing delivers, and a failed delivery does not undo it', () => {
     expect(closes.get('2026-08').recipientEmail).toBe(
       'finance@x.com, accounts@x.com, hr@x.com',
     );
+  });
+});
+
+describe('sending is explicit and honest', () => {
+  const finalized = {
+    month: '2026-08',
+    status: 'FINALIZED',
+    employeeCount: 1,
+    unresolvedDays: 0,
+    employeesWithUnresolved: 0,
+    // finalize() always stores this; a FINALIZED row without one cannot exist.
+    reportSha256: 'fp-finalized-report',
+    finalizedBy: { name: 'Priya' },
+  };
+
+  it('delivers and records the recipient at send time', async () => {
+    // Copied onto the row so changing the setting next month cannot rewrite
+    // who an already-sent report went to.
+    const { service, closes, sent } = build({ close: finalized, renderFingerprint: 'fp-finalized-report' });
+    await service.send(HR, '2026-08');
+    const row = closes.get('2026-08');
+
+    expect(sent).toHaveLength(1);
+    expect(row.status).toBe('SENT');
+    expect(row.recipientEmail).toBe('finance@technoedge.example');
+    expect(row.deliveryStatus).toBe('SENT');
+    expect(row.sentAt).toEqual(NOW);
+  });
+
+  it('never records SENT when delivery failed', async () => {
+    const { service, closes } = build({ close: finalized, sendOk: false, renderFingerprint: 'fp-finalized-report' });
+
+    await expect(service.send(HR, '2026-08')).rejects.toThrow(/could not be delivered/i);
+    const row = closes.get('2026-08');
+
+    expect(row.status).toBe('FINALIZED');
+    expect(row.deliveryStatus).toBe('FAILED');
+    expect(row.sentAt).toBeUndefined();
+  });
+
+  // The distinction this whole path now rests on. A throw means the request
+  // left the process and never came back -- the mail MAY have been delivered.
+  // Recording FAILED there would invite a second attempt on a report that
+  // already went to Finance. UNKNOWN is retryable too, but the retry reuses the
+  // same idempotency key, so the provider settles it rather than us guessing.
+  // What must never happen is SENT, and it does not.
+  it('measures the idempotency window on the COMPANY clock, not wall time', async () => {
+    // The rig's clock is frozen at 2026-09-01T06:00Z. A first attempt six hours
+    // earlier is comfortably inside the 23-hour window, so this send proceeds.
+    //
+    // Read against real wall time instead, that same attempt is days old and the
+    // send would be refused. So this fails if anything stops passing tva.now()
+    // into the gate -- which is otherwise an invisible omission at the call site.
+    const { service, closes } = build({
+      close: {
+        ...finalized,
+        deliveryStatus: 'UNKNOWN',
+        deliveryFirstAttemptAt: new Date('2026-09-01T00:00:00.000Z'),
+      },
+      renderFingerprint: 'fp-finalized-report',
+    });
+
+    await service.send(HR, '2026-08');
+
+    expect(closes.get('2026-08').status).toBe('SENT');
+  });
+
+  it('does not move the first-attempt stamp when retrying', async () => {
+    // Sliding it forward on each retry would keep the window permanently open
+    // and the expiry could never fire.
+    const first = new Date('2026-09-01T00:00:00.000Z');
+    const { service, closes } = build({
+      close: {
+        ...finalized,
+        deliveryStatus: 'UNKNOWN',
+        deliveryFirstAttemptAt: first,
+      },
+      renderFingerprint: 'fp-finalized-report',
+    });
+
+    await service.send(HR, '2026-08');
+
+    expect(closes.get('2026-08').deliveryFirstAttemptAt).toEqual(first);
+  });
+
+  it('refuses an UNKNOWN whose window has expired, rather than risking a duplicate', async () => {
+    const { service, closes, sent } = build({
+      close: {
+        ...finalized,
+        deliveryStatus: 'UNKNOWN',
+        // Frozen clock is 2026-09-01T06:00Z, so this is three days old.
+        deliveryFirstAttemptAt: new Date('2026-08-29T06:00:00.000Z'),
+      },
+      renderFingerprint: 'fp-finalized-report',
+    });
+
+    await expect(service.send(HR, '2026-08')).rejects.toThrow(/idempotency window has expired/i);
+
+    // The provider was never contacted, and nothing was recorded as sent.
+    expect(sent).toHaveLength(0);
+    expect(closes.get('2026-08').status).toBe('FINALIZED');
+  });
+
+  it('records a thrown transport error as UNKNOWN, which is not the same as failed', async () => {
+    const { service, closes } = build({ close: finalized, sendThrows: true, renderFingerprint: 'fp-finalized-report' });
+
+    await expect(service.send(HR, '2026-08')).rejects.toThrow(/could not be delivered/i);
+    expect(closes.get('2026-08').deliveryStatus).toBe('UNKNOWN');
+    expect(closes.get('2026-08').status).toBe('FINALIZED');
+    expect(closes.get('2026-08').sentAt).toBeUndefined();
+  });
+
+  it('allows a retry of the same finalized month', async () => {
+    const { service, closes } = build({ close: { ...finalized, deliveryStatus: 'FAILED' }, renderFingerprint: 'fp-finalized-report' });
+    await service.send(HR, '2026-08');
+
+    expect(closes.get('2026-08').status).toBe('SENT');
+  });
+
+  it('refuses when no Finance recipient is configured', async () => {
+    const { service } = build({ close: finalized, recipient: null, renderFingerprint: 'fp-finalized-report' });
+
+    await expect(service.send(HR, '2026-08')).rejects.toThrow(/no finance recipient/i);
+  });
+
+  it('refuses an invalid configured address rather than attempting it', async () => {
+    const { service } = build({ close: finalized, recipient: 'not-an-email' });
+
+    await expect(service.send(HR, '2026-08')).rejects.toThrow(/no finance recipient/i);
+  });
+
+  it('refuses to send data that changed since finalization', async () => {
+    // The stored data fingerprint is what makes this detectable. Delivering
+    // materially different attendance under the old approval would
+    // misrepresent what HR agreed to.
+    const { service } = build({
+      close: { ...finalized, reportSha256: 'a'.repeat(64) },
+    });
+
+    await expect(service.send(HR, '2026-08')).rejects.toThrow(/no longer matches/i);
   });
 });
 
@@ -413,6 +500,16 @@ describe('audit', () => {
     expect(actions).toContain('PAYROLL_MONTH_FINALIZED');
   });
 
+  it('records a failed send as a failure', async () => {
+    const { service, audit } = build({
+      close: { month: '2026-08', status: 'FINALIZED', finalizedBy: { name: 'Priya' } },
+      renderFingerprint: 'fp-report',
+      sendOk: false,
+    });
+
+    await expect(service.send(HR, '2026-08')).rejects.toBeTruthy();
+    expect(audit.map((a) => a.action)).toContain('PAYROLL_REPORT_SEND_FAILED');
+  });
 });
 
 describe('nothing sends itself', () => {
@@ -433,6 +530,93 @@ describe('nothing sends itself', () => {
     // though it were settled.
     expect(code).not.toMatch(/@Cron|CronExpression|setInterval|setTimeout/i);
     expect(code).not.toMatch(/schedule/i);
+  });
+});
+
+describe('the stored digest is never presented as a file hash', () => {
+  // Since 372909a the value is a digest of the canonical Attendance DATA, not
+  // of the .xlsx: an XLSX is a ZIP whose entry headers carry clock timestamps,
+  // so file digests are not reproducible and hashing them made delivery refuse
+  // itself at random. The column keeps its V1 name because renaming it costs a
+  // migration for no behavioural gain -- which is exactly why the name must
+  // never escape this module. Somebody auditing a payroll dispute a year from
+  // now must not read "sha256" and conclude it identifies the attachment.
+
+  const read = (rel: string) =>
+    require('fs').readFileSync(require('path').resolve(__dirname, '../..', rel), 'utf8');
+
+  const SURFACE = [
+    'prisma/schema.prisma',
+    'src/modules/platform/attendance/reports/payroll-report.service.ts',
+    'src/modules/platform/attendance/reports/payroll-workbook.ts',
+    '../frontend/components/attendance/payroll-api.ts',
+    '../frontend/components/attendance/PayrollMonthClose.tsx',
+  ];
+
+  it('exposes reportDataFingerprint, and never the raw column name', async () => {
+    const { service } = build();
+    const preview: any = await service.preview(HR, '2026-08');
+    const finalized: any = await service.finalize(HR, '2026-08');
+    const status: any = await service.status(HR, '2026-08');
+
+    for (const shape of [preview, finalized, status]) {
+      expect(shape.reportDataFingerprint).toMatch(/^[0-9a-f]{64}$/);
+      expect('reportSha256' in shape).toBe(false);
+    }
+  });
+
+  it('renames at the boundary rather than leaking the column through send', async () => {
+    const { service } = build({
+      close: { month: '2026-08', status: 'FINALIZED', finalizedById: 'hr-1' },
+      renderFingerprint: 'fp-report',
+    });
+    const sentRow: any = await service.send(HR, '2026-08');
+
+    expect('reportSha256' in sentRow).toBe(false);
+    expect(sentRow).toHaveProperty('reportDataFingerprint');
+  });
+
+  it('does not repeat any of the specific untrue claims it used to make', () => {
+    // Literal strings, not patterns: each of these was written here once and
+    // was false. A pattern broad enough to catch every phrasing also flags the
+    // sentences that correctly deny the claim, so this guards the known
+    // regressions and the identifier tests above guard the contract.
+    const UNTRUE = [
+      'Identifies the exact workbook Finance received',
+      'hash of the exact workbook',
+      'byte-identical workbooks',
+      'the bytes are reproducible',
+      'Present only so the caller can show it',
+    ];
+
+    for (const rel of SURFACE) {
+      const src = read(rel);
+      for (const claim of UNTRUE) {
+        expect({ file: rel, claim, present: src.includes(claim) }).toEqual({
+          file: rel,
+          claim,
+          present: false,
+        });
+      }
+    }
+  });
+
+  it('labels it truthfully in the HR close record', () => {
+    const ui = read('../frontend/components/attendance/PayrollMonthClose.tsx');
+
+    expect(ui.includes('Attendance data fingerprint')).toBe(true);
+    // "Report reference" read as though it pointed at the file itself.
+    expect(ui.includes('Report reference')).toBe(false);
+  });
+
+  it('still records the real workbook size, which IS about the file', async () => {
+    // reportByteSize keeps its plain meaning: the size of the .xlsx built and
+    // sent. Only the digest changed meaning.
+    const { service, closes } = build();
+    await service.finalize(HR, '2026-08');
+    const { buffer } = await service.download(HR, '2026-08');
+
+    expect(closes.get('2026-08').reportByteSize).toBe(buffer.length);
   });
 });
 
@@ -467,6 +651,18 @@ describe('the close path holds the month it is closing', () => {
     const lockOrder = prisma.$executeRaw.mock.invocationCallOrder[0];
     const readOrder = prisma.attendanceMonthClose.findUnique.mock.invocationCallOrder[0];
     expect(lockOrder).toBeLessThan(readOrder);
+  });
+
+  it('send takes the same month lock', async () => {
+    const { service, advisoryLocks } = build({
+      close: { month: '2026-08', status: 'FINALIZED', reportSha256: null },
+    });
+
+    await service.send(HR, '2026-08').catch(() => {});
+
+    // Same namespace, same key. Two different keys would mean two paths that
+    // never contend, which is the same as no lock at all.
+    expect(lockKeysFrom(advisoryLocks)).toContainEqual([MONTH_LOCK_NAMESPACE_FOR_TEST, 202608]);
   });
 
   it('finalize releases the month before delivering', async () => {
@@ -506,198 +702,5 @@ describe('the close path holds the month it is closing', () => {
     // exactly like working and protects nothing.
     expect(() => monthLockKey('August 2026')).toThrow(/unparseable month/i);
     expect(() => monthLockKey('2026-13')).toThrow(/unparseable month/i);
-  });
-});
-
-// ════════════════════════════════════════════════════════════════════════════
-// Reopening a finalized month
-// ════════════════════════════════════════════════════════════════════════════
-//
-// Finalization is the seal that replaced the removed report fingerprint: a
-// FINALIZED month refuses every correction path, and this is the only way past
-// it. So these tests are not about a convenience feature -- they are about the
-// one door in the wall, and whether it records who went through it.
-describe('reopening a finalized month', () => {
-  const lockKeysFrom = (advisoryLocks: any[]) =>
-    advisoryLocks
-      .filter((call) => String(call[0].join('?')).includes('pg_advisory_xact_lock'))
-      .map((call) => call.slice(1));
-
-  const REASON = 'Punch data for 14 Aug was imported against the wrong shift';
-
-  it('refuses an employee, like every other payroll action', async () => {
-    const { service } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
-
-    await expect(service.reopen(EMPLOYEE, '2026-08', REASON)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('REQUIRES A REASON TO HAVE BEEN GIVEN', async () => {
-    // WHAT THIS CAN AND CANNOT GUARANTEE. The floor rejects a blank, a
-    // whitespace-only string and a one-word dismissal. It cannot tell a real
-    // explanation from a plausible-length non-answer -- "as discussed" is
-    // twelve characters and passes. No length rule could do better, so this
-    // asserts only what the rule actually enforces: that somebody typed
-    // something. Whether it was useful is a review question, and the audit row
-    // carries the text so it can be asked.
-    const { service, closes } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
-
-    for (const bad of ['', '   ', 'fix', 'typo', 'wrong']) {
-      await expect(service.reopen(HR, '2026-08', bad)).rejects.toBeInstanceOf(BadRequestException);
-    }
-    // And nothing moved while those were refused.
-    expect(closes.get('2026-08').status).toBe('FINALIZED');
-  });
-
-  it('does not count surrounding whitespace towards the reason', async () => {
-    const { service } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
-
-    // 'fix' padded to past the floor. Trimmed first, so padding cannot buy a
-    // reason its way through.
-    await expect(
-      service.reopen(HR, '2026-08', '          fix          '),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('stores the reason trimmed', async () => {
-    const { service, closes } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
-
-    await service.reopen(HR, '2026-08', '  ' + REASON + '  ');
-
-    expect(closes.get('2026-08').reopenReason).toBe(REASON);
-  });
-
-  it('refuses a month that has never been closed', async () => {
-    const { service } = build();
-
-    await expect(service.reopen(HR, '2026-08', REASON)).rejects.toBeInstanceOf(NotFoundException);
-  });
-
-  it.each(['OPEN', 'REVIEWING', 'REOPENED'])(
-    'refuses to reopen a %s month, which already accepts corrections',
-    async (status) => {
-      // A no-op that still wrote a reopen record would make the audit trail
-      // claim something happened that did not.
-      const { service, closes, audit } = build({ close: { month: '2026-08', status } });
-
-      await expect(service.reopen(HR, '2026-08', REASON)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
-      expect(closes.get('2026-08').status).toBe(status);
-      expect(audit.filter((e) => e.action === 'PAYROLL_MONTH_REOPENED')).toEqual([]);
-    },
-  );
-
-  it('MOVES A FINALIZED MONTH TO REOPENED and records who, when and why', async () => {
-    const { service, closes } = build({
-      close: { month: '2026-08', status: 'FINALIZED', finalizedById: 'hr-9', reopenCount: 0 },
-    });
-
-    await service.reopen(HR, '2026-08', REASON);
-
-    const row = closes.get('2026-08');
-    expect(row.status).toBe('REOPENED');
-    expect(row.reopenedById).toBe('hr-1');
-    expect(row.reopenedAt).toEqual(NOW);
-    expect(row.reopenReason).toBe(REASON);
-  });
-
-  it('KEEPS THE FINALIZATION PROVENANCE, so the first close is still answerable', async () => {
-    const finalizedAt = new Date('2026-08-31T10:00:00.000Z');
-    const { service, closes } = build({
-      close: { month: '2026-08', status: 'FINALIZED', finalizedById: 'hr-9', finalizedAt },
-    });
-
-    await service.reopen(HR, '2026-08', REASON);
-
-    // Who finalized it and when are NOT cleared by the reopen. A corrected
-    // month has to be able to answer both questions: who approved it the first
-    // time, and who unsealed it.
-    const row = closes.get('2026-08');
-    expect(row.finalizedById).toBe('hr-9');
-    expect(row.finalizedAt).toEqual(finalizedAt);
-  });
-
-  it('counts reopenings rather than overwriting the last one', async () => {
-    const { service, closes } = build({
-      close: { month: '2026-08', status: 'FINALIZED', reopenCount: 2 },
-    });
-
-    await service.reopen(HR, '2026-08', REASON);
-
-    // Incremented, not set to 1. A month reopened three times is a different
-    // story from one reopened once.
-    expect(closes.get('2026-08').reopenCount).toEqual({ increment: 1 });
-  });
-
-  it('REOPENS A SENT MONTH TOO, deliberately', async () => {
-    // Not an oversight. A genuine error does not stop being an error once it
-    // has been emailed, so amending a sent month is a real need -- it simply
-    // has to be deliberate and recorded, which is what this path makes it.
-    const { service, closes } = build({ close: { month: '2026-08', status: 'SENT' } });
-
-    await service.reopen(HR, '2026-08', REASON);
-
-    expect(closes.get('2026-08').status).toBe('REOPENED');
-  });
-
-  it('takes the month lock, transaction-scoped', async () => {
-    const { service, prisma, advisoryLocks } = build({
-      close: { month: '2026-08', status: 'FINALIZED' },
-    });
-
-    await service.reopen(HR, '2026-08', REASON);
-
-    // Without the lock a reopen could commit while a finalization is mid-flight
-    // and leave the row FINALIZED with a reopen recorded against it: a month
-    // saying it was unsealed, in a state saying it was not.
-    expect(prisma.$transaction).toHaveBeenCalled();
-    expect(lockKeysFrom(advisoryLocks)[0]).toEqual([MONTH_LOCK_NAMESPACE_FOR_TEST, 202608]);
-  });
-
-  it('DOES NOT TOUCH A SINGLE ATTENDANCE ROW', async () => {
-    const { service, prisma } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
-
-    await service.reopen(HR, '2026-08', REASON);
-
-    // A reopen unseals the month; it does not correct it. Corrections go
-    // through the ordinary reviewed paths, each with its own audit trail,
-    // rather than through anything bulk hidden inside this call.
-    expect(prisma.dailyAttendance.findMany).not.toHaveBeenCalled();
-  });
-
-  it('audits the reopen with the reason, not just the fact', async () => {
-    const { service, audit } = build({ close: { month: '2026-08', status: 'FINALIZED' } });
-
-    await service.reopen(HR, '2026-08', REASON);
-
-    const event = audit.find((e) => e.action === 'PAYROLL_MONTH_REOPENED');
-    expect(event).toBeDefined();
-    expect(event.entityType).toBe('AttendanceMonthClose');
-    expect(event.entityId).toBe('2026-08');
-    expect(event.actorId).toBe('hr-1');
-    expect(event.toState).toBe('REOPENED');
-    // The reason is the part a later payroll query is answered from, so it has
-    // to be in the audit row and not only on the close.
-    expect(event.metadata.reason).toBe(REASON);
-  });
-
-  it('A REOPENED MONTH CANNOT BE SENT TO FINANCE', async () => {
-    // The other half of the rule. If a reopened month could still be sent,
-    // reopening would be a way to deliver corrected attendance without anyone
-    // re-approving it -- which is the hole this whole design closes.
-    const { service, sent } = build({ close: { month: '2026-08', status: 'REOPENED' } });
-
-    await expect(service.send(HR, '2026-08')).rejects.toBeInstanceOf(ForbiddenException);
-    expect(sent).toEqual([]);
-  });
-
-  it('refuses a malformed month before it refuses anything else', async () => {
-    const { service } = build();
-
-    for (const bad of ['2026', '2026-13', 'August', '2026-8']) {
-      await expect(service.reopen(HR, bad, REASON)).rejects.toBeInstanceOf(BadRequestException);
-    }
   });
 });

@@ -118,47 +118,27 @@ describe('the body tells Finance what they are looking at', () => {
 
 // ════════════════════════════════════════════════════════════════════════════
 describe('a retry must not become a second email', () => {
-  const key = () =>
-    idempotencyKeyFor({ monthCloseId: 'mc-1', finalizedAt: new Date('2026-09-01T06:00:00.000Z') });
+  const key = () => idempotencyKeyFor({ monthCloseId: 'mc-1', reportSha256: 'sha-abc' });
 
   it('11. the key identifies the REPORT, so a retry presents the same one', () => {
-    // Built from the month close and WHEN IT WAS FINALIZED. It was a data
-    // digest; the digest is gone and finalizedAt supplies the same two
-    // properties -- stable across a retry, different after a re-finalization.
-    expect(key()).toBe('attendance-final-report/mc-1/2026-09-01T06:00:00.000Z');
+    expect(key()).toBe('attendance-final-report/mc-1/sha-abc');
     // Called again -- as a retry would -- it is identical. A random id per
     // attempt is the bug this exists to prevent.
     expect(key()).toBe(key());
   });
 
-  it('a re-finalized month gets a DIFFERENT key', () => {
-    // The property the digest used to provide: a genuinely different report
-    // cannot collide with the old one.
-    const first = idempotencyKeyFor({
-      monthCloseId: 'mc-1',
-      finalizedAt: new Date('2026-09-01T06:00:00.000Z'),
-    });
-    const second = idempotencyKeyFor({
-      monthCloseId: 'mc-1',
-      finalizedAt: new Date('2026-09-02T06:00:00.000Z'),
-    });
-
-    expect(second).not.toBe(first);
+  it('12. a different report cannot collide with it', () => {
+    const a = idempotencyKeyFor({ monthCloseId: 'mc-1', reportSha256: 'sha-abc' });
+    const b = idempotencyKeyFor({ monthCloseId: 'mc-2', reportSha256: 'sha-abc' });
+    const c = idempotencyKeyFor({ monthCloseId: 'mc-1', reportSha256: 'sha-xyz' });
+    expect(new Set([a, b, c]).size).toBe(3);
   });
 
-  it('accepts a string timestamp and normalises it to the same key', () => {
-    expect(
-      idempotencyKeyFor({ monthCloseId: 'mc-1', finalizedAt: '2026-09-01T06:00:00.000Z' }),
-    ).toBe(key());
-  });
-
-  it('refuses a month that was never finalized', () => {
-    expect(() => idempotencyKeyFor({ monthCloseId: 'mc-1', finalizedAt: null })).toThrow(
-      /finalization timestamp/i,
-    );
-    expect(() => idempotencyKeyFor({ monthCloseId: '', finalizedAt: new Date() })).toThrow(
-      /month close id/i,
-    );
+  it('13. refuses to invent a key when the report cannot be identified', () => {
+    // A month with no stored fingerprint has not been finalized, and a key that
+    // did not name the report would defeat the whole mechanism.
+    expect(() => idempotencyKeyFor({ monthCloseId: 'mc-1', reportSha256: null })).toThrow();
+    expect(() => idempotencyKeyFor({ monthCloseId: '', reportSha256: 'sha' })).toThrow();
   });
 
   it('14. the key contains no random component', () => {
@@ -170,22 +150,9 @@ describe('a retry must not become a second email', () => {
       source.indexOf('export function idempotencyKeyFor'),
       source.indexOf('// ── Delivery outcome'),
     );
-    // NARROWED, AND DELIBERATELY SO.
-    //
-    // This forbade the substring 'new Date', which caught a CLOCK READ -- the
-    // thing that would make the key random per attempt -- but also catches
-    // `new Date(input.finalizedAt)`, which merely parses a value the caller
-    // supplied. The guard now names the clock reads it actually means, and the
-    // behavioural assertions above prove the key is stable across calls, which
-    // is the property the substring check was standing in for.
-    for (const forbidden of ['randomUUID', 'Math.random', 'Date.now', 'new Date()']) {
+    for (const forbidden of ['randomUUID', 'Math.random', 'Date.now', 'new Date']) {
       expect(fn).not.toContain(forbidden);
     }
-
-    // A clock read anywhere in it would break these two, whatever it looked
-    // like in source.
-    expect(key()).toBe(key());
-    expect(fn).not.toMatch(/new Date\(\s*\)/);
   });
 });
 

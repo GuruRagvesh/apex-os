@@ -1,8 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import {
-  earliestSessionStart,
-  resolveRequiredPresence,
-} from '../shared/attendance-primitives';
 import { createHash } from 'crypto';
 import type { DailyAttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -477,12 +473,7 @@ export class DailyAttendanceEvaluatorService {
         context,
         leave,
         flags,
-        // THE EARLIEST SESSION THAT ACTUALLY STARTED WORK, not the earliest
-        // session. sessions[0] is positional and is null whenever the day's
-        // first-created row has no startWorkAt -- which an ON_LEAVE session,
-        // written by the leave scheduler at 00:01, ordinarily does.
-        punchInAt:
-          correctedIn ?? punchIn?.serverOccurredAt ?? earliestSessionStart(sessions) ?? null,
+        punchInAt: correctedIn ?? punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null,
         punchOutAt: correctedOut ?? punchOut?.serverOccurredAt ?? null,
         punchInEvidenceId: punchIn?.id ?? null,
         punchOutEvidenceId: punchOut?.id ?? null,
@@ -521,10 +512,7 @@ export class DailyAttendanceEvaluatorService {
     let workedMinutes = closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0);
     const breakMinutes = closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0);
 
-    // Same rule as the half-day branch above: earliest genuine start, by
-    // timestamp, never by array position.
-    const punchInAt =
-      correctedIn ?? punchIn?.serverOccurredAt ?? earliestSessionStart(sessions) ?? null;
+    const punchInAt = correctedIn ?? punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null;
     const punchOutAt = correctedOut ?? punchOut?.serverOccurredAt ?? null;
     // The ONE place official worked time is derived rather than read. A
     // correction is a statement that the recorded session is wrong, so there is
@@ -611,15 +599,7 @@ export class DailyAttendanceEvaluatorService {
     // (10:00-19:00) is exactly 540 minutes, which is only reachable if breaks
     // sit inside it. Comparing effective work against 540 would fail everyone
     // who takes a normal lunch, which is what this replaces.
-    // THROUGH THE SHARED RESOLVER, not inline. This line was
-    // `shift ?? policy ?? 540` -- a fourth copy of the same rule, and the one
-    // resolveRequiredPresence was written to replace: its own doc comment
-    // names this file and line as a place that invented its own 540. Shift
-    // first, then policy, then the system fallback, decided in one place.
-    const requiredSpan = resolveRequiredPresence(
-      context.shift?.minimumWorkingMinutes,
-      policy?.minimumWorkingMinutes,
-    ).minutes;
+    const requiredSpan = context.shift?.minimumWorkingMinutes ?? policy?.minimumWorkingMinutes ?? 540;
     const permittedBreak = policy?.permittedBreakMinutes ?? 60;
     const minimumEffectiveWork = policy?.minimumEffectiveWorkMinutes ?? null;
 
@@ -707,12 +687,6 @@ export class DailyAttendanceEvaluatorService {
       lateMinutes,
       leaveDeducted,
       lwpDeducted,
-      requiredPresenceMinutes: requiredSpan,
-      presenceMinutes: presenceSpanMinutes,
-      // Decided here, beside the shortfall flag that uses the same comparison,
-      // so the verdict and the exception cannot disagree.
-      meetsRequirement:
-        presenceSpanMinutes === null ? null : presenceSpanMinutes >= requiredSpan,
       punchInEvidenceId: punchIn?.id ?? null,
       punchOutEvidenceId: punchOut?.id ?? null,
       workSessionIds,
@@ -788,48 +762,19 @@ export class DailyAttendanceEvaluatorService {
     }
   }
 
-  /**
-   * Minutes past the COMPANY late cutoff. Zero when on time.
-   *
-   * NOT shift.startTime + shift.graceMinutes, which is what this read before.
-   * That gave every employee their own definition of late, and it matched the
-   * company cutoff only because the two configured shifts happened to total
-   * the same 10:30 -- 10:00 + 30 grace, and 09:30 + 60 grace. Every late
-   * fixture in the suite used one of those two shapes, so not one of them
-   * could tell the two rules apart, while the canonical register had already
-   * moved to the company cutoff. A five-minute change to any shift's grace
-   * would have put that employee's stored status at odds with payroll.
-   *
-   * THE CUTOFF IS ALREADY GRACE-INCLUSIVE. 10:30 is not a shift start waiting
-   * for grace to be added to it; the half hour past 10:00 IS the grace, spent.
-   * Adding the shift's grace on top would push some employees out to 11:00 and
-   * put the per-person variation straight back.
-   *
-   * THE SHIFT STILL DECIDES when the day is expected to start and how long it
-   * must run. It no longer decides what counts as late.
-   *
-   * INCLUSIVE TO THE SECOND: 10:30:00 is on time, 10:30:01 is late.
-   *
-   * CEIL, AND NOT FLOOR, AND THIS WAS A REAL DEFECT. Flooring the elapsed
-   * minutes made every arrival from 10:30:01 to 10:30:59 come out as zero
-   * minutes late -- and the status below is decided by `lateMinutes > 0`, so
-   * the whole first minute of lateness was recorded as PRESENT. The tests did
-   * not catch it because they used 10:31. Presence floors for the opposite
-   * reason: it must never credit time that was not spent. Neither rounding
-   * ever flatters the record.
-   */
+  /** Minutes past the shift start plus its grace window. Zero when on time. */
   private lateMinutes(context: DailyAttendanceContext, punchInAt: Date | null): number {
-    if (!punchInAt) return 0;
+    const shift = context.shift;
+    if (!shift || !punchInAt) return 0;
 
-    const allowedFrom = this.tva.companyInstantAt(
-      context.businessDate,
-      context.lateCutoff.clock,
-    );
-    if (!allowedFrom) return 0;
+    // Shift start as a real instant in company time, via the time authority.
+    const shiftStart = this.tva.companyInstantAt(context.businessDate, shift.startTime);
+    if (!shiftStart) return 0;
 
-    const elapsedMs = punchInAt.getTime() - allowedFrom.getTime();
-    if (elapsedMs <= 0) return 0;
-    return Math.ceil(elapsedMs / 60_000);
+    const allowedFrom = new Date(shiftStart.getTime() + (shift.graceMinutes ?? 0) * 60_000);
+
+    const diff = Math.floor((punchInAt.getTime() - allowedFrom.getTime()) / 60_000);
+    return diff > 0 ? diff : 0;
   }
 
   private provenanceOf(context: DailyAttendanceContext, extra: Partial<EvaluationProvenance>) {
@@ -877,13 +822,6 @@ export class DailyAttendanceEvaluatorService {
       lateMinutes: 0,
       leaveDeducted: 0,
       lwpDeducted: 0,
-      // Not an attendance situation -- exempt, not employed, or a blocked
-      // context -- so there is no requirement to meet and no verdict to give.
-      // Null rather than zero: zero would read as a requirement of no time,
-      // which every day trivially meets.
-      requiredPresenceMinutes: null,
-      presenceMinutes: null,
-      meetsRequirement: null,
       requiresReview: reason === 'CONTEXT_BLOCKED',
       blockingReasons: reason === 'CONTEXT_BLOCKED' ? (context.blockingReasons ?? []) : [],
       provenance: this.provenanceOf(context, {}),
@@ -907,10 +845,6 @@ export class DailyAttendanceEvaluatorService {
     lateMinutes?: number;
     leaveDeducted?: number;
     lwpDeducted?: number;
-    /** Present only for a working day that was actually measured. */
-    requiredPresenceMinutes?: number | null;
-    presenceMinutes?: number | null;
-    meetsRequirement?: boolean | null;
     punchInEvidenceId?: string | null;
     punchOutEvidenceId?: string | null;
     workSessionIds?: string[];
@@ -944,9 +878,6 @@ export class DailyAttendanceEvaluatorService {
       lateMinutes: input.lateMinutes ?? 0,
       leaveDeducted: input.leaveDeducted ?? 0,
       lwpDeducted: input.lwpDeducted ?? 0,
-      requiredPresenceMinutes: input.requiredPresenceMinutes ?? null,
-      presenceMinutes: input.presenceMinutes ?? null,
-      meetsRequirement: input.meetsRequirement ?? null,
       requiresReview,
       blockingReasons: [],
       provenance,
@@ -1016,10 +947,10 @@ export class DailyAttendanceEvaluatorService {
       punchInEvidenceId: r.provenance.punchInEvidenceId,
       punchOutEvidenceId: r.provenance.punchOutEvidenceId,
       workSessionIds: r.provenance.workSessionIds,
-      // policyVersion is gone. It held String(attendancePolicyVersion) -- a
-      // stringified copy of an Int column on the same row -- written here and
-      // read nowhere. attendancePolicyId and attendancePolicyVersion above are
-      // the provenance that actually proves which policy decided this day.
+      policyVersion:
+        r.provenance.attendancePolicyVersion != null
+          ? String(r.provenance.attendancePolicyVersion)
+          : null,
     };
   }
   private explicitHalfDay(input: {

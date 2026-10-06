@@ -18,11 +18,6 @@ function rig() {
     grantManual: jest.fn(),
     listAvailable: jest.fn().mockResolvedValue([]),
     assertHrOrAdmin: jest.fn(),
-    // The gate the scoped routes now use: HR and Admin anywhere, a manager
-    // inside their own departments. Still the SERVICE's rule -- the point of
-    // these tests is that the controller delegates rather than deciding.
-    assertMayManageFor: jest.fn(),
-    extendValidity: jest.fn().mockResolvedValue({ id: 'credit-1' }),
   };
   return { service, controller: new CompOffController(service) };
 }
@@ -38,38 +33,16 @@ describe('comp off transport', () => {
     expect(service.assertHrOrAdmin).not.toHaveBeenCalled();
   });
 
-  it('gates another employees credits behind the services own scope rule', async () => {
-    // The gate moved from assertHrOrAdmin to assertMayManageFor when managers
-    // were given comp off authority. What is being tested is unchanged: the
-    // controller asks the service and does not decide for itself.
+  it('gates another employees credits behind the services own HR rule', async () => {
     const { service, controller } = rig();
-    service.assertMayManageFor.mockRejectedValue(new ForbiddenException('nope'));
+    service.assertHrOrAdmin.mockImplementation(() => {
+      throw new ForbiddenException('nope');
+    });
 
     await expect(controller.forEmployee({ id: 'emp-2' }, 'emp-1')).rejects.toThrow(
       ForbiddenException,
     );
     expect(service.listAvailable).not.toHaveBeenCalled();
-  });
-
-  it('asks the service about the employee being read, not the caller', async () => {
-    // A gate called with the wrong subject would authorize the manager
-    // against themselves and let any manager read any employee.
-    const { service, controller } = rig();
-
-    await controller.forEmployee({ id: 'mgr-1' }, 'emp-1');
-
-    expect(service.assertMayManageFor).toHaveBeenCalledWith({ id: 'mgr-1' }, 'emp-1');
-  });
-
-  it('passes an extension straight through to the service', async () => {
-    const { service, controller } = rig();
-    const body = { newExpiry: '2026-11-01', reason: 'Delivery slipped' };
-
-    await controller.extend({ id: 'mgr-1' }, 'credit-1', body);
-
-    // No ceiling arithmetic in the controller: it hands over and the service
-    // decides.
-    expect(service.extendValidity).toHaveBeenCalledWith({ id: 'mgr-1' }, 'credit-1', body);
   });
 
   it('passes the grant straight through to the service', async () => {

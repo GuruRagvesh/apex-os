@@ -50,19 +50,6 @@ export class PayrollReportController {
     return this.reports.finalize(user, body?.month);
   }
 
-  /**
-   * Unseals a finalized month. The reason is required and is recorded.
-   *
-   * A POST and not a DELETE: this creates a recorded event on the month close
-   * rather than removing anything, and nothing about the finalization is
-   * discarded -- who finalized it and when both stay on the row.
-   */
-  @Post('reopen')
-  @ApiOperation({ summary: 'HR reopens a finalized month so attendance can be corrected' })
-  async reopen(@CurrentUser() user: any, @Body() body: { month: string; reason: string }) {
-    return this.reports.reopen(user, body?.month, body?.reason);
-  }
-
   /** Explicit. Nothing sends because a calendar month ended. */
   @Post('send')
   @ApiOperation({ summary: 'Send the finalized report to the configured Finance recipient' })
