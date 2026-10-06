@@ -461,6 +461,17 @@ export class DailyAttendanceEvaluatorService {
     const isCorrected = !!correction && (!!correctedIn || !!correctedOut || !!correction.proposedStatus);
     if (isCorrected) flags.push('CORRECTED_BY_REGULARIZATION');
 
+    // Resolved here, above the early returns, purely so every working-day
+    // result can REPORT the bar it was judged against — including the open-day
+    // and incomplete-pair branches below, which return before the duration
+    // rules run. The value is identical to the one those rules use: the alias
+    // further down is the same constant, so there is still exactly one
+    // resolution of this number and no second fallback.
+    //
+    // Nothing is compared against it here, so no branch changes.
+    const requiredPresenceMinutes =
+      context.shift?.minimumWorkingMinutes ?? context.attendancePolicy?.minimumWorkingMinutes ?? 540;
+
     this.collectEvidenceExceptions(evidence, flags);
 
     // An approved half day is an explicit expectation, not an hours-based
@@ -501,6 +512,10 @@ export class DailyAttendanceEvaluatorService {
         reason: 'NO_EVIDENCE_ON_WORKING_DAY',
         flags,
         forceReview: true,
+        // No punch pair exists, so presence cannot be measured. The requirement
+        // that would have governed the day is still reportable.
+        presenceMinutes: null,
+        requiredMinutes: requiredPresenceMinutes,
         leaveRequestId: leave.leaveRequestId,
       });
     }
@@ -542,6 +557,11 @@ export class DailyAttendanceEvaluatorService {
         workedMinutes,
         breakMinutes,
         lateMinutes,
+        // The day has not ended, so there is no punch-out and no presence span
+        // yet. Null rather than a partial span: a running total compared
+        // against the requirement would read as a shortfall all morning.
+        presenceMinutes: null,
+        requiredMinutes: requiredPresenceMinutes,
         punchInEvidenceId: punchIn?.id ?? null,
         punchOutEvidenceId: null,
         workSessionIds,
@@ -567,6 +587,10 @@ export class DailyAttendanceEvaluatorService {
         workedMinutes,
         breakMinutes,
         lateMinutes,
+        // No punch out was recorded and none is fabricated, so presence has no
+        // right edge and cannot be measured.
+        presenceMinutes: null,
+        requiredMinutes: requiredPresenceMinutes,
         punchInEvidenceId: punchIn.id,
         workSessionIds,
         leaveRequestId: leave.leaveRequestId,
@@ -599,7 +623,9 @@ export class DailyAttendanceEvaluatorService {
     // (10:00-19:00) is exactly 540 minutes, which is only reachable if breaks
     // sit inside it. Comparing effective work against 540 would fail everyone
     // who takes a normal lunch, which is what this replaces.
-    const requiredSpan = context.shift?.minimumWorkingMinutes ?? policy?.minimumWorkingMinutes ?? 540;
+    // Resolved once, above the early returns. Aliased rather than recomputed so
+    // this file keeps a single resolution of the requirement.
+    const requiredSpan = requiredPresenceMinutes;
     const permittedBreak = policy?.permittedBreakMinutes ?? 60;
     const minimumEffectiveWork = policy?.minimumEffectiveWorkMinutes ?? null;
 
@@ -685,6 +711,12 @@ export class DailyAttendanceEvaluatorService {
       workedMinutes,
       breakMinutes,
       lateMinutes,
+      // The two figures the duration rules above were evaluated against. Passed
+      // through, not recomputed: this is the same presence span compared with
+      // the same requirement, so a consumer can never disagree with the
+      // judgment that produced the status.
+      presenceMinutes: presenceSpanMinutes,
+      requiredMinutes: requiredSpan,
       leaveDeducted,
       lwpDeducted,
       punchInEvidenceId: punchIn?.id ?? null,
@@ -820,6 +852,12 @@ export class DailyAttendanceEvaluatorService {
       workedMinutes: 0,
       breakMinutes: 0,
       lateMinutes: 0,
+      // Null, not zero. Attendance does not apply to this person on this date,
+      // or the context could not be resolved at all — so there is no presence
+      // to measure and no requirement that governed it. A 540 here would invent
+      // a bar for a day nobody was ever judged against.
+      presenceMinutes: null,
+      requiredMinutes: null,
       leaveDeducted: 0,
       lwpDeducted: 0,
       requiresReview: reason === 'CONTEXT_BLOCKED',
@@ -843,6 +881,10 @@ export class DailyAttendanceEvaluatorService {
     workedMinutes?: number;
     breakMinutes?: number;
     lateMinutes?: number;
+    // Both default to null, never 0: an unsupplied figure means the caller
+    // could not measure it, and a zero would assert a shortfall instead.
+    presenceMinutes?: number | null;
+    requiredMinutes?: number | null;
     leaveDeducted?: number;
     lwpDeducted?: number;
     punchInEvidenceId?: string | null;
@@ -876,6 +918,8 @@ export class DailyAttendanceEvaluatorService {
       workedMinutes: input.workedMinutes ?? 0,
       breakMinutes: input.breakMinutes ?? 0,
       lateMinutes: input.lateMinutes ?? 0,
+      presenceMinutes: input.presenceMinutes ?? null,
+      requiredMinutes: input.requiredMinutes ?? null,
       leaveDeducted: input.leaveDeducted ?? 0,
       lwpDeducted: input.lwpDeducted ?? 0,
       requiresReview,
@@ -1025,6 +1069,16 @@ export class DailyAttendanceEvaluatorService {
       punchOutAt,
       workedMinutes: input.workedMinutes,
       breakMinutes: input.breakMinutes,
+      // `presenceMinutes` above is initialised to 0 and only assigned once BOTH
+      // punches exist, so it is reported only in that case. Forwarding the
+      // initial 0 would publish a measurement that was never taken.
+      presenceMinutes: punchInAt && punchOutAt ? presenceMinutes : null,
+      // A half day has its own requirement, and only the first half expresses
+      // it as a duration. The second half is governed by a required punch-out
+      // TIME, which is not a minutes figure, so there is nothing truthful to
+      // report there and no full-day bar is substituted.
+      requiredMinutes:
+        policy && session === 'FIRST_HALF' ? policy.firstHalfRequiredPresenceMinutes : null,
       leaveDeducted: leave.kind === 'HALF_DAY_PAID' ? 0.5 : 0,
       lwpDeducted: leave.kind === 'HALF_DAY_UNPAID' ? 0.5 : 0,
       punchInEvidenceId: input.punchInEvidenceId,

@@ -162,6 +162,39 @@ export interface DailyAttendanceResult {
   lateMinutes: number;
 
   /**
+   * Attendance presence: punch out minus punch in, and nothing else.
+   *
+   * NULL MEANS "CANNOT BE MEASURED" — not zero, and not "insufficient". A day
+   * with an incomplete punch pair has no presence figure, and reporting 0 would
+   * assert a shortfall the evidence cannot support.
+   *
+   * Exposed so consumers stop re-deriving it. The frontend currently computes
+   * this from punch times against a hardcoded 540, which is a second authority
+   * for a payroll-facing number.
+   */
+  presenceMinutes: number | null;
+
+  /**
+   * The required PRESENCE SPAN this day was judged against.
+   *
+   * Resolved from shift, then policy, then the system fallback, and recorded so
+   * a settled day can say which bar applied to it rather than re-asking today's
+   * policy.
+   *
+   * IT IS A SPAN REQUIREMENT, NOT AN EFFECTIVE-WORK REQUIREMENT. It is compared
+   * against `presenceMinutes` only. The separate effective-work floor is
+   * `AttendancePolicy.minimumEffectiveWorkMinutes`, which is nullable and
+   * usually unset. Comparing this value against `workedMinutes` would fail
+   * everyone who takes a normal lunch — see the note at the comparison site in
+   * the evaluator.
+   *
+   * NULL where no presence requirement applies (holiday, weekly off, full-day
+   * leave) or where it genuinely could not be resolved. It is never defaulted
+   * for display convenience.
+   */
+  requiredMinutes: number | null;
+
+  /**
    * Leave consumed by this result. AE-1 never writes a balance; these are
    * recorded so a later payroll wave has an auditable number to work from.
    */
