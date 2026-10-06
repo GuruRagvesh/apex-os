@@ -123,6 +123,7 @@ export function Sidebar() {
 
   const { data: workdayData } = useQuery({
     queryKey: ['workday-today'],
+    queryFn: () => workdayApi.getToday() as Promise<any>,
     enabled: !!user,
   });
   const workStatus = (workdayData as any)?.session?.status ?? 'OFFLINE';
