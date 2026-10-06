@@ -45,7 +45,6 @@ describe('T14 idle runtime (PostgreSQL)', () => {
   const access = {
     isSelfAssigned: () => false,
     viewerCanApprove: async (user: any, ticket: any) => ticket?.status === 'REVIEW' && user?.id === R,
-    viewerCanClose: async () => false,
     findAccessibleTicket: async (id: string, _user: any, include?: any) =>
       prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: include ?? { assignees: true } }),
     assertCanTransitionTicket: async () => undefined,

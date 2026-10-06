@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
-import { usersApi } from '@apex/core-users/api';
 import { useAuthStore } from '@apex/core-identity';
 import toast from 'react-hot-toast';
 import { TicketRow } from '@apex/operations-tickets-lifecycle/components/ticket-row';
@@ -20,8 +19,6 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { getCompanyTodayStart, getCompanyTodayEnd } from '@/lib/company-date';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
-/** This page's task-creation approval queue; not the user change-request queue. */
-const TICKET_PENDING_APPROVALS_KEY = ['ticket-pending-approvals'] as const;
 const PRIORITIES = ['', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
 
 export default function TicketsPage() {
@@ -50,16 +47,10 @@ export default function TicketsPage() {
 
   const debouncedSearch = useDebounce(search, 300);
 
-  // Live refresh when any ticket is created or its status changes: the list,
-  // its counts and the approval queue all follow the same event.
-  const refreshTicketLists = () => {
-    qc.invalidateQueries({ queryKey: ['tickets'] });
-    qc.invalidateQueries({ queryKey: ['ticket-stats'] });
-    qc.invalidateQueries({ queryKey: TICKET_PENDING_APPROVALS_KEY });
-  };
+  // Live refresh when any ticket is created or its status changes
   useSocket({
-    onTicketCreated: refreshTicketLists,
-    onTicketStatusChanged: refreshTicketLists,
+    onTicketCreated: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
+    onTicketStatusChanged: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
   });
 
   useEffect(() => {
@@ -113,40 +104,16 @@ export default function TicketsPage() {
     refetchOnWindowFocus: true,
   });
 
-  // Ticket task-creation sign-offs only. Its own key: ['pending-approvals'] is
-  // the user change-request queue (Dashboard, Approvals screen), a different list.
-  const {
-    data: pendingApprovals,
-    // isPending, not isLoading: until real data or an error arrives (including
-    // a fetch paused while the tab is in the background) show loading, never
-    // a false "No pending approvals".
-    isPending: isLoadingPending,
-    isError: pendingFailed,
-    refetch: refetchPending,
-  } = useQuery({
-    queryKey: TICKET_PENDING_APPROVALS_KEY,
+  const { data: pendingApprovals, isLoading: isLoadingPending } = useQuery({
+    queryKey: ['pending-approvals'],
     queryFn: () => ticketsApi.getPendingApprovals() as Promise<any[]>,
     enabled: !!currentUser?.id,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
   });
 
   const { data: departments } = useQuery({
     queryKey: ['departments'],
     queryFn: () => departmentsApi.getAll() as Promise<any[]>,
   });
-
-  // Assignee filter options: GET /users is already scoped by role (leads and
-  // managers see their managed departments), the same scope as assignment.
-  const roleNameForFilters = (currentUser?.role as any)?.name ?? currentUser?.role ?? '';
-  const canFilterByAssignee = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleNameForFilters);
-  const { data: assigneeOptions } = useQuery({
-    queryKey: ['ticket-filter-assignees'],
-    queryFn: () => usersApi.getAll({ limit: 100 }) as Promise<any>,
-    enabled: canFilterByAssignee,
-    staleTime: 5 * 60_000,
-  });
-  const assigneeList: any[] = Array.isArray(assigneeOptions) ? assigneeOptions : assigneeOptions?.users ?? [];
 
   const { data: stats } = useQuery({
     queryKey: ['ticket-stats'],
@@ -178,8 +145,8 @@ export default function TicketsPage() {
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
-      {/* Header — wraps on narrow screens so the actions never fall off the edge */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Tickets</h2>
@@ -191,7 +158,7 @@ export default function TicketsPage() {
           </div>
           {activeTab === 'all' && <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{total} tickets total</p>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => refetch()}
             className="p-2 rounded-lg transition-colors hover:opacity-80"
@@ -205,9 +172,9 @@ export default function TicketsPage() {
           <button
             onClick={async () => {
               try {
-                await ticketsApi.exportCsv({ ...filters, ...extraFilters, search: debouncedSearch });
-              } catch (e: any) {
-                toast.error(e?.message || 'Export failed. Please try again.');
+                await ticketsApi.exportCsv({ ...filters, ...extraFilters, search });
+              } catch {
+                toast.error('Export failed');
               }
             }}
             className="apex-btn apex-btn-secondary"
@@ -315,43 +282,6 @@ export default function TicketsPage() {
             ))}
           </select>
 
-          {/* Created date range: whole company days, both ends included */}
-          <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            Created from
-            <input
-              type="date"
-              value={filters.dateFrom}
-              max={filters.dateTo || undefined}
-              onChange={(e) => setFilter('dateFrom', e.target.value)}
-              className="apex-input py-1 w-auto"
-            />
-          </label>
-          <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            Created to
-            <input
-              type="date"
-              value={filters.dateTo}
-              min={filters.dateFrom || undefined}
-              onChange={(e) => setFilter('dateTo', e.target.value)}
-              className="apex-input py-1 w-auto"
-            />
-          </label>
-
-          {canFilterByAssignee && (
-            <select
-              aria-label="Assignee"
-              value={myTickets ? '' : filters.assignedToId}
-              disabled={myTickets}
-              onChange={(e) => setFilter('assignedToId', e.target.value)}
-              className="apex-select"
-            >
-              <option value="">All Assignees</option>
-              {assigneeList.map((u: any) => (
-                <option key={u.id} value={u.id}>{u.name}</option>
-              ))}
-            </select>
-          )}
-
           {/* Overdue toggle */}
           <button
             onClick={() => {
@@ -425,21 +355,19 @@ export default function TicketsPage() {
           border: '1px solid var(--border-primary)',
         }}
       >
-        {/* Hidden on phones, where each row stacks. These md: classes are also
-            the ones TicketRow uses (Tailwind does not scan platforms/). */}
         <div
-          className="hidden md:grid md:grid-cols-12 gap-4 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider"
+          className="grid grid-cols-12 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider"
           style={{
             backgroundColor: 'var(--bg-tertiary)',
             borderBottom: '1px solid var(--border-primary)',
             color: 'var(--text-tertiary)',
           }}
         >
-          <div className="md:col-span-5">Ticket</div>
-          <div className="md:col-span-2">Type</div>
-          <div className="md:col-span-1">Priority</div>
-          <div className="md:col-span-2">Status</div>
-          <div className="md:col-span-2">Assignee</div>
+          <div className="col-span-5">Ticket</div>
+          <div className="col-span-2">Type</div>
+          <div className="col-span-1">Priority</div>
+          <div className="col-span-2">Status</div>
+          <div className="col-span-2">Assignee</div>
         </div>
 
         {isLoading ? (
@@ -507,29 +435,22 @@ export default function TicketsPage() {
           }}
         >
           <div
-            className="hidden md:grid md:grid-cols-12 gap-4 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider"
+            className="grid grid-cols-12 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider"
             style={{
               backgroundColor: 'var(--bg-tertiary)',
               borderBottom: '1px solid var(--border-primary)',
               color: 'var(--text-tertiary)',
             }}
           >
-            <div className="md:col-span-5">Ticket</div>
-            <div className="md:col-span-2">Type</div>
-            <div className="md:col-span-1">Priority</div>
-            <div className="md:col-span-2">Status</div>
-            {/* The row shows the assignee; the creator is in its "By ..." line. */}
-            <div className="md:col-span-2">Assignee</div>
+            <div className="col-span-5">Ticket</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-1">Priority</div>
+            <div className="col-span-2">Status</div>
+            <div className="col-span-2">Creator</div>
           </div>
 
           {isLoadingPending ? (
             <SkeletonTicketRows count={3} />
-          ) : pendingFailed ? (
-            <div className="apex-empty" role="alert">
-              <p className="apex-empty-title">Could not load pending approvals</p>
-              <p className="apex-empty-desc">Check your connection and try again.</p>
-              <button onClick={() => refetchPending()} className="apex-btn apex-btn-secondary text-xs mt-3">Retry</button>
-            </div>
           ) : pendingApprovals && pendingApprovals.length > 0 ? (
             <div>
               {pendingApprovals.map((ticket: any) => <TicketRow key={ticket.id} ticket={ticket} />)}

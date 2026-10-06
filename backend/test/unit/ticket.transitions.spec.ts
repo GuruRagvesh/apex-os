@@ -50,7 +50,7 @@ const mockPrisma: any = {
     deleteMany: jest.fn(),
     create: jest.fn(),
   },
-  notification: { create: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+  notification: { create: jest.fn() },
   activityLog: { create: jest.fn() },
   appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
   comment: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn().mockResolvedValue({}) },

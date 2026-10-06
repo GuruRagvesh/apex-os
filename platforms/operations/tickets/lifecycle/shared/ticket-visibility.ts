@@ -27,8 +27,7 @@ const STATUS_VISIBILITY: Record<TicketStatus, TicketVisibility> = {
     borderClass: 'border-l-4 border-l-purple-400',
     bgClass: 'bg-purple-50/30 dark:bg-purple-950/20',
     badgeClass: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
-    // Same word as STATUS_LABELS, the filters, the stepper and the history.
-    badgeText: 'Under Review',
+    badgeText: 'In Review',
   },
   DONE: {
     borderClass: 'border-l-4 border-l-green-400',

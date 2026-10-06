@@ -1,37 +1,12 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROLES } from '../../shared/constants/roles';
 import { AccessPolicyService } from './access-policy.service';
 import { HierarchyApprovalService } from './hierarchy-approval.service';
-import { fromZonedTime } from 'date-fns-tz';
-import { COMPANY_CRON_TIMEZONE } from '../constants/company-time.constants';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str ?? '');
-}
-
-/** A pending task-creation request is decided by its approver, never by a status change. */
-export const APPROVAL_DECISION_REQUIRED = {
-  statusCode: 409, code: 'APPROVAL_DECISION_REQUIRED',
-  message: 'This ticket is waiting for approval. Its approver must approve or reject it.',
-} as const;
-
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * One end of the "Created from / to" filter. A date-only value is a whole
- * company-timezone day, inclusive at both ends (from 00:00:00.000 to
- * 23:59:59.999 company time); a full timestamp is used as given. A value that
- * is not a date is ignored rather than reaching the database.
- */
-export function createdFilterBound(value: unknown, edge: 'start' | 'end'): Date | undefined {
-  if (typeof value !== 'string' || !value.trim()) return undefined;
-  const v = value.trim();
-  const date = DATE_ONLY.test(v)
-    ? fromZonedTime(`${v}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}`, COMPANY_CRON_TIMEZONE)
-    : new Date(v);
-  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 @Injectable()
@@ -88,23 +63,6 @@ export class TicketAccessService {
       return this.isTicketInUserScope(user, ticket);
     }
     return false;
-  }
-
-  /**
-   * Whether `user` may close `ticket` now: exactly the rule a close request is
-   * checked against (assertCanTransitionTicket to CLOSED), so the page never
-   * offers a Close the backend would refuse. Never grants anything itself.
-   */
-  async viewerCanClose(user: any, ticket: any): Promise<boolean> {
-    if (!user || !ticket || ticket.status === TicketStatus.CLOSED || ticket.status === TicketStatus.PENDING_APPROVAL) {
-      return false;
-    }
-    try {
-      await this.assertCanTransitionTicket(user, ticket, TicketStatus.CLOSED);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   async buildTicketWhereForUser(filters: any = {}, user?: any): Promise<any> {
@@ -225,13 +183,6 @@ export class TicketAccessService {
     const fromStatus = ticket.status as TicketStatus;
     if (fromStatus === toStatus) return;
 
-    // A task-creation request leaves PENDING_APPROVAL only through its
-    // approver's Approve or Reject (processApproval), never by a status change:
-    // closing it directly would leave approvalState PENDING behind.
-    if (fromStatus === TicketStatus.PENDING_APPROVAL) {
-      throw new ConflictException(APPROVAL_DECISION_REQUIRED);
-    }
-
     const roleName = this.access.roleName(user);
     const isScopedReviewer =
       this.access.isAdmin(user) ||
@@ -249,22 +200,6 @@ export class TicketAccessService {
 
     const workerStatuses: TicketStatus[] = [TicketStatus.IN_PROGRESS, TicketStatus.REVIEW];
     const isIntern = roleName === ROLES.INTERN;
-
-    // Employees and interns may close (cancel) only their own task: a TASK they
-    // created, whose primary assignee they are, while it is OPEN or
-    // IN_PROGRESS. Never someone else's ticket, never QUERY/HELP, never once
-    // it is in REVIEW or DONE. Closing IN_PROGRESS stops its timer in the same
-    // transaction (commitUpdate).
-    if (
-      toStatus === TicketStatus.CLOSED &&
-      (roleName === ROLES.EMPLOYEE || isIntern) &&
-      ticket.type === 'TASK' &&
-      ticket.createdById === user.id &&
-      ticket.assignedToId === user.id &&
-      (fromStatus === TicketStatus.OPEN || fromStatus === TicketStatus.IN_PROGRESS)
-    ) {
-      return;
-    }
 
     if (!allowed[fromStatus]?.includes(toStatus)) {
       // Allow managers/admins to bypass standard paths for things like OPEN -> CLOSED
@@ -428,12 +363,10 @@ export class TicketAccessService {
     if (filters.assignedToId) where.assignedToId = filters.assignedToId;
     if (filters.createdById) where.createdById = filters.createdById;
     if (filters.reporterId) where.createdById = filters.reporterId;
-    const createdFrom = createdFilterBound(filters.dateFrom, 'start');
-    const createdTo = createdFilterBound(filters.dateTo, 'end');
-    if (createdFrom || createdTo) {
+    if (filters.dateFrom || filters.dateTo) {
       where.createdAt = {};
-      if (createdFrom) where.createdAt.gte = createdFrom;
-      if (createdTo) where.createdAt.lte = createdTo;
+      if (filters.dateFrom) where.createdAt.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) where.createdAt.lte = new Date(filters.dateTo);
     }
     if (filters.dueBefore || filters.dueAfter) {
       where.dueDate = {};

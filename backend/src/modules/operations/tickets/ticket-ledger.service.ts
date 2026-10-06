@@ -468,30 +468,6 @@ export class TicketLedgerService {
     return result;
   }
 
-  /**
-   * Productive employee work per ticket, in seconds, for many tickets in one
-   * query (export). The same definition as getTicketTimers' employee work:
-   * ASSIGNEE rows with countsAsWork = true (a running row counts to now).
-   * Reviewer time, lifecycle/SLA time, pause markers and INTEGRITY_REPAIR
-   * closures (countsAsWork = false) never count.
-   */
-  async getEmployeeWorkSecondsMany(ticketIds: string[]): Promise<Map<string, number>> {
-    const result = new Map<string, number>();
-    const ids = [...new Set(ticketIds.filter(Boolean))];
-    if (ids.length === 0) return result;
-    const now = this.tva.now();
-    const logs = await this.prisma.ticketTimeLog.findMany({
-      where: { ticketId: { in: ids }, ownerType: LEDGER_OWNER_TYPES.ASSIGNEE, countsAsWork: true },
-      select: { ticketId: true, startedAt: true, endedAt: true, durationSeconds: true, countsAsWork: true },
-    });
-    for (const l of logs) {
-      if (!isProductiveLog(l)) continue;
-      const seconds = l.endedAt ? (l.durationSeconds ?? 0) : this.tva.elapsedSeconds(l.startedAt, now);
-      result.set(l.ticketId, (result.get(l.ticketId) ?? 0) + seconds);
-    }
-    return result;
-  }
-
   async getActiveLogForTicket(ticketId: string) {
     return this.prisma.ticketTimeLog.findFirst({
       where: { ticketId, endedAt: null },
