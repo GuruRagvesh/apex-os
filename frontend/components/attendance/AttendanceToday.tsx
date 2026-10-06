@@ -205,11 +205,6 @@ export function AttendanceToday() {
     lastSessionEnd,
     sessionCount,
     unevidencedSessions: unpunchedSessions,
-    // The server's figures. This component formats them; it does not decide
-    // whether the requirement was met.
-    requiredPresenceMinutes: day?.requiredPresenceMinutes ?? null,
-    serverPresenceMinutes: day?.presenceMinutes ?? null,
-    meetsRequirement: day?.meetsRequirement ?? null,
   });
 
   const needsReview = day?.requiresReview || day?.evaluationState === 'NEEDS_REVIEW';

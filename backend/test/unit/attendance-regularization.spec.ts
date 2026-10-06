@@ -53,7 +53,6 @@ const workingContext = (over: any = {}) => ({
   },
   profile: { profileId: 'prof-1', category: 'REGULAR_EMPLOYEE', effectiveFrom: '2026-01-01', effectiveTo: null },
   shift: SHIFT, attendancePolicy: POLICY, leavePolicy: { policyId: 'lp-1', policyKey: 'lp', version: 1 },
-  lateCutoff: { clock: '10:30', source: 'SYSTEM_FALLBACK' },
   contextResolved: true, attendanceApplicability: 'REQUIRED', requiresHrReview: false,
   blockingReasons: [], sources: SOURCES, resolverVersion: 1, resolvedAt: new Date().toISOString(),
   ...over,

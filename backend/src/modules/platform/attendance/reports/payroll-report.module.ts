@@ -3,7 +3,6 @@ import { PayrollReportService } from './payroll-report.service';
 import { PayrollReportController } from './payroll-report.controller';
 import { SettingsModule } from '../../settings/settings.module';
 import { EmailModule } from '../../email/email.module';
-import { AttendanceReportModule } from '../canonical/attendance-report.module';
 
 /**
  * Monthly attendance for payroll.
@@ -13,9 +12,7 @@ import { AttendanceReportModule } from '../canonical/attendance-report.module';
  * AccessPolicyService and EventLoggerService come from the global CommonModule.
  */
 @Module({
-  // AttendanceReportModule supplies the canonical dataset. The Finance
-  // lifecycle consumes it rather than deriving attendance itself.
-  imports: [SettingsModule, EmailModule, AttendanceReportModule],
+  imports: [SettingsModule, EmailModule],
   controllers: [PayrollReportController],
   providers: [PayrollReportService],
   exports: [PayrollReportService],

@@ -1,7 +1,5 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { presenceMinutes } from '../../src/modules/platform/attendance/shared/attendance-primitives';
-import { assessPresence } from '../../../frontend/components/attendance/attendance-presence';
 
 // Attendance presence is punch out minus punch in. Nothing else.
 //
@@ -129,63 +127,27 @@ describe('every incomplete case still reaches a human', () => {
 
 describe('the other two surfaces already agreed', () => {
   it('the console returns null for an incomplete pair', () => {
-    // CONVERTED FROM A SOURCE-SHAPE MATCH TO A BEHAVIOURAL ONE.
-    //
-    // This asserted that the console's assignment contained the literal text
-    // `official?.punchInAt && official?.punchOutAt`. That pinned the FORM of an
-    // inline expression, which was reasonable while the expression was inline --
-    // but the rule now lives in one shared primitive, and refactoring the
-    // console to call it broke a test whose stated intent it actually satisfied.
-    //
-    // The rule is now tested directly, and the console is separately tested for
-    // DELEGATING to it. Together those are stronger than the regex: the first
-    // cannot pass if the rule is wrong, the second cannot pass if the console
-    // goes back to computing its own span.
-    expect(presenceMinutes('2026-09-14T04:11:00.000Z', null)).toBeNull();
-    expect(presenceMinutes(null, '2026-09-14T13:29:00.000Z')).toBeNull();
-    expect(presenceMinutes(null, null)).toBeNull();
-    // Null and not zero, which would read as "present for no time".
-    expect(presenceMinutes('2026-09-14T04:11:00.000Z', null)).not.toBe(0);
-  });
-
-  it('the console delegates rather than computing its own span', () => {
-    const consoleSrc = readFileSync(
+    const console = readFileSync(
       resolve(__dirname, '../../src/modules/platform/attendance/console/attendance-console.service.ts'),
       'utf8',
     );
+    const assignment = console.slice(
+      console.indexOf('const presenceSpanMinutes'),
+      console.indexOf('return {', console.indexOf('const presenceSpanMinutes')),
+    );
 
-    expect(consoleSrc).toMatch(/from '\.\.\/shared\/attendance-primitives'/);
-    expect(consoleSrc).toMatch(/presenceMinutes\(official\?\.punchInAt, official\?\.punchOutAt\)/);
-    // And no second implementation left anywhere in the file.
-    expect(consoleSrc).not.toMatch(/punchOutAt\.getTime\(\) - [\s\S]{0,40}punchInAt\.getTime\(\)/);
+    expect(assignment).toMatch(/official\?\.punchInAt && official\?\.punchOutAt/);
+    expect(assignment).toMatch(/:\s*null;/);
   });
 
   it("the employee's own view returns null too", () => {
-    // ASSERTED BY CALLING IT, NOT BY MATCHING ITS SOURCE.
-    //
-    // This used to pin the exact text `const presenceMinutes =
-    // minutesBetween(input.punchInAt, input.punchOutAt)`, and broke the moment
-    // that line legitimately changed -- the server's measured presence is now
-    // preferred when it has one. A source regex cannot tell a refactor from a
-    // regression; running the function can.
-    const missingPunchOut = assessPresence({
-      punchInAt: '2026-09-14T04:11:00.000Z',
-      punchOutAt: null,
-      workedMinutes: 120,
-      firstSessionStart: '2026-09-14T04:11:00.000Z',
-      lastSessionEnd: null,
-      sessionCount: 1,
-      unevidencedSessions: 0,
-      requiredPresenceMinutes: 540,
-      // The server has not measured it either, so the local span must answer.
-      serverPresenceMinutes: null,
-      meetsRequirement: null,
-    });
+    const presence = readFileSync(
+      resolve(__dirname, '../../../frontend/components/attendance/attendance-presence.ts'),
+      'utf8',
+    );
 
-    expect(missingPunchOut.presenceMinutes).toBeNull();
-    // Null and not zero, which would read as "present for no time".
-    expect(missingPunchOut.presenceMinutes).not.toBe(0);
-    // And an unanswered day is not a failed one.
-    expect(missingPunchOut.meetsRequirement).toBeNull();
+    // minutesBetween returns null unless both instants exist.
+    expect(presence).toMatch(/if \(!a \|\| !b\) return null;/);
+    expect(presence).toMatch(/const presenceMinutes = minutesBetween\(input\.punchInAt, input\.punchOutAt\)/);
   });
 });

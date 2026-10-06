@@ -10,7 +10,8 @@ import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import { LeaveBalanceService } from '../../../operations/leave/leave-balance.service';
 import { formatInTimeZone } from 'date-fns-tz';
 import { ROLES } from '../../../../shared/constants/roles';
-import { employmentOnDate, presenceMinutes } from '../shared/attendance-primitives';
+import { registerCsv, registerFileName, type RegisterResult } from './register-report';
+import { buildRegisterWorkbook } from './register-workbook';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -37,6 +38,16 @@ const MAX_RANGE_DAYS = 62;
 const MAX_EVALUATION_UNITS = 2000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * A punch in AFTER this company-local time is late.
+ *
+ * The policy window is 09:30-10:30 INCLUSIVE, so 10:30:00 is on time and
+ * 10:30:01 is not. Compared as a zero-padded HH:mm:ss string in company time,
+ * which sorts correctly and needs no offset arithmetic -- and reading the wall
+ * clock in the company timezone is the whole point, since a UTC comparison
+ * would call an 09:00 IST arrival late.
+ */
+const LATE_AFTER = '10:30:00';
 
 /**
  * The only roles that operate this console without HR or Admin authority.
@@ -66,15 +77,10 @@ export interface ConsoleScope {
 
 export interface EvaluationCommandResult {
   businessDates: string[];
-  /** Eligible employee-days, not candidates times dates. */
   requested: number;
   evaluated: number;
   unchanged: number;
   skipped: number;
-  /** Employee-days outside the employment window. A settled fact. */
-  notEmployed: number;
-  /** Employee-days whose employment could not be established. A data gap. */
-  employmentUnresolved: number;
   failed: Array<{ userId: string; businessDate: string; error: string }>;
 }
 
@@ -431,13 +437,15 @@ export class AttendanceConsoleService {
       }),
     ]);
 
-    // Shared primitive rather than an inline span. This also fixes a real
-    // divergence: this site used Math.floor while the payroll path used
-    // Math.round, so for a span carrying seconds the console and the figure
-    // Finance receives could differ by a minute. The payroll rounding is the
-    // figure of record -- any finalized month was computed with it -- so the
-    // console moves to match it rather than the other way round.
-    const presenceSpanMinutes = presenceMinutes(official?.punchInAt, official?.punchOutAt);
+    const presenceSpanMinutes =
+      official?.punchInAt && official?.punchOutAt
+        ? Math.max(
+            0,
+            Math.floor(
+              (official.punchOutAt.getTime() - official.punchInAt.getTime()) / 60_000,
+            ),
+          )
+        : null;
 
     return {
       businessDate,
@@ -592,7 +600,272 @@ export class AttendanceConsoleService {
   // Monthly register
   // ───────────────────────────────────────────────────────────────────────
 
+  /**
+   * Per-employee monthly totals, counted from stored classifications.
+   *
+   * The evaluator is not run here. Days with no stored result are reported as
+   * notEvaluated and are excluded from the attendance percentage's denominator,
+   * which is stated explicitly rather than left to be inferred.
+   */
+  async monthlyRegister(
+    actor: any,
+    filters: { from?: string; to?: string; departmentId?: string } = {},
+  ) {
+    const today = this.tva.companyToday();
+    const from = filters.from ?? `${today.slice(0, 7)}-01`;
+    const to = filters.to ?? today;
+    this.assertDate(from, 'from');
+    this.assertDate(to, 'to');
+    if (from > to) throw new BadRequestException('from must not be after to');
 
+    const dates = this.enumerate(from, to);
+    if (dates.length > MAX_RANGE_DAYS) {
+      throw new BadRequestException(`Range is limited to ${MAX_RANGE_DAYS} days`);
+    }
+
+    const scope = this.assertEligible(await this.resolveScope(actor));
+    const userWhere: any = { isActive: true };
+    if (scope.userIds !== null) userWhere.id = { in: scope.userIds };
+    if (filters.departmentId) userWhere.departmentId = filters.departmentId;
+
+    const employees = await this.prisma.user.findMany({
+      where: userWhere,
+      select: { id: true, name: true, employeeId: true, department: { select: { id: true, name: true } } },
+      orderBy: { name: 'asc' },
+    });
+
+    const records = await this.prisma.dailyAttendance.findMany({
+      where: {
+        userId: { in: employees.map((e) => e.id) },
+        date: {
+          gte: this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`)),
+          lte: this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`)),
+        },
+      },
+    });
+
+    const byUser = new Map<string, any[]>();
+    for (const r of records) {
+      const list = byUser.get(r.userId) ?? [];
+      list.push(r);
+      byUser.set(r.userId, list);
+    }
+
+    // ── Working days, from the business calendar rather than counted rows ──
+    //
+    // Two different numbers, and conflating them is the bug this guards
+    // against:
+    //
+    //   workingDays  every scheduled working day in the MONTH. What HR sees
+    //                top-right. On the 1st of the month it is still 22.
+    //   eligible     working days that have actually ELAPSED. What the
+    //                percentage is measured against.
+    //
+    // Using the month total as a denominator on the 1st would report everybody
+    // at 4% and read as a system-wide failure.
+    // A range normally sits inside one month, but nothing forces that, so
+    // every month it touches is classified rather than silently assuming the
+    // first one covers the rest.
+    const months = Array.from(new Set(dates.map((d) => d.slice(0, 7))));
+    const classified = await Promise.all(
+      months.map((m) => {
+        const [y, mo] = m.split('-');
+        return this.businessCalendar.classifyMonth(Number(y), Number(mo));
+      }),
+    );
+    const calendarDays = classified.flatMap((c) => c.days);
+    const workingDays = classified.reduce((n, c) => n + c.workingDays, 0);
+
+    // ELAPSED STOPS AT TODAY, whatever the caller asked for.
+    //
+    // The console requests a whole month, so on the 1st the range still runs to
+    // the 30th. Measuring against that would charge every employee with 21
+    // absences they have not had the chance to avoid, and the register would
+    // read as a company-wide collapse on the morning it is first opened.
+    const elapsedThrough = to < today ? to : today;
+    const elapsedWorkingDates = new Set(
+      calendarDays
+        .filter(
+          (d) => d.isWorkingDay && d.businessDate >= from && d.businessDate <= elapsedThrough,
+        )
+        .map((d) => d.businessDate),
+    );
+
+    // ── Leave balance, from the one service that already defines it ────────
+    //
+    // Reused rather than recomputed: adding leave types together here would
+    // create a second, quietly different answer to "how much leave is left".
+    //
+    // THE ARGUMENT IS A FINANCIAL YEAR, NOT A CALENDAR YEAR. Leave runs April
+    // to March, so a March 2027 register belongs to FY 2026-27 and a calendar
+    // year read from the date string would ask for FY 2027-28 -- an entitlement
+    // that has not started. Nine months of the year the two agree, which is
+    // exactly why the wrong one survives testing.
+    //
+    // financialYear().startYear is also what LeaveService.getUserBalance()
+    // passes for the employee's own leave page, so HR and the employee are
+    // never shown different balances for the same person.
+    const balanceYear = this.tva.financialYear(new Date(`${from}T00:00:00.000Z`)).startYear;
+
+    // Per-employee and several queries each, so it runs in bounded batches --
+    // 34 sequential round trips is the pattern that makes a monthly page feel
+    // broken.
+    const balanceByUser = new Map<string, number | null>();
+    const BATCH = 8;
+    for (let i = 0; i < employees.length; i += BATCH) {
+      const slice = employees.slice(i, i + BATCH);
+      const settled = await Promise.all(
+        slice.map((e) =>
+          this.leaveBalance
+            .getLeaveBalance(e.id, balanceYear)
+            .then((b: any) => b?.balance ?? null)
+            // One employee's leave data must not blank the whole register.
+            .catch(() => null),
+        ),
+      );
+      slice.forEach((e, n) => balanceByUser.set(e.id, settled[n]));
+    }
+
+    const rows = employees.map((e) => {
+      const mine = byUser.get(e.id) ?? [];
+
+      // THE REGISTER COUNTS ELAPSED WORKING DAYS, NOTHING ELSE.
+      //
+      // Stored rows only exist for evaluated days, so future dates would
+      // usually fall out anyway -- but "usually" is not a guarantee, and a
+      // single stray future ABSENT row would put a fabricated absence against
+      // a real employee's name in a file HR sends on. The filter states the
+      // rule instead of inheriting it.
+      const applicable = mine.filter((r) =>
+        elapsedWorkingDates.has(this.tva.companyBusinessDate(r.date)),
+      );
+      const count = (status: string) => applicable.filter((r) => r.status === status).length;
+
+      // A late arrival is still an attended day. Lateness is reported in its
+      // own column rather than deducted twice.
+      const present = count('PRESENT') + count('LATE') + count('LATE_EXEMPTED');
+      const leave = count('LEAVE');
+      const lwp = count('LWP');
+      const halfDay = count('HALF_DAY');
+      const absent = count('ABSENT');
+      const weeklyOff = mine.filter((r) => r.status === 'WEEKLY_OFF').length;
+      const holiday = mine.filter((r) => r.status === 'HOLIDAY').length;
+      const needsReview = applicable.filter((r) => r.evaluationState === 'NEEDS_REVIEW').length;
+      const notEvaluated = Math.max(0, elapsedWorkingDates.size - applicable.length);
+
+      // Late is read from the ATTENDANCE punch, not a Workday session start.
+      // They are different facts and only this one is policy.
+      const latePunchIns = applicable.filter(
+        (r) =>
+          r.punchInAt &&
+          formatInTimeZone(r.punchInAt, this.tva.companyTimezone(), 'HH:mm:ss') > LATE_AFTER,
+      ).length;
+
+      // Approved full-day leave leaves the denominator entirely: an employee
+      // on sanctioned leave has not failed to attend, and counting it against
+      // them is the unfairness this formula exists to avoid.
+      const eligibleWorkingDays = Math.max(0, elapsedWorkingDates.size - leave);
+      const credit = present + halfDay * 0.5;
+
+      return {
+        userId: e.id,
+        name: e.name,
+        employeeId: e.employeeId,
+        department: e.department?.name ?? null,
+
+        // ── The seven register figures ──
+        daysPresent: present,
+        daysAbsent: absent,
+        halfDays: halfDay,
+        leaveBalance: balanceByUser.get(e.id) ?? null,
+        latePunchIns,
+        // Null, never 0 or NaN: with nothing to measure, a percentage is not a
+        // low score, it is an absent one.
+        attendanceCompletionPercentage:
+          eligibleWorkingDays > 0
+            ? Number(((credit / eligibleWorkingDays) * 100).toFixed(2))
+            : null,
+
+        // ── Working figures, not shown in the register ──
+        eligibleWorkingDays,
+        leaveDays: leave,
+        lwp,
+        weeklyOff,
+        holiday,
+        needsReview,
+        notEvaluated,
+      };
+    });
+
+    return {
+      from,
+      to,
+      days: dates.length,
+      month: months[0],
+      // The full month, deliberately -- see the note above.
+      workingDays,
+      elapsedWorkingDays: elapsedWorkingDates.size,
+      /**
+       * Which financial year the Leave Balance column is answering for.
+       *
+       * Stated rather than assumed. Leave runs April to March while the
+       * register is named after a calendar month, so for January, February and
+       * March the two disagree -- and a balance is not a number anyone can
+       * check without knowing the period it covers.
+       */
+      leaveBalanceFinancialYear: `${balanceYear}-${balanceYear + 1}`,
+      /**
+       * Whether the working-day total can be trusted.
+       *
+       * A month whose weekly-off policy could not be resolved counts Sundays
+       * as working days. The register still renders -- refusing to show
+       * anything helps nobody -- but it says so instead of presenting a wrong
+       * total as a fact.
+       */
+      calendarResolved:
+        classified.every(
+          (c) => c.sources.weeklyOffPolicy !== 'NONE' && c.sources.weeklyOffPolicy !== 'AMBIGUOUS',
+        ),
+      // ONE result. The table, the workbook and the CSV all read this array;
+      // none of them recomputes a figure. Three implementations of the same
+      // formula is three chances for HR to be handed three different answers.
+      employees: rows,
+    };
+  }
+
+  /**
+   * The register as a downloadable file.
+   *
+   * Calls monthlyRegister() and renders what it returns. The workbook and the
+   * CSV are two encodings of ONE result, not two reports -- neither exporter
+   * queries anything or recomputes a figure, so a number in the spreadsheet
+   * cannot disagree with the number HR was looking at when they pressed the
+   * button. Scope and authorization come from the same call, so an export can
+   * never reach further than the screen.
+   */
+  async exportRegister(
+    actor: any,
+    filters: { from?: string; to?: string; departmentId?: string },
+    format: 'xlsx' | 'csv',
+  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+    const result = (await this.monthlyRegister(actor, filters)) as unknown as RegisterResult;
+
+    if (format === 'csv') {
+      return {
+        buffer: Buffer.from(registerCsv(result), 'utf8'),
+        filename: registerFileName(result.month, 'csv'),
+        contentType: 'text/csv; charset=utf-8',
+      };
+    }
+
+    const wb = buildRegisterWorkbook(result, this.tva.now());
+    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+    return {
+      buffer,
+      filename: registerFileName(result.month, 'xlsx'),
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    };
+  }
 
   // ───────────────────────────────────────────────────────────────────────
   // Commands
@@ -634,111 +907,45 @@ export class AttendanceConsoleService {
       throw new BadRequestException(`Range is limited to ${MAX_RANGE_DAYS} days`);
     }
 
-    // WHO WAS EMPLOYED ON THE DATES BEING EVALUATED.
-    //
-    // This was `{ isActive: true }`: historical evaluation filtered on today's
-    // account flag. Backfilling September would have created official rows for
-    // current employees only and silently skipped anybody who had since left,
-    // baking the gap into the official record for the people least able to
-    // notice. Somebody who worked until 25 September is a September employee.
-    //
-    // TWO STAGES, AND THE SECOND IS AUTHORITATIVE. The query narrows to a
-    // SUPERSET by employment-window overlap, because a per-date predicate
-    // cannot be expressed usefully in SQL here. employmentOnDate() from the
-    // shared primitives then rules on each employee-date. The query can only
-    // ever be too generous, never too strict, so the two cannot disagree about
-    // eligibility: the primitive decides, and the query merely avoids loading
-    // the whole user table.
-    // Midday, so a timezone offset cannot push the boundary onto the wrong
-    // day. This filter is deliberately a SUPERSET -- employmentOnDate rules
-    // on each date below -- so being a few hours generous here is harmless
-    // and being strict would not be.
-    const midday = (d: string) => new Date(`${d}T12:00:00.000Z`);
-    const rangeStart = dates[0];
-    const rangeEnd = dates[dates.length - 1];
-
-    const userWhere: any = {
-      AND: [
-        // Started on or before the end of the range, or no start recorded.
-        { OR: [{ joiningDate: null }, { joiningDate: { lte: this.tva.companyDayEnd(midday(rangeEnd)) } }] },
-        // Had not already left before the range began.
-        {
-          OR: [
-            { lastWorkingDate: null },
-            { lastWorkingDate: { gte: this.tva.companyDayStart(midday(rangeStart)) } },
-          ],
-        },
-      ],
-    };
+    const userWhere: any = { isActive: true };
     if (input.employeeId) userWhere.id = input.employeeId;
     if (input.departmentId) userWhere.departmentId = input.departmentId;
 
     const employees = await this.prisma.user.findMany({
       where: userWhere,
-      select: { id: true, joiningDate: true, lastWorkingDate: true },
+      select: { id: true },
     });
 
-    // Eligible employee-days, not candidates times dates. Counting the raw
-    // product would spend the cap on dates nobody was employed for, and
-    // including former employees -- the point of this change -- would push an
-    // ordinary month over the limit for no reason.
-    const work: Array<{ userId: string; businessDate: string }> = [];
-    let notEmployed = 0;
-    let employmentUnresolved = 0;
-
-    for (const employee of employees) {
-      const joining = employee.joiningDate
-        ? this.tva.companyBusinessDate(employee.joiningDate)
-        : null;
-      const lastWorking = employee.lastWorkingDate
-        ? this.tva.companyBusinessDate(employee.lastWorkingDate)
-        : null;
-
-      for (const businessDate of dates) {
-        const employment = employmentOnDate(joining, lastWorking, businessDate);
-        if (employment.employedOnDate) {
-          work.push({ userId: employee.id, businessDate });
-          continue;
-        }
-        // Two buckets rather than one, because they mean different things to an
-        // operator. BEFORE_JOINING and AFTER_LAST_WORKING_DATE are settled
-        // facts; NO_JOINING_DATE is a gap in the employee record that somebody
-        // has to fill, and folding it into "skipped" would hide a data problem
-        // behind a correct-looking total.
-        if (employment.reason === 'NO_JOINING_DATE') employmentUnresolved += 1;
-        else notEmployed += 1;
-      }
-    }
-
-    if (work.length > MAX_EVALUATION_UNITS) {
+    const units = employees.length * dates.length;
+    if (units > MAX_EVALUATION_UNITS) {
       throw new BadRequestException(
-        `This would evaluate ${work.length} employee-days. Narrow the range or the selection (limit ${MAX_EVALUATION_UNITS}).`,
+        `This would evaluate ${units} employee-days. Narrow the range or the selection (limit ${MAX_EVALUATION_UNITS}).`,
       );
     }
 
     const result: EvaluationCommandResult = {
       businessDates: dates,
-      requested: work.length,
+      requested: units,
       evaluated: 0,
       unchanged: 0,
       skipped: 0,
-      notEmployed,
-      employmentUnresolved,
       failed: [],
     };
 
-    for (const { userId, businessDate } of work) {
-      try {
-        const out = await this.evaluator.evaluateAndPersist(userId, businessDate);
-        if (out.persisted) result.evaluated += 1;
-        else if (out.reason === 'UNCHANGED') result.unchanged += 1;
-        else result.skipped += 1;
-      } catch (err: any) {
-        result.failed.push({
-          userId,
-          businessDate,
-          error: err?.message ?? 'Evaluation failed',
-        });
+    for (const employee of employees) {
+      for (const businessDate of dates) {
+        try {
+          const out = await this.evaluator.evaluateAndPersist(employee.id, businessDate);
+          if (out.persisted) result.evaluated += 1;
+          else if (out.reason === 'UNCHANGED') result.unchanged += 1;
+          else result.skipped += 1;
+        } catch (err: any) {
+          result.failed.push({
+            userId: employee.id,
+            businessDate,
+            error: err?.message ?? 'Evaluation failed',
+          });
+        }
       }
     }
 
@@ -756,8 +963,6 @@ export class AttendanceConsoleService {
         evaluated: result.evaluated,
         unchanged: result.unchanged,
         skipped: result.skipped,
-        notEmployed: result.notEmployed,
-        employmentUnresolved: result.employmentUnresolved,
         failed: result.failed.length,
       },
     }).catch(() => {});
