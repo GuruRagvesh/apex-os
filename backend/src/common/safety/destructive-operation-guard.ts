@@ -1,7 +1,7 @@
 /**
  * EMERGENCY DATA PROTECTION LAYER
  * Destructive Operation Guard
- * 
+ *
  * Protects against accidental wipe/reset scripts running in production.
  */
 
