@@ -26,6 +26,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { LinkifiedText } from '@apex/operations-tickets-lifecycle/components/linkified-text';
 import { buildTicketEditPayload } from '@apex/operations-tickets-lifecycle/shared/ticket-edit-payload';
 import toast from 'react-hot-toast';
+import { useTicketBackOrigin } from '@apex/operations-tickets-lifecycle/components/use-ticket-nav-state';
 import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
   Copy, CheckCircle, XCircle, History, Paperclip, Upload,
@@ -740,8 +741,8 @@ export default function TicketDetailPage() {
 
   // The viewer's running clock, from the ledger: names the ticket a review start would pause.
   const { data: activeTimer, isSuccess: activeTimerKnown, isError: activeTimerFailed } = useActiveTimer();
-  // The shared workday answer: while the person is IDLE the idle prompt comes
-  // first (a review cannot start until they resume).
+  // The shared workday answer: a review cannot start while the person's day
+  // is IDLE (only sessions from before idle detection was retired can be).
   const { data: workdayToday } = useQuery({
     queryKey: WORKDAY_TODAY_QUERY_KEY,
     queryFn: () => workdayApi.getToday() as Promise<any>,
@@ -1135,9 +1136,15 @@ export default function TicketDetailPage() {
     ];
   }, [fromContext, fromProjectId, fromProjectName, ticket]);
 
+  // Opened straight from the Tickets list or Kanban: Back is the browser's
+  // Back, so that page returns with its filters, view and scroll. Anything
+  // else (a direct link, a refresh, a notification) goes to /tickets.
+  const backOrigin = useTicketBackOrigin(id, user?.id);
   const handleBack = () => {
     if (fromContext === 'project' && fromProjectId) {
       router.push(`/projects/${fromProjectId}`);
+    } else if (backOrigin()) {
+      router.back();
     } else {
       router.push('/tickets');
     }

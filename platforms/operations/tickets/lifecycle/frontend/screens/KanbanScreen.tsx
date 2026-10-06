@@ -35,6 +35,16 @@ import { SkeletonKanbanColumn } from '@apex/shared-ui/components/skeleton';
 import { Plus, Clock, AlertTriangle, Loader2, Search, X, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { CreateTicketLink } from '../components/ticket-creation-gate';
+import {
+  mainScrollElement,
+  scrollElementTo,
+  scrollOf,
+  useRecordTicketOpen,
+  useRestoreOnce,
+  useThrottledScroll,
+  useTicketNavState,
+} from '../components/use-ticket-nav-state';
+import type { KanbanNav, Scroll } from '../../shared/ticket-nav-state';
 import toast from 'react-hot-toast';
 
 export const KANBAN_COLUMNS = [
@@ -198,6 +208,7 @@ function DraggableCard({ ticket, columnKey, isPending, canMove }: { ticket: any;
       {...attributes}
       role="link"
       tabIndex={0}
+      data-ticket-id={ticket.id}
       aria-label={isKanbanLaneLocked(columnKey) ? `Open ${ticket.ticketId} to review it` : `Open ${ticket.ticketId}`}
       onClick={() => {
         if (shouldOpenKanbanCardOnClick(Date.now(), dragEndedAt.current)) openTicket();
@@ -264,7 +275,7 @@ function DroppableColumn({
         </span>
       </div>
 
-      <div className="space-y-2.5 overflow-y-auto pr-1 max-h-[calc(100vh-18rem)]" role="list" aria-label={`${col.label} tickets`}>
+      <div className="space-y-2.5 overflow-y-auto pr-1 max-h-[calc(100vh-18rem)]" role="list" aria-label={`${col.label} tickets`} data-kanban-lane={col.key}>
         {tickets.map((ticket) => (
           <div key={ticket.id} className="group relative" role="listitem">
             <DraggableCard
@@ -459,6 +470,62 @@ export default function KanbanScreen() {
     moveTicket(active.id as string, fromColumn, toColumn);
   };
 
+  // Back / Forward / refresh: department, search, the board's horizontal
+  // scroll, each lane's scroll and the page scroll come back from navigation
+  // state. Restoring only sets these filters and positions; the cards are
+  // always the backend's current answer.
+  const nav = useTicketNavState('kanban', '/kanban', user?.id);
+  const screenRef = useRef<HTMLDivElement>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const navStateNow = (): KanbanNav => {
+    const columns: KanbanNav['columns'] = {};
+    boardRef.current?.querySelectorAll<HTMLElement>('[data-kanban-lane]').forEach((lane) => {
+      const key = lane.dataset.kanbanLane as keyof KanbanNav['columns'];
+      columns[key] = Math.max(0, Math.round(lane.scrollTop));
+    });
+    return {
+      departmentId,
+      search,
+      board: { x: scrollOf(boardRef.current).x, y: scrollOf(mainScrollElement()).y },
+      columns,
+    };
+  };
+  const restoreApplied = useRef(false);
+  const saveNav = () => { if (restoreApplied.current) nav.save(navStateNow()); };
+  useEffect(() => {
+    if (!nav.restored) return;
+    setDepartmentId(nav.restored.departmentId);
+    setSearch(nav.restored.search);
+  }, [nav.restored]);
+  const boardReady = nav.checked && !isLoading && !isError && !!kanban
+    && departmentId === (nav.restored?.departmentId ?? departmentId)
+    && debouncedSearch === (nav.restored?.search ?? debouncedSearch);
+  useRestoreOnce(boardReady, (force) => {
+    const r = nav.restored;
+    if (r) {
+      // Every position must be reachable before any is applied (or this is the last try).
+      const lanes = Array.from(boardRef.current?.querySelectorAll<HTMLElement>('[data-kanban-lane]') ?? []);
+      const targets: Array<[HTMLElement | null, Partial<Scroll>]> = [
+        [boardRef.current, { x: r.board.x }],
+        [mainScrollElement(), { y: r.board.y }],
+        ...lanes.map((lane): [HTMLElement, Partial<Scroll>] => [lane, { y: r.columns[lane.dataset.kanbanLane as keyof KanbanNav['columns']] ?? 0 }]),
+      ];
+      const reachable = targets.every(([el, to]) => !el
+        || (el.scrollWidth - el.clientWidth >= (to.x ?? 0) && el.scrollHeight - el.clientHeight >= (to.y ?? 0)));
+      if (!reachable && !force) return false;
+      targets.forEach(([el, to]) => scrollElementTo(el, to, true));
+    }
+    restoreApplied.current = true;
+    return true;
+  });
+  useEffect(() => { saveNav(); }, [departmentId, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  useThrottledScroll(
+    () => [mainScrollElement(), boardRef.current, ...Array.from(boardRef.current?.querySelectorAll('[data-kanban-lane]') ?? [])],
+    saveNav,
+    boardReady,
+  );
+  useRecordTicketOpen(screenRef, user?.id, '/kanban');
+
   const roleDisplay = (user?.role as any)?.name ?? user?.role ?? '';
   const scopeText =
     roleDisplay === 'SUPER_ADMIN' ? 'Showing company-wide operations' :
@@ -469,7 +536,7 @@ export default function KanbanScreen() {
     'Showing your assigned work';
 
   return (
-    <div className="space-y-5 h-full min-w-0">
+    <div ref={screenRef} className="space-y-5 h-full min-w-0">
       {/* Header */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
@@ -548,7 +615,7 @@ export default function KanbanScreen() {
         </div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveTicket(null)}>
-          <div className="overflow-x-auto pb-3 snap-x snap-mandatory" aria-label="Ticket Kanban board">
+          <div ref={boardRef} className="overflow-x-auto pb-3 snap-x snap-mandatory" aria-label="Ticket Kanban board">
             <div className="grid grid-cols-4 gap-4 min-w-[70rem] items-start">
               {KANBAN_COLUMNS.map((col) => (
                 <section key={col.key} className="snap-start" aria-label={`${col.label} lane`}>

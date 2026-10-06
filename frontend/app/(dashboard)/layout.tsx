@@ -11,7 +11,7 @@ import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalett
 import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { ActiveReviewBanner } from '@apex/operations-tickets-lifecycle/components/active-review-banner';
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
-import { IdleWorkflow } from '@/components/workday/IdleWorkflow';
+import { syncStoredOwner } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
   Calendar, Activity, LogIn,
@@ -33,6 +33,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (hasHydrated && !isAuthenticated) router.replace('/login');
   }, [hasHydrated, isAuthenticated, router]);
+
+  // Saved page state (filters, scroll, New Ticket draft) belongs to one user:
+  // keep only the signed-in user's fresh entries; with nobody signed in, none.
+  useEffect(() => {
+    if (!hasHydrated) return;
+    try { syncStoredOwner(window.sessionStorage, isAuthenticated ? user?.id : null, Date.now()); } catch { /* storage blocked */ }
+  }, [hasHydrated, isAuthenticated, user?.id]);
 
   // Alt+K shortcut for Quick Action Palette (Ctrl+K is taken by CommandPalette in TopBar)
   useEffect(() => {
@@ -167,8 +174,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       />
       {/* Desktop notification opt-in + workday/approval reminder polling (Phase 1) */}
       <DesktopNotificationManager />
-      {/* Idle detection and the idle prompt: once, for every dashboard page */}
-      <IdleWorkflow />
     </div>
   );
 }

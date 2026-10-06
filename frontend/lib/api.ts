@@ -96,8 +96,6 @@ export const workdayApi = {
     r(api.post('/workday/break/start', data)),
   endBreak: () => r(api.post('/workday/break/end', {})),
   resumeWork: () => r(api.post('/workday/resume', {})),
-  reportIdle: (idleDuration: number) =>
-    r(api.post('/workday/idle', { idleDuration })),
   resumeAutoClosedWork: () => r(api.post('/workday/resume-auto-closed', {})),
   continueWorking: () => r(api.post('/workday/continue-working', {})),
   getToday: () => r(api.get('/workday/today')),

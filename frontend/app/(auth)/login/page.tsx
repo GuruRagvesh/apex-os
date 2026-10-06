@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuthStore } from '@apex/core-identity';
 import { authApi } from '@apex/core-identity/api';
 import toast from 'react-hot-toast';
+import { clearAllStored } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 
 function LoginForm() {
   const [email, setEmail] = useState('');
@@ -14,6 +15,12 @@ function LoginForm() {
   const { setAuth } = useAuthStore();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Whoever signs in next starts with no saved page state (logout, expiry,
+  // or another person on this browser). Local UI state only; no request.
+  useEffect(() => {
+    try { clearAllStored(window.sessionStorage); } catch { /* storage blocked */ }
+  }, []);
 
   useEffect(() => {
     if (searchParams.get('expired') === 'true') {

@@ -422,21 +422,25 @@ export function WorkdayBar() {
     );
   }
 
+  // IDLE only exists on sessions from before automatic idle detection was
+  // retired: nothing creates it any more. Such a day continues through the
+  // manual actions only (a break, whose end resumes eligible clocks under the
+  // existing rules, or End Day); there is no Resume shortcut out of it.
   if (status === 'IDLE') {
     return (
       <>
         <div className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4">
           <div className="flex items-center gap-2">
             <span className={dotCls} />
-            <span className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Idle</span>
+            <span className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Paused</span>
+            <span className="text-xs text-yellow-700/80 dark:text-yellow-300/80">Start and end a break to continue, or end your day.</span>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handleResumeWork} disabled={!!loading} className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50">Resume</button>
             <button onClick={() => setShowBreakModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50">Take Break</button>
             <button onClick={openEndDay} disabled={!!loading} className="px-3 py-1.5 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 disabled:opacity-50">End Day</button>
           </div>
         </div>
-        {/* Take Break and End Day open their modals from the idle state too. */}
+        {/* Take Break and End Day open their modals from this state too. */}
         {showBreakModal && (
           <BreakModal
             onClose={() => setShowBreakModal(false)}
