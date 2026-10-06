@@ -164,10 +164,10 @@ describe('SchedulerService — recurring ticket query', () => {
 
   // ── Recurrence logic tests ──────────────────────────────────────────────────
 
-  it('fires daily_morning reminder at hour 9', async () => {
-    // Build a local-time 09:00 so getHours() === 9 regardless of machine timezone
-    const at9am = new Date();
-    at9am.setHours(9, 0, 0, 0);
+  // Recurrence is decided in COMPANY time (Asia/Kolkata), never the host's:
+  // these instants are fixed UTC values, so the result is the same on any machine.
+  it('fires daily_morning reminder at 09:00 company time', async () => {
+    const at9am = new Date('2026-10-05T03:30:00.000Z'); // 09:00 IST
     jest.useFakeTimers({ now: at9am });
 
     const ticket = {
@@ -194,10 +194,8 @@ describe('SchedulerService — recurring ticket query', () => {
     jest.useRealTimers();
   });
 
-  it('does NOT fire daily_morning reminder outside hour 9', async () => {
-    // Build a local-time 14:00 so getHours() === 14 regardless of machine timezone
-    const at2pm = new Date();
-    at2pm.setHours(14, 0, 0, 0);
+  it('does NOT fire daily_morning reminder outside 09:00 company time', async () => {
+    const at2pm = new Date('2026-10-05T08:30:00.000Z'); // 14:00 IST
     jest.useFakeTimers({ now: at2pm });
 
     const ticket = {
@@ -213,6 +211,34 @@ describe('SchedulerService — recurring ticket query', () => {
 
     expect(mockPrisma.notification.create).not.toHaveBeenCalled();
 
+    jest.useRealTimers();
+  });
+
+  it('09:00 UTC (14:30 IST, the old host-time firing) does NOT fire daily_morning', async () => {
+    jest.useFakeTimers({ now: new Date('2026-10-05T09:00:00.000Z') });
+    const ticket = {
+      id: 'tk3', ticketId: 'TKT-003', title: 'Daily standup',
+      scheduleRecurring: 'daily_morning', createdAt: new Date('2026-05-01'),
+      assignedTo: { id: 'u3', name: 'Cara' }, assignees: [],
+    };
+    mockPrisma.ticket.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([ticket]);
+    await service.checkScheduledTickets();
+    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('weekly fires on the company weekday the ticket was created, not the UTC weekday', async () => {
+    // Created Monday 00:30 IST (= Sunday 19:00 UTC); now is Monday 09:00 IST.
+    jest.useFakeTimers({ now: new Date('2026-10-05T03:30:00.000Z') });
+    const ticket = {
+      id: 'tk4', ticketId: 'TKT-004', title: 'Weekly report',
+      scheduleRecurring: 'weekly', createdAt: new Date('2026-09-27T19:00:00.000Z'),
+      assignedTo: { id: 'u4', name: 'Dev' }, assignees: [],
+    };
+    mockPrisma.ticket.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([ticket]);
+    mockPrisma.notification.create.mockResolvedValue({});
+    await service.checkScheduledTickets();
+    expect(mockPrisma.notification.create).toHaveBeenCalledTimes(1);
     jest.useRealTimers();
   });
 

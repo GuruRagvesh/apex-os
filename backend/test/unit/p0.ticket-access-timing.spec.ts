@@ -118,7 +118,7 @@ describe('P0 Ticket access and timing', () => {
       const kanbanWhere = {
         AND: [
           listWhere,
-          { status: { notIn: [TicketStatus.CLOSED] } }
+          { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.CLOSED] } }
         ]
       };
       expect(kanbanWhere.AND[0]).toEqual(listWhere);

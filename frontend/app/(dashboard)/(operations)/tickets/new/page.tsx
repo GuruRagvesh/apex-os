@@ -20,6 +20,19 @@ import {
   PUNCH_IN_TO_CREATE_MESSAGE,
   WORKDAY_TODAY_QUERY_KEY,
 } from '@apex/operations-tickets-lifecycle/shared/ticket-creation-gate';
+import {
+  companyDateTimeLocalToIso,
+  companyPlanningNow,
+  companyWallClockToIso,
+  withStartDate,
+} from '@apex/operations-tickets-lifecycle/shared/ticket-planning-date';
+import {
+  NO_RECURRENCE,
+  RECURRENCE_END_PRESETS,
+  RECURRENCE_OPTIONS,
+  recurrencePayload,
+  type RecurrenceChoice,
+} from '@apex/operations-tickets-lifecycle/shared/ticket-recurrence';
 
 // ─── Request Types ──────────────────────────────────────────────────────────
 // Task / Query / Help are real Ticket.type enum values (stored honestly). The
@@ -56,27 +69,12 @@ const EST_MINUTE_STEPS = [0, 5, 10, 15, 20, 30, 45];
 const GLOBAL_FIELDS = ['departmentId', 'projectId', 'priority', 'taskTypeId', 'taskSubtypeId'] as const;
 type GlobalField = typeof GLOBAL_FIELDS[number];
 
-// A <input type="datetime-local"> / date+time value is local wall-clock with no
-// timezone. Building the Date from components reads them in the browser's local
-// zone, so this always converts using the user's real timezone — unlike sending
-// the raw string, which the backend would (wrongly) parse as its own zone.
-function localDateTimeInputToIso(value: string): string | undefined {
-  if (!value) return undefined;
-  const [datePart, timePart] = value.split('T');
-  if (!datePart || !timePart) return undefined;
-  const [year, month, day] = datePart.split('-').map(Number);
-  const [hour, minute] = timePart.split(':').map(Number);
-  if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return undefined;
-  return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
-}
-
-// Combine the required Due Date with the optional Due Time. With a time, treat as
-// local wall-clock → UTC. Date-only keeps the system convention (18:30 IST = 13:00 UTC).
-function combineDueDateTime(date: string, time: string): string | undefined {
-  if (!date) return undefined;
-  if (time) return localDateTimeInputToIso(`${date}T${time}`);
-  return `${date}T13:00:00.000Z`;
-}
+// Date / time inputs carry no timezone. They are company wall-clock values
+// (Asia/Kolkata), the same on every browser, like the Excel import: a date +
+// time is read in the company timezone, and a date alone keeps the system
+// convention (18:30 IST = 13:00 UTC).
+const localDateTimeInputToIso = companyDateTimeLocalToIso;
+const combineDueDateTime = companyWallClockToIso;
 
 interface TicketRow {
   key: string;
@@ -99,6 +97,7 @@ interface TicketRow {
   projectId: string;
   scheduledEndAt: string;
   notes: string;
+  recurrence: RecurrenceChoice;
   showAdvanced: boolean;
   custom: Partial<Record<GlobalField, boolean>>;
   errors: string[];
@@ -149,12 +148,15 @@ export default function CreateTicketsPage() {
     assigneeIds: lockAssignee && user?.id ? [user.id] : [],
     targetDepartmentId: '',
     priority: globalDefaults.priority,
-    startDate: '', startTime: '',
+    // Planning default: now, in company time. Editable and clearable; it starts
+    // no timer and never sets actualStartAt (the ticket is created OPEN).
+    startDate: companyPlanningNow().date, startTime: companyPlanningNow().time,
     dueDate: '', dueTime: '',
     estHours: '', estMinutes: '',
     projectId: globalDefaults.projectId,
     scheduledEndAt: '',
     notes: '',
+    recurrence: NO_RECURRENCE,
     showAdvanced: false,
     custom: {},
     errors: [],
@@ -294,6 +296,8 @@ export default function CreateTicketsPage() {
     setRows((rs) => rs.map((row) => {
       if (row.key !== key) return row;
       const patch: any = { [field]: value, errors: [] };
+      // Clearing Start Date clears Start Time too: a time needs a day.
+      if (field === 'startDate') patch.startTime = withStartDate(row, value).startTime;
       if ((GLOBAL_FIELDS as readonly string[]).includes(field as string)) {
         patch.custom = { ...row.custom, [field]: true };
       }
@@ -382,6 +386,9 @@ export default function CreateTicketsPage() {
     if (!isSelfLockedRow(row) && row.assigneeIds.length === 0) e.push(`${labelFor(row.type, 'assignee')} is required`);
     if (!row.dueDate) e.push('Due Date is required');
     if (row.taskSubtypeId === '__custom__' && !row.customSubtype.trim()) e.push('Custom subtype text is required');
+    if (row.recurrence.mode === 'custom_time' && !row.recurrence.oneTimeAt) e.push('Pick the reminder date and time');
+    if (row.recurrence.mode !== 'none' && row.recurrence.mode !== 'custom_time' &&
+        row.recurrence.endPreset === 'custom' && !row.recurrence.endDate) e.push('Pick the date the reminders end');
     // Start (scheduledStartAt) must not be after Due, and the advanced Scheduled End
     // must be after Start. Compare as real instants so timezone is respected.
     const startIso = combineDueDateTime(row.startDate, row.startTime);
@@ -424,6 +431,8 @@ export default function CreateTicketsPage() {
       scheduledStartAt: combineDueDateTime(row.startDate, row.startTime),
       scheduledEndAt: localDateTimeInputToIso(row.scheduledEndAt),
       scheduledNote: row.notes.trim() || undefined,
+      // Existing reminder schedule fields (scheduler + ticket page already use them).
+      ...recurrencePayload(row.recurrence),
     };
   };
 
@@ -788,7 +797,7 @@ export default function CreateTicketsPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
                     <label className={labelCls}>Start Date</label>
-                    <input type="date" value={row.startDate} onChange={(e) => setRowField(row.key, 'startDate', e.target.value)} className={inputCls} min={new Date().toISOString().split('T')[0]} />
+                    <input type="date" value={row.startDate} onChange={(e) => setRowField(row.key, 'startDate', e.target.value)} className={inputCls} min={companyPlanningNow().date} />
                   </div>
                   <div>
                     <label className={labelCls}>Start Time</label>
@@ -796,7 +805,7 @@ export default function CreateTicketsPage() {
                   </div>
                   <div>
                     <label className={labelCls}>{labelFor(row.type, 'due')} *</label>
-                    <input type="date" value={row.dueDate} onChange={(e) => setRowField(row.key, 'dueDate', e.target.value)} className={inputCls} min={row.startDate || new Date().toISOString().split('T')[0]} />
+                    <input type="date" value={row.dueDate} onChange={(e) => setRowField(row.key, 'dueDate', e.target.value)} className={inputCls} min={row.startDate || companyPlanningNow().date} />
                   </div>
                   <div>
                     <label className={labelCls}>Due Time</label>
@@ -839,12 +848,48 @@ export default function CreateTicketsPage() {
                           end of the scheduled window. */}
                       <div>
                         <label className={labelCls}>Scheduled End</label>
-                        <input type="datetime-local" value={row.scheduledEndAt} onChange={(e) => setRowField(row.key, 'scheduledEndAt', e.target.value)} className={inputCls} min={new Date().toISOString().slice(0, 16)} />
+                        <input type="datetime-local" value={row.scheduledEndAt} onChange={(e) => setRowField(row.key, 'scheduledEndAt', e.target.value)} className={inputCls} min={`${companyPlanningNow().date}T${companyPlanningNow().time}`} />
                       </div>
                       <div>
                         <label className={labelCls}>Notes</label>
                         <input type="text" value={row.notes} onChange={(e) => setRowField(row.key, 'notes', e.target.value)} className={inputCls} placeholder="Internal note (optional)…" />
                       </div>
+                      {/* Reminder schedule — the existing recurrence the scheduler already runs. */}
+                      <div>
+                        <label className={labelCls} htmlFor={`${row.key}-recurrence`}>Reminder schedule</label>
+                        <select id={`${row.key}-recurrence`} value={row.recurrence.mode}
+                          onChange={(e) => setRowField(row.key, 'recurrence', { ...row.recurrence, mode: e.target.value })}
+                          className={inputCls}>
+                          {RECURRENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      </div>
+                      {row.recurrence.mode === 'custom_time' ? (
+                        <div>
+                          <label className={labelCls} htmlFor={`${row.key}-remind-at`}>Remind at</label>
+                          <input id={`${row.key}-remind-at`} type="datetime-local" value={row.recurrence.oneTimeAt}
+                            onChange={(e) => setRowField(row.key, 'recurrence', { ...row.recurrence, oneTimeAt: e.target.value })}
+                            className={inputCls} min={`${companyPlanningNow().date}T${companyPlanningNow().time}`} />
+                        </div>
+                      ) : row.recurrence.mode !== 'none' ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className={labelCls} htmlFor={`${row.key}-remind-until`}>Remind until</label>
+                            <select id={`${row.key}-remind-until`} value={row.recurrence.endPreset}
+                              onChange={(e) => setRowField(row.key, 'recurrence', { ...row.recurrence, endPreset: e.target.value })}
+                              className={inputCls}>
+                              {RECURRENCE_END_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                            </select>
+                          </div>
+                          {row.recurrence.endPreset === 'custom' && (
+                            <div>
+                              <label className={labelCls} htmlFor={`${row.key}-remind-end`}>End date</label>
+                              <input id={`${row.key}-remind-end`} type="date" value={row.recurrence.endDate}
+                                onChange={(e) => setRowField(row.key, 'recurrence', { ...row.recurrence, endDate: e.target.value })}
+                                className={inputCls} min={companyPlanningNow().date} />
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
