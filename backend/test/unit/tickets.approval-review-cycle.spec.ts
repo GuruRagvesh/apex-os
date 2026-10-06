@@ -102,6 +102,7 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
       },
       ticketHistory: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       activityLog: { create: jest.fn().mockResolvedValue({}) },
+      notification: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       comment: { create: jest.fn().mockResolvedValue({}) },
       reviewCycleLog: reviewCycleLogTable,
       ticketTimeLog: {
@@ -201,6 +202,8 @@ describe('TicketsService.approve/reject — ReviewCycleLog persistence', () => {
       assignees: [{ userId: 'assignee-9' }, { userId: 'assignee-8' }],
     });
     ticketAccess.findAccessibleTicket.mockImplementation(async () => ticketWithMultiAssignee);
+    // The row lock reads the same committed row the decision was prepared from.
+    prisma.$queryRaw.mockImplementation(async () => [ticketWithMultiAssignee]);
     prisma.ticket.update.mockImplementation(async ({ data }: any) => ({ ...ticketWithMultiAssignee, ...data }));
 
     await service.approve('ticket-db-1', 'reviewer-1', user, {

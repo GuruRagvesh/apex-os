@@ -7,6 +7,9 @@ const config: Config = {
     "./components/**/*.{ts,tsx}",
     "./app/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
+    // Screens and components moved out of frontend/ into the platform packages
+    "../platforms/**/*.{ts,tsx}",
+    "../shared/**/*.{ts,tsx}",
   ],
   prefix: "",
   theme: {

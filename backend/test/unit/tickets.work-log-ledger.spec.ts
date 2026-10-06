@@ -132,6 +132,7 @@ describe('TicketsService.update — worked-time ledger wiring', () => {
       user: { findUnique: jest.fn().mockResolvedValue({ currentStatus: 'ACTIVE' }) },
       ticketHistory: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       activityLog: { create: jest.fn().mockResolvedValue({}) },
+      notification: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       ticketTimeLog: timeLogTable,
       reviewCycleLog: makeReviewCycleTable(),
       // Entering REVIEW binds pending proof; a decision locks the cycle's evidence.

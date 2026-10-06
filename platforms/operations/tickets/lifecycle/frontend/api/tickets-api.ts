@@ -18,6 +18,9 @@
 // header themselves. exportCsv additionally recomputes its own base URL from
 // process.env.NEXT_PUBLIC_API_URL rather than using API_URL.
 //
+// (Phase 6A: exportCsv now refuses a non-2xx response and omits unset filters;
+// its transport is otherwise unchanged.)
+//
 // All of that predates this move and is preserved byte-for-byte. It is NOT the
 // pattern to copy: new API code rides the shared client and touches neither
 // localStorage nor the base URL. Retiring these exceptions is a behaviour
@@ -79,7 +82,9 @@ export const ticketsApi = {
   deleteAttachment: (ticketId: string, attachmentId: string) => r(api.delete(`/tickets/${ticketId}/attachments/${attachmentId}`)),
   exportCsv: async (params?: any) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : '';
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    // Only the filters that are set (an empty value means "no filter").
+    const set = Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== '');
+    const query = set.length ? '?' + new URLSearchParams(set.map(([k, v]) => [k, String(v)])).toString() : '';
     const baseUrl = process.env.NEXT_PUBLIC_API_URL
       ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '')}/api`
       : 'http://localhost:3001/api';
@@ -87,6 +92,12 @@ export const ticketsApi = {
       `${baseUrl}/tickets/export${query}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
+    // Never save an error response as tickets.csv.
+    if (!res.ok) {
+      throw new Error(res.status === 401 || res.status === 403
+        ? 'You do not have permission to export these tickets.'
+        : 'Export failed. Please try again.');
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
