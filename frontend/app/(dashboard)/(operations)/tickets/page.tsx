@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
@@ -18,6 +18,15 @@ import Link from 'next/link';
 import { CreateTicketLink } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { getCompanyTodayStart, getCompanyTodayEnd } from '@/lib/company-date';
+import {
+  mainScrollElement,
+  scrollElementTo,
+  scrollOf,
+  useRecordTicketOpen,
+  useRestoreOnce,
+  useThrottledScroll,
+  useTicketNavState,
+} from '@apex/operations-tickets-lifecycle/components/use-ticket-nav-state';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 /** This page's task-creation approval queue; not the user change-request queue. */
@@ -47,6 +56,8 @@ export default function TicketsPage() {
   const [myTickets, setMyTickets] = useState(false);
   const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'all' | 'approvals'>('all');
+  /** The query string the filters were last read from (null until the first read). */
+  const [filtersFromUrl, setFiltersFromUrl] = useState<string | null>(null);
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -84,6 +95,7 @@ export default function TicketsPage() {
     setOverdueOnly(params.get('overdue') === 'true' || quickFilter === 'overdue');
     setMyTickets(params.get('mine') === 'true' || quickFilter === 'mine');
     setPage(Math.max(1, Number(params.get('page')) || 1));
+    setFiltersFromUrl(queryString);
   }, [queryString]);
 
   const updateQuery = (updates: Record<string, string | number | null | undefined>) => {
@@ -162,6 +174,37 @@ export default function TicketsPage() {
   const tickets = data?.tickets || [];
   const total = data?.total || 0;
 
+  // Back / Forward / refresh: filters, search and page come back from the URL;
+  // the selected tab and the scroll position come back from navigation state.
+  const listPath = queryString ? `${pathname}?${queryString}` : pathname;
+  const nav = useTicketNavState('tickets', listPath, currentUser?.id);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const tabRef = useRef(activeTab);
+  tabRef.current = activeTab;
+  // Nothing is saved until the restored position has been applied, so an
+  // early save can never overwrite it with the top of an empty list.
+  const restoreApplied = useRef(false);
+  const saveNav = () => {
+    if (restoreApplied.current) nav.save({ tab: tabRef.current, scroll: scrollOf(mainScrollElement()) });
+  };
+  useEffect(() => {
+    if (nav.restored?.tab) setActiveTab(nav.restored.tab);
+  }, [nav.restored]);
+  useEffect(() => { saveNav(); }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ready once the list on screen is the one the URL asks for (the search box
+  // is debounced) and its rows have loaded.
+  const listReady = nav.checked && (nav.restored?.tab ?? 'all') === activeTab
+    && filtersFromUrl === queryString && debouncedSearch === search
+    && (activeTab === 'approvals' ? !isLoadingPending : !isLoading);
+  useRestoreOnce(listReady, (force) => {
+    const s = nav.restored?.scroll;
+    if (s && !scrollElementTo(mainScrollElement(), s, force)) return false;
+    restoreApplied.current = true;
+    return true;
+  });
+  useThrottledScroll(() => [mainScrollElement()], saveNav, nav.checked);
+  useRecordTicketOpen(pageRef, currentUser?.id, listPath);
+
   const statusCounts = (stats?.byStatus || []).reduce((acc: any, s: any) => {
     acc[s.status] = s._count;
     return acc;
@@ -177,7 +220,7 @@ export default function TicketsPage() {
     'Showing your assigned tickets';
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto">
+    <div ref={pageRef} className="space-y-4 max-w-7xl mx-auto">
       {/* Header — wraps on narrow screens so the actions never fall off the edge */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

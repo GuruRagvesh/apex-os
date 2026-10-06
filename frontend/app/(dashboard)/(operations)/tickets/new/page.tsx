@@ -33,6 +33,8 @@ import {
   recurrencePayload,
   type RecurrenceChoice,
 } from '@apex/operations-tickets-lifecycle/shared/ticket-recurrence';
+import { draftRowFrom } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
+import { useTicketNavState } from '@apex/operations-tickets-lifecycle/components/use-ticket-nav-state';
 
 // ─── Request Types ──────────────────────────────────────────────────────────
 // Task / Query / Help are real Ticket.type enum values (stored honestly). The
@@ -164,6 +166,38 @@ export default function CreateTicketsPage() {
 
   const [rows, setRows] = useState<TicketRow[]>([makeRow()]);
   const [submitting, setSubmitting] = useState(false);
+
+  // ── Unsaved draft (this tab, 30 minutes) ───────────────────────────────────
+  // Only the non-text fields survive navigation and refresh: type, priority,
+  // dates, estimate, recurrence and selected ids. Title, description, notes
+  // and the custom subtype text are never stored. Submit or Cancel clears it.
+  const draftPath = `/tickets/new${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const draft = useTicketNavState('ticket-new', draftPath, user?.id);
+  const draftLoaded = useRef(false);
+  useEffect(() => {
+    if (!draft.checked || draftLoaded.current) return;
+    draftLoaded.current = true;
+    const saved = draft.restored;
+    if (!saved) return;
+    const globals = { ...saved.globals, departmentId: lockDept ? myDeptId : saved.globals.departmentId };
+    setGlobalDefaults(globals);
+    setRows(saved.rows.map((d) => {
+      const row: TicketRow = {
+        ...makeRow(), ...d, recurrence: { ...d.recurrence } as RecurrenceChoice,
+        departmentId: lockDept ? myDeptId : d.departmentId,
+      };
+      if (isSelfLockedRow(row) && user?.id) row.assigneeIds = [user.id];
+      // A field differing from the restored default was set on the row itself.
+      row.custom = Object.fromEntries(GLOBAL_FIELDS.map((f) => [f, row[f] !== (globals as any)[f]]));
+      return row;
+    }));
+  }, [draft.checked]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Runs on mount (skipped: nothing loaded yet) and then only when the rows or
+  // defaults change: an edit, or the restored draft being applied.
+  useEffect(() => {
+    if (!draftLoaded.current) return;
+    draft.save({ globals: { ...globalDefaults }, rows: rows.map((r) => draftRowFrom(r)) });
+  }, [rows, globalDefaults]); // eslint-disable-line react-hooks/exhaustive-deps
   // Creation needs an active workday. The backend enforces it; this mirrors
   // its answer so the page says why instead of failing on submit.
   const creationGate = useTicketCreationGate();
@@ -437,6 +471,7 @@ export default function CreateTicketsPage() {
   };
 
   const handleBack = () => router.push(fromUrl ? decodeURIComponent(fromUrl) : '/tickets');
+  const handleCancel = () => { draft.clear(); handleBack(); };
 
   const applyRowErrors = (rowErrors: { row: number; error: string }[]) => {
     setRows((rs) => rs.map((row, i) => {
@@ -446,6 +481,7 @@ export default function CreateTicketsPage() {
   };
 
   const onSuccess = (created: any[]) => {
+    draft.clear();
     const ids = created.map((t: any) => t.ticketId).filter(Boolean);
     const summary = created.length === 1
       ? `Created ticket ${ids[0] ?? ''}`.trim()
@@ -921,7 +957,7 @@ export default function CreateTicketsPage() {
             className="apex-btn-primary flex-1 font-semibold py-2.5 flex items-center justify-center gap-2 disabled:opacity-50">
             {submitting ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : submitLabel}
           </button>
-          <button type="button" onClick={handleBack}
+          <button type="button" onClick={handleCancel}
             className="flex-1 text-center border font-medium py-2.5 rounded-lg transition-colors text-sm"
             style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}>
             Cancel
