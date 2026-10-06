@@ -107,7 +107,7 @@ describe('T15 external-service isolation (PostgreSQL)', () => {
     const ledger = new TicketLedgerService(prisma, tva);
     const workday = new WorkdayService(prisma, {} as any, { log: async () => undefined } as any, ledger, { sendNotification: async () => null } as any, new AttendanceAuthorityService(prisma), tva);
     const access = {
-      isSelfAssigned: () => false, viewerCanApprove: async () => false, viewerCanClose: async () => false,
+      isSelfAssigned: () => false, viewerCanApprove: async () => false,
       findAccessibleTicket: async (id: string, _u: any, include?: any) => prisma.ticket.findFirst({ where: { OR: [{ id }, { ticketId: id }] }, include: include ?? { assignees: true } }),
       assertCanTransitionTicket: async () => undefined, assertCanAssignTicket: async () => undefined,
       assertCanUpdateTicket: async () => undefined, assertCanUploadAttachment: async () => undefined,

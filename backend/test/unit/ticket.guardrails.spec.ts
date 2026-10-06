@@ -31,7 +31,6 @@ const mockPrisma: any = {
   },
   ticketHistory: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
   activityLog: { create: jest.fn() },
-  notification: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   user: { findUnique: jest.fn().mockResolvedValue({ currentStatus: 'WORKING' }) },
   appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
   managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },

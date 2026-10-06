@@ -63,15 +63,9 @@ export class SchedulerService {
   @Cron('0 * * * *', { name: 'scheduled-ticket-reminders' })
   async checkScheduledTickets() {
     const now = this.tva.now();
-    // Company-local hour, weekday and day of month, never the host's: on a UTC
-    // host getHours() made "daily morning (9 AM)" fire at 14:30 IST, and the
-    // weekly/monthly match used the host's calendar day.
-    const timezone = this.tva.companyTimezone();
-    const hour = Number(formatInTimeZone(now, timezone, 'H'));
-    const dayOfWeek = Number(formatInTimeZone(now, timezone, 'i')) % 7; // 0=Sun..6=Sat
-    const dayOfMonth = Number(formatInTimeZone(now, timezone, 'd'));
-    const companyWeekday = (d: Date) => Number(formatInTimeZone(d, timezone, 'i')) % 7;
-    const companyDayOfMonth = (d: Date) => Number(formatInTimeZone(d, timezone, 'd'));
+    const hour = now.getHours();
+    const dayOfWeek = now.getDay(); // 0=Sun..6=Sat
+    const dayOfMonth = now.getDate();
 
     try {
       // ONE-TIME: tickets scheduled within last 5 minutes (for backwards compat, check last hour)
@@ -126,9 +120,11 @@ export class SchedulerService {
         } else if (recurrence === 'daily_evening' && hour === 18) {
           shouldFire = true;
         } else if (recurrence === 'weekly' && hour === 9) {
-          shouldFire = dayOfWeek === companyWeekday(new Date(ticket.createdAt));
+          const createdDay = new Date(ticket.createdAt).getDay();
+          shouldFire = dayOfWeek === createdDay;
         } else if (recurrence === 'monthly' && hour === 9) {
-          shouldFire = dayOfMonth === companyDayOfMonth(new Date(ticket.createdAt));
+          const createdDate = new Date(ticket.createdAt).getDate();
+          shouldFire = dayOfMonth === createdDate;
         } else if ((recurrence === '1_month' || recurrence === '6_months') && hour === 9) {
           // Daily morning reminder for duration-based recurrence
           shouldFire = true;

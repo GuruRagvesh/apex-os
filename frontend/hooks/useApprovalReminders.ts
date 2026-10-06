@@ -6,15 +6,12 @@ import { notificationsApi } from '@/lib/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { useAuthStore } from '@apex/core-identity';
 import { useDesktopNotifications } from './useDesktopNotifications';
-import { formatCompanyDate } from '@/lib/company-date';
-import { pruneReminderKeys, reminderKey } from '@/lib/approval-reminder-keys';
 
 const POLL_INTERVAL_MS = 60_000;
 const RENOTIFY_MINUTES = 45; // within the spec's suggested 30-60 minute band
 
-// The company date, so "today" is the same office day on every browser.
 function todayDateKey(d: Date): string {
-  return formatCompanyDate(d);
+  return d.toISOString().split('T')[0];
 }
 
 function readLastNotifiedAt(key: string): number | null {
@@ -86,13 +83,11 @@ export function useApprovalReminders() {
 
     const evaluate = () => {
       const dateKey = todayDateKey(new Date());
-      // Earlier days' dedup keys are no longer needed; keep storage bounded.
-      try { pruneReminderKeys(localStorage, dateKey); } catch { /* storage unavailable */ }
 
       (Array.isArray(pendingApprovals) ? pendingApprovals : []).forEach((ticket: any) => {
         if (!ticket?.id) return;
         fireIfDue(
-          reminderKey(ticket.id, dateKey),
+          `apex:notified-approval:${ticket.id}:${dateKey}`,
           'Approval needed',
           `${ticket.title ?? ticket.ticketId} is waiting for your sign-off`,
           `/tickets/${ticket.id}`,
@@ -104,7 +99,7 @@ export function useApprovalReminders() {
         .forEach((n: any) => {
           const key = n.entityId ?? n.id;
           if (!key) return;
-          fireIfDue(reminderKey(key, dateKey), n.title, n.message ?? '', n.link ?? '/tickets');
+          fireIfDue(`apex:notified-approval:${key}:${dateKey}`, n.title, n.message ?? '', n.link ?? '/tickets');
         });
     };
 

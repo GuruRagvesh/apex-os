@@ -97,20 +97,17 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
   });
 
   return (
-    // One column on phones, the 12-column table from md up. These md: classes
-    // are generated because the tickets page header uses the same ones
-    // (Tailwind does not scan platforms/).
     <Link
       href={ticketHref}
       className={cn(
-        'grid grid-cols-1 md:grid-cols-12 items-center gap-2 md:gap-4 px-4 py-3.5 transition-all border-b last:border-0',
+        'grid grid-cols-12 items-center gap-4 px-4 py-3.5 transition-all border-b last:border-0',
         'hover:bg-slate-50 dark:hover:bg-slate-800/40',
         vis.borderClass, vis.bgClass,
       )}
       style={{ borderColor: 'var(--border-subtle)' }}
     >
       {/* Ticket col-span-5 */}
-      <div className="md:col-span-5 min-w-0">
+      <div className="col-span-5 min-w-0">
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <CopyId ticketId={ticket.ticketId} className="text-xs text-slate-400 font-medium" />
           {ticket.project && (
@@ -167,7 +164,7 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
       </div>
 
       {/* Type col-span-2 — Request Type + Task Type (replaces old Category) */}
-      <div className="md:col-span-2 space-y-1">
+      <div className="col-span-2 space-y-1">
         <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 inline-block">
           {REQUEST_TYPE_LABELS[ticket.type] ?? 'Task'}
         </span>
@@ -179,23 +176,27 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
       </div>
 
       {/* Priority col-span-1 */}
-      <div className="md:col-span-1">
+      <div className="col-span-1">
         <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', PRIORITY_COLORS[ticket.priority])}>
           {PRIORITY_LABELS[ticket.priority] ?? ticket.priority}
         </span>
       </div>
 
       {/* Status col-span-2 */}
-      <div className="md:col-span-2 space-y-1">
-        {/* One status badge: the old extra "Waiting for Review" chip repeated it. */}
+      <div className="col-span-2 space-y-1">
         <span className={cn('text-xs px-2 py-1 rounded-lg font-medium inline-block', vis.badgeClass)}>
           {vis.badgeText}
         </span>
+        {ticket.status === 'REVIEW' && (
+          <div className="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded w-fit">
+            Waiting for Review
+          </div>
+        )}
         <TimingTicker ticket={ticket} />
       </div>
 
       {/* Assignee col-span-2 */}
-      <div className="md:col-span-2 flex items-center gap-2 min-w-0">
+      <div className="col-span-2 flex items-center gap-2 min-w-0">
         {ticket.assignedTo ? (
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0" title={ticket.assignedTo.name}>

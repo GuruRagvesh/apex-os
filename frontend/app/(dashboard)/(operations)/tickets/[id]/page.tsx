@@ -23,8 +23,6 @@ import {
 import { useActiveTimer } from '@apex/operations-tickets-lifecycle/components/active-review-banner';
 import { WORKDAY_TODAY_QUERY_KEY } from '@apex/operations-tickets-lifecycle/shared/ticket-creation-gate';
 import { useSocket } from '@/hooks/useSocket';
-import { LinkifiedText } from '@apex/operations-tickets-lifecycle/components/linkified-text';
-import { buildTicketEditPayload } from '@apex/operations-tickets-lifecycle/shared/ticket-edit-payload';
 import toast from 'react-hot-toast';
 import {
   ArrowLeft, Send, Trash2, Clock, Calendar, User, Building2, Tag,
@@ -62,9 +60,8 @@ function workTimerStatus(ticket: any): { label: string; cls: string } {
     case 'REVIEW':      return ticket?.timers?.activeClock === 'REVIEWER_WORK'
         ? { label: 'Under review', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' }
         : { label: 'Waiting for review', cls: 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-300' };
-    case 'DONE':        return { label: 'Completed', cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' };
-    // CLOSED is a cancellation or administrative close, not a completion.
-    case 'CLOSED':      return { label: 'Closed', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' };
+    case 'DONE':
+    case 'CLOSED':      return { label: 'Completed', cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' };
     case 'OPEN':
     default:            return { label: 'Not started', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' };
   }
@@ -83,9 +80,9 @@ function TimingHeaderSummary({ ticket }: { ticket: any }) {
   );
 }
 
-// ─── One clean Timing section — Due Date / Due Time / Time Left ──────────────
-// The work-timer status is shown once, in the header (TimingHeaderSummary).
+// ─── One clean Timing section — Due Date / Due Time / Time Left / Work Timer ──
 function TicketTimingPanel({ ticket }: { ticket: any }) {
+  const wt = workTimerStatus(ticket);
   const t = computeClientTimingState(ticket);
   const budget = computeWorkBudget(ticket);
   const due = ticket?.dueDate ? new Date(ticket.dueDate) : null;
@@ -93,6 +90,10 @@ function TicketTimingPanel({ ticket }: { ticket: any }) {
   const rowValue = { color: 'var(--text-primary)' };
   return (
     <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs" style={rowLabel}>Work Timer Status</span>
+        <span className={cn('text-xs px-2 py-0.5 rounded font-medium', wt.cls)}>{wt.label}</span>
+      </div>
       {due && (
         <>
           <div className="flex items-center justify-between gap-2">
@@ -859,33 +860,17 @@ export default function TicketDetailPage() {
     onTicketStatusChanged: ({ ticketId: changedId, newStatus }) => {
       if (ticket && changedId === ticket.id) {
         qc.invalidateQueries({ queryKey: ['ticket', id] });
-        qc.invalidateQueries({ queryKey: ['ticket-history', id] });
         toast(`Status changed to ${newStatus.replace('_', ' ')}`, { icon: '🔄', duration: 3000 });
       }
     },
   });
 
-  // Everything a ticket change can affect: this ticket and its history, the
-  // ticket lists and counts, the approval queues and their reminders, and the
-  // viewer's own clock and workday. So the details, the list and Pending
-  // Approvals never disagree after an action taken here.
-  const refreshTicketViews = () => {
-    qc.invalidateQueries({ queryKey: ['ticket', id] });
-    qc.invalidateQueries({ queryKey: ['ticket-history', id] });
-    qc.invalidateQueries({ queryKey: ['tickets'] });
-    qc.invalidateQueries({ queryKey: ['ticket-stats'] });
-    qc.invalidateQueries({ queryKey: ['ticket-pending-approvals'] });
-    qc.invalidateQueries({ queryKey: ['approval-reminders-pending-approvals'] });
-    qc.invalidateQueries({ queryKey: ['approval-reminders-unread-notifications'] });
-    qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
-    qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
-  };
-
   const updateStatus = useMutation({
     mutationFn: (status: string) => ticketsApi.updateStatus(ticket.id, status),
-    onSuccess: (_data, status) => {
-      refreshTicketViews();
-      toast.success(status === 'CLOSED' ? 'Ticket closed' : 'Status updated');
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      toast.success('Status updated');
     },
     onError: (e: any) => toast.error(e?.message || 'Failed to update status'),
   });
@@ -905,7 +890,11 @@ export default function TicketDetailPage() {
     setPocUploading(true);
     try {
       await ticketsApi.submitForReview(ticket.id, file);
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ['tickets'] });
+      qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
       toast.success(file ? 'Submitted for review with proof of completion' : 'Submitted for review');
       setShowPocModal(false);
     } catch (e: any) {
@@ -921,15 +910,18 @@ export default function TicketDetailPage() {
   const assignMutation = useMutation({
     mutationFn: (assignedToId: string) => ticketsApi.assign(ticket.id, assignedToId),
     onSuccess: () => {
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
       toast.success('Assigned!');
     },
-    onError: (e: any) => toast.error(e?.message || 'Failed to assign'),
   });
 
   const invalidateAfterUnassign = () => {
-    refreshTicketViews();
+    qc.invalidateQueries({ queryKey: ['ticket', id] });
+    qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+    qc.invalidateQueries({ queryKey: ['tickets'] });
     qc.invalidateQueries({ queryKey: ['dashboard-overview'] });
+    qc.invalidateQueries({ queryKey: ['ticket-stats'] });
   };
 
   const unassignPrimaryMutation = useMutation({
@@ -972,14 +964,15 @@ export default function TicketDetailPage() {
 
   const deleteTicket = useMutation({
     mutationFn: () => ticketsApi.remove(ticket.id),
-    onSuccess: () => { refreshTicketViews(); router.push('/tickets'); toast.success('Ticket deleted'); },
+    onSuccess: () => { router.push('/tickets'); toast.success('Ticket deleted'); },
     onError: () => toast.error('Failed to delete ticket'),
   });
 
   const approveCreationMutation = useMutation({
     mutationFn: () => ticketsApi.approveTicketCreation(ticket.id),
     onSuccess: () => {
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
       toast.success('Task approved and created');
     },
     onError: (e: any) => toast.error(e?.message || 'Failed to approve task'),
@@ -988,7 +981,8 @@ export default function TicketDetailPage() {
   const rejectCreationMutation = useMutation({
     mutationFn: () => ticketsApi.rejectTicketCreation(ticket.id, rejectComment),
     onSuccess: () => {
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
       toast.success('Task creation rejected');
       setRejectMode(false);
       setRejectComment('');
@@ -1006,7 +1000,10 @@ export default function TicketDetailPage() {
         : { ratingComment });
     },
     onSuccess: () => {
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
       toast.success('Ticket approved ✓');
     },
     onError: (e: any) => toast.error(e?.message || 'Failed to approve ticket'),
@@ -1019,7 +1016,10 @@ export default function TicketDetailPage() {
       return ticketsApi.reject(ticket.id, rejectComment, minutes);
     },
     onSuccess: () => {
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
       toast.success('Ticket sent back to In Progress');
       setRejectMode(false);
       setRejectComment('');
@@ -1030,7 +1030,13 @@ export default function TicketDetailPage() {
 
   // Review clock and withdrawal. After success the ticket, its history, the
   // ticket lists and the workday (the clocks it reports) are all refreshed.
-  const refreshAfterReviewAction = refreshTicketViews;
+  const refreshAfterReviewAction = () => {
+    qc.invalidateQueries({ queryKey: ['ticket', id] });
+    qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+    qc.invalidateQueries({ queryKey: ['tickets'] });
+    qc.invalidateQueries({ queryKey: WORKDAY_TODAY_QUERY_KEY });
+    qc.invalidateQueries({ queryKey: ACTIVE_TIMER_QUERY_KEY });
+  };
   const startReviewMutation = useMutation({
     mutationFn: () => ticketsApi.startReview(ticket.id),
     onSuccess: () => { refreshAfterReviewAction(); toast.success('Review started'); },
@@ -1051,7 +1057,8 @@ export default function TicketDetailPage() {
   const editMutation = useMutation({
     mutationFn: (data: any) => ticketsApi.update(ticket.id, data),
     onSuccess: () => {
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['tickets'] });
       toast.success('Ticket updated');
       setEditing(false);
     },
@@ -1082,7 +1089,9 @@ export default function TicketDetailPage() {
   const blockMutation = useMutation({
     mutationFn: () => ticketsApi.blockTicket(ticket.id, blockReason.trim()),
     onSuccess: () => {
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ['tickets'] });
       toast.success('Ticket blocked');
       setShowBlockModal(false);
       setBlockReason('');
@@ -1094,7 +1103,9 @@ export default function TicketDetailPage() {
   const unblockMutation = useMutation({
     mutationFn: () => ticketsApi.unblockTicket(ticket.id),
     onSuccess: () => {
-      refreshTicketViews();
+      qc.invalidateQueries({ queryKey: ['ticket', id] });
+      qc.invalidateQueries({ queryKey: ['ticket-history', id] });
+      qc.invalidateQueries({ queryKey: ['tickets'] });
       toast.success('Ticket unblocked');
     },
     onError: (e: any) => toast.error(e?.message || 'Failed to unblock ticket'),
@@ -1253,12 +1264,19 @@ export default function TicketDetailPage() {
                   rows={3}
                 />
               </div>
-              {/* Type (Task / Query / Help) is fixed at creation; it decides the workflow. */}
-              <div>
-                <label className="apex-label">Priority</label>
-                <select value={editForm.priority} onChange={(e) => setEditForm((f: any) => ({ ...f, priority: e.target.value }))} className="apex-select w-full">
-                  {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="apex-label">Priority</label>
+                  <select value={editForm.priority} onChange={(e) => setEditForm((f: any) => ({ ...f, priority: e.target.value }))} className="apex-select w-full">
+                    {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="apex-label">Type</label>
+                  <select value={editForm.type} onChange={(e) => setEditForm((f: any) => ({ ...f, type: e.target.value }))} className="apex-select w-full">
+                    {['TASK', 'BUG', 'FEATURE', 'MAINTENANCE', 'SUPPORT', 'INCIDENT', 'REQUEST'].map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1273,7 +1291,12 @@ export default function TicketDetailPage() {
             </div>
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => editMutation.mutate(buildTicketEditPayload(editForm))}
+                onClick={() => editMutation.mutate({
+                  ...editForm,
+                  dueDate: editForm.dueDate ? (editForm.dueDate.includes('T') ? editForm.dueDate : `${editForm.dueDate}T13:00:00.000Z`) : undefined,
+                  estimatedTime: editForm.estimatedTime ? parseFloat(editForm.estimatedTime) : undefined,
+                  estimatedMinutes: editForm.estimatedMinutes ? parseInt(editForm.estimatedMinutes, 10) : undefined,
+                })}
                 disabled={editMutation.isPending || !editForm.title?.trim()}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm disabled:opacity-50 transition-colors"
               >
@@ -1445,7 +1468,10 @@ export default function TicketDetailPage() {
                 title: ticket.title,
                 description: ticket.description ?? '',
                 priority: ticket.priority,
+                category: ticket.category,
+                type: ticket.type ?? 'TASK',
                 dueDate: ticket.dueDate ? new Date(ticket.dueDate).toISOString().split('T')[0] : '',
+                estimatedTime: ticket.estimatedTime ?? '',
                 estimatedMinutes: ticket.estimatedMinutes ? String(ticket.estimatedMinutes) : '',
               });
               setEditing(true);
@@ -1746,7 +1772,7 @@ export default function TicketDetailPage() {
           {ticket.description && (
             <div className="apex-card p-5">
               <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>Description</h3>
-              <p className="text-sm whitespace-pre-wrap break-words leading-relaxed" style={{ color: 'var(--text-secondary)' }}><LinkifiedText text={ticket.description} /></p>
+              <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{ticket.description}</p>
             </div>
           )}
 
@@ -2090,11 +2116,9 @@ export default function TicketDetailPage() {
                     >
                       <span>✕</span> Closed
                     </div>
-                  ) : ticket.viewerCanClose && (
+                  ) : canEdit && (
                     <button
-                      onClick={() => {
-                        if (window.confirm('Close this ticket? A closed ticket cannot be reopened or edited.')) updateStatus.mutate('CLOSED');
-                      }}
+                      onClick={() => updateStatus.mutate('CLOSED')}
                       disabled={updateStatus.isPending || pocUploading}
                       className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors"
                       style={{ color: 'var(--text-tertiary)' }}
@@ -2243,7 +2267,7 @@ export default function TicketDetailPage() {
                   </Link>
                 </div>
               )}
-              {ticket.estimatedTime && !ticket.estimatedMinutes && (
+              {ticket.estimatedTime && (
                 <div className="flex items-center gap-2">
                   <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
                   <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Est. {ticket.estimatedTime}h</span>

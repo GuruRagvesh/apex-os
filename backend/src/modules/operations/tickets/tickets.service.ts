@@ -72,50 +72,6 @@ export const REVIEW_ERRORS = {
 } as const;
 export const PUNCH_IN_TO_REVIEW_MESSAGE = 'Punch In before starting a review.';
 
-/** A change prepared before another request closed the ticket. */
-export const TICKET_ALREADY_CLOSED = {
-  statusCode: 409, code: 'TICKET_ALREADY_CLOSED',
-  message: 'This ticket has already been closed. Refresh to see its latest state.',
-} as const;
-
-/** A status or owner change prepared against a state another request has since changed. */
-export const TICKET_CHANGED = {
-  statusCode: 409, code: 'TICKET_CHANGED',
-  message: 'This ticket changed while you were updating it. Refresh and try again.',
-} as const;
-
-/** TASK / QUERY / HELP decide the workflow; a ticket keeps the type it was created with. */
-export const TICKET_TYPE_LOCKED = {
-  statusCode: 409, code: 'TICKET_TYPE_LOCKED',
-  message: "A ticket's type cannot be changed after it is created.",
-} as const;
-
-/**
- * Ticket lists show the most recently changed ticket first. updatedAt moves
- * only when the ticket row itself is written (a real change); timers, review
- * clocks, reads and decoration write other tables and never reorder a list.
- */
-export const TICKET_LIST_ORDER: Prisma.TicketOrderByWithRelationInput[] = [
-  { updatedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' },
-];
-
-/** The title prefix of the "ticket entered review" notification. */
-export const REVIEW_NEEDED_TITLE_PREFIX = 'Review needed:';
-
-/**
- * One CSV cell: always quoted with quotes doubled and line breaks flattened.
- * A value a spreadsheet would evaluate (= + - @ first, optionally after
- * leading spaces, tabs or line breaks, or a leading tab/CR) is neutralised
- * with an apostrophe first, so it is shown as text. The check runs on the raw
- * value, before line breaks are normalised.
- */
-export function csvCell(value: unknown): string {
-  let s = value == null ? '' : String(value);
-  if (/^[\s]*[=+\-@]/.test(s) || /^[\t\r]/.test(s)) s = `'${s}`;
-  s = s.replace(/\r\n|\r|\n/g, ' ');
-  return `"${s.replace(/"/g, '""')}"`;
-}
-
 /**
  * Review decisions on the ticket types a reviewer hierarchy decides (every
  * type except QUERY and HELP, whose decisions belong to the requester or the
@@ -164,28 +120,6 @@ type AttachmentPurposeValue = typeof ATTACHMENT_PURPOSES[number];
 const ATTACHMENT_INCLUDE = {
   uploadedBy: { select: { id: true, name: true } },
   reviewCycle: { select: { id: true, cycleNo: true, decision: true } },
-};
-
-/**
- * What a Kanban card is built from. Kanban returns every open ticket at once
- * and its cards never show photos; profile photos are stored inline as base64
- * data URLs (megabytes each), so repeating photoUrl on every ticket overflows
- * Prisma's result string. No user select here may include photoUrl.
- */
-export const KANBAN_TICKET_INCLUDE = {
-  assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
-  createdBy: { select: { id: true, name: true, email: true, avatar: true } },
-  department: true,
-  project: { select: { id: true, projectId: true, name: true } },
-  assignees: { include: { user: { select: { id: true, name: true, avatar: true } } } },
-  taskType: true,
-  taskSubtype: true,
-  comments: {
-    take: 1,
-    orderBy: { createdAt: 'desc' } as any,
-    select: { content: true, createdAt: true, author: { select: { id: true, name: true } } },
-  },
-  _count: { select: { comments: true } },
 };
 
 /** A received file; stored only once the change it belongs to is allowed. */
@@ -257,7 +191,6 @@ export class TicketsService {
     },
     _count: { select: { comments: true } },
   };
-
 
   // ── Timer helpers ────────────────────────────────────────────────────────
 
@@ -464,13 +397,10 @@ export class TicketsService {
 
   
   async getPendingApprovals(userId: string) {
-    // Only tickets still waiting for sign-off: a ticket closed or otherwise
-    // moved on outside processApproval() must leave the approver's queue.
     const tickets = await this.prisma.ticket.findMany({
       where: {
         approverId: userId,
         approvalState: 'PENDING',
-        status: TicketStatus.PENDING_APPROVAL,
       },
       include: this.includeOptions,
       orderBy: { approvalRequestedAt: 'desc' },
@@ -643,13 +573,9 @@ export class TicketsService {
     filter?: string;
     blocked?: string | boolean;
     isBlocked?: string | boolean;
-    /** Created from / to: 'yyyy-MM-dd' is a whole company day (inclusive). */
-    dateFrom?: string;
-    dateTo?: string;
     page?: number;
     limit?: number;
-  }, user?: any, opts?: { orderBy?: Prisma.TicketOrderByWithRelationInput[] }) {
-    const orderBy = opts?.orderBy ?? TICKET_LIST_ORDER;
+  }, user?: any) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -668,7 +594,7 @@ export class TicketsService {
       const candidates = await this.prisma.ticket.findMany({
         where: this.andWhere(where, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }),
         include: this.includeOptions,
-        orderBy,
+        orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
       });
       const withSla = await this.addSlaMany(candidates);
       const overdueTickets = withSla.filter((ticket: any) => ticket.timing?.isOverdue ?? ticket.isOverdue);
@@ -685,7 +611,7 @@ export class TicketsService {
       this.prisma.ticket.findMany({
         where,
         include: this.includeOptions,
-        orderBy,
+        orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
         skip,
         take: limit,
       }),
@@ -721,9 +647,6 @@ export class TicketsService {
     // only a resolved approver (never the self-worker) sees approve/reject controls.
     const selfAssigned = this.ticketAccess.isSelfAssigned(ticket);
     const viewerCanApprove = user ? await this.ticketAccess.viewerCanApprove(user, ticket) : false;
-    // The same transition rule the close request is checked against, so the
-    // page offers Close only to someone the backend would let close it.
-    const viewerCanClose = user ? await this.ticketAccess.viewerCanClose(user, ticket) : false;
     // Ledger-derived clocks (lifecycle, productive employee time per cycle,
     // review). Read-only; a failure here must never hide the ticket itself.
     const timers = await this.ticketLedger.getTicketTimers(ticket).catch((err: any) => {
@@ -740,7 +663,6 @@ export class TicketsService {
       attachments: ((ticket as any).attachments ?? []).map((a: any) => this.sanitizeAttachmentForResponse(ticket.id, a, user?.id)),
       selfAssigned,
       viewerCanApprove,
-      viewerCanClose,
       timers,
       reviewTimerRequired: reviewTimerRequired(ticket),
       currentReviewCycle: openCycle ? { id: openCycle.id, cycleNo: openCycle.cycleNo } : null,
@@ -1801,13 +1723,6 @@ export class TicketsService {
       throw new BadRequestException('Cannot modify a closed ticket');
     }
 
-    // The type decides the workflow (TASK / QUERY / HELP approval and routing
-    // rules); it is fixed at creation. Re-sending the current type is a no-op.
-    if (data.type !== undefined) {
-      if (String(data.type) !== String(existing.type)) throw new ConflictException(TICKET_TYPE_LOCKED);
-      delete data.type;
-    }
-
     if (existing.status === TicketStatus.DONE && data.assignedToId !== undefined && data.assignedToId !== existing.assignedToId) {
       const isReopening = data.status && ['OPEN', 'IN_PROGRESS'].includes(data.status);
       if (!isReopening) {
@@ -1999,11 +1914,6 @@ export class TicketsService {
     // Re-check the final state against the locked, committed row: a concurrent
     // unassign may have removed the owner since.
     const locked = await this.lockTicketRow(tx, ticketDbId);
-    // CLOSED is final. A change prepared before a concurrent close committed
-    // (a second close, a status change, an edit) must not write again.
-    if (locked.status === TicketStatus.CLOSED) {
-      throw new ConflictException(TICKET_ALREADY_CLOSED);
-    }
     this.assertPrimaryOwnerForStatus(
       data,
       data.status ?? locked.status,
@@ -2023,19 +1933,6 @@ export class TicketsService {
       throw new ConflictException(REVIEW_ERRORS.ALREADY_DECIDED);
     }
 
-    // Every rule for a status or owner change (transition matrix, role and
-    // scope, self-assigned hierarchy, close permission) and every field derived
-    // from it (review, rework and completion stamps) was decided from the
-    // pre-transaction read. If the locked row's status or primary owner is no
-    // longer that state, nothing prepared from it is written: the caller
-    // retries, and the retry re-runs every rule against the current row.
-    if (
-      (data.status !== undefined || data.assignedToId !== undefined) &&
-      (locked.status !== existing.status || (locked.assignedToId ?? null) !== (existing.assignedToId ?? null))
-    ) {
-      throw new ConflictException(TICKET_CHANGED);
-    }
-
     // A reviewer's direct send-back (Kanban, stepper) is a review decision:
     // the same authority, claim and running-review rules as reject().
     if (recordReworkDecision && reviewTimerRequired(locked)) {
@@ -2051,21 +1948,6 @@ export class TicketsService {
       (data.assignedToId !== undefined && data.assignedToId !== locked.assignedToId)
     );
     let reviewersStopped: string[] = [];
-    // Once the ticket leaves REVIEW (decision, withdrawal, close, reopen), its
-    // "Review needed" notifications are no longer actionable: they are marked
-    // read in this transaction, so the reviewer's reminders stop exactly when
-    // the decision commits, and a rolled-back change leaves them untouched.
-    if (locked.status === TicketStatus.REVIEW && data.status !== undefined && data.status !== TicketStatus.REVIEW) {
-      await tx.notification.updateMany({
-        where: {
-          entityType: 'TICKET',
-          entityId: ticketDbId,
-          isRead: false,
-          title: { startsWith: REVIEW_NEEDED_TITLE_PREFIX },
-        },
-        data: { isRead: true },
-      });
-    }
     if (leavingReview) {
       const stopped = await this.ticketLedger.endActiveLogsForTicket(
         ticketDbId,
@@ -2233,7 +2115,7 @@ export class TicketsService {
               recipientId,
               'reviewPending',
               {
-                title: `${REVIEW_NEEDED_TITLE_PREFIX} ${ticket.ticketId}`,
+                title: `Review needed: ${ticket.ticketId}`,
                 message: `${ticket.title} is awaiting your review`,
                 type: NotificationType.WARNING,
                 link: `/tickets/${ticket.id}`,
@@ -3121,36 +3003,13 @@ export class TicketsService {
   }
 
   async exportCsv(query: any, user?: any) {
-    // Same filters, search and role/department scope as the list (findAll),
-    // every page of it: no silent cap. Pages follow creation order (createdAt
-    // never changes, id breaks ties), so a ticket updated during the export
-    // cannot move between pages and be skipped; ids are de-duplicated in case a
-    // new ticket shifts a page.
-    const EXPORT_PAGE_SIZE = 500;
-    const exportOrder: Prisma.TicketOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }];
-    const tickets: any[] = [];
-    const seen = new Set<string>();
-    for (let page = 1; ; page++) {
-      const batch = await this.findAll({ ...query, limit: EXPORT_PAGE_SIZE, page }, user, { orderBy: exportOrder });
-      for (const t of batch.tickets) {
-        if (seen.has(t.id)) continue;
-        seen.add(t.id);
-        tickets.push(t);
-      }
-      if (batch.tickets.length < EXPORT_PAGE_SIZE || page >= batch.totalPages) break;
-    }
-    // Productive employee work only, one batched query for the whole export.
-    const workSeconds = await this.ticketLedger.getEmployeeWorkSecondsMany(tickets.map((t) => t.id));
-    const elapsedHours = (t: any) => {
-      const seconds = workSeconds.get(t.id) ?? 0;
-      return Math.round((seconds / 3600) * 100) / 100;
-    };
+    const { tickets } = await this.findAll({ ...query, limit: 10000, page: 1 }, user);
 
-    const safeStr = csvCell;
-    // Calendar dates in the company timezone, like everything else users see.
-    const companyDate = (value: any) => (value ? this.tva.companyBusinessDate(new Date(value)) : '');
-    const estimatedHours = (t: any) =>
-      t.estimatedMinutes ? Math.round((t.estimatedMinutes / 60) * 100) / 100 : (t.estimatedTime ?? '');
+    const safeStr = (v: any) => {
+      const s = v == null ? '' : String(v);
+      // Always quote and escape — works for cells containing commas, newlines, quotes
+      return `"${s.replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`;
+    };
 
     const headers = [
       'Ticket ID', 'Title', 'Category', 'Type', 'Priority', 'Status',
@@ -3170,13 +3029,13 @@ export class TicketsService {
       safeStr(t.createdBy?.name ?? ''),
       safeStr(t.department?.name ?? ''),
       safeStr(t.project?.name ?? 'No project'),
-      safeStr(companyDate(t.dueDate)),
-      safeStr(estimatedHours(t)),
-      safeStr(elapsedHours(t)),
+      safeStr(t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : ''),
+      safeStr(t.estimatedTime ?? ''),
+      safeStr(t.elapsedHours ?? ''),
       safeStr(t.slaPercent ?? ''),
-      safeStr((t.timing?.isOverdue ?? t.isOverdue) ? 'Yes' : 'No'),
-      safeStr(companyDate(t.createdAt)),
-      safeStr(companyDate(t.updatedAt)),
+      safeStr(t.isOverdue ? 'Yes' : 'No'),
+      safeStr(new Date(t.createdAt).toISOString().split('T')[0]),
+      safeStr(new Date(t.updatedAt).toISOString().split('T')[0]),
     ]);
 
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -3227,17 +3086,13 @@ export class TicketsService {
     return { total, byStatus, byCategory, byPriority, overdue, unassigned, blocked };
   }
 
-  async getKanban(filters: { search?: string; departmentId?: string; department?: string; projectId?: string; assignedToId?: string }, user?: any) {
+  async getKanban(filters: { departmentId?: string; department?: string; projectId?: string; assignedToId?: string }, user?: any) {
     const scopedWhere = await this.ticketAccess.buildTicketWhereForUser(filters, user);
-    // Approval requests have their own queue and CLOSED is final. Neither is a
-    // Kanban lane, so do not fetch and silently discard them after the query.
-    const where = this.andWhere(scopedWhere, {
-      status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.CLOSED] },
-    });
+    const where = this.andWhere(scopedWhere, { status: { notIn: [TicketStatus.CLOSED] } });
 
     const tickets = await this.prisma.ticket.findMany({
       where,
-      include: KANBAN_TICKET_INCLUDE,
+      include: this.includeOptions,
       orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
     });
 
