@@ -8,6 +8,7 @@ import { departmentsApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
 import { Plus, Users, Ticket, FolderKanban, MoreVertical, Trash2, ChevronRight, UserCircle2, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
+import { NewTeamDialog, TEAM_MANAGE_ROLES } from '@apex/workforce-teams/components/DepartmentTeams';
 import toast from 'react-hot-toast';
 
 const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
@@ -18,6 +19,13 @@ export default function DepartmentsScreen() {
   const qc = useQueryClient();
 
   const isAdmin = ADMIN_ROLES.includes(user?.role?.name ?? '');
+  const roleName = user?.role?.name ?? '';
+  // Managers and HR see their own departments (the API scopes the list) and
+  // manage teams there now that Manage Teams is gone. Creating, editing and
+  // deleting departments stays admin-only.
+  const canView = isAdmin || roleName === 'MANAGER' || Boolean((user as any)?.isHR);
+  const canManageTeams = TEAM_MANAGE_ROLES.includes(roleName);
+  const [showNewTeam, setShowNewTeam] = useState(false);
 
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', color: '#6366f1' });
@@ -39,7 +47,7 @@ export default function DepartmentsScreen() {
   const { data: departments, isLoading } = useQuery({
     queryKey: ['departments'],
     queryFn: () => departmentsApi.getAll() as Promise<any[]>,
-    enabled: hasHydrated && isAdmin,
+    enabled: hasHydrated && canView,
   });
 
   const { data: usersData } = useQuery({
@@ -79,14 +87,14 @@ export default function DepartmentsScreen() {
     );
   }
 
-  if (!isAdmin) {
+  if (!canView) {
     return (
       <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
         <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
           <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
         </div>
         <div>
-          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Departments is admin-only</h1>
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Departments is for admins, managers and HR</h1>
           <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
             Use Team for your role-specific department and roster view.
           </p>
@@ -101,18 +109,26 @@ export default function DepartmentsScreen() {
   return (
     <div className="space-y-5 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Departments</h2>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {Array.isArray(departments) ? departments.length : 0} departments
           </p>
         </div>
-        {isAdmin && (
-          <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
-            <Plus size={16} /> New Department
-          </button>
-        )}
+        {/* New Department, then New Team right after it (QC: Sonali 3). */}
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          {isAdmin && (
+            <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
+              <Plus size={16} /> New Department
+            </button>
+          )}
+          {canManageTeams && (
+            <button onClick={() => setShowNewTeam(true)} className="apex-btn-new-ticket">
+              <Plus size={16} /> New Team
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Cards */}
@@ -241,6 +257,14 @@ export default function DepartmentsScreen() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* New Team: the Manage Teams pop-up, opened from Departments */}
+      {showNewTeam && (
+        <NewTeamDialog
+          departments={Array.isArray(departments) ? departments : []}
+          onClose={() => setShowNewTeam(false)}
+        />
       )}
 
       {/* Delete Confirm Dialog */}
