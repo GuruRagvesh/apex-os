@@ -733,6 +733,13 @@ html[data-theme="john-wick-dark"] .bg-orange-50 { background-color: rgba(249,115
 html[data-theme="john-wick-dark"] .text-blue-600  { color: #60a5fa !important; }
 html[data-theme="john-wick-dark"] .text-green-600 { color: #34d399 !important; }
 html[data-theme="john-wick-dark"] .text-red-600   { color: #f87171 !important; }
+
+/* User-directory fallback avatars: blue in light themes, white in dark themes. */
+.apex-user-initials { color: #2563eb; }
+html[data-theme="john-wick-dark"] .apex-user-initials,
+html[data-theme="executive-midnight"] .apex-user-initials,
+html[data-theme="neo-future"] .apex-user-initials { color: #ffffff !important; }
+
 html[data-theme="john-wick-dark"] .border-gray-100,
 html[data-theme="john-wick-dark"] .border-slate-100 { border-color: var(--border-subtle) !important; }
 html[data-theme="john-wick-dark"] .divide-gray-100 > * + * { border-color: var(--border-subtle) !important; }
@@ -1085,4 +1092,11 @@ html[data-theme="neo-future"] {
   .hover\:bg-gray-50:hover   { background-color: var(--bg-tertiary) !important; }
   .hover\:bg-gray-100:hover  { background-color: var(--bg-tertiary) !important; }
   .hover\:bg-slate-100:hover { background-color: var(--bg-tertiary) !important; }
+}
+
+/* Keep user-directory role text white after all generic dark badge overrides. */
+html[data-theme="john-wick-dark"] .apex-user-role-badge,
+html[data-theme="executive-midnight"] .apex-user-role-badge,
+html[data-theme="neo-future"] .apex-user-role-badge {
+  color: #ffffff !important;
 }
