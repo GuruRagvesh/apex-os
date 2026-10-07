@@ -120,27 +120,34 @@ describe('Sonali 5: Users & Roles dialogs are centred on the screen', () => {
   });
 });
 
-describe('Sonali 6: user cards keep one fixed layout', () => {
-  const card = users.slice(users.indexOf('{filteredUsers.map((u: any) => ('), users.indexOf('{filteredUsers.length === 0'));
+describe('Sonali 6: user cards keep the approved responsive directory layout', () => {
+  const card = users.slice(users.indexOf('{filteredUsers.map((u: any) => {'), users.indexOf('{filteredUsers.length === 0'));
 
-  it('header: a fixed-size initials circle, the details, and the actions pinned right', () => {
-    expect(card).toContain('style={{ width: AVATAR_SIZE, height: AVATAR_SIZE, minWidth: AVATAR_SIZE, backgroundColor: initialsColor(u) }}');
+  it('uses equal fixed-height cards in a responsive 1 / 2 / 3-column grid', () => {
+    expect(users).toContain('grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3');
+    expect(card).toContain('flex h-[330px] min-w-0 flex-col');
+    expect(card).toContain('grid h-14 flex-shrink-0 grid-cols-3 gap-2');
+  });
+
+  it('uses one fixed profile circle containing either the photo or name initials', () => {
+    expect(card).toContain('{u.photoUrl ? (');
+    expect(card).toContain('className="h-20 w-20 rounded-full object-cover"');
     expect(card).toContain('{getInitials(u.name)}');
-    const header = card.slice(0, card.indexOf('{/* Photo preview'));
-    expect(header).not.toContain('<img');
+    expect(card).toContain('className="apex-user-initials text-2xl font-bold tracking-wide"');
+    expect(css).toMatch(/\.apex-user-initials \{ color: #2563eb; \}/);
+    expect(css).toMatch(/html\[data-theme="john-wick-dark"\] \.apex-user-initials,[\s\S]*color: #ffffff !important;/);
   });
 
-  it('a photo is a fixed round preview below the header and above View Profile', () => {
-    const photo = card.indexOf('{/* Photo preview');
-    const view = card.indexOf('View Profile');
-    expect(photo).toBeGreaterThan(-1);
-    expect(view).toBeGreaterThan(photo);
-    expect(card).toContain("style={{ width: PHOTO_PREVIEW_SIZE, height: PHOTO_PREVIEW_SIZE, objectFit: 'cover'");
-    expect(users).toContain('const PHOTO_PREVIEW_SIZE = 112;');
-  });
-
-  it('the initials colour is the user\'s own hex colour, otherwise stable per name', () => {
-    expect(users).toContain("if (typeof u?.avatar === 'string' && /^#[0-9a-f]{3,8}$/i.test(u.avatar)) return u.avatar;");
+  it('renders only the actions allowed by the server-backed activation status', () => {
+    expect(card).toContain('const isActive = u.isActive !== false;');
+    expect(card).toContain('{isActive ? (');
+    expect(card).toContain('title="Edit user"');
+    expect(card).toContain('title="Download user backup (.xlsx)"');
+    expect(card).toContain('title="Deactivate user"');
+    expect(card).toContain('title="Reactivate user"');
+    expect(card).toContain('title="Permanently delete user"');
+    expect(users).toContain('updateCachedUserActiveStatus(vars.id, vars.isActive);');
+    expect(users).toContain('updateCachedUserActiveStatus(id, false);');
   });
 });
 
