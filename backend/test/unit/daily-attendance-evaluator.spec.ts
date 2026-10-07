@@ -982,3 +982,221 @@ describe('AE-1 persistence, provenance and safety', () => {
     expect(r1.sourceFingerprint).toBe(r2.sourceFingerprint);
   });
 });
+
+/**
+ * Canonical figures exposed on the result: presenceMinutes and requiredMinutes.
+ *
+ * These were already computed inside the evaluator and compared against each
+ * other; they simply never reached DailyAttendanceResult, so every consumer
+ * re-derived them. The frontend still does, against a hardcoded 540.
+ *
+ * The rule under test is narrow: expose what was measured, and expose NOTHING
+ * where nothing was measured. A zero would assert a shortfall, and a
+ * substituted requirement would invent a bar for a day nobody was judged
+ * against. Both are worse than an absent figure.
+ */
+describe('AE-1 canonical figures', () => {
+  // -- 1. Normal complete day --------------------------------------------
+  it('F1. a complete workday exposes the measured presence and the bar it met', async () => {
+    const { service } = rig({
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('19:30'))],
+      sessions: [COMPLETE_SESSION],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    // 10:00 to 19:30 is 570 minutes of presence against a 540 requirement.
+    expect(r.presenceMinutes).toBe(570);
+    expect(r.requiredMinutes).toBe(540);
+    // The status must be exactly what it was before these fields existed.
+    expect(r.status).toBe('PRESENT');
+    expect(r.evaluationState).toBe('CALCULATED');
+  });
+
+  it('F1b. presence is punch out minus punch in, not the session total', async () => {
+    const { service } = rig({
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('19:30'))],
+      sessions: [COMPLETE_SESSION],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    // The session reports 540 worked minutes. Presence is the 570-minute span.
+    // If these two ever coincide the test stops proving anything, so the
+    // fixture keeps them deliberately different.
+    expect(r.presenceMinutes).toBe(570);
+    expect(r.workedMinutes).toBe(540);
+    expect(r.presenceMinutes).not.toBe(r.workedMinutes);
+  });
+
+  // -- 2. Active current day ---------------------------------------------
+  it('F2. an open day has no presence yet, but does report the requirement', async () => {
+    const { service } = rig({
+      evidence: [punch('PUNCH_IN', ist('10:00'))],
+      sessions: [{ ...COMPLETE_SESSION, logoutAt: null, status: 'LOGGED_IN' }],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    // A mid-day presence figure compared against the requirement would read as
+    // a shortfall all morning.
+    expect(r.presenceMinutes).toBeNull();
+    expect(r.requiredMinutes).toBe(540);
+    expect(r.exceptionFlags).toContain('WORKDAY_STILL_OPEN');
+  });
+
+  // -- 3. A date with nothing on it --------------------------------------
+  it('F3. a day with no evidence reports no presence, never zero', async () => {
+    const { service } = rig({ evidence: [], sessions: [] });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.presenceMinutes).toBeNull();
+    expect(r.presenceMinutes).not.toBe(0);
+    expect(r.requiredMinutes).toBe(540);
+    expect(r.exceptionFlags).toContain('NO_ATTENDANCE_EVIDENCE');
+  });
+
+  // -- 4. Holiday --------------------------------------------------------
+  it('F4. a holiday has no presence and no requirement', async () => {
+    const { service } = rig({
+      ctx: context({
+        calendar: {
+          expectedCompanyWorkingDay: false,
+          holiday: {
+            isHoliday: true,
+            holidayId: 'h-1',
+            calendarId: 'hc-1',
+            name: 'Onam',
+            optional: false,
+          },
+        },
+      }),
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.status).toBe('HOLIDAY');
+    // No nine-hour bar is substituted for a day nobody was expected to work.
+    expect(r.requiredMinutes).toBeNull();
+    expect(r.presenceMinutes).toBeNull();
+  });
+
+  // -- 5. Weekly off -----------------------------------------------------
+  it('F5. a weekly off has no presence and no requirement', async () => {
+    const { service } = rig({
+      ctx: context({
+        calendar: {
+          expectedCompanyWorkingDay: false,
+          weeklyOff: { isWeeklyOff: true, reasons: ['SUNDAY'], policyId: 'wo-1' },
+        },
+      }),
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.status).toBe('WEEKLY_OFF');
+    expect(r.requiredMinutes).toBeNull();
+    expect(r.presenceMinutes).toBeNull();
+  });
+
+  // -- 6 and 7. Context blocked: policy or calendar unresolved -----------
+  it('F6. a blocked context fabricates neither figure', async () => {
+    const { service } = rig({
+      ctx: context({ top: { attendanceApplicability: 'BLOCKED', contextResolved: false } }),
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.official).toBe(false);
+    expect(r.calculationReason).toBe('CONTEXT_BLOCKED');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    expect(r.presenceMinutes).toBeNull();
+    expect(r.requiredMinutes).toBeNull();
+  });
+
+  // -- 8. Exempt and not employed ----------------------------------------
+  it.each([
+    ['EXEMPT', 'NOT_APPLICABLE_EXEMPT'],
+    ['NOT_EMPLOYED', 'NOT_APPLICABLE_NOT_EMPLOYED'],
+  ])('F8. %s produces no figures at all', async (applicability, reason) => {
+    const { service } = rig({
+      ctx: context({ top: { attendanceApplicability: applicability } }),
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.official).toBe(false);
+    expect(r.calculationReason).toBe(reason);
+    expect(r.presenceMinutes).toBeNull();
+    expect(r.requiredMinutes).toBeNull();
+  });
+
+  // -- 9. Incomplete punch pair ------------------------------------------
+  it('F9. a missing punch out leaves presence unmeasured', async () => {
+    const { service } = rig({
+      evidence: [punch('PUNCH_IN', ist('10:00'))],
+      sessions: [COMPLETE_SESSION],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.exceptionFlags).toContain('MISSING_PUNCH_OUT');
+    // No end time is fabricated, so presence has no right edge.
+    expect(r.presenceMinutes).toBeNull();
+    expect(r.requiredMinutes).toBe(540);
+  });
+
+  // -- Full-day leave ----------------------------------------------------
+  it('F10. an approved full-day leave carries no presence requirement', async () => {
+    const { service } = rig({
+      leaves: [
+        {
+          id: 'lr-1',
+          userId: 'emp-1',
+          status: 'APPROVED',
+          startDate: new Date(DATE + 'T00:00:00.000Z'),
+          endDate: new Date(DATE + 'T00:00:00.000Z'),
+          isHalfDay: false,
+          leaveType: 'CASUAL',
+          paidDays: 1,
+          unpaidDays: 0,
+          totalDays: 1,
+        },
+      ],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.status).toBe('LEAVE');
+    expect(r.requiredMinutes).toBeNull();
+    expect(r.presenceMinutes).toBeNull();
+  });
+
+  // -- The requirement follows the policy, never a constant --------------
+  it('F11. the requirement comes from the shift, then the policy', async () => {
+    const fromShift = rig({
+      ctx: context({ shift: { minimumWorkingMinutes: 480 } }),
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('19:30'))],
+      sessions: [COMPLETE_SESSION],
+    });
+    expect((await fromShift.service.evaluate('emp-1', DATE)).requiredMinutes).toBe(480);
+
+    // With no shift figure the attendance policy answers instead.
+    const fromPolicy = rig({
+      ctx: context({
+        shift: { minimumWorkingMinutes: undefined },
+        attendancePolicy: { minimumWorkingMinutes: 420 },
+      }),
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('19:30'))],
+      sessions: [COMPLETE_SESSION],
+    });
+    expect((await fromPolicy.service.evaluate('emp-1', DATE)).requiredMinutes).toBe(420);
+  });
+
+  // -- The exposure must not have moved any judgment ---------------------
+  it('F12. exposing the figures changed no shortfall judgment', async () => {
+    // 300 minutes of presence against a 540 requirement: short, and the policy
+    // defers, so the day must still arrive at review rather than a verdict.
+    const { service } = rig({
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
+      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
+    });
+    const r = await service.evaluate('emp-1', DATE);
+
+    expect(r.presenceMinutes).toBe(300);
+    expect(r.requiredMinutes).toBe(540);
+    expect(r.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
+    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+  });
+});
