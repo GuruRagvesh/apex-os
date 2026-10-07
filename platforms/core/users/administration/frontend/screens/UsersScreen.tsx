@@ -37,6 +37,20 @@ const isArchivedUser = (u: any): boolean =>
     u.email.startsWith('archived-') &&
     u.email.endsWith('@apex.local'));
 
+// Card geometry, fixed in px so a large upload can never resize the card.
+const AVATAR_SIZE = 44;
+const PHOTO_PREVIEW_SIZE = 112;
+const INITIALS_PALETTE = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+
+/** The user's own colour when `avatar` holds one, otherwise a stable colour from the name. */
+function initialsColor(u: any): string {
+  if (typeof u?.avatar === 'string' && /^#[0-9a-f]{3,8}$/i.test(u.avatar)) return u.avatar;
+  const name = String(u?.name ?? '');
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return INITIALS_PALETTE[hash % INITIALS_PALETTE.length];
+}
+
 export default function UsersPage() {
   const { user: me, hasHydrated } = useAuthStore();
   const qc = useQueryClient();
@@ -268,17 +282,16 @@ export default function UsersPage() {
               className={cn('apex-card p-5 flex flex-col gap-3 transition-all hover:shadow-md rounded-2xl', !u.isActive && 'opacity-60')}
               style={{'--hover-border': 'var(--accent-border)'} as any}
             >
-              <div className="flex items-start gap-3">
-                {u.photoUrl ? (
-                  <img src={u.photoUrl} alt={u.name} className="w-11 h-11 rounded-full object-cover flex-shrink-0" />
-                ) : (
-                  <div
-                    className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-sm"
-                    style={{ backgroundColor: u.avatar || '#6366f1' }}
-                  >
-                    {getInitials(u.name)}
-                  </div>
-                )}
+              {/* Header: initials circle, details, actions pinned right. The same
+                  for every user; a photo never changes this row (QC: Sonali 6). */}
+              <div className="flex items-start gap-3 min-w-0">
+                <div
+                  className="rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-sm select-none"
+                  style={{ width: AVATAR_SIZE, height: AVATAR_SIZE, minWidth: AVATAR_SIZE, backgroundColor: initialsColor(u) }}
+                  aria-hidden="true"
+                >
+                  {getInitials(u.name)}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{u.name}</p>
@@ -397,6 +410,19 @@ export default function UsersPage() {
                 )}
               </div>
 
+              {/* Photo preview: below the header, a fixed round frame whatever the
+                  uploaded size. Users without a photo keep the compact card. */}
+              {u.photoUrl && (
+                <div className="flex justify-center">
+                  <img
+                    src={u.photoUrl}
+                    alt={`${u.name} profile photo`}
+                    className="rounded-full"
+                    style={{ width: PHOTO_PREVIEW_SIZE, height: PHOTO_PREVIEW_SIZE, objectFit: 'cover', border: '1px solid var(--border-primary)' }}
+                  />
+                </div>
+              )}
+
               {/* View Profile button */}
               <button
                 onClick={() => router.push(`/users/${u.id}/profile`)}
@@ -421,8 +447,8 @@ export default function UsersPage() {
 
       {/* Edit User Modal */}
       {editUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
             <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Edit User</h3>
             <div className="space-y-3">
               <div>
@@ -502,8 +528,8 @@ export default function UsersPage() {
 
       {/* Deactivate Confirmation Modal */}
       {deactivateTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Deactivate user?</h3>
             <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
               <strong>{deactivateTarget.name}</strong> will lose login access and be hidden from active workflows.
@@ -533,8 +559,8 @@ export default function UsersPage() {
 
       {/* Permanent Delete Confirmation Modal */}
       {permanentDeleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Permanently delete user?</h3>
             <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
               <strong>{permanentDeleteTarget.name}</strong> will be removed from the system forever. This cannot be undone.
@@ -561,8 +587,8 @@ export default function UsersPage() {
 
       {/* Permanent Delete Blocker Modal */}
       {permanentDeleteBlockers && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Cannot delete — user has linked records</h3>
             <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
               This user has operational history that prevents permanent deletion:
@@ -635,8 +661,8 @@ export default function UsersPage() {
 
       {/* Archive After Backup Confirmation Modal */}
       {archiveConfirmOpen && permanentDeleteBlockedUser && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+        <div className="fixed inset-0 !m-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Archive user?</h3>
             <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
               Apex OS will email the backup to responsible senior users and save it in the backup vault <strong>before</strong> anonymizing <strong>{permanentDeleteBlockedUser.name}</strong>&apos;s personal data.
@@ -671,8 +697,8 @@ export default function UsersPage() {
 
       {/* New User Modal */}
       {showNew && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter">
+        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
             <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Add New User</h3>
             <div className="space-y-3">
               <div>

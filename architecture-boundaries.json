@@ -52,6 +52,7 @@
     "@apex/workforce-teams": "platforms/workforce/teams/team-management",
     "@apex/workforce-teams/api": "platforms/workforce/teams/team-management/frontend/api",
     "@apex/workforce-teams/screens": "platforms/workforce/teams/team-management/frontend/screens",
+    "@apex/workforce-teams/components": "platforms/workforce/teams/team-management/frontend/components",
     "@apex/shared-utilities": "shared/utilities",
     "@apex/shared-utilities/use-debounce": "shared/utilities/use-debounce",
     "@apex/shared-utilities/use-theme": "shared/utilities/use-theme",
@@ -145,6 +146,7 @@
       "@apex/core-organization-departments/screens/DepartmentDetailScreen": "platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen",
       "@apex/workforce-teams/screens/TeamsScreen": "platforms/workforce/teams/team-management/frontend/screens/TeamsScreen",
       "@apex/workforce-teams/screens/TeamDetailScreen": "platforms/workforce/teams/team-management/frontend/screens/TeamDetailScreen",
+      "@apex/workforce-teams/components/DepartmentTeams": "platforms/workforce/teams/team-management/frontend/components/DepartmentTeams",
       "@apex/system-public-site/screens/ApexLandingPage": "platforms/system/public-site/frontend/screens/ApexLandingPage",
       "@apex/system-public-site/screens/PrivacyScreen": "platforms/system/public-site/frontend/screens/PrivacyScreen",
       "@apex/system-public-site/screens/TermsScreen": "platforms/system/public-site/frontend/screens/TermsScreen"

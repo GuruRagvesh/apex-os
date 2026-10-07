@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
-  Users, UsersRound, Building2, BarChart3, LogOut, Zap, Settings,
+  Users, Building2, BarChart3, LogOut, Zap, Settings,
   Calendar, Activity, ArrowRight, ChevronDown, Handshake,
   CalendarCheck, ClipboardCheck,
   PanelLeftClose, PanelLeftOpen,
@@ -62,7 +62,10 @@ const BASE_NAV = [
   { href: '/tickets',   label: 'Tickets',       icon: Ticket          },
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban          },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban    },
-  { href: '/teams',     label: 'Manage Teams',   icon: UsersRound      },
+  // Manage Teams is gone (QC): teams are created and managed inside their
+  // department. Managers and HR, who used Manage Teams, reach their own
+  // departments here; admins have Departments in the Admin section.
+  { href: '/departments', label: 'Departments', icon: Building2       },
   { href: '/attendance', label: 'My Attendance', icon: CalendarCheck  },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff     },
   { href: '/calendar',  label: 'Calendar',       icon: Calendar        },
@@ -90,7 +93,6 @@ const TEAMLEAD_MODE_NAV = [
   { href: '/tickets',   label: 'My Team Tasks', icon: Ticket        },
   { href: '/kanban',    label: 'Kanban Board',  icon: Kanban        },
   { href: '/projects',  label: 'Projects',      icon: FolderKanban  },
-  { href: '/teams',     label: 'Teams',          icon: UsersRound    },
   { href: '/attendance', label: 'My Attendance', icon: CalendarCheck },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff   },
 ];
@@ -181,12 +183,13 @@ export function Sidebar() {
   const isHR         = Boolean((user as any)?.isHR);
 
   // Nav items based on role / mode
-  // "Manage Teams" (/teams) is org-structure management — HR/Manager/Admin/SuperAdmin
-  // only, never Employee/Intern/plain Team Lead. Filtered out of the array entirely
-  // (not just visually hidden) so it never renders for roles that shouldn't see it.
-  const showManageTeams = isManager || isHR;
+  // Departments in the main section is for Managers and HR only (their own
+  // departments and teams), never Employee/Intern/plain Team Lead. Admins see it
+  // in the Admin section, so it is not listed twice. Filtered out of the array
+  // entirely (not just visually hidden) for roles that shouldn't see it.
+  const showScopedDepartments = (isManager || isHR) && !isAdmin;
   const mainNav = (isSuperAdmin && apexMode === 'team_lead' ? TEAMLEAD_MODE_NAV : BASE_NAV)
-    .filter((item) => item.href !== '/teams' || showManageTeams);
+    .filter((item) => item.href !== '/departments' || showScopedDepartments);
   const showTeam      = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
   const showReports   = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
   const showAdminSect = isAdmin    && !(isSuperAdmin && apexMode === 'team_lead');
