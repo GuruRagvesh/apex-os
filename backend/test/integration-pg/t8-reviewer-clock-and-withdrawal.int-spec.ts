@@ -229,8 +229,9 @@ describe('T8 reviewer active-work clock and withdrawal (PostgreSQL)', () => {
       ledger, {} as any, new ActiveWorkdayPolicyService(tva), tva,
     );
     const timing = { getSlaConfig: async () => ({ review: { LOW: 48, MEDIUM: 24, HIGH: 8, URGENT: 4 } }) };
-    analytics = new AnalyticsService(prisma, {} as any, timing as any, { roleName: () => 'MANAGER' } as any, tva);
-    dashboard = new DashboardService(prisma, {} as any, timing as any, {} as any, {} as any, {} as any, tva);
+    // Ticket scope is not under test here: everything is visible (admin-like).
+    analytics = new AnalyticsService(prisma, { buildTicketWhereForUser: async () => ({}) } as any, timing as any, { roleName: () => 'MANAGER' } as any, tva, {} as any);
+    dashboard = new DashboardService(prisma, { buildTicketWhereForUser: async () => ({}) } as any, timing as any, {} as any, {} as any, {} as any, tva);
     expect(await oneActiveIndexState(prisma)).toMatchObject({ exists: true, valid: true });
   });
 

@@ -9,6 +9,7 @@ import { calculateWorkdayRuntime } from '../workday/workday.calculation';
 import { LeaveBalanceService } from '../../operations/leave/leave-balance.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { computeReviewerMetrics, REVIEW_METRICS_CYCLE_SELECT, toMetricsCycle } from '../../../common/services/review-metrics';
+import { addDays } from '../analytics/analytics-period';
 
 @Injectable()
 export class DashboardService {
@@ -71,6 +72,7 @@ export class DashboardService {
       openTickets,
       inProgressTickets,
       doneTickets,
+      closedTickets,
       urgentTickets,
       totalProjects,
       activeProjects,
@@ -84,6 +86,7 @@ export class DashboardService {
       this.prisma.ticket.count({ where: this.andWhere(ticketWhere, { status: TicketStatus.OPEN }) }),
       this.prisma.ticket.count({ where: this.andWhere(ticketWhere, { status: TicketStatus.IN_PROGRESS }) }),
       this.prisma.ticket.count({ where: this.andWhere(ticketWhere, { status: TicketStatus.DONE }) }),
+      this.prisma.ticket.count({ where: this.andWhere(ticketWhere, { status: TicketStatus.CLOSED }) }),
       this.prisma.ticket.count({ where: this.andWhere(activeTicketWhere, { priority: Priority.URGENT }) }),
       this.prisma.project.count({ where: projectWhere }),
       this.prisma.project.count({ where: this.andWhere(projectWhere, { status: 'ACTIVE' }) }),
@@ -139,7 +142,7 @@ export class DashboardService {
 
     return {
       stats: {
-        totalTickets, openTickets, inProgressTickets, doneTickets,
+        totalTickets, openTickets, inProgressTickets, doneTickets, closedTickets,
         urgentTickets, overdueTickets, blockedCount,
         totalProjects, activeProjects,
         pendingLeave, totalUsers, teamMembers,
@@ -514,8 +517,10 @@ export class DashboardService {
     // Review turnaround beyond the configured review SLA.
     const slaBreaches = m.reviewSlaBreaches;
 
+    // Waiting reviews the caller can see (it used to count the whole company).
+    const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
     const pendingReviews = await this.prisma.ticket.count({
-      where: { status: 'REVIEW', reviewDueAt: { not: null } },
+      where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }),
     });
 
     return { pendingReviews, completedReviews, avgApprovalTime, slaBreaches };
@@ -535,8 +540,12 @@ export class DashboardService {
   }
 
   async getTicketTrend(days = 14, user?: any) {
-    const startDate = this.tva.now();
-    startDate.setDate(startDate.getDate() - days);
+    // Company-timezone days: the last `days` business dates including today,
+    // each bucket keyed by its company date (not its UTC date).
+    days = Math.min(366, Math.max(1, Math.floor(Number(days) || 14)));
+    const today = this.tva.companyBusinessDate();
+    const firstDay = addDays(today, -(days - 1));
+    const startDate = this.tva.companyInstantAt(firstDay, '00:00') as Date;
     const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
 
     const [createdTickets, resolvedTickets] = await Promise.all([
@@ -554,19 +563,14 @@ export class DashboardService {
     ]);
 
     const trend: Record<string, { created: number; resolved: number }> = {};
-    for (let i = 0; i < days; i++) {
-      const d = this.tva.now();
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().split('T')[0];
-      trend[key] = { created: 0, resolved: 0 };
-    }
+    for (let i = 0; i < days; i++) trend[addDays(firstDay, i)] = { created: 0, resolved: 0 };
 
     createdTickets.forEach((t) => {
-      const key = t.createdAt.toISOString().split('T')[0];
+      const key = this.tva.companyBusinessDate(t.createdAt);
       if (trend[key]) trend[key].created++;
     });
     resolvedTickets.forEach((t) => {
-      const key = t.resolvedAt?.toISOString().split('T')[0];
+      const key = t.resolvedAt ? this.tva.companyBusinessDate(t.resolvedAt) : null;
       if (key && trend[key]) trend[key].resolved++;
     });
 

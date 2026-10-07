@@ -21,39 +21,30 @@ export class ProjectsService {
   ) {}
 
   async findAll(query: { search?: string; status?: ProjectStatus; departmentId?: string; userId?: string; page?: number; limit?: number }, user?: any) {
-    const where: any = {};
-    if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { projectId: { contains: query.search, mode: 'insensitive' } },
-      ];
+    // Every filter and the caller's scope are ANDed. They used to be merged
+    // into one object, where the scope's OR replaced the search's OR, so a
+    // Team Lead's or Manager's search was silently ignored.
+    const clauses: any[] = [];
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    if (search) {
+      clauses.push({
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { projectId: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
-    if (query.status) where.status = query.status;
-    if (query.departmentId) where.departmentId = query.departmentId;
-    if (query.userId) where.members = { some: { userId: query.userId } };
-
-    if (user) {
-      const roleName = user?.role?.name ?? user?.role ?? '';
-      if (['INTERN', 'EMPLOYEE'].includes(roleName)) {
-        where.members = { some: { userId: user.id } };
-      } else if (roleName === 'TEAM_LEAD') {
-        where.OR = [
-          { departmentId: user.departmentId },
-          { members: { some: { userId: user.id } } },
-        ];
-      } else if (roleName === 'MANAGER') {
-        const deptIds = await this.accessPolicy.managedDepartmentIds(user);
-        if (deptIds.length > 0) {
-          where.OR = [
-            { departmentId: { in: deptIds } },
-            { members: { some: { userId: user.id } } },
-          ];
-        } else {
-          where.members = { some: { userId: user.id } };
-        }
+    if (query.status) {
+      if (!Object.values(ProjectStatus).includes(query.status)) {
+        throw new BadRequestException(`Invalid status. Allowed: ${Object.values(ProjectStatus).join(', ')}`);
       }
-      // ADMIN/SUPER_ADMIN: no filter
+      clauses.push({ status: query.status });
     }
+    if (query.departmentId) clauses.push({ departmentId: query.departmentId });
+    if (query.userId) clauses.push({ members: { some: { userId: query.userId } } });
+    // Same rule as the detail page, so a list entry never 403s when opened.
+    if (user) clauses.push(await this.buildProjectScope(user));
+    const where = this.andWhere(...clauses);
 
     const page  = Math.max(1, Number(query.page)  || 1);
     const limit = Math.min(200, Math.max(1, Number(query.limit) || 50));
@@ -109,27 +100,25 @@ export class ProjectsService {
     return { ...project, progress, ticketStats: { total, done, open: total - done } };
   }
 
-  async create(data: any, userId: string) {
-    // Resolve departmentId if name was passed instead of UUID
-    if (data.departmentId && !isUUID(data.departmentId)) {
-      const dept = await this.prisma.department.findFirst({
-        where: { name: { equals: data.departmentId, mode: 'insensitive' } },
-      });
-      data.departmentId = dept?.id ?? undefined;
-    }
-    // Drop any stray client-supplied createdById — owner comes from JWT
-    delete data.createdById;
+  async create(body: any, user: any) {
+    const userId: string = user.id;
+    const input = { ...(body ?? {}) };
     // Title -> name aliasing (form may use either field)
-    if (data.title && !data.name) {
-      data.name = data.title;
-      delete data.title;
+    if (input.title && !input.name) input.name = input.title;
+    // Resolve departmentId if a name was passed instead of an id
+    if (input.departmentId && !isUUID(input.departmentId)) {
+      const dept = await this.prisma.department.findFirst({
+        where: { OR: [{ id: input.departmentId }, { name: { equals: input.departmentId, mode: 'insensitive' } }] },
+        select: { id: true },
+      });
+      if (!dept) throw new BadRequestException('Department not found');
+      input.departmentId = dept.id;
     }
+    // Only the fields a person may set are written. Status starts ACTIVE, the
+    // id is generated, and the owner comes from the token, never the body.
+    const data: any = this.pickProjectFields(input, ['name', 'description', 'priority', 'startDate', 'endDate', 'departmentId']);
     if (!data.name) throw new BadRequestException('Project name is required');
-
-    // Convert endDate string → proper ISO DateTime
-    if (data.endDate) {
-      data.endDate = new Date(data.endDate);
-    }
+    await this.assertDepartmentInScope(user, data.departmentId ?? null, true);
 
     let project: any;
     let attempts = 0;
@@ -155,7 +144,7 @@ export class ProjectsService {
           continue;
         }
         console.error('PROJECT CREATE ERROR:', { message: err?.message, code: err?.code, meta: err?.meta });
-        throw new BadRequestException(err?.message ?? 'Failed to create project');
+        throw new BadRequestException('Failed to create project');
       }
     }
     if (!project) {
@@ -173,9 +162,20 @@ export class ProjectsService {
     return project;
   }
 
-  async update(id: string, data: any, user?: any) {
+  async update(id: string, body: any, user?: any) {
     const project = await this.findOne(id, user);
     if (user) await this.assertCanEditProject(user, project);
+    // The raw body used to be written as-is: a Team Lead could archive
+    // (Manager+ only), move the project out of their scope or rewrite its id.
+    const data: any = this.pickProjectFields(body ?? {}, ['name', 'description', 'priority', 'status', 'startDate', 'endDate', 'departmentId']);
+    if ('name' in data && !data.name) throw new BadRequestException('Project name is required');
+    if (data.status !== undefined && data.status !== project.status) {
+      if (data.status === ProjectStatus.ARCHIVED) throw new BadRequestException('Use Archive to archive a project');
+      if (project.status === ProjectStatus.ARCHIVED) throw new BadRequestException('Use Restore to reopen an archived project');
+    }
+    if (user && 'departmentId' in data && data.departmentId !== project.departmentId) {
+      await this.assertDepartmentInScope(user, data.departmentId, false);
+    }
     const updated = await this.prisma.project.update({
       where: { id: project.id },
       data,
@@ -196,6 +196,14 @@ export class ProjectsService {
   async addMember(projectId: string, userId: string, role = 'MEMBER', user?: any) {
     const project = await this.findOne(projectId, user);
     if (user) await this.assertCanEditProject(user, project);
+    role = role || 'MEMBER';
+    if (!VALID_MEMBER_ROLES.includes(role as any)) {
+      throw new BadRequestException(`Invalid role. Allowed: ${VALID_MEMBER_ROLES.join(', ')}`);
+    }
+    // Inactive people are never added, whoever asks (admins included).
+    const target = await this.prisma.user.findUnique({ where: { id: userId ?? '' }, select: { id: true, isActive: true } });
+    if (!target) throw new NotFoundException('User not found');
+    if (!target.isActive) throw new BadRequestException('Inactive users cannot be added to a project');
     if (user) await this.assertUserWithinProjectScope(user, userId);
     const result = await this.prisma.projectMember.upsert({
       where: { projectId_userId: { projectId: project.id, userId } },
@@ -217,6 +225,11 @@ export class ProjectsService {
   async removeMember(projectId: string, userId: string, user?: any) {
     const project = await this.findOne(projectId, user);
     if (user) await this.assertCanEditProject(user, project);
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId: project.id, userId } },
+      select: { id: true },
+    });
+    if (!member) throw new NotFoundException('User is not a member of this project');
     const result = await this.prisma.projectMember.delete({
       where: { projectId_userId: { projectId: project.id, userId } },
     });
@@ -258,19 +271,8 @@ export class ProjectsService {
     return { total, byStatus, byPriority };
   }
 
-  private async buildProjectScope(user: any): Promise<any> {
-    const roleName = this.accessPolicy.roleName(user);
-    if (this.accessPolicy.isAdmin(user)) return {};
-    if ([ROLES.EMPLOYEE, ROLES.INTERN].includes(roleName as any)) {
-      return { members: { some: { userId: user.id } } };
-    }
-    if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {
-      const deptIds = await this.accessPolicy.managedDepartmentIds(user);
-      const clauses: any[] = [{ members: { some: { userId: user.id } } }];
-      if (deptIds.length > 0) clauses.push({ departmentId: { in: deptIds } });
-      return { OR: clauses };
-    }
-    return { members: { some: { userId: user.id } } };
+  private buildProjectScope(user: any): Promise<any> {
+    return this.accessPolicy.projectWhereForUser(user);
   }
 
   private async assertCanEditProject(user: any, project: any) {
@@ -294,6 +296,70 @@ export class ProjectsService {
     const deptIds = await this.accessPolicy.managedDepartmentIds(user);
     if (!target.departmentId || !deptIds.includes(target.departmentId)) {
       throw new ForbiddenException('Project member is outside your allowed scope');
+    }
+  }
+
+  /**
+   * Copies only the named project fields, validated and converted. Unknown
+   * keys (id, projectId, createdAt, members ...) are dropped.
+   */
+  private pickProjectFields(input: any, fields: string[]): any {
+    const out: any = {};
+    for (const f of fields) {
+      if (!(f in input) || input[f] === undefined) continue;
+      const v = input[f];
+      switch (f) {
+        case 'name':
+          out.name = typeof v === 'string' ? v.trim() : '';
+          break;
+        case 'description':
+          out.description = v === null || v === '' ? null : String(v);
+          break;
+        case 'priority':
+          if (!Object.values(Priority).includes(v)) throw new BadRequestException(`Invalid priority. Allowed: ${Object.values(Priority).join(', ')}`);
+          out.priority = v;
+          break;
+        case 'status':
+          if (!Object.values(ProjectStatus).includes(v)) throw new BadRequestException(`Invalid status. Allowed: ${Object.values(ProjectStatus).join(', ')}`);
+          out.status = v;
+          break;
+        case 'startDate':
+        case 'endDate': {
+          if (v === null || v === '') { out[f] = null; break; }
+          const d = new Date(v);
+          if (Number.isNaN(d.getTime())) throw new BadRequestException(`${f} is not a valid date`);
+          out[f] = d;
+          break;
+        }
+        case 'departmentId':
+          out.departmentId = v === '' || v === null ? null : String(v);
+          break;
+      }
+    }
+    if (out.startDate && out.endDate && out.endDate < out.startDate) {
+      throw new BadRequestException('endDate must not be before startDate');
+    }
+    return out;
+  }
+
+  /**
+   * A non-admin may only put a project in a department they manage (a Team
+   * Lead: their own). A new project may have no department; taking an
+   * existing one out of its department is admin-only. The department must exist.
+   */
+  private async assertDepartmentInScope(user: any, departmentId: string | null, allowNone: boolean): Promise<void> {
+    if (departmentId) {
+      const dept = await this.prisma.department.findUnique({ where: { id: departmentId }, select: { id: true } });
+      if (!dept) throw new BadRequestException('Department not found');
+    }
+    if (!user || this.accessPolicy.isAdmin(user)) return;
+    if (!departmentId) {
+      if (allowNone) return;
+      throw new ForbiddenException('Only an admin can remove a project from its department');
+    }
+    const deptIds = await this.accessPolicy.managedDepartmentIds(user);
+    if (!deptIds.includes(departmentId)) {
+      throw new ForbiddenException('That department is outside your allowed scope');
     }
   }
 
@@ -442,7 +508,13 @@ export class ProjectsService {
           ...(ticketIds.length > 0 ? [{ entityType: 'Ticket', entityId: { in: ticketIds } }] : []),
         ],
       },
-      include: { actor: { select: { id: true, name: true, avatar: true } } },
+      // Activity feed fields only: never the actor's IP/device or the raw
+      // before/after snapshots an event may carry.
+      select: {
+        id: true, action: true, entityType: true, entityId: true, metadata: true,
+        fromState: true, toState: true, timestamp: true,
+        actor: { select: { id: true, name: true, avatar: true } },
+      },
       orderBy: { timestamp: 'desc' },
       take: safeLimit,
     });

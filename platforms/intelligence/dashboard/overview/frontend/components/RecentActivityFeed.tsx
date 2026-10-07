@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { useRouter } from 'next/navigation';
 import { eventsApi } from '@apex/system-audit/api';
+import { companyTimeLabel } from '../lib/activity-time';
 
 function timeAgo(iso: string) {
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -45,7 +46,7 @@ export function RecentActivityFeed() {
       ? 'Your Department Activity'
       : 'Your Activity';
 
-  const { data: events = [], isLoading, isError, refetch } = useQuery({
+  const { data: events = [], isPending, isError, refetch } = useQuery({
     queryKey: ['recent-activity'],
     queryFn: async () => {
       const res: any = await eventsApi.getAll({ limit: 15 });
@@ -54,7 +55,8 @@ export function RecentActivityFeed() {
     staleTime: 30000,
   });
 
-  if (isLoading) {
+  // Pending (including a paused retry) is "loading", never "no activity".
+  if (isPending && !isError) {
     return (
       <div className="apex-card" style={{ padding: '12px' }}>
         {[1,2,3].map(i => (
@@ -86,7 +88,7 @@ export function RecentActivityFeed() {
   if (!events.length) {
     return (
       <div className="apex-card" style={{ padding: 24, textAlign: 'center' }}>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>No activity yet today</p>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>No recent activity</p>
         <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, marginBottom: 0 }}>
           Activity appears here as you create tickets, start work, and take action.
         </p>
@@ -103,8 +105,13 @@ export function RecentActivityFeed() {
       </div>
       {visible.map((ev: any, i: number) => (
         <div
-          key={i}
+          key={ev.id ?? i}
           onClick={() => ev.entityUrl && router.push(ev.entityUrl)}
+          {...(ev.entityUrl ? {
+            role: 'link',
+            tabIndex: 0,
+            onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter') router.push(ev.entityUrl); },
+          } : {})}
           style={{
             display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
             borderBottom: i < visible.length - 1 ? '1px solid var(--border-subtle)' : 'none',
@@ -131,15 +138,22 @@ export function RecentActivityFeed() {
               )}
             </p>
           </div>
-          <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+          <time
+            dateTime={ev.timestamp}
+            title={companyTimeLabel(ev.timestamp)}
+            style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0, whiteSpace: 'nowrap' }}
+          >
             {ev.timeAgo ?? timeAgo(ev.timestamp)}
-          </span>
+          </time>
         </div>
       ))}
 
       {/* View all link */}
       <div
         onClick={() => router.push('/admin/activity')}
+        role="link"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') router.push('/admin/activity'); }}
         style={{
           padding: '8px 12px', borderTop: '1px solid var(--border-subtle)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
