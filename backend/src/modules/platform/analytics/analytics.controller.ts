@@ -17,6 +17,18 @@ export class AnalyticsController {
     return this.analyticsService.getEmployeeMetrics(targetUserId, user);
   }
 
+  /** Output per employee for a company-date range, optionally one project. */
+  @Get('productivity')
+  async getProductivity(
+    @CurrentUser() user: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('projectId') projectId?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return this.analyticsService.getProductivity(user, { from, to, projectId: projectId || undefined, userId: userId || undefined });
+  }
+
   @Get('reviewer/:id?')
   async getReviewerMetrics(@CurrentUser() user: any, @Param('id') id?: string) {
     const targetUserId = id ?? user.id;
@@ -29,8 +41,8 @@ export class AnalyticsController {
   }
 
   @Get('sla')
-  async getSlaAnalytics(@CurrentUser() user: any) {
-    return this.analyticsService.getSlaAnalytics(user);
+  async getSlaAnalytics(@CurrentUser() user: any, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.analyticsService.getSlaAnalytics(user, { from, to });
   }
 
   @Get('rework')

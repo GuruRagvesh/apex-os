@@ -99,6 +99,24 @@ export class AccessPolicyService {
     return user.departmentId ? [user.departmentId] : [];
   }
 
+  /**
+   * The projects a user may see, as a Prisma where clause. Admins: all.
+   * Managers and Team Leads: projects in a department they manage plus any
+   * they belong to. Everyone else: only projects they belong to. The Projects
+   * screens and the Analytics project filter both use this one rule.
+   */
+  async projectWhereForUser(user: UserLike): Promise<any> {
+    if (this.isAdmin(user)) return {};
+    const roleName = this.roleName(user);
+    if (roleName === ROLES.MANAGER || roleName === ROLES.TEAM_LEAD) {
+      const deptIds = await this.managedDepartmentIds(user);
+      const clauses: any[] = [{ members: { some: { userId: user.id } } }];
+      if (deptIds.length > 0) clauses.push({ departmentId: { in: deptIds } });
+      return { OR: clauses };
+    }
+    return { members: { some: { userId: user.id } } };
+  }
+
   async canViewUser(requester: UserLike, target: any): Promise<boolean> {
     if (!requester?.id || !target) return false;
     if (this.isHrOrAdmin(requester)) return true;

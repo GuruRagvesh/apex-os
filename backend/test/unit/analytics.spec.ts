@@ -5,11 +5,11 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { TicketAccessService } from '../../src/common/services/ticket-access.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
+import { LeaveAccessService } from '../../src/common/services/leave-access.service';
 import { CompanyDateService } from '../../src/common/services/company-date.service';
 import { ForbiddenException } from '@nestjs/common';
 
 const FIXED_NOW = '2026-06-06T12:00:00Z';
-const FIXED_DAY_START = '2026-06-06T00:00:00Z';
 
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
@@ -21,7 +21,7 @@ describe('AnalyticsService', () => {
   beforeEach(async () => {
     prisma = {
       ticket: { count: jest.fn(), findMany: jest.fn() },
-      reviewCycleLog: { findMany: jest.fn() },
+      reviewCycleLog: { findMany: jest.fn().mockResolvedValue([]) },
       ticketTimeLog: { findMany: jest.fn() },
       user: { findMany: jest.fn(), findUnique: jest.fn() },
       department: { findMany: jest.fn() },
@@ -50,7 +50,9 @@ describe('AnalyticsService', () => {
         // Pinned clock, matching CompanyDateService below. A live `new Date()`
         // day start lands after fixtures created a millisecond earlier and
         // made "approvals today" flaky.
-        { provide: TVAService, useValue: { now: () => new Date(FIXED_NOW), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(FIXED_NOW), companyDayStart: () => new Date(FIXED_DAY_START), formatZoned: () => 'mock', companyDayEnd: () => new Date('2026-06-06T23:59:59.999Z'), elapsedSeconds: () => 0 } },
+        // Phase 6E: the real company-date rules on a pinned clock.
+        { provide: TVAService, useFactory: () => { const t = new TVAService({ get: () => undefined } as any); jest.spyOn(t, 'now').mockImplementation(() => new Date(FIXED_NOW)); return t; } },
+        { provide: LeaveAccessService, useValue: { buildLeaveWhereForUser: jest.fn().mockResolvedValue({}) } },
         AnalyticsService,
         { provide: PrismaService, useValue: prisma },
         { provide: TicketAccessService, useValue: ticketAccess },
@@ -167,24 +169,27 @@ describe('AnalyticsService', () => {
   });
 
   describe('getSlaAnalytics', () => {
-    it('calculates onTime vs overdue based on ledger durations', async () => {
-      prisma.ticket.findMany.mockResolvedValue([
-        { id: 't1', priority: 'MEDIUM', timeLogs: [{ durationSeconds: 36000 }] }, // 10h (on time < 24h)
-        { id: 't2', priority: 'HIGH', timeLogs: [{ durationSeconds: 36000 }] } // 10h (breach > 8h)
+    // Phase 6E: SLA is the wall-clock deadline. Before, "on time" meant
+    // "logged work hours under the SLA hours", which is not the SLA clock.
+    it('judges delivery time against the due time, whatever the hours worked', async () => {
+      const start = new Date('2026-06-01T04:00:00Z');
+      prisma.ticket.findMany.mockResolvedValueOnce([
+        // Due 10:00, first submitted 09:00: on time.
+        { id: 't1', priority: 'MEDIUM', executionDueAt: new Date('2026-06-01T10:00:00Z'), reviewCycles: [{ createdAt: new Date('2026-06-01T09:00:00Z') }], actualCompletedAt: new Date('2026-06-01T12:00:00Z') },
+        // No due time; started 04:00 HIGH = 8h -> due 12:00; submitted 14:00: 2h late.
+        { id: 't2', priority: 'HIGH', actualStartAt: start, reviewCycles: [{ createdAt: new Date('2026-06-01T14:00:00Z') }], actualCompletedAt: new Date('2026-06-01T15:00:00Z') },
+        // No due basis at all: not counted either way.
+        { id: 't3', priority: 'LOW', reviewCycles: [], actualCompletedAt: new Date('2026-06-01T15:00:00Z') },
       ]);
+      prisma.ticket.findMany.mockResolvedValueOnce([]); // open tickets
 
       const result = await service.getSlaAnalytics({ id: 'user-1' });
 
       expect(result.onTimePercent).toBe(50);
       expect(result.overduePercent).toBe(50);
       expect(result.slaBreaches).toBe(1);
-      expect(result.averageDelaySeconds).toBe(36000 - 8 * 3600); // 10h - 8h = 2h = 7200s
-      expect(prisma.ticket.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        select: expect.objectContaining({
-          // Only productive rows: repaired / marker rows (countsAsWork = false) never count.
-          timeLogs: expect.objectContaining({ where: { ownerType: 'ASSIGNEE', stage: { in: ['WORK', 'REWORK'] }, countsAsWork: true } }),
-        }),
-      }));
+      expect(result.noDueBasis).toBe(1);
+      expect(result.averageDelaySeconds).toBe(2 * 3600);
     });
   });
 
@@ -200,6 +205,7 @@ describe('AnalyticsService', () => {
 
       expect(result.reworkCount).toBe(3);
       expect(result.reworkRate).toBe(20); // 2 out of 10
+      expect(result.mostReworkedEmployees).toEqual([]);
     });
   });
 
@@ -208,7 +214,9 @@ describe('AnalyticsService', () => {
       prisma.ticket.count.mockResolvedValueOnce(15); // active work
       prisma.ticket.count.mockResolvedValueOnce(5); // active reviews
       prisma.ticket.count.mockResolvedValueOnce(2); // blocked
-      prisma.leaveRequest.count.mockResolvedValueOnce(1); // pending approvals
+      prisma.leaveRequest.count.mockResolvedValueOnce(1); // pending approvals (in leave scope)
+      prisma.ticket.count.mockResolvedValueOnce(4); // created in period
+      prisma.ticket.count.mockResolvedValueOnce(3); // completed in period
 
       const result = await service.getCommandCenter({ id: 'user-1' }, 'today');
 
@@ -216,6 +224,10 @@ describe('AnalyticsService', () => {
       expect(result.activeReviews).toBe(5);
       expect(result.blockedTickets).toBe(2);
       expect(result.pendingApprovals).toBe(1);
+      expect(result.createdInPeriod).toBe(4);
+      expect(result.completedInPeriod).toBe(3);
+      // Today starts at company midnight: 2026-06-06 00:00 IST.
+      expect(result.since.toISOString()).toBe('2026-06-05T18:30:00.000Z');
     });
   });
 });
