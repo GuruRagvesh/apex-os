@@ -1,23 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
-import { ROLES } from '../../../shared/constants/roles';
-
-/**
- * The only User columns a department response may carry. An `include` of a
- * user relation returns every scalar on the row -- password hash, salary,
- * bank, PAN and Aadhaar included -- so department members and team leads are
- * always read through this select.
- */
-const MEMBER_SELECT = {
-  id: true,
-  name: true,
-  email: true,
-  avatar: true,
-  isActive: true,
-  departmentId: true,
-  role: { select: { id: true, name: true, level: true } },
-} as const;
 
 const MANAGER_SELECT = {
   id: true,
@@ -75,7 +58,7 @@ export class DepartmentsService {
         },
         users: {
           where: { isActive: true, role: { name: { in: ['MANAGER', 'TEAM_LEAD'] } } },
-          select: MEMBER_SELECT,
+          include: { role: true },
           orderBy: { role: { level: 'asc' } },
           take: 1,
         },
@@ -92,34 +75,14 @@ export class DepartmentsService {
     }));
   }
 
-  /**
-   * Who may read one department's detail (members, open tickets, head):
-   * admins and HR company-wide, a manager or team lead for a department they
-   * manage. Employees and interns are refused. The UI decides what to show;
-   * this is the enforcement.
-   */
-  private async assertCanViewDepartment(user: any, departmentId: string): Promise<void> {
-    if (this.access.isHrOrAdmin(user)) return;
-    const roleName = this.access.roleName(user);
-    if (roleName === ROLES.MANAGER || roleName === ROLES.TEAM_LEAD) {
-      const deptIds = await this.access.managedDepartmentIds(user);
-      if (deptIds.includes(departmentId)) return;
-    }
-    throw new ForbiddenException('You do not have permission to view this department');
-  }
-
-  async findOne(id: string, user?: any) {
-    const exists = await this.prisma.department.findUnique({ where: { id }, select: { id: true } });
-    if (!exists) throw new NotFoundException('Department not found');
-    await this.assertCanViewDepartment(user, id);
-
+  async findOne(id: string) {
     const dept = await this.prisma.department.findUnique({
       where: { id },
       include: {
         users: {
           where: { isActive: true },
-          select: {
-            ...MEMBER_SELECT,
+          include: {
+            role: true,
             _count: { select: { assignedTickets: true } },
           },
           orderBy: { name: 'asc' },
@@ -170,10 +133,9 @@ export class DepartmentsService {
     };
   }
 
-  async getManagers(departmentId: string, user?: any) {
+  async getManagers(departmentId: string) {
     const dept = await this.prisma.department.findUnique({ where: { id: departmentId }, select: { id: true } });
     if (!dept) throw new NotFoundException('Department not found');
-    await this.assertCanViewDepartment(user, departmentId);
     const head = await this.selectDepartmentHead(departmentId);
     return head ? [head] : [];
   }

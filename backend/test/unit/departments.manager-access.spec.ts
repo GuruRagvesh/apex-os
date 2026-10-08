@@ -2,8 +2,6 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { DepartmentsService } from '../../src/modules/core/departments/departments.service';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
 
-const ADMIN_ACTOR = { id: 'admin-1', role: { name: 'ADMIN' } };
-
 describe('DepartmentsService — DMM-2B single Department Head enforcement (ManagerDeptAccess)', () => {
   let prisma: any;
   let service: DepartmentsService;
@@ -140,7 +138,7 @@ describe('DepartmentsService — DMM-2B single Department Head enforcement (Mana
         { accessLevel: 'FULL', manager: { id: 'user-1', name: 'Subrat', isActive: true, role: { name: 'MANAGER' } } },
       ]);
 
-      const result = await service.getManagers('dept-1', ADMIN_ACTOR);
+      const result = await service.getManagers('dept-1');
 
       expect(prisma.managerDeptAccess.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -157,7 +155,7 @@ describe('DepartmentsService — DMM-2B single Department Head enforcement (Mana
       prisma.department.findUnique.mockResolvedValue({ id: 'dept-1' });
       prisma.managerDeptAccess.findMany.mockResolvedValue([]);
 
-      const result = await service.getManagers('dept-1', ADMIN_ACTOR);
+      const result = await service.getManagers('dept-1');
 
       expect(result).toEqual([]);
     });
@@ -165,7 +163,7 @@ describe('DepartmentsService — DMM-2B single Department Head enforcement (Mana
     it('throws NotFoundException if the department does not exist', async () => {
       prisma.department.findUnique.mockResolvedValue(null);
 
-      await expect(service.getManagers('missing-dept', ADMIN_ACTOR)).rejects.toThrow(NotFoundException);
+      await expect(service.getManagers('missing-dept')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -178,7 +176,7 @@ describe('DepartmentsService — DMM-2B single Department Head enforcement (Mana
         { accessLevel: 'FULL', manager: { id: 'user-1', name: 'Subrat', isActive: true, role: { name: 'MANAGER' } } },
       ]);
 
-      const result = await service.findOne('dept-1', ADMIN_ACTOR);
+      const result = await service.findOne('dept-1');
 
       expect(result.departmentHead).toEqual({ id: 'user-1', name: 'Subrat', isActive: true, role: { name: 'MANAGER' }, accessLevel: 'FULL' });
       expect(result.managers).toEqual([result.departmentHead]);
@@ -188,7 +186,7 @@ describe('DepartmentsService — DMM-2B single Department Head enforcement (Mana
       prisma.department.findUnique.mockResolvedValue(baseDept);
       prisma.managerDeptAccess.findMany.mockResolvedValue([]);
 
-      const result = await service.findOne('dept-1', ADMIN_ACTOR);
+      const result = await service.findOne('dept-1');
 
       expect(result.departmentHead).toBeNull();
       expect(result.managers).toEqual([]);
@@ -201,7 +199,7 @@ describe('DepartmentsService — DMM-2B single Department Head enforcement (Mana
         { accessLevel: 'READ', manager: { id: 'user-2', name: 'Newer Head', isActive: true, role: { name: 'MANAGER' } } },
       ]);
 
-      const result = await service.findOne('dept-1', ADMIN_ACTOR);
+      const result = await service.findOne('dept-1');
 
       expect(result.departmentHead).toMatchObject({ id: 'user-1' });
       expect(result.managers).toHaveLength(1);

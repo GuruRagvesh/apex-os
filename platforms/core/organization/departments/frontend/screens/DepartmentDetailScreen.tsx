@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rolesApi } from '@apex/core-organization-roles/api';
+import { teamsApi } from '@apex/workforce-teams/api';
 import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
@@ -22,11 +23,12 @@ import {
   UserMinus,
   Crown,
   ShieldAlert,
+  UsersRound,
+  ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { Breadcrumb } from '@apex/shared-ui/components/breadcrumb';
-import { DepartmentTeamsPanel, TEAM_MANAGE_ROLES } from '@apex/workforce-teams/components/DepartmentTeams';
 
 const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
 
@@ -64,11 +66,6 @@ export default function DepartmentDetailScreen() {
   const qc = useQueryClient();
 
   const isAdmin = ADMIN_ROLES.includes(user?.role?.name ?? '');
-  const roleName = user?.role?.name ?? '';
-  // Managers and HR open their own departments (the scoped list decides which)
-  // to manage its teams; every department setting stays admin-only below.
-  const canViewScoped = roleName === 'MANAGER' || Boolean((user as any)?.isHR);
-  const canManageTeams = TEAM_MANAGE_ROLES.includes(roleName);
 
   // Inline edit state
   const [editingName, setEditingName] = useState(false);
@@ -84,18 +81,10 @@ export default function DepartmentDetailScreen() {
   const [managerSearch, setManagerSearch] = useState('');
   const [selectedManagerId, setSelectedManagerId] = useState('');
 
-  const { data: scopedDepartments, isLoading: scopeLoading } = useQuery({
-    queryKey: ['departments'],
-    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
-    enabled: hasHydrated && (isAdmin || canViewScoped),
-  });
-  const departmentList: any[] = Array.isArray(scopedDepartments) ? scopedDepartments : [];
-  const inScope = isAdmin || (canViewScoped && departmentList.some((d: any) => d.id === id));
-
   const { data: dept, isLoading, isError } = useQuery({
     queryKey: ['department', id],
     queryFn: () => departmentsApi.getOne(id) as Promise<any>,
-    enabled: hasHydrated && inScope,
+    enabled: hasHydrated && isAdmin,
   });
 
   const { data: usersData } = useQuery({
@@ -110,6 +99,13 @@ export default function DepartmentDetailScreen() {
     queryFn: () => rolesApi.getAll() as Promise<any[]>,
     enabled: hasHydrated && isAdmin,
   });
+
+  const { data: deptTeams } = useQuery({
+    queryKey: ['teams', { departmentId: id }],
+    queryFn: () => teamsApi.getAll(id) as Promise<any[]>,
+    enabled: hasHydrated && isAdmin && !!id,
+  });
+  const teamList: any[] = Array.isArray(deptTeams) ? deptTeams : [];
 
   const { data: deptManagers } = useQuery({
     queryKey: ['department-managers', id],
@@ -227,22 +223,14 @@ export default function DepartmentDetailScreen() {
     );
   }
 
-  if (!isAdmin && canViewScoped && scopeLoading) {
-    return (
-      <div className="flex items-center justify-center h-60">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    );
-  }
-
-  if (!inScope) {
+  if (!isAdmin) {
     return (
       <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
         <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
           <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
         </div>
         <div>
-          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>You do not have access to this department</h1>
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Department administration is admin-only</h1>
           <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
             Use Team for your role-specific department and roster view.
           </p>
@@ -501,12 +489,42 @@ export default function DepartmentDetailScreen() {
         </div>
       </div>
 
-      {/* Teams: its own container right after Members, managed here (QC: Sonali 3 / 7). */}
-      <DepartmentTeamsPanel
-        department={{ id: dept.id, name: dept.name }}
-        departments={departmentList}
-        canManage={canManageTeams}
-      />
+      {/* Teams in this department (read-only) */}
+      {teamList.length > 0 && (
+        <div className="apex-card overflow-hidden">
+          <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+              Teams
+              <span className="ml-2 text-xs font-normal" style={{ color: 'var(--text-tertiary)' }}>({teamList.length})</span>
+            </h2>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+            {teamList.map((t: any) => (
+              <div
+                key={t.id}
+                className="flex items-center gap-3 px-5 py-3 cursor-pointer transition-colors"
+                onClick={() => router.push(`/teams/${t.id}`)}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--accent-subtle)' }}>
+                  <UsersRound size={14} style={{ color: 'var(--accent)' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{t.name}</p>
+                  <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                    {t.teamLead ? `Lead: ${t.teamLead.name}` : 'No team lead assigned'}
+                  </p>
+                </div>
+                <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
+                  {t.memberCount ?? 0} member{(t.memberCount ?? 0) === 1 ? '' : 's'}
+                </span>
+                <ChevronRight size={15} style={{ color: 'var(--text-tertiary)' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Active Tickets */}
       {dept.tickets?.length > 0 && (

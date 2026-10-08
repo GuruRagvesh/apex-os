@@ -10,24 +10,6 @@ The first `workforce/teams` compartment.
 two edits — the `useAuthStore` import path and the component identifier.
 Neither had trailing whitespace, so nothing else changed.
 
-## Phase 6D QC (2026-10-06): teams live in Departments
-
-QC (Sonali 3 / 7, Shama 2) removed the standalone **Manage Teams** tab. Teams are
-now created and managed inside their department:
-
-- **Departments → New Team**, right after New Department, opens the same New Team
-  pop-up (same fields, same `POST /teams`).
-- Each department page has a **Teams** container after Members: list, New Team,
-  edit (name, lead), delete, and each team's members (add / remove).
-- `/teams` and `/teams/[id]` are no longer pages. Their screens only redirect
-  (to Departments, or to the team's department) so old links still land.
-- Managers and HR open Departments for their own departments; who may change a
-  team is unchanged (`teams.controller`: ADMIN, SUPER_ADMIN, MANAGER in scope).
-
-Code: `frontend/components/DepartmentTeams.tsx`, published as
-`@apex/workforce-teams/components/DepartmentTeams`. The tables below describe
-the original compartmentalisation.
-
 ---
 
 ## Ownership

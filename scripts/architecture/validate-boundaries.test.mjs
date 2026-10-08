@@ -5312,37 +5312,9 @@ assertContract('both department screens read auth through the Core Identity boun
 });
 
 assertContract('the department authorization gate is unchanged', () => {
-  // Both screens gate on the same admin expression and hide behind a denial
+  // Both screens gate on the same expression and hide behind the same denial
   // screen. A relocation must not widen, narrow or reorder any of it.
-  //
-  // One deliberate, approved widening (Phase 6D QC, 2026-10-06): Manage Teams
-  // was removed and teams are now managed inside Departments, so Managers and
-  // HR may open Departments for their OWN departments (the API scopes the
-  // list) to manage teams. Every department setting -- create, rename, delete,
-  // members, Department Head -- stays behind `isAdmin`, pinned below.
   const problems = [];
-  const COMMON = [
-    "const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];",
-    "const isAdmin = ADMIN_ROLES.includes(user?.role?.name ?? '');",
-    'if (!hasHydrated) {',
-  ];
-  const PER_SCREEN = {
-    [DEPT_LIST]: [
-      "const canView = isAdmin || roleName === 'MANAGER' || Boolean((user as any)?.isHR);",
-      'if (!canView) {',
-      'enabled: hasHydrated && canView',
-      'enabled: hasHydrated && isAdmin && showNew',
-      '{isAdmin && (',
-    ],
-    [DEPT_DETAIL]: [
-      "const canViewScoped = roleName === 'MANAGER' || Boolean((user as any)?.isHR);",
-      'const inScope = isAdmin || (canViewScoped && departmentList.some((d: any) => d.id === id));',
-      'if (!inScope) {',
-      'enabled: hasHydrated && inScope',
-      'enabled: hasHydrated && isAdmin && (showAddMember || showAddManager)',
-      'enabled: hasHydrated && isAdmin && !!id',
-    ],
-  };
   for (const screen of [DEPT_LIST, DEPT_DETAIL]) {
     const raw = readRepo(screen);
     if (raw === null) {
@@ -5350,7 +5322,14 @@ assertContract('the department authorization gate is unchanged', () => {
       continue;
     }
     const src = codeOf(raw);
-    for (const r of [...COMMON, ...PER_SCREEN[screen]]) {
+    const REQUIRED = [
+      "const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];",
+      "const isAdmin = ADMIN_ROLES.includes(user?.role?.name ?? '');",
+      'if (!hasHydrated) {',
+      'if (!isAdmin) {',
+      'enabled: hasHydrated && isAdmin',
+    ];
+    for (const r of REQUIRED) {
       if (!src.includes(r)) problems.push(`${screen}: authorization gate changed - missing: ${r}`);
     }
   }

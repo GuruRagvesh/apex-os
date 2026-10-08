@@ -7,33 +7,19 @@ import { rolesApi } from '@apex/core-organization-roles/api';
 import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import { useAuthStore } from '@apex/core-identity';
-import { cn } from '@apex/shared-utilities';
-import {
-  BriefcaseBusiness,
-  Building2,
-  Download,
-  Edit2,
-  ExternalLink,
-  Loader2,
-  Network,
-  Plus,
-  Search,
-  ShieldAlert,
-  Trash2,
-  UserCheck,
-  UsersRound,
-  UserX,
-} from 'lucide-react';
+import { cn, getInitials } from '@apex/shared-utilities';
+import { Plus, Search, UserCheck, UserX, Edit2, ExternalLink, ShieldAlert, Download, Loader2, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
-const rolePresentation: Record<string, { label: string; badge: string }> = {
-  SUPER_ADMIN: { label: 'SUPER ADMIN', badge: 'bg-violet-100 text-violet-800 ring-violet-200 dark:bg-violet-400/15 dark:text-white dark:ring-violet-300/80' },
-  ADMIN: { label: 'ADMIN', badge: 'bg-rose-100 text-rose-800 ring-rose-200 dark:bg-rose-400/15 dark:text-white dark:ring-rose-300/80' },
-  MANAGER: { label: 'MANAGER', badge: 'bg-orange-100 text-orange-800 ring-orange-200 dark:bg-orange-400/15 dark:text-white dark:ring-orange-300/80' },
-  TEAM_LEAD: { label: 'TEAM LEAD', badge: 'bg-blue-100 text-blue-800 ring-blue-200 dark:bg-blue-400/15 dark:text-white dark:ring-blue-300/80' },
-  EMPLOYEE: { label: 'EMPLOYEE', badge: 'bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-400/15 dark:text-white dark:ring-emerald-300/80' },
-  INTERN: { label: 'INTERN', badge: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-300/15 dark:text-white dark:ring-slate-300/80' },
+// Light-mode classes — dark themes handled via globals.css CSS-variable overrides
+const roleBadge: Record<string, string> = {
+  SUPER_ADMIN: 'bg-purple-100 text-purple-700',
+  ADMIN: 'bg-red-100 text-red-700',
+  MANAGER: 'bg-orange-100 text-orange-700',
+  TEAM_LEAD: 'bg-blue-100 text-blue-700',
+  EMPLOYEE: 'bg-green-100 text-green-700',
+  INTERN: 'bg-slate-100 text-slate-600',
 };
 
 /**
@@ -50,39 +36,6 @@ const isArchivedUser = (u: any): boolean =>
     typeof u.email === 'string' &&
     u.email.startsWith('archived-') &&
     u.email.endsWith('@apex.local'));
-
-function formatUserValue(value?: string | null, fallback = 'Not assigned'): string {
-  if (!value) return fallback;
-  return value
-    .replace(/_/g, ' ')
-    .toLowerCase()
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function getInitials(name?: string | null): string {
-  const initials = String(name ?? '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0))
-    .join('')
-    .toUpperCase();
-
-  return initials || 'U';
-}
-
-function resolveManagerName(user: any, users: any[]): string {
-  const reference = String(user?.reportingManager ?? '').trim();
-  if (!reference) return 'Not assigned';
-
-  const manager = users.find((candidate) =>
-    String(candidate?.email ?? '').toLowerCase() === reference.toLowerCase()
-    || String(candidate?.employeeId ?? '').toLowerCase() === reference.toLowerCase(),
-  );
-
-  return manager?.name ?? reference;
-}
 
 export default function UsersPage() {
   const { user: me, hasHydrated } = useAuthStore();
@@ -115,17 +68,6 @@ export default function UsersPage() {
   const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any[]>, enabled: hasHydrated && isAdmin });
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]>, enabled: hasHydrated && isAdmin });
 
-  const updateCachedUserActiveStatus = (id: string, isActive: boolean) => {
-    qc.setQueriesData({ queryKey: ['users'] }, (current: any) => {
-      const updateUser = (user: any) => user.id === id ? { ...user, isActive } : user;
-      if (Array.isArray(current)) return current.map(updateUser);
-      if (Array.isArray(current?.users)) {
-        return { ...current, users: current.users.map(updateUser) };
-      }
-      return current;
-    });
-  };
-
   const createMutation = useMutation({
     mutationFn: (data: any) => usersApi.create(data),
     onSuccess: (u: any) => {
@@ -141,18 +83,16 @@ export default function UsersPage() {
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => usersApi.update(id, { isActive }),
     onSuccess: (_, vars) => {
       if (vars.isActive) toast.success('User activated');
-      updateCachedUserActiveStatus(vars.id, vars.isActive);
-      void qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['users'] });
     },
     onError: () => toast.error('Failed to activate user'),
   });
 
   const deactivateMutation = useMutation({
     mutationFn: (id: string) => usersApi.deactivate(id),
-    onSuccess: (_, id) => {
+    onSuccess: () => {
       toast.success('User deactivated');
-      updateCachedUserActiveStatus(id, false);
-      void qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['users'] });
       setDeactivateTarget(null);
     },
     onError: (err: any) => {
@@ -255,7 +195,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto">
+    <div className="space-y-5 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Users</h2>
@@ -321,210 +261,155 @@ export default function UsersPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }} />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {filteredUsers.map((u: any) => {
-            const roleName = u.role?.name ?? u.role ?? 'EMPLOYEE';
-            const role = rolePresentation[roleName] ?? {
-              label: formatUserValue(roleName, 'EMPLOYEE').toUpperCase(),
-              badge: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-300/15 dark:text-white dark:ring-slate-300/80',
-            };
-            const archived = isArchivedUser(u);
-            const isActive = u.isActive !== false;
-            const canManageUser = isAdmin
-              && u.id !== me?.id
-              && !archived
-              && (me?.role?.name === 'SUPER_ADMIN' || roleName !== 'SUPER_ADMIN');
-            const reportsTo = resolveManagerName(u, userList);
-
-            return (
-              <article
-                key={u.id}
-                className={cn(
-                  'group relative flex h-[330px] min-w-0 flex-col overflow-hidden rounded-[26px] border border-blue-500/50 p-4 transition-all duration-300 dark:border-slate-200/70',
-                  'hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(37,99,235,0.16)]',
-                  !isActive && 'saturate-[0.75]',
-                )}
-                style={{
-                  background: 'linear-gradient(135deg, var(--surface-card) 0%, var(--bg-secondary) 58%, var(--accent-subtle) 145%)',
-                  boxShadow: '0 12px 34px rgba(37, 99, 235, 0.10)',
-                }}
-              >
-                <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-blue-400/10 blur-3xl" />
-
-                <div className="relative flex min-h-[148px] items-start gap-3">
-                  <div className="flex min-w-0 flex-1 items-start gap-3">
-                    <div className="relative flex-shrink-0">
-                      <div className="flex h-[90px] w-[90px] items-center justify-center rounded-full border border-blue-200 bg-blue-50/80 p-1 shadow-[0_8px_24px_rgba(37,99,235,0.16)] dark:border-slate-200/80 dark:bg-slate-700/70">
-                        {u.photoUrl ? (
-                          <img
-                            src={u.photoUrl}
-                            alt={`${u.name} profile photo`}
-                            loading="lazy"
-                            decoding="async"
-                            className="h-20 w-20 rounded-full object-cover"
-                          />
-                        ) : (
-                          <span
-                            className="apex-user-initials text-2xl font-bold tracking-wide"
-                            aria-label={`${u.name} initials`}
-                          >
-                            {getInitials(u.name)}
-                          </span>
-                        )}
-                      </div>
-                      <span
-                        className="absolute bottom-2 right-0 h-5 w-5 rounded-full border-[3px] border-white shadow-sm dark:border-slate-900"
-                        style={{ backgroundColor: isActive ? 'var(--color-success)' : 'var(--color-danger)' }}
-                        title={isActive ? 'Active' : 'Inactive'}
-                        aria-label={isActive ? 'Active user' : 'Inactive user'}
-                      />
-                    </div>
-
-                    <div className="min-w-0 flex-1 pt-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="truncate text-lg font-bold tracking-tight" style={{ color: 'var(--text-primary)' }} title={u.name}>
-                          {u.name}
-                        </h3>
-                      </div>
-                      <p className="mt-1 truncate text-sm font-semibold tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-                        {u.employeeId || 'Employee ID pending'}
-                      </p>
-
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <span className={cn('apex-user-role-badge inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ring-inset', role.badge)}>
-                          <UsersRound size={16} aria-hidden="true" />
-                          {role.label}
-                        </span>
-                        {archived && (
-                          <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-800 ring-1 ring-inset ring-amber-200">
-                            ARCHIVED
-                          </span>
-                        )}
-                      </div>
-                    </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredUsers.map((u: any) => (
+            <div
+              key={u.id}
+              className={cn('apex-card p-5 flex flex-col gap-3 transition-all hover:shadow-md rounded-2xl', !u.isActive && 'opacity-60')}
+              style={{'--hover-border': 'var(--accent-border)'} as any}
+            >
+              <div className="flex items-start gap-3">
+                {u.photoUrl ? (
+                  <img src={u.photoUrl} alt={u.name} className="w-11 h-11 rounded-full object-cover flex-shrink-0" />
+                ) : (
+                  <div
+                    className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-sm"
+                    style={{ backgroundColor: u.avatar || '#6366f1' }}
+                  >
+                    {getInitials(u.name)}
                   </div>
-
-                  {canManageUser && (
-                    <div className="relative z-10 flex h-[148px] flex-shrink-0 flex-col gap-2 border-l pl-3" style={{ borderColor: 'var(--accent-border)' }}>
-                      {isActive ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditUser(u);
-                              setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive, isHR: !!u.isHR });
-                            }}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
-                            style={{ background: 'linear-gradient(145deg, #fbbf24, #f59e0b)' }}
-                            title="Edit user"
-                            aria-label={`Edit ${u.name}`}
-                          >
-                            <Edit2 size={20} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setDownloadingId(u.id);
-                              const toastId = `backup-${u.id}`;
-                              toast.loading('Downloading backup...', { id: toastId });
-                              try {
-                                await usersApi.downloadBackup(u.id, u.name);
-                                toast.success('Backup downloaded', { id: toastId });
-                              } catch {
-                                toast.error('Backup download failed', { id: toastId });
-                              } finally {
-                                setDownloadingId(null);
-                              }
-                            }}
-                            disabled={downloadingId === u.id}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
-                            style={{ background: 'linear-gradient(145deg, #4ade80, #16a34a)' }}
-                            title="Download user backup (.xlsx)"
-                            aria-label={`Download ${u.name} backup`}
-                          >
-                            {downloadingId === u.id ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeactivateTarget(u)}
-                            disabled={deactivateMutation.isPending}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
-                            style={{ background: 'linear-gradient(145deg, #fb7185, #ef4444)' }}
-                            title="Deactivate user"
-                            aria-label={`Deactivate ${u.name}`}
-                          >
-                            <UserX size={20} />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => toggleActive.mutate({ id: u.id, isActive: true })}
-                            disabled={toggleActive.isPending}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
-                            style={{ background: 'linear-gradient(145deg, #4ade80, #16a34a)' }}
-                            title="Reactivate user"
-                            aria-label={`Reactivate ${u.name}`}
-                          >
-                            <UserCheck size={20} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setPermanentDeleteTarget(u)}
-                            disabled={permanentDeleteMutation.isPending}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-700 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
-                            title="Permanently delete user"
-                            aria-label={`Permanently delete ${u.name}`}
-                          >
-                            <Trash2 size={19} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{u.name}</p>
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: u.isActive !== false ? 'var(--color-success)' : 'var(--color-danger)' }}
+                      title={u.isActive !== false ? 'Active' : 'Inactive'}
+                    />
+                  </div>
+                  <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{u.email}</p>
+                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', roleBadge[u.role?.name] || 'bg-gray-100 text-gray-700')}>
+                      {u.role?.name}
+                    </span>
+                    {u.department && (
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+                      >
+                        {u.department.name}
+                      </span>
+                    )}
+                    {isArchivedUser(u) && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: '#fef3c7', color: '#b45309' }}>
+                        ARCHIVED
+                      </span>
+                    )}
+                  </div>
                 </div>
-
-                <div className="relative my-4 h-px flex-shrink-0" style={{ backgroundColor: 'var(--accent-border)' }} />
-
-                <div className="relative grid h-14 flex-shrink-0 grid-cols-3 gap-2">
-                  {[
-                    { label: 'Department', value: u.department?.name ?? 'Not assigned', Icon: Building2 },
-                    { label: 'Reports To', value: reportsTo, Icon: Network },
-                    { label: 'Employment', value: formatUserValue(u.employmentType, 'Not specified'), Icon: BriefcaseBusiness },
-                  ].map(({ label, value, Icon }) => (
-                    <div
-                      key={label}
-                      className="flex min-w-0 items-center gap-1 rounded-xl border border-blue-200/80 px-1.5 py-1.5 shadow-sm dark:border-slate-300/50"
-                      style={{ backgroundColor: 'var(--surface-card)' }}
+                {isAdmin && u.id !== me?.id && !isArchivedUser(u) && (
+                  <div className="relative z-10 flex items-center gap-1 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setEditUser(u);
+                        setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive: u.isActive, isHR: !!u.isHR });
+                      }}
+                      className="p-1.5 rounded-lg transition-colors"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      title="Edit user"
                     >
-                      <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/80 dark:text-blue-300">
-                        <Icon size={13} aria-hidden="true" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-[8px] font-bold uppercase leading-none tracking-[0.03em]" style={{ color: 'var(--text-tertiary)' }} title={label}>
-                          {label}
-                        </span>
-                        <span className="mt-1 line-clamp-2 text-[11px] font-bold leading-[1.1]" style={{ color: 'var(--text-primary)' }} title={value}>
-                          {value}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDownloadingId(u.id);
+                        const toastId = `backup-${u.id}`;
+                        toast.loading('Downloading backup...', { id: toastId });
+                        try {
+                          await usersApi.downloadBackup(u.id, u.name);
+                          toast.success('Backup downloaded', { id: toastId });
+                        } catch {
+                          toast.error('Backup download failed', { id: toastId });
+                        } finally {
+                          setDownloadingId(null);
+                        }
+                      }}
+                      disabled={downloadingId === u.id}
+                      className="p-1.5 rounded-lg transition-colors disabled:opacity-40"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.backgroundColor = 'var(--accent-subtle)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      title="Download user backup (.xlsx)"
+                    >
+                      {downloadingId === u.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    </button>
+                    {!u.isActive && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPermanentDeleteTarget(u);
+                        }}
+                        disabled={permanentDeleteMutation.isPending}
+                        className="p-1.5 rounded-lg transition-colors disabled:opacity-40"
+                        style={{ color: 'var(--text-tertiary)' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-danger)'; e.currentTarget.style.backgroundColor = 'var(--color-danger-bg)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                        title="Permanently delete user"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (u.isActive) {
+                          setDeactivateTarget(u);
+                        } else {
+                          toggleActive.mutate({ id: u.id, isActive: true });
+                        }
+                      }}
+                      disabled={deactivateMutation.isPending || toggleActive.isPending}
+                      className="p-1.5 rounded-lg transition-colors disabled:opacity-40"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = u.isActive ? 'var(--color-danger)' : 'var(--color-success)';
+                        e.currentTarget.style.backgroundColor = u.isActive ? 'var(--color-danger-bg)' : 'var(--color-success-bg)';
+                      }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      title={u.isActive ? 'Deactivate user' : 'Activate user'}
+                    >
+                      {u.isActive ? <UserX size={14} /> : <UserCheck size={14} />}
+                    </button>
+                  </div>
+                )}
+              </div>
 
-                <button
-                  type="button"
-                  onClick={() => router.push(`/users/${u.id}/profile`)}
-                  className="relative mt-4 flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(30,64,175,0.3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                  style={{ background: 'linear-gradient(135deg, #2563eb, #1e3a8a)' }}
-                >
-                  <ExternalLink size={17} />
-                  View Profile
-                </button>
-              </article>
-            );
-          })}
+              {/* View Profile button */}
+              <button
+                onClick={() => router.push(`/users/${u.id}/profile`)}
+                className="flex items-center justify-center gap-1.5 w-full py-2 text-xs font-medium rounded-xl transition-colors"
+                style={{ color: 'var(--accent)', border: '1px solid var(--accent-border)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--accent-subtle)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <ExternalLink size={12} />
+                View Profile
+              </button>
+            </div>
+          ))}
           {filteredUsers.length === 0 && !isLoading && (
             <div className="col-span-3 apex-empty">
               <p className="apex-empty-title">No users match the current filters</p>
@@ -536,8 +421,8 @@ export default function UsersPage() {
 
       {/* Edit User Modal */}
       {editUser && (
-        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Edit User</h3>
             <div className="space-y-3">
               <div>
@@ -617,8 +502,8 @@ export default function UsersPage() {
 
       {/* Deactivate Confirmation Modal */}
       {deactivateTarget && (
-        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Deactivate user?</h3>
             <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
               <strong>{deactivateTarget.name}</strong> will lose login access and be hidden from active workflows.
@@ -648,8 +533,8 @@ export default function UsersPage() {
 
       {/* Permanent Delete Confirmation Modal */}
       {permanentDeleteTarget && (
-        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Permanently delete user?</h3>
             <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
               <strong>{permanentDeleteTarget.name}</strong> will be removed from the system forever. This cannot be undone.
@@ -676,8 +561,8 @@ export default function UsersPage() {
 
       {/* Permanent Delete Blocker Modal */}
       {permanentDeleteBlockers && (
-        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Cannot delete — user has linked records</h3>
             <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
               This user has operational history that prevents permanent deletion:
@@ -750,8 +635,8 @@ export default function UsersPage() {
 
       {/* Archive After Backup Confirmation Modal */}
       {archiveConfirmOpen && permanentDeleteBlockedUser && (
-        <div className="fixed inset-0 !m-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Archive user?</h3>
             <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
               Apex OS will email the backup to responsible senior users and save it in the backup vault <strong>before</strong> anonymizing <strong>{permanentDeleteBlockedUser.name}</strong>&apos;s personal data.
@@ -786,8 +671,8 @@ export default function UsersPage() {
 
       {/* New User Modal */}
       {showNew && (
-        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="apex-modal w-full max-w-md p-6 modal-enter">
             <h3 className="font-bold text-lg mb-5" style={{ color: 'var(--text-primary)' }}>Add New User</h3>
             <div className="space-y-3">
               <div>

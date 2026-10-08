@@ -20,13 +20,13 @@ export class DepartmentsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.departmentsService.findOne(id, user);
+  findOne(@Param('id') id: string) {
+    return this.departmentsService.findOne(id);
   }
 
   @Get(':id/managers')
-  getManagers(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.departmentsService.getManagers(id, user);
+  getManagers(@Param('id') id: string) {
+    return this.departmentsService.getManagers(id);
   }
 
   @Post(':id/managers')

@@ -73,8 +73,7 @@
       "@apex/workforce-calendar": ["../platforms/workforce/calendar/overview/index.ts"],
       "@apex/workforce-teams": ["../platforms/workforce/teams/team-management/index.ts"],
       "@apex/workforce-teams/api": ["../platforms/workforce/teams/team-management/frontend/api/index.ts"],
-      "@apex/workforce-teams/screens/*": ["../platforms/workforce/teams/team-management/frontend/screens/*"],
-      "@apex/workforce-teams/components/*": ["../platforms/workforce/teams/team-management/frontend/components/*"]
+      "@apex/workforce-teams/screens/*": ["../platforms/workforce/teams/team-management/frontend/screens/*"]
     }
   },
   "include": [
