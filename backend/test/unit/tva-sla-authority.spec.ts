@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AutomationService } from '../../src/modules/platform/automation/automation.service';
 import { AiCronService } from '../../src/modules/ai/ai.cron.service';
 import { AnalyticsService } from '../../src/modules/platform/analytics/analytics.service';
+import { LeaveAccessService } from '../../src/common/services/leave-access.service';
 import { TicketTimingService } from '../../src/common/services/ticket-timing.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { EmailService } from '../../src/modules/platform/email/email.service';
@@ -25,6 +26,7 @@ describe('TVA-005, 006, 007: SLA Authority Consolidation', () => {
       findMany: jest.fn().mockResolvedValue([{ id: 'u1', email: 'mgr@test.com' }]),
       findUnique: jest.fn(),
     },
+    reviewCycleLog: { findMany: jest.fn().mockResolvedValue([]) },
     leaveRequest: {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
@@ -66,6 +68,7 @@ describe('TVA-005, 006, 007: SLA Authority Consolidation', () => {
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AccessPolicyService, useValue: mockAccessPolicy },
         { provide: TicketAccessService, useValue: mockTicketAccess },
+        { provide: LeaveAccessService, useValue: { buildLeaveWhereForUser: jest.fn().mockResolvedValue({}) } },
         { provide: CompanyDateService, useValue: { getTodayStart: jest.fn().mockReturnValue(new Date('2026-06-06T00:00:00Z')) } },
       ],
     }).compile();

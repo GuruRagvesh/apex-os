@@ -106,7 +106,9 @@ export class AuthService {
     if (!user) throw new UnauthorizedException();
 
     const isValid = await bcrypt.compare(currentPassword, user.password);
-    if (!isValid) throw new UnauthorizedException('Current password is incorrect');
+    // 400, not 401: the browser treats every 401 as an expired session and
+    // signs the user out, which a mistyped current password must not do.
+    if (!isValid) throw new BadRequestException('Current password is incorrect');
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({

@@ -125,7 +125,7 @@ export default function HomePage() {
     staleTime: 60000,
   });
 
-  const { data: overview } = useQuery({
+  const { data: overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useQuery({
     queryKey: ['dashboard-overview'],
     queryFn: () => dashboardApi.getOverview() as Promise<any>,
     staleTime: 30000,
@@ -634,7 +634,14 @@ export default function HomePage() {
           </div>
           <div className="p-5 flex-1 flex flex-col justify-between" style={{ backgroundColor: 'var(--surface-card)' }}>
             <div className="space-y-2.5">
-              {bottleneckTickets.length > 0 ? (
+              {overviewError ? (
+                <div className="text-center py-8 text-xs">
+                  <p className="font-semibold text-slate-500 dark:text-slate-400">Bottlenecks could not be loaded.</p>
+                  <button onClick={() => refetchOverview()} className="mt-2 text-blue-600 dark:text-blue-400 hover:underline font-semibold">Retry</button>
+                </div>
+              ) : overviewLoading ? (
+                <div className="text-center py-8 text-slate-400 text-xs">Checking active tickets…</div>
+              ) : bottleneckTickets.length > 0 ? (
                 bottleneckTickets.slice(0, 4).map((t: any) => (
                   <Link
                     key={t.id}
