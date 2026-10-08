@@ -23,6 +23,11 @@ export const projectsApi = {
   update: (id: string, data: any) => r(api.put(`/projects/${id}`, data)),
   addMember: (id: string, userId: string, role?: string) => r(api.post(`/projects/${id}/members`, { userId, role })),
   removeMember: (id: string, userId: string) => r(api.delete(`/projects/${id}/members/${userId}`)),
+  // Phase 6E: endpoints the API already had but no screen called.
+  updateMemberRole: (id: string, userId: string, role: string) => r(api.patch(`/projects/${id}/members/${userId}`, { role })),
+  getActivity: (id: string, limit = 50) => r(api.get(`/projects/${id}/activity`, { params: { limit } })),
+  archive: (id: string) => r(api.patch(`/projects/${id}/archive`)),
+  restore: (id: string) => r(api.patch(`/projects/${id}/restore`)),
   remove: (id: string) => r(api.delete(`/projects/${id}`)),
   getStats: () => r(api.get('/projects/stats')),
 };

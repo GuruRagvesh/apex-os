@@ -10,6 +10,9 @@ const config: Config = {
     // Screens and components moved out of frontend/ into the platform packages
     "../platforms/**/*.{ts,tsx}",
     "../shared/**/*.{ts,tsx}",
+    // The app shell (Global Search palette, cold-start banner) lives here; its
+    // own classes were never generated (e.g. the search panel lost its top spacing).
+    "../apps/**/*.{ts,tsx}",
   ],
   prefix: "",
   theme: {

@@ -33,8 +33,11 @@ export const analyticsApi = {
     r(api.get(userId ? `/analytics/reviewer/${userId}` : '/analytics/reviewer')),
   getManagerMetrics: () =>
     r(api.get('/analytics/manager')),
-  getSlaAnalytics: () =>
-    r(api.get('/analytics/sla')),
+  getSlaAnalytics: (params?: { from?: string; to?: string }) =>
+    r(api.get('/analytics/sla', { params })),
+  // Phase 6E: output per employee over company dates, optionally one project.
+  getProductivity: (params: { from?: string; to?: string; projectId?: string; userId?: string }) =>
+    r(api.get('/analytics/productivity', { params })),
   getReworkAnalytics: () =>
     r(api.get('/analytics/rework')),
 };

@@ -21,6 +21,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { isAuthenticated, user, hasHydrated } = useAuthStore();
   const router = useRouter();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const isManagerOrAbove = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
@@ -156,12 +157,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)' }}>
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar />
+      <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <TopBar onOpenMenu={() => setMobileNavOpen(true)} menuOpen={mobileNavOpen} />
         {/* While the viewer's own review timer runs (from the ledger), on every page */}
         <ActiveReviewBanner />
-        <main id="apex-main-content" className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main id="apex-main-content" className="flex-1 overflow-y-auto p-3 sm:p-6">{children}</main>
       </div>
       <ColdStartBanner />
       {/* Existing FAB dock — kept as-is (Alt+Q) */}

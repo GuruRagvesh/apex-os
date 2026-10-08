@@ -27,9 +27,11 @@ export class ProjectsController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  // Team Leads create within their own department; the service enforces the
+  // department scope for every non-admin.
+  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   create(@Body() body: any, @CurrentUser() user: any) {
-    return this.projectsService.create(body, user.id);
+    return this.projectsService.create(body, user);
   }
 
   @Put(':id')
