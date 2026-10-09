@@ -1,183 +1,84 @@
 'use client';
 
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import { CalendarDays, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, MinusCircle, Gift, AlertTriangle, XCircle, Plane, Clock3, CircleDashed } from 'lucide-react';
 import type { MyAttendanceDayV2 } from './my-attendance-v2-api';
-import { BRAND, LEGEND, monthLabel, presentOutcome } from './status-presentation';
+import { monthLabel, presentDay, presentOutcome, modifierLabel, exceptionCopy } from './status-presentation';
+import s from './visual-fidelity.module.css';
 
-/**
- * The month grid.
- *
- * WHAT A CELL MAY SAY. A cell renders only what the backend sent for that date.
- * There is no inference here — no "weekend so probably weekly off", no "no
- * result so absent". A date with no evaluation is neutral and carries no
- * status, because a blank cell is honest and a red one would be a claim.
- *
- * FUTURE DATES. Neutral ground, no tint, no glyph, not selectable. A future day
- * has no attendance result and must not look like one.
- *
- * ABSENT vs NEEDS REVIEW. Different hue, different glyph, different label.
- * They are the pair most often confused, and they mean opposite things.
- *
- * NO PHOTOS. Punch photos never appear in this grid, at any size. A photo is
- * evidence, viewed deliberately inside the day drawer; a wall of thumbnails is
- * a different thing being shown to a different purpose.
- */
-export function MonthCalendar({
-  year,
-  month,
-  days,
-  selectedDate,
-  onSelect,
-  onPrevMonth,
-  onNextMonth,
-  canGoNext,
-}: {
-  year: number;
-  month: number;
-  days: MyAttendanceDayV2[];
-  selectedDate: string | null;
-  onSelect: (date: string) => void;
-  onPrevMonth: () => void;
-  onNextMonth: () => void;
-  canGoNext: boolean;
+const legend = [
+  { label: 'Present', color: '#00BF58' }, { label: 'Late / Short hours', color: '#FF7900' },
+  { label: 'Absent', color: '#FF3545' }, { label: 'Half day', color: '#933BFF' },
+  { label: 'Leave', color: '#60ABFF' }, { label: 'Holiday', color: '#FFBD00' },
+  { label: 'Weekly off', color: '#9AA7C1' }, { label: 'Needs review', color: '#454C59' },
+];
+export function MonthCalendar({ year, month, days, selectedDate, onSelect, onPrevMonth, onNextMonth, onMonthChange, canGoNext }: {
+  year: number; month: number; days: MyAttendanceDayV2[]; selectedDate: string | null;
+  onSelect: (date: string) => void; onPrevMonth: () => void; onNextMonth: () => void;
+  onMonthChange: (month: string) => void; canGoNext: boolean;
 }) {
-  // Leading blanks so the 1st lands under its weekday. Monday-first.
-  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
-  const leadingBlanks = (firstWeekday + 6) % 7;
-
+  const [filter, setFilter] = useState<string | null>(null);
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const count = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const size = Math.ceil((first.getUTCDay() + count) / 7) * 7;
+  const byDate = new Map(days.map(day => [day.date, day]));
+  const cells = Array.from({ length: size }, (_, index) => new Date(Date.UTC(year, month - 1, 1 - first.getUTCDay() + index)));
   return (
-    <section
-      className="apex-card rounded-2xl border border-apex-border p-4 sm:p-6"
-      style={{ boxShadow: '0 1px 2px rgba(1, 38, 106, 0.04), 0 8px 24px rgba(1, 38, 106, 0.05)' }}
-    >
-      <header className="mb-4 flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold tracking-tight" style={{ color: BRAND.navy }}>
-          {monthLabel(year, month)}
-        </h2>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onPrevMonth}
-            aria-label="Previous month"
-            className="apex-text rounded-lg border border-apex-border p-1.5"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onNextMonth}
-            aria-label="Next month"
-            disabled={!canGoNext}
-            className="apex-text rounded-lg border border-apex-border p-1.5 disabled:opacity-40"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
+    <section className={s.calendar} aria-label="Attendance calendar">
+      <header className={s.calendarHeader}>
+        <h2>{monthLabel(year, month)}</h2>
+        <div className={s.legend} aria-label="Attendance status legend">{legend.map(item => <button key={item.label} aria-pressed={filter === item.label} onClick={() => setFilter(filter === item.label ? null : item.label)}><i style={{ background: item.color }} aria-hidden="true" />{item.label}</button>)}{filter && <button onClick={() => setFilter(null)}>Clear filter</button>}</div>
+        <div className={s.monthControls}>
+          <button onClick={onPrevMonth} aria-label="Previous month"><ChevronLeft /></button>
+          <label className={s.monthPicker}><CalendarDays aria-hidden="true" /><span>{monthLabel(year, month)}</span><ChevronDown aria-hidden="true" /><input type="month" aria-label="Select attendance month" value={year + '-' + String(month).padStart(2, '0')} max={new Date().toISOString().slice(0, 7)} onChange={e => { if (e.target.value) onMonthChange(e.target.value); }} /></label>
+          <button onClick={onNextMonth} disabled={!canGoNext} aria-label="Next month"><ChevronRight /></button>
         </div>
       </header>
-
-      <div className="grid grid-cols-7 gap-1 sm:gap-2" role="grid">
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-          <div
-            key={d}
-            className="pb-2 text-center text-[11px] font-semibold uppercase tracking-wider"
-            style={{ color: BRAND.blue }}
-          >
-            {d}
-          </div>
-        ))}
-
-        {Array.from({ length: leadingBlanks }, (_, i) => (
-          <div key={`blank-${i}`} aria-hidden="true" />
-        ))}
-
-        {days.map((day) => (
-          <DayCell
-            key={day.date}
-            day={day}
-            selected={day.date === selectedDate}
-            onSelect={onSelect}
-          />
-        ))}
+      <div className={s.calendarScroll}>
+        <div className={s.weekdays}>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(label => <span key={label}>{label}</span>)}</div>
+        <div className={s.calendarGrid}>
+          {cells.map(date => {
+            const key = date.toISOString().slice(0, 10);
+            const day = byDate.get(key);
+            if (date.getUTCMonth() !== month - 1 || !day || day.isFuture) {
+              return <div key={key} className={s.day + ' ' + s.neutralDay + (filter ? ' ' + s.dimmedDay : '')} aria-label={key + ', no attendance result'}><span>{date.getUTCDate()}</span></div>;
+            }
+            return <DayCell key={key} dimmed={filter !== null && !matchesFilter(day, filter)} day={day} selected={selectedDate === key} onSelect={onSelect} />;
+          })}
+        </div>
       </div>
-
-      <footer className="mt-5 flex flex-wrap gap-x-4 gap-y-2 border-t border-apex-border pt-4">
-        {LEGEND.map((entry) => (
-          <span key={entry.outcome} className="apex-text-muted flex items-center gap-1.5 text-xs">
-            <span
-              className="inline-flex h-4 w-4 items-center justify-center rounded text-[10px] font-bold"
-              style={{ background: entry.tint, color: entry.color }}
-              aria-hidden="true"
-            >
-              {entry.glyph}
-            </span>
-            {entry.label}
-          </span>
-        ))}
-      </footer>
     </section>
   );
 }
-
-function DayCell({
-  day,
-  selected,
-  onSelect,
-}: {
-  day: MyAttendanceDayV2;
-  selected: boolean;
-  onSelect: (date: string) => void;
-}) {
-  const dayOfMonth = Number(day.date.slice(8, 10));
-  const status = presentOutcome(day.outcome);
-  const needsAttention = day.evaluationState === 'NEEDS_REVIEW';
-
-  // A future date is inert: no status, no tint, not clickable.
-  if (day.isFuture) {
-    return (
-      <div
-        className="flex aspect-square flex-col items-center justify-center rounded-xl text-sm"
-        style={{ background: '#FAFBFC', color: '#A1A1AA' }}
-        aria-label={`${day.date}, no attendance result yet`}
-      >
-        {dayOfMonth}
-      </div>
-    );
-  }
-
+function DayCell({ day, selected, onSelect, dimmed }: { dimmed: boolean; day: MyAttendanceDayV2; selected: boolean; onSelect: (date: string) => void }) {
+  const status = presentDay(day);
+  const base = presentOutcome(day.outcome);
+  const Icon = day.outcome === 'HOLIDAY' ? Gift : day.outcome === 'PRESENT' && status.label !== 'Present' ? Clock3
+    : day.outcome === 'PRESENT' ? CheckCircle2 : day.outcome === 'WEEKLY_OFF' ? MinusCircle
+    : day.outcome === 'ABSENT' ? XCircle : day.outcome === 'UNRESOLVED' ? AlertTriangle
+    : day.outcome === 'LEAVE' || day.outcome === 'LWP' ? Plane : CircleDashed;
+  const filled = status.label === 'Present' || day.outcome === 'WEEKLY_OFF' || day.outcome === 'ABSENT';
+  const review = day.evaluationState === 'NEEDS_REVIEW' && day.outcome !== 'UNRESOLVED';
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(day.date)}
-      aria-label={`${day.date}, ${status.label}${needsAttention ? ', needs review' : ''}`}
-      aria-current={day.isToday ? 'date' : undefined}
-      className="relative flex aspect-square flex-col items-center justify-center gap-0.5 rounded-xl border text-sm transition"
-      style={{
-        background: day.outcome ? status.tint : 'transparent',
-        // Selection is a brand concern (interface), so it uses the brand ring
-        // rather than borrowing a semantic colour and changing the cell's
-        // apparent meaning.
-        borderColor: selected ? BRAND.navy : day.isToday ? BRAND.lightBlue : 'transparent',
-        borderWidth: selected || day.isToday ? 2 : 1,
-      }}
-    >
-      <span className="text-sm font-semibold tabular-nums" style={{ color: status.color }}>
-        {dayOfMonth}
-      </span>
-      {day.outcome ? (
-        <span
-          className="max-w-full truncate px-1 text-[10px] font-medium leading-none"
-          style={{ color: status.color }}
-        >
-          {status.shortLabel}
-        </span>
-      ) : null}
-      {needsAttention ? (
-        <span
-          className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full"
-          style={{ background: '#B45309' }}
-          aria-hidden="true"
-        />
-      ) : null}
+    <button onClick={() => onSelect(day.date)} className={[s.day, dimmed ? s.dimmedDay : '', day.isToday ? s.todayDay : '', selected && !day.isToday ? s.selectedDay : ''].join(' ')} style={{ background: day.outcome ? status.tint : undefined }} aria-label={day.date + ', ' + status.label} aria-current={day.isToday ? 'date' : undefined} aria-pressed={selected}>
+      <span className={s.dayNumber}>{Number(day.date.slice(8))}</span>
+      {day.isToday && <span className={s.todayTag}>Today</span>}
+      {(day.outcome || day.isInProgress) && <div className={s.dayStatus}>
+        <span className={day.isInProgress ? s.workingRing : s.statusGlyph} style={{ color: status.color }} aria-hidden="true">{!day.isInProgress && <Icon size={23} fill={filled ? status.color : 'none'} stroke={filled ? '#FFFFFF' : 'currentColor'} />}</span>
+        <div><strong style={{ color: day.isInProgress ? '#006BFF' : undefined }}>{day.isInProgress ? 'Working now' : status.label}</strong>{day.isInProgress && <small>In progress</small>}</div>
+      </div>}
+      {day.exceptions.map(code => <small className={s.cellModifier} key={code}>{exceptionCopy(code).title}</small>)}
+      {review && <small className={s.review}>⚠ Needs review</small>}
+      {day.modifiers.filter(m => m !== 'LATE' && m !== 'LATE_EXEMPTED' && m !== 'INSUFFICIENT_PRESENCE' && m !== 'INSUFFICIENT_EFFECTIVE_WORK').map(m => <small key={m} className={m === 'REGULARIZED' ? s.regularized : s.cellModifier}>{modifierLabel(m)}</small>)}
+      {status.label !== base.label && <span className={s.srOnly}>Final outcome: {base.label}</span>}
     </button>
   );
+}
+
+/** Filter only canonical outcomes/modifiers; never evaluate punch times. */
+function matchesFilter(day: MyAttendanceDayV2, filter: string) {
+  if (filter === 'Needs review') return day.evaluationState === 'NEEDS_REVIEW' || day.outcome === 'UNRESOLVED';
+  if (filter === 'Late / Short hours') return day.modifiers.some(value => ['LATE', 'LATE_EXEMPTED', 'INSUFFICIENT_PRESENCE', 'INSUFFICIENT_EFFECTIVE_WORK'].includes(value));
+  const outcomes: Record<string, string[]> = { Present: ['PRESENT'], Absent: ['ABSENT'], 'Half day': ['HALF_DAY'], Leave: ['LEAVE', 'LWP'], Holiday: ['HOLIDAY'], 'Weekly off': ['WEEKLY_OFF'] };
+  return !day.isInProgress && outcomes[filter]?.includes(day.outcome ?? '');
 }

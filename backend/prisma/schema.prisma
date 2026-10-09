@@ -1405,6 +1405,7 @@ model DailyAttendance {
 }
 
 model AttendanceRegularization {
+  screenshots CorrectionScreenshot[]
   id                 String                    @id @default(cuid())
   /// The import row that produced this correction, if any. Back-reference
   /// only: the foreign key lives on AttendanceImportRow.
@@ -2223,4 +2224,19 @@ enum AttendanceImportRowState {
   /// applying, so the approved comparison no longer described it.
   SKIPPED_STALE
   FAILED
+}
+
+/// Employee-supplied supporting files, separate from immutable punch evidence.
+/// Bytes are private and only served through correction authorization.
+model CorrectionScreenshot {
+  id String @id @default(cuid())
+  regularizationId String
+  filename String
+  mimeType String
+  byteSize Int
+  content Bytes
+  createdAt DateTime @default(now())
+  regularization AttendanceRegularization @relation(fields: [regularizationId], references: [id], onDelete: Cascade)
+  @@index([regularizationId])
+  @@map("correction_screenshots")
 }
