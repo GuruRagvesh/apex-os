@@ -5,13 +5,19 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertCircle } from 'lucide-react';
 import { getMyAttendanceV2 } from './my-attendance-v2-api';
 import { BRAND } from './status-presentation';
+import Link from 'next/link';
+import { useAuthStore } from '@/store/auth.store';
+import s from './visual-fidelity.module.css';
 import { DayDetailDrawer } from './DayDetailDrawer';
 import { MonthCalendar } from './MonthCalendar';
 import { StatusBanner } from './StatusBanner';
 import { TodaySummaryCard } from './TodaySummaryCard';
+import { CorrectionDialog } from './CorrectionDialog';
+import { AttendanceAccountOverview } from './AttendanceAccountOverview';
+import { MyAttendanceInsights, type InsightScope } from './MyAttendanceInsights';
 
 /**
- * My Attendance V2 — the whole screen.
+ * My Attendance V2 â€” the whole screen.
  *
  * HIDDEN ROUTE. Mounted at /attendance-v2 with no navigation entry. The live
  * /attendance page is untouched, so this can be withdrawn by deleting a folder.
@@ -24,14 +30,18 @@ import { TodaySummaryCard } from './TodaySummaryCard';
  * system cannot support.
  *
  * NO ATTENDANCE ARITHMETIC. Every outcome, modifier, exception, figure, banner
- * and explanation arrives from the backend. This file arranges and selects; it
- * does not judge. The month string is the only thing it computes, and a month
- * is not an attendance verdict.
+ * and explanation arrives from the backend. Insights count existing finalized
+ * records and plot recorded measures; they do not assign attendance verdicts.
  */
 export function MyAttendanceV2() {
   const [month, setMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [insightScope, setInsightScope] = useState<InsightScope>('month');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [correctionDate, setCorrectionDate] = useState<string | null>(null);
+  const user = useAuthStore(state => state.user);
+  const role = typeof user?.role === 'string' ? user.role : user?.role?.name;
+  const canReviewLeave = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role ?? '');
 
   const overview = useQuery({
     queryKey: ['my-attendance-v2', month],
@@ -48,21 +58,24 @@ export function MyAttendanceV2() {
   // a month that has not started, and offering the move implies there is.
   const canGoNext = month < new Date().toISOString().slice(0, 7);
 
-  const openDay = (date: string) => {
+  const openDay = (date: string, correction = false) => {
+    if (correction) { setDrawerOpen(false); setCorrectionDate(date); return; }
+    setCorrectionDate(null);
     setSelectedDate(date);
     setDrawerOpen(true);
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 px-1 sm:px-0">
-      <header>
+    <div className={[s.page, drawerOpen ? s.withDrawer : ''].join(' ')}>
+      <header className={s.pageHeader}><div>
         <h1 className="text-2xl font-semibold tracking-tight" style={{ color: BRAND.navy }}>
           My Attendance
         </h1>
-        <p className="mt-1.5 text-sm" style={{ color: BRAND.blue }}>
-          Your recorded attendance for each day, and why it looks the way it does.
-        </p>
-      </header>
+
+      </div><details className={s.leaveMenu}><summary>Leave options</summary><nav aria-label="Leave options">
+        <Link href="/leave">Apply / view my leave</Link>
+        {canReviewLeave && <Link href="/leave">Leave approvals</Link>}
+      </nav></details></header>
 
       {overview.isError ? (
         <div
@@ -98,10 +111,21 @@ export function MyAttendanceV2() {
           <TodaySummaryCard
             today={overview.data.today}
             onViewDetails={() => openDay(overview.data.today.date)}
-            onRequestCorrection={() => openDay(overview.data.today.date)}
+            onRequestCorrection={() => openDay(overview.data.today.date, true)}
           />
 
           <StatusBanner banner={overview.data.today.banner} />
+
+          <MyAttendanceInsights
+            scope={insightScope}
+            onScopeChange={setInsightScope}
+            month={month}
+            overview={overview.data}
+            onMonthChange={setMonth}
+            onSelect={openDay}
+          />
+
+          <AttendanceAccountOverview />
 
           <MonthCalendar
             year={overview.data.month.year}
@@ -111,10 +135,13 @@ export function MyAttendanceV2() {
             onSelect={openDay}
             onPrevMonth={() => setMonth(shiftMonth(month, -1))}
             onNextMonth={() => setMonth(shiftMonth(month, 1))}
+            onMonthChange={setMonth}
             canGoNext={canGoNext}
           />
         </>
       ) : null}
+
+      {correctionDate && overview.data?.today.correctionAllowed && <CorrectionDialog date={correctionDate} onClose={() => setCorrectionDate(null)} />}
 
       <DayDetailDrawer
         date={selectedDate}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { CorrectionScreenshotPicker } from './CorrectionScreenshots';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   createRegularization,
@@ -36,10 +37,12 @@ function toInstant(businessDate: string, hhmm: string): string | null {
 
 export function RequestCorrectionForm({
   businessDate,
+  allowScreenshots = false,
   onDone,
   onCancel,
 }: {
   businessDate: string;
+  allowScreenshots?: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -48,6 +51,7 @@ export function RequestCorrectionForm({
   const [punchIn, setPunchIn] = useState('');
   const [punchOut, setPunchOut] = useState('');
   const [reason, setReason] = useState('');
+  const [screenshots, setScreenshots] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -58,7 +62,7 @@ export function RequestCorrectionForm({
         reason: reason.trim(),
         requestedPunchIn: toInstant(businessDate, punchIn),
         requestedPunchOut: toInstant(businessDate, punchOut),
-      }),
+      }, screenshots),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-regularizations'] });
       onDone();
@@ -135,6 +139,8 @@ export function RequestCorrectionForm({
             onChange={(e) => setReason(e.target.value)}
           />
         </div>
+
+        {allowScreenshots && <CorrectionScreenshotPicker files={screenshots} onChange={setScreenshots} disabled={mutation.isPending} />}
 
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
