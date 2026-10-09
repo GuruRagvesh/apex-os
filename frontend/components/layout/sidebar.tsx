@@ -12,7 +12,7 @@ import {
   Users, Building2, BarChart3, LogOut, Zap, Settings,
   Calendar, Activity, ArrowRight, ChevronDown, Handshake,
   CalendarCheck, ClipboardCheck,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
@@ -106,8 +106,21 @@ const ROLE_BADGE_COLOR: Record<string, { bg: string; text: string }> = {
   INTERN:      { bg: 'rgba(20,184,166,0.15)', text: '#2dd4bf' },
 };
 
+// Below Tailwind's md breakpoint (768px). False on the server and first render.
+function useIsPhone(): boolean {
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767.98px)');
+    const update = () => setPhone(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return phone;
+}
+
 // ── Sidebar ───────────────────────────────────────────────────────────────────
-export function Sidebar() {
+export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: boolean; onMobileClose?: () => void } = {}) {
   const pathname            = usePathname();
   const router              = useRouter();
   const { user, logout, hasHydrated } = useAuthStore();
@@ -120,8 +133,13 @@ export function Sidebar() {
   // rendered/first-client-render markup always matches, avoiding a hydration
   // mismatch. A brief flash of the expanded rail on load for users who chose
   // collapsed is the accepted tradeoff of this safer approach.
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsedPref, setCollapsed] = useState(false);
   const [sidebarMounted, setSidebarMounted] = useState(false);
+  // Below 768px the sidebar is a full-width drawer: never the icon rail.
+  const isPhone = useIsPhone();
+  const collapsed = collapsedPref && !isPhone;
+  const asideRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   const { data: workdayData } = useQuery({
     queryKey: ['workday-today'],
@@ -155,8 +173,39 @@ export function Sidebar() {
   // the default 'false' before the read effect has run.
   useEffect(() => {
     if (!sidebarMounted) return;
-    localStorage.setItem('apex.sidebar.collapsed', String(collapsed));
-  }, [collapsed, sidebarMounted]);
+    localStorage.setItem('apex.sidebar.collapsed', String(collapsedPref));
+  }, [collapsedPref, sidebarMounted]);
+
+  // Drawer: close on navigation; Escape closes; the page behind cannot scroll;
+  // focus moves into the drawer and returns to whatever opened it.
+  useEffect(() => { onMobileClose?.(); }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!mobileOpen || !isPhone) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const main = document.getElementById('apex-main-content');
+    const prevBody = document.body.style.overflow;
+    const prevMain = main?.style.overflow ?? '';
+    document.body.style.overflow = 'hidden';
+    if (main) main.style.overflow = 'hidden';
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); onMobileClose?.(); return; }
+      if (e.key !== 'Tab' || !asideRef.current) return;
+      const items = Array.from(asideRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'));
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevBody;
+      if (main) main.style.overflow = prevMain;
+      (opener && document.contains(opener) ? opener : document.querySelector<HTMLElement>('[data-apex-menu-button]'))?.focus();
+    };
+  }, [mobileOpen, isPhone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close the workspace module switcher on outside click or route change
   useEffect(() => {
@@ -294,15 +343,44 @@ export function Sidebar() {
   }
 
   return (
+    <>
+    {/* Phone drawer overlay */}
+    {mobileOpen && (
+      <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={onMobileClose} aria-hidden="true" />
+    )}
     <aside
+      ref={asideRef}
+      id="apex-sidebar"
+      aria-label="Main navigation"
+      {...(isPhone ? { role: 'dialog', 'aria-modal': mobileOpen ? true : undefined, 'aria-hidden': mobileOpen ? undefined : true } : {})}
       className={cn(
-        'apex-navigation-font flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out',
-        collapsed ? 'w-20' : 'w-64',
+        'apex-navigation-font flex flex-col flex-shrink-0 md:transition-all md:duration-300 md:ease-in-out',
+        // Phone: fixed off-canvas drawer, out of the tab order while closed.
+        // It becomes visible (and focusable) at once when opened, and stays
+        // visible until the slide-out finishes when closed.
+        'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-72 max-md:max-w-[85vw] max-md:overflow-y-auto',
+        mobileOpen
+          ? 'max-md:translate-x-0 max-md:[transition:transform_300ms_ease-out,visibility_0s]'
+          : 'max-md:-translate-x-full max-md:invisible max-md:[transition:transform_300ms_ease-in,visibility_0s_300ms]',
+        collapsed ? 'md:w-20' : 'md:w-64',
       )}
       style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}
     >
       {/* Logo / workspace switcher / tuck-expand control — everything here stays
           inside the sidebar's own bounds, no absolute edge positioning. */}
+      {isPhone && (
+        <div className="flex justify-end px-3 pt-3 md:hidden">
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={onMobileClose}
+            aria-label="Close navigation menu"
+            className="w-9 h-9 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
       <div className="p-5 relative" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }} ref={moduleMenuRef}>
         {collapsed ? (
           <div className="flex flex-col items-center gap-3">
@@ -519,5 +597,6 @@ export function Sidebar() {
         )}
       </div>
     </aside>
+    </>
   );
 }

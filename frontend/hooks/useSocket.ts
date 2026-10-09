@@ -24,8 +24,11 @@ export function useSocket(events: SocketEvents = {}) {
     const socket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 5,
+      // Keep trying with capped backoff. A cap of 5 attempts (~10 s) meant a
+      // short backend restart ended live updates until the page was reloaded.
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 2000,
+      reconnectionDelayMax: 30000,
     });
 
     socketRef.current = socket;

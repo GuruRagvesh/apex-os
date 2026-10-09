@@ -615,7 +615,7 @@ export default function KanbanScreen() {
         </div>
       ) : (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveTicket(null)}>
-          <div ref={boardRef} className="overflow-x-auto pb-3 snap-x snap-mandatory" aria-label="Ticket Kanban board">
+          <div ref={boardRef} className="relative overflow-x-auto pb-3 snap-x snap-mandatory" aria-label="Ticket Kanban board">
             <div className="grid grid-cols-4 gap-4 min-w-[70rem] items-start">
               {KANBAN_COLUMNS.map((col) => (
                 <section key={col.key} className="snap-start" aria-label={`${col.label} lane`}>

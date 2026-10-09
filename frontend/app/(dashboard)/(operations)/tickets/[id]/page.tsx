@@ -1385,7 +1385,9 @@ export default function TicketDetailPage() {
         >
           <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
         </button>
-        <div className="flex-1">
+        {/* min-w-0: lets a long title wrap on a phone instead of pushing the
+            action buttons past the screen edge (Phase 6E). */}
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <CopyableId ticketId={ticket.ticketId} />
             {/* User-facing classification is Department + Request Type. The old internal
@@ -1422,13 +1424,13 @@ export default function TicketDetailPage() {
               </span>
             )}
           </div>
-          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{ticket.title}</h2>
+          <h2 className="text-xl font-bold [overflow-wrap:anywhere]" style={{ color: 'var(--text-primary)' }}>{ticket.title}</h2>
           <TimingHeaderSummary ticket={ticket} />
           <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
           </p>
           {ticket.timers && (
-            <div className="flex gap-4 mt-3 text-xs font-medium text-slate-600">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs font-medium text-slate-600">
               <span className="flex items-center gap-1" title="Time since work first started, up to completion"><Clock size={12} /> Ticket age: {Math.floor(ticket.timers.totalTicketSeconds / 3600)}h {Math.floor((ticket.timers.totalTicketSeconds % 3600) / 60)}m</span>
               <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'EMPLOYEE_WORK' && 'text-blue-600')}><User size={12} /> Employee Work Time: {Math.floor(ticket.timers.employeeWorkSeconds / 3600)}h {Math.floor((ticket.timers.employeeWorkSeconds % 3600) / 60)}m</span>
               <span className={cn("flex items-center gap-1", ticket.timers.activeClock === 'REVIEWER_WORK' && 'text-purple-600')} title="Time a reviewer actively spent reviewing (Start Review to Pause / decision)"><CheckCircle size={12} /> Reviewer active: {formatHoursMinutes(ticket.timers.reviewerWorkSeconds)}</span>

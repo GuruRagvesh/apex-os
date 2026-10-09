@@ -1,18 +1,22 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { projectsApi } from '../api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import { useAuthStore } from '@apex/core-identity';
 import { PROJECT_STATUS_COLORS } from '../lib/project-status';
 import { PRIORITY_COLORS } from '@apex/shared-configuration';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
-import { Plus, FolderKanban, Users, Ticket, Calendar } from 'lucide-react';
+import { Plus, Ticket, Calendar, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { EmptyState } from '@apex/shared-ui/components/empty-state';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import { useDebounce } from '@apex/shared-utilities/use-debounce';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+
+const PAGE_SIZE = 24;
+const STATUS_OPTIONS = ['ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED', 'ARCHIVED'];
 
 function ProjectCard({ project }: { project: any }) {
   const statusColor = PROJECT_STATUS_COLORS[project.status] || 'bg-gray-100 text-gray-700';
@@ -150,13 +154,48 @@ export default function ProjectsPage() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
-  const canCreate = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
+  // Team Leads create in their own department (the API enforces the scope).
+  const canCreate = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', priority: 'MEDIUM', departmentId: '', endDate: '' });
 
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll() as Promise<any>,
+  // Search, status, department and page live in the URL, so Back and a
+  // reload return to the same list. All filtering and counting is done by the
+  // API inside the caller's scope; the page never filters a partial list.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const statusFilter = searchParams.get('status') ?? '';
+  const deptFilter = searchParams.get('department') ?? '';
+  const urlSearch = searchParams.get('q') ?? '';
+  const page = Math.max(1, Number(searchParams.get('page')) || 1);
+  const [searchInput, setSearchInput] = useState(urlSearch);
+  const debouncedSearch = useDebounce(searchInput.trim(), 300);
+
+  const setParams = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(patch)) {
+      if (v) next.set(k, v); else next.delete(k);
+    }
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  useEffect(() => {
+    if (debouncedSearch !== urlSearch) setParams({ q: debouncedSearch || null, page: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ['projects', { q: urlSearch, status: statusFilter, department: deptFilter, page }],
+    queryFn: () => projectsApi.getAll({
+      search: urlSearch || undefined,
+      status: statusFilter || undefined,
+      departmentId: deptFilter || undefined,
+      page,
+      limit: PAGE_SIZE,
+    }) as Promise<any>,
+    placeholderData: keepPreviousData,
   });
 
   const { data: departments } = useQuery({
@@ -172,19 +211,14 @@ export default function ProjectsPage() {
       setShowNew(false);
       setForm({ name: '', description: '', priority: 'MEDIUM', departmentId: '', endDate: '' });
     },
-    onError: () => toast.error('Failed to create project'),
+    onError: (err: any) => toast.error(err?.message || 'Failed to create project'),
   });
 
-  const projects = data?.projects || Array.isArray(data) ? (Array.isArray(data) ? data : []) : [];
-  const projectList = Array.isArray(data) ? data : (data?.projects || []);
-
-  const searchParams = useSearchParams();
-  const statusFilter = searchParams.get('status');
-
-  const filteredProjects = useMemo(() => {
-    if (!statusFilter) return projectList;
-    return projectList.filter((p: any) => p.status === statusFilter);
-  }, [projectList, statusFilter]);
+  const projectList: any[] = Array.isArray(data) ? data : (data?.projects || []);
+  const total: number = Array.isArray(data) ? data.length : (data?.total ?? projectList.length);
+  const totalPages: number = Array.isArray(data) ? 1 : Math.max(1, data?.totalPages ?? 1);
+  const hasFilters = Boolean(urlSearch || statusFilter || deptFilter);
+  const deptOptions: any[] = Array.isArray(departments) ? departments : [];
 
   const scopeText =
     roleName === 'SUPER_ADMIN' ? 'Showing company-wide projects' :
@@ -204,12 +238,55 @@ export default function ProjectsPage() {
             </span>
           </div>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            {filteredProjects.length} projects {statusFilter ? `(${statusFilter.toLowerCase()})` : 'total'}
+            {isLoading ? 'Loading projects…' : `${total} project${total === 1 ? '' : 's'}${hasFilters ? (total === 1 ? ' matches your filters' : ' match your filters') : ' total'}`}
           </p>
         </div>
         {canCreate && (
           <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
             <Plus size={16} />New Project
+          </button>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+        <div className="relative flex-1 min-w-0">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="apex-input pl-8 w-full"
+            placeholder="Search by name or project ID"
+            aria-label="Search projects"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setParams({ status: e.target.value || null, page: null })}
+          className="apex-select sm:w-44"
+          aria-label="Filter by status"
+        >
+          <option value="">All statuses</option>
+          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+        </select>
+        {deptOptions.length > 1 && (
+          <select
+            value={deptFilter}
+            onChange={(e) => setParams({ department: e.target.value || null, page: null })}
+            className="apex-select sm:w-48"
+            aria-label="Filter by department"
+          >
+            <option value="">All departments</option>
+            {deptOptions.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        )}
+        {hasFilters && (
+          <button
+            onClick={() => { setSearchInput(''); setParams({ q: null, status: null, department: null, page: null }); }}
+            className="apex-btn apex-btn-secondary text-xs whitespace-nowrap"
+          >
+            Clear filters
           </button>
         )}
       </div>
@@ -273,18 +350,39 @@ export default function ProjectsPage() {
           <p className="text-sm" style={{ color: 'var(--color-danger)' }}>Failed to load projects.</p>
           <button onClick={() => refetch()} className="apex-btn apex-btn-secondary text-xs">Retry</button>
         </div>
-      ) : filteredProjects.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredProjects.map((p: any) => <ProjectCard key={p.id} project={p} />)}
-        </div>
+      ) : projectList.length > 0 ? (
+        <>
+          <div className={cn('grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 transition-opacity', isFetching && 'opacity-70')}>
+            {projectList.map((p: any) => <ProjectCard key={p.id} project={p} />)}
+          </div>
+          {totalPages > 1 && (
+            <nav className="flex items-center justify-center gap-3" aria-label="Project pages">
+              <button
+                onClick={() => setParams({ page: page > 2 ? String(page - 1) : null })}
+                disabled={page <= 1}
+                className="apex-btn apex-btn-secondary text-xs disabled:opacity-40"
+              >
+                <ChevronLeft size={14} /> Previous
+              </button>
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Page {page} of {totalPages}</span>
+              <button
+                onClick={() => setParams({ page: String(page + 1) })}
+                disabled={page >= totalPages}
+                className="apex-btn apex-btn-secondary text-xs disabled:opacity-40"
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </nav>
+          )}
+        </>
       ) : (
         <div className="apex-card">
           <EmptyState
             icon="📁"
-            title={statusFilter ? `No ${statusFilter.toLowerCase()} projects` : "No projects yet"}
-            description={statusFilter ? `No projects found with status "${statusFilter}".` : "Create a project to group related tickets and track progress"}
-            actionLabel={canCreate && !statusFilter ? "New Project" : undefined}
-            onAction={canCreate && !statusFilter ? () => setShowNew(true) : undefined}
+            title={hasFilters ? 'No projects match your filters' : 'No projects yet'}
+            description={hasFilters ? 'Try a different search, status or department.' : 'Create a project to group related tickets and track progress'}
+            actionLabel={canCreate && !hasFilters ? 'New Project' : undefined}
+            onAction={canCreate && !hasFilters ? () => setShowNew(true) : undefined}
           />
         </div>
       )}

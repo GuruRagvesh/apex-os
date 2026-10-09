@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { CreateTicketLink } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, Plus, CheckCheck, RefreshCw, Search, Loader2, User, Palette, SlidersHorizontal, Camera, LogOut, ChevronDown } from 'lucide-react';
+import { Menu, Bell, Plus, CheckCheck, RefreshCw, Search, Loader2, User, Palette, SlidersHorizontal, Camera, LogOut, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi, workdayApi } from '@/lib/api';
@@ -31,7 +31,7 @@ const pageNames: Record<string, string> = {
   '/team': 'Team',
 };
 
-export function TopBar() {
+export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => void; menuOpen?: boolean } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuthStore();
@@ -179,18 +179,34 @@ export function TopBar() {
     <>
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     <header
-      className="sticky top-0 z-30 h-14 px-6 flex items-center gap-4 flex-shrink-0"
+      className="sticky top-0 z-30 h-14 px-3 sm:px-6 flex items-center gap-2 sm:gap-4 flex-shrink-0"
       style={{
         backgroundColor: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-subtle)',
         backdropFilter: 'blur(12px)',
       }}
     >
+      {/* Phone menu button: opens the navigation drawer below 768px. */}
+      {onOpenMenu && (
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          className="md:hidden p-2 -ml-1 rounded-xl flex-shrink-0"
+          style={{ color: 'var(--text-primary)' }}
+          aria-label="Open navigation menu"
+          aria-controls="apex-sidebar"
+          aria-expanded={menuOpen}
+          data-apex-menu-button
+        >
+          <Menu size={20} />
+        </button>
+      )}
+
       {/* Left: page name */}
-      <div className="flex items-center gap-3 flex-1">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
         {showPageIdentity && (
           <>
-            <h1 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
+            <h1 className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
             {user?.department && (
               <span
                 className="text-xs px-2 py-0.5 rounded-full hidden sm:inline"
@@ -204,7 +220,16 @@ export function TopBar() {
       </div>
 
       {/* Right: actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+        {/* Global search on phones (the labelled trigger below is hidden there) */}
+        <button
+          onClick={() => setPaletteOpen(true)}
+          className="sm:hidden p-2 rounded-xl"
+          style={{ color: 'var(--text-secondary)' }}
+          aria-label="Search"
+        >
+          <Search size={16} />
+        </button>
         {/* Global search trigger */}
         <button
           onClick={() => setPaletteOpen(true)}
@@ -244,13 +269,14 @@ export function TopBar() {
 
         {/* New Ticket */}
         <CreateTicketLink
-          className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl text-white transition-colors"
+          className="flex items-center gap-1.5 text-xs font-semibold px-2.5 sm:px-4 py-2 rounded-xl text-white transition-colors"
           style={{ backgroundColor: '#2563EB' }}
+          aria-label="New Ticket"
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1D4ED8')}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2563EB')}
         >
           <Plus size={14} />
-          New Ticket
+          <span className="hidden sm:inline">New Ticket</span>
         </CreateTicketLink>
 
         {/* Workday status dot */}
@@ -315,7 +341,7 @@ export function TopBar() {
 
           {showNotifs && (
             <div
-              className="absolute right-0 top-10 w-80 rounded-xl shadow-lg z-50"
+              className="absolute right-0 top-10 w-80 max-w-[calc(100vw-1.5rem)] rounded-xl shadow-lg z-50"
               style={{
                 backgroundColor: 'var(--surface-elevated)',
                 border: '1px solid var(--border-primary)',

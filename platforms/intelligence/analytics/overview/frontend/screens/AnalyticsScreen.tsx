@@ -7,6 +7,7 @@ import { dashboardApi } from '@apex/intelligence-dashboard/api';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { TicketTrendChart } from '../components/ticket-trend-chart';
 import { CategoryChart } from '../components/category-chart';
+import { ProductivityPanel } from '../components/productivity-panel';
 import { Skeleton } from '@apex/shared-ui/components/skeleton';
 import {
   TrendingUp, TrendingDown, Minus, Download, ShieldAlert,
@@ -73,16 +74,19 @@ function MetricCard({
   );
 }
 
-function SectionError({ message }: { message?: string }) {
+function SectionError({ message, onRetry }: { message?: string; onRetry?: () => void }) {
   return (
     <div className="apex-card p-6 flex items-center gap-3 border-l-4 border-red-400">
       <AlertTriangle size={18} className="text-red-500 flex-shrink-0" />
-      <div>
+      <div className="flex-1">
         <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Failed to load</p>
         <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
           {message ?? 'An error occurred while fetching this section.'}
         </p>
       </div>
+      {onRetry && (
+        <button onClick={onRetry} className="apex-btn apex-btn-secondary text-xs">Retry</button>
+      )}
     </div>
   );
 }
@@ -183,7 +187,7 @@ export default function AnalyticsScreen() {
   const days = RANGE_DAYS[range];
 
   // ── Legacy overview queries (tab = overview | detailed) ──────────────────────
-  const { data: trend, isLoading: trendLoading } = useQuery({
+  const { data: trend, isPending: trendLoading, isError: trendError, refetch: refetchTrend } = useQuery({
     queryKey: ['ticket-trend', days],
     queryFn: () => dashboardApi.getTicketTrend(days) as Promise<any[]>,
     enabled: canAccess && tab === 'overview',
@@ -193,7 +197,7 @@ export default function AnalyticsScreen() {
     queryFn: () => dashboardApi.getTicketsByCategory() as Promise<any[]>,
     enabled: canAccess && tab === 'overview',
   });
-  const { data: overview } = useQuery({
+  const { data: overview, isPending: overviewLoading, isError: overviewError, refetch: refetchOverview } = useQuery({
     queryKey: ['dashboard-overview'],
     queryFn: () => dashboardApi.getOverview() as Promise<any>,
     refetchInterval: 60000,
@@ -211,42 +215,42 @@ export default function AnalyticsScreen() {
   });
 
   // ── New analytics queries (lazy per tab) ─────────────────────────────────────
-  const { data: commandCenter, isLoading: ccLoading, error: ccError } = useQuery({
+  const { data: commandCenter, isPending: ccLoading, error: ccError, refetch: refetchCc } = useQuery({
     queryKey: ['analytics-command-center', period],
     queryFn: () => analyticsApi.getCommandCenter(period),
     enabled: tab === 'command-center',
     retry: 1,
   });
 
-  const { data: employeeMetrics, isLoading: empLoading, error: empError } = useQuery({
+  const { data: employeeMetrics, isPending: empLoading, error: empError, refetch: refetchEmp } = useQuery({
     queryKey: ['analytics-employee', user?.id],
     queryFn: () => analyticsApi.getEmployeeMetrics(),
     enabled: tab === 'employee',
     retry: 1,
   });
 
-  const { data: reviewerMetrics, isLoading: revLoading, error: revError } = useQuery({
+  const { data: reviewerMetrics, isPending: revLoading, error: revError, refetch: refetchRev } = useQuery({
     queryKey: ['analytics-reviewer', user?.id],
     queryFn: () => analyticsApi.getReviewerMetrics(),
     enabled: tab === 'reviewer',
     retry: 1,
   });
 
-  const { data: managerMetrics, isLoading: mgrLoading, error: mgrError } = useQuery({
+  const { data: managerMetrics, isPending: mgrLoading, error: mgrError, refetch: refetchMgr } = useQuery({
     queryKey: ['analytics-manager'],
     queryFn: () => analyticsApi.getManagerMetrics(),
     enabled: tab === 'manager' && isManagerPlus,
     retry: 1,
   });
 
-  const { data: slaAnalytics, isLoading: slaLoading, error: slaError } = useQuery({
+  const { data: slaAnalytics, isPending: slaLoading, error: slaError, refetch: refetchSla } = useQuery({
     queryKey: ['analytics-sla'],
     queryFn: () => analyticsApi.getSlaAnalytics(),
     enabled: tab === 'sla',
     retry: 1,
   });
 
-  const { data: reworkAnalytics, isLoading: reworkLoading, error: reworkError } = useQuery({
+  const { data: reworkAnalytics, isPending: reworkLoading, error: reworkError, refetch: refetchRework } = useQuery({
     queryKey: ['analytics-rework'],
     queryFn: () => analyticsApi.getReworkAnalytics(),
     enabled: tab === 'rework',
@@ -254,9 +258,14 @@ export default function AnalyticsScreen() {
   });
 
   // ── Legacy stats ──────────────────────────────────────────────────────────────
+  // Totals straight from the API (every status in the caller's scope). The
+  // card used to add up only Open + In Progress + Done, so Review, Closed and
+  // Pending Approval tickets were missing from "Total", and Closed from
+  // "Resolved".
   const stats  = (overview as any)?.stats ?? {};
-  const total  = (stats.openTickets ?? 0) + (stats.inProgressTickets ?? 0) + (stats.doneTickets ?? 0);
-  const resRate = total > 0 ? Math.round(((stats.doneTickets ?? 0) / total) * 100) : 0;
+  const total: number = stats.totalTickets ?? 0;
+  const resolved: number = (stats.doneTickets ?? 0) + (stats.closedTickets ?? 0);
+  const resRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
   const tickets: any[] = (allTickets as any)?.tickets ?? [];
 
   function computePeriodTrend(data: any[] | undefined, field: 'created' | 'resolved'): number | undefined {
@@ -365,12 +374,23 @@ export default function AnalyticsScreen() {
           </div>
 
           {/* Stat cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <LegacyStatCard label="Total Tickets" value={total} trend={createdTrend} />
-            <LegacyStatCard label="Resolved" value={stats.doneTickets ?? 0} trend={resolvedTrend} />
-            <LegacyStatCard label="Resolution Rate" value={`${resRate}%`} />
-            <LegacyStatCard label="Overdue" value={stats.overdueTickets ?? 0} />
-          </div>
+          {overviewError ? (
+            <SectionError message="Ticket totals could not be loaded." onRetry={() => refetchOverview()} />
+          ) : overviewLoading ? (
+            <SkeletonGrid cols={4} count={4} />
+          ) : (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <LegacyStatCard label="Total Tickets" value={total} sub="All statuses, all time" trend={createdTrend} />
+              <LegacyStatCard label="Resolved" value={resolved} sub="Done + Closed, all time" trend={resolvedTrend} />
+              <LegacyStatCard label="Resolution Rate" value={`${resRate}%`} sub="Resolved ÷ total" />
+              <LegacyStatCard label="Overdue" value={stats.overdueTickets ?? 0} sub="Open work past its due time now" />
+            </div>
+          )}
+          {(createdTrend !== undefined || resolvedTrend !== undefined) && (
+            <p className="text-[11px] -mt-3" style={{ color: 'var(--text-tertiary)' }}>
+              Arrows compare the second half of the selected {days} days with the first half.
+            </p>
+          )}
 
           {/* Trend chart */}
           <div className="apex-card p-5">
@@ -381,7 +401,9 @@ export default function AnalyticsScreen() {
                 <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-green-500 inline-block" /> Resolved</span>
               </div>
             </div>
-            {trendLoading ? <Skeleton className="h-48 w-full rounded-lg" /> : <TicketTrendChart data={(trend as any) ?? []} />}
+            {trendError ? (
+              <SectionError message="The ticket trend could not be loaded." onRetry={() => refetchTrend()} />
+            ) : trendLoading ? <Skeleton className="h-48 w-full rounded-lg" /> : <TicketTrendChart data={(trend as any) ?? []} />}
           </div>
 
           {/* Category + Workload */}
@@ -477,17 +499,19 @@ export default function AnalyticsScreen() {
           </div>
 
           {ccError ? (
-            <SectionError message={(ccError as any)?.message} />
+            <SectionError message={(ccError as any)?.message} onRetry={() => refetchCc()} />
           ) : ccLoading ? (
             <SkeletonGrid cols={4} count={4} />
           ) : !commandCenter ? (
             <SectionEmpty message="No command center data." />
           ) : (
+            <>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Right now</p>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard
                 label="Active Work"
                 value={(commandCenter as any).activeWork ?? 0}
-                sub="Tickets in progress during this period"
+                sub="Tickets in progress now"
                 icon={<Activity size={16} />}
                 color="blue"
               />
@@ -508,15 +532,35 @@ export default function AnalyticsScreen() {
               <MetricCard
                 label="Pending Approvals"
                 value={(commandCenter as any).pendingApprovals ?? 0}
-                sub="Leave requests pending manager action"
+                sub="Leave requests in your scope waiting for a decision"
                 icon={<CheckCircle size={16} />}
                 color={(commandCenter as any).pendingApprovals > 0 ? 'amber' : 'slate'}
               />
             </div>
+            <p className="text-xs font-semibold uppercase tracking-wide pt-1" style={{ color: 'var(--text-secondary)' }}>
+              In the selected period (from company midnight)
+            </p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <MetricCard
+                label="Created"
+                value={(commandCenter as any).createdInPeriod ?? 0}
+                sub="Tickets created in this period"
+                icon={<Activity size={16} />}
+                color="blue"
+              />
+              <MetricCard
+                label="Completed"
+                value={(commandCenter as any).completedInPeriod ?? 0}
+                sub="Tickets done or closed in this period"
+                icon={<CheckCircle size={16} />}
+                color="green"
+              />
+            </div>
+            </>
           )}
 
           <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-            Command Center reflects tickets within your access scope for the selected period.
+            Every count is limited to the tickets and leave requests you can see. "Right now" counts do not change with the period.
           </p>
         </div>
       )}
@@ -524,17 +568,18 @@ export default function AnalyticsScreen() {
       {/* ── TAB: EMPLOYEE PRODUCTIVITY ─────────────────────────────────────────── */}
       {tab === 'employee' && (
         <div className="space-y-5">
-          <div>
+          <ProductivityPanel />
+          <div className="pt-2">
             <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Your Productivity Metrics
+              Your all-time summary
             </h2>
             <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-              Based on logged work time — pauses, breaks, and logged-out periods are excluded from productive hours.
+              Your own tickets since you joined. Productive time excludes pauses, breaks and logged-out periods.
             </p>
           </div>
 
           {empError ? (
-            <SectionError message={(empError as any)?.message} />
+            <SectionError message={(empError as any)?.message} onRetry={() => refetchEmp()} />
           ) : empLoading ? (
             <SkeletonGrid cols={4} count={7} />
           ) : !employeeMetrics ? (
@@ -583,7 +628,7 @@ export default function AnalyticsScreen() {
                 <MetricCard
                   label="Review Acceptance"
                   value={fmtPct((employeeMetrics as any).reviewAcceptancePercent)}
-                  sub="% of review cycles approved first time"
+                  sub="% of review decisions on your work that were approvals"
                   icon={<CheckCircle size={16} />}
                   color={(employeeMetrics as any).reviewAcceptancePercent >= 70 ? 'green' : 'amber'}
                 />
@@ -620,7 +665,7 @@ export default function AnalyticsScreen() {
           </div>
 
           {revError ? (
-            <SectionError message={(revError as any)?.message} />
+            <SectionError message={(revError as any)?.message} onRetry={() => refetchRev()} />
           ) : revLoading ? (
             <SkeletonGrid cols={3} count={6} />
           ) : !reviewerMetrics ? (
@@ -723,7 +768,7 @@ export default function AnalyticsScreen() {
               </div>
 
               {mgrError ? (
-                <SectionError message={(mgrError as any)?.message} />
+                <SectionError message={(mgrError as any)?.message} onRetry={() => refetchMgr()} />
               ) : mgrLoading ? (
                 <SkeletonGrid cols={4} count={4} />
               ) : !managerMetrics ? (
@@ -761,6 +806,15 @@ export default function AnalyticsScreen() {
                     />
                   </div>
 
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <MetricCard
+                      label="Avg. Review Turnaround"
+                      value={(managerMetrics as any).averageTurnaroundTime == null ? '—' : fmtSeconds((managerMetrics as any).averageTurnaroundTime)}
+                      sub={(managerMetrics as any).averageTurnaroundTime == null ? 'No decided reviews yet' : 'Submission to decision, these departments'}
+                      icon={<Clock size={16} />}
+                      color="purple"
+                    />
+                  </div>
                   {/* Rankings */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div className="apex-card p-5 space-y-3">
@@ -783,7 +837,7 @@ export default function AnalyticsScreen() {
                         </div>
                       ) : (
                         <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                          No ranking data yet — scoring algorithm pending.
+                          Not available: Apex OS has no approved scoring model for rankings yet. Use the Productivity tab for per-employee figures.
                         </p>
                       )}
                     </div>
@@ -808,7 +862,7 @@ export default function AnalyticsScreen() {
                         </div>
                       ) : (
                         <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                          No ranking data yet — scoring algorithm pending.
+                          Not available: Apex OS has no approved scoring model for rankings yet. Use the Productivity tab for per-employee figures.
                         </p>
                       )}
                     </div>
@@ -828,12 +882,12 @@ export default function AnalyticsScreen() {
               SLA Analytics
             </h2>
             <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-              Calculated from logged work duration, not raw wall-clock time — breaks and logged-out periods are excluded.
+              Completed tickets in your scope, judged on the SLA clock: when the work was first submitted (or completed) against its execution due time.
             </p>
           </div>
 
           {slaError ? (
-            <SectionError message={(slaError as any)?.message} />
+            <SectionError message={(slaError as any)?.message} onRetry={() => refetchSla()} />
           ) : slaLoading ? (
             <SkeletonGrid cols={4} count={4} />
           ) : !slaAnalytics ? (
@@ -844,28 +898,28 @@ export default function AnalyticsScreen() {
                 <MetricCard
                   label="On Time"
                   value={fmtPct((slaAnalytics as any).onTimePercent)}
-                  sub="Tickets completed within SLA limit"
+                  sub={`${(slaAnalytics as any).onTimeCount ?? 0} of ${(slaAnalytics as any).measuredTickets ?? 0} delivered by their due time`}
                   icon={<CheckCircle size={16} />}
                   color={(slaAnalytics as any).onTimePercent >= 80 ? 'green' : 'amber'}
                 />
                 <MetricCard
                   label="Overdue"
                   value={fmtPct((slaAnalytics as any).overduePercent)}
-                  sub="Tickets that exceeded SLA limit"
+                  sub="Delivered after their due time"
                   icon={<AlertTriangle size={16} />}
                   color={(slaAnalytics as any).overduePercent > 20 ? 'red' : 'slate'}
                 />
                 <MetricCard
                   label="SLA Breaches"
                   value={(slaAnalytics as any).slaBreaches ?? 0}
-                  sub="Total tickets that exceeded SLA"
+                  sub={`Not measured (no due time): ${(slaAnalytics as any).noDueBasis ?? 0}`}
                   icon={<AlertTriangle size={16} />}
                   color={(slaAnalytics as any).slaBreaches > 0 ? 'red' : 'green'}
                 />
                 <MetricCard
                   label="Avg. Delay"
                   value={fmtSeconds((slaAnalytics as any).averageDelaySeconds)}
-                  sub="Average excess work time for overdue tickets"
+                  sub="Average lateness of late deliveries"
                   icon={<Clock size={16} />}
                   color="amber"
                 />
@@ -877,9 +931,11 @@ export default function AnalyticsScreen() {
                   How SLA is measured in Apex OS
                 </p>
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  SLA is calculated using the ledger-based timer system. Only active work time
-                  (while the user is WORKING) is counted. Time spent on breaks, idle, or logged out
-                  does not contribute to SLA usage — giving a fairer picture of team performance.
+                  The SLA is a wall-clock deadline: the execution due time set on the ticket (or start time plus
+                  its estimate, its due date, or the priority SLA hours, in that order). A ticket is on time when it
+                  was first submitted for review (or completed) by then. Productive work time is reported separately
+                  on the Productivity tab and does not decide SLA. Open tickets past due right now:{' '}
+                  <strong>{(slaAnalytics as any).currentlyOverdue ?? 0}</strong>.
                 </p>
               </div>
             </>
@@ -900,7 +956,7 @@ export default function AnalyticsScreen() {
           </div>
 
           {reworkError ? (
-            <SectionError message={(reworkError as any)?.message} />
+            <SectionError message={(reworkError as any)?.message} onRetry={() => refetchRework()} />
           ) : reworkLoading ? (
             <SkeletonGrid cols={3} count={3} />
           ) : !reworkAnalytics ? (
@@ -911,7 +967,7 @@ export default function AnalyticsScreen() {
                 <MetricCard
                   label="Total Reworks"
                   value={(reworkAnalytics as any).reworkCount ?? 0}
-                  sub="Total rework cycles across all tickets"
+                  sub="Rework rounds on tickets in your scope"
                   icon={<RotateCcw size={16} />}
                   color={(reworkAnalytics as any).reworkCount > 0 ? 'amber' : 'slate'}
                 />
@@ -950,12 +1006,12 @@ export default function AnalyticsScreen() {
                       {(reworkAnalytics as any).mostReworkedEmployees.map((e: any, i: number) => (
                         <div key={e.userId ?? i} className="flex justify-between text-sm">
                           <span style={{ color: 'var(--text-primary)' }}>{e.name ?? e.userId}</span>
-                          <span className="font-semibold text-amber-600">{e.count} reworks</span>
+                          <span className="font-semibold text-amber-600">{e.count} rework{e.count === 1 ? '' : 's'}</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>No rework data yet.</p>
+                    <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>No rework decisions in your scope.</p>
                   )}
                 </div>
 
@@ -969,12 +1025,12 @@ export default function AnalyticsScreen() {
                       {(reworkAnalytics as any).mostReworkedTicketTypes.map((t: any, i: number) => (
                         <div key={t.typeId ?? i} className="flex justify-between text-sm">
                           <span style={{ color: 'var(--text-primary)' }}>{t.name ?? t.typeId}</span>
-                          <span className="font-semibold text-amber-600">{t.count} reworks</span>
+                          <span className="font-semibold text-amber-600">{t.count} rework{t.count === 1 ? '' : 's'}</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>No rework data yet.</p>
+                    <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>No rework decisions in your scope.</p>
                   )}
                 </div>
               </div>

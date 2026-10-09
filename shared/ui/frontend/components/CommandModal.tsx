@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -41,9 +42,31 @@ export function CommandModal({
 }: CommandModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const titleId = useId();
 
   // Support both `open` and legacy `isOpen`
   const isVisible = open ?? isOpen ?? false;
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // While open: the page behind cannot scroll (the dashboard scrolls inside
+  // <main>, the rest of the app on <body>), and on close focus returns to
+  // whatever opened the popup.
+  useEffect(() => {
+    if (!isVisible) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const main = document.getElementById('apex-main-content');
+    const prevBody = document.body.style.overflow;
+    const prevMain = main?.style.overflow ?? '';
+    document.body.style.overflow = 'hidden';
+    if (main) main.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevBody;
+      if (main) main.style.overflow = prevMain;
+      if (opener && document.contains(opener)) opener.focus();
+    };
+  }, [isVisible]);
 
   // Check and register window matchMedia for mobile layout (under 640px)
   useEffect(() => {
@@ -73,35 +96,34 @@ export function CommandModal({
     const modalEl = modalRef.current;
     if (!modalEl) return;
 
-    const timer = setTimeout(() => {
-      const focusableElements = modalEl.querySelectorAll(focusableElementsString);
-      if (focusableElements.length === 0) return;
+    // The trap listener is registered once per opening and always removed on
+    // close. (It used to be added inside a timeout whose cleanup was thrown
+    // away, so every opening left one more listener behind.)
+    const focusables = () => Array.from(modalEl.querySelectorAll<HTMLElement>(focusableElementsString));
+    const handleTabTrap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const firstTabEl = items[0];
+      const lastTabEl = items[items.length - 1];
+      if (!modalEl.contains(document.activeElement)) {
+        firstTabEl.focus();
+        e.preventDefault();
+      } else if (e.shiftKey && document.activeElement === firstTabEl) {
+        lastTabEl.focus();
+        e.preventDefault();
+      } else if (!e.shiftKey && document.activeElement === lastTabEl) {
+        firstTabEl.focus();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handleTabTrap);
+    const timer = setTimeout(() => focusables()[0]?.focus(), 50);
 
-      const firstTabEl = focusableElements[0] as HTMLElement;
-      const lastTabEl = focusableElements[focusableElements.length - 1] as HTMLElement;
-
-      firstTabEl.focus();
-
-      const handleTabTrap = (e: KeyboardEvent) => {
-        if (e.key !== 'Tab') return;
-        if (e.shiftKey) {
-          if (document.activeElement === firstTabEl) {
-            lastTabEl.focus();
-            e.preventDefault();
-          }
-        } else {
-          if (document.activeElement === lastTabEl) {
-            firstTabEl.focus();
-            e.preventDefault();
-          }
-        }
-      };
-
-      window.addEventListener('keydown', handleTabTrap);
-      return () => window.removeEventListener('keydown', handleTabTrap);
-    }, 50);
-
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', handleTabTrap);
+    };
   }, [isVisible]);
 
   // Handle click outside modal content
@@ -126,11 +148,18 @@ export function CommandModal({
         transition: { duration: 0.22, type: 'tween' as const },
       };
 
-  return (
+  // Rendered into <body>: a transformed ancestor (the dashboard's fade-in
+  // animation keeps a transform) made "fixed" position relative to the page
+  // content box, so the popup and its backdrop sat inside the content area
+  // instead of over the whole screen.
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
       {isVisible && (
         <div
-          className={`fixed inset-0 z-50 flex select-none ${
+          // z-[300]: above the Quick Action dock (z 200), which otherwise sat on top of the popup.
+          className={`fixed inset-0 z-[300] flex select-none ${
             isMobile ? 'items-end justify-center p-0' : 'items-center justify-center p-4 md:p-6'
           }`}
         >
@@ -147,6 +176,9 @@ export function CommandModal({
           {/* Modal / Bottom Sheet Container */}
           <motion.div
             ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             {...motionConfig}
             className={`apex-section-border relative bg-white dark:bg-[#0F172A] shadow-[0_20px_50px_rgba(11,18,32,0.3)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col border z-10 ${
               isMobile
@@ -168,7 +200,7 @@ export function CommandModal({
             <div className="bg-[#0B1220] px-6 py-4 flex items-center justify-between border-b border-slate-900 shrink-0 text-white">
               <div className="flex items-center gap-2.5">
                 <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
-                <h3 className="font-sans font-bold text-sm uppercase tracking-wider text-slate-100">
+                <h3 id={titleId} className="font-sans font-bold text-sm uppercase tracking-wider text-slate-100">
                   {title}
                 </h3>
               </div>
@@ -244,7 +276,8 @@ export function CommandModal({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 

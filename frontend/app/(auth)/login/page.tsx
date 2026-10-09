@@ -54,7 +54,18 @@ function LoginForm() {
         router.push('/dashboard');
       }
     } catch (err: any) {
-      toast.error(err?.message || 'Invalid credentials');
+      // Safe, specific messages: the server's own text for a rejected sign-in,
+      // never a raw transport error.
+      const code = err?.statusCode ?? err?.status;
+      if (code === 429) {
+        toast.error('Too many sign-in attempts. Please wait a few minutes and try again.');
+      } else if (err?.isAxiosError && !err?.response) {
+        toast.error('Cannot reach Apex OS right now. Check your connection and try again.');
+      } else if (typeof code === 'number' && code >= 500) {
+        toast.error('Sign-in is temporarily unavailable. Please try again shortly.');
+      } else {
+        toast.error(err?.message || 'Invalid credentials');
+      }
     } finally {
       setLoading(false);
     }

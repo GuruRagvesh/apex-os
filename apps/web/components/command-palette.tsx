@@ -8,6 +8,7 @@ import { projectsApi } from '@apex/operations-projects/api';
 import { usersApi } from '@apex/core-users/api';
 import { Search, Ticket, FolderKanban, Users, ArrowRight, X } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
+import { searchOutcome } from './global-search-state';
 
 interface SearchResult {
   id:       string;
@@ -48,19 +49,26 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [cursor,  setCursor]  = useState(0);
+  // A search whose requests failed is "unavailable", never "no results".
+  const [failed,  setFailed]  = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   const inputRef    = useRef<HTMLInputElement>(null);
   const listRef     = useRef<HTMLUListElement>(null);
   const debouncedQ  = useDebounce(query, 300);
 
-  // Focus input when palette opens
+  // Focus input when palette opens; give focus back to the opener on close.
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-      setQuery('');
-      setResults([]);
-      setCursor(0);
-    }
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    setTimeout(() => inputRef.current?.focus(), 50);
+    setQuery('');
+    setResults([]);
+    setCursor(0);
+    setFailed(false);
+    return () => {
+      if (opener && document.contains(opener)) opener.focus();
+    };
   }, [open]);
 
   // Keyboard shortcut: Ctrl+K / Cmd+K handled by parent; Escape closes
@@ -75,10 +83,11 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   // Search
   useEffect(() => {
-    if (!debouncedQ.trim()) { setResults([]); setLoading(false); return; }
+    if (!debouncedQ.trim()) { setResults([]); setLoading(false); setFailed(false); return; }
 
     let cancelled = false;
     setLoading(true);
+    setFailed(false);
 
     const run = async () => {
       try {
@@ -91,6 +100,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         ]);
 
         if (cancelled) return;
+
+        // Every source this user may search failed: say so, offer a retry.
+        const sources = canSearchPeople ? [ticketRes, projectRes, peopleRes] : [ticketRes, projectRes];
+        if (searchOutcome(sources, 0) === 'unavailable') {
+          setResults([]);
+          setFailed(true);
+          return;
+        }
 
         const out: SearchResult[] = [];
 
@@ -148,7 +165,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         setResults(out);
         setCursor(0);
       } catch {
-        // silently ignore
+        if (!cancelled) { setResults([]); setFailed(true); }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -156,7 +173,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
     run();
     return () => { cancelled = true; };
-  }, [debouncedQ, canSearchPeople]);
+  }, [debouncedQ, canSearchPeople, attempt]);
 
   // Arrow-key navigation + Enter
   const handleKeyDown = useCallback(
@@ -196,6 +213,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   return (
     /* Overlay */
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Global search"
       className="fixed inset-0 z-[9999] flex items-start justify-center pt-[12vh] px-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       style={{ background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)' }}
@@ -212,7 +232,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search tickets, projects, people…"
+            placeholder={canSearchPeople ? 'Search tickets, projects, people…' : 'Search tickets and projects…'}
+            aria-label="Search"
             className="flex-1 text-sm text-slate-800 placeholder:text-slate-400 outline-none bg-transparent"
           />
           {loading && (
@@ -220,6 +241,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           )}
           <button
             onClick={onClose}
+            aria-label="Close search"
             className="flex-shrink-0 text-slate-400 hover:text-slate-600 transition-colors"
           >
             <X size={16} />
@@ -231,11 +253,23 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           {!query.trim() && (
             <div className="py-10 text-center text-sm text-slate-400">
               <Search size={32} className="mx-auto mb-3 opacity-30" />
-              Type to search across tickets, projects and people
+              {canSearchPeople ? 'Type to search across tickets, projects and people' : 'Type to search your tickets and projects'}
             </div>
           )}
 
-          {query.trim() && !loading && results.length === 0 && (
+          {query.trim() && !loading && failed && (
+            <div className="py-10 text-center text-sm text-slate-500" role="alert">
+              Search is unavailable right now.
+              <button
+                onClick={() => setAttempt((n) => n + 1)}
+                className="block mx-auto mt-2 text-xs font-semibold text-blue-600 hover:underline"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {query.trim() && !loading && !failed && results.length === 0 && (
             <div className="py-10 text-center text-sm text-slate-400">
               <span className="text-2xl block mb-2">🔍</span>
               No results for <strong className="text-slate-600">"{query}"</strong>
