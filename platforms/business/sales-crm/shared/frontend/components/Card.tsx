@@ -1,7 +1,7 @@
 export function Card({ children, className = '', style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
   return (
     <div
-      className={`rounded-2xl border ${className}`}
+      className={`apex-section-border rounded-2xl border ${className}`}
       style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', ...style }}
     >
       {children}

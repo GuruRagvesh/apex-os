@@ -67,7 +67,7 @@ export default function LeavesApprover({
           pendingRequestList.map((req) => (
             <div
               key={req.id}
-              className="p-4 bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800/80 rounded-xl space-y-4 hover:shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition-all group"
+              className="apex-section-border p-4 bg-white dark:bg-slate-900/40 border rounded-xl space-y-4 hover:shadow-sm hover:border-blue-400 dark:hover:border-slate-200 transition-all group"
             >
               {/* Header info */}
               <div className="flex items-center justify-between">

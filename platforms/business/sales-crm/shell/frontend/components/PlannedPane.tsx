@@ -19,7 +19,7 @@ export function PlannedPane({ icon, title, description, note }: { icon: React.Re
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className="rounded-2xl overflow-hidden border p-8"
+      className="apex-section-border rounded-2xl overflow-hidden border p-8"
       style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
     >
       <div className="flex items-start gap-4 mb-5">
