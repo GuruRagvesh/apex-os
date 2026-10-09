@@ -30,7 +30,7 @@ import { api, unwrap as r } from '@apex/shared-auth';
 export const teamsApi = {
   getAll: (departmentId?: string) => r(api.get('/teams', { params: departmentId ? { departmentId } : undefined })),
   getOne: (id: string) => r(api.get(`/teams/${id}`)),
-  create: (data: { name: string; departmentId: string; teamLeadId?: string }) => r(api.post('/teams', data)),
+  create: (data: { name: string; departmentId: string; teamLeadId?: string; memberIds?: string[] }) => r(api.post('/teams', data)),
   update: (id: string, data: { name?: string; teamLeadId?: string | null }) => r(api.patch(`/teams/${id}`, data)),
   remove: (id: string) => r(api.delete(`/teams/${id}`)),
   addMember: (id: string, data: { userId: string; role?: string }) => r(api.post(`/teams/${id}/members`, data)),

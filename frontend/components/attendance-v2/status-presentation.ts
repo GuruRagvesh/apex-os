@@ -66,21 +66,21 @@ export interface StatusPresentation {
  * yet.
  */
 const OUTCOME_PRESENTATION: Record<AttendanceOutcome, StatusPresentation> = {
-  PRESENT: { label: 'Present', shortLabel: 'Present', color: '#15803D', tint: '#DCFCE7', glyph: '●' },
+  PRESENT: { label: 'Present', shortLabel: 'Present', color: '#00B954', tint: '#EFFDF4', glyph: '✓' },
   HALF_DAY: { label: 'Half day', shortLabel: 'Half', color: '#7E22CE', tint: '#F3E8FF', glyph: '◐' },
   ABSENT: { label: 'Absent', shortLabel: 'Absent', color: '#B91C1C', tint: '#FEE2E2', glyph: '✕' },
   LEAVE: { label: 'Leave', shortLabel: 'Leave', color: '#0C7FB8', tint: '#E0F2FE', glyph: '✈' },
   // Backend keeps LWP; employees should not have to decode an acronym.
   LWP: {
-    label: 'Unpaid Leave (LWP)',
+    label: 'Unpaid leave',
     shortLabel: 'Unpaid',
-    color: '#9A3412',
-    tint: '#FFEDD5',
+    color: '#0C7FB8',
+    tint: '#E0F2FE',
     glyph: '✈',
   },
-  HOLIDAY: { label: 'Holiday', shortLabel: 'Holiday', color: '#A16207', tint: '#FEF9C3', glyph: '★' },
-  WEEKLY_OFF: { label: 'Weekly off', shortLabel: 'Off', color: '#52525B', tint: '#F4F4F5', glyph: '—' },
-  EXEMPT: { label: 'Not applicable', shortLabel: 'N/A', color: '#52525B', tint: '#F4F4F5', glyph: '—' },
+  HOLIDAY: { label: 'Holiday', shortLabel: 'Holiday', color: '#EEAF00', tint: '#FFFAEE', glyph: '★' },
+  WEEKLY_OFF: { label: 'Weekly off', shortLabel: 'Off', color: '#8493B0', tint: '#F6F8FC', glyph: '⊖' },
+  EXEMPT: { label: 'Not applicable', shortLabel: 'N/A', color: '#8493B0', tint: '#F6F8FC', glyph: '⊖' },
   IN_PROGRESS: {
     label: 'Working',
     shortLabel: 'Working',
@@ -88,7 +88,7 @@ const OUTCOME_PRESENTATION: Record<AttendanceOutcome, StatusPresentation> = {
     tint: BRAND.paleBlue,
     glyph: '◉',
   },
-  UNRESOLVED: { label: 'Needs review', shortLabel: 'Review', color: '#1F2937', tint: '#FEF3C7', glyph: '!' },
+  UNRESOLVED: { label: 'Needs review', shortLabel: 'Review', color: '#1F2937', tint: '#F5F7FB', glyph: '⚠' },
 };
 
 /** A day with no evaluation. Neutral, and never mistakable for a verdict. */
@@ -130,7 +130,7 @@ const MODIFIER_LABEL: Record<AttendanceModifier, string> = {
   INSUFFICIENT_EFFECTIVE_WORK: 'Short effective work',
   BREAK_EXCEEDS_ALLOWANCE: 'Break over allowance',
   AUTO_CLOSED: 'Closed by system',
-  REGULARIZED: 'Corrected',
+  REGULARIZED: 'Regularized',
   WORKED_ON_HOLIDAY: 'Worked on holiday',
   WORKED_ON_WEEKLY_OFF: 'Worked on weekly off',
 };
@@ -140,15 +140,12 @@ export function modifierLabel(m: AttendanceModifier): string {
 }
 
 /**
- * Which modifiers carry a semantic colour of their own.
- *
- * The approved palette assigns orange to Late and to short hours, so those read
- * as the attendance facts they are. Everything else — corrected, auto-closed,
- * worked on a holiday — is provenance rather than a shortfall, and takes
- * neutral chrome. Tinting all nine would turn the card into a traffic light and
- * cost the two that matter their emphasis.
+ * Late and short-hours modifiers use orange. Regularization uses a green badge;
+ * it never changes the canonical outcome's base color.
  */
 const MODIFIER_TONE: Partial<Record<AttendanceModifier, { color: string; tint: string }>> = {
+  REGULARIZED: { color: '#098C40', tint: '#E7FFF0' },
+  LATE_EXEMPTED: { color: '#E56600', tint: '#FFF7EF' },
   LATE: { color: '#C2410C', tint: '#FFEDD5' },
   INSUFFICIENT_PRESENCE: { color: '#C2410C', tint: '#FFEDD5' },
   INSUFFICIENT_EFFECTIVE_WORK: { color: '#C2410C', tint: '#FFEDD5' },
@@ -252,13 +249,13 @@ export function formatTime(iso: string | null): string {
   if (!iso) return UNKNOWN_FIGURE;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return UNKNOWN_FIGURE;
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 }
 
 export function formatLongDate(date: string): string {
   const d = new Date(`${date}T00:00:00`);
   if (Number.isNaN(d.getTime())) return date;
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString('en-US', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -268,10 +265,21 @@ export function formatLongDate(date: string): string {
 
 export function monthLabel(year: number, month: number): string {
   const d = new Date(Date.UTC(year, month - 1, 1));
-  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
 /** Whether the backend declared a named field unanswerable. */
 export function isUnavailable(day: MyAttendanceDayV2, field: string): boolean {
   return day.unavailable.some((u) => u.field === field);
+}
+
+/** Presentation of explicit server modifiers; never derives an attendance verdict. */
+export function presentDay(day: MyAttendanceDayV2): StatusPresentation {
+  if (day.isInProgress) return presentOutcome('IN_PROGRESS');
+  const base = presentOutcome(day.outcome);
+  if (day.outcome !== 'PRESENT') return base;
+  const label = day.modifiers.includes('LATE_EXEMPTED') ? 'Late (exempted)'
+    : day.modifiers.includes('LATE') ? 'Late'
+    : day.modifiers.includes('INSUFFICIENT_PRESENCE') || day.modifiers.includes('INSUFFICIENT_EFFECTIVE_WORK') ? 'Short hours' : null;
+  return label ? { ...base, label, shortLabel: label, color: '#F07500', tint: '#FFF7EF', glyph: '◷' } : base;
 }

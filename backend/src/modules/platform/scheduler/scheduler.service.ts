@@ -30,6 +30,11 @@ export class SchedulerService {
   ) {}
 
   private async sendScheduleNotification(ticket: any, prefix: string) {
+    const occurrenceDate = formatInTimeZone(
+      this.tva.now(),
+      this.tva.companyTimezone(),
+      'yyyy-MM-dd',
+    );
     const recipientIds = new Set<string>();
     if (ticket.assignedTo?.id) recipientIds.add(ticket.assignedTo.id);
     for (const a of ticket.assignees ?? []) {
@@ -37,24 +42,46 @@ export class SchedulerService {
     }
     for (const uid of recipientIds) {
       try {
-        await this.prisma.notification.create({
-          data: {
-            userId: uid,
+        await this.notificationEventService.sendNotification(uid, 'statusChanged', {
             title: `${prefix} reminder`,
             message: `Ticket ${ticket.ticketId}: ${ticket.title}`,
             type: NotificationType.INFO,
-            isRead: false,
             link: `/tickets/${ticket.id}`,
             entityId: ticket.id,
             entityType: 'TICKET',
-          },
-        });
-        this.gateway.emitNotificationToUser(uid, {
-          title: `${prefix} reminder`,
-          message: `${ticket.ticketId}: ${ticket.title}`,
+            // Cron catch-up can see the same ticket more than once in an hour.
+            // The company date prevents duplicates while allowing the next
+            // daily/weekly/monthly occurrence to notify again.
+            dedupeKey: `scheduled-ticket:${ticket.id}:${prefix}:${occurrenceDate}`,
         });
       } catch (err) {
         this.logger.error(`[scheduler] Failed to notify user ${uid}: ${err}`);
+      }
+    }
+  }
+
+  /** Server-owned planned-break reminders; works even when the initiating tab is backgrounded. */
+  @Cron('* * * * *', { name: 'planned-break-overrun-reminders' })
+  async plannedBreakOverrunReminders() {
+    const now = this.tva.now();
+    const overdueBreaks = await this.prisma.breakLog.findMany({
+      where: { endAt: null, plannedEndAt: { not: null, lte: now } },
+      select: { id: true, userId: true, breakType: true, plannedEndAt: true },
+      take: 500,
+    });
+    for (const breakLog of overdueBreaks) {
+      try {
+        await this.notificationEventService.sendNotification(breakLog.userId, 'breakOverrun', {
+          title: 'Your planned break has ended',
+          message: 'You are still on break. Resume work when you are ready.',
+          type: NotificationType.WARNING,
+          link: '/dashboard',
+          entityType: 'BREAK',
+          entityId: breakLog.id,
+          dedupeKey: `break-overrun:${breakLog.id}`,
+        });
+      } catch (error) {
+        this.logger.error(`[scheduler] Planned-break reminder failed for ${breakLog.id}: ${error}`);
       }
     }
   }
@@ -303,29 +330,55 @@ export class SchedulerService {
     }
   }
 
-  // 2. WORKDAY END REMINDER — 6:30 PM Mon-Sat, COMPANY time. The message it
-  // sends names 9:30 AM-6:30 PM explicitly, so the intended zone is not in
-  // doubt; on a UTC host it was arriving at midnight IST.
-  @Cron('30 18 * * 1-6', { timeZone: COMPANY_CRON_TIMEZONE })
+  // 2a. WORKDAY START REMINDER — every 15 minutes for 90 minutes after 9:30.
+  @Cron('*/15 9-11 * * 1-6', { timeZone: COMPANY_CRON_TIMEZONE })
+  async workdayStartReminder() {
+    const now = this.tva.now();
+    const timezone = this.tva.companyTimezone();
+    const minutes = Number(formatInTimeZone(now, timezone, 'H')) * 60 + Number(formatInTimeZone(now, timezone, 'm'));
+    if (minutes < 570 || minutes > 660) return;
+    const dateKey = formatInTimeZone(now, timezone, 'yyyy-MM-dd');
+    const today = this.tva.companyDateOnly();
+    const [users, sessions] = await Promise.all([
+      this.prisma.user.findMany({ where: { isActive: true, currentStatus: { not: 'ON_LEAVE' } }, select: { id: true } }),
+      this.prisma.workSession.findMany({ where: { date: today }, select: { userId: true, startWorkAt: true, status: true } }),
+    ]);
+    const started = new Set(sessions.filter((session) => session.startWorkAt || session.status === 'ON_LEAVE').map((session) => session.userId));
+    for (const user of users) {
+      if (started.has(user.id)) continue;
+      await this.notificationEventService.sendNotification(user.id, 'workdayStart', {
+        title: 'Start your workday',
+        message: 'Your shift has started — log in to begin tracking your workday.',
+        type: NotificationType.INFO,
+        link: '/dashboard',
+        entityType: 'WORKDAY',
+        entityId: dateKey,
+        dedupeKey: `workday-start:${dateKey}`,
+      });
+    }
+  }
+
+  // 2b. WORKDAY END REMINDER — every 15 minutes for 90 minutes after 6:30 PM.
+  @Cron('*/15 18-20 * * 1-6', { timeZone: COMPANY_CRON_TIMEZONE })
   async workdayEndReminder() {
+    const now = this.tva.now();
+    const timezone = this.tva.companyTimezone();
+    const minutes = Number(formatInTimeZone(now, timezone, 'H')) * 60 + Number(formatInTimeZone(now, timezone, 'm'));
+    if (minutes < 1110 || minutes > 1200) return;
+    const dateKey = formatInTimeZone(now, timezone, 'yyyy-MM-dd');
     const stillWorking = await this.prisma.user.findMany({
       where: { currentStatus: { in: ['WORKING', 'ON_BREAK', 'IDLE'] }, isActive: true },
     });
 
     for (const user of stillWorking) {
-      await this.prisma.notification.create({
-        data: {
-          userId: user.id,
+      await this.notificationEventService.sendNotification(user.id, 'workdayEnd', {
           title: 'End your workday',
           message: 'Official work hours (9:30 AM – 6:30 PM) are over. Remember to end your workday.',
           type: NotificationType.INFO,
-          isRead: false,
           link: '/dashboard',
-        },
-      });
-      this.gateway.server?.to(`user:${user.id}`).emit('notification:new', {
-        title: 'End your workday',
-        message: 'Official work hours are over.',
+          entityType: 'WORKDAY',
+          entityId: dateKey,
+          dedupeKey: `workday-end:${dateKey}`,
       });
     }
     console.log(`[Scheduler] Workday end reminder sent to ${stillWorking.length} users.`);

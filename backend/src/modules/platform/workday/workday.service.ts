@@ -601,6 +601,15 @@ export class WorkdayService {
   async startBreak(userId: string, dto: { breakType: string; estimatedMinutes?: number }) {
     const today = this.getTodayDate();
     const now = this.tva.now();
+    const estimatedMinutes = dto.estimatedMinutes === undefined || dto.estimatedMinutes === null
+      ? null
+      : Number(dto.estimatedMinutes);
+    if (estimatedMinutes !== null && (!Number.isInteger(estimatedMinutes) || estimatedMinutes < 1 || estimatedMinutes > 1440)) {
+      throw new BadRequestException('Planned break duration must be a whole number from 1 to 1440 minutes');
+    }
+    const plannedEndAt = estimatedMinutes === null
+      ? null
+      : new Date(now.getTime() + estimatedMinutes * 60_000);
 
     const session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
@@ -636,7 +645,8 @@ export class WorkdayService {
           userId,
           workSessionId: session.id,
           breakType: dto.breakType,
-          estimatedMinutes: dto.estimatedMinutes,
+          estimatedMinutes,
+          plannedEndAt,
           startAt: now,
           reason: dto.breakType,
           source: fromIdle ? BREAK_FROM_IDLE_SOURCE : 'MANUAL_BREAK',
@@ -671,7 +681,7 @@ export class WorkdayService {
       entityType: 'WorkdaySession',
       entityId: session.id,
       action: OperationalAction.BREAK_STARTED,
-      metadata: { breakType: dto.breakType, estimatedMinutes: dto.estimatedMinutes },
+      metadata: { breakType: dto.breakType, estimatedMinutes, plannedEndAt },
     }).catch(() => {});
 
     return { breakLog };

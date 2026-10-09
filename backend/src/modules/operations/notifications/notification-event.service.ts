@@ -1,9 +1,10 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, forwardRef, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EventsGateway } from '../../platform/gateway/events.gateway';
 import { UsersService } from '../../core/users/users.service';
 import { NotificationType } from '@prisma/client';
 import { TVAService } from '../../../common/services/tva.service';
+import { PushNotificationService } from './push-notification.service';
 
 const NOTIF_DEFAULTS = {
   assignedTicket: true,
@@ -13,6 +14,11 @@ const NOTIF_DEFAULTS = {
   ticketResolved: true,
   ticketBlocked:  true,
   reviewPending:  true,
+  breakOverrun:   true,
+  workdayStart:   true,
+  workdayEnd:     true,
+  projectCreated: true,
+  pushEnabled:    true,
   leaveApproved:  true,
   leaveRejected:  true,
   teamLeaveApply: true,
@@ -30,6 +36,7 @@ export class NotificationEventService {
     @Inject(forwardRef(() => UsersService))
     private usersService: UsersService,
     private tva: TVAService,
+    @Optional() private pushNotifications?: PushNotificationService,
   ) {}
 
   async sendNotification(
@@ -42,6 +49,7 @@ export class NotificationEventService {
       link?: string;
       entityId?: string;
       entityType?: string;
+      dedupeKey?: string;
     }
   ) {
     // 1. Fetch user preferences
@@ -59,8 +67,9 @@ export class NotificationEventService {
     }
 
     // 3. Create persistent notification in database
-    const notification = await this.prisma.notification.create({
-      data: {
+    let notification: any;
+    let created = true;
+    const createData = {
         userId,
         title: notificationData.title,
         message: notificationData.message,
@@ -68,8 +77,19 @@ export class NotificationEventService {
         link: notificationData.link,
         entityId: notificationData.entityId,
         entityType: notificationData.entityType,
-      },
-    });
+        dedupeKey: notificationData.dedupeKey,
+      };
+    try {
+      notification = await this.prisma.notification.create({ data: createData });
+    } catch (error: any) {
+      if (error?.code !== 'P2002' || !notificationData.dedupeKey) throw error;
+      notification = await this.prisma.notification.findFirst({
+        where: { userId, dedupeKey: notificationData.dedupeKey },
+      });
+      created = false;
+    }
+    if (!notification) return null;
+    if (!created) return notification;
 
     // 4. Check quiet hours for real-time socket delivery
     const quietFrom = resolvedPrefs.quietFrom || '22:00';
@@ -81,6 +101,11 @@ export class NotificationEventService {
     if (!inQuietHours && resolvedPrefs.inApp !== false) {
       // 5. Deliver real-time socket notification
       this.gateway.emitNotificationToUser(userId, notification);
+    }
+
+    if (resolvedPrefs.pushEnabled !== false && this.pushNotifications) {
+      try { await this.pushNotifications.deliver(notification); }
+      catch { /* Push failure never rolls back the durable in-app notification. */ }
     }
 
     return notification;

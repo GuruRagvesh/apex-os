@@ -95,8 +95,12 @@ export function PunchModal({
       setPhase('done');
       onPunched(res);
     } catch (err: any) {
-      const statusCode = err?.response?.status;
-      const message = err?.response?.data?.message;
+      // The shared authenticated client normalises rejected responses to the
+      // response body. Support both that shape and a raw AxiosError so a real
+      // 422 configuration decision is never misreported as a network outage.
+      const statusCode = err?.statusCode ?? err?.status ?? err?.response?.status;
+      const rawMessage = err?.message ?? err?.response?.data?.message;
+      const message = typeof rawMessage === 'object' ? rawMessage?.message : rawMessage;
 
       // A transient failure keeps the same key and the same photo, so pressing
       // "Try again" resumes the attempt rather than starting a new one. A

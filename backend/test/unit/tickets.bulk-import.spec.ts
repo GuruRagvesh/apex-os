@@ -141,6 +141,31 @@ describe('TicketsService.createBulk — all-or-nothing bulk creation', () => {
     expect(result).toHaveLength(1);
   });
 
+  it('accepts Minutes of output per day only for Content Task tickets', async () => {
+    const { prisma, tx } = makePrisma();
+    prisma.department.findFirst.mockResolvedValue({ id: 'dept-1', name: 'Content Sales' });
+    const service = makeService(prisma);
+    await service.createBulk([validRow({ outputTargetMinutes: 75 })], 'creator-1', manager);
+    expect(tx.ticket.create.mock.calls[0][0].data.outputTargetMinutes).toBe(75);
+  });
+
+  it('rejects Minutes of output per day for non-Content departments', async () => {
+    const { prisma } = makePrisma();
+    const service = makeService(prisma);
+    await expect(service.createBulk([validRow({ outputTargetMinutes: 75 })], 'creator-1', manager))
+      .rejects.toThrow(/no tickets were created/i);
+  });
+
+  it('accepts QC Implement only for Task tickets in Content or Retail Business', async () => {
+    const { prisma } = makePrisma();
+    prisma.department.findFirst.mockResolvedValue({ id: 'dept-1', name: 'Retail Business' });
+    prisma.taskType.findFirst.mockResolvedValue({ id: 'tt-qc', name: 'QC Implement', departmentId: 'dept-1', isGlobal: false });
+    const service = makeService(prisma);
+    await expect(service.createBulk([validRow({ taskTypeId: 'tt-qc' })], 'creator-1', manager)).resolves.toHaveLength(1);
+    await expect(service.createBulk([validRow({ taskTypeId: 'tt-qc', type: 'HELP' })], 'creator-1', manager))
+      .rejects.toThrow(/no tickets were created/i);
+  });
+
   it('rejects an empty batch', async () => {
     const { prisma } = makePrisma();
     const service = makeService(prisma);

@@ -1,3 +1,8 @@
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { MAX_SCREENSHOTS, MAX_SCREENSHOT_BYTES, type ScreenshotUpload } from './correction-screenshot';
+import { UploadedFiles, UseInterceptors, StreamableFile, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   BadRequestException,
   Body,
@@ -49,9 +54,10 @@ export class RegularizationController {
 
   /** Raise a correction for your own attendance on a date. */
   @Post()
-  async create(@CurrentUser() user: any, @Body() body: CreateRegularizationInput) {
+  @UseInterceptors(FilesInterceptor('screenshots', MAX_SCREENSHOTS, { storage: memoryStorage(), limits: { fileSize: MAX_SCREENSHOT_BYTES, files: MAX_SCREENSHOTS, fields: 5, fieldSize: 16384, parts: 8 } }))
+  async create(@CurrentUser() user: any, @Body() body: CreateRegularizationInput, @UploadedFiles() files?: ScreenshotUpload[]) {
     try {
-      return await this.regularization.create(user?.id ?? user?.sub, body);
+      return await this.regularization.create(user?.id ?? user?.sub, body, files ?? []);
     } catch (err) {
       this.rethrow(err);
     }
@@ -75,6 +81,15 @@ export class RegularizationController {
   @Get(':id')
   async findOne(@CurrentUser() user: any, @Param('id') id: string) {
     return this.regularization.findOne(user, id);
+  }
+
+  @Get(':id/screenshots/:screenshotId')
+  async screenshot(@CurrentUser() user: any, @Param('id') id: string, @Param('screenshotId') screenshotId: string, @Res({ passthrough: true }) response: Response) {
+    const file = await this.regularization.screenshot({ ...user, id: user?.id ?? user?.sub }, id, screenshotId);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    return new StreamableFile(file.content, { type: file.mimeType, disposition: 'attachment; filename="screenshot.' + (file.mimeType === 'image/jpeg' ? 'jpg' : file.mimeType.split('/')[1]) + '"', length: file.byteSize });
   }
 
   /** Stage one, by the employee's actual reporting authority. */
