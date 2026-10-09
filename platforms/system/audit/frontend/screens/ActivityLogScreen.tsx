@@ -197,7 +197,7 @@ export default function ActivityLogScreen() {
       <div style={{ marginBottom: 20 }} className="flex justify-between items-start">
         <div>
           <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+            <h1 className="apex-page-title" style={{ fontSize: 20, color: 'var(--text-primary)', margin: 0 }}>
               Activity Log
             </h1>
             <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${scopeBadgeColor}`}>

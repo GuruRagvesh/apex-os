@@ -13,7 +13,7 @@ export default function PrivacyScreen() {
           <p className="text-gray-500">Effective: 1 January 2026 · TechnoEdge Learning Services</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-8">
+        <div className="apex-section-border bg-white rounded-2xl shadow-sm border p-8 space-y-8">
           <section>
             <h2 className="text-xl font-semibold mb-3">1. What We Collect</h2>
             <p className="text-gray-600 leading-relaxed">Apex OS collects your name, work email, tickets you create and are assigned to, leave requests, and activity logs. This information is provided by you or generated through your use of the platform.</p>

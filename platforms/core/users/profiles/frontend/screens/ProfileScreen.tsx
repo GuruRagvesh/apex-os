@@ -258,7 +258,7 @@ export default function ProfileScreen() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Top profile card */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
+      <div className="apex-section-border bg-white rounded-xl border p-6">
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-5">
             <div
@@ -296,7 +296,7 @@ export default function ProfileScreen() {
           { label: 'Leave Days', value: leaveLoading ? '...' : approvedLeaveDays, icon: <CalendarOff size={18} className="text-pink-600" />, bg: 'bg-pink-50' },
           { label: 'Projects', value: projectsLoading ? '...' : projects.length, icon: <FolderKanban size={18} className="text-indigo-600" />, bg: 'bg-indigo-50' },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-4">
+          <div key={s.label} className="apex-section-border bg-white rounded-xl border p-4">
             <div className={`w-9 h-9 rounded-lg ${s.bg} flex items-center justify-center mb-3`}>{s.icon}</div>
             <p className="text-xl font-bold text-slate-800">{s.value}</p>
             <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
@@ -306,7 +306,7 @@ export default function ProfileScreen() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Current Approved Hierarchy */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="apex-section-border bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-slate-800 flex items-center gap-2">
               <Network size={18} />
@@ -333,7 +333,7 @@ export default function ProfileScreen() {
         </div>
 
         {/* Pending Change Requests */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="apex-section-border bg-white rounded-xl border p-5">
           <h2 className="font-semibold text-slate-800 mb-4">My Change Requests</h2>
           <div className="divide-y divide-slate-50 max-h-64 overflow-y-auto">
             {requestsLoading ? (
@@ -371,7 +371,7 @@ export default function ProfileScreen() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* My Open Tickets */}
-        <div className="bg-white rounded-xl border border-slate-200">
+        <div className="apex-section-border bg-white rounded-xl border">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-semibold text-slate-800">My Open Tickets</h2>
             <Link href="/tickets" className="text-xs text-indigo-600 hover:underline">View all</Link>
@@ -391,7 +391,7 @@ export default function ProfileScreen() {
         </div>
 
         {/* Recent Activity */}
-        <div className="bg-white rounded-xl border border-slate-200">
+        <div className="apex-section-border bg-white rounded-xl border">
           <div className="px-5 py-4 border-b border-slate-100">
             <h2 className="font-semibold text-slate-800">Recent Activity</h2>
           </div>

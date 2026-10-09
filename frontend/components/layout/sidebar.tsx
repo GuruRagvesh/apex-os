@@ -21,7 +21,7 @@ import { motion } from 'motion/react';
 // ── Skeleton shown before Zustand hydrates ────────────────────────────────────
 function SidebarSkeleton() {
   return (
-    <aside className="w-64 flex flex-col" style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}>
+    <aside className="apex-navigation-font w-64 flex flex-col" style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}>
       {/* Logo */}
       <div className="p-5" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }}>
         <div className="flex items-center gap-3">
@@ -354,7 +354,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
       aria-label="Main navigation"
       {...(isPhone ? { role: 'dialog', 'aria-modal': mobileOpen ? true : undefined, 'aria-hidden': mobileOpen ? undefined : true } : {})}
       className={cn(
-        'flex flex-col flex-shrink-0 md:transition-all md:duration-300 md:ease-in-out',
+        'apex-navigation-font flex flex-col flex-shrink-0 md:transition-all md:duration-300 md:ease-in-out',
         // Phone: fixed off-canvas drawer, out of the tab order while closed.
         // It becomes visible (and focusable) at once when opened, and stays
         // visible until the slide-out finishes when closed.

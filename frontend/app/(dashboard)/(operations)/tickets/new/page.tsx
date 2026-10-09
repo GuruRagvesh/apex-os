@@ -589,7 +589,7 @@ export default function CreateTicketsPage() {
           <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
         </button>
         <div className="flex-1">
-          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Create Tickets</h2>
+          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Create Tickets</h2>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Add one or many tickets — each becomes its own ticket ID</p>
         </div>
         <div className="flex items-center gap-2">

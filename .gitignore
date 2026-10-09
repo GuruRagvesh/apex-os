@@ -85,5 +85,6 @@ recovered_*.json
 # Only the committed *.example templates may be tracked.
 .env.*
 !.env*.example
+/backend/private/
 .local-punch-photos/
 /*.patch
