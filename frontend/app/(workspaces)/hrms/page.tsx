@@ -347,7 +347,7 @@ function OverviewSection({ onOpen }: { onOpen: (key: SectionKey) => void }) {
       >
         <div className="flex items-center gap-2 mb-3">
           <Users size={13} style={{ color: 'rgba(255,255,255,0.65)' }} />
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
             Apex OS · Workspace
           </span>
         </div>

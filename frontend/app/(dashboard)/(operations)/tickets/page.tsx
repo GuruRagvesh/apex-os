@@ -225,7 +225,7 @@ export default function TicketsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Tickets</h2>
+            <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Tickets</h2>
             {activeTab === 'all' && (
               <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
                 {scopeText}
@@ -321,10 +321,9 @@ export default function TicketsPage() {
 
       {/* Filters */}
       <div
-        className="rounded-xl p-4"
+        className="apex-section-border rounded-xl border p-4"
         style={{
           backgroundColor: 'var(--surface-card)',
-          border: '1px solid var(--border-primary)',
         }}
       >
         <div className="flex items-center gap-3 flex-wrap">
@@ -462,10 +461,9 @@ export default function TicketsPage() {
 
       {/* Tickets Table */}
       <div
-        className="rounded-xl overflow-hidden"
+        className="apex-section-border rounded-xl overflow-hidden border"
         style={{
           backgroundColor: 'var(--surface-card)',
-          border: '1px solid var(--border-primary)',
         }}
       >
         {/* Hidden on phones, where each row stacks. These md: classes are also
@@ -543,10 +541,9 @@ export default function TicketsPage() {
       ) : (
         /* Pending Approvals Tab */
         <div
-          className="rounded-xl overflow-hidden mt-4"
+          className="apex-section-border rounded-xl overflow-hidden border mt-4"
           style={{
             backgroundColor: 'var(--surface-card)',
-            border: '1px solid var(--border-primary)',
           }}
         >
           <div

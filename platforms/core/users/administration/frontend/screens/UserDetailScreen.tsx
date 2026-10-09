@@ -227,7 +227,7 @@ export default function UserDetailPage() {
       </div>
 
       {/* Profile banner & main details */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="apex-section-border bg-white rounded-2xl border shadow-sm overflow-hidden">
         <div className="h-32 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 relative" />
         <div className="px-6 pb-6 relative">
           <div className="flex flex-col sm:flex-row items-start sm:items-end gap-5 -mt-12 mb-6">
@@ -302,7 +302,7 @@ export default function UserDetailPage() {
             {/* Left 2 Cols: Details & Activity Feed */}
             <div className="md:col-span-2 space-y-6">
               {/* Detailed metrics */}
-              <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+              <div className="apex-section-border bg-white rounded-xl border p-6 space-y-4">
                 <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Employment Details</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
@@ -325,7 +325,7 @@ export default function UserDetailPage() {
               </div>
 
               {/* Scoped Activity Feed */}
-              <div className="bg-white rounded-xl border border-slate-200">
+              <div className="apex-section-border bg-white rounded-xl border">
                 <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                   <h3 className="font-semibold text-slate-800">Recent Activity Logs</h3>
                   <span className="text-xs text-slate-400">Scoped actions</span>
@@ -374,7 +374,7 @@ export default function UserDetailPage() {
               </div>
 
               {/* Tickets Snapshot */}
-              <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+              <div className="apex-section-border bg-white rounded-xl border p-5 space-y-4">
                 <h4 className="font-bold text-sm text-slate-800">Operational Stats</h4>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-50 p-3 rounded-lg text-center">
@@ -413,7 +413,7 @@ export default function UserDetailPage() {
             </div>
 
             {/* Attendance & Workday History Table */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="apex-section-border bg-white rounded-xl border overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100">
                 <h3 className="font-semibold text-slate-800">Attendance & Workday History</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Last 30 work sessions and active duration calculations</p>
@@ -478,7 +478,7 @@ export default function UserDetailPage() {
         {activeTab === 'tickets' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Projects List */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="apex-section-border bg-white rounded-xl border overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <h3 className="font-semibold text-slate-800 flex items-center gap-2">
                   <Briefcase size={16} className="text-slate-400" />
@@ -508,7 +508,7 @@ export default function UserDetailPage() {
             </div>
 
             {/* Assigned Tickets */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="apex-section-border bg-white rounded-xl border overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <h3 className="font-semibold text-slate-800 flex items-center gap-2">
                   <Ticket size={16} className="text-slate-400" />
@@ -546,7 +546,7 @@ export default function UserDetailPage() {
         {activeTab === 'payroll' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Payroll section (Masked by AccessPolicy) */}
-            <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+            <div className="apex-section-border bg-white rounded-xl border p-6 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                   <CreditCard size={18} className="text-indigo-500" />
@@ -595,7 +595,7 @@ export default function UserDetailPage() {
             </div>
 
             {/* Documents Verification Section */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="apex-section-border bg-white rounded-xl border overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <h3 className="font-semibold text-slate-800 flex items-center gap-2">
                   <FileText size={18} className="text-violet-500" />

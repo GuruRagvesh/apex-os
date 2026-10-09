@@ -133,7 +133,7 @@ export default function CalendarScreen() {
   return (
     <div id="apex-main-content">
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Calendar</h1>
+        <h1 className="apex-page-title" style={{ fontSize: 20, color: 'var(--text-primary)', margin: 0 }}>Calendar</h1>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>Your scheduled tickets, due dates, and leave in one view</p>
       </div>
 

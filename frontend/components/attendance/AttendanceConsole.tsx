@@ -188,7 +188,7 @@ export function AttendanceConsole() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="apex-text text-xl font-semibold">Attendance</h1>
+          <h1 className="apex-page-title apex-text text-xl">Attendance</h1>
           <p className="apex-text-muted mt-1 text-sm">
             {access.isHr ? 'Company-wide' : 'Your team'} · stored results only
           </p>

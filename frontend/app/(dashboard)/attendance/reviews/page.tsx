@@ -32,7 +32,7 @@ export default function AttendanceReviewsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="apex-text text-xl font-semibold">Attendance corrections</h1>
+        <h1 className="apex-page-title apex-text text-xl">Attendance corrections</h1>
         <p className="apex-text-muted mt-1 text-sm">
           Requests waiting for your decision.
         </p>

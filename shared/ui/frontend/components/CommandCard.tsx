@@ -61,7 +61,7 @@ export default function CommandCard({
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="relative text-left w-full h-full bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 rounded-[22px] p-5 flex flex-col justify-between transition-all duration-[220ms] ease-out hover:border-blue-500 hover:shadow-[0_12px_28px_rgba(37,99,235,0.08)] dark:hover:shadow-[0_12px_28px_rgba(37,99,235,0.15)] hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 select-none group"
+      className="apex-section-border relative text-left w-full h-full bg-white dark:bg-[#0F172A] border rounded-[22px] p-5 flex flex-col justify-between transition-all duration-[220ms] ease-out hover:border-blue-500 hover:shadow-[0_12px_28px_rgba(37,99,235,0.08)] dark:hover:shadow-[0_12px_28px_rgba(37,99,235,0.15)] hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 select-none group"
     >
       {/* Absolute Hover preview peek panel */}
       <div className="hidden md:block">
