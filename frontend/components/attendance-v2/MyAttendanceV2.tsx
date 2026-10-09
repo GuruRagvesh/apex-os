@@ -19,8 +19,7 @@ import { MyAttendanceInsights, type InsightScope } from './MyAttendanceInsights'
 /**
  * My Attendance V2 â€” the whole screen.
  *
- * HIDDEN ROUTE. Mounted at /attendance-v2 with no navigation entry. The live
- * /attendance page is untouched, so this can be withdrawn by deleting a folder.
+ * Mounted at /attendance. The former preview URL redirects to this screen.
  *
  * THE ERROR CONTRACT. This is the rule the page is built around: a failed
  * request produces an ERROR STATE, never a zero. There is no `?? 0` anywhere in
