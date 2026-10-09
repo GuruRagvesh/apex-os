@@ -83,6 +83,31 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
 
   // ── endBreak ──────────────────────────────────────────────────────────────
 
+  describe('startBreak planned reminder facts', () => {
+    it('stores a server-derived plannedEndAt for a selected duration', async () => {
+      prisma.workSession.findFirst.mockResolvedValue({
+        id: 'ws1', status: 'WORKING', logoutAt: null, breakLogs: [],
+      });
+      prisma.breakLog.create.mockImplementation(async ({ data }: any) => ({ id: 'bl-new', ...data }));
+
+      await service.startBreak('u1', { breakType: 'TEA', estimatedMinutes: 45 });
+
+      expect(prisma.breakLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          estimatedMinutes: 45,
+          plannedEndAt: new Date('2026-06-10T10:45:00.000Z'),
+        }),
+      });
+    });
+
+    it('rejects an invalid planned duration before writing anything', async () => {
+      await expect(service.startBreak('u1', { breakType: 'TEA', estimatedMinutes: 0 })).rejects.toThrow(
+        /whole number from 1 to 1440/,
+      );
+      expect(prisma.breakLog.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('endBreak', () => {
     function setupBreakSession(breakType: string, minsAgo: number) {
       const startAt = new Date(NOW.getTime() - minsAgo * 60_000);

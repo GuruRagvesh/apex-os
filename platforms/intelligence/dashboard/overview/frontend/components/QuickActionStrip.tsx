@@ -42,7 +42,10 @@ const ACTIONS_BY_ROLE: Record<string, Array<{ label: string; url: string; primar
 
 export function QuickActionStrip({ role }: { role?: string }) {
   const router = useRouter();
-  const actions = ACTIONS_BY_ROLE[role ?? ''] ?? ACTIONS_BY_ROLE['EMPLOYEE'];
+  const actions = [
+    ...(ACTIONS_BY_ROLE[role ?? ''] ?? ACTIONS_BY_ROLE['EMPLOYEE']),
+    { label: 'Add Note', url: '/workday-notes' },
+  ];
   const ticketGate = useTicketCreationGate();
 
   return (

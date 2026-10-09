@@ -1,10 +1,26 @@
 ﻿import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationType } from '@prisma/client';
+import { PushNotificationService } from './push-notification.service';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private pushNotifications: PushNotificationService,
+  ) {}
+
+  getPushConfiguration() {
+    return this.pushNotifications.getPublicConfiguration();
+  }
+
+  subscribe(userId: string, subscription: any, userAgent?: string | null) {
+    return this.pushNotifications.subscribe(userId, subscription, userAgent);
+  }
+
+  unsubscribe(userId: string, endpoint: unknown) {
+    return this.pushNotifications.unsubscribe(userId, endpoint);
+  }
 
   async findByUser(userId: string, onlyUnread = false) {
     return this.prisma.notification.findMany({

@@ -286,7 +286,7 @@ async function main() {
 
     // ── Employees — Marketing ──
     { name: 'Narendra Suthar',     email: 'narendra.suthar@technoedgels.com',     role: 'EMPLOYEE',    dept: 'Marketing'            },
-    { name: 'Pavan Tiwari',        email: 'pawan.tiwari@technoedgels.com',        role: 'EMPLOYEE',    dept: 'Marketing'            },
+    { name: 'Pawan Tiwari',        email: 'pawan.tiwari@technoedgels.com',        role: 'EMPLOYEE',    dept: 'Marketing'            },
 
     // ── Employees — Retail Business ──
     { name: 'Charu Kadam',         email: 'Charu.Kadam@technoedgels.com',         role: 'EMPLOYEE',    dept: 'Retail Business'      },

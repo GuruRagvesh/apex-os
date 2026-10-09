@@ -1,6 +1,6 @@
 # Workforce Calendar — overview
 
-**Status:** Frontend compartmentalised. No backend of its own.
+**Status:** Standalone UI retired in Phase 7. Shared calendar and holiday data remain available to their owning features.
 **Compartmentalised:** 2026-08-10
 **Debt identifier:** `DEBT-P12-WORKFORCE-CALENDAR-LEGACY-FRONTEND` (1 import)
 
@@ -15,8 +15,8 @@ identifier. It had no trailing whitespace, so nothing else changed.
 
 ## Ownership
 
-This component owns the `/calendar` surface: one view aggregating scheduled
-tickets, ticket due dates and approved leave.
+This component is retained as legacy source, but it no longer owns an exposed
+navigation surface. Phase 7 removed the standalone Calendar entry.
 
 | Area | Contents |
 | --- | --- |
@@ -32,17 +32,14 @@ direction D11 exists to protect.
 
 ## Browser route
 
-```
-/calendar
-```
-
-**Unchanged**, and the route file stays as a thin adapter:
+`/calendar` is retained only as a compatibility route and redirects to
+`/dashboard`:
 
 ```tsx
-import { CalendarScreen } from '@apex/workforce-calendar';
+import { redirect } from 'next/navigation';
 
 export default function CalendarPage() {
-  return <CalendarScreen />;
+  redirect('/dashboard');
 }
 ```
 
@@ -62,11 +59,11 @@ lazy-loads the five FullCalendar packages through `import()` inside a
 `useEffect`, so they stay out of the initial bundle. Extracting it into its own
 module was not needed and would have risked disturbing that.
 
-## What changed — two edits
+## Phase 7 route retirement
 
-1. `useAuthStore` import path: `@/store/auth.store` → `@apex/core-identity`.
-2. Identifier `CalendarPage` → `CalendarScreen`; the route adapter keeps the
-   original `CalendarPage` name.
+1. Removed the standalone Calendar entry from navigation and dashboard quick actions.
+2. Kept `/calendar` as a redirect so saved links fail safely.
+3. Preserved shared holiday and date functionality used by attendance and other features.
 
 The screen reads auth with a selector, `useAuthStore(s => s.user)`, used only to
 tint the current user's own leave events green. That call shape is unchanged.
@@ -102,10 +99,8 @@ no role checks.
 ```bash
 npm run architecture:test    # boundary self-tests
 npm run architecture:check   # live scan; debt reported, not hidden
-cd frontend && npm run build # /calendar ~2.12 kB / 128 kB
+cd frontend && npm run build # /calendar compatibility redirect
 ```
 
-Manual checks not performed by this phase: calendar renders in month, week and
-list views; scheduled tickets, due dates and approved leave all appear; own
-leave is tinted differently; event click navigates; the partial-data warning
-appears when a source fails.
+Manual check: visiting `/calendar` redirects to `/dashboard`, while attendance
+holiday/date functionality continues to work in its existing surfaces.
