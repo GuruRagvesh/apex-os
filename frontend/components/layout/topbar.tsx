@@ -17,20 +17,6 @@ import toast from 'react-hot-toast';
 
 // /hrms and /sales-crm are standalone workspace pages (frontend/app/(workspaces)) —
 // they no longer render inside the dashboard shell, so TopBar never mounts for them.
-const pageNames: Record<string, string> = {
-  '/dashboard': 'Home',
-  '/tickets': 'Tickets',
-  '/kanban': 'Kanban Board',
-  '/projects': 'Projects',
-  '/users': 'Users',
-  '/departments': 'Departments',
-  '/analytics': 'Analytics',
-  '/leave': 'Leave Management',
-  '/settings': 'Settings',
-  '/profile': 'My Profile',
-  '/team': 'Team',
-};
-
 export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => void; menuOpen?: boolean } = {}) {
   const pathname = usePathname();
   const router = useRouter();
@@ -129,8 +115,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
     },
   });
 
-  const pageName = Object.entries(pageNames).find(([key]) => pathname.startsWith(key))?.[1] || 'Apex OS';
-  const showPageIdentity = pathname !== '/users';
+  const showHomeIdentity = pathname === '/dashboard';
   
   const { logout } = useAuthStore();
 
@@ -202,20 +187,12 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         </button>
       )}
 
-      {/* Left: page name */}
+      {/* The dashboard alone carries a contextual identity; other sections remain intentionally blank. */}
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        {showPageIdentity && (
-          <>
-            <h1 className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
-            {user?.department && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full hidden sm:inline"
-                style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-              >
-                {user.department.name}
-              </span>
-            )}
-          </>
+        {showHomeIdentity && (
+          <span className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+            Company Administrator
+          </span>
         )}
       </div>
 

@@ -8,10 +8,7 @@ import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/compon
 import { cn } from '@apex/shared-utilities';
 import { dashboardApi } from '../api';
 import { changeRequestsApi } from '@apex/core-users-change-requests/api';
-import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
-import { WorkdayHistoryStrip } from '@/components/workday/WorkdayHistoryStrip';
-import { CriticalActionPanel } from '../components/CriticalActionPanel';
 import { UpcomingEvents } from '../components/UpcomingEvents';
 import { RecentActivityFeed } from '../components/RecentActivityFeed';
 import { TeamPressurePanel } from '../components/TeamPressurePanel';
@@ -115,14 +112,6 @@ export default function HomePage() {
     },
     refetchInterval: 60000,
     staleTime: 30000,
-  });
-
-  const { data: slaRisk } = useQuery({
-    queryKey: ['sla-risk'],
-    queryFn: () => ticketsApi.getSlaRisk() as Promise<any>,
-    enabled: isLeadOrAbove,
-    refetchInterval: 120000,
-    staleTime: 60000,
   });
 
   const { data: overview, isLoading: overviewLoading, isError: overviewError, refetch: refetchOverview } = useQuery({
@@ -346,12 +335,6 @@ export default function HomePage() {
               <h1 className="text-3xl font-extrabold leading-tight" style={{ letterSpacing: '-0.5px', color: 'var(--text-primary)' }}>
                 Good {timeOfDay}, {firstName}
               </h1>
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-full mt-1.5">
-                {role === 'SUPER_ADMIN' || role === 'ADMIN' ? 'Company Administrator Scope' :
-                 role === 'MANAGER' ? 'Department Manager Scope' :
-                 role === 'TEAM_LEAD' ? 'Team Lead Scope' :
-                 'Personal Contributor Scope'}
-              </span>
             </div>
             <p className="text-sm mt-1.5" style={{ color: 'var(--text-secondary)' }}>
               {roleGuidance}
@@ -382,16 +365,11 @@ export default function HomePage() {
                 </span>
               </span>
             </button>
-            <span className="font-mono text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
-              {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
-            </span>
           </div>
         </div>
 
         {/* WorkdayBar — workday state, timer, break management */}
         <WorkdayBar />
-        {/* Recent session history — last 7 sessions, compact strip */}
-        <WorkdayHistoryStrip />
       </motion.section>
 
       {/* ── ERROR BANNER (shown when dashboard data fails to load) ── */}
@@ -428,61 +406,6 @@ export default function HomePage() {
           className="mb-6"
         >
           <KpiCapsuleStrip capsules={kpiCapsules} />
-        </motion.section>
-      )}
-
-      {/* ── SLA RISK BANNER (managers/leads only, shown when there are at-risk tickets) ── */}
-      {isLeadOrAbove && slaRisk && (slaRisk.overdue > 0 || slaRisk.dueSoon > 0 || slaRisk.reviewAgeing > 0) && (
-        <motion.section
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.14 }}
-          className="mb-4"
-        >
-          <div
-            className="flex items-center gap-4 px-4 py-3 rounded-xl text-sm flex-wrap"
-            style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)' }}
-          >
-            <ShieldAlert size={16} style={{ color: 'var(--color-danger)', flexShrink: 0 }} />
-            <span className="font-semibold" style={{ color: 'var(--color-danger)' }}>SLA Risk</span>
-            {slaRisk.overdue > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-danger) 15%, transparent)', color: 'var(--color-danger)' }}>
-                {slaRisk.overdue} overdue
-              </span>
-            )}
-            {slaRisk.dueSoon > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 15%, transparent)', color: 'var(--color-warning)' }}>
-                {slaRisk.dueSoon} due soon
-              </span>
-            )}
-            {slaRisk.reviewAgeing > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 15%, transparent)', color: 'var(--color-warning)' }}>
-                {slaRisk.reviewAgeing} reviews ageing
-              </span>
-            )}
-            <button
-              onClick={() => router.push('/tickets')}
-              className="ml-auto text-xs font-medium flex items-center gap-1"
-              style={{ color: 'var(--color-danger)' }}
-            >
-              View tickets <ArrowRight size={12} />
-            </button>
-          </div>
-        </motion.section>
-      )}
-
-      {/* ── CRITICAL ALERTS ── */}
-      {criticalAlerts.length > 0 && (
-        <motion.section
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.16 }}
-          className="mb-6"
-        >
-          <p className="font-mono text-[10px] uppercase tracking-widest mb-2" style={{ color: 'var(--text-tertiary)' }}>
-            Needs Attention
-          </p>
-          <CriticalActionPanel alerts={criticalAlerts} />
         </motion.section>
       )}
 
