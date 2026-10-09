@@ -265,7 +265,7 @@ export default function ProjectDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-4">
           {/* Health & Progress Overview */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="apex-section-border bg-white rounded-xl border p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-slate-705 text-sm">Project Health</h3>
@@ -307,7 +307,7 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* Tickets */}
-          <div className="bg-white rounded-xl border border-slate-200">
+          <div className="apex-section-border bg-white rounded-xl border">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
                 <Ticket size={15} /> Tickets ({project.tickets?.length || 0})
@@ -333,7 +333,7 @@ export default function ProjectDetailPage() {
         {/* Sidebar */}
         <div className="space-y-4">
           {/* Team */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="apex-section-border bg-white rounded-xl border p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
                 <Users size={14} /> Team ({project.members?.length || 0})
@@ -396,7 +396,7 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* Details */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+          <div className="apex-section-border bg-white rounded-xl border p-4 space-y-3">
             <h3 className="font-semibold text-slate-700 text-sm">Details</h3>
             {project.department && (
               <div>
@@ -421,7 +421,7 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* Project Activity Feed */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="apex-section-border bg-white rounded-xl border p-4">
             <h3 className="font-semibold text-slate-700 text-sm mb-3 flex items-center gap-2">
               <Activity size={14} /> Project Activity
             </h3>

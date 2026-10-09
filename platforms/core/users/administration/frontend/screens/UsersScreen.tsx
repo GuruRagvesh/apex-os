@@ -258,7 +258,7 @@ export default function UsersPage() {
     <div className="space-y-5 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Users</h2>
+          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Users</h2>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
             {filteredUsers.length} of {userList.length} team members
             {archivedCount > 0 && statusFilter !== 'archived' && statusFilter !== 'all' && (
@@ -340,7 +340,7 @@ export default function UsersPage() {
               <article
                 key={u.id}
                 className={cn(
-                  'group relative flex h-[330px] min-w-0 flex-col overflow-hidden rounded-[26px] border border-blue-500/50 p-4 transition-all duration-300 dark:border-slate-200/70',
+                  'apex-section-border group relative flex h-[330px] min-w-0 flex-col overflow-hidden rounded-[26px] border p-4 transition-all duration-300',
                   'hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(37,99,235,0.16)]',
                   !isActive && 'saturate-[0.75]',
                 )}
@@ -386,7 +386,7 @@ export default function UsersPage() {
                           {u.name}
                         </h3>
                       </div>
-                      <p className="mt-1 truncate text-sm font-semibold tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+                      <p className="mt-1 truncate text-xs font-semibold tracking-wide" style={{ color: 'var(--text-secondary)' }}>
                         {u.employeeId || 'Employee ID pending'}
                       </p>
 
@@ -495,7 +495,7 @@ export default function UsersPage() {
                   ].map(({ label, value, Icon }) => (
                     <div
                       key={label}
-                      className="flex min-w-0 items-center gap-1 rounded-xl border border-blue-200/80 px-1.5 py-1.5 shadow-sm dark:border-slate-300/50"
+                      className="apex-section-border-subtle flex min-w-0 items-center gap-1 rounded-xl border px-1.5 py-1.5 shadow-sm"
                       style={{ backgroundColor: 'var(--surface-card)' }}
                     >
                       <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/80 dark:text-blue-300">

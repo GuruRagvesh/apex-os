@@ -251,7 +251,7 @@ export default function LeavePage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Leave Management</h2>
+            <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Leave Management</h2>
             <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-650 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
               {scopeText}
             </span>

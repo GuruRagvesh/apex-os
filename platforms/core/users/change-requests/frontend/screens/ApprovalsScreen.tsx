@@ -84,7 +84,7 @@ export default function ApprovalsScreen() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
+      <div className="apex-section-border bg-white rounded-xl border p-6">
         <h1 className="text-2xl font-bold text-slate-800 mb-6">Pending Approvals</h1>
 
         <div className="divide-y divide-slate-100">

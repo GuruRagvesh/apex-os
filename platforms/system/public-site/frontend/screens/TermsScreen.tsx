@@ -13,7 +13,7 @@ export default function TermsScreen() {
           <p className="text-gray-500">Effective: 1 January 2026 · TechnoEdge Learning Services</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-8">
+        <div className="apex-section-border bg-white rounded-2xl shadow-sm border p-8 space-y-8">
           <section>
             <h2 className="text-xl font-semibold mb-3">1. Acceptance of Terms</h2>
             <p className="text-gray-600 leading-relaxed">By accessing and using Apex OS, you agree to be bound by these Terms of Service. Apex OS is the internal business operating system of TechnoEdge Learning Services and is intended exclusively for authorised employees and contractors.</p>

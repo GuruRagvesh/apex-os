@@ -69,7 +69,7 @@ export default function KpiCapsule({
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`relative w-full bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col justify-between transition-all duration-[220ms] ease-out text-left cursor-pointer group hover:scale-[1.01] hover:-translate-y-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 hover:border-blue-500 dark:hover:border-blue-500 ${theme.hoverBg} ${theme.glow}`}
+      className={`apex-section-border relative w-full bg-white dark:bg-[#0F172A] border rounded-2xl p-4 flex flex-col justify-between transition-all duration-[220ms] ease-out text-left cursor-pointer group hover:scale-[1.01] hover:-translate-y-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 hover:border-blue-500 dark:hover:border-blue-500 ${theme.hoverBg} ${theme.glow}`}
     >
       <div className="w-full space-y-2.5">
 

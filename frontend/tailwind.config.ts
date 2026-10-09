@@ -20,8 +20,22 @@ const config: Config = {
     },
     extend: {
       fontFamily: {
-        sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['Hyperlegible Sans', 'Arial', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'],
+      },
+      fontSize: {
+        '2xs': ['10px', { lineHeight: '1.4' }],
+        xs: ['12px', { lineHeight: '1.4' }],
+        sm: ['13px', { lineHeight: '1.45' }],
+        base: ['14px', { lineHeight: '1.45' }],
+        md: ['15px', { lineHeight: '1.4' }],
+        lg: ['16px', { lineHeight: '1.4' }],
+        xl: ['20px', { lineHeight: '1.3' }],
+        '2xl': ['24px', { lineHeight: '1.25' }],
+        '3xl': ['30px', { lineHeight: '1.15' }],
+        '4xl': ['36px', { lineHeight: '1.1' }],
+        '5xl': ['48px', { lineHeight: '1.05' }],
+        '6xl': ['60px', { lineHeight: '1' }],
       },
       colors: {
         border: "hsl(var(--border))",

@@ -21,7 +21,7 @@ import { motion } from 'motion/react';
 // ── Skeleton shown before Zustand hydrates ────────────────────────────────────
 function SidebarSkeleton() {
   return (
-    <aside className="w-64 flex flex-col" style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}>
+    <aside className="apex-navigation-font w-64 flex flex-col" style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}>
       {/* Logo */}
       <div className="p-5" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }}>
         <div className="flex items-center gap-3">
@@ -296,7 +296,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out',
+        'apex-navigation-font flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out',
         collapsed ? 'w-20' : 'w-64',
       )}
       style={{ backgroundColor: '#0B1220', borderRight: '1px solid rgba(30,41,59,0.5)' }}

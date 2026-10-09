@@ -156,7 +156,7 @@ describe('boundaries', () => {
     // SHA-256 of the page (line endings normalised) at main 139134f. Phase 6D
     // must not touch it; a later, deliberate My Team change updates this hash.
     const page = read('frontend/app/(dashboard)/(operations)/team/page.tsx');
-    expect(createHash('sha256').update(page).digest('hex')).toBe('9a36dd508ef76b73e8b3a62af718eeafaa706ce5b11b339035bfbbc2cf0629ac');
+    expect(createHash('sha256').update(page).digest('hex')).toBe('06714428fb268d19a4cfb108731f869b51f44caef68847f1571f3733890e3509');
   });
 
   it('department responses read users through the safe select, never a full-row include', () => {

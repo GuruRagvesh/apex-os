@@ -317,7 +317,7 @@ export default function AnalyticsScreen() {
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Analytics</h1>
+        <h1 className="apex-page-title text-2xl" style={{ color: 'var(--text-primary)' }}>Analytics</h1>
         {isAdminPlus && (
           <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-purple-100 text-purple-700">
             Global view — {roleName.replace('_', ' ')}

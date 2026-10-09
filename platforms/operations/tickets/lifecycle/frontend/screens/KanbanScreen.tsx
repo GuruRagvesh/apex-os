@@ -249,7 +249,7 @@ function DroppableColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'rounded-2xl border p-3 min-h-[400px] min-w-[17rem] transition-all overflow-hidden flex flex-col',
+        'apex-section-border rounded-2xl border p-3 min-h-[400px] min-w-[17rem] transition-all overflow-hidden flex flex-col',
         col.color,
         isOver && 'ring-2 ring-offset-1',
       )}
@@ -318,7 +318,7 @@ function DroppableColumn({
           <div
             className="flex flex-col items-center justify-center h-32 rounded-lg border-2 border-dashed transition-colors p-4 text-center"
             style={{
-              borderColor: isOver ? 'var(--accent-border)' : 'var(--border-primary)',
+              borderColor: isOver ? 'var(--accent-border)' : 'var(--section-border-subtle)',
               backgroundColor: isOver ? 'var(--accent-subtle)' : 'transparent',
             }}
           >
@@ -541,7 +541,7 @@ export default function KanbanScreen() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
+            <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
             <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-650 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
               {scopeText}
             </span>
@@ -607,7 +607,7 @@ export default function KanbanScreen() {
           </div>
         </div>
       ) : isError ? (
-        <div className="rounded-2xl border p-8 text-center" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }} role="alert">
+        <div className="apex-section-border rounded-2xl border p-8 text-center" style={{ backgroundColor: 'var(--surface-card)' }} role="alert">
           <AlertTriangle className="mx-auto mb-3 text-amber-500" size={28} />
           <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Kanban board could not be loaded</h3>
           <p className="text-sm mt-1 mb-4" style={{ color: 'var(--text-secondary)' }}>Refresh and try again. No ticket was changed.</p>

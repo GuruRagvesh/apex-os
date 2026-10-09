@@ -622,7 +622,7 @@ export default function HomePage() {
         className="grid grid-cols-1 lg:grid-cols-3 gap-4"
       >
         {/* Bottlenecks & SLA Risk */}
-        <div className="border overflow-hidden rounded-[22px] flex flex-col" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+        <div className="apex-section-border border overflow-hidden rounded-[22px] flex flex-col" style={{ backgroundColor: 'var(--surface-card)' }}>
           <div className="bg-[#0B1220] px-5 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-red-900/40 text-red-400">
               <AlertTriangle className="w-4 h-4" />
@@ -670,7 +670,7 @@ export default function HomePage() {
         </div>
 
         {/* Upcoming Events */}
-        <div className="border overflow-hidden rounded-[22px]" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+        <div className="apex-section-border border overflow-hidden rounded-[22px]" style={{ backgroundColor: 'var(--surface-card)' }}>
           <div className="bg-[#0B1220] px-5 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-900/40 text-blue-400">
               <CalendarDays className="w-4 h-4" />
@@ -686,7 +686,7 @@ export default function HomePage() {
         </div>
 
         {/* Recent Activity */}
-        <div className="border overflow-hidden rounded-[22px]" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+        <div className="apex-section-border border overflow-hidden rounded-[22px]" style={{ backgroundColor: 'var(--surface-card)' }}>
           <div className="bg-[#0B1220] px-5 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-emerald-900/40 text-emerald-400">
               <Activity className="w-4 h-4" />

@@ -199,7 +199,7 @@ function SuperAdminCompanyView({ me }: { me: any }) {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Company Directory</h2>
+          <h2 className="apex-page-title text-2xl" style={{ color: 'var(--text-primary)' }}>Company Directory</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>All {allUsers.length} members across {byDept.length} departments</p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }}>
@@ -274,7 +274,7 @@ function ManagerTeamView({ me }: { me: any }) {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>My Team</h2>
+          <h2 className="apex-page-title text-2xl" style={{ color: 'var(--text-primary)' }}>My Team</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             {allMembers.length} members across {byDept.length} department{byDept.length !== 1 ? 's' : ''} you manage
           </p>
@@ -405,7 +405,7 @@ function MyTeamView({ me }: { me: any }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Team</h2>
+          <h2 className="apex-page-title text-2xl" style={{ color: 'var(--text-primary)' }}>Team</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{myDeptName} — manage your team and request new members</p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }}>
