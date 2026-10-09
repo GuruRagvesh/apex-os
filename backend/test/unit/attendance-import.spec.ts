@@ -634,7 +634,13 @@ describe('PHASE 3 WRITES NOTHING', () => {
     // authoritative fact still lives on DailyAttendance, written only through
     // an approved AttendanceRegularization.
     const schema = readFileSync(resolve(__dirname, '../../prisma/schema.prisma'), 'utf8');
-    const importModels = schema.slice(schema.indexOf('model AttendanceImportBatch'));
+    // Inspect only import models: unrelated models later in the schema may
+    // legitimately cascade their own child records (for example screenshots).
+    const importModels = ['AttendanceImportBatch', 'AttendanceImportRow'].map(name => {
+      const model = schema.match(new RegExp(`^model ${name} \\{[\\s\\S]*?^\\}`, 'm'));
+      expect(model).not.toBeNull();
+      return model![0];
+    }).join('\n');
 
     expect(schema).toContain('model AttendanceImportBatch');
     expect(schema).toContain('model AttendanceImportRow');
@@ -645,6 +651,7 @@ describe('PHASE 3 WRITES NOTHING', () => {
     expect(importModels).toContain('regularizationId String?                   @unique');
     expect(importModels).toContain('onDelete: SetNull');
     // Audit rows outlive their batch: Restrict, never Cascade.
+    expect(importModels).toContain('onDelete: Restrict');
     expect(importModels).not.toContain('onDelete: Cascade');
   });
 });
