@@ -2183,6 +2183,11 @@ enum AttendanceImportMode {
   /// A period predating Apex OS. May record a status whose punch times were
   /// never kept; may never invent them.
   HISTORICAL_MIGRATION
+  /// Apex Historical Recovery (attendance recovery Phase 2A). FAIL-CLOSED: the
+  /// correction pipeline refuses to upload, approve, apply, resume or re-preview
+  /// it (see import/import-mode.ts). It gets its own insert-only apply path in a
+  /// later, separately approved phase.
+  RECOVERY_IMPORT
 }
 
 enum AttendanceImportStatus {
@@ -2223,4 +2228,50 @@ enum AttendanceImportRowState {
   /// applying, so the approved comparison no longer described it.
   SKIPPED_STALE
   FAILED
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// Attendance recovery — tombstones (Phase 1 foundation)
+//
+// A tombstone records that attendance for an employee-day was removed ON
+// PURPOSE. Backups and recovery mirrors still hold such records, and seen from
+// reconciliation alone a deliberate removal is indistinguishable from data
+// loss. A matching tombstone makes the day ineligible for any recovery.
+//
+// Sidecar only: no attendance table gains a column, and this table holds no
+// attendance. Identity is the employee's business identifier and the business
+// date, not a User UUID -- the same convention as AttendanceImportRow.userId,
+// a historical statement that must survive whatever happens to the account.
+// deletedById is therefore a plain id, not a foreign key.
+// ════════════════════════════════════════════════════════════════════════════
+
+model AttendanceRecoveryTombstone {
+  id            String                          @id @default(cuid())
+  employeeId    String
+  businessDate  DateTime                        @db.Date
+  recordType    AttendanceRecoveryTombstoneType
+  /// Null = every record of recordType for that employee-day. For
+  /// PUNCH_EVIDENCE this holds the idempotencyKey (the evidence natural key).
+  recordId      String?
+  reason        String
+  deletedAt     DateTime
+  deletedById   String
+  /// The record that superseded the removed one, when there is one.
+  replacementId String?
+  createdAt     DateTime                        @default(now())
+
+  @@index([employeeId, businessDate])
+  @@index([recordType, recordId])
+  @@index([createdAt])
+  @@map("attendance_recovery_tombstones")
+}
+
+enum AttendanceRecoveryTombstoneType {
+  DAY
+  DAILY_ATTENDANCE
+  WORK_SESSION
+  BREAK_LOG
+  PUNCH_EVIDENCE
+  REGULARIZATION
 }
