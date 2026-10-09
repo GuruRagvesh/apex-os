@@ -3,6 +3,7 @@ import {
   IMPORT_TEMPLATE_FILENAME,
   errorWorkbookFileName,
   type ImportMode,
+  type ImportBatchMode,
 } from './import-presentation';
 
 /**
@@ -20,7 +21,7 @@ import {
 export interface ImportBatch {
   id: string;
   reference: string;
-  mode: ImportMode;
+  mode: ImportBatchMode;
   status: string;
   fileName: string;
   fileByteSize: number;
