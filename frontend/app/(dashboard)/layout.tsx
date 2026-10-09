@@ -14,7 +14,7 @@ import { DesktopNotificationManager } from '@/components/notifications/DesktopNo
 import { syncStoredOwner } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
-  Calendar, Activity, LogIn,
+  Activity, LogIn,
 } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -137,15 +137,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       onClick: () => router.push('/admin/activity'),
     }] : []),
     {
-      id: 'calendar',
-      label: 'Calendar',
-      description: isLeadOrAbove ? 'Open your scoped operations calendar' : 'Open your work calendar',
-      icon: <Calendar size={15} />,
-      shortcut: 'C',
-      category: 'planning',
-      onClick: () => router.push('/calendar'),
-    },
-    {
       id: 'login',
       label: 'Start Workday',
       description: 'Log in to start your working session',
@@ -173,7 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         onClose={() => setPaletteOpen(false)}
         actions={paletteActions}
       />
-      {/* Desktop notification opt-in + workday/approval reminder polling (Phase 1) */}
+      {/* Device push opt-in. Reminder timing and delivery are owned by the backend. */}
       <DesktopNotificationManager />
     </div>
   );

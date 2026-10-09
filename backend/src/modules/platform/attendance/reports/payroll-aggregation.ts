@@ -44,6 +44,11 @@ export interface DayFacts {
   punchOutAt: string | null;
   punchInSource: PunchSource | string | null;
   punchOutSource: PunchSource | string | null;
+  punchInEvidenceId?: string | null;
+  punchInHasImage?: boolean;
+  punchOutEvidenceId?: string | null;
+  punchOutHasImage?: boolean;
+  closureReason?: string | null;
   workedMinutes: number;
   breakMinutes: number;
   lateMinutes: number;
@@ -160,6 +165,11 @@ export interface RegisterRow {
   punchInSource: PunchSourceLabel;
   punchOut: string | null;
   punchOutSource: PunchSourceLabel;
+  punchInEvidenceId: string;
+  punchInImage: string;
+  punchOutEvidenceId: string;
+  punchOutImage: string;
+  closureReason: string;
   presenceMinutes: number | null;
   requiredMinutes: number;
   workedMinutes: number;
@@ -209,6 +219,11 @@ export function toRegisterRow(
     punchInSource: sourceLabel(day.punchInSource),
     punchOut: day.punchOutAt,
     punchOutSource: sourceLabel(day.punchOutSource),
+    punchInEvidenceId: day.punchInEvidenceId ?? '',
+    punchInImage: day.punchInHasImage ? 'Captured' : '',
+    punchOutEvidenceId: day.punchOutEvidenceId ?? '',
+    punchOutImage: day.punchOutHasImage ? 'Captured' : '',
+    closureReason: day.closureReason ?? '',
     presenceMinutes: presence,
     requiredMinutes,
     workedMinutes: day.workedMinutes,

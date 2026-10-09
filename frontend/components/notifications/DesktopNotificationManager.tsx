@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Bell, X } from 'lucide-react';
 import { useDesktopNotifications } from '@/hooks/useDesktopNotifications';
-import { useWorkdayReminders } from '@/hooks/useWorkdayReminders';
-import { useApprovalReminders } from '@/hooks/useApprovalReminders';
+import { enablePushNotifications } from '@/lib/push-notifications';
+import toast from 'react-hot-toast';
 
 const DISMISSED_KEY = 'apex:desktop-notif-prompt-dismissed';
 
@@ -17,11 +17,8 @@ const DISMISSED_KEY = 'apex:desktop-notif-prompt-dismissed';
  * "Enable" click below, per browser requirements and to avoid an aggressive popup.
  */
 export function DesktopNotificationManager() {
-  const { permission, isSupported, requestPermission } = useDesktopNotifications();
+  const { permission, isSupported } = useDesktopNotifications();
   const [dismissed, setDismissed] = useState(true); // default hidden until we've checked localStorage
-
-  useWorkdayReminders();
-  useApprovalReminders();
 
   useEffect(() => {
     try {
@@ -31,6 +28,14 @@ export function DesktopNotificationManager() {
     }
   }, []);
 
+  useEffect(() => {
+    if (permission === 'granted') {
+      // Refresh the backend subscription after login, browser data changes, or
+      // service-worker rotation. No permission prompt is shown here.
+      void enablePushNotifications().catch(() => undefined);
+    }
+  }, [permission]);
+
   const dismiss = () => {
     setDismissed(true);
     try {
@@ -38,6 +43,20 @@ export function DesktopNotificationManager() {
     } catch {
       // Non-fatal — the prompt may reappear next session, which is an
       // acceptable degradation, not a broken feature.
+    }
+  };
+
+  const enable = async () => {
+    try {
+      const result = await enablePushNotifications();
+      if (result === 'enabled') toast.success('System notifications enabled on this device');
+      else if (result === 'unconfigured') toast.error('Server push is not configured yet');
+      else if (result === 'denied') toast.error('Notifications are blocked in this browser');
+      else toast.error('Push notifications are not supported on this device');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Could not enable system notifications');
+    } finally {
+      dismiss();
     }
   };
 
@@ -57,11 +76,11 @@ export function DesktopNotificationManager() {
             Turn on desktop reminders?
           </p>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Get a browser notification for workday start/end reminders and pending approvals while Apex OS is open.
+            Receive break, workday, ticket, project and approval alerts on this computer or phone, including while Apex OS is in the background.
           </p>
           <div className="flex items-center gap-2 mt-3">
             <button
-              onClick={() => requestPermission().finally(dismiss)}
+              onClick={() => void enable()}
               className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition-opacity hover:opacity-90"
               style={{ backgroundColor: 'var(--accent)' }}
             >

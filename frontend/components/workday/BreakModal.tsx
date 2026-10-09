@@ -6,6 +6,8 @@ import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { Coffee } from 'lucide-react';
 import { ModalPortal } from '../ui/ModalPortal';
+import { useDesktopNotifications } from '@/hooks/useDesktopNotifications';
+import { enablePushNotifications } from '@/lib/push-notifications';
 
 const BREAK_TYPES = [
   { type: 'TEA', label: 'Tea Break' },
@@ -18,9 +20,9 @@ const BREAK_TYPES = [
 ];
 
 const DURATIONS = [
-  { label: '10 min', value: 10 },
   { label: '15 min', value: 15 },
   { label: '30 min', value: 30 },
+  { label: '45 min', value: 45 },
   { label: '1 hour', value: 60 },
 ];
 
@@ -31,6 +33,7 @@ interface Props {
 
 export function BreakModal({ onClose, onBreakStarted }: Props) {
   const queryClient = useQueryClient();
+  const { permission, isSupported, requestPermission } = useDesktopNotifications();
   const [breakType, setBreakType] = useState('');
   const [duration, setDuration] = useState<number | null>(null);
   const [customDuration, setCustomDuration] = useState('');
@@ -40,6 +43,18 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
   const effectiveDuration = showCustomDuration
     ? (customDuration ? parseInt(customDuration) : null)
     : duration;
+
+  const enableReminder = async () => {
+    const result = await requestPermission();
+    if (result === 'granted') {
+      const pushResult = await enablePushNotifications();
+      if (pushResult === 'enabled') toast.success('Break reminders enabled on this device');
+      else if (pushResult === 'unconfigured') toast.error('Server push is not configured yet');
+      else toast('An in-app reminder will appear while Apex OS is open.');
+    }
+    else if (result === 'denied') toast.error('Notifications are blocked in your browser settings');
+    else toast('Desktop notifications are not supported here. An in-app reminder will still appear.');
+  };
 
   const handleStart = async () => {
     if (!breakType) { toast.error('Select a break type'); return; }
@@ -163,7 +178,7 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
                   <input
                     type="number"
                     min="1"
-                    max="480"
+                    max="1440"
                     value={customDuration}
                     onChange={(e) => setCustomDuration(e.target.value)}
                     placeholder="Minutes..."
@@ -171,6 +186,30 @@ export function BreakModal({ onClose, onBreakStarted }: Props) {
                     className="w-28 px-3 py-2 text-sm border border-slate-200 rounded-xl bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-400/30 focus:border-orange-400"
                   />
                   <span className="text-xs text-slate-400">min</span>
+                </div>
+              )}
+              {effectiveDuration && (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  {permission === 'granted' ? (
+                    <p className="text-xs text-emerald-700">
+                      System reminder enabled. With server push configured, this device can be alerted while Apex OS is in the background.
+                    </p>
+                  ) : permission === 'default' && isSupported ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-slate-600">Enable a desktop alert for the end of this planned break.</p>
+                      <button
+                        type="button"
+                        onClick={enableReminder}
+                        className="flex-shrink-0 rounded-lg border border-orange-300 bg-white px-3 py-1.5 text-xs font-semibold text-orange-600 hover:bg-orange-50"
+                      >
+                        Enable reminder
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-700">
+                      A reminder will appear inside Apex OS. For a system notification, allow notifications in your browser settings.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

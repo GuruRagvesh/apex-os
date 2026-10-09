@@ -33,7 +33,10 @@ export function AttendanceCamera({
     if (id) onCaptured(id);
   };
 
-  const blocked = cam.status === 'permission-denied' || cam.status === 'unavailable';
+  const blocked =
+    cam.status === 'permission-denied' ||
+    cam.status === 'unavailable' ||
+    cam.status === 'error';
 
   return (
     <div className="flex flex-col gap-3">
