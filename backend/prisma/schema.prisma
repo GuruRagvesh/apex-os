@@ -91,6 +91,8 @@ model User {
   compOffCredits            CompOffCredit[]
   managedDepts              ManagerDeptAccess[]            @relation("ManagerAccess")
   notifications             Notification[]
+  pushSubscriptions         PushSubscription[]
+  workdayNotes              WorkdayNote[]
   operationalEvents         OperationalEvent[]             @relation("EventActor")
   projectMembers            ProjectMember[]
   assigneeCycles            ReviewCycleLog[]               @relation("CycleAssignee")
@@ -180,26 +182,43 @@ model Department {
 }
 
 model Project {
-  id           String          @id @default(cuid())
-  projectId    String          @unique
-  name         String
-  description  String?
-  status       ProjectStatus   @default(ACTIVE)
-  priority     Priority        @default(MEDIUM)
-  startDate    DateTime?
-  endDate      DateTime?
-  departmentId String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  members      ProjectMember[]
-  stages       ProjectStage[]
-  department   Department?     @relation(fields: [departmentId], references: [id])
-  tickets      Ticket[]
+  id                  String                  @id @default(cuid())
+  projectId           String                  @unique
+  name                String
+  description         String?
+  status              ProjectStatus           @default(ACTIVE)
+  priority            Priority                @default(MEDIUM)
+  startDate           DateTime?
+  endDate             DateTime?
+  departmentId        String?
+  outputTargetMinutes Int?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  members             ProjectMember[]
+  stages              ProjectStage[]
+  department          Department?             @relation(fields: [departmentId], references: [id])
+  tickets             Ticket[]
+  teamAssignments     ProjectTeamAssignment[]
 
   @@index([departmentId])
   @@index([status])
   @@index([createdAt])
   @@map("projects")
+}
+
+model ProjectTeamAssignment {
+  id                  String   @id @default(cuid())
+  projectId           String
+  teamId              String
+  outputTargetMinutes Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team                Team     @relation(fields: [teamId], references: [id])
+
+  @@unique([projectId, teamId])
+  @@index([teamId])
+  @@map("project_team_assignments")
 }
 
 model ProjectStage {
@@ -246,6 +265,7 @@ model Ticket {
   type                   TicketType       @default(TASK)
   status                 TicketStatus     @default(OPEN)
   priority               Priority         @default(MEDIUM)
+  outputTargetMinutes    Int?
   estimatedTime          Float?
   actualTime             Float?
   projectId              String?
@@ -377,17 +397,17 @@ model Comment {
 }
 
 model Attachment {
-  id        String   @id @default(cuid())
-  filename  String
-  url       String
-  size      Int?
-  mimeType  String?
-  ticketId  String
-  createdAt DateTime @default(now())
-  isPoc     Boolean  @default(false)
+  id            String            @id @default(cuid())
+  filename      String
+  url           String
+  size          Int?
+  mimeType      String?
+  ticketId      String
+  createdAt     DateTime          @default(now())
+  isPoc         Boolean           @default(false)
   /// Legacy (pre-ownership): always the ticket's own id. Kept for older
   /// readers; the review cycle a proof belongs to is `reviewCycleId`.
-  pocFor    String?
+  pocFor        String?
   /// The authenticated uploader. Null only for attachments uploaded before
   /// ownership was recorded: those are "legacy protected" (never deletable
   /// through the normal API). Never guessed or backfilled.
@@ -470,23 +490,45 @@ model LeaveRequest {
 }
 
 model Notification {
-  id         String           @id @default(cuid())
-  userId     String
-  title      String
-  message    String
-  type       NotificationType @default(INFO)
-  isRead     Boolean          @default(false)
-  link       String?
-  createdAt  DateTime         @default(now())
-  entityId   String?
-  entityType String?
-  user       User             @relation(fields: [userId], references: [id])
+  id              String           @id @default(cuid())
+  userId          String
+  title           String
+  message         String
+  type            NotificationType @default(INFO)
+  isRead          Boolean          @default(false)
+  link            String?
+  createdAt       DateTime         @default(now())
+  entityId        String?
+  entityType      String?
+  dedupeKey       String?
+  pushAttemptedAt DateTime?
+  pushDeliveredAt DateTime?
+  user            User             @relation(fields: [userId], references: [id])
 
+  @@unique([userId, dedupeKey])
   @@index([userId])
   @@index([isRead])
   @@index([userId, createdAt])
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  failureCount  Int       @default(0)
+  lastSuccessAt DateTime?
+  disabledAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, disabledAt])
+  @@map("push_subscriptions")
 }
 
 model ActivityLog {
@@ -584,6 +626,7 @@ model WorkSession {
   punchEvidence           AttendancePunchEvidence[]
   breakLogs               BreakLog[]
   ticketTimeLogs          TicketTimeLog[]
+  workdayNotes            WorkdayNote[]
   leaveRequest            LeaveRequest?             @relation(fields: [leaveId], references: [id])
   user                    User                      @relation(fields: [userId], references: [id])
   compOffCredits          CompOffCredit[]
@@ -600,6 +643,7 @@ model BreakLog {
   workSessionId    String
   breakType        String
   estimatedMinutes Int?
+  plannedEndAt     DateTime?
   startAt          DateTime
   endAt            DateTime?
   durationMinutes  Int?
@@ -744,22 +788,25 @@ model UserRoleAssignment {
 }
 
 model Team {
-  id                String               @id @default(cuid())
-  name              String
-  departmentId      String
-  teamLeadId        String?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  department        Department           @relation(fields: [departmentId], references: [id])
-  teamLead          User?                @relation("TeamLeadOf", fields: [teamLeadId], references: [id])
-  members           TeamMember[]
-  roleAssignments   UserRoleAssignment[]
-  requestingTickets Ticket[]             @relation("TicketRequestingTeam")
-  targetTickets     Ticket[]             @relation("TicketTargetTeam")
+  id                 String                  @id @default(cuid())
+  name               String
+  departmentId       String
+  teamLeadId         String?
+  isActive           Boolean                 @default(true)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  department         Department              @relation(fields: [departmentId], references: [id])
+  teamLead           User?                   @relation("TeamLeadOf", fields: [teamLeadId], references: [id])
+  members            TeamMember[]
+  roleAssignments    UserRoleAssignment[]
+  requestingTickets  Ticket[]                @relation("TicketRequestingTeam")
+  targetTickets      Ticket[]                @relation("TicketTargetTeam")
+  projectAssignments ProjectTeamAssignment[]
 
   @@unique([departmentId, name])
   @@index([departmentId])
   @@index([teamLeadId])
+  @@index([isActive])
   @@map("teams")
 }
 
@@ -812,7 +859,7 @@ model TicketTimeLog {
 }
 
 model ReviewCycleLog {
-  id                        String    @id @default(cuid())
+  id                        String       @id @default(cuid())
   ticketId                  String
   cycleNo                   Int
   assigneeId                String?
@@ -831,15 +878,15 @@ model ReviewCycleLog {
   /// Productive assignee seconds (TicketTimeLog) between reworkStartedAt and
   /// reworkEndedAt, frozen when the rework is resubmitted for review.
   reworkWorkSeconds         Int?
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  createdAt                 DateTime     @default(now())
+  updatedAt                 DateTime     @updatedAt
   employeeAttitudeRating    Int?
   employeePerformanceRating Int?
   ratingComment             String?
   taskEfficiencyRating      Int?
-  assignee                  User?     @relation("CycleAssignee", fields: [assigneeId], references: [id])
-  reviewer                  User?     @relation("CycleReviewer", fields: [reviewerId], references: [id])
-  ticket                    Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  assignee                  User?        @relation("CycleAssignee", fields: [assigneeId], references: [id])
+  reviewer                  User?        @relation("CycleReviewer", fields: [reviewerId], references: [id])
+  ticket                    Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   attachments               Attachment[]
 
   @@unique([ticketId, cycleNo])
@@ -1243,6 +1290,22 @@ model AttendancePunchEvidence {
   @@index([businessDate])
   @@index([type])
   @@map("attendance_punch_evidence")
+}
+
+model WorkdayNote {
+  id             String       @id @default(cuid())
+  userId         String
+  workSessionId  String?
+  content        String
+  idempotencyKey String
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workSession    WorkSession? @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([workSessionId])
+  @@map("workday_notes")
 }
 
 model BusinessDayOverride {
@@ -1911,7 +1974,7 @@ model AttendanceMonthClose {
 
   /// Copied from the setting AT SEND TIME. Changing the configured recipient
   /// next month must not rewrite who an already-sent report went to.
-  recipientEmail String?
+  recipientEmail         String?
   /// When the FIRST delivery attempt was made -- not when one succeeded.
   ///
   /// sentAt records success and updatedAt moves on every write, so neither can
@@ -1924,8 +1987,8 @@ model AttendanceMonthClose {
   /// Set once and NEVER reset. Resetting it on each retry would slide the
   /// window forward indefinitely and defeat the guard entirely.
   deliveryFirstAttemptAt DateTime?
-  sentAt         DateTime?
-  deliveryStatus String?
+  sentAt                 DateTime?
+  deliveryStatus         String?
 
   /// SHA-256 of the CANONICAL REPORT DATA. NOT a digest of the .xlsx file.
   ///
@@ -1937,7 +2000,7 @@ model AttendanceMonthClose {
   /// is a ZIP whose entry headers carry clock timestamps, so file digests are
   /// not reproducible. A true file digest becomes possible only once the
   /// finalized bytes are themselves stored.
-  reportSha256   String?
+  reportSha256 String?
 
   /// Size of the actual generated and sent .xlsx. This one IS about the file.
   reportByteSize Int?
@@ -1994,7 +2057,6 @@ enum PolicyDecisionAction {
   MARK_LWP
 }
 
-
 // ════════════════════════════════════════════════════════════════════════════
 // Attendance Data Control — import batches (staging and audit only)
 //
@@ -2009,45 +2071,45 @@ enum PolicyDecisionAction {
 // ════════════════════════════════════════════════════════════════════════════
 
 model AttendanceImportBatch {
-  id            String                 @id @default(cuid())
+  id        String                 @id @default(cuid())
   /// Human-facing, e.g. ATI-2026-3F9A2C. Random suffix rather than a counter:
   /// a MAX(reference)+1 read is a race two concurrent uploads can lose, and
   /// this is a label, not an accounting sequence.
-  reference     String                 @unique
-  mode          AttendanceImportMode
-  status        AttendanceImportStatus @default(UPLOADING)
+  reference String                 @unique
+  mode      AttendanceImportMode
+  status    AttendanceImportStatus @default(UPLOADING)
 
-  fileName      String
-  fileByteSize  Int
+  fileName       String
+  fileByteSize   Int
   /// Indexed, deliberately NOT unique. The same workbook may legitimately be
   /// uploaded again to see what has changed since; a repeat is worth saying
   /// out loud and is never a reason to refuse the file.
-  fileSha256    String
+  fileSha256     String
   /// Private object key in the attendance-imports namespace. Never a signed or
   /// public URL -- those expire, and an audit trail cannot depend on a link
   /// that stops resolving.
   vaultObjectKey String?
 
-  periodFrom    DateTime? @db.Date
-  periodTo      DateTime? @db.Date
+  periodFrom DateTime? @db.Date
+  periodTo   DateTime? @db.Date
 
-  totalRows     Int @default(0)
-  newRows       Int @default(0)
-  matchRows     Int @default(0)
-  changeRows    Int @default(0)
-  conflictRows  Int @default(0)
-  invalidRows   Int @default(0)
-  warningRows   Int @default(0)
+  totalRows    Int @default(0)
+  newRows      Int @default(0)
+  matchRows    Int @default(0)
+  changeRows   Int @default(0)
+  conflictRows Int @default(0)
+  invalidRows  Int @default(0)
+  warningRows  Int @default(0)
 
   /// Populated only by Phase 5. Zero here means nothing has been applied,
   /// which is also true of every batch this phase can produce.
-  appliedRows   Int @default(0)
-  failedRows    Int @default(0)
+  appliedRows Int @default(0)
+  failedRows  Int @default(0)
 
-  uploadedById  String
-  uploadedAt    DateTime @default(now())
-  approvedById  String?
-  approvedAt    DateTime?
+  uploadedById String
+  uploadedAt   DateTime  @default(now())
+  approvedById String?
+  approvedAt   DateTime?
   /// WHO executed the apply, not merely when.
   ///
   /// A batch can be uploaded by an operator, approved by HR and applied by an
@@ -2055,8 +2117,8 @@ model AttendanceImportBatch {
   /// actor answers "when did six thousand attendance records change" and not
   /// "who did it", which is the half a payroll dispute actually needs.
   /// Deliberately not approvedById reused: those are different decisions.
-  appliedById   String?
-  appliedAt     DateTime?
+  appliedById  String?
+  appliedAt    DateTime?
 
   /// ── The apply lease ──────────────────────────────────────────────────
   ///
@@ -2071,20 +2133,20 @@ model AttendanceImportBatch {
   applyAttemptId   String?
   applyStartedAt   DateTime?
   applyHeartbeatAt DateTime?
-  cancelledAt   DateTime?
-  failureReason String?
+  cancelledAt      DateTime?
+  failureReason    String?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// Restrict, not Cascade. An import that changed official attendance is the
   /// evidence explaining that change, and it must be harder to destroy than
   /// the spreadsheet it came from. A finished batch is CANCELLED, never
   /// deleted, and there is no endpoint that deletes one.
-  uploadedBy    User  @relation("AttendanceImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
-  approvedBy    User? @relation("AttendanceImportApprover", fields: [approvedById], references: [id], onDelete: Restrict)
-  appliedBy     User? @relation("AttendanceImportApplier", fields: [appliedById], references: [id], onDelete: Restrict)
-  rows          AttendanceImportRow[]
+  uploadedBy User                  @relation("AttendanceImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  approvedBy User?                 @relation("AttendanceImportApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  appliedBy  User?                 @relation("AttendanceImportApplier", fields: [appliedById], references: [id], onDelete: Restrict)
+  rows       AttendanceImportRow[]
 
   @@index([status])
   @@index([uploadedById])
@@ -2121,7 +2183,7 @@ model AttendanceImportRow {
   // DailyAttendance: this is a historical statement about who a row resolved
   // to, and it has to survive whatever happens to the account later.
   userId            String?
-  businessDate      DateTime?             @db.Date
+  businessDate      DateTime?              @db.Date
   proposedStatus    DailyAttendanceStatus?
   proposedPunchIn   DateTime?
   proposedPunchOut  DateTime?
@@ -2136,27 +2198,27 @@ model AttendanceImportRow {
   // Evidence is recorded as the actual evidence ids rather than a new
   // has-evidence taxonomy: it invents no second vocabulary, and it points at
   // the specific rows that backed the day.
-  currentStatus           DailyAttendanceStatus?
-  currentPunchIn          DateTime?
-  currentPunchOut         DateTime?
+  currentStatus             DailyAttendanceStatus?
+  currentPunchIn            DateTime?
+  currentPunchOut           DateTime?
   currentPunchInEvidenceId  String?
   currentPunchOutEvidenceId String?
-  currentFingerprint      String?
+  currentFingerprint        String?
 
   // ── VERDICT ─────────────────────────────────────────────────────────────
   classification AttendanceImportRowClass?
   /// Structured problem codes; the human sentences are rendered from them.
-  messages       String[] @default([])
+  messages       String[]                  @default([])
   /// Non-blocking findings a reviewer should still see -- a name that does not
   /// match the ID it was filed under, most of all.
-  warnings       String[] @default([])
+  warnings       String[]                  @default([])
 
   // ── APPLICATION (Phase 5 populates these) ───────────────────────────────
   /// Deliberately an enum rather than a Boolean. "Never attempted", "skipped
   /// because the day moved between preview and apply" and "failed unexpectedly"
   /// need opposite responses -- re-preview, investigate, or nothing -- and a
   /// Boolean would collapse the last two into one indistinguishable false.
-  applyState       AttendanceImportRowState @default(PENDING)
+  applyState       AttendanceImportRowState  @default(PENDING)
   appliedAt        DateTime?
   failureReason    String?
   /// The single link to the correction this row produced. The FK lives HERE,
@@ -2184,6 +2246,11 @@ enum AttendanceImportMode {
   /// A period predating Apex OS. May record a status whose punch times were
   /// never kept; may never invent them.
   HISTORICAL_MIGRATION
+  /// Apex Historical Recovery (attendance recovery Phase 2A). FAIL-CLOSED: the
+  /// correction pipeline refuses to upload, approve, apply, resume or re-preview
+  /// it (see import/import-mode.ts). It gets its own insert-only apply path in a
+  /// later, separately approved phase.
+  RECOVERY_IMPORT
 }
 
 enum AttendanceImportStatus {
@@ -2239,4 +2306,49 @@ model CorrectionScreenshot {
   regularization AttendanceRegularization @relation(fields: [regularizationId], references: [id], onDelete: Cascade)
   @@index([regularizationId])
   @@map("correction_screenshots")
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Attendance recovery — tombstones (Phase 1 foundation)
+//
+// A tombstone records that attendance for an employee-day was removed ON
+// PURPOSE. Backups and recovery mirrors still hold such records, and seen from
+// reconciliation alone a deliberate removal is indistinguishable from data
+// loss. A matching tombstone makes the day ineligible for any recovery.
+//
+// Sidecar only: no attendance table gains a column, and this table holds no
+// attendance. Identity is the employee's business identifier and the business
+// date, not a User UUID -- the same convention as AttendanceImportRow.userId,
+// a historical statement that must survive whatever happens to the account.
+// deletedById is therefore a plain id, not a foreign key.
+// ════════════════════════════════════════════════════════════════════════════
+
+model AttendanceRecoveryTombstone {
+  id            String                          @id @default(cuid())
+  employeeId    String
+  businessDate  DateTime                        @db.Date
+  recordType    AttendanceRecoveryTombstoneType
+  /// Null = every record of recordType for that employee-day. For
+  /// PUNCH_EVIDENCE this holds the idempotencyKey (the evidence natural key).
+  recordId      String?
+  reason        String
+  deletedAt     DateTime
+  deletedById   String
+  /// The record that superseded the removed one, when there is one.
+  replacementId String?
+  createdAt     DateTime                        @default(now())
+
+  @@index([employeeId, businessDate])
+  @@index([recordType, recordId])
+  @@index([createdAt])
+  @@map("attendance_recovery_tombstones")
+}
+
+enum AttendanceRecoveryTombstoneType {
+  DAY
+  DAILY_ATTENDANCE
+  WORK_SESSION
+  BREAK_LOG
+  PUNCH_EVIDENCE
+  REGULARIZATION
 }

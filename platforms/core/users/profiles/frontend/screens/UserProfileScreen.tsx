@@ -10,7 +10,7 @@ import { rolesApi } from '@apex/core-organization-roles/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import { ChevronRight, Edit2, Upload, Eye, Clock, CheckCircle, AlertTriangle, RotateCcw } from 'lucide-react';
+import { ChevronRight, Edit2, Upload, Eye, Clock, CheckCircle, AlertTriangle, RotateCcw, Building2, UsersRound } from 'lucide-react';
 
 const fmtSeconds = (sec: number | null | undefined) => {
   if (sec == null) return '0h 0m';
@@ -43,19 +43,28 @@ const DOCUMENT_TYPES = [
   { type: 'OTHER', label: 'Other Document' },
 ];
 
-const ROLE_COLORS: Record<string, string> = {
-  SUPER_ADMIN: 'bg-purple-900 text-purple-300',
-  ADMIN: 'bg-red-900 text-red-300',
-  MANAGER: 'bg-blue-900 text-blue-300',
-  TEAM_LEAD: 'bg-cyan-900 text-cyan-300',
-  EMPLOYEE: 'bg-green-900 text-green-300',
-  INTERN: 'bg-yellow-900 text-yellow-300',
+const ROLE_PRESENTATION: Record<string, { label: string; badge: string }> = {
+  SUPER_ADMIN: { label: 'SUPER ADMIN', badge: 'bg-violet-100 text-violet-800 ring-violet-200 dark:bg-violet-400/15 dark:text-white dark:ring-violet-300/80' },
+  ADMIN: { label: 'ADMIN', badge: 'bg-rose-100 text-rose-800 ring-rose-200 dark:bg-rose-400/15 dark:text-white dark:ring-rose-300/80' },
+  MANAGER: { label: 'MANAGER', badge: 'bg-orange-100 text-orange-800 ring-orange-200 dark:bg-orange-400/15 dark:text-white dark:ring-orange-300/80' },
+  TEAM_LEAD: { label: 'TEAM LEAD', badge: 'bg-blue-100 text-blue-800 ring-blue-200 dark:bg-blue-400/15 dark:text-white dark:ring-blue-300/80' },
+  EMPLOYEE: { label: 'EMPLOYEE', badge: 'bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-400/15 dark:text-white dark:ring-emerald-300/80' },
+  INTERN: { label: 'INTERN', badge: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-300/15 dark:text-white dark:ring-slate-300/80' },
 };
 
-const inputCls = 'w-full px-4 py-3 rounded-xl border border-slate-700 bg-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm';
-const labelCls = 'block text-sm font-bold text-slate-300 mb-2';
-const readCls = 'w-full px-4 py-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-200 text-sm';
-const sectionCls = 'bg-slate-800/50 rounded-xl p-6 border border-slate-700/50';
+const FALLBACK_ROLE_BADGE = 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-300/15 dark:text-white dark:ring-slate-300/80';
+const HR_BADGE = 'bg-violet-100 text-violet-800 ring-violet-200 dark:bg-violet-400/15 dark:text-white dark:ring-violet-300/80';
+
+const inputCls = 'apex-profile-value w-full px-4 py-3 rounded-xl border border-[var(--border-secondary)] bg-[var(--surface-card)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm';
+const labelCls = 'apex-profile-label block text-sm font-bold mb-2';
+const readCls = 'apex-profile-value w-full px-4 py-3 rounded-xl border border-[var(--border-primary)] bg-[var(--surface-sunken)] text-sm';
+const sectionCls = 'apex-section-border bg-[var(--surface-sunken)] rounded-xl p-6 border';
+const neutralButtonCls = 'border border-[var(--border-secondary)] bg-[var(--surface-card)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]';
+const selectCls = 'apex-profile-value w-full px-4 py-3 rounded-xl border border-[var(--border-secondary)] bg-[var(--surface-card)] text-sm';
+const metricCardCls = 'apex-section-border bg-[var(--surface-sunken)] p-4 rounded-xl border flex flex-col';
+const metricLabelCls = 'apex-profile-label flex items-center gap-2 mb-2';
+const metricValueCls = 'apex-profile-value text-3xl font-black';
+const sectionHeadingCls = 'apex-profile-heading text-xl font-black';
 
 const Field = ({ label, field, type = 'text', readOnly = false }: any) => {
   const ctx = useContext(ProfileFormContext);
@@ -72,7 +81,7 @@ const Field = ({ label, field, type = 'text', readOnly = false }: any) => {
           className={inputCls}
         />
       ) : (
-        <div className={readCls}>{profile?.[field] || <span className="text-slate-500">Not set</span>}</div>
+        <div className={readCls}>{profile?.[field] || <span className="text-[var(--text-tertiary)]">Not set</span>}</div>
       )}
     </div>
   );
@@ -95,7 +104,7 @@ const SelectField = ({ label, field, options, readOnly = false }: any) => {
           {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
         </select>
       ) : (
-        <div className={readCls}>{profile?.[field] || <span className="text-slate-500">Not set</span>}</div>
+        <div className={readCls}>{profile?.[field] || <span className="text-[var(--text-tertiary)]">Not set</span>}</div>
       )}
     </div>
   );
@@ -305,13 +314,14 @@ export default function UserProfileScreen() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-slate-400">Loading profile...</div>
+      <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center">
+        <div className="text-[var(--text-secondary)]">Loading profile...</div>
       </div>
     );
   }
 
   const roleName = profile?.role?.name ?? '';
+  const isProfileActive = profile?.isActive !== false;
 
   // HR ADMIN is a COMPOSED authority, not a seventh role: an administrator who
   // also carries HR functional authority. Presented as one identity because
@@ -319,68 +329,85 @@ export default function UserProfileScreen() {
   // still shows both underlying facts, so nothing is hidden.
   const isHrAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName) && !!(profile as any)?.isHR;
   const authorityLabel = isHrAdmin ? 'HR ADMIN' : (profile as any)?.isHR ? 'HR' : roleName;
+  const rolePresentation = ROLE_PRESENTATION[roleName];
+  const authorityBadgeLabel = isHrAdmin || (profile as any)?.isHR
+    ? authorityLabel
+    : rolePresentation?.label ?? roleName.replace(/_/g, ' ');
+  const authorityBadgeColor = isHrAdmin || (profile as any)?.isHR
+    ? HR_BADGE
+    : rolePresentation?.badge ?? FALLBACK_ROLE_BADGE;
   const initials = profile?.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   return (
     <ProfileFormContext.Provider value={{ editMode, formData, setFormData, profile }}>
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
         <div className="max-w-6xl mx-auto px-4 py-6">
           {/* Breadcrumb */}
-          <nav className="flex items-center gap-1 text-sm text-slate-400 mb-6 flex-wrap">
+          <nav className="flex items-center gap-1 text-sm text-[var(--text-secondary)] mb-6 flex-wrap">
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1">
               {i > 0 && <ChevronRight className="w-3 h-3" />}
               {crumb.href ? (
-                <Link href={crumb.href} className="text-blue-400 hover:text-blue-300 transition-colors">
+                <Link href={crumb.href} className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
                   {crumb.label}
                 </Link>
               ) : (
-                <span className="text-slate-200 font-medium">{crumb.label}</span>
+                <span className="text-[var(--text-primary)] font-medium">{crumb.label}</span>
               )}
             </span>
           ))}
         </nav>
 
         {/* Header */}
-        <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 mb-6">
+        <div className="apex-profile-hero relative overflow-hidden border rounded-2xl p-6 mb-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-5">
-              {profile?.photoUrl ? (
-                <img src={profile.photoUrl} alt={profile?.name} className="w-20 h-20 rounded-full object-cover" />
-              ) : (
-                <div
-                  className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-black text-white flex-shrink-0"
-                  style={{ backgroundColor: profile?.avatar || '#6366f1' }}
-                >
-                  {initials}
+              <div className="relative flex-shrink-0">
+                <div className="flex h-[90px] w-[90px] items-center justify-center rounded-full border border-white/70 bg-white/90 p-1 shadow-[0_10px_28px_rgba(3,30,80,0.28)] dark:border-white/50 dark:bg-slate-900/75">
+                  {profile?.photoUrl ? (
+                    <img
+                      src={profile.photoUrl}
+                      alt={`${profile?.name} profile photo`}
+                      className="h-20 w-20 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="apex-user-initials text-2xl font-bold tracking-wide"
+                      aria-label={`${profile?.name} initials`}
+                    >
+                      {initials}
+                    </span>
+                  )}
                 </div>
-              )}
+                <span
+                  className="absolute bottom-2 right-0 h-5 w-5 rounded-full border-[3px] border-white shadow-sm"
+                  style={{ backgroundColor: isProfileActive ? 'var(--color-success)' : 'var(--color-danger)' }}
+                  title={isProfileActive ? 'Active' : 'Inactive'}
+                  aria-label={isProfileActive ? 'Active user' : 'Inactive user'}
+                />
+              </div>
               <div>
-                <h1 className="text-3xl font-black text-white">{profile?.name}</h1>
-                <p className="text-slate-400 mt-0.5">{profile?.email}</p>
+                <h1 className="text-3xl font-black text-white drop-shadow-sm">{profile?.name}</h1>
+                {profile?.employeeId && (
+                  <p className="text-blue-100 text-sm font-semibold tracking-wide mt-1">EMP ID: {profile.employeeId}</p>
+                )}
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                   {authorityLabel && (
                     <span
                       title={isHrAdmin ? `Base role ${roleName} with HR authority` : undefined}
-                      className={`text-xs font-bold px-2 py-1 rounded-full ${isHrAdmin ? 'bg-purple-900/40 text-purple-300' : ROLE_COLORS[roleName] ?? 'bg-slate-700 text-slate-300'}`}
+                      className={`apex-user-role-badge inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ring-inset ${authorityBadgeColor}`}
                     >
-                      {authorityLabel}
+                      <UsersRound size={16} aria-hidden="true" />
+                      {authorityBadgeLabel}
                     </span>
                   )}
                   {profile?.department?.name && (
-                    <span className="text-xs font-medium px-2 py-1 rounded-full bg-slate-700 text-slate-300">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1.5 text-xs font-bold text-slate-700 ring-1 ring-inset ring-white/70 shadow-sm backdrop-blur-sm dark:bg-white/15 dark:text-white dark:ring-white/30">
+                      <Building2 size={16} aria-hidden="true" />
                       {profile.department.name}
                     </span>
                   )}
-                  {profile?.isActive === false ? (
-                    <span className="text-xs font-medium px-2 py-1 rounded-full bg-red-900 text-red-300">Inactive</span>
-                  ) : (
-                    <span className="text-xs font-medium px-2 py-1 rounded-full bg-green-900 text-green-300">Active</span>
-                  )}
                 </div>
-                {profile?.employeeId && (
-                  <p className="text-slate-500 text-sm mt-1">EMP ID: {profile.employeeId}</p>
-                )}
               </div>
             </div>
 
@@ -393,7 +420,11 @@ export default function UserProfileScreen() {
                   // Activating here also records the lifecycle transition, so a
                   // previously archived account genuinely comes back.
                   onClick={() => accessMutation.mutate({ isActive: !(profile?.isActive !== false) })}
-                  className="px-4 py-2 text-sm border border-slate-700 bg-slate-900 text-slate-200 rounded-xl hover:bg-slate-800 transition-colors"
+                  className={`rounded-xl border px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 ${
+                    isProfileActive
+                      ? 'border-red-400/80 bg-red-600 hover:bg-red-700'
+                      : 'border-emerald-400/80 bg-emerald-600 hover:bg-emerald-700'
+                  }`}
                 >
                   {profile?.isActive === false ? 'Activate' : 'Deactivate'}
                 </button>
@@ -403,7 +434,7 @@ export default function UserProfileScreen() {
         </div>
 
         {/* Tab Bar */}
-        <div className="border-b border-slate-700 mb-6">
+        <div className="border-b border-[var(--border-primary)] mb-6">
           <div className="flex gap-1 overflow-x-auto">
             {TABS.filter((t) => {
               if (t.id === 'payroll') return canSeePayroll;
@@ -416,8 +447,8 @@ export default function UserProfileScreen() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-white'
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-500'
+                    ? 'border-blue-500 text-blue-700 dark:text-white'
+                    : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
                 }`}
               >
                 {tab.label}
@@ -427,13 +458,13 @@ export default function UserProfileScreen() {
         </div>
 
         {/* Tab Content */}
-        <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6">
+        <div className="apex-section-border bg-[var(--surface-card)] border rounded-2xl p-6 shadow-sm">
 
           {/* Tab 1: Personal Details */}
           {activeTab === 'personal' && (
             <div>
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-black text-white">Personal Details</h2>
+                <h2 className={sectionHeadingCls}>Personal Details</h2>
                 {(canEditAll || isOwnProfile) && (
                   <div className="flex items-center gap-2">
                     {editMode ? (
@@ -443,13 +474,13 @@ export default function UserProfileScreen() {
                           {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
                         </button>
                         <button onClick={() => setEditMode(false)}
-                          className="px-4 py-2 border border-slate-700 bg-slate-900 text-slate-200 text-sm rounded-xl hover:bg-slate-800">
+                          className={`px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>
                           Cancel
                         </button>
                       </>
                     ) : (
                       <button onClick={handleEditToggle}
-                        className="flex items-center gap-1.5 px-4 py-2 border border-slate-700 bg-slate-900 text-slate-200 text-sm rounded-xl hover:bg-slate-800">
+                        className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>
                         <Edit2 size={14} /> Edit
                       </button>
                     )}
@@ -470,7 +501,7 @@ export default function UserProfileScreen() {
                       <textarea value={formData.currentAddress ?? ''} onChange={(e) => setFormData((f: any) => ({ ...f, currentAddress: e.target.value }))}
                         className={`${inputCls} min-h-[80px] resize-none`} />
                     ) : (
-                      <div className={`${readCls} min-h-[60px]`}>{profile?.currentAddress || <span className="text-slate-500">Not set</span>}</div>
+                      <div className={`${readCls} min-h-[60px]`}>{profile?.currentAddress || <span className="text-[var(--text-tertiary)]">Not set</span>}</div>
                     )}
                   </div>
                   <div className="md:col-span-2">
@@ -479,7 +510,7 @@ export default function UserProfileScreen() {
                       <textarea value={formData.permanentAddress ?? ''} onChange={(e) => setFormData((f: any) => ({ ...f, permanentAddress: e.target.value }))}
                         className={`${inputCls} min-h-[80px] resize-none`} />
                     ) : (
-                      <div className={`${readCls} min-h-[60px]`}>{profile?.permanentAddress || <span className="text-slate-500">Not set</span>}</div>
+                      <div className={`${readCls} min-h-[60px]`}>{profile?.permanentAddress || <span className="text-[var(--text-tertiary)]">Not set</span>}</div>
                     )}
                   </div>
                   <Field label="Emergency Contact Name" field="emergencyName" />
@@ -495,8 +526,8 @@ export default function UserProfileScreen() {
                   fixing a login email. Internal user ID never changes. */}
               {canSeeAccess && (
                 <div className={`${sectionCls} mt-5`} style={{ borderColor: 'rgba(217,119,6,0.4)' }}>
-                  <p className="text-amber-400 text-sm font-black mb-1">ADMIN CORRECTION</p>
-                  <p className="text-xs text-slate-400 mb-4">
+                  <p className="text-amber-700 dark:text-amber-400 text-sm font-black mb-1">ADMIN CORRECTION</p>
+                  <p className="text-xs text-[var(--text-secondary)] mb-4">
                     Correct login email/user id. Internal user ID will not change.
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -542,7 +573,7 @@ export default function UserProfileScreen() {
           {activeTab === 'employment' && (
             <div>
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-black text-white">Employment Details</h2>
+                <h2 className={sectionHeadingCls}>Employment Details</h2>
                 {canEditAll && (
                   <div className="flex gap-2">
                     {editMode ? (
@@ -550,10 +581,10 @@ export default function UserProfileScreen() {
                         <button onClick={handleSave} disabled={updateMutation.isPending} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-xl disabled:opacity-50">
                           {updateMutation.isPending ? 'Saving…' : 'Save'}
                         </button>
-                        <button onClick={() => setEditMode(false)} className="px-4 py-2 border border-slate-700 text-slate-200 text-sm rounded-xl">Cancel</button>
+                        <button onClick={() => setEditMode(false)} className={`px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>Cancel</button>
                       </>
                     ) : (
-                      <button onClick={handleEditToggle} className="flex items-center gap-1.5 px-4 py-2 border border-slate-700 text-slate-200 text-sm rounded-xl hover:bg-slate-800">
+                      <button onClick={handleEditToggle} className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>
                         <Edit2 size={14} /> Edit
                       </button>
                     )}
@@ -583,7 +614,7 @@ export default function UserProfileScreen() {
           {activeTab === 'access' && (
             <div>
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-black text-white">Account &amp; Access</h2>
+                <h2 className={sectionHeadingCls}>Account &amp; Access</h2>
                 {/* Authority editing is administrators only -- narrower than
                     the rest of the profile, which HR may also edit. The server
                     enforces it independently. */}
@@ -599,7 +630,7 @@ export default function UserProfileScreen() {
                       </button>
                       <button
                         onClick={() => setAccessEdit(false)}
-                        className="px-4 py-2 border border-slate-700 text-slate-200 text-sm rounded-xl"
+                        className={`px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}
                       >
                         Cancel
                       </button>
@@ -607,7 +638,7 @@ export default function UserProfileScreen() {
                   ) : (
                     <button
                       onClick={startAccessEdit}
-                      className="flex items-center gap-2 px-4 py-2 border border-slate-700 text-slate-200 text-sm rounded-xl hover:bg-slate-800"
+                      className={`flex items-center gap-2 px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}
                     >
                       <Edit2 size={14} /> Edit
                     </button>
@@ -615,7 +646,7 @@ export default function UserProfileScreen() {
                 )}
               </div>
               {!canSeeAccess && !isOwnProfile ? (
-                <div className="text-slate-400 text-center py-8">You don&apos;t have permission to view this section.</div>
+                <div className="text-[var(--text-secondary)] text-center py-8">You don&apos;t have permission to view this section.</div>
               ) : (
                 <div className={sectionCls}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -623,7 +654,7 @@ export default function UserProfileScreen() {
                     <div>
                       <label className={labelCls}>Password</label>
                       {canEditAll ? (
-                        <button className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800 text-blue-400 text-sm text-left hover:bg-slate-700">
+                        <button className="w-full px-4 py-3 rounded-xl border border-[var(--border-secondary)] bg-[var(--surface-card)] text-blue-600 dark:text-blue-400 text-sm text-left hover:bg-[var(--bg-tertiary)]">
                           Reset Password →
                         </button>
                       ) : (
@@ -642,7 +673,7 @@ export default function UserProfileScreen() {
                         <select
                           value={accessForm.roleId ?? ''}
                           onChange={(e) => setAccessForm((f: any) => ({ ...f, roleId: e.target.value }))}
-                          className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800 text-slate-100 text-sm"
+                          className={selectCls}
                         >
                           {(Array.isArray(roleOptions) ? roleOptions : []).map((r: any) => (
                             <option key={r.id} value={r.id}>{r.name}</option>
@@ -650,7 +681,10 @@ export default function UserProfileScreen() {
                         </select>
                       ) : (
                         <div className={readCls}>
-                          <span className={`text-xs font-bold px-2 py-1 rounded-full ${ROLE_COLORS[roleName] ?? 'bg-slate-700 text-slate-300'}`}>{roleName}</span>
+                          <span className={`apex-user-role-badge inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ring-inset ${rolePresentation?.badge ?? FALLBACK_ROLE_BADGE}`}>
+                            <UsersRound size={16} aria-hidden="true" />
+                            {rolePresentation?.label ?? roleName.replace(/_/g, ' ')}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -658,7 +692,7 @@ export default function UserProfileScreen() {
                     <div><label className={labelCls}>HR Authority</label>
                       {accessEdit ? (
                         <label
-                          className="flex items-start gap-2.5 w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800"
+                          className="flex items-start gap-2.5 w-full px-4 py-3 rounded-xl border border-[var(--border-secondary)] bg-[var(--surface-card)]"
                           style={{ cursor: accessIsSuperAdmin ? 'not-allowed' : 'pointer', opacity: accessIsSuperAdmin ? 0.55 : 1 }}
                         >
                           <input
@@ -668,7 +702,7 @@ export default function UserProfileScreen() {
                             disabled={accessIsSuperAdmin}
                             onChange={(e) => setAccessForm((f: any) => ({ ...f, isHR: e.target.checked }))}
                           />
-                          <span className="text-sm text-slate-200">
+                          <span className="text-sm text-[var(--text-primary)]">
                             {accessIsSuperAdmin
                               ? 'Not available for Super Admin'
                               : 'Company-wide attendance, corrections, payroll and month close'}
@@ -677,9 +711,9 @@ export default function UserProfileScreen() {
                       ) : (
                         <div className={readCls}>
                           {(profile as any)?.isHR ? (
-                            <span className="text-xs font-bold px-2 py-1 rounded-full bg-purple-900/40 text-purple-300">Enabled</span>
+                            <span className="text-xs font-bold px-2 py-1 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">Enabled</span>
                           ) : (
-                            <span className="text-slate-400">Not enabled</span>
+                            <span className="text-[var(--text-secondary)]">Not enabled</span>
                           )}
                         </div>
                       )}
@@ -690,7 +724,7 @@ export default function UserProfileScreen() {
                         <select
                           value={accessForm.isActive ? 'active' : 'inactive'}
                           onChange={(e) => setAccessForm((f: any) => ({ ...f, isActive: e.target.value === 'active' }))}
-                          className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800 text-slate-100 text-sm"
+                          className={selectCls}
                         >
                           <option value="active">Active</option>
                           <option value="inactive">Inactive</option>
@@ -698,8 +732,8 @@ export default function UserProfileScreen() {
                       ) : (
                         <div className={readCls}>
                           {profile?.isActive === false
-                            ? <span className="text-red-400 font-medium">Inactive</span>
-                            : <span className="text-green-400 font-medium">Active</span>}
+                            ? <span className="text-red-700 dark:text-red-400 font-medium">Inactive</span>
+                            : <span className="text-green-700 dark:text-green-400 font-medium">Active</span>}
                         </div>
                       )}
                     </div>
@@ -709,7 +743,7 @@ export default function UserProfileScreen() {
                         <select
                           value={accessForm.departmentId ?? ''}
                           onChange={(e) => setAccessForm((f: any) => ({ ...f, departmentId: e.target.value }))}
-                          className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-800 text-slate-100 text-sm"
+                          className={selectCls}
                         >
                           <option value="">None</option>
                           {(Array.isArray(departmentOptions) ? departmentOptions : []).map((d: any) => (
@@ -732,10 +766,10 @@ export default function UserProfileScreen() {
           {activeTab === 'payroll' && canSeePayroll && (
             <div>
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-black text-white">Payroll & Statutory</h2>
+                <h2 className={sectionHeadingCls}>Payroll & Statutory</h2>
                 <div className="flex items-center gap-2">
                   {isOwnProfile && (
-                    <div className="flex items-center gap-2 text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-800 rounded-lg px-3 py-1.5">
+                    <div className="flex items-center gap-2 text-xs text-yellow-800 bg-yellow-50 border border-yellow-200 dark:text-yellow-400 dark:bg-yellow-900/20 dark:border-yellow-800 rounded-lg px-3 py-1.5">
                       Sensitive data is partially hidden for security
                     </div>
                   )}
@@ -743,10 +777,10 @@ export default function UserProfileScreen() {
                     editMode ? (
                       <div className="flex gap-2">
                         <button onClick={handleSave} disabled={updateMutation.isPending} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-xl disabled:opacity-50">Save</button>
-                        <button onClick={() => setEditMode(false)} className="px-4 py-2 border border-slate-700 text-slate-200 text-sm rounded-xl">Cancel</button>
+                        <button onClick={() => setEditMode(false)} className={`px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>Cancel</button>
                       </div>
                     ) : (
-                      <button onClick={handleEditToggle} className="flex items-center gap-1.5 px-4 py-2 border border-slate-700 text-slate-200 text-sm rounded-xl hover:bg-slate-800">
+                      <button onClick={handleEditToggle} className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>
                         <Edit2 size={14} /> Edit
                       </button>
                     )
@@ -757,7 +791,6 @@ export default function UserProfileScreen() {
               <div className="space-y-5">
                 {/* Salary */}
                 <div className={sectionCls}>
-                  <p className="text-blue-400 text-sm font-black mb-4">SALARY INFORMATION</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <Field label="CTC Annual *" field="ctcAnnual" readOnly={isOwnProfile} />
                     <Field label="Basic Salary Annual *" field="basicSalary" readOnly={isOwnProfile} />
@@ -767,12 +800,11 @@ export default function UserProfileScreen() {
 
                 {/* Bank */}
                 <div className={sectionCls}>
-                  <p className="text-blue-400 text-sm font-black mb-4">BANK DETAILS</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <Field label="Bank Name *" field="bankName" readOnly={isOwnProfile} />
                     <div>
                       <label className={labelCls}>Account Number *</label>
-                      <div className={readCls}>{profile?.accountNumber || <span className="text-slate-500">Not set</span>}</div>
+                      <div className={readCls}>{profile?.accountNumber || <span className="text-[var(--text-tertiary)]">Not set</span>}</div>
                     </div>
                     <Field label="IFSC Code *" field="ifscCode" readOnly={isOwnProfile} />
                     <Field label="Account Holder Name *" field="accountHolderName" readOnly={isOwnProfile} />
@@ -782,15 +814,14 @@ export default function UserProfileScreen() {
 
                 {/* Statutory */}
                 <div className={sectionCls}>
-                  <p className="text-blue-400 text-sm font-black mb-4">STATUTORY DETAILS</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
                       <label className={labelCls}>PAN Number *</label>
-                      <div className={readCls}>{profile?.panNumber || <span className="text-slate-500">Not set</span>}</div>
+                      <div className={readCls}>{profile?.panNumber || <span className="text-[var(--text-tertiary)]">Not set</span>}</div>
                     </div>
                     <div>
                       <label className={labelCls}>Aadhaar Number *</label>
-                      <div className={readCls}>{profile?.aadhaarNumber || <span className="text-slate-500">Not set</span>}</div>
+                      <div className={readCls}>{profile?.aadhaarNumber || <span className="text-[var(--text-tertiary)]">Not set</span>}</div>
                     </div>
                     <Field label="UAN Number" field="uanNumber" readOnly={isOwnProfile} />
                   </div>
@@ -808,7 +839,7 @@ export default function UserProfileScreen() {
                           disabled={!editMode || isOwnProfile}
                           className="w-4 h-4 accent-blue-500"
                         />
-                        <span className="text-sm text-slate-300">{label}</span>
+                        <span className="apex-profile-label text-sm">{label}</span>
                       </label>
                     ))}
                   </div>
@@ -823,19 +854,19 @@ export default function UserProfileScreen() {
           {/* Tab 5: Documents & Verification */}
           {activeTab === 'documents' && (
             <div>
-              <h2 className="text-xl font-black text-white mb-6">Documents & Verification</h2>
+              <h2 className={`${sectionHeadingCls} mb-6`}>Documents & Verification</h2>
 
               {/* Document slots grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 {DOCUMENT_TYPES.map((docType) => {
                   const uploaded = Array.isArray(documents) ? documents.find((d: any) => d.documentType === docType.type) : null;
-                  const vsColor = uploaded?.verificationStatus === 'VERIFIED' ? 'text-green-400 bg-green-900/20 border-green-800' :
-                    uploaded?.verificationStatus === 'REJECTED' ? 'text-red-400 bg-red-900/20 border-red-800' :
-                    'text-yellow-400 bg-yellow-900/20 border-yellow-800';
+                  const vsColor = uploaded?.verificationStatus === 'VERIFIED' ? 'text-green-700 bg-green-50 border-green-200 dark:text-green-400 dark:bg-green-900/20 dark:border-green-800' :
+                    uploaded?.verificationStatus === 'REJECTED' ? 'text-red-700 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-900/20 dark:border-red-800' :
+                    'text-yellow-700 bg-yellow-50 border-yellow-200 dark:text-yellow-400 dark:bg-yellow-900/20 dark:border-yellow-800';
 
                   return (
                     <div key={docType.type} className={`border-2 rounded-xl p-3 flex flex-col items-center gap-2 transition-colors ${
-                      uploaded ? 'border-slate-600 bg-slate-800/50' : 'border-dashed border-slate-600 bg-slate-800/20 hover:border-slate-500'
+                      uploaded ? 'border-[var(--border-secondary)] bg-[var(--surface-sunken)]' : 'border-dashed border-[var(--border-secondary)] bg-[var(--surface-sunken)] hover:border-[var(--text-tertiary)]'
                     }`}>
                       <div className="text-2xl">{
                         docType.type === 'PROFILE_PHOTO' ? '📷' :
@@ -846,7 +877,7 @@ export default function UserProfileScreen() {
                         docType.type === 'OFFER_LETTER' ? '📄' :
                         docType.type === 'EDUCATION_CERT' ? '🎓' : '📎'
                       }</div>
-                      <p className="text-xs font-medium text-slate-300 text-center">{docType.label}</p>
+                      <p className="apex-profile-label text-xs font-medium text-center">{docType.label}</p>
                       {uploaded ? (
                         <>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${vsColor}`}>
@@ -866,7 +897,7 @@ export default function UserProfileScreen() {
                             )}
                             {canEditAll && (
                               <button onClick={() => handleDeleteDoc(uploaded.id)}
-                                className="text-[10px] text-slate-400 hover:text-red-400 hover:underline ml-1">Delete</button>
+                                className="text-[10px] text-[var(--text-secondary)] hover:text-red-600 dark:hover:text-red-400 hover:underline ml-1">Delete</button>
                             )}
                           </div>
                         </>
@@ -893,7 +924,7 @@ export default function UserProfileScreen() {
               {/* HR Notes — visible to HR/ADMIN/SUPER_ADMIN only */}
               {canEditAll && (
                 <div className={sectionCls}>
-                  <p className="text-blue-400 text-sm font-black mb-3">HR NOTES (Internal)</p>
+                  <p className="apex-profile-heading text-sm font-bold mb-3">HR Notes (Internal)</p>
                   <textarea
                     value={formData.hrNotes ?? profile?.hrNotes ?? ''}
                     onChange={(e) => setFormData((f: any) => ({ ...f, hrNotes: e.target.value }))}
@@ -915,7 +946,6 @@ export default function UserProfileScreen() {
               {/* Verification Section */}
               {canEditAll && (
                 <div className={`${sectionCls} mt-4`}>
-                  <p className="text-blue-400 text-sm font-black mb-4">VERIFICATION DETAILS</p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <SelectField label="Verification Status" field="verificationStatus"
                       options={['Pending','In Progress','Verified','Rejected']} />
@@ -943,88 +973,88 @@ export default function UserProfileScreen() {
           {/* Tab 6: Approval Workload */}
           {activeTab === 'approvals' && (
             <div>
-              <h2 className="text-xl font-black text-white mb-6">Approval Workload</h2>
+              <h2 className={`${sectionHeadingCls} mb-6`}>Approval Workload</h2>
               {reviewerMetricsLoading ? (
-                <div className="text-slate-400">Loading metrics...</div>
+                <div className="text-[var(--text-secondary)]">Loading metrics...</div>
               ) : !reviewerMetrics ? (
-                <div className="text-slate-400">No approval metrics available.</div>
+                <div className="text-[var(--text-secondary)]">No approval metrics available.</div>
               ) : (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
-                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                    <div className={metricCardCls}>
+                      <div className={metricLabelCls}>
                         <Eye size={16} />
                         <span className="text-sm font-medium">Pending Approvals</span>
                       </div>
-                      <span className="text-3xl font-black text-white">
+                      <span className={metricValueCls}>
                         {reviewerMetrics.pendingApprovalsCount ?? 0}
                       </span>
                     </div>
-                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
-                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                    <div className={metricCardCls}>
+                      <div className={metricLabelCls}>
                         <CheckCircle size={16} className="text-green-500" />
                         <span className="text-sm font-medium">Completed Approvals</span>
                       </div>
-                      <span className="text-3xl font-black text-white">
+                      <span className={metricValueCls}>
                         {reviewerMetrics.completedApprovalsCount ?? 0}
                       </span>
                     </div>
-                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
-                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                    <div className={metricCardCls}>
+                      <div className={metricLabelCls}>
                         <Clock size={16} className="text-blue-500" />
                         <span className="text-sm font-medium">Avg. Reviewer Active Time</span>
                       </div>
-                      <span className="text-3xl font-black text-white">
+                      <span className={metricValueCls}>
                         {fmtSeconds(reviewerMetrics.averageApprovalSeconds)}
                       </span>
                     </div>
-                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
-                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                    <div className={metricCardCls}>
+                      <div className={metricLabelCls}>
                         <CheckCircle size={16} className="text-green-500" />
                         <span className="text-sm font-medium">Approvals Today</span>
                       </div>
-                      <span className="text-3xl font-black text-white">
+                      <span className={metricValueCls}>
                         {reviewerMetrics.approvalsToday ?? 0}
                       </span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
-                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                    <div className={metricCardCls}>
+                      <div className={metricLabelCls}>
                         <CheckCircle size={16} className="text-green-500" />
                         <span className="text-sm font-medium">Approvals This Week</span>
                       </div>
-                      <span className="text-3xl font-black text-white">
+                      <span className={metricValueCls}>
                         {reviewerMetrics.approvalsThisWeek ?? 0}
                       </span>
                     </div>
-                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
-                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                    <div className={metricCardCls}>
+                      <div className={metricLabelCls}>
                         <CheckCircle size={16} className={reviewerMetrics.approvalPercent >= 60 ? 'text-green-500' : 'text-yellow-500'} />
                         <span className="text-sm font-medium">Approval Rate</span>
                       </div>
-                      <span className="text-3xl font-black text-white">
+                      <span className={metricValueCls}>
                         {fmtPct(reviewerMetrics.approvalPercent)}
                       </span>
                     </div>
-                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
-                      <div className="flex items-center gap-2 text-slate-400 mb-2">
-                        <RotateCcw size={16} className={reviewerMetrics.rejectionPercent > 40 ? 'text-yellow-500' : 'text-slate-400'} />
+                    <div className={metricCardCls}>
+                      <div className={metricLabelCls}>
+                        <RotateCcw size={16} className={reviewerMetrics.rejectionPercent > 40 ? 'text-yellow-500' : 'text-[var(--text-secondary)]'} />
                         <span className="text-sm font-medium">Rework Rate</span>
                       </div>
-                      <span className="text-3xl font-black text-white">
+                      <span className={metricValueCls}>
                         {fmtPct(reviewerMetrics.rejectionPercent)}
                       </span>
                     </div>
-                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col">
-                      <div className="flex items-center gap-2 text-slate-400 mb-2">
+                    <div className={metricCardCls}>
+                      <div className={metricLabelCls}>
                         <AlertTriangle size={16} className={reviewerMetrics.approvalSlaBreaches > 0 ? 'text-red-500' : 'text-green-500'} />
                         <span className="text-sm font-medium">SLA Breaches</span>
                       </div>
-                      <span className="text-3xl font-black text-white">
+                      <span className={metricValueCls}>
                         {reviewerMetrics.approvalSlaBreaches ?? 0}
-                        <span className="text-sm font-normal text-slate-500 ml-2">({fmtPct(reviewerMetrics.approvalSlaBreachRate)})</span>
+                        <span className="text-sm font-normal text-[var(--text-tertiary)] ml-2">({fmtPct(reviewerMetrics.approvalSlaBreachRate)})</span>
                       </span>
                     </div>
                   </div>

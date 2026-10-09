@@ -180,7 +180,7 @@ export function CommandModal({
             aria-modal="true"
             aria-labelledby={titleId}
             {...motionConfig}
-            className={`relative bg-white dark:bg-[#0F172A] shadow-[0_20px_50px_rgba(11,18,32,0.3)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col border border-slate-200 dark:border-slate-800 z-10 ${
+            className={`apex-section-border relative bg-white dark:bg-[#0F172A] shadow-[0_20px_50px_rgba(11,18,32,0.3)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col border z-10 ${
               isMobile
                 ? 'w-full max-h-[85vh] h-auto rounded-t-[24px] rounded-b-none border-b-0'
                 : 'w-full max-w-2xl rounded-[24px] max-h-[90vh] md:max-h-[85vh]'

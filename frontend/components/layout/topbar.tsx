@@ -130,6 +130,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
   });
 
   const pageName = Object.entries(pageNames).find(([key]) => pathname.startsWith(key))?.[1] || 'Apex OS';
+  const showPageIdentity = pathname !== '/users';
   
   const { logout } = useAuthStore();
 
@@ -203,14 +204,18 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
 
       {/* Left: page name */}
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        <h1 className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
-        {user?.department && (
-          <span
-            className="text-xs px-2 py-0.5 rounded-full hidden sm:inline"
-            style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-          >
-            {user.department.name}
-          </span>
+        {showPageIdentity && (
+          <>
+            <h1 className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
+            {user?.department && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full hidden sm:inline"
+                style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+              >
+                {user.department.name}
+              </span>
+            )}
+          </>
         )}
       </div>
 

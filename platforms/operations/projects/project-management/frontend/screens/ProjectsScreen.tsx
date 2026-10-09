@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { projectsApi } from '../api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
+import { teamsApi } from '@apex/workforce-teams/api';
 import { useAuthStore } from '@apex/core-identity';
 import { PROJECT_STATUS_COLORS } from '../lib/project-status';
 import { PRIORITY_COLORS } from '@apex/shared-configuration';
@@ -157,7 +158,11 @@ export default function ProjectsPage() {
   // Team Leads create in their own department (the API enforces the scope).
   const canCreate = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const [showNew, setShowNew] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', priority: 'MEDIUM', departmentId: '', endDate: '' });
+  const emptyForm = () => ({
+    name: '', description: '', priority: 'MEDIUM', departmentId: '', endDate: '',
+    outputTargetMinutes: '', teamTargets: {} as Record<string, string>,
+  });
+  const [form, setForm] = useState(emptyForm);
 
   // Search, status, department and page live in the URL, so Back and a
   // reload return to the same list. All filtering and counting is done by the
@@ -202,6 +207,13 @@ export default function ProjectsPage() {
     queryKey: ['departments'],
     queryFn: () => departmentsApi.getAll() as Promise<any[]>,
   });
+  const selectedDepartment = (Array.isArray(departments) ? departments : []).find((d: any) => d.id === form.departmentId);
+  const isContentDepartment = ['content', 'content sales'].includes(String(selectedDepartment?.name ?? '').trim().toLowerCase());
+  const { data: departmentTeams = [] } = useQuery({
+    queryKey: ['teams', form.departmentId],
+    queryFn: () => teamsApi.getAll(form.departmentId) as Promise<any[]>,
+    enabled: showNew && isContentDepartment && Boolean(form.departmentId),
+  });
 
   const createMutation = useMutation({
     mutationFn: (data: any) => projectsApi.create(data),
@@ -209,7 +221,7 @@ export default function ProjectsPage() {
       toast.success(`Project ${p.projectId} created!`);
       qc.invalidateQueries({ queryKey: ['projects'] });
       setShowNew(false);
-      setForm({ name: '', description: '', priority: 'MEDIUM', departmentId: '', endDate: '' });
+      setForm(emptyForm());
     },
     onError: (err: any) => toast.error(err?.message || 'Failed to create project'),
   });
@@ -232,7 +244,7 @@ export default function ProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Projects</h2>
+            <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Projects</h2>
             <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-650 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
               {scopeText}
             </span>
@@ -314,12 +326,54 @@ export default function ProjectsPage() {
                 </div>
                 <div>
                   <label className="apex-label">Department</label>
-                  <select value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value }))} className="apex-select w-full">
+                  <select value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value, teamTargets: {}, outputTargetMinutes: '' }))} className="apex-select w-full">
                     <option value="">Select...</option>
                     {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </div>
               </div>
+              {isContentDepartment && (departmentTeams as any[]).length > 0 ? (
+                <div>
+                  <label className="apex-label">Teams and productivity benchmarks</label>
+                  <p className="text-xs mb-2" style={{ color: 'var(--text-tertiary)' }}>Select teams, then optionally set an independent Minutes of output per day target for each.</p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto rounded-lg border p-2" style={{ borderColor: 'var(--border-primary)' }}>
+                    {(departmentTeams as any[]).map((team: any) => {
+                      const selected = Object.prototype.hasOwnProperty.call(form.teamTargets, team.id);
+                      return (
+                        <div key={team.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={(e) => setForm((f) => {
+                              const next = { ...f.teamTargets };
+                              if (e.target.checked) next[team.id] = '';
+                              else delete next[team.id];
+                              return { ...f, teamTargets: next, outputTargetMinutes: e.target.checked ? '' : f.outputTargetMinutes };
+                            })}
+                          />
+                          <span className="text-sm flex-1" style={{ color: 'var(--text-primary)' }}>{team.name}</span>
+                          {selected && (
+                            <input
+                              type="number" min={1} max={1440} step={1}
+                              value={form.teamTargets[team.id]}
+                              onChange={(e) => setForm((f) => ({ ...f, teamTargets: { ...f.teamTargets, [team.id]: e.target.value } }))}
+                              className="apex-input w-36"
+                              placeholder="Minutes/day"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="apex-label">Minutes of output per day (optional)</label>
+                  <input type="number" min={1} max={1440} step={1} value={form.outputTargetMinutes}
+                    onChange={(e) => setForm((f) => ({ ...f, outputTargetMinutes: e.target.value }))}
+                    className="apex-input" placeholder="1 to 1440" />
+                </div>
+              )}
               <div>
                 <label className="apex-label">End Date</label>
                 <input type="date" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} className="apex-input" />
@@ -327,7 +381,18 @@ export default function ProjectsPage() {
             </div>
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => form.name && createMutation.mutate({ ...form, departmentId: form.departmentId || null, endDate: form.endDate ? new Date(form.endDate).toISOString() : null })}
+                onClick={() => form.name && createMutation.mutate({
+                  name: form.name,
+                  description: form.description,
+                  priority: form.priority,
+                  departmentId: form.departmentId || null,
+                  endDate: form.endDate ? new Date(form.endDate).toISOString() : null,
+                  outputTargetMinutes: form.outputTargetMinutes || null,
+                  teamAssignments: Object.entries(form.teamTargets).map(([teamId, outputTargetMinutes]) => ({
+                    teamId,
+                    outputTargetMinutes: outputTargetMinutes || null,
+                  })),
+                })}
                 disabled={createMutation.isPending || !form.name}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >

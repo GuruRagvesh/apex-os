@@ -1,10 +1,11 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { ImportRowTable } from './ImportRowTable';
+import { DataHealthSection, HistoricalRecoverySection } from './DataHealthPanel';
 import {
   applyBatch,
   approveBatch,
@@ -22,6 +23,7 @@ import {
 import {
   BATCH_STATUS,
   MODE,
+  modeLabel,
   ROW_FILTERS,
   WIZARD_STEPS,
   canApprove,
@@ -68,7 +70,7 @@ const TONE_TEXT: Record<Tone, string> = {
   muted: 'apex-text-muted',
 };
 
-type Section = 'HOME' | 'BULK' | 'RECOVERY' | 'HISTORY';
+type Section = 'HOME' | 'BULK' | 'RECOVERY' | 'HISTORY' | 'HEALTH' | 'HISTORICAL_RECOVERY';
 
 export function ImportWorkspace() {
   const queryClient = useQueryClient();
@@ -87,6 +89,12 @@ export function ImportWorkspace() {
   // rendered, and a hidden button has never been a permission check.
   const mayPrepare = canPrepare(user as any);
   const mayApprove = canApprove(user as any);
+
+  // The Data Health badge links here with ?view=health. Read after mount, so the
+  // page stays statically renderable; only company-wide authority is sent there.
+  useEffect(() => {
+    if (mayApprove && new URLSearchParams(window.location.search).get('view') === 'health') setSection('HEALTH');
+  }, [mayApprove]);
 
   const { data: batch } = useQuery({
     queryKey: ['import-batch', batchId],
@@ -262,10 +270,28 @@ export function ImportWorkspace() {
             body="Everything that has been uploaded, and what happened to it."
             onClick={() => setSection('HISTORY')}
           />
+          {mayApprove && (
+            <Choice
+              title="Data health"
+              body="What Apex OS can verify about attendance backups and recovery."
+              onClick={() => setSection('HEALTH')}
+            />
+          )}
+          {mayApprove && (
+            <Choice
+              title="Historical recovery"
+              body="Restore missing history from an Apex recovery file. Not available yet."
+              onClick={() => setSection('HISTORICAL_RECOVERY')}
+            />
+          )}
         </div>
       )}
 
       {section === 'RECOVERY' && <Recovery />}
+
+      {section === 'HEALTH' && mayApprove && <DataHealthSection />}
+
+      {section === 'HISTORICAL_RECOVERY' && mayApprove && <HistoricalRecoverySection />}
 
       {section === 'HISTORY' && <History rows={history} onOpen={(id) => { setBatchId(id); setSection('BULK'); }} />}
 
@@ -369,7 +395,7 @@ export function ImportWorkspace() {
                       {batch.reference} · {batch.fileName}
                     </p>
                     <p className="apex-text-muted mt-0.5 text-xs">
-                      {MODE[batch.mode].label} · uploaded by{' '}
+                      {modeLabel(batch.mode)} · uploaded by{' '}
                       {batch.uploadedBy?.name ?? 'somebody else'} ·{' '}
                       {formatBytes(batch.fileByteSize)}
                     </p>
@@ -774,7 +800,7 @@ function History({ rows, onOpen }: { rows: ImportBatch[]; onOpen: (id: string) =
                   </button>
                 </td>
                 <td className="apex-text-muted py-2.5 pr-3 text-xs">{b.fileName}</td>
-                <td className="apex-text-muted py-2.5 pr-3 text-xs">{MODE[b.mode]?.label ?? b.mode}</td>
+                <td className="apex-text-muted py-2.5 pr-3 text-xs">{modeLabel(b.mode)}</td>
                 <td className="apex-text-muted py-2.5 pr-3 text-xs">
                   {b.uploadedBy?.name ?? '—'}
                   <span className="apex-text-subtle block">{b.uploadedAt?.slice(0, 10)}</span>

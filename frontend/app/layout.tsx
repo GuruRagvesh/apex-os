@@ -1,10 +1,7 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@apex/apps-web/components/providers';
 import { StagingBanner } from '@apex/shared-ui/components/staging-banner';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: {
@@ -13,6 +10,12 @@ export const metadata: Metadata = {
   },
   description: 'Apex OS — AI-powered Business Operating System by TechnoEdge Learning Services',
   icons: { icon: '/favicon.svg' },
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Apex OS',
+    statusBarStyle: 'black-translucent',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -26,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className={inter.className}>
+      <body>
         {/* Visible staging indicator — renders only when NEXT_PUBLIC_APP_ENV=staging */}
         <StagingBanner />
         <Providers>{children}</Providers>

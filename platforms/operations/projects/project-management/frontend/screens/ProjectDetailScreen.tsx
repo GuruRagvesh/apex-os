@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usersApi } from '@apex/core-users/api';
 import { projectsApi } from '../api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
+import { teamsApi } from '@apex/workforce-teams/api';
 import { useAuthStore } from '@apex/core-identity';
 import { PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS } from '../lib/project-status';
 import { formatRelativeTime } from '@apex/shared-utilities';
@@ -42,7 +43,10 @@ export default function ProjectDetailPage() {
   // Archive/restore is Manager+ (the API also checks the department scope).
   const canArchive = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', status: '', priority: '', departmentId: '', endDate: '' });
+  const [form, setForm] = useState({
+    name: '', description: '', status: '', priority: '', departmentId: '', endDate: '',
+    outputTargetMinutes: '', teamTargets: {} as Record<string, string>,
+  });
 
   const [showAddMember, setShowAddMember] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -149,6 +153,14 @@ export default function ProjectDetailPage() {
     queryFn: () => departmentsApi.getAll() as Promise<any[]>,
     enabled: editing,
   });
+  const editDepartment = (Array.isArray(departments) ? departments : []).find((d: any) => d.id === form.departmentId)
+    ?? (project?.departmentId === form.departmentId ? project?.department : null);
+  const editingContentDepartment = ['content', 'content sales'].includes(String(editDepartment?.name ?? '').trim().toLowerCase());
+  const { data: editTeams = [] } = useQuery({
+    queryKey: ['teams', form.departmentId],
+    queryFn: () => teamsApi.getAll(form.departmentId) as Promise<any[]>,
+    enabled: editing && editingContentDepartment && Boolean(form.departmentId),
+  });
 
   const handleEditOpen = () => {
     setForm({
@@ -158,6 +170,11 @@ export default function ProjectDetailPage() {
       priority: project?.priority ?? 'MEDIUM',
       departmentId: project?.departmentId ?? '',
       endDate: project?.endDate ? new Date(project.endDate).toISOString().split('T')[0] : '',
+      outputTargetMinutes: project?.outputTargetMinutes ? String(project.outputTargetMinutes) : '',
+      teamTargets: Object.fromEntries((project?.teamAssignments ?? []).map((row: any) => [
+        row.teamId,
+        row.outputTargetMinutes ? String(row.outputTargetMinutes) : '',
+      ])),
     });
     setEditing(true);
   };
@@ -305,7 +322,7 @@ export default function ProjectDetailPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">Department</label>
-                  <select className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={form.departmentId} onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value }))}>
+                  <select className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={form.departmentId} onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value, teamTargets: {}, outputTargetMinutes: '' }))}>
                     <option value="">None</option>
                     {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
@@ -315,12 +332,50 @@ export default function ProjectDetailPage() {
                   <input type="date" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
                 </div>
               </div>
+            {editingContentDepartment && (editTeams as any[]).length > 0 ? (
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Teams and productivity benchmarks</label>
+                <div className="space-y-2 max-h-44 overflow-y-auto border border-slate-200 rounded-lg p-2">
+                  {(editTeams as any[]).map((team: any) => {
+                    const selected = Object.prototype.hasOwnProperty.call(form.teamTargets, team.id);
+                    return (
+                      <div key={team.id} className="flex items-center gap-2">
+                        <input type="checkbox" checked={selected} onChange={(e) => setForm((f) => {
+                          const next = { ...f.teamTargets };
+                          if (e.target.checked) next[team.id] = '';
+                          else delete next[team.id];
+                          return { ...f, teamTargets: next, outputTargetMinutes: e.target.checked ? '' : f.outputTargetMinutes };
+                        })} />
+                        <span className="text-sm flex-1 text-slate-700">{team.name}</span>
+                        {selected && <input type="number" min={1} max={1440} step={1} className="w-32 px-2 py-1.5 text-sm border border-slate-200 rounded-lg"
+                          placeholder="Minutes/day" value={form.teamTargets[team.id]}
+                          onChange={(e) => setForm((f) => ({ ...f, teamTargets: { ...f.teamTargets, [team.id]: e.target.value } }))} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Minutes of output per day (optional)</label>
+                <input type="number" min={1} max={1440} step={1} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
+                  value={form.outputTargetMinutes} onChange={(e) => setForm((f) => ({ ...f, outputTargetMinutes: e.target.value }))} />
+              </div>
+            )}
             <div className="flex gap-3 mt-5">
               <button
                 onClick={() => updateMutation.mutate({
-                  ...form,
+                  name: form.name,
+                  description: form.description,
+                  status: form.status,
+                  priority: form.priority,
                   departmentId: form.departmentId || null,
                   endDate: form.endDate ? new Date(form.endDate).toISOString() : null,
+                  outputTargetMinutes: form.outputTargetMinutes || null,
+                  teamAssignments: Object.entries(form.teamTargets).map(([teamId, outputTargetMinutes]) => ({
+                    teamId,
+                    outputTargetMinutes: outputTargetMinutes || null,
+                  })),
                 })}
                 disabled={updateMutation.isPending}
                 className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded-lg disabled:opacity-50"
@@ -336,7 +391,7 @@ export default function ProjectDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-4">
           {/* Health & Progress Overview */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="apex-section-border bg-white rounded-xl border p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-slate-705 text-sm">Project Health</h3>
@@ -378,7 +433,7 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* Tickets */}
-          <div className="bg-white rounded-xl border border-slate-200">
+          <div className="apex-section-border bg-white rounded-xl border">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
                 <Ticket size={15} /> Tickets ({project.tickets?.length || 0})
@@ -404,7 +459,7 @@ export default function ProjectDetailPage() {
         {/* Sidebar */}
         <div className="space-y-4">
           {/* Team */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="apex-section-border bg-white rounded-xl border p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
                 <Users size={14} /> Team ({project.members?.length || 0})
@@ -487,12 +542,29 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* Details */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+          <div className="apex-section-border bg-white rounded-xl border p-4 space-y-3">
             <h3 className="font-semibold text-slate-700 text-sm">Details</h3>
             {project.department && (
               <div>
                 <p className="text-xs text-slate-400">Department</p>
                 <p className="text-sm font-medium text-slate-700 mt-0.5">{project.department.name}</p>
+              </div>
+            )}
+            {(project.teamAssignments?.length > 0 || project.outputTargetMinutes) && (
+              <div>
+                <p className="text-xs text-slate-400">Minutes of output per day</p>
+                {project.teamAssignments?.length > 0 ? (
+                  <div className="mt-1 space-y-1">
+                    {project.teamAssignments.map((row: any) => (
+                      <p key={row.id} className="text-sm text-slate-700">
+                        <span className="font-medium">{row.team?.name ?? 'Team'}:</span>{' '}
+                        {row.outputTargetMinutes ?? 'Not set'}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm font-medium text-slate-700 mt-0.5">{project.outputTargetMinutes}</p>
+                )}
               </div>
             )}
             {project.startDate && (
@@ -512,7 +584,7 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* Project Activity Feed */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="apex-section-border bg-white rounded-xl border p-4">
             <h3 className="font-semibold text-slate-700 text-sm mb-3 flex items-center gap-2">
               <Activity size={14} /> Project Activity
             </h3>

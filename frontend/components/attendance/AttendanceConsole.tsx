@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
-import { canPrepare } from './import-presentation';
+import { canApprove, canPrepare } from './import-presentation';
+import { DataHealthBadge } from './DataHealthPanel';
 import { ManualRecoveryForm } from './ManualRecoveryForm';
 import {
   downloadRegister,
@@ -188,7 +189,7 @@ export function AttendanceConsole() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="apex-text text-xl font-semibold">Attendance</h1>
+          <h1 className="apex-page-title apex-text text-xl">Attendance</h1>
           <p className="apex-text-muted mt-1 text-sm">
             {access.isHr ? 'Company-wide' : 'Your team'} · stored results only
           </p>
@@ -280,14 +281,19 @@ export function AttendanceConsole() {
             flow; a permanent tab would put it beside the two questions HR
             actually asks daily, and the console was deliberately reduced to
             those two. It is styled as a link so it does not read as a tab. */}
-        {canPrepare(user as any) && (
-          <Link
-            href="/attendance/import"
-            className="apex-text-muted text-sm underline underline-offset-2"
-          >
-            Import / Update Data →
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Read-only status of the recovery tooling, for company-wide authority
+              only (the server enforces it). Shows nothing unless the server answered. */}
+          <DataHealthBadge enabled={canApprove(user as any)} />
+          {canPrepare(user as any) && (
+            <Link
+              href="/attendance/import"
+              className="apex-text-muted text-sm underline underline-offset-2"
+            >
+              Import / Update Data →
+            </Link>
+          )}
+        </div>
       </div>
 
       {recovering && (

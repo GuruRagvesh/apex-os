@@ -111,7 +111,7 @@ export default function DepartmentsScreen() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Departments</h2>
+          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Departments</h2>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {Array.isArray(departments) ? departments.length : 0} departments
           </p>

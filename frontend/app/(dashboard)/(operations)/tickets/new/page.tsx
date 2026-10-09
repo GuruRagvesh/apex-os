@@ -90,6 +90,7 @@ interface TicketRow {
   assigneeIds: string[];
   targetDepartmentId: string; // QUERY/HELP only — cross-department routing target
   priority: string;
+  outputTargetMinutes: string;
   startDate: string;
   startTime: string;
   dueDate: string;
@@ -150,6 +151,7 @@ export default function CreateTicketsPage() {
     assigneeIds: lockAssignee && user?.id ? [user.id] : [],
     targetDepartmentId: '',
     priority: globalDefaults.priority,
+    outputTargetMinutes: '',
     // Planning default: now, in company time. Editable and clearable; it starts
     // no timer and never sets actualStartAt (the ticket is created OPEN).
     startDate: companyPlanningNow().date, startTime: companyPlanningNow().time,
@@ -344,6 +346,7 @@ export default function CreateTicketsPage() {
       ...row,
       departmentId: value,
       taskTypeId: '', taskSubtypeId: '', customSubtype: '',
+      outputTargetMinutes: '',
       // Requesting-department change only clears the TASK assignee list (dept-scoped);
       // QUERY/HELP recipients are chosen from the separate Target Department, unaffected.
       assigneeIds: row.type === 'TASK' ? (lockAssignee ? row.assigneeIds : []) : row.assigneeIds,
@@ -360,6 +363,7 @@ export default function CreateTicketsPage() {
       ...row,
       type,
       targetDepartmentId: '',
+      outputTargetMinutes: type === 'TASK' ? row.outputTargetMinutes : '',
       assigneeIds: (isEmployee && type === 'TASK' && user?.id) ? [user.id] : [],
       errors: [],
     } : row)));
@@ -420,6 +424,12 @@ export default function CreateTicketsPage() {
     if (!isSelfLockedRow(row) && row.assigneeIds.length === 0) e.push(`${labelFor(row.type, 'assignee')} is required`);
     if (!row.dueDate) e.push('Due Date is required');
     if (row.taskSubtypeId === '__custom__' && !row.customSubtype.trim()) e.push('Custom subtype text is required');
+    if (row.outputTargetMinutes) {
+      const outputMinutes = Number(row.outputTargetMinutes);
+      if (!Number.isInteger(outputMinutes) || outputMinutes < 1 || outputMinutes > 1440) {
+        e.push('Minutes of output per day must be a whole number from 1 to 1440');
+      }
+    }
     if (row.recurrence.mode === 'custom_time' && !row.recurrence.oneTimeAt) e.push('Pick the reminder date and time');
     if (row.recurrence.mode !== 'none' && row.recurrence.mode !== 'custom_time' &&
         row.recurrence.endPreset === 'custom' && !row.recurrence.endDate) e.push('Pick the date the reminders end');
@@ -457,6 +467,7 @@ export default function CreateTicketsPage() {
       // isCrossDepartment/team ids from this + departmentId; TASK never sends it.
       targetDepartmentId: row.type !== 'TASK' ? (row.targetDepartmentId || undefined) : undefined,
       priority: row.priority,
+      outputTargetMinutes: row.outputTargetMinutes ? Number(row.outputTargetMinutes) : undefined,
       dueDate: combineDueDateTime(row.dueDate, row.dueTime),
       estimatedMinutes: estTotal > 0 ? estTotal : undefined,
       projectId: row.projectId || undefined,
@@ -589,7 +600,7 @@ export default function CreateTicketsPage() {
           <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
         </button>
         <div className="flex-1">
-          <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Create Tickets</h2>
+          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Create Tickets</h2>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Add one or many tickets — each becomes its own ticket ID</p>
         </div>
         <div className="flex items-center gap-2">
@@ -828,6 +839,23 @@ export default function CreateTicketsPage() {
                     {row.aiReason && <p className="mt-1 text-xs flex items-start gap-1" style={{ color: 'var(--text-tertiary)' }}><Sparkles size={10} className="text-indigo-400 mt-0.5" /> {row.aiReason}</p>}
                   </div>
                 </div>
+
+                {row.type === 'TASK' && ['content', 'content sales'].includes(deptName(row.departmentId).trim().toLowerCase()) && (
+                  <div>
+                    <label className={labelCls}>Minutes of output per day (optional)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      step={1}
+                      value={row.outputTargetMinutes}
+                      onChange={(e) => setRowField(row.key, 'outputTargetMinutes', e.target.value)}
+                      className={inputCls}
+                      placeholder="1 to 1440"
+                    />
+                    <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>Output target only; this does not change estimates, timers, SLA, review, or rework.</p>
+                  </div>
+                )}
 
                 {/* Start date/time + Due date/time */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
