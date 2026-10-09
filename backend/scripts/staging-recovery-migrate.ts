@@ -8,16 +8,23 @@
  * and nothing else. It never runs `migrate dev`, `db push`, `migrate reset`, a
  * seed, or any SQL of its own.
  *
- * Refuses before any database contact unless:
- *   - APP_ENV is exactly "staging" in the shell running it (a deliberate act);
- *   - STAGING_DATABASE_URL is a PostgreSQL URL whose host is the known staging
- *     Render database (dpg-d95pamvaqgkc73fdurig, external hostname) and whose
- *     database name is the staging one (apex_os_staging, optionally with
- *     Render's random suffix);
- *   - nothing about it matches a production marker — the current production
- *     database (dpg-db2v0som7kps73ceebd0 / apex_db_dugl_ngz6) or the earlier
- *     one (dpg-d8259omk1jcs73e37fbg / apex_db_dugl).
- * Any other database — including any unknown Render database — is refused.
+ * Identity — verified 2026-10-09 from the DATABASE_URL attached to each Render
+ * BACKEND service (the runtime target is authoritative over resource names,
+ * old docs and older repo markers):
+ *
+ *   ACTIVE STAGING   dpg-db2v0som7kps73ceebd0  /  apex_db_dugl_ngz6   → accepted
+ *   PRODUCTION       dpg-d8259omk1jcs73e37fbg  /  apex_db_dugl        → refused
+ *   LEGACY STAGING   dpg-d95pamvaqgkc73fdurig  /  apex_os_staging_db  → refused
+ *
+ * Matching is EXACT: the host's first DNS label must be the host id (Render
+ * adds "-a"), and the database name must be equal, not similar. No substring
+ * matching — the active staging name contains the production name.
+ *
+ * Refuses before any database contact unless APP_ENV is exactly "staging" in
+ * the shell running it (a deliberate act) and the URL is the EXTERNAL Render
+ * URL of the active staging database. Production and legacy staging are
+ * recognised and refused by name; every other database — any unknown Render
+ * database, localhost, an internal URL — is refused.
  *
  * And refuses to DEPLOY unless the pending migrations are exactly a subset of
  * the two additive recovery migrations this branch introduces. Anything else
@@ -28,40 +35,65 @@
 import { spawnSync } from 'child_process';
 import * as readline from 'readline';
 
-export const STAGING_HOST_ID = 'dpg-d95pamvaqgkc73fdurig';
-export const STAGING_DB = /^apex_os_staging(_[a-z0-9]+)?$/;
-export const PRODUCTION_MARKERS = [/dpg-db2v0som7kps73ceebd0/i, /apex_db_dugl/i, /dpg-d8259omk1jcs73e37fbg/i, /prod\.technoedge/i];
+export const ACTIVE_STAGING = { hostId: 'dpg-db2v0som7kps73ceebd0', database: 'apex_db_dugl_ngz6' } as const;
+export const PRODUCTION = { hostId: 'dpg-d8259omk1jcs73e37fbg', database: 'apex_db_dugl' } as const;
+export const LEGACY_STAGING = { hostId: 'dpg-d95pamvaqgkc73fdurig', database: 'apex_os_staging_db' } as const;
 export const EXPECTED_MIGRATIONS = [
   '20261009000000_attendance_recovery_foundation',
   '20261010000000_attendance_recovery_import_mode',
 ];
 export const CONFIRM_PHRASE = 'APPLY STAGING RECOVERY MIGRATIONS';
 
+export type StagingRefusal =
+  | 'APP_ENV_NOT_STAGING'
+  | 'URL_NOT_SET'
+  | 'URL_MALFORMED'
+  | 'NOT_POSTGRESQL'
+  | 'PRODUCTION_DATABASE'
+  | 'LEGACY_STAGING_NOT_ACTIVE'
+  | 'INTERNAL_URL'
+  | 'NOT_RENDER_HOST'
+  | 'UNKNOWN_DATABASE_HOST'
+  | 'WRONG_DATABASE_NAME';
+
 export interface StagingIdentity {
   ok: boolean;
   host?: string;
   database?: string;
+  code?: StagingRefusal;
   reason?: string;
 }
 
-/** Pure: decides whether a URL + APP_ENV is the verified staging database. */
+/** Render hostnames are "<hostId>-a" (internal) or "<hostId>-a.<region>-postgres.render.com" (external). */
+const isHost = (firstLabel: string, hostId: string) => firstLabel === hostId || firstLabel === `${hostId}-a`;
+
+/** Pure: decides whether a URL + APP_ENV is the active staging database. No I/O. */
 export function checkStagingIdentity(rawUrl: string | undefined, appEnv: string | undefined): StagingIdentity {
-  if ((appEnv ?? '').trim() !== 'staging') return { ok: false, reason: 'APP_ENV must be exactly "staging"' };
-  if (!rawUrl) return { ok: false, reason: 'STAGING_DATABASE_URL is not set' };
+  const refuse = (code: StagingRefusal, reason: string, host?: string, database?: string): StagingIdentity =>
+    ({ ok: false, ...(host !== undefined ? { host } : {}), ...(database !== undefined ? { database } : {}), code, reason });
+
+  if ((appEnv ?? '').trim() !== 'staging') return refuse('APP_ENV_NOT_STAGING', 'APP_ENV must be exactly "staging"');
+  if (!rawUrl) return refuse('URL_NOT_SET', 'STAGING_DATABASE_URL is not set');
   let u: URL;
-  try { u = new URL(rawUrl); } catch { return { ok: false, reason: 'STAGING_DATABASE_URL is not a valid URL' }; }
-  if (!/^postgres(ql)?:$/.test(u.protocol)) return { ok: false, reason: 'not a PostgreSQL URL' };
+  try { u = new URL(rawUrl); } catch { return refuse('URL_MALFORMED', 'STAGING_DATABASE_URL is not a valid URL'); }
+  if (!/^postgres(ql)?:$/.test(u.protocol)) return refuse('NOT_POSTGRESQL', 'not a PostgreSQL URL');
+
   const host = u.hostname.toLowerCase();
   const database = decodeURIComponent(u.pathname.replace(/^\//, ''));
-  if (PRODUCTION_MARKERS.some((m) => m.test(host) || m.test(database) || m.test(rawUrl))) {
-    return { ok: false, host, database, reason: 'this is a PRODUCTION database' };
+  const firstLabel = host.split('.')[0];
+
+  // Known databases first, by exact host id OR exact name, so a mixed-up URL
+  // (staging host + production name, or the reverse) is still caught.
+  if (isHost(firstLabel, PRODUCTION.hostId) || database === PRODUCTION.database) {
+    return refuse('PRODUCTION_DATABASE', 'this is the PRODUCTION database', host, database);
   }
-  if (!host.includes('.')) return { ok: false, host, database, reason: 'internal Render URL; use the EXTERNAL staging URL' };
-  if (!host.startsWith(`${STAGING_HOST_ID}-`) && host.split('.')[0] !== STAGING_HOST_ID) {
-    return { ok: false, host, database, reason: 'host is not the known staging database' };
+  if (isHost(firstLabel, LEGACY_STAGING.hostId) || database === LEGACY_STAGING.database) {
+    return refuse('LEGACY_STAGING_NOT_ACTIVE', 'this is the LEGACY staging database, which is no longer the active staging target', host, database);
   }
-  if (!/\.render\.com$/.test(host)) return { ok: false, host, database, reason: 'not a Render database hostname' };
-  if (!STAGING_DB.test(database)) return { ok: false, host, database, reason: 'database name is not the staging database' };
+  if (!host.includes('.')) return refuse('INTERNAL_URL', 'internal Render URL; use the EXTERNAL staging URL', host, database);
+  if (!/^[a-z0-9-]+\.[a-z0-9-]+\.render\.com$/.test(host)) return refuse('NOT_RENDER_HOST', 'not a Render database hostname', host, database);
+  if (!isHost(firstLabel, ACTIVE_STAGING.hostId)) return refuse('UNKNOWN_DATABASE_HOST', 'host is not the active staging database', host, database);
+  if (database !== ACTIVE_STAGING.database) return refuse('WRONG_DATABASE_NAME', 'database name is not the active staging database', host, database);
   return { ok: true, host, database };
 }
 
@@ -96,7 +128,7 @@ async function main() {
   if (id.database) console.log(`DB name:  ${id.database}`);
   console.log(`APP_ENV:  ${process.env.APP_ENV ?? '(unset)'}`);
   if (!id.ok) {
-    console.error(`\nREFUSED: ${id.reason}. Nothing was run.`);
+    console.error(`\nREFUSED (${id.code}): ${id.reason}. Nothing was run.`);
     process.exit(1);
   }
   const u = new URL(raw!);
