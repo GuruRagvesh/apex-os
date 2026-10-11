@@ -33,7 +33,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "ticket-time:audit": "ts-node --transpile-only scripts/ticket-time-integrity-audit.ts",
     "ticket-time:cleanup": "ts-node --transpile-only scripts/ticket-time-cleanup.ts",
-    "workday:audit":"ts-node scripts/audit-workday-sessions.ts --dry-run",
+    "workday:audit": "ts-node scripts/audit-workday-sessions.ts --dry-run",
     "workday:repair": "ts-node scripts/audit-workday-sessions.ts --apply",
     "backfill:d2": "ts-node scripts/backfill-d2-foundation.ts",
     "prisma:generate": "npx prisma generate",
@@ -87,7 +87,8 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.4.5",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
@@ -103,6 +104,7 @@
     "@types/passport-local": "^1.0.38",
     "@types/supertest": "^7.2.0",
     "@types/uuid": "^9.0.8",
+    "@types/web-push": "^3.6.4",
     "jest": "^30.4.2",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.11"

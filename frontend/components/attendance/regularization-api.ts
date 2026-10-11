@@ -20,7 +20,10 @@ export type RegularizationStatus =
   | 'HR_APPROVED'
   | 'REJECTED';
 
+export interface CorrectionScreenshot { id: string; filename: string; mimeType: string; byteSize: number; createdAt: string; }
+
 export interface Regularization {
+  screenshots?: CorrectionScreenshot[];
   id: string;
   date: string;
   requestType: RegularizationRequestType;
@@ -43,8 +46,13 @@ export interface CreateRegularizationBody {
 
 export async function createRegularization(
   body: CreateRegularizationBody,
+  screenshots: File[] = [],
 ): Promise<Regularization> {
-  return r(api.post('/attendance/regularization', body));
+  if (!screenshots.length) return r(api.post('/attendance/regularization', body));
+  const payload = new FormData();
+  Object.entries(body).forEach(([key, value]) => { if (value !== null && value !== undefined) payload.append(key, value); });
+  screenshots.forEach(file => payload.append('screenshots', file));
+  return r(api.post('/attendance/regularization', payload, { headers: { 'Content-Type': 'multipart/form-data' } }));
 }
 
 export async function getMyRegularizations(): Promise<Regularization[]> {
@@ -82,4 +90,8 @@ export function stageLabel(status: RegularizationStatus): string {
     default:
       return status;
   }
+}
+
+export async function getCorrectionScreenshot(requestId: string, screenshotId: string): Promise<Blob> {
+  return r<Blob>(api.get(`/attendance/regularization/${encodeURIComponent(requestId)}/screenshots/${encodeURIComponent(screenshotId)}`, { responseType: 'blob' }));
 }

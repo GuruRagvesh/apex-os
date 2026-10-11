@@ -38,6 +38,14 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        // Stop this browser from receiving private notifications after logout.
+        // The backend will retire the now-invalid endpoint after its next 410.
+        if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+          void navigator.serviceWorker.getRegistration('/').then(async (registration) => {
+            const subscription = await registration?.pushManager.getSubscription();
+            await subscription?.unsubscribe();
+          }).catch(() => undefined);
+        }
         localStorage.removeItem('apex_token');
         localStorage.removeItem('apexMode');
         set({ user: null, token: null, isAuthenticated: false });

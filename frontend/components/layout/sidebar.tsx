@@ -10,7 +10,7 @@ import { workdayApi } from '@/lib/api';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
   Users, Building2, BarChart3, LogOut, Zap, Settings,
-  Calendar, Activity, ArrowRight, ChevronDown, Handshake,
+  Activity, ArrowRight, ChevronDown, Handshake,
   CalendarCheck, ClipboardCheck,
   PanelLeftClose, PanelLeftOpen, X,
 } from 'lucide-react';
@@ -68,7 +68,6 @@ const BASE_NAV = [
   { href: '/departments', label: 'Departments', icon: Building2       },
   { href: '/attendance', label: 'My Attendance', icon: CalendarCheck  },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff     },
-  { href: '/calendar',  label: 'Calendar',       icon: Calendar        },
 ];
 
 const TEAMLEAD_NAV  = [

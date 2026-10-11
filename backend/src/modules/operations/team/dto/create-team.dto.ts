@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, MinLength } from 'class-validator';
+import { IsString, IsOptional, MinLength, IsArray, ArrayUnique } from 'class-validator';
 
 export class CreateTeamDto {
   @ApiProperty({ example: 'Frontend Squad' })
@@ -15,4 +15,11 @@ export class CreateTeamDto {
   @IsOptional()
   @IsString()
   teamLeadId?: string;
+
+  @ApiProperty({ required: false, type: [String], description: 'Active members of the selected department' })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  memberIds?: string[];
 }

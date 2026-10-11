@@ -108,6 +108,24 @@ describe('punch source is legible to Finance', () => {
     expect(row.punchInSource).toBe('Phone');
     expect(row.punchOutSource).toBe('Manual');
   });
+
+  it('exports punch evidence, image presence, and closure separately', () => {
+    const row = toRegisterRow(EMPLOYEE, day({
+      punchInEvidenceId: 'in-1',
+      punchInHasImage: true,
+      punchOutEvidenceId: 'out-1',
+      punchOutHasImage: true,
+      closureReason: 'ENDED_BY_PUNCH_OUT',
+    }), 540);
+
+    expect(row).toMatchObject({
+      punchInEvidenceId: 'in-1',
+      punchInImage: 'Captured',
+      punchOutEvidenceId: 'out-1',
+      punchOutImage: 'Captured',
+      closureReason: 'ENDED_BY_PUNCH_OUT',
+    });
+  });
 });
 
 describe('unresolved days are counted, never absorbed', () => {

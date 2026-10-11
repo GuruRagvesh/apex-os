@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProjectStatus, Priority } from '@prisma/client';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { ROLES } from '../../../shared/constants/roles';
+import { NotificationEventService } from '../notifications/notification-event.service';
 
 const VALID_STAGE_STATUSES = ['PLANNED', 'ACTIVE', 'COMPLETED', 'SKIPPED'] as const;
 const VALID_MEMBER_ROLES = ['OWNER', 'LEAD', 'DEVELOPER', 'REVIEWER', 'OBSERVER', 'MEMBER'] as const;
@@ -18,6 +19,7 @@ export class ProjectsService {
     private prisma: PrismaService,
     private accessPolicy: AccessPolicyService,
     private eventLogger: EventLoggerService,
+    @Optional() private notificationEventService?: NotificationEventService,
   ) {}
 
   async findAll(query: { search?: string; status?: ProjectStatus; departmentId?: string; userId?: string; page?: number; limit?: number }, user?: any) {
@@ -56,6 +58,7 @@ export class ProjectsService {
         where,
         include: {
           department: true,
+          teamAssignments: { include: { team: { select: { id: true, name: true, isActive: true } } } },
           members: { include: { user: { select: { id: true, name: true, avatar: true } } } },
           tickets: {
             select: { id: true, status: true, dueDate: true, executionDueAt: true, reviewDueAt: true, submittedAt: true }
@@ -81,6 +84,7 @@ export class ProjectsService {
       where: this.andWhere({ id: existing.id }, scope),
       include: {
         department: true,
+        teamAssignments: { include: { team: { select: { id: true, name: true, isActive: true } } } },
         members: { include: { user: { select: { id: true, name: true, email: true, avatar: true, role: true } } } },
         tickets: {
           include: { assignedTo: { select: { id: true, name: true, avatar: true } }, createdBy: { select: { id: true, name: true } } },
@@ -116,9 +120,11 @@ export class ProjectsService {
     }
     // Only the fields a person may set are written. Status starts ACTIVE, the
     // id is generated, and the owner comes from the token, never the body.
-    const data: any = this.pickProjectFields(input, ['name', 'description', 'priority', 'startDate', 'endDate', 'departmentId']);
+    const data: any = this.pickProjectFields(input, ['name', 'description', 'priority', 'startDate', 'endDate', 'departmentId', 'outputTargetMinutes']);
     if (!data.name) throw new BadRequestException('Project name is required');
     await this.assertDepartmentInScope(user, data.departmentId ?? null, true);
+    const benchmark = await this.validateBenchmarkConfiguration(data.departmentId ?? null, input.teamAssignments, data.outputTargetMinutes);
+    data.outputTargetMinutes = benchmark.projectTarget;
 
     let project: any;
     let attempts = 0;
@@ -131,9 +137,13 @@ export class ProjectsService {
             ...data,
             projectId,
             members: { create: { userId, role: 'OWNER' } },
+            ...(benchmark.teamAssignments.length > 0
+              ? { teamAssignments: { create: benchmark.teamAssignments } }
+              : {}),
           },
           include: {
             department: true,
+            teamAssignments: { include: { team: { select: { id: true, name: true, isActive: true } } } },
             members: { include: { user: { select: { id: true, name: true } } } },
           },
         });
@@ -159,6 +169,32 @@ export class ProjectsService {
       metadata: { projectId: project.projectId, name: project.name, priority: project.priority },
     }).catch(() => {});
 
+    // Notify only people assigned through the selected project teams. The
+    // creator already knows about the project and is excluded from the fanout.
+    if (benchmark.teamAssignments.length > 0 && this.notificationEventService) {
+      const teams = await this.prisma.team.findMany({
+        where: { id: { in: benchmark.teamAssignments.map((row) => row.teamId) }, isActive: true },
+        select: { teamLeadId: true, members: { select: { userId: true } } },
+      });
+      const recipientIds = new Set<string>();
+      for (const team of teams) {
+        if (team.teamLeadId) recipientIds.add(team.teamLeadId);
+        for (const member of team.members) recipientIds.add(member.userId);
+      }
+      recipientIds.delete(userId);
+      await Promise.allSettled(Array.from(recipientIds, (recipientId) =>
+        this.notificationEventService!.sendNotification(recipientId, 'projectCreated', {
+          title: `Project assigned: ${project.name}`,
+          message: `You were assigned to ${project.projectId} through your department team.`,
+          type: 'INFO',
+          link: `/projects/${project.id}`,
+          entityId: project.id,
+          entityType: 'PROJECT',
+          dedupeKey: `project-created:${project.id}`,
+        })
+      ));
+    }
+
     return project;
   }
 
@@ -167,7 +203,7 @@ export class ProjectsService {
     if (user) await this.assertCanEditProject(user, project);
     // The raw body used to be written as-is: a Team Lead could archive
     // (Manager+ only), move the project out of their scope or rewrite its id.
-    const data: any = this.pickProjectFields(body ?? {}, ['name', 'description', 'priority', 'status', 'startDate', 'endDate', 'departmentId']);
+    const data: any = this.pickProjectFields(body ?? {}, ['name', 'description', 'priority', 'status', 'startDate', 'endDate', 'departmentId', 'outputTargetMinutes']);
     if ('name' in data && !data.name) throw new BadRequestException('Project name is required');
     if (data.status !== undefined && data.status !== project.status) {
       if (data.status === ProjectStatus.ARCHIVED) throw new BadRequestException('Use Archive to archive a project');
@@ -176,11 +212,39 @@ export class ProjectsService {
     if (user && 'departmentId' in data && data.departmentId !== project.departmentId) {
       await this.assertDepartmentInScope(user, data.departmentId, false);
     }
-    const updated = await this.prisma.project.update({
-      where: { id: project.id },
-      data,
-      include: { department: true },
-    });
+    const benchmarkChanged = Array.isArray(body?.teamAssignments) || 'outputTargetMinutes' in (body ?? {}) || 'departmentId' in data;
+    const benchmark = benchmarkChanged
+      ? await this.validateBenchmarkConfiguration(
+          'departmentId' in data ? data.departmentId : project.departmentId,
+          body?.teamAssignments ?? (project as any).teamAssignments?.map((row: any) => ({
+            teamId: row.teamId,
+            outputTargetMinutes: row.outputTargetMinutes,
+          })),
+          'outputTargetMinutes' in data ? data.outputTargetMinutes : (project as any).outputTargetMinutes,
+        )
+      : null;
+    if (benchmark) data.outputTargetMinutes = benchmark.projectTarget;
+    const updateProject = (client: any) => client.project.update({
+        where: { id: project.id },
+        data,
+        include: {
+          department: true,
+          teamAssignments: { include: { team: { select: { id: true, name: true, isActive: true } } } },
+        },
+      });
+    const updated = benchmark
+      ? await this.prisma.$transaction(async (tx) => {
+          if (Array.isArray(body?.teamAssignments) || 'departmentId' in data) {
+            await tx.projectTeamAssignment.deleteMany({ where: { projectId: project.id } });
+            if (benchmark.teamAssignments.length > 0) {
+              await tx.projectTeamAssignment.createMany({
+                data: benchmark.teamAssignments.map((row) => ({ ...row, projectId: project.id })),
+              });
+            }
+          }
+          return updateProject(tx);
+        })
+      : await updateProject(this.prisma);
     if (user) {
       this.eventLogger.log({
         actorId: user.id,
@@ -334,12 +398,69 @@ export class ProjectsService {
         case 'departmentId':
           out.departmentId = v === '' || v === null ? null : String(v);
           break;
+        case 'outputTargetMinutes':
+          out.outputTargetMinutes = this.optionalMinutes(v, 'Minutes of output per day');
+          break;
       }
     }
     if (out.startDate && out.endDate && out.endDate < out.startDate) {
       throw new BadRequestException('endDate must not be before startDate');
     }
     return out;
+  }
+
+  private optionalMinutes(value: any, label: string): number | null {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1440) {
+      throw new BadRequestException(`${label} must be a whole number from 1 to 1440`);
+    }
+    return parsed;
+  }
+
+  private async validateBenchmarkConfiguration(
+    departmentId: string | null,
+    rawAssignments: any,
+    rawProjectTarget: any,
+  ): Promise<{ projectTarget: number | null; teamAssignments: { teamId: string; outputTargetMinutes: number | null }[] }> {
+    const projectTarget = this.optionalMinutes(rawProjectTarget, 'Minutes of output per day');
+    const assignments = Array.isArray(rawAssignments) ? rawAssignments : [];
+    if (!departmentId) {
+      if (assignments.length > 0) throw new BadRequestException('A project needs a department before teams can be assigned');
+      return { projectTarget, teamAssignments: [] };
+    }
+
+    const department = await this.prisma.department.findUnique({
+      where: { id: departmentId },
+      select: { name: true },
+    });
+    if (!department) throw new BadRequestException('Department not found');
+    const isContent = ['content', 'content sales'].includes(department.name.trim().toLowerCase());
+    if (!isContent) {
+      if (assignments.length > 0) {
+        throw new BadRequestException('Team productivity benchmarks are available only for the Content department');
+      }
+      return { projectTarget, teamAssignments: [] };
+    }
+
+    const normalized = assignments.map((row: any) => ({
+      teamId: String(row?.teamId ?? ''),
+      outputTargetMinutes: this.optionalMinutes(row?.outputTargetMinutes, 'Team minutes of output per day'),
+    }));
+    if (new Set(normalized.map((row) => row.teamId)).size !== normalized.length) {
+      throw new BadRequestException('A team can be assigned to a project only once');
+    }
+    if (normalized.some((row) => !row.teamId)) throw new BadRequestException('Team is required');
+    if (normalized.length > 0) {
+      const validTeams = await this.prisma.team.count({
+        where: { id: { in: normalized.map((row) => row.teamId) }, departmentId, isActive: true },
+      });
+      if (validTeams !== normalized.length) {
+        throw new BadRequestException('Every selected team must be active and belong to the project department');
+      }
+      return { projectTarget: null, teamAssignments: normalized };
+    }
+    return { projectTarget, teamAssignments: [] };
   }
 
   /**

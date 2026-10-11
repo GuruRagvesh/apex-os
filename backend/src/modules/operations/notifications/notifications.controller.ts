@@ -1,5 +1,6 @@
 ﻿import { Controller, Get, Patch, Delete, Param, Query, UseGuards, ForbiddenException, NotFoundException, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Body, Post, Req } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -20,6 +21,21 @@ export class NotificationsController {
   @Get('unread-count')
   getUnreadCount(@CurrentUser() user: any) {
     return this.notificationsService.getUnreadCount(user.id);
+  }
+
+  @Get('push/configuration')
+  getPushConfiguration() {
+    return this.notificationsService.getPushConfiguration();
+  }
+
+  @Post('push/subscriptions')
+  subscribe(@CurrentUser() user: any, @Body() subscription: any, @Req() request: any) {
+    return this.notificationsService.subscribe(user.id, subscription, request.headers?.['user-agent']);
+  }
+
+  @Delete('push/subscriptions')
+  unsubscribe(@CurrentUser() user: any, @Body('endpoint') endpoint: unknown) {
+    return this.notificationsService.unsubscribe(user.id, endpoint);
   }
 
   @Patch('mark-all-read')

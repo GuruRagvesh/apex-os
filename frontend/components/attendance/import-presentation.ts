@@ -110,6 +110,19 @@ export function serverClassificationFilter(filter: RowFilter): string | undefine
 export const IMPORT_MODES = ['CURRENT_CORRECTION', 'HISTORICAL_MIGRATION'] as const;
 export type ImportMode = (typeof IMPORT_MODES)[number];
 
+/**
+ * A stored batch can also carry RECOVERY_IMPORT (Phase 2A). It is NOT a choice
+ * offered when uploading -- IMPORT_MODES stays the two correction modes -- and the
+ * server refuses to upload, approve or apply it until the recovery vault exists.
+ */
+export type ImportBatchMode = ImportMode | 'RECOVERY_IMPORT';
+
+/** Label for any stored mode, including ones this screen cannot act on. */
+export function modeLabel(mode: string): string {
+  if (mode === 'RECOVERY_IMPORT') return 'Historical recovery';
+  return (MODE as Record<string, { label: string }>)[mode]?.label ?? mode;
+}
+
 /** The enum name is a wire value. Nobody choosing a mode should have to read it. */
 export const MODE: Record<ImportMode, { label: string; help: string }> = {
   CURRENT_CORRECTION: {

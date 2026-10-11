@@ -153,14 +153,14 @@ export class PayrollReportService {
     });
     const ids = employees.map((e) => e.id);
 
-    const [records, evidence, regularizations, leaves] = await Promise.all([
+    const [records, evidence, regularizations, leaves, sessions] = await Promise.all([
       this.prisma.dailyAttendance.findMany({
         where: { userId: { in: ids }, date: { gte, lte } },
         orderBy: [{ userId: 'asc' }, { date: 'asc' }],
       }),
       this.prisma.attendancePunchEvidence.findMany({
         where: { userId: { in: ids }, businessDate: { gte, lte } },
-        select: { id: true, source: true },
+        select: { id: true, source: true, photoAssetId: true },
       }),
       this.prisma.attendanceRegularization.findMany({
         where: { userId: { in: ids }, date: { gte, lte } },
@@ -170,9 +170,19 @@ export class PayrollReportService {
         where: { userId: { in: ids }, status: 'APPROVED' },
         select: { id: true, type: true },
       }),
+      this.prisma.workSession.findMany({
+        where: { userId: { in: ids }, date: { gte, lte } },
+        orderBy: { createdAt: 'desc' },
+        select: { userId: true, date: true, closureReason: true },
+      }),
     ]);
 
-    const sourceById = new Map(evidence.map((e) => [e.id, e.source as string]));
+    const evidenceById = new Map(evidence.map((e) => [e.id, e]));
+    const closureByUserDate = new Map<string, string | null>();
+    for (const session of sessions) {
+      const key = `${session.userId}:${session.date.toISOString().slice(0, 10)}`;
+      if (!closureByUserDate.has(key)) closureByUserDate.set(key, session.closureReason ?? null);
+    }
     const recoveryIds = new Set(
       regularizations.filter((r) => r.entrySource === 'MANUAL_RECOVERY').map((r) => r.id),
     );
@@ -192,8 +202,13 @@ export class PayrollReportService {
       evaluationState: r.evaluationState,
       punchInAt: r.punchInAt?.toISOString() ?? null,
       punchOutAt: r.punchOutAt?.toISOString() ?? null,
-      punchInSource: r.punchInEvidenceId ? (sourceById.get(r.punchInEvidenceId) ?? null) : null,
-      punchOutSource: r.punchOutEvidenceId ? (sourceById.get(r.punchOutEvidenceId) ?? null) : null,
+      punchInSource: r.punchInEvidenceId ? (evidenceById.get(r.punchInEvidenceId)?.source ?? null) : null,
+      punchOutSource: r.punchOutEvidenceId ? (evidenceById.get(r.punchOutEvidenceId)?.source ?? null) : null,
+      punchInEvidenceId: r.punchInEvidenceId,
+      punchInHasImage: r.punchInEvidenceId ? Boolean(evidenceById.get(r.punchInEvidenceId)?.photoAssetId) : false,
+      punchOutEvidenceId: r.punchOutEvidenceId,
+      punchOutHasImage: r.punchOutEvidenceId ? Boolean(evidenceById.get(r.punchOutEvidenceId)?.photoAssetId) : false,
+      closureReason: closureByUserDate.get(`${r.userId}:${r.date.toISOString().slice(0, 10)}`) ?? null,
       workedMinutes: r.workedMinutes,
       breakMinutes: r.breakMinutes,
       lateMinutes: r.lateMinutes,

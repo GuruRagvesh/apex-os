@@ -97,12 +97,21 @@ function frameMessage(verdict: FrameVerdict): string {
   return text[verdict] ?? 'The picture could not be used. Try again.';
 }
 
+async function waitForVideoElement(ref: React.RefObject<HTMLVideoElement>) {
+  for (let i = 0; i < 10; i++) {
+    if (ref.current) return ref.current;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+  return ref.current;
+}
+
 export function useAttendanceCamera(handoff?: PhotoHandoffAuth | null): AttendanceCameraState {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const blobRef = useRef<Blob | null>(null);
   const capturedAtRef = useRef<Date | null>(null);
   const previewUrlRef = useRef<string | null>(null);
+  const startAttemptRef = useRef(0);
 
   const [status, setStatus] = useState<CameraStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +122,7 @@ export function useAttendanceCamera(handoff?: PhotoHandoffAuth | null): Attendan
    * indicator stays lit and the camera stays locked from other apps.
    */
   const stop = useCallback(() => {
+    startAttemptRef.current += 1;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -124,11 +134,17 @@ export function useAttendanceCamera(handoff?: PhotoHandoffAuth | null): Attendan
   }, []);
 
   const start = useCallback(async () => {
+    const attempt = startAttemptRef.current + 1;
+    startAttemptRef.current = attempt;
     setError(null);
     setStatus('starting');
 
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+
     const media = (globalThis as any)?.navigator?.mediaDevices;
     if (!media?.getUserMedia) {
+      if (startAttemptRef.current !== attempt) return;
       setStatus('unavailable');
       setError('This device or browser has no camera available.');
       return;
@@ -141,30 +157,50 @@ export function useAttendanceCamera(handoff?: PhotoHandoffAuth | null): Attendan
         video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
+      if (startAttemptRef.current !== attempt) {
+        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        return;
+      }
       streamRef.current = stream;
 
       // A swallowed play() failure followed by an unconditional 'ready' is how
       // a covered or blocked camera produced a black JPEG that was accepted as
       // attendance evidence. Playback must actually succeed.
-      if (!videoRef.current) {
+      const video = await waitForVideoElement(videoRef);
+      if (startAttemptRef.current !== attempt) {
         stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        return;
+      }
+      if (!video) {
+        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        streamRef.current = null;
         setStatus('error');
         setError('The camera preview could not be attached.');
         return;
       }
 
-      videoRef.current.srcObject = stream;
+      video.srcObject = stream;
       try {
-        await videoRef.current.play?.();
+        await video.play?.();
       } catch {
+        if (startAttemptRef.current !== attempt) {
+          stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+          return;
+        }
         stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
         streamRef.current = null;
         setStatus('error');
         setError('The camera preview could not start. Try again, or use your phone.');
         return;
       }
+      if (startAttemptRef.current !== attempt) {
+        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        return;
+      }
+      setError(null);
       setStatus('ready');
     } catch (err: any) {
+      if (startAttemptRef.current !== attempt) return;
       const name = err?.name ?? '';
       if (name === 'NotAllowedError' || name === 'SecurityError') {
         setStatus('permission-denied');
@@ -280,7 +316,7 @@ export function useAttendanceCamera(handoff?: PhotoHandoffAuth | null): Attendan
       setError(err?.response?.data?.message ?? 'The photo could not be uploaded. Please retry.');
       return null;
     }
-  }, []);
+  }, [handoff]);
 
   // Release the camera on unmount, including on an error path or a route
   // change mid-capture.

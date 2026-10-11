@@ -1,3 +1,4 @@
+import { validateScreenshots, SCREENSHOT_METADATA, type ScreenshotUpload } from './correction-screenshot';
 import { formatInTimeZone } from 'date-fns-tz';
 import {
   BadRequestException,
@@ -138,7 +139,8 @@ export class RegularizationService {
    * is no path by which one employee can file a correction against another's
    * attendance.
    */
-  async create(userId: string, input: CreateRegularizationInput) {
+  async create(userId: string, input: CreateRegularizationInput, files: ScreenshotUpload[] = []) {
+    const screenshots = validateScreenshots(files);
     if (!(await this.enabled())) throw new RegularizationDisabledError();
     this.assertDate(input.businessDate);
 
@@ -176,7 +178,9 @@ export class RegularizationService {
         requestedPunchOut: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
         basedOnFingerprint: official?.sourceFingerprint ?? null,
         status: 'PENDING',
+        ...(screenshots.length ? { screenshots: { create: screenshots } } : {}),
       },
+      include: { screenshots: { select: SCREENSHOT_METADATA } },
     });
 
     this.eventLogger.log({
@@ -195,6 +199,7 @@ export class RegularizationService {
   async listMine(userId: string, limit = 50) {
     return this.prisma.attendanceRegularization.findMany({
       where: { userId },
+      include: { screenshots: { select: SCREENSHOT_METADATA } },
       orderBy: { createdAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 200),
     });
@@ -202,7 +207,7 @@ export class RegularizationService {
 
   /** One request, readable by its owner or by someone authorised to review it. */
   async findOne(actor: any, id: string) {
-    const row = await this.prisma.attendanceRegularization.findUnique({ where: { id } });
+    const row = await this.prisma.attendanceRegularization.findUnique({ where: { id }, include: { screenshots: { select: SCREENSHOT_METADATA } } });
     if (!row) throw new NotFoundException('Correction request not found');
 
     if (row.userId === actor?.id) return row;
@@ -212,6 +217,14 @@ export class RegularizationService {
     // Same response as a genuine miss: revealing that someone else's request
     // exists is itself a small leak.
     throw new NotFoundException('Correction request not found');
+  }
+
+  async screenshot(actor: any, requestId: string, screenshotId: string) {
+    // Authorize the parent first; a guessed asset id cannot reveal another employee's file.
+    await this.findOne(actor, requestId);
+    const file = await this.prisma.correctionScreenshot.findFirst({ where: { id: screenshotId, regularizationId: requestId } });
+    if (!file) throw new NotFoundException('Screenshot not found');
+    return file;
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -232,7 +245,7 @@ export class RegularizationService {
         where: { status: 'MANAGER_APPROVED' },
         orderBy: { managerDecisionAt: 'asc' },
         take,
-        include: { user: { select: { id: true, name: true, email: true } } },
+        include: { user: { select: { id: true, name: true, email: true } }, screenshots: { select: SCREENSHOT_METADATA } },
       });
     }
 
@@ -240,7 +253,7 @@ export class RegularizationService {
       where: { status: 'PENDING' },
       orderBy: { createdAt: 'asc' },
       take,
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: { user: { select: { id: true, name: true, email: true } }, screenshots: { select: SCREENSHOT_METADATA } },
     });
 
     // Filtered through the existing hierarchy, so "my queue" means the people

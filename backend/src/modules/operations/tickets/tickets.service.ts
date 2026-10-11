@@ -983,12 +983,48 @@ export class TicketsService {
 
 
     // Resolve departmentId: accept UUID, CUID, or display name (schema uses cuid())
+    let resolvedDepartment: { id: string; name?: string | null } | null = null;
     if (data.departmentId && !isUUID(data.departmentId)) {
       const dept = await this.prisma.department.findFirst({
         where: { OR: [{ id: data.departmentId }, { name: { equals: data.departmentId, mode: 'insensitive' } }] },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       data.departmentId = dept?.id ?? undefined;
+      resolvedDepartment = dept;
+    }
+    const department = resolvedDepartment ?? (data.departmentId
+      ? await this.prisma.department.findFirst({ where: { id: data.departmentId }, select: { id: true, name: true } })
+      : null);
+    const normalizedDepartmentName = department?.name?.trim().toLowerCase() ?? '';
+    const isContentDepartment = ['content', 'content sales'].includes(normalizedDepartmentName);
+
+    if (data.outputTargetMinutes !== undefined && data.outputTargetMinutes !== null && data.outputTargetMinutes !== '') {
+      const outputTargetMinutes = Number(data.outputTargetMinutes);
+      if (!Number.isInteger(outputTargetMinutes) || outputTargetMinutes < 1 || outputTargetMinutes > 1440) {
+        throw new BadRequestException('Minutes of output per day must be a whole number from 1 to 1440');
+      }
+      if (!isContentDepartment || requestType !== 'TASK') {
+        throw new BadRequestException('Minutes of output per day is available only for Content Task tickets');
+      }
+      data.outputTargetMinutes = outputTargetMinutes;
+    } else {
+      data.outputTargetMinutes = null;
+    }
+
+    if (data.taskTypeId) {
+      const selectedTaskType = await this.prisma.taskType.findFirst({
+        where: { id: data.taskTypeId },
+        select: { name: true, departmentId: true, isGlobal: true },
+      });
+      if (!selectedTaskType || (selectedTaskType.isGlobal === false && selectedTaskType.departmentId !== data.departmentId)) {
+        throw new BadRequestException('Task Type is not valid for the selected Department');
+      }
+      if (selectedTaskType.name.trim().toLowerCase() === 'qc implement') {
+        const allowedDepartment = isContentDepartment || normalizedDepartmentName === 'retail business';
+        if (requestType !== 'TASK' || !allowedDepartment || selectedTaskType.isGlobal) {
+          throw new BadRequestException('QC Implement is available only for Task tickets in Content or Retail Business');
+        }
+      }
     }
     // Resolve assignedToId: accept display name or ID (schema uses cuid(), not UUID —
     // isUUID() returns false for a real cuid, so the lookup must also match by id,
@@ -1368,7 +1404,12 @@ export class TicketsService {
 
     if (errors.length > 0) return { error: errors.join('; ') };
 
-    const normalized = await this.normalizeTicketCreateData(raw, userId, user);
+    let normalized: { data: any; assigneeIds: string[] };
+    try {
+      normalized = await this.normalizeTicketCreateData(raw, userId, user);
+    } catch (error: any) {
+      return { error: error?.message ?? 'Ticket data is invalid' };
+    }
     const data = normalized.data;
     const assigneeIds = normalized.assigneeIds;
 
@@ -1835,6 +1876,42 @@ export class TicketsService {
         await this.ticketAccess.assertCanTransitionTicket(user, existing, data.status);
       } else {
         await this.ticketAccess.assertCanUpdateTicket(user, existing, data);
+      }
+    }
+
+    if (data.outputTargetMinutes !== undefined) {
+      throw new BadRequestException('Minutes of output per day can be set only when the ticket is created');
+    }
+
+    // Department and task-type rules only need another database read when one
+    // of those fields is actually changing. Keeping ordinary assignment and
+    // status updates on their original path also preserves the permission-first
+    // error ordering used by the API.
+    if (data.departmentId !== undefined || data.taskTypeId !== undefined) {
+      const effectiveDepartmentId = data.departmentId !== undefined ? data.departmentId : existing.departmentId;
+      const effectiveDepartment = effectiveDepartmentId
+        ? await this.prisma.department.findUnique({ where: { id: effectiveDepartmentId }, select: { name: true } })
+        : null;
+      const effectiveDepartmentName = effectiveDepartment?.name?.trim().toLowerCase() ?? '';
+      const effectiveContentDepartment = ['content', 'content sales'].includes(effectiveDepartmentName);
+      if (!effectiveContentDepartment && (existing as any).outputTargetMinutes != null) {
+        data.outputTargetMinutes = null;
+      }
+      const effectiveTaskTypeId = data.taskTypeId !== undefined ? data.taskTypeId : existing.taskTypeId;
+      if (effectiveTaskTypeId) {
+        const effectiveTaskType = await this.prisma.taskType.findUnique({
+          where: { id: effectiveTaskTypeId },
+          select: { name: true, departmentId: true, isGlobal: true },
+        });
+        if (!effectiveTaskType || (!effectiveTaskType.isGlobal && effectiveTaskType.departmentId !== effectiveDepartmentId)) {
+          throw new BadRequestException('Task Type is not valid for the selected Department');
+        }
+        if (effectiveTaskType.name.trim().toLowerCase() === 'qc implement') {
+          const allowedDepartment = effectiveContentDepartment || effectiveDepartmentName === 'retail business';
+          if (existing.type !== 'TASK' || !allowedDepartment || effectiveTaskType.isGlobal) {
+            throw new BadRequestException('QC Implement is available only for Task tickets in Content or Retail Business');
+          }
+        }
       }
     }
 
@@ -3154,6 +3231,7 @@ export class TicketsService {
 
     const headers = [
       'Ticket ID', 'Title', 'Category', 'Type', 'Priority', 'Status',
+      'Minutes of output per day',
       'Assigned To', 'Reporter', 'Department', 'Project',
       'Due Date', 'Estimated Hours', 'Elapsed Hours', 'SLA %', 'Overdue',
       'Created At', 'Updated At',
@@ -3166,6 +3244,7 @@ export class TicketsService {
       safeStr(t.type),
       safeStr(t.priority),
       safeStr(t.status),
+      safeStr(t.outputTargetMinutes ?? ''),
       safeStr(t.assignedTo?.name ?? 'Unassigned'),
       safeStr(t.createdBy?.name ?? ''),
       safeStr(t.department?.name ?? ''),

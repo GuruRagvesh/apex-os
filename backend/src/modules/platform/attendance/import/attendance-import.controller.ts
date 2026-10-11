@@ -20,6 +20,7 @@ import { AttendanceImportApplyService } from './attendance-import-apply.service'
 import { buildImportTemplate, IMPORT_TEMPLATE_FILENAME } from './import-template';
 import { MAX_IMPORT_BYTES } from './import-rows';
 import type { ImportMode } from './import-normalize';
+import { parseUploadMode } from './import-mode';
 
 /**
  * Attendance Data Control — preparation and review only.
@@ -89,16 +90,15 @@ export class AttendanceImportController {
     @Query('mode') mode?: string,
   ) {
     if (!file) throw new BadRequestException('No file was uploaded.');
-    if (mode !== 'CURRENT_CORRECTION' && mode !== 'HISTORICAL_MIGRATION') {
-      throw new BadRequestException(
-        'Choose a mode: CURRENT_CORRECTION for recent days, HISTORICAL_MIGRATION for a period predating Apex OS.',
-      );
-    }
+    // Exhaustive: the two correction modes pass; RECOVERY_IMPORT is refused
+    // (fail closed) until the dedicated recovery vault exists; anything else is
+    // the same "choose a mode" error as before.
+    const importMode: ImportMode = parseUploadMode(mode);
 
     return this.imports.upload(user, {
       buffer: file.buffer,
       fileName: file.originalname,
-      mode: mode as ImportMode,
+      mode: importMode,
     });
   }
 

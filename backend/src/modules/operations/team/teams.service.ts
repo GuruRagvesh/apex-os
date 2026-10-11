@@ -13,8 +13,6 @@ import { UpdateTeamDto } from './dto/update-team.dto';
 import { AddTeamMemberDto } from './dto/add-team-member.dto';
 import { UpdateTeamMemberDto } from './dto/update-team-member.dto';
 
-const LEADERSHIP_ROLES: string[] = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.MANAGER, ROLES.TEAM_LEAD];
-
 const BASIC_USER_SELECT = {
   id: true,
   name: true,
@@ -39,19 +37,23 @@ export class TeamsService {
     throw new ForbiddenException('You do not have permission to manage teams in this department');
   }
 
-  private async assertCanBeTeamLead(userId: string): Promise<void> {
+  private async assertActiveDepartmentUser(userId: string, departmentId: string, label = 'User'): Promise<void> {
     const candidate = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { role: true },
+      select: { id: true, isActive: true, departmentId: true },
     });
-    if (!candidate) throw new NotFoundException('Team lead user not found');
-    if (!LEADERSHIP_ROLES.includes((candidate as any).role?.name)) {
-      throw new BadRequestException('Team lead must be a Team Lead, Manager, Admin, or Super Admin');
-    }
+    if (!candidate) throw new NotFoundException(`${label} not found`);
+    if (candidate.isActive === false) throw new BadRequestException(`${label} must be active`);
+    const secondaryMembership = candidate.departmentId === departmentId
+      ? true
+      : Boolean(await this.prisma.userDepartmentMembership.findUnique({
+          where: { userId_departmentId: { userId, departmentId } },
+        }));
+    if (!secondaryMembership) throw new BadRequestException(`${label} must belong to the team's department`);
   }
 
   async findAll(user: any, departmentId?: string) {
-    const where: any = {};
+    const where: any = { isActive: true };
     const roleName = this.access.roleName(user);
 
     if (this.access.isAdmin(user)) {
@@ -125,7 +127,12 @@ export class TeamsService {
     await this.assertCanManageTeam(user, dto.departmentId);
 
     if (dto.teamLeadId) {
-      await this.assertCanBeTeamLead(dto.teamLeadId);
+      await this.assertActiveDepartmentUser(dto.teamLeadId, dto.departmentId, 'Team lead');
+    }
+
+    const memberIds = Array.from(new Set(dto.memberIds ?? []));
+    for (const memberId of memberIds) {
+      await this.assertActiveDepartmentUser(memberId, dto.departmentId, 'Team member');
     }
 
     const existing = await this.prisma.team.findFirst({
@@ -137,10 +144,16 @@ export class TeamsService {
     }
 
     return this.prisma.team.create({
-      data: { name: dto.name, departmentId: dto.departmentId, teamLeadId: dto.teamLeadId },
+      data: {
+        name: dto.name,
+        departmentId: dto.departmentId,
+        teamLeadId: dto.teamLeadId,
+        ...(memberIds.length > 0 ? { members: { create: memberIds.map((userId) => ({ userId })) } } : {}),
+      },
       include: {
         department: { select: { id: true, name: true } },
         teamLead: { select: { id: true, name: true, avatar: true } },
+        members: { include: { user: { select: BASIC_USER_SELECT } } },
       },
     });
   }
@@ -155,7 +168,7 @@ export class TeamsService {
     await this.assertCanManageTeam(user, team.departmentId);
 
     if (dto.teamLeadId) {
-      await this.assertCanBeTeamLead(dto.teamLeadId);
+      await this.assertActiveDepartmentUser(dto.teamLeadId, team.departmentId, 'Team lead');
     }
 
     if (dto.name && dto.name !== team.name) {
@@ -204,10 +217,16 @@ export class TeamsService {
       );
     }
 
-    const [linkedTickets, linkedRoleAssignments] = await Promise.all([
+    const [linkedTickets, linkedRoleAssignments, linkedProjects] = await Promise.all([
       this.prisma.ticket.count({ where: { OR: [{ requestingTeamId: id }, { targetTeamId: id }] } }),
       this.prisma.userRoleAssignment.count({ where: { teamId: id } }),
+      this.prisma.projectTeamAssignment.count({ where: { teamId: id } }),
     ]);
+
+    if (linkedProjects > 0) {
+      await this.prisma.team.update({ where: { id }, data: { isActive: false } });
+      return { success: true, archived: true, message: 'Team archived because it is linked to project history' };
+    }
 
     if (linkedTickets > 0) {
       throw new ConflictException(
@@ -233,30 +252,12 @@ export class TeamsService {
 
     await this.assertCanManageTeam(user, team.departmentId);
 
-    const targetUser = await this.prisma.user.findUnique({
-      where: { id: dto.userId },
-      select: { id: true, departmentId: true },
-    });
-    if (!targetUser) throw new NotFoundException('User not found');
-
     const existingMembership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId: dto.userId } },
     });
     if (existingMembership) throw new ConflictException('This user is already a member of this team');
 
-    const isDeptMember =
-      targetUser.departmentId === team.departmentId ||
-      Boolean(
-        await this.prisma.userDepartmentMembership.findUnique({
-          where: { userId_departmentId: { userId: dto.userId, departmentId: team.departmentId } },
-        }),
-      );
-
-    if (!isDeptMember) {
-      throw new BadRequestException(
-        "User must be a member of this team's department before being added to the team",
-      );
-    }
+    await this.assertActiveDepartmentUser(dto.userId, team.departmentId, 'Team member');
 
     return this.prisma.teamMember.create({
       data: { teamId, userId: dto.userId, ...(dto.role ? { role: dto.role } : {}) },

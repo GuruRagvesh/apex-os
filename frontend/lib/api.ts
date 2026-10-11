@@ -119,4 +119,7 @@ export const notificationsApi = {
   markRead: (id: string) => r(api.patch(`/notifications/${id}/read`)),
   markAllRead: () => r(api.patch('/notifications/mark-all-read')),
   remove: (id: string) => r(api.delete(`/notifications/${id}`)),
+  getPushConfiguration: () => r(api.get('/notifications/push/configuration')),
+  subscribePush: (subscription: PushSubscriptionJSON) => r(api.post('/notifications/push/subscriptions', subscription)),
+  unsubscribePush: (endpoint: string) => r(api.delete('/notifications/push/subscriptions', { data: { endpoint } })),
 };

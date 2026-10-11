@@ -11,13 +11,11 @@
  * Ten rules, each protecting something that has already gone wrong once in
  * this codebase or would be silent if it did:
  *
- *  1. THE ROUTE STAYS HIDDEN. V2 must not appear in any navigation list while
- *     it is being validated. A link added "just for testing" is how an
- *     unfinished payroll-facing page reaches 56 employees.
+ *  1. NAVIGATION USES THE CANONICAL ROUTE. The retired /attendance-v2 URL
+ *     remains absent from navigation lists.
  *
- *  2. THE LIVE PAGE IS UNTOUCHED. /attendance must still mount the existing
- *     AttendanceToday and AttendanceCalendar. The whole point of a hidden
- *     route is that the production surface keeps working.
+ *  2. ONE EMPLOYEE PAGE. /attendance mounts the approved screen and the old
+ *     preview URL redirects to /attendance, preserving saved links.
  *
  *  3. NO FIGURE IS DEFAULTED TO ZERO. The V2 tree must contain no `?? 0` or
  *     `|| 0` on a displayed figure. Rendering 0h 00m because a request failed
@@ -136,20 +134,21 @@ if (!read(v2Route)) fail('setup', 'the hidden V2 route is missing');
   }
 }
 
-// ── 2. The live page is untouched ───────────────────────────────────────────
+// ── 2. The approved screen is the canonical employee page ──────────────────
 {
-  const live = stripComments(read(liveRoute) ?? '') || null;
-  if (!live) {
-    fail('rule 2 (live page)', 'the live /attendance route is missing');
-  } else {
-    for (const required of ['AttendanceToday', 'AttendanceCalendar']) {
-      if (!live.includes(required)) {
-        fail('rule 2 (live page)', `/attendance no longer mounts ${required}`);
-      }
-    }
-    if (live.includes('attendance-v2')) {
-      fail('rule 2 (live page)', '/attendance references the V2 surface');
-    }
+  const live = stripComments(read(liveRoute) ?? '');
+  const preview = stripComments(read(v2Route) ?? '');
+  if (!live.includes("from '@/components/attendance-v2/MyAttendanceV2'") ||
+      !/<MyAttendanceV2\s*\/>/.test(live)) {
+    fail('rule 2 (canonical page)', '/attendance must mount MyAttendanceV2');
+  }
+  if (live.includes('AttendanceToday') || live.includes('AttendanceCalendar')) {
+    fail('rule 2 (canonical page)', '/attendance must not also mount the legacy screen');
+  }
+  if (!preview.includes("from 'next/navigation'") ||
+      !/redirect\(['"]\/attendance['"]\)/.test(preview) ||
+      preview.includes('MyAttendanceV2')) {
+    fail('rule 2 (preview redirect)', '/attendance-v2 must redirect to /attendance');
   }
 }
 

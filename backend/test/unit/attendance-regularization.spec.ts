@@ -832,6 +832,8 @@ describe('AR-1 correction lifecycle', () => {
     // same reviewable object an employee request creates -- and changes no
     // official attendance itself; only hrApprove does. It writes no punch
     // evidence, so the rule this test protects still holds.
+    // Supporting screenshots expose a read-only GET; they never edit raw punch evidence.
+    expect(Reflect.getMetadata('method', RegularizationController.prototype.screenshot)).toBe(0);
     const surface = Object.getOwnPropertyNames(RegularizationController.prototype).sort();
     expect(surface).toEqual([
       'constructor',
@@ -844,6 +846,7 @@ describe('AR-1 correction lifecycle', () => {
       'pending',
       'reject',
       'rethrow',
+      'screenshot',
     ]);
   });
 });

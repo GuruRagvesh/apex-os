@@ -54,6 +54,7 @@ function build(over: any = {}) {
     dailyAttendance: { findMany: jest.fn().mockResolvedValue(over.records ?? []) },
     attendancePunchEvidence: { findMany: jest.fn().mockResolvedValue([]) },
     attendanceRegularization: { findMany: jest.fn().mockResolvedValue([]) },
+    workSession: { findMany: jest.fn().mockResolvedValue([]) },
     leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
     attendanceMonthClose: {
       findUnique: jest.fn(async ({ where }: any) => {

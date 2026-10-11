@@ -184,8 +184,13 @@ function addRegisterSheet(wb: ExcelJS.Workbook, input: WorkbookInput) {
     { header: 'Status', key: 'status', width: 15 },
     { header: 'Punch In', key: 'punchIn', width: 20 },
     { header: 'In Source', key: 'punchInSource', width: 11 },
+    { header: 'Punch In Evidence ID', key: 'punchInEvidenceId', width: 28 },
+    { header: 'Punch In Image', key: 'punchInImage', width: 16 },
     { header: 'Punch Out', key: 'punchOut', width: 20 },
     { header: 'Out Source', key: 'punchOutSource', width: 11 },
+    { header: 'Punch Out Evidence ID', key: 'punchOutEvidenceId', width: 28 },
+    { header: 'Punch Out Image', key: 'punchOutImage', width: 16 },
+    { header: 'Closure Reason', key: 'closureReason', width: 24 },
     { header: 'Presence (min)', key: 'presenceMinutes', width: 14 },
     { header: 'Presence (h)', key: 'presenceHours', width: 13 },
     { header: 'Required (min)', key: 'requiredMinutes', width: 14 },
@@ -210,7 +215,7 @@ function addRegisterSheet(wb: ExcelJS.Workbook, input: WorkbookInput) {
       needsReview: r.needsReview ? 'Yes' : '',
     });
   }
-  sheet.autoFilter = { from: 'A1', to: { row: 1, column: 21 } };
+  sheet.autoFilter = { from: 'A1', to: { row: 1, column: 28 } };
 }
 
 /**

@@ -20,6 +20,7 @@ import {
 import { lockAttendanceMonth } from '../evaluation/attendance-month-lock';
 import { buildCorrectionRecord } from '../regularization/correction-proposal';
 import { classifyRow } from './import-classify';
+import { assertCorrectionImportMode, correctionEntrySource } from './import-mode';
 
 /**
  * Approving an import, then applying it.
@@ -182,6 +183,8 @@ export class AttendanceImportApplyService {
 
       const batch = await tx.attendanceImportBatch.findUnique({ where: { id: batchId } });
       if (!batch) throw new NotFoundException('Import batch not found');
+      // Fail closed for any mode this correction pipeline does not own.
+      assertCorrectionImportMode(batch.mode, 'approve');
 
       if (batch.status !== 'READY_FOR_REVIEW') {
         throw new ForbiddenException(
@@ -291,6 +294,7 @@ export class AttendanceImportApplyService {
 
       const batch = await tx.attendanceImportBatch.findUnique({ where: { id: batchId } });
       if (!batch) throw new NotFoundException('Import batch not found');
+      assertCorrectionImportMode(batch.mode, 'apply');
       if (batch.status === 'APPLYING' && this.leaseIsFresh(batch)) {
         // Somebody is running it right now. A deterministic refusal, not a
         // second set of corrections against the same rows.
@@ -504,6 +508,7 @@ export class AttendanceImportApplyService {
 
       const batch = await tx.attendanceImportBatch.findUnique({ where: { id: batchId } });
       if (!batch) throw new NotFoundException('Import batch not found');
+      assertCorrectionImportMode(batch.mode, 'resume');
       if (batch.status !== 'APPLYING') {
         throw new ForbiddenException(
           `Only a batch left mid-apply can be resumed; this one is ${batch.status.toLowerCase().replace(/_/g, ' ')}.`,
@@ -573,6 +578,7 @@ export class AttendanceImportApplyService {
 
     const batch = await this.prisma.attendanceImportBatch.findUnique({ where: { id: batchId } });
     if (!batch) throw new NotFoundException('Import batch not found');
+    assertCorrectionImportMode(batch.mode, 're-preview');
     if (batch.status !== 'REVIEW_REQUIRED' && batch.status !== 'PARTIALLY_APPLIED') {
       throw new ForbiddenException(
         'Only a batch that stopped because the facts changed needs re-previewing.',
@@ -902,7 +908,7 @@ export class AttendanceImportApplyService {
               // The batch's mode, carried onto every correction it produces, so
               // a reconstruction of a period Apex OS was not running for stays
               // distinguishable from a correction of one it was.
-              entrySource: batch.mode === 'HISTORICAL_MIGRATION' ? 'HISTORICAL_IMPORT' : 'BULK_IMPORT',
+              entrySource: correctionEntrySource(batch.mode),
               requestType: 'MISSING_PUNCH',
               // The uploader supplied the proposal; the approver sanctioned it;
               // the applier executed it. Three responsibilities, recorded

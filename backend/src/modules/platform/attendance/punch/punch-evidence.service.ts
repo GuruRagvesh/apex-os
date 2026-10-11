@@ -86,7 +86,6 @@ export class PunchEvidenceService {
     if (!input.idempotencyKey || typeof input.idempotencyKey !== 'string') {
       throw new PunchValidationError('idempotencyKey is required');
     }
-
     const num = (v: any) => v !== null && v !== undefined;
 
     if (num(input.latitude)) {

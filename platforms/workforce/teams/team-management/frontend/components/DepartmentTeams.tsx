@@ -24,7 +24,8 @@ function useDepartmentUsers(departmentId: string, enabled: boolean) {
     queryFn: () => usersApi.getAll({ departmentId, limit: 100 }) as Promise<any>,
     enabled: enabled && !!departmentId,
   });
-  return (data?.users ?? (Array.isArray(data) ? data : [])) as any[];
+  return ((data?.users ?? (Array.isArray(data) ? data : [])) as any[])
+    .filter((user) => user.isActive !== false && !user.isArchived);
 }
 
 // ── New Team (the Manage Teams pop-up, unchanged) ───────────────────────────
@@ -39,7 +40,7 @@ export function NewTeamDialog({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: '', departmentId: defaultDepartmentId, teamLeadId: '' });
+  const [form, setForm] = useState({ name: '', departmentId: defaultDepartmentId, teamLeadId: '', memberIds: [] as string[] });
   const deptUsers = useDepartmentUsers(form.departmentId, true);
 
   const createMutation = useMutation({
@@ -48,6 +49,7 @@ export function NewTeamDialog({
         name: form.name.trim(),
         departmentId: form.departmentId,
         teamLeadId: form.teamLeadId || undefined,
+        memberIds: form.memberIds,
       }),
     onSuccess: () => {
       toast.success('Team created');
@@ -77,12 +79,40 @@ export function NewTeamDialog({
             <label className="apex-label">Department *</label>
             <select
               value={form.departmentId}
-              onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value, teamLeadId: '' }))}
+              onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value, teamLeadId: '', memberIds: [] }))}
               className="apex-select"
             >
               <option value="">Select a department</option>
               {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="apex-label">Members (optional)</label>
+            <div className="max-h-44 overflow-y-auto rounded-lg border p-2 space-y-1" style={{ borderColor: 'var(--border-primary)' }}>
+              {!form.departmentId && (
+                <p className="text-xs p-2" style={{ color: 'var(--text-tertiary)' }}>Select a department first</p>
+              )}
+              {form.departmentId && deptUsers.length === 0 && (
+                <p className="text-xs p-2" style={{ color: 'var(--text-tertiary)' }}>No active department members found</p>
+              )}
+              {deptUsers.map((u) => (
+                <label key={u.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={form.memberIds.includes(u.id)}
+                    onChange={(e) => setForm((f) => ({
+                      ...f,
+                      memberIds: e.target.checked
+                        ? [...f.memberIds, u.id]
+                        : f.memberIds.filter((id) => id !== u.id),
+                    }))}
+                  />
+                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{u.name}</span>
+                  <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>{u.role?.name}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>{form.memberIds.length} selected</p>
           </div>
           <div>
             <label className="apex-label">Team Lead (optional)</label>

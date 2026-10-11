@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Ticket, ShieldAlert, CheckSquare, KanbanSquare,
   AlertTriangle, Users, Search, X, ArrowRight, CalendarDays, FolderKanban,
+  NotebookPen,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -90,6 +91,13 @@ const DEFAULT_ACTIONS: QuickAction[] = [
     icon: CheckSquare,
     shortcut: 'CMD + T',
     href: '/tickets',
+  },
+  {
+    id: 'add-note',
+    title: 'Add Note',
+    desc: 'Write a private workday note',
+    icon: NotebookPen,
+    href: '/workday-notes',
   },
 ];
 

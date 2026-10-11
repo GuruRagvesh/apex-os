@@ -1,4 +1,6 @@
 'use client';
+import { CorrectionScreenshots } from './CorrectionScreenshots';
+
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -95,6 +97,8 @@ export function RegularizationQueue({ mode }: { mode: 'manager' | 'hr' }) {
               {stageLabel(row.status)}
             </span>
           </div>
+
+          <CorrectionScreenshots requestId={row.id} files={row.screenshots ?? []} />
 
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
             <div>

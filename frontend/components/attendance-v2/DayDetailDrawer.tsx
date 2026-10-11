@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Camera, MapPin } from 'lucide-react';
-import { AttendanceDrawer } from '../attendance/AttendanceDrawer';
+import { Camera, MapPin, Clock3, BarChart3, FileText, ImageIcon, Activity, ShieldCheck, Gift, Plane } from 'lucide-react';
+import { V2DrawerShell } from './V2DrawerShell';
+import { presentLocation } from '../attendance/location-presentation';
+import { getMyRegularizations, stageLabel } from '../attendance/regularization-api';
+import s from './visual-fidelity.module.css';
 import { PunchPhoto } from '../attendance/PunchPhoto';
-import { LeaveBalanceCard } from '../attendance/LeaveBalanceCard';
 import { getMyPunchEvidence, type OwnPunchEvidence } from '../attendance/punch-api';
-import { getHolidayCalendar, upcomingHolidays } from '../attendance/holiday-api';
 import {
   actorLabel,
   getMyAttendanceActivity,
@@ -15,7 +16,6 @@ import {
 } from '../attendance/activity-api';
 import { getMyAttendanceDayV2, type MyAttendanceDayV2 } from './my-attendance-v2-api';
 import {
-  BRAND,
   UNKNOWN_FIGURE,
   exceptionCopy,
   formatLongDate,
@@ -35,8 +35,7 @@ import {
  * the fold is the one nobody scrolls to.
  *
  * It reuses the existing AttendanceDrawer shell, PunchPhoto and
- * LeaveBalanceCard rather than cloning them, so the V2 route cannot show a
- * different leave balance or a differently-authorized photo from the live page.
+ * existing evidence components. Global account widgets live on the main page.
  *
  * PHOTOS ARE ON DEMAND. PunchPhoto fetches a short-lived signed URL when it
  * mounts, so it is mounted only after the viewer asks for it. Nothing is
@@ -54,6 +53,13 @@ export function DayDetailDrawer({
   /** The month row, shown immediately while the detail request is in flight. */
   seed?: MyAttendanceDayV2;
 }) {
+  const requests = useQuery({
+    queryKey: ['my-regularizations'],
+    queryFn: getMyRegularizations,
+    enabled: open,
+    retry: false,
+  });
+  const pending = requests.data?.find(request => request.date.slice(0, 10) === date && (request.status === 'PENDING' || request.status === 'MANAGER_APPROVED'));
   const detail = useQuery({
     queryKey: ['my-attendance-v2-day', date],
     queryFn: () => getMyAttendanceDayV2(date as string),
@@ -69,14 +75,6 @@ export function DayDetailDrawer({
     retry: false,
   });
 
-  const holidays = useQuery({
-    queryKey: ['holiday-calendar-v2'],
-    queryFn: () => getHolidayCalendar(),
-    enabled: open,
-    staleTime: 10 * 60_000,
-    retry: false,
-  });
-
   const activity = useQuery({
     queryKey: ['my-attendance-activity-v2', date],
     queryFn: () => getMyAttendanceActivity(date as string),
@@ -87,19 +85,17 @@ export function DayDetailDrawer({
   const day = detail.data ?? seed;
   if (!date) return null;
 
-  const status = day ? presentOutcome(day.outcome) : null;
   const dayEvidence = (evidence.data ?? []).filter((e) => e.businessDate === date);
 
   return (
-    <AttendanceDrawer
+    <V2DrawerShell
       open={open}
       title={formatLongDate(date)}
-      subtitle={status?.label}
       onClose={onClose}
     >
-      <div className="space-y-5">
+      <div className={s.drawerBody}>
         {/* The detail request failing must not blank the day or zero it out. */}
-        {detail.isError && !seed ? (
+        {detail.isError ? (
           <Unavailable>
             This day&apos;s details could not be loaded. Nothing has changed about your attendance —
             only this view failed.
@@ -109,6 +105,7 @@ export function DayDetailDrawer({
         {day ? (
           <>
             <Badges day={day} />
+            {pending && <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-xs">Correction {stageLabel(pending.status).toLowerCase()}</p>}
             <DaySummary day={day} />
             <StatusInsight day={day} />
             <Evidence
@@ -127,49 +124,24 @@ export function DayDetailDrawer({
           <p className="apex-text-muted text-sm">Loading this day…</p>
         ) : null}
 
-        <section>
-          <SectionTitle>Upcoming Holidays</SectionTitle>
-          {holidays.isError ? (
-            <Unavailable>The holiday calendar could not be loaded.</Unavailable>
-          ) : holidays.isLoading ? (
-            <p className="apex-text-muted text-sm">Loading…</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {upcomingHolidays(holidays.data, 3).map((h) => (
-                <li key={h.id} className="apex-text flex justify-between text-sm">
-                  <span>{h.name}</span>
-                  <span className="apex-text-muted tabular-nums">{h.date}</span>
-                </li>
-              ))}
-              {upcomingHolidays(holidays.data, 3).length === 0 ? (
-                <li className="apex-text-muted text-sm">No upcoming holidays on the calendar.</li>
-              ) : null}
-            </ul>
-          )}
-        </section>
-
-        <section>
-          <SectionTitle>Leave Balance</SectionTitle>
-          <LeaveBalanceCard compact />
-        </section>
       </div>
-    </AttendanceDrawer>
+    </V2DrawerShell>
   );
 }
 
 function Badges({ day }: { day: MyAttendanceDayV2 }) {
-  const status = presentOutcome(day.outcome);
+  const status = presentOutcome(day.isInProgress ? 'IN_PROGRESS' : day.outcome);
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span
         className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
-        style={{ background: status.tint, color: status.color }}
+        style={{ background: day.outcome === 'PRESENT' && !day.isInProgress ? '#00A04A' : status.tint, color: day.outcome === 'PRESENT' && !day.isInProgress ? '#FFFFFF' : status.color }}
       >
         <span aria-hidden="true">{status.glyph}</span>
         {status.label}
       </span>
       {day.evaluationState ? (
-        <span className="apex-text-muted rounded-full border border-apex-border px-2 py-0.5 text-xs">
+        <span className="rounded-full px-2.5 py-1 text-xs" style={{ background: day.evaluationState === 'FINALIZED' ? '#E0FBEA' : '#F0F7FF', color: day.evaluationState === 'FINALIZED' ? '#008B41' : '#2666C4' }}>
           {day.evaluationState === 'NEEDS_REVIEW'
             ? 'Needs review'
             : day.evaluationState === 'FINALIZED'
@@ -197,16 +169,16 @@ function Badges({ day }: { day: MyAttendanceDayV2 }) {
   );
 }
 
-function DaySummary({ day }: { day: MyAttendanceDayV2 }) {
+export function DaySummary({ day }: { day: MyAttendanceDayV2 }) {
   const presenceUnavailable = isUnavailable(day, 'presenceMinutes');
   const requiredUnavailable = isUnavailable(day, 'requiredMinutes');
 
   return (
     <section>
       <SectionTitle>Day Summary</SectionTitle>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-        <Row label="Punch in" value={formatTime(day.punchInAt)} />
-        <Row label="Punch out" value={formatTime(day.punchOutAt)} />
+      <dl className={s.summaryGrid}>
+        <Row label="Punch in" value={isUnavailable(day, 'punchInAt') ? UNKNOWN_FIGURE : formatTime(day.punchInAt)} />
+        <Row label="Punch out" value={isUnavailable(day, 'punchOutAt') ? UNKNOWN_FIGURE : formatTime(day.punchOutAt)} />
         <Row
           label="Attendance presence"
           value={presenceUnavailable ? 'Not available' : formatMinutesOrUnknown(day.presenceMinutes)}
@@ -215,17 +187,16 @@ function DaySummary({ day }: { day: MyAttendanceDayV2 }) {
           label="Required presence"
           value={requiredUnavailable ? 'Not available' : formatMinutesOrUnknown(day.requiredMinutes)}
         />
-        <Row label="Worked" value={formatMinutesOrUnknown(day.workedMinutes)} />
-        <Row label="Break" value={formatMinutesOrUnknown(day.breakMinutes)} />
+        <Row label="Worked" value={isUnavailable(day, 'workedMinutes') ? UNKNOWN_FIGURE : formatMinutesOrUnknown(day.workedMinutes)} />
+        <div className={s.pairedFacts}>
+          <Row label="Break" value={isUnavailable(day, 'breakMinutes') ? UNKNOWN_FIGURE : formatMinutesOrUnknown(day.breakMinutes)} />
+          <Row label="Sessions" value={UNKNOWN_FIGURE} />
+        </div>
       </dl>
 
       {presenceUnavailable || requiredUnavailable ? (
         <p className="apex-text-muted mt-3 text-xs">
-          {presenceUnavailable && requiredUnavailable
-            ? 'No presence requirement applies to this day, so neither figure is measured.'
-            : presenceUnavailable
-              ? 'Attendance presence is punch out minus punch in, and this day has no complete punch pair — so it is left blank rather than shown as zero.'
-              : 'No presence requirement applies to this day.'}
+          Some presence information is unavailable or does not apply to this day.
         </p>
       ) : null}
     </section>
@@ -236,9 +207,10 @@ function StatusInsight({ day }: { day: MyAttendanceDayV2 }) {
   if (!day.explanation && day.exceptions.length === 0) return null;
 
   return (
-    <section>
+    <section className={s.insight}>
       <SectionTitle>Status Insight</SectionTitle>
-      {day.explanation ? <p className="apex-text text-sm">{day.explanation}</p> : null}
+      {day.explanation ? <p className="apex-text text-xs font-semibold">{day.explanation}</p> : null}
+      <p className="apex-text-muted mt-1 text-xs">Attendance presence and effective worked time are separate measures. Presence is evaluated against the presence requirement.</p>
 
       {day.exceptions.length > 0 ? (
         <ul className="mt-3 space-y-2">
@@ -288,7 +260,7 @@ function Evidence({
       ) : items.length === 0 ? (
         <p className="apex-text-muted text-sm">No punch evidence was recorded for this day.</p>
       ) : (
-        <ul className="space-y-3">
+        <ul className={s.evidenceGrid}>
           {items.map((item) => (
             <EvidenceRow key={item.id} item={item} />
           ))}
@@ -302,7 +274,7 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
   const [showPhoto, setShowPhoto] = useState(false);
 
   return (
-    <li className="rounded-lg border border-apex-border p-3">
+    <li className={s.evidenceCard}>
       <div className="flex items-center justify-between gap-2">
         <span className="apex-text text-sm font-semibold">
           {item.type === 'PUNCH_IN' ? 'Punch In' : 'Punch Out'}
@@ -315,7 +287,7 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
       <div className="apex-text-muted mt-2 space-y-1 text-xs">
         <p className="flex items-center gap-1.5">
           <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          {item.locationName ?? 'Location not named'} · {item.locationVerification}
+          {presentLocation(item).headline}
         </p>
         {item.accuracyMeters !== null ? (
           <p>GPS accuracy ±{Math.round(item.accuracyMeters)} m</p>
@@ -338,7 +310,7 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
           <button
             type="button"
             onClick={() => setShowPhoto(true)}
-            className="apex-text inline-flex items-center gap-1.5 rounded-lg border border-apex-border px-2.5 py-1.5 text-xs font-semibold"
+            className={s.photoButton}
           >
             <Camera className="h-3.5 w-3.5" aria-hidden="true" />
             View photo
@@ -378,11 +350,9 @@ function WorkdayActivity({
       ) : loading ? (
         <p className="apex-text-muted text-sm">Loading activity…</p>
       ) : entries.length === 0 ? (
-        <p className="apex-text-muted text-sm">
-          No corrections or revisions were recorded for this day.
-        </p>
+        <p className="apex-text-muted text-xs">No corrections or revisions recorded.</p>
       ) : (
-        <ol className="space-y-2">
+        <ol className={s.timeline}>
           {entries.map((entry) => (
             <li key={entry.id} className="border-l-2 border-apex-border pl-3">
               <p className="apex-text text-sm font-semibold">{entry.label}</p>
@@ -397,8 +367,7 @@ function WorkdayActivity({
         </ol>
       )}
       <p className="apex-text-muted mt-2 text-xs">
-        The session-level timeline (start, breaks, end) is not yet available for past dates from a
-        self-scoped endpoint.
+        Work-session start, break and end details are unavailable for this date.
       </p>
     </section>
   );
@@ -408,42 +377,30 @@ function PolicyAndEvaluation({ day }: { day: MyAttendanceDayV2 }) {
   return (
     <section>
       <SectionTitle>Policy &amp; Evaluation</SectionTitle>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-        <Row label="Final status" value={presentOutcome(day.outcome).label} />
+      <dl className={s.policyGrid}>
+        <Row label="Final status" value={day.isInProgress ? 'Pending' : day.evaluationState === 'FINALIZED' ? presentOutcome(day.outcome).label : 'Not finalized'} />
         <Row
           label="Review state"
-          value={day.evaluationState === 'NEEDS_REVIEW' ? 'Awaiting review' : 'No review pending'}
+          value={day.evaluationState === null ? UNKNOWN_FIGURE : day.evaluationState === 'NEEDS_REVIEW' ? 'Awaiting review' : 'No review pending'}
         />
         <Row
-          label="Correction"
+          label="Regularization"
           value={day.modifiers.includes('REGULARIZED') ? 'Applied' : 'None applied'}
         />
-        <Row label="Late by" value={formatMinutesOrUnknown(day.lateMinutes)} />
+        <Row label="Deficiency" value={UNKNOWN_FIGURE} />
       </dl>
     </section>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h3
-      className="mb-2.5 text-xs font-semibold uppercase tracking-wider"
-      style={{ color: BRAND.blue }}
-    >
-      {children}
-    </h3>
-  );
-}
 
+const SECTION_ICONS = { 'Day Summary': BarChart3, 'Status Insight': FileText, 'Evidence': ImageIcon, 'Workday Activity': Activity, 'Policy & Evaluation': ShieldCheck, 'Upcoming Holidays': Gift, 'Leave Balance': Plane };
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  const Icon = SECTION_ICONS[String(children) as keyof typeof SECTION_ICONS] ?? FileText;
+  return <h3 className={s.sectionTitle}><Icon aria-hidden="true" />{children}</h3>;
+}
 function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="apex-text-muted text-xs font-medium uppercase tracking-wide">{label}</dt>
-      <dd className="apex-text mt-0.5 text-sm font-semibold tabular-nums">
-        {value === UNKNOWN_FIGURE ? <span aria-label="not available">{value}</span> : value}
-      </dd>
-    </div>
-  );
+  return <div className={s.fact}><Clock3 aria-hidden="true" /><div><dt>{label}</dt><dd>{value === UNKNOWN_FIGURE ? <span aria-label="not available">{value}</span> : value}</dd></div></div>;
 }
 
 function Unavailable({ children }: { children: React.ReactNode }) {

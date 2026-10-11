@@ -74,6 +74,7 @@ export function WorkdayBar() {
   const autoClosedCount = (todayData as any)?.autoClosedCount ?? 0;
   const needsAutoCloseConsent = (todayData as any)?.needsAutoCloseConsent ?? false;
   const autoCloseTime = (todayData as any)?.autoCloseTime ?? null;
+  const openBreak = breakLogs.find((row: any) => !row.endAt) ?? null;
 
   // Live elapsed time (WORKING) and live break timer (ON_BREAK)
   useEffect(() => {
@@ -383,7 +384,6 @@ export function WorkdayBar() {
   }
 
   if (status === 'ON_BREAK') {
-    const openBreak = breakLogs.find((b: any) => !b.endAt);
     const breakTypeLabel = openBreak?.breakType
       ? openBreak.breakType.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase())
       : null;

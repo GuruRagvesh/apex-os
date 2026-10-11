@@ -71,13 +71,14 @@ api.interceptors.response.use(
       }
     }
     const data = error.response?.data;
+    const status = error.response?.status;
     if (error.response?.status === 403) {
-      return Promise.reject({ ...data, message: data?.message || 'You do not have permission to perform this action.' });
+      return Promise.reject({ ...data, status, message: data?.message || 'You do not have permission to perform this action.' });
     }
     if (Array.isArray(data?.message)) {
-      return Promise.reject({ ...data, message: data.message.join(', ') });
+      return Promise.reject({ ...data, status, message: data.message.join(', ') });
     }
-    return Promise.reject(data || error);
+    return Promise.reject(data ? { ...data, status } : error);
   },
 );
 

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
 import { useTheme, type ThemeId, type AccentId } from '@apex/shared-utilities/use-theme';
+import { enablePushNotifications } from '@/lib/push-notifications';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
 const inputCls  = 'apex-input';
@@ -334,6 +335,7 @@ const NOTIF_DEFAULTS = {
   leaveRejected:  true,
   teamLeaveApply: true,
   inApp:          true,
+  pushEnabled:    true,
   quietFrom:      '22:00',
   quietTo:        '08:00',
 };
@@ -341,6 +343,7 @@ const NOTIF_DEFAULTS = {
 function NotificationsSection({ isManager }: { isManager: boolean }) {
   const [prefs, setPrefs] = useState(NOTIF_DEFAULTS);
   const [saving, setSaving] = useState(false);
+  const [enablingDevice, setEnablingDevice] = useState(false);
 
   // Hydrate from server prefs (falling back to localStorage) after mount
   useEffect(() => {
@@ -380,6 +383,21 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
     }
   };
 
+  const enableThisDevice = async () => {
+    setEnablingDevice(true);
+    try {
+      const result = await enablePushNotifications();
+      if (result === 'enabled') toast.success('System notifications enabled on this device');
+      else if (result === 'denied') toast.error('Notifications are blocked in this browser');
+      else if (result === 'unconfigured') toast.error('Server push is not configured yet');
+      else toast.error('Push notifications are not supported on this device');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Could not enable system notifications');
+    } finally {
+      setEnablingDevice(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className={cardCls}>
@@ -401,6 +419,17 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
       <div className={cardCls}>
         <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Delivery</h3>
         <ToggleRow label="In-app notifications" desc="Show bell notifications in the top bar" checked={prefs.inApp} onChange={() => toggle('inApp')} />
+        <ToggleRow label="System push notifications" desc="Send alerts to registered computers and phones, including while Apex OS is in the background" checked={prefs.pushEnabled} onChange={() => toggle('pushEnabled')} />
+        {prefs.pushEnabled && (
+          <button
+            type="button"
+            onClick={enableThisDevice}
+            disabled={enablingDevice}
+            className="apex-btn apex-btn-secondary text-sm"
+          >
+            {enablingDevice ? 'Enabling…' : 'Enable notifications on this device'}
+          </button>
+        )}
         <div className="pt-3">
           <p className="text-sm font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>Quiet Hours</p>
           <div className="flex items-center gap-3">

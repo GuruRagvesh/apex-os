@@ -36,6 +36,7 @@ const mockPrisma = {
     upsert: jest.fn(),
   },
   breakLog: {
+    findMany: jest.fn(),
     update: jest.fn(),
   },
   attendanceEvent: {
@@ -82,6 +83,7 @@ describe('SchedulerService — recurring ticket query', () => {
     // Default: return empty arrays so the cron method runs to completion
     mockPrisma.ticket.findMany.mockResolvedValue([]);
     mockPrisma.workSession.findMany.mockResolvedValue([]);
+    mockPrisma.breakLog.findMany.mockResolvedValue([]);
     mockPrisma.leaveRequest.findMany.mockResolvedValue([]);
     mockPrisma.user.findMany.mockResolvedValue([]);
     mockPrisma.user.updateMany.mockResolvedValue({ count: 0 });
@@ -178,16 +180,15 @@ describe('SchedulerService — recurring ticket query', () => {
     mockPrisma.ticket.findMany
       .mockResolvedValueOnce([])          // one-time call
       .mockResolvedValueOnce([ticket]);   // recurring call
-    mockPrisma.notification.create.mockResolvedValue({});
-
     await service.checkScheduledTickets();
 
-    expect(mockPrisma.notification.create).toHaveBeenCalledWith(
+    expect(mockNotificationEvent.sendNotification).toHaveBeenCalledWith(
+      'u1',
+      'statusChanged',
       expect.objectContaining({
-        data: expect.objectContaining({
-          userId: 'u1',
-          title: expect.stringContaining('reminder'),
-        }),
+        title: expect.stringContaining('reminder'),
+        entityId: 'tk1',
+        dedupeKey: expect.stringContaining('scheduled-ticket:tk1'),
       }),
     );
 
@@ -209,7 +210,7 @@ describe('SchedulerService — recurring ticket query', () => {
 
     await service.checkScheduledTickets();
 
-    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+    expect(mockNotificationEvent.sendNotification).not.toHaveBeenCalled();
 
     jest.useRealTimers();
   });
@@ -223,7 +224,7 @@ describe('SchedulerService — recurring ticket query', () => {
     };
     mockPrisma.ticket.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([ticket]);
     await service.checkScheduledTickets();
-    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+    expect(mockNotificationEvent.sendNotification).not.toHaveBeenCalled();
     jest.useRealTimers();
   });
 
@@ -236,13 +237,39 @@ describe('SchedulerService — recurring ticket query', () => {
       assignedTo: { id: 'u4', name: 'Dev' }, assignees: [],
     };
     mockPrisma.ticket.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([ticket]);
-    mockPrisma.notification.create.mockResolvedValue({});
     await service.checkScheduledTickets();
-    expect(mockPrisma.notification.create).toHaveBeenCalledTimes(1);
+    expect(mockNotificationEvent.sendNotification).toHaveBeenCalledTimes(1);
+    expect(mockNotificationEvent.sendNotification).toHaveBeenCalledWith(
+      'u4',
+      'statusChanged',
+      expect.objectContaining({ entityId: 'tk4' }),
+    );
     jest.useRealTimers();
   });
 
   it('runs to completion without throwing when ticket arrays are empty', async () => {
     await expect(service.checkScheduledTickets()).resolves.toBeUndefined();
+  });
+
+  it('sends one durable, deduplicated notification for an overdue planned break', async () => {
+    const plannedEndAt = new Date('2026-10-05T06:00:00.000Z');
+    mockPrisma.breakLog.findMany.mockResolvedValueOnce([{
+      id: 'break-1',
+      userId: 'u1',
+      breakType: 'TEA',
+      plannedEndAt,
+    }]);
+
+    await service.plannedBreakOverrunReminders();
+
+    expect(mockNotificationEvent.sendNotification).toHaveBeenCalledWith(
+      'u1',
+      'breakOverrun',
+      expect.objectContaining({
+        entityId: 'break-1',
+        entityType: 'BREAK',
+        dedupeKey: 'break-overrun:break-1',
+      }),
+    );
   });
 });

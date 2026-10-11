@@ -10,6 +10,12 @@ export const metadata: Metadata = {
   },
   description: 'Apex OS — AI-powered Business Operating System by TechnoEdge Learning Services',
   icons: { icon: '/favicon.svg' },
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Apex OS',
+    statusBarStyle: 'black-translucent',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

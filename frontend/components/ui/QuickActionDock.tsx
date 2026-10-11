@@ -99,6 +99,7 @@ export function QuickActionDock() {
     isManagerPlus
       ? { label: 'New Project', emoji: '📁', color: '#6366f1', onClick: () => doAction(() => router.push('/projects')) }
       : { label: 'My Profile', emoji: '👤', color: '#64748b', onClick: () => doAction(() => router.push('/profile')) },
+    { label: 'Add Note', emoji: '📝', color: '#0ea5e9', onClick: () => doAction(() => router.push('/workday-notes')) },
   ];
 
   return (

@@ -22,6 +22,7 @@ const prisma: any = {
   userDepartmentMembership: { findUnique: jest.fn() },
   ticket: { count: jest.fn() },
   userRoleAssignment: { count: jest.fn() },
+  projectTeamAssignment: { count: jest.fn() },
   managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },
 };
 
@@ -35,6 +36,7 @@ describe('TeamsService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.managerDeptAccess.findMany.mockResolvedValue([]);
+    prisma.projectTeamAssignment.count.mockResolvedValue(0);
     service = new TeamsService(prisma, new AccessPolicyService(prisma));
   });
 
@@ -69,10 +71,10 @@ describe('TeamsService', () => {
       );
     });
 
-    it('rejects a teamLeadId whose role has no leadership level', async () => {
+    it('rejects an inactive team lead', async () => {
       prisma.department.findUnique.mockResolvedValue({ id: 'd1' });
       prisma.team.findFirst.mockResolvedValue(null);
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1', role: { name: 'EMPLOYEE' } });
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', isActive: false, departmentId: 'd1' });
 
       await expect(
         service.create({ name: 'Frontend', departmentId: 'd1', teamLeadId: 'u1' } as any, admin),
@@ -131,7 +133,7 @@ describe('TeamsService', () => {
   describe('addMember', () => {
     it('rejects adding a user who is not a member of the team department', async () => {
       prisma.team.findUnique.mockResolvedValue({ id: 't1', departmentId: 'd1' });
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1', departmentId: 'd2' });
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', isActive: true, departmentId: 'd2' });
       prisma.teamMember.findUnique.mockResolvedValue(null);
       prisma.userDepartmentMembership.findUnique.mockResolvedValue(null);
 
@@ -140,7 +142,7 @@ describe('TeamsService', () => {
 
     it('rejects a duplicate membership', async () => {
       prisma.team.findUnique.mockResolvedValue({ id: 't1', departmentId: 'd1' });
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1', departmentId: 'd1' });
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', isActive: true, departmentId: 'd1' });
       prisma.teamMember.findUnique.mockResolvedValue({ id: 'm1' });
 
       await expect(service.addMember('t1', { userId: 'u1' } as any, admin)).rejects.toThrow(ConflictException);
@@ -148,7 +150,7 @@ describe('TeamsService', () => {
 
     it('adds a member who belongs to the team department', async () => {
       prisma.team.findUnique.mockResolvedValue({ id: 't1', departmentId: 'd1' });
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1', departmentId: 'd1' });
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', isActive: true, departmentId: 'd1' });
       prisma.teamMember.findUnique.mockResolvedValue(null);
       prisma.teamMember.create.mockResolvedValue({ id: 'm1', teamId: 't1', userId: 'u1' });
 
@@ -211,7 +213,7 @@ describe('TeamsService', () => {
 
       expect(prisma.team.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { OR: [{ teamLeadId: 'emp1' }, { members: { some: { userId: 'emp1' } } }] },
+          where: { isActive: true, OR: [{ teamLeadId: 'emp1' }, { members: { some: { userId: 'emp1' } } }] },
         }),
       );
     });
