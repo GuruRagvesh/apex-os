@@ -343,6 +343,47 @@ code, pre, .mono, .font-mono, [data-mono] {
 .apex-dashboard-hero-copy {
   color: var(--hero-copy);
 }
+/* Hero KPI tiles and workday status: frosted glass over the daypart sky. */
+.apex-hero-kpi,
+.apex-hero-status {
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.16);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--hero-title);
+}
+.apex-hero-kpi { padding: 12px 14px; transition: background 160ms ease, transform 160ms ease; }
+.apex-hero-kpi:hover { background: rgba(255, 255, 255, 0.24); transform: translateY(-1px); }
+.apex-hero-kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--hero-copy); }
+.apex-hero-kpi-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.22); color: var(--hero-title);
+}
+.apex-hero-kpi-value { display: block; font-size: 28px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: var(--hero-title); }
+.apex-hero-kpi-sub { display: block; margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--hero-copy); }
+.apex-hero-kpi-toggle {
+  position: absolute; right: 12px; bottom: 12px;
+  display: inline-flex; padding: 2px; border-radius: 999px;
+  background: rgba(15, 39, 71, 0.22);
+}
+.apex-hero-kpi-toggle button {
+  padding: 2px 9px; border-radius: 999px;
+  font-size: 10px; font-weight: 800; color: var(--hero-copy);
+}
+.apex-hero-kpi-toggle button[aria-pressed="true"] { background: #ffffff; color: #0f2747; }
+.apex-hero-status { min-width: 220px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.apex-hero-status-title { font-size: 13px; font-weight: 800; }
+.apex-hero-status-value { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.apex-hero-status-line { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hero-copy); }
+.apex-hero-status-line strong { color: var(--hero-title); font-weight: 700; font-variant-numeric: tabular-nums; }
+.apex-hero-status-dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3); }
+.apex-hero-status-dot.is-break { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3); }
+/* Start Work stays compact instead of spanning the hero. */
+.apex-hero-workday { max-width: 520px; }
+.apex-hero-workday > div:first-child { margin-bottom: 0; }
 @media (max-width: 640px) {
   .apex-dashboard-hero { min-height: 230px; padding: 1.25rem; }
   .apex-hero-mesh-lit { display: none; }

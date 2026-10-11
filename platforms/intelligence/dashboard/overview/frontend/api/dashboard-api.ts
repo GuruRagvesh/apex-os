@@ -37,4 +37,14 @@ export const dashboardApi = {
   getWorkload: () => r(api.get('/dashboard/workload')),
   getTicketTrend: (days?: number) => r(api.get('/dashboard/ticket-trend', { params: { days } })),
   getHomeSummary: () => r(api.get('/home/summary')),
+  getHomeKpis: (): Promise<HomeKpis> => r(api.get('/home/kpis')),
 };
+
+/** GET /home/kpis — mirrors HomeInsightsService.getKpis. Null means "not applicable to this role". */
+export interface HomeKpis {
+  activeTickets: { mine: number; team: number | null };
+  activeProjects: number;
+  pendingTicketApprovals: number | null;
+  pendingLeaveApprovals: number | null;
+  myInReview: number;
+}
