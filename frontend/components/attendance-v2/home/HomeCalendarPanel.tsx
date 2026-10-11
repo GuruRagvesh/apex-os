@@ -339,7 +339,9 @@ function AttendanceSide({ today, week, byDate }: { today: string; week: WeekWind
   const allOnTime = current.daysWorked > 0 && current.onTimeFullDays === current.daysWorked;
 
   const diff = current.daysWorked && previous.daysWorked ? current.totalWorkMinutes - previous.totalWorkMinutes : null;
-  const headline = diff == null
+  const headline = current.daysWorked === 0
+    ? `No attendance recorded for ${weekName(week).toLowerCase()} yet.`
+    : diff == null
     ? `${weekName(week)} you worked ${hoursLabel(current.totalWorkMinutes)} across ${current.daysWorked} day${current.daysWorked === 1 ? '' : 's'}.`
     : Math.abs(diff) < 15
       ? `${weekName(week)} you worked about the same hours as the week before (${hoursLabel(current.totalWorkMinutes)}).`
@@ -347,7 +349,7 @@ function AttendanceSide({ today, week, byDate }: { today: string; week: WeekWind
   const nudge = allOnTime
     ? `Congratulations: every day you came in within flexi time and completed your full hours.`
     : current.daysWorked === 0
-      ? 'No attendance recorded for this week yet.'
+      ? 'Your weekly summary and streak appear here once you punch in.'
       : `${current.onTimeFullDays} of ${current.daysWorked} days were on time with full hours. Aim for all of them next week.`;
 
   return (
@@ -384,12 +386,17 @@ function ProductivitySide({ week, byDate, loading, failed }: { week: WeekWindow;
   const minutesDiff = current.totalProductiveMinutes - previous.totalProductiveMinutes;
   const improving = doneDiff > 0 || (doneDiff === 0 && minutesDiff > 30);
   const slipping = doneDiff < 0 || (doneDiff === 0 && minutesDiff < -30);
-  const headline = improving
+  const nothingYet = current.totalProductiveMinutes === 0 && current.ticketsDone === 0 && current.ticketsSubmitted === 0;
+  const headline = nothingYet
+    ? `No ticket activity recorded for ${weekName(week).toLowerCase()} yet.`
+    : improving
     ? `${weekName(week)} your productivity went up: ${current.ticketsDone} ticket${current.ticketsDone === 1 ? '' : 's'} done${doneDiff > 0 ? `, ${doneDiff} more than the week before` : ''}. Keep going!`
     : slipping
       ? `${weekName(week)} you closed ${Math.abs(doneDiff) || 'fewer'} ${Math.abs(doneDiff) === 1 ? 'ticket' : 'tickets'} fewer than the week before.`
       : `${weekName(week)} you kept the same pace as the week before.`;
-  const nudge = slipping
+  const nudge = nothingYet
+    ? 'Time logged on tickets and tickets you finish will show up here.'
+    : slipping
     ? `Try to close ${Math.max(1, Math.abs(doneDiff))} more next week to get back on track.`
     : current.ticketsSubmitted > current.ticketsDone
       ? `${current.ticketsSubmitted} ticket${current.ticketsSubmitted === 1 ? ' is' : 's are'} waiting for review. Follow up to get them closed.`
