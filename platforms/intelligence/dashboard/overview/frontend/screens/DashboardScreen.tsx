@@ -1,30 +1,184 @@
 'use client';
 
-import { useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import Link from 'next/link';
 import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { cn } from '@apex/shared-utilities';
 import { dashboardApi } from '../api';
-import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { UpcomingEvents } from '../components/UpcomingEvents';
 import { RecentActivityFeed } from '../components/RecentActivityFeed';
-import { TeamPressurePanel } from '../components/TeamPressurePanel';
 import { HomeSkeleton } from '../components/HomeSkeleton';
 import { KpiCapsuleStrip } from '@apex/shared-ui/components/KpiCapsuleStrip';
-import { AnnouncementBroadcast } from '@apex/shared-ui/components/AnnouncementBroadcast';
-import { CommandModal } from '@apex/shared-ui/components/CommandModal';
 import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalette';
 import CommandCard from '@apex/shared-ui/components/CommandCard';
 import { motion } from 'motion/react';
 import {
   Ticket, AlertTriangle, Clock, CheckCircle, CalendarDays,
   FolderKanban, TrendingUp, Users, Zap, Activity,
-  ShieldAlert, ArrowRight, UserCog,
+  ArrowRight, ListTodo,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+
+type HeroDaypart = 'morning' | 'afternoon' | 'evening' | 'night';
+
+type TodayTask = {
+  id: string;
+  title: string;
+  detail?: string;
+  completed?: boolean;
+};
+
+// Temporary preview data. Once punch-in supports a task payload, the dashboard
+// summary's todayTasks collection takes over without changing this card.
+const SAMPLE_TODAY_TASKS: TodayTask[] = [
+  {
+    id: 'sample-priority-review',
+    title: 'Review today\'s priority tickets',
+    detail: 'Morning focus',
+  },
+  {
+    id: 'sample-progress-update',
+    title: 'Update project progress notes',
+    detail: 'Before end of day',
+  },
+];
+
+const HERO_MESH_PATH = [
+  ...Array.from({ length: 31 }, (_, index) => `M ${index * 40} 0 V 320`),
+  ...Array.from({ length: 9 }, (_, index) => `M 0 ${index * 40} H 1200`),
+].join(' ');
+
+function HeroGridMesh() {
+  const renderMesh = (layer: 'base' | 'lit') => {
+    const filterId = `apex-hero-mesh-${layer}`;
+    return (
+      <svg
+        className={`apex-hero-mesh-layer apex-hero-mesh-${layer}`}
+        viewBox="0 0 1200 320"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <defs>
+          <filter id={filterId} x="-8%" y="-20%" width="116%" height="140%">
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.007 0.018"
+              numOctaves="1"
+              seed="12"
+              result="meshNoise"
+            >
+              <animate
+                attributeName="baseFrequency"
+                dur={layer === 'base' ? '16s' : '13s'}
+                values="0.007 0.018;0.011 0.026;0.006 0.021;0.007 0.018"
+                repeatCount="indefinite"
+              />
+            </feTurbulence>
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="meshNoise"
+              scale={layer === 'base' ? 24 : 29}
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
+        </defs>
+        <path d={HERO_MESH_PATH} filter={`url(#${filterId})`} />
+      </svg>
+    );
+  };
+
+  return (
+    <div className="apex-hero-mesh" aria-hidden="true">
+      {renderMesh('base')}
+      {renderMesh('lit')}
+    </div>
+  );
+}
+
+function TodayTasksCard({ tasks }: { tasks: TodayTask[] }) {
+  const visibleTasks = tasks.slice(0, 5);
+
+  return (
+    <div
+      className="apex-section-border overflow-hidden rounded-[22px] border"
+      style={{ backgroundColor: 'var(--surface-card)' }}
+    >
+      <div className="flex items-center justify-between gap-4 bg-[#0B1220] px-5 py-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="rounded-lg bg-blue-900/40 p-2 text-blue-400">
+            <ListTodo className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-white">My Tasks Today</h2>
+            <p className="mt-0.5 text-[10px] font-medium text-slate-400">
+              Your punch-in plan for the day
+            </p>
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full border border-blue-400/25 bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold text-blue-300">
+          {visibleTasks.length}/5
+        </span>
+      </div>
+
+      <div
+        className="relative min-h-[215px] px-5 py-3"
+        style={{
+          backgroundColor: 'var(--surface-card)',
+          backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0, transparent 42px, color-mix(in srgb, var(--border-subtle) 72%, transparent) 43px)',
+        }}
+      >
+        {visibleTasks.length > 0 ? (
+          <ol className="divide-y divide-transparent">
+            {visibleTasks.map((task, index) => (
+              <li key={task.id} className="flex min-h-[43px] items-center gap-3">
+                <span
+                  className={cn(
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[9px] font-bold',
+                    task.completed
+                      ? 'border-emerald-500 bg-emerald-500 text-white'
+                      : 'border-blue-300 bg-white text-blue-600 dark:border-blue-700 dark:bg-slate-950 dark:text-blue-300',
+                  )}
+                  aria-hidden="true"
+                >
+                  {task.completed ? '✓' : index + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className={cn(
+                    'truncate text-xs font-bold text-slate-800 dark:text-slate-100',
+                    task.completed && 'text-slate-400 line-through dark:text-slate-500',
+                  )}>
+                    {task.title}
+                  </p>
+                  {task.detail && (
+                    <p className="mt-0.5 truncate text-[10px] font-medium text-slate-400 dark:text-slate-500">
+                      {task.detail}
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="flex min-h-[120px] items-center justify-center text-center">
+            <div>
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-300">No tasks planned yet</p>
+              <p className="mt-1 text-[10px] text-slate-400">Add up to five tasks when you punch in.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function HomePage() {
   const user = useAuthStore(s => s.user);
@@ -33,9 +187,37 @@ export default function HomePage() {
   const role: string = roleObj?.name ?? (typeof roleObj === 'string' ? roleObj : '') ?? '';
 
   const [paletteOpen, setPaletteOpen]             = useState(false);
-  const [alertsModalOpen, setAlertsModalOpen]     = useState(false);
+  const [heroTimeOverride, setHeroTimeOverride]   = useState<HeroDaypart | null>(null);
+  const heroRef = useRef<HTMLElement | null>(null);
   const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
   const isManagerOrAbove = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
+
+  // Local preview helper: ?heroTime=morning|afternoon|evening|night (ignored in production).
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    const value = new URLSearchParams(window.location.search).get('heroTime');
+    if (value === 'morning' || value === 'afternoon' || value === 'evening' || value === 'night') {
+      setHeroTimeOverride(value);
+    }
+  }, []);
+
+  const handleHeroPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const hero = heroRef.current;
+    if (!hero) return;
+
+    const bounds = hero.getBoundingClientRect();
+    const pointerX = event.clientX - bounds.left;
+    const pointerY = event.clientY - bounds.top;
+    hero.style.setProperty('--hero-pointer-x', `${pointerX}px`);
+    hero.style.setProperty('--hero-pointer-y', `${pointerY}px`);
+    hero.dataset.pointerActive = 'true';
+  };
+
+  const handleHeroPointerLeave = () => {
+    const hero = heroRef.current;
+    if (!hero) return;
+    hero.dataset.pointerActive = 'false';
+  };
 
   const ticketGate = useTicketCreationGate();
   const dashboardPaletteActions = [
@@ -120,12 +302,6 @@ export default function HomePage() {
     staleTime: 30000,
   });
 
-  const { data: hierarchyApprovals } = useQuery({
-    queryKey: ['pending-approvals'],
-    queryFn: () => changeRequestsApi.listPendingApprovals() as Promise<any[]>,
-    enabled: isLeadOrAbove,
-  });
-
   const bottleneckTickets = overview?.bottleneckTickets ?? [];
 
   if (isLoading) return <HomeSkeleton />;
@@ -134,7 +310,16 @@ export default function HomePage() {
   const dataAvailable = !summaryError && !!summary;
   const firstName = user?.name?.split(' ')[0] ?? 'there';
   const hour = new Date().getHours();
-  const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+  const actualDaypart: HeroDaypart =
+    hour >= 8 && hour < 12
+      ? 'morning'
+      : hour >= 12 && hour < 16
+        ? 'afternoon'
+        : hour >= 16 && hour < 18
+          ? 'evening'
+          : 'night';
+  const heroDaypart = heroTimeOverride ?? actualDaypart;
+  const timeOfDay = heroDaypart;
   const alerts = summary?.criticalAlerts?.length ?? 0;
 
   const roleGuidance =
@@ -152,15 +337,6 @@ export default function HomePage() {
   const kpiCapsules = (() => {
     if (role === 'EMPLOYEE' || role === 'INTERN') {
       return [
-        {
-          label: 'Open Tickets',
-          value: summaryError ? '–' : (metrics.open ?? 0),
-          icon: Ticket,
-          subtext: 'assigned to you',
-          statusType: 'blue' as const,
-          previewItems: [],
-          onClick: () => router.push('/tickets?status=OPEN'),
-        },
         {
           label: 'In Progress',
           value: summaryError ? '–' : (metrics.inProgress ?? 0),
@@ -273,24 +449,6 @@ export default function HomePage() {
     // ADMIN / SUPER_ADMIN
     return [
       {
-        label: 'Active Today',
-        value: summaryError ? '–' : (metrics.activeToday ?? 0),
-        icon: TrendingUp,
-        subtext: 'staff online now',
-        statusType: 'green' as const,
-        previewItems: [],
-        onClick: () => router.push('/team?tab=live-status'),
-      },
-      {
-        label: 'Open Tickets',
-        value: summaryError ? '–' : (metrics.openTickets ?? metrics.open ?? 0),
-        icon: Ticket,
-        subtext: 'company-wide',
-        statusType: 'blue' as const,
-        previewItems: [],
-        onClick: () => router.push('/tickets'),
-      },
-      {
         label: 'Overdue',
         value: summaryError ? '–' : (metrics.overdue ?? 0),
         icon: AlertTriangle,
@@ -311,65 +469,69 @@ export default function HomePage() {
     ];
   })();
 
-  // ── Announcement broadcast data ───────────────────────────────────────────
-  const criticalAlerts: any[] = summary?.criticalAlerts ?? [];
-  // Backend uses severity: 'red' | 'purple' | 'amber' — 'red' is the urgent/critical level
-  const firstUrgentAlert = criticalAlerts.find((a: any) => a.severity === 'red' || a.severity === 'urgent' || a.type === 'urgent') ?? criticalAlerts[0];
-  const broadcastTitle = firstUrgentAlert
-    ? (firstUrgentAlert.title ?? firstUrgentAlert.message ?? 'Operational alert requires your attention')
-    : 'No active operational alerts';
+  const todayTasks: TodayTask[] = Array.isArray((summary as any)?.todayTasks)
+    ? (summary as any).todayTasks.slice(0, 5)
+    : SAMPLE_TODAY_TASKS;
 
   return (
     <div className="apex-fade-in" style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: 48 }}>
 
       {/* ── HERO COMMAND HEADER ── */}
       <motion.section
+        ref={heroRef}
         initial={{ opacity: 0, y: -15, scale: 0.99 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.28, ease: 'easeOut' }}
-        className="mb-6 pt-2"
+        className="apex-dashboard-hero mb-6"
+        data-hero-daypart={heroDaypart}
+        data-pointer-active="false"
+        onPointerMove={handleHeroPointerMove}
+        onPointerLeave={handleHeroPointerLeave}
       >
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-3xl font-extrabold leading-tight" style={{ letterSpacing: '-0.5px', color: 'var(--text-primary)' }}>
-                Good {timeOfDay}, {firstName}
-              </h1>
+        <HeroGridMesh />
+        <div className="relative z-10">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="apex-dashboard-hero-title">
+                  Good {timeOfDay}, {firstName}
+                </h1>
+              </div>
+              <p className="apex-dashboard-hero-copy text-sm mt-1.5">
+                {roleGuidance}
+              </p>
             </div>
-            <p className="text-sm mt-1.5" style={{ color: 'var(--text-secondary)' }}>
-              {roleGuidance}
-            </p>
+
+            {/* button06 CTA hero button */}
+            <div className="flex-shrink-0 flex flex-col items-end gap-2">
+              <button
+                className="button06"
+                onClick={() => setPaletteOpen(true)}
+              >
+                <span className="button06_bg" />
+                <span className="button06_inner" data-text="Open Operations Directory">
+                  <span className="button06_text">Open Operations Directory</span>
+                </span>
+                <span className="button06_icon">
+                  <span className="button06_icon-start">
+                    <svg className="button06_icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  <span className="button06_icon-mid" />
+                  <span className="button06_icon-end">
+                    <svg className="button06_icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                </span>
+              </button>
+            </div>
           </div>
 
-          {/* button06 CTA hero button */}
-          <div className="flex-shrink-0 flex flex-col items-end gap-2">
-            <button
-              className="button06"
-              onClick={() => setPaletteOpen(true)}
-            >
-              <span className="button06_bg" />
-              <span className="button06_inner" data-text="Open Operations Directory">
-                <span className="button06_text">Open Operations Directory</span>
-              </span>
-              <span className="button06_icon">
-                <span className="button06_icon-start">
-                  <svg className="button06_icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </span>
-                <span className="button06_icon-mid" />
-                <span className="button06_icon-end">
-                  <svg className="button06_icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </span>
-              </span>
-            </button>
-          </div>
+          {/* WorkdayBar — workday state, timer, break management */}
+          <WorkdayBar />
         </div>
-
-        {/* WorkdayBar — workday state, timer, break management */}
-        <WorkdayBar />
       </motion.section>
 
       {/* ── ERROR BANNER (shown when dashboard data fails to load) ── */}
@@ -383,61 +545,35 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── ANNOUNCEMENT BROADCAST ── */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.99 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.25, delay: 0.08 }}
+      {/* ── TODAY'S TASKS + KPI CAPSULES ── */}
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25, delay: 0.12 }}
+        className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(280px,1fr)]"
       >
-        <AnnouncementBroadcast
-          eventTitle={broadcastTitle}
-          alertCount={criticalAlerts.length}
-          onAddCalendar={() => {}}
-          onOpenAnnouncement={() => setAlertsModalOpen(true)}
-        />
-      </motion.div>
-
-      {/* ── KPI CAPSULE STRIP ── */}
-      {kpiCapsules.length > 0 && (
-        <motion.section
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.12 }}
-          className="mb-6"
-        >
-          <KpiCapsuleStrip capsules={kpiCapsules} />
-        </motion.section>
-      )}
+        <TodayTasksCard tasks={todayTasks} />
+        {kpiCapsules.length > 0 && (
+          <KpiCapsuleStrip
+            capsules={kpiCapsules}
+            className={cn(
+              'h-full auto-rows-fr grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-1',
+              kpiCapsules.length > 2 && 'lg:grid-cols-2',
+            )}
+          />
+        )}
+      </motion.section>
 
       {/* ── COMMAND DOCK GRID ── */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, delay: 0.2 }}
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6"
+        className={cn(
+          'grid grid-cols-1 gap-4 mb-6',
+          (role === 'EMPLOYEE' || role === 'INTERN') && 'md:grid-cols-2',
+        )}
       >
-        <CommandCard
-          id="high-priority"
-          title="Overdue Tickets"
-          count={summaryError ? '–' : (metrics.overdue ?? 0)}
-          summary={
-            summaryError ? 'Dashboard data unavailable — refresh to retry' :
-            (metrics.overdue ?? 0) > 0
-              ? `${metrics.overdue} overdue ticket${metrics.overdue > 1 ? 's' : ''} past SLA — action needed now`
-              : role === 'EMPLOYEE' || role === 'INTERN'
-                ? 'No overdue tickets — you\'re on track!'
-                : role === 'TEAM_LEAD'
-                ? 'No overdue tickets in your team'
-                : role === 'MANAGER'
-                ? 'No overdue tickets in your department'
-                : 'No overdue tickets across your scope'
-          }
-          icon={ShieldAlert}
-          severity={(metrics.overdue ?? 0) > 0 ? 'urgent' : 'success'}
-          previewItems={summary?.previews?.overdueTickets ?? []}
-          onClick={() => router.push('/tickets?overdue=true')}
-        />
-
         <CommandCard
           id="active-projects"
           title="Active Projects"
@@ -453,58 +589,6 @@ export default function HomePage() {
           previewItems={summary?.previews?.activeProjects ?? []}
           onClick={() => router.push('/projects?status=ACTIVE')}
         />
-
-        {(role === 'TEAM_LEAD' || role === 'MANAGER' || role === 'ADMIN' || role === 'SUPER_ADMIN') && (
-          <>
-            <CommandCard
-              id="pending-leave"
-              title="Leave Requests"
-              count={summaryError ? '–' : (metrics.pendingLeave ?? 0)}
-              summary={
-                summaryError ? 'Dashboard data unavailable — refresh to retry' :
-                (metrics.pendingLeave ?? 0) > 0
-                  ? `${metrics.pendingLeave} leave request${metrics.pendingLeave > 1 ? 's' : ''} awaiting your approval`
-                  : 'No pending leave requests — all resolved'
-              }
-              icon={CalendarDays}
-              severity={(metrics.pendingLeave ?? 0) > 0 ? 'warning' : 'success'}
-              previewItems={summary?.previews?.pendingLeave ?? []}
-              onClick={() => router.push('/leave?tab=needs-action')}
-            />
-
-            <CommandCard
-              id="hierarchy-approvals"
-              title="Hierarchy Requests"
-              count={summaryError ? '–' : (hierarchyApprovals?.length ?? 0)}
-              summary={
-                summaryError ? 'Dashboard data unavailable — refresh to retry' :
-                (hierarchyApprovals?.length ?? 0) > 0
-                  ? `${hierarchyApprovals?.length} hierarchy change request${(hierarchyApprovals?.length ?? 0) > 1 ? 's' : ''} awaiting your approval`
-                  : 'No pending hierarchy requests in your queue'
-              }
-              icon={UserCog}
-              severity={(hierarchyApprovals?.length ?? 0) > 0 ? 'warning' : 'success'}
-              previewItems={[]}
-              onClick={() => router.push('/admin/approvals')}
-            />
-
-            <CommandCard
-              id="approval-workload"
-              title="Approval Workload"
-              count={summaryError ? '–' : (summary?.approvalWorkload?.pendingReviews ?? 0)}
-              summary={
-                summaryError ? 'Dashboard data unavailable — refresh to retry' :
-                (summary?.approvalWorkload?.pendingReviews ?? 0) > 0
-                  ? `${summary.approvalWorkload.pendingReviews} review${summary.approvalWorkload.pendingReviews > 1 ? 's' : ''} awaiting your action (${summary.approvalWorkload.slaBreaches} breached)`
-                  : 'No tickets waiting for your review'
-              }
-              icon={Clock}
-              severity={(summary?.approvalWorkload?.pendingReviews ?? 0) > 0 ? 'warning' : 'success'}
-              previewItems={[]}
-              onClick={() => router.push('/tickets?status=REVIEW')}
-            />
-          </>
-        )}
 
         {(role === 'EMPLOYEE' || role === 'INTERN') && (
           <CommandCard
@@ -524,18 +608,6 @@ export default function HomePage() {
           />
         )}
       </motion.div>
-
-      {/* ── TEAM PRESSURE PANEL (MANAGER / TEAM_LEAD / ADMIN / SUPER_ADMIN only) ── */}
-      {isLeadOrAbove && (
-        <motion.section
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, delay: 0.22 }}
-          className="mb-6"
-        >
-          <TeamPressurePanel />
-        </motion.section>
-      )}
 
       {/* ── BOTTOM SECTION: Bottlenecks + Events + Activity ── */}
       <motion.div
@@ -633,61 +705,6 @@ export default function HomePage() {
       </motion.div>
 
       {/* ── MODALS ── */}
-
-      {/* Alerts modal — opened by AnnouncementBroadcast click */}
-      <CommandModal
-        open={alertsModalOpen}
-        title="Active Broadcasts & Alerts"
-        onClose={() => setAlertsModalOpen(false)}
-        viewFullPageAction={{
-          label: 'View All Tickets',
-          onClick: () => { setAlertsModalOpen(false); router.push('/tickets'); },
-          icon: ArrowRight,
-        }}
-      >
-        <div className="space-y-4">
-          {criticalAlerts.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                No critical alerts at this time.
-              </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                All systems are operating normally.
-              </p>
-            </div>
-          ) : (
-            criticalAlerts.map((alert: any, i: number) => {
-              const isUrgent = alert.type === 'urgent' || alert.severity === 'urgent';
-              const isWarning = alert.type === 'warning';
-              return (
-                <div
-                  key={alert.id ?? i}
-                  className="p-4 rounded-xl border"
-                  style={{
-                    backgroundColor: isUrgent ? 'var(--color-danger-bg)' : isWarning ? 'var(--color-warning-bg)' : 'var(--color-info-bg)',
-                    borderColor: isUrgent ? 'rgba(239,68,68,0.25)' : isWarning ? 'rgba(245,158,11,0.25)' : 'rgba(59,130,246,0.25)',
-                  }}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="flex-1">
-                      <p
-                        className="text-[10px] font-black font-mono uppercase tracking-widest mb-1"
-                        style={{ color: isUrgent ? 'var(--color-danger)' : isWarning ? 'var(--color-warning)' : 'var(--color-info)' }}
-                      >
-                        {alert.type?.toUpperCase() ?? 'ALERT'}
-                      </p>
-                      <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{alert.title ?? 'Alert'}</h4>
-                      {alert.message && (
-                        <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{alert.message}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </CommandModal>
 
       {/* Quick Action Palette */}
       <QuickActionPalette
