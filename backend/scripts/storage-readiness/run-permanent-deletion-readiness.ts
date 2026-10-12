@@ -38,8 +38,8 @@ import { createR2Vault, readR2Config, type Vault } from '../../src/modules/platf
 import { assertBackupTarget, type BackupTarget } from '../backup/backup-identity';
 import type { BackupManifest } from '../backup/backup-manifest';
 import { backupVerifyTools, verifyDatabaseBackup, type BackupVerifyDeps } from '../backup/verify-backup-reference';
-import { createDriveVault, isArchiveAccount, readDriveConfig, type ArchiveVault, type DriveConfig } from '../drive-archive/drive-vault';
-import { verifyFolderChain } from '../drive-archive/folder-privacy';
+import { createDriveVault, isArchiveAccount, readDriveConfig, type ArchiveVault, type DriveConfig } from '../../src/modules/platform/backup-vault/drive-vault';
+import { verifyFolderChain } from '../../src/modules/platform/backup-vault/drive-folder-privacy';
 
 export interface ReadinessCheck {
   check: 'environment' | 'r2-config' | 'r2-backup' | 'drive-config' | 'drive-account' | 'drive-private';

@@ -5,7 +5,7 @@ This covers only the two storage systems that a permanent deletion will depend o
 | Storage | Holds | Where | Credentials |
 |---|---|---|---|
 | Cloudflare R2 | Full database backups. A recent verified backup is required before any permanent deletion. | One private bucket per environment. Production must be exactly `apex-os-production-backups`. Staging uses its own bucket, declared in `EXPECTED_STAGING_VAULT_BUCKET` and named with "staging". | `R2_*` |
-| Google Drive | Encrypted per-user archives | A private Google Drive owned by `ai.technoedge@gmail.com`: `Apex OS Secure Archives/<environment>/…` | `GOOGLE_DRIVE_*` |
+| Google Drive | Per-user archives: "Archive user" backups now, permanent-deletion archives later | A private Google Drive owned by `ai.technoedge@gmail.com`: `Apex OS Secure Archives/<environment>/…` | `GOOGLE_DRIVE_*` |
 
 The two never mix. User archives never go to R2, and database backups never go to Drive.
 
@@ -48,6 +48,8 @@ Screenshots, logs and file names are not accepted as proof.
 Apex OS Secure Archives/
 ├── staging/
 │   ├── healthcheck/        disposable verification files only
+│   ├── archived-users/
+│   │   └── <year>/         "Archive user" backups, written by the app server
 │   └── deleted-users/
 │       └── <year>/         created only when the first real archive is stored
 └── production/             same structure, separate
@@ -109,7 +111,7 @@ Staging:
 - `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, `GOOGLE_DRIVE_REFRESH_TOKEN`
 - `GOOGLE_DRIVE_ARCHIVE_ROOT_FOLDER_ID`, `GOOGLE_DRIVE_ARCHIVE_ACCOUNT=ai.technoedge@gmail.com`, `GOOGLE_DRIVE_ARCHIVE_ENVIRONMENT=staging`
 
-Production uses the `EXPECTED_PRODUCTION_DB_*` equivalents, `R2_BUCKET=apex-os-production-backups` and `GOOGLE_DRIVE_ARCHIVE_ENVIRONMENT=production`, with credentials that differ from staging.
+Production uses the `EXPECTED_PRODUCTION_DB_*` equivalents, `R2_BUCKET=apex-os-production-backups` and `GOOGLE_DRIVE_ARCHIVE_ENVIRONMENT=production`, with its own database and R2 credentials. The Google Drive keys (client, refresh token, root folder, account) may be the same as staging: `GOOGLE_DRIVE_ARCHIVE_ENVIRONMENT` keeps each environment inside its own labelled folder, and a backend refuses the other environment's folder.
 
 ## Staging setup checklist
 

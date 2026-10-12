@@ -3,6 +3,24 @@ import { ConfigService } from '@nestjs/config';
 import * as https from 'https';
 import { createHash } from 'crypto';
 import { createR2Vault, readR2Config, VaultNotConfigured, type Vault } from './r2-vault';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { createDriveVault, DRIVE_ROOT_NAME, DriveRefused, isArchiveAccount, readDriveConfig, type DriveConfig } from './drive-vault';
+import { FolderNotPrivate, verifyFolderChain } from './drive-folder-privacy';
+
+/** What a verified Google Drive user archive can prove. Never carries a credential or token. */
+export interface VerifiedDriveArchive {
+  provider: 'google-drive';
+  environment: 'staging' | 'production';
+  /** Apex OS Secure Archives/<environment>/archived-users/<yyyy> */
+  folderPath: string;
+  fileId: string;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+  verifiedAt: string;
+}
 
 /** What a verified archive can prove. Never carries a credential. */
 export interface VerifiedArchive {
@@ -130,6 +148,115 @@ export class BackupVaultService {
       sha256,
       verifiedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Stores a user's archive in the private Google Drive archive vault and
+   * PROVES it landed. This is what "Archive user" uses; R2 holds database
+   * backups and attendance-import files, never user archives.
+   *
+   *   Apex OS Secure Archives/<APP_ENV>/archived-users/<yyyy>/<fileName>
+   *
+   * Fail-closed at every step, all before the account is touched:
+   *   - APP_ENV must be staging or production, and GOOGLE_DRIVE_ARCHIVE_ENVIRONMENT
+   *     must agree, so staging can never write into the production folder;
+   *   - the signed-in Google account must be GOOGLE_DRIVE_ARCHIVE_ACCOUNT;
+   *   - every folder on the path must be owner-only, in My Drive, and labelled
+   *     for this environment (checked before and after creating the year folder);
+   *   - after upload the file must be present at the sent size, owner-only, and
+   *     its downloaded bytes must hash to the SHA-256 computed here.
+   *
+   * The bytes touch disk only in a private temporary folder that is removed
+   * afterwards. No credential, token or upload URL is logged or returned.
+   */
+  async archiveUserToDrive(fileName: string, buffer: Buffer, now: Date = new Date()): Promise<VerifiedDriveArchive> {
+    const unchanged = 'The account has not been changed.';
+    const environment = (process.env.APP_ENV ?? '').trim().toLowerCase();
+    if (environment !== 'staging' && environment !== 'production') {
+      throw new ServiceUnavailableException(
+        `User archives are stored in Google Drive only from staging or production, and APP_ENV is "${environment || '(unset)'}". ${unchanged}`,
+      );
+    }
+    if (!/^[A-Za-z0-9._-]{1,200}$/.test(fileName)) {
+      throw new InternalServerErrorException(`The archive file name is not valid. ${unchanged}`);
+    }
+
+    let config: DriveConfig;
+    try {
+      config = readDriveConfig(process.env, environment);
+    } catch (err) {
+      if (err instanceof DriveRefused) {
+        throw new ServiceUnavailableException(
+          `The Google Drive archive vault is not ready, so this account cannot be archived: ${err.message.replace(/^Google Drive archive vault refused: /, '')} ${unchanged}`,
+        );
+      }
+      throw err;
+    }
+
+    const vault = createDriveVault(config);
+    const segments = ['archived-users', String(now.getUTCFullYear())];
+    const folderPath = `${DRIVE_ROOT_NAME}/${environment}/${segments.join('/')}`;
+    const sha256 = createHash('sha256').update(buffer).digest('hex');
+    const refuse = (message: string) => new ServiceUnavailableException(`${message} ${unchanged}`);
+    const step = async <T>(what: string, fn: () => Promise<T>): Promise<T> => {
+      try {
+        return await fn();
+      } catch (err: any) {
+        if (err instanceof FolderNotPrivate) throw refuse(err.message);
+        this.logger.error(`User archive: Google Drive ${what} failed: ${String(err?.message ?? err).split('\n')[0].slice(0, 200)}`);
+        throw refuse(`The archive could not be ${what} in Google Drive.`);
+      }
+    };
+
+    const dir = mkdtempSync(join(tmpdir(), 'apex-user-archive-'));
+    try {
+      const who = await step('authorised', () => vault.account());
+      if (!isArchiveAccount(who.email, config.account)) {
+        throw refuse('Google Drive is signed in as a different account from GOOGLE_DRIVE_ARCHIVE_ACCOUNT.');
+      }
+
+      await step('checked', () => verifyFolderChain(vault, environment, []));
+      const folderId = await step('stored', () => vault.ensureFolder(environment, segments));
+      await step('checked', () => verifyFolderChain(vault, environment, segments));
+
+      const local = join(dir, 'archive.bin');
+      writeFileSync(local, buffer, { mode: 0o600 });
+      const uploaded = await step('uploaded', () =>
+        vault.upload(folderId, fileName, local, { apexArchiveKind: 'archived-user', apexArchiveEnvironment: environment, sha256 }),
+      );
+
+      // Read it back. An upload that returned 200 and stored nothing, or the
+      // wrong bytes, is exactly what this sequence exists to catch.
+      const info = await step('verified', () => vault.stat(uploaded.fileId));
+      if (!info || info.trashed || !info.parents.includes(folderId)) {
+        throw refuse('The archive is not present in its Google Drive folder after upload.');
+      }
+      if (info.size !== buffer.length) {
+        throw refuse(`The archive in Google Drive is ${info.size} bytes but ${buffer.length} were sent.`);
+      }
+      if (!(await step('verified', () => vault.isPrivate(uploaded.fileId)))) {
+        throw refuse('The archive file in Google Drive is shared beyond the archive account; fix its sharing in Google Drive.');
+      }
+      const readBack = join(dir, 'archive.readback');
+      await step('downloaded', () => vault.download(uploaded.fileId, readBack));
+      if (createHash('sha256').update(readFileSync(readBack)).digest('hex') !== sha256) {
+        throw refuse('The archive downloaded from Google Drive does not match what was sent.');
+      }
+
+      this.logger.log(`User archive verified in Google Drive: ${folderPath}/${fileName} (${buffer.length} bytes)`);
+      return {
+        provider: 'google-drive',
+        environment,
+        folderPath,
+        fileId: uploaded.fileId,
+        fileName,
+        sizeBytes: buffer.length,
+        sha256,
+        verifiedAt: new Date().toISOString(),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   /**
