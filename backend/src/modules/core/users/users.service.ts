@@ -204,8 +204,22 @@ export class UsersService {
     },
     actorId?: string,
   ) {
-    const existing = await this.prisma.user.findUnique({ where: { email: data.email } });
-    if (existing) throw new ConflictException('Email already registered');
+    const existing = await this.prisma.user.findUnique({
+      where: { email: data.email },
+      select: { id: true, name: true, isActive: true },
+    });
+    if (existing?.isActive) throw new ConflictException('Email already registered');
+    if (existing) {
+      // An archived or deactivated person keeps their record -- and so their
+      // email -- so their history still says who they were. Coming back is a
+      // rehire of that same account, never a second account for one person.
+      const archivedAt = await this.archivedAt(existing.id);
+      throw new ConflictException({
+        message: `${existing.name} already has an inactive account with this email. Rehire them to bring the same account back.`,
+        code: 'EMAIL_BELONGS_TO_INACTIVE_USER',
+        inactiveUser: { id: existing.id, name: existing.name, archivedAt: archivedAt?.toISOString() ?? null },
+      });
+    }
 
     const role = await this.prisma.role.findUnique({ where: { id: data.roleId } });
     if (!role) throw new BadRequestException('Selected role does not exist');
@@ -253,6 +267,121 @@ export class UsersService {
       metadata: { name: user.name, email: user.email, roleId: user.roleId },
     }).catch(() => {});
     const { password, ...result } = user;
+    return result;
+  }
+
+  /**
+   * Brings an archived or deactivated person back as an active user: the SAME
+   * account, so their earlier tickets, attendance, leave and audit trail stay
+   * attached to them.
+   *
+   * The new employment starts on the rehire date. Any attendance profile still
+   * open from before is closed the day before, and a new one opens on the
+   * rehire date from today's active policies -- exactly what create() assigns.
+   * The previous joining and last working dates are kept on the reactivation
+   * event, which also clears the archived state (lifecycle is the latest
+   * transition). All of it commits together or not at all.
+   */
+  async rehire(
+    userId: string,
+    data: { password: string; roleId: string; departmentId?: string | null; joiningDate?: string | Date; name?: string },
+    actorId: string,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, isActive: true, roleId: true, departmentId: true, joiningDate: true, lastWorkingDate: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (userId === actorId) throw new ForbiddenException('Cannot rehire your own account');
+    if (user.isActive) throw new BadRequestException(`${user.name} is already active.`);
+    if (!data?.password || String(data.password).length < 6) {
+      throw new BadRequestException('A new password of at least 6 characters is required to rehire.');
+    }
+    const role = await this.prisma.role.findUnique({ where: { id: data.roleId } });
+    if (!role) throw new BadRequestException('Selected role does not exist');
+    const joiningDate = this.joiningDate(data.joiningDate);
+    const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : undefined;
+    const hashedPassword = await bcrypt.hash(data.password, 10);
+
+    const rehired = await this.prisma.$transaction(async (tx) => {
+      // Profiles still in force on or after the rehire date belong to the
+      // previous employment. One that STARTS on or after it cannot be closed
+      // before it began, so the rehire date must come later.
+      const carriedOver = await tx.employeeAttendanceProfile.findMany({
+        where: { userId, OR: [{ effectiveTo: null }, { effectiveTo: { gte: joiningDate } }] },
+        select: { id: true, effectiveFrom: true },
+      });
+      const blocking = carriedOver.find((p) => p.effectiveFrom >= joiningDate);
+      if (blocking) {
+        throw new BadRequestException(
+          `The rehire date must be after ${blocking.effectiveFrom.toISOString().slice(0, 10)}, when their previous attendance profile started.`,
+        );
+      }
+      const dayBefore = new Date(joiningDate.getTime() - 24 * 60 * 60 * 1000);
+      if (carriedOver.length > 0) {
+        await tx.employeeAttendanceProfile.updateMany({
+          where: { id: { in: carriedOver.map((p) => p.id) } },
+          data: { effectiveTo: dayBefore, updatedById: actorId },
+        });
+      }
+
+      const defaults = await this.attendanceDefaults(tx, joiningDate);
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: {
+          isActive: true,
+          password: hashedPassword,
+          roleId: data.roleId,
+          departmentId: data.departmentId ?? null,
+          joiningDate,
+          lastWorkingDate: null,
+          ...(name ? { name } : {}),
+        },
+        include: { role: true, department: true },
+      });
+      await tx.employeeAttendanceProfile.create({
+        data: {
+          userId,
+          category: AttendanceCategory.REGULAR_EMPLOYEE,
+          attendanceRequired: true,
+          assignedShiftId: defaults.shift.id,
+          assignedLeavePolicyId: defaults.leavePolicy.id,
+          assignedHolidayCalendarId: defaults.calendar.id,
+          assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
+          assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
+          effectiveFrom: joiningDate,
+          effectiveTo: null,
+          updatedById: actorId,
+        },
+      });
+
+      // Written in the transaction, not through the fire-and-forget logger:
+      // this event is what clears the archived state.
+      await (tx as any).operationalEvent.create({
+        data: {
+          actorId,
+          entityType: 'User',
+          entityId: userId,
+          action: OperationalAction.USER_REACTIVATED,
+          fromState: 'INACTIVE',
+          toState: 'ACTIVE',
+          metadata: {
+            rehire: true,
+            previousJoiningDate: user.joiningDate?.toISOString().slice(0, 10) ?? null,
+            previousLastWorkingDate: user.lastWorkingDate?.toISOString().slice(0, 10) ?? null,
+            previousRoleId: user.roleId,
+            previousDepartmentId: user.departmentId,
+            joiningDate: joiningDate.toISOString().slice(0, 10),
+            roleId: data.roleId,
+            departmentId: data.departmentId ?? null,
+            closedProfiles: carriedOver.length,
+          },
+        },
+      });
+      return updated;
+    });
+
+    const { password, ...result } = rehired;
     return result;
   }
 

@@ -95,6 +95,9 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
+  // Set when the email belongs to an archived or deactivated account: the
+  // person comes back as the same account, so their history stays with them.
+  const [rehireCandidate, setRehireCandidate] = useState<{ id: string; name: string; archivedAt: string | null } | null>(null);
   const [editUser, setEditUser] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true, isHR: false });
   const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
@@ -126,15 +129,36 @@ export default function UsersPage() {
     });
   };
 
+  const closeNew = () => {
+    setShowNew(false);
+    setRehireCandidate(null);
+    setForm({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: any) => usersApi.create(data),
     onSuccess: (u: any) => {
       toast.success(`User ${u.name} created!`);
       qc.invalidateQueries({ queryKey: ['users'] });
-      setShowNew(false);
-      setForm({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
+      closeNew();
     },
-    onError: (err: any) => toast.error(err?.message || 'Failed to create user'),
+    onError: (err: any) => {
+      if (err?.code === 'EMAIL_BELONGS_TO_INACTIVE_USER' && err?.inactiveUser?.id) {
+        setRehireCandidate(err.inactiveUser);
+        return;
+      }
+      toast.error(err?.message || 'Failed to create user');
+    },
+  });
+
+  const rehireMutation = useMutation({
+    mutationFn: (vars: { id: string; data: any }) => usersApi.rehire(vars.id, vars.data),
+    onSuccess: (u: any) => {
+      toast.success(`${u.name} rehired. Their earlier history is kept.`);
+      qc.invalidateQueries({ queryKey: ['users'] });
+      closeNew();
+    },
+    onError: (err: any) => toast.error(err?.message || 'Rehire failed'),
   });
 
   const toggleActive = useMutation({
@@ -828,6 +852,25 @@ export default function UsersPage() {
                 />
               </div>
             </div>
+            {rehireCandidate && (
+              <div className="mt-4 rounded-lg p-3 text-sm" style={{ border: '1px solid var(--border-secondary)', color: 'var(--text-primary)' }}>
+                <p className="font-semibold mb-1">This email belongs to {rehireCandidate.name}, who is no longer active.</p>
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  {rehireCandidate.archivedAt ? `Archived on ${rehireCandidate.archivedAt.slice(0, 10)}. ` : ''}
+                  Rehire brings back the same account with the password, role, department and joining date above. Their earlier history stays with them.
+                </p>
+                <div className="flex gap-3 mt-3">
+                  <button
+                    onClick={() => rehireMutation.mutate({ id: rehireCandidate.id, data: { name: form.name, password: form.password, roleId: form.roleId, departmentId: form.departmentId || null, joiningDate: form.joiningDate } })}
+                    disabled={rehireMutation.isPending}
+                    className="apex-btn apex-btn-primary flex-1 justify-center py-2 disabled:opacity-50"
+                  >
+                    {rehireMutation.isPending ? 'Rehiring...' : `Rehire ${rehireCandidate.name}`}
+                  </button>
+                  <button onClick={() => setRehireCandidate(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2">Not now</button>
+                </div>
+              </div>
+            )}
             <div className="flex gap-3 mt-5">
               <button
                 onClick={() => form.name && form.email && form.password && form.roleId && form.joiningDate && createMutation.mutate({ ...form, departmentId: form.departmentId || null })}
@@ -836,7 +879,7 @@ export default function UsersPage() {
               >
                 {createMutation.isPending ? 'Creating...' : 'Create User'}
               </button>
-              <button onClick={() => setShowNew(false)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
+              <button onClick={closeNew} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
             </div>
           </div>
         </div>
