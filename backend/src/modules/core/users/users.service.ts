@@ -1191,23 +1191,24 @@ export class UsersService {
     // ── Step 2: Generate backup BEFORE anonymising ────────────────────────────
     const { buffer, filename } = await this.generateBackup(userId, actorId);
 
-    // ── Step 3: Store in the R2 vault and VERIFY it landed ────────────────────
+    // ── Step 3: Store in the Google Drive archive vault and VERIFY it ────────
     //
-    // Fail-closed. Every failure below this line -- vault unconfigured, upload
-    // refused, object absent afterwards, size mismatch -- throws before the
-    // account is touched, so the user simply remains active. Previously this
-    // wrote to OneDrive, whose vault has an unresolved 404, and archival could
-    // proceed on a boolean from the browser.
+    // User archives live in the private Google Drive archive vault, under
+    // Apex OS Secure Archives/<environment>/archived-users/<yyyy>. R2 holds
+    // database backups and import files, never user archives.
     //
-    // The key carries a timestamp, so a retry writes a NEW object and no
-    // archive is ever overwritten.
+    // Fail-closed. Every failure below this line -- vault unconfigured, wrong
+    // Google account, a folder shared or labelled for another environment,
+    // upload refused, file absent or different when read back -- throws before
+    // the account is touched, so the user simply remains as they were.
+    //
+    // The name carries a timestamp, so a retry writes a NEW file and no
+    // archive is ever overwritten. It carries no email or name: the folder is
+    // private, but a file name is shown in more places than its contents.
     const now = new Date();
-    const safeEmail = (user.email ?? 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
-    const objectKey =
-      `user-archive/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/` +
-      `${userId}/${now.toISOString().replace(/[:.]/g, '-')}-${safeEmail}.xlsx`;
+    const archiveFileName = `archived-user-${userId}-${now.toISOString().replace(/[:.]/g, '-')}.xlsx`;
 
-    const vaultResult = await this.backupVaultService.archiveToVault(objectKey, buffer);
+    const vaultResult = await this.backupVaultService.archiveUserToDrive(archiveFileName, buffer, now);
 
     this.eventLogger.log({
       actorId,
@@ -1217,8 +1218,10 @@ export class UsersService {
       metadata: {
         filename,
         provider: vaultResult.provider,
-        bucket: vaultResult.bucket,
-        objectKey: vaultResult.objectKey,
+        environment: vaultResult.environment,
+        folderPath: vaultResult.folderPath,
+        fileId: vaultResult.fileId,
+        fileName: vaultResult.fileName,
         sizeBytes: vaultResult.sizeBytes,
         sha256: vaultResult.sha256,
         verifiedAt: vaultResult.verifiedAt,
@@ -1295,8 +1298,10 @@ export class UsersService {
             targetEmail: user.email,
             targetRole: (user as any).role?.name ?? null,
             provider: vaultResult.provider,
-            bucket: vaultResult.bucket,
-            objectKey: vaultResult.objectKey,
+            environment: vaultResult.environment,
+            folderPath: vaultResult.folderPath,
+            fileId: vaultResult.fileId,
+            fileName: vaultResult.fileName,
             sha256: vaultResult.sha256,
             sizeBytes: vaultResult.sizeBytes,
             verifiedAt: vaultResult.verifiedAt,
@@ -1341,7 +1346,7 @@ export class UsersService {
         action: 'USER_ARCHIVE_NOTIFICATION_FAILED' as any,
         metadata: {
           targetEmail: user.email,
-          objectKey: vaultResult.objectKey,
+          fileId: vaultResult.fileId,
           skippedRecipients: deliveryResult.skipped.length,
         },
       }).catch(() => {});
@@ -1353,7 +1358,8 @@ export class UsersService {
       originalEmail: user.email,
       // The vault coordinates, so a later investigation can find the archive
       // from the audit trail alone rather than by guessing at a filename.
-      backupVaultedTo: `${vaultResult.provider}:${vaultResult.bucket}/${vaultResult.objectKey}`,
+      backupVaultedTo: `${vaultResult.provider}:${vaultResult.folderPath}/${vaultResult.fileName}`,
+      backupDriveFileId: vaultResult.fileId,
       backupSha256: vaultResult.sha256,
       backupSizeBytes: vaultResult.sizeBytes,
       backupVerifiedAt: vaultResult.verifiedAt,

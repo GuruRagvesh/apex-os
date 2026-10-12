@@ -33,8 +33,8 @@ import { createHash, randomBytes, randomUUID } from 'crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { assertArchiveAccount, createDriveVault, isArchiveAccount, readDriveConfig, type ArchiveVault, type DriveConfig } from './drive-vault';
-import { verifyFolderChain } from './folder-privacy';
+import { assertArchiveAccount, createDriveVault, isArchiveAccount, readDriveConfig, type ArchiveVault, type DriveConfig } from '../../src/modules/platform/backup-vault/drive-vault';
+import { verifyFolderChain } from '../../src/modules/platform/backup-vault/drive-folder-privacy';
 
 export const MIN_FREE_BYTES = 100 * 1024 * 1024;
 

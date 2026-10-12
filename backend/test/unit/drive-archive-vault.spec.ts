@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { assertArchiveAccount, createDriveVault, isArchiveAccount, readDriveConfig, DriveRefused, UPLOAD_CHUNK_BYTES } from '../../scripts/drive-archive/drive-vault';
+import { assertArchiveAccount, createDriveVault, isArchiveAccount, readDriveConfig, DriveRefused, UPLOAD_CHUNK_BYTES } from '../../src/modules/platform/backup-vault/drive-vault';
 import { verifyDriveVault } from '../../scripts/drive-archive/run-drive-verify';
 import { buildAuthUrl, pkcePair } from '../../scripts/drive-archive/run-drive-authorize';
 import { FakeDriveVault } from '../helpers/fake-drive-vault';
@@ -158,8 +158,12 @@ describe('archive account check (authorize and verify both use it)', () => {
 
   it('the commands read the account from configuration, never from code', () => {
     const src = (f: string) => require('fs').readFileSync(require('path').join(__dirname, '../../scripts/drive-archive', f), 'utf8');
-    for (const f of ['drive-vault.ts', 'run-drive-authorize.ts', 'run-drive-verify.ts', 'folder-privacy.ts']) {
+    const app = (f: string) => require('fs').readFileSync(require('path').join(__dirname, '../../src/modules/platform/backup-vault', f), 'utf8');
+    for (const f of ['run-drive-authorize.ts', 'run-drive-verify.ts']) {
       expect([f, /@gmail\.com/.test(src(f))]).toEqual([f, false]);
+    }
+    for (const f of ['drive-vault.ts', 'drive-folder-privacy.ts', 'backup-vault.service.ts']) {
+      expect([f, /@gmail\.com/.test(app(f))]).toEqual([f, false]);
     }
     expect(src('run-drive-authorize.ts')).toContain('isArchiveAccount(who, p.account)');
     expect(src('run-drive-verify.ts')).toContain('isArchiveAccount(account.email, config.account)');

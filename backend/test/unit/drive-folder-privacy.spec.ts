@@ -1,5 +1,5 @@
-import { FolderNotPrivate, verifyFolderChain } from '../../scripts/drive-archive/folder-privacy';
-import { permissionProblem } from '../../scripts/drive-archive/drive-vault';
+import { FolderNotPrivate, verifyFolderChain } from '../../src/modules/platform/backup-vault/drive-folder-privacy';
+import { permissionProblem } from '../../src/modules/platform/backup-vault/drive-vault';
 import { verifyDriveVault } from '../../scripts/drive-archive/run-drive-verify';
 import { FakeDriveVault } from '../helpers/fake-drive-vault';
 
