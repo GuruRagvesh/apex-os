@@ -12,12 +12,7 @@
  *
  * Layout under the configured root folder:
  *
- *   <root>/<environment>/healthcheck/                 admin:drive:verify test files only
- *   <root>/<environment>/archived-users/<yyyy>/        "Archive user" backups (app server)
- *   <root>/<environment>/deleted-users/<yyyy>/         permanent-deletion archives (later)
- *
- * Staging and production may share one OAuth client, refresh token, account
- * and root folder; GOOGLE_DRIVE_ARCHIVE_ENVIRONMENT is what keeps them apart.
+ *   <root>/<environment>/deleted-users/<yyyy>/user-<receipt8>-<yyyymmddThhmmssZ>.enc
  *
  * Every folder the tool creates carries appProperties naming what it is and,
  * for the environment folder, which environment it belongs to. A staging run

@@ -36,14 +36,13 @@ describe('R2 is the only vault that can gate production safety', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('archival goes through the verified Google Drive path, not R2', () => {
+  it('archival goes through the verified R2 path', () => {
     const users = readFileSync(
       resolve(SRC, 'modules/core/users/users.service.ts'),
       'utf8',
     );
 
-    expect(users).toContain('archiveUserToDrive(');
-    expect(users).not.toContain('archiveToVault(');
+    expect(users).toContain('archiveToVault(');
     expect(users).not.toContain('backupVaultService.save(');
   });
 

@@ -391,21 +391,19 @@ describe('archival is fail-closed on a verified vault copy', () => {
     const fn = body.slice(0, body.indexOf('async getMyTeam'));
 
     expect(fn).not.toMatch(/if\s*\(!confirmBackupDownloaded\)/);
-    expect(fn).toContain('archiveUserToDrive(');
-    // User archives go to Google Drive, never to the R2 backup vault.
-    expect(fn).not.toContain('archiveToVault(');
+    expect(fn).toContain('archiveToVault(');
     // And the OneDrive path is no longer what retires an account.
     expect(fn).not.toContain('backupVaultService.save(');
   });
 
-  it('archives under an immutable, timestamped file name', () => {
+  it('archives under an immutable, timestamped key', () => {
     const src: string = require('fs').readFileSync(
       require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
       'utf8',
     );
     const body = src.slice(src.indexOf('async archiveAfterBackup'));
 
-    expect(body).toContain('archived-user-${userId}-');
+    expect(body).toContain('user-archive/');
     expect(body).toContain('toISOString()');
   });
 });
@@ -617,17 +615,17 @@ describe('the archive marker and the deactivation commit together', () => {
     expect(scope).toMatch(/throw new BadRequestException/);
   });
 
-  it('the Drive archive is verified before the transaction opens, and stays outside it', () => {
+  it('R2 is verified before the transaction opens, and stays outside it', () => {
     // An object store and Postgres cannot share a transaction. The ordering is
     // chosen so the survivable failure is the harmless one: a verified backup
     // with no archival, which is simply retried.
     const body = archiveBody();
 
-    expect(body.indexOf('archiveUserToDrive(')).toBeGreaterThan(-1);
-    expect(body.indexOf('archiveUserToDrive(')).toBeLessThan(body.indexOf('$transaction'));
+    expect(body.indexOf('archiveToVault(')).toBeGreaterThan(-1);
+    expect(body.indexOf('archiveToVault(')).toBeLessThan(body.indexOf('$transaction'));
     const tx = body.slice(body.indexOf('$transaction'));
     const scope = tx.slice(0, tx.indexOf('\n    });'));
-    expect(scope).not.toContain('archiveUserToDrive');
+    expect(scope).not.toContain('archiveToVault');
     expect(scope).not.toContain('sendArchiveBackup');
   });
 
@@ -635,7 +633,7 @@ describe('the archive marker and the deactivation commit together', () => {
     const body = archiveBody();
 
     expect(body.indexOf('activeResponsibilities(')).toBeLessThan(body.indexOf('generateBackup('));
-    expect(body.indexOf('activeResponsibilities(')).toBeLessThan(body.indexOf('archiveUserToDrive('));
+    expect(body.indexOf('activeResponsibilities(')).toBeLessThan(body.indexOf('archiveToVault('));
   });
 });
 
@@ -715,7 +713,7 @@ describe('notification informs; it does not gate', () => {
     // reaches the notification block below them.
     const b = body();
 
-    expect(b.indexOf('archiveUserToDrive(')).toBeLessThan(b.indexOf('sendArchiveBackup'));
+    expect(b.indexOf('archiveToVault(')).toBeLessThan(b.indexOf('sendArchiveBackup'));
     expect(b.indexOf('activeResponsibilities(')).toBeLessThan(b.indexOf('sendArchiveBackup'));
   });
 
@@ -725,7 +723,7 @@ describe('notification informs; it does not gate', () => {
 
     expect(early).toContain("archiveStatus: 'ALREADY_ARCHIVED'");
     expect(early).not.toContain('sendArchiveBackup');
-    expect(early).not.toContain('archiveUserToDrive');
+    expect(early).not.toContain('archiveToVault');
   });
 });
 

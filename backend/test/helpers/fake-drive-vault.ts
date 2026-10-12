@@ -6,7 +6,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'fs';
-import { permissionProblem, type ArchiveVault, type DriveFileInfo, type DrivePermission } from '../../src/modules/platform/backup-vault/drive-vault';
+import { permissionProblem, type ArchiveVault, type DriveFileInfo, type DrivePermission } from '../../scripts/drive-archive/drive-vault';
 
 export interface FakeDriveOptions {
   account?: string;

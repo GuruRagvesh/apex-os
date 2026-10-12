@@ -37,7 +37,7 @@ import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFi
 import { createServer } from 'http';
 import { userInfo } from 'os';
 import { dirname, isAbsolute, join, normalize, resolve, sep, win32 } from 'path';
-import { DRIVE_SCOPE, isArchiveAccount } from '../../src/modules/platform/backup-vault/drive-vault';
+import { DRIVE_SCOPE, isArchiveAccount } from './drive-vault';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
