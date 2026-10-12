@@ -122,6 +122,23 @@ export class UsersController {
     return this.usersService.update(id, body, actor?.id);
   }
 
+  @Post(':id/rehire')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  rehire(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      password: string;
+      roleId: string;
+      departmentId?: string | null;
+      joiningDate?: string;
+      name?: string;
+    },
+    @CurrentUser() actor: any,
+  ) {
+    return this.usersService.rehire(id, body, actor?.id);
+  }
+
   @Put(':id/reset-password')
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   resetPassword(@Param('id') id: string, @Body() body: { newPassword: string }) {

@@ -42,6 +42,7 @@ export const usersApi = {
   updatePreferences: (data: any) => r(api.patch('/users/me/preferences', data)),
   getOne: (id: string) => r(api.get(`/users/${id}`)),
   create: (data: any) => r(api.post('/users', data)),
+  rehire: (id: string, data: any) => r(api.post(`/users/${id}/rehire`, data)),
   update: (id: string, data: any) => r(api.put(`/users/${id}`, data)),
   resetPassword: (id: string, newPassword: string) => r(api.put(`/users/${id}/reset-password`, { newPassword })),
   deactivate: (id: string) => r(api.delete(`/users/${id}`)),
