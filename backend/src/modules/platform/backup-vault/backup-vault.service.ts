@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional, ServiceUnavailableException, InternalServ
 import { ConfigService } from '@nestjs/config';
 import * as https from 'https';
 import { createHash } from 'crypto';
-import { createR2Vault, readR2Config, VaultNotConfigured, type Vault } from './r2-vault';
+import { createR2Vault, readR2Config, vaultEnvironmentRefusal, VaultNotConfigured, type Vault } from './r2-vault';
 
 /** What a verified archive can prove. Never carries a credential. */
 export interface VerifiedArchive {
@@ -76,6 +76,16 @@ export class BackupVaultService {
         );
       }
       throw err;
+    }
+
+    // The vault must belong to this environment. Checked before any bytes
+    // leave the process, so a misconfigured staging backend cannot place a
+    // user's data in the production vault.
+    const refusal = vaultEnvironmentRefusal(bucket, process.env);
+    if (refusal) {
+      throw new ServiceUnavailableException(
+        `The backup vault belongs to a different environment, so nothing was archived. ${refusal} The account has not been changed.`,
+      );
     }
 
     // Hashed BEFORE upload, from the bytes actually sent.

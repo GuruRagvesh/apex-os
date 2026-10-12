@@ -64,6 +64,30 @@ export class VaultNotConfigured extends Error {
   }
 }
 
+/** The production database-backup and archive vault. Same value as scripts/backup/backup-identity.ts. */
+export const PRODUCTION_VAULT_BUCKET = 'apex-os-production-backups';
+
+/**
+ * Why this backend may not write to this bucket, or null when it may.
+ *
+ * Production writes only to the production vault, and nothing else ever
+ * does: a staging or local backend pointed at the production bucket would
+ * mix test users' personal data into production archives. Uses APP_ENV,
+ * never NODE_ENV. Returns bucket and environment names only, never a
+ * credential.
+ */
+export function vaultEnvironmentRefusal(bucket: string, env: NodeJS.ProcessEnv): string | null {
+  const appEnv = (env.APP_ENV ?? '').trim().toLowerCase() || '(unset)';
+  if (appEnv === 'production') {
+    return bucket === PRODUCTION_VAULT_BUCKET
+      ? null
+      : `APP_ENV is production but R2_BUCKET is "${bucket}". Production must use ${PRODUCTION_VAULT_BUCKET}.`;
+  }
+  return bucket === PRODUCTION_VAULT_BUCKET
+    ? `APP_ENV is ${appEnv} but R2_BUCKET is the production vault. Use this environment's own bucket.`
+    : null;
+}
+
 export interface R2Config {
   accountId: string;
   accessKeyId: string;

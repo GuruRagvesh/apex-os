@@ -277,6 +277,7 @@ describe('archival is fail-closed on a verified vault copy', () => {
   const { BackupVaultService } = require('../../src/modules/platform/backup-vault/backup-vault.service');
 
   const ENV = {
+    APP_ENV: 'production',
     R2_ACCOUNT_ID: 'acct',
     R2_ACCESS_KEY_ID: 'key',
     R2_SECRET_ACCESS_KEY: 'secret',
@@ -320,6 +321,32 @@ describe('archival is fail-closed on a verified vault copy', () => {
     const svc = vaultService({ putBuffer: jest.fn(), head: jest.fn() });
 
     await expect(svc.archiveToVault('k', buffer)).rejects.toThrow(/not configured/i);
+  });
+
+  it.each([
+    ['a staging backend pointed at the production vault', { APP_ENV: 'staging', R2_BUCKET: 'apex-os-production-backups' }, /APP_ENV is staging but R2_BUCKET is the production vault/],
+    ['a local backend pointed at the production vault', { APP_ENV: 'development', R2_BUCKET: 'apex-os-production-backups' }, /APP_ENV is development but R2_BUCKET is the production vault/],
+    ['a backend with no APP_ENV pointed at the production vault', { APP_ENV: '', R2_BUCKET: 'apex-os-production-backups' }, /APP_ENV is \(unset\)/],
+    ['production pointed at another bucket', { APP_ENV: 'production', R2_BUCKET: 'apex-os-staging-backups' }, /Production must use apex-os-production-backups/],
+  ])('refuses %s before uploading anything', async (_label, env, message) => {
+    Object.assign(process.env, env);
+    const putBuffer = jest.fn();
+    const svc = vaultService({ putBuffer, head: jest.fn() });
+
+    await expect(svc.archiveToVault('k', buffer)).rejects.toThrow(message as RegExp);
+    await expect(svc.archiveToVault('k', buffer)).rejects.toThrow(/different environment[\s\S]*account has not been changed/);
+    expect(putBuffer).not.toHaveBeenCalled();
+  });
+
+  it('lets staging archive into its own bucket', async () => {
+    Object.assign(process.env, { APP_ENV: 'staging', R2_BUCKET: 'apex-os-staging-backups' });
+    const svc = vaultService({
+      putBuffer: jest.fn(async () => undefined),
+      head: jest.fn(async (k: string) => ({ key: k, byteSize: buffer.length })),
+    });
+
+    const result = await svc.archiveToVault('user-archive/2026/10/u-1/x.xlsx', buffer);
+    expect(result.bucket).toBe('apex-os-staging-backups');
   });
 
   it('refuses when the upload fails', async () => {
