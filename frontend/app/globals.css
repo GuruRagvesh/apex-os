@@ -59,7 +59,7 @@
   --radius-lg: 24px;
 
   /* Surfaces */
-  --bg-primary:       #f8fafc;
+  --bg-primary:       #f0f7ff;
   --bg-secondary:     #ffffff;
   --bg-tertiary:      #f1f5f9;
   --surface-card:     #ffffff;
@@ -236,6 +236,161 @@ code, pre, .mono, .font-mono, [data-mono] {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.025em;
+}
+
+/* Dashboard hero: display hierarchy stays within the global Hyperlegible Sans system. */
+.apex-dashboard-hero {
+  --hero-title: #0f2747;
+  --hero-copy: #405875;
+  --hero-mesh-base: rgba(255, 255, 255, 0.17);
+  --hero-mesh-lit: rgba(255, 255, 255, 0.68);
+  --hero-pointer-x: -240px;
+  --hero-pointer-y: -240px;
+  position: relative;
+  overflow: hidden;
+  min-height: 260px;
+  padding: 2rem;
+  border: 1px solid var(--section-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+  transition: background 320ms ease, border-color 320ms ease, box-shadow 320ms ease;
+}
+.apex-dashboard-hero[data-hero-daypart="morning"] {
+  --hero-title: #ffffff;
+  --hero-copy: #eff6ff;
+  --hero-mesh-base: rgba(255, 255, 255, 0.16);
+  --hero-mesh-lit: rgba(255, 246, 196, 0.72);
+  background: linear-gradient(180deg, #1d5f8f 0%, #6f9fbd 52%, #e3c47d 82%, #f2d476 100%);
+  border-color: #78a3bd;
+  box-shadow: 0 14px 34px rgba(29, 95, 143, 0.20);
+}
+.apex-dashboard-hero[data-hero-daypart="afternoon"] {
+  --hero-title: #ffffff;
+  --hero-copy: #f8fafc;
+  --hero-mesh-base: rgba(255, 255, 255, 0.15);
+  --hero-mesh-lit: rgba(255, 255, 255, 0.74);
+  background: linear-gradient(180deg, #1679bf 0%, #55ace1 44%, #bce3f5 77%, #f4edc4 100%);
+  border-color: #67b3df;
+  box-shadow: 0 14px 34px rgba(22, 121, 191, 0.19);
+}
+.apex-dashboard-hero[data-hero-daypart="evening"] {
+  --hero-title: #ffffff;
+  --hero-copy: #fff7ed;
+  --hero-mesh-base: rgba(255, 244, 232, 0.16);
+  --hero-mesh-lit: rgba(255, 239, 199, 0.72);
+  background: linear-gradient(180deg, #8f315d 0%, #cf4c55 36%, #ed7548 68%, #f3bd5e 100%);
+  border-color: #d65c55;
+  box-shadow: 0 16px 38px rgba(143, 49, 93, 0.24);
+}
+.apex-dashboard-hero[data-hero-daypart="night"] {
+  --hero-title: #ffffff;
+  --hero-copy: #dbeafe;
+  --hero-mesh-base: rgba(191, 219, 254, 0.15);
+  --hero-mesh-lit: rgba(239, 246, 255, 0.72);
+  background: linear-gradient(180deg, #01266a 0%, #2666c4 58%, #73c2fb 100%);
+  border-color: #2666c4;
+  box-shadow: 0 16px 38px rgba(1, 38, 106, 0.28);
+}
+.apex-hero-mesh,
+.apex-hero-mesh-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.apex-hero-mesh {
+  z-index: 0;
+  overflow: hidden;
+}
+.apex-hero-mesh-layer {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.apex-hero-mesh-layer path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: square;
+  stroke-linejoin: round;
+}
+.apex-hero-mesh-base path {
+  stroke: var(--hero-mesh-base);
+  stroke-width: 1;
+}
+.apex-hero-mesh-lit {
+  opacity: 0;
+  -webkit-mask-image: radial-gradient(circle 150px at var(--hero-pointer-x) var(--hero-pointer-y), #000 0%, #000 38%, transparent 76%);
+  mask-image: radial-gradient(circle 150px at var(--hero-pointer-x) var(--hero-pointer-y), #000 0%, #000 38%, transparent 76%);
+  transition: opacity 180ms ease;
+}
+.apex-hero-mesh-lit path {
+  stroke: var(--hero-mesh-lit);
+  stroke-width: 1.35;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--hero-mesh-lit) 52%, transparent));
+}
+.apex-dashboard-hero[data-pointer-active="true"] .apex-hero-mesh-lit {
+  opacity: 1;
+}
+.apex-dashboard-hero-title {
+  font-family: var(--font-sans);
+  font-size: clamp(1.875rem, 3vw, 2.5rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  color: var(--hero-title);
+}
+.apex-dashboard-hero-copy {
+  color: var(--hero-copy);
+}
+/* Hero KPI tiles and workday status: frosted glass over the daypart sky. */
+.apex-hero-kpi,
+.apex-hero-status {
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.16);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--hero-title);
+}
+.apex-hero-kpi { padding: 12px 14px; transition: background 160ms ease, transform 160ms ease; }
+.apex-hero-kpi:hover { background: rgba(255, 255, 255, 0.24); transform: translateY(-1px); }
+.apex-hero-kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--hero-copy); }
+.apex-hero-kpi-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.22); color: var(--hero-title);
+}
+.apex-hero-kpi-value { display: block; font-size: 28px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: var(--hero-title); }
+.apex-hero-kpi-sub { display: block; margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--hero-copy); }
+.apex-hero-kpi-toggle {
+  margin-top: 8px;
+  display: inline-flex; padding: 2px; border-radius: 999px;
+  background: rgba(15, 39, 71, 0.22);
+}
+.apex-hero-kpi-toggle button {
+  padding: 2px 9px; border-radius: 999px;
+  font-size: 10px; font-weight: 800; color: var(--hero-copy);
+}
+.apex-hero-kpi-toggle button[aria-pressed="true"] { background: #ffffff; color: #0f2747; }
+.apex-hero-status { min-width: 220px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.apex-hero-status-title { font-size: 13px; font-weight: 800; }
+.apex-hero-status-value { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.apex-hero-status-line { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hero-copy); }
+.apex-hero-status-line strong { color: var(--hero-title); font-weight: 700; font-variant-numeric: tabular-nums; }
+.apex-hero-status-dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3); }
+.apex-hero-status-dot.is-break { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3); }
+/* Start Work stays compact instead of spanning the hero. */
+.apex-hero-workday { max-width: 520px; }
+.apex-hero-workday > div:first-child { margin-bottom: 0; }
+@media (max-width: 640px) {
+  .apex-dashboard-hero { min-height: 230px; padding: 1.25rem; }
+  .apex-hero-mesh-lit { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .apex-hero-mesh-layer path { filter: none; }
+  .apex-hero-mesh-layer animate { display: none; }
 }
 
 .apex-profile-hero {

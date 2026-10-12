@@ -17,20 +17,6 @@ import toast from 'react-hot-toast';
 
 // /hrms and /sales-crm are standalone workspace pages (frontend/app/(workspaces)) —
 // they no longer render inside the dashboard shell, so TopBar never mounts for them.
-const pageNames: Record<string, string> = {
-  '/dashboard': 'Home',
-  '/tickets': 'Tickets',
-  '/kanban': 'Kanban Board',
-  '/projects': 'Projects',
-  '/users': 'Users',
-  '/departments': 'Departments',
-  '/analytics': 'Analytics',
-  '/leave': 'Leave Management',
-  '/settings': 'Settings',
-  '/profile': 'My Profile',
-  '/team': 'Team',
-};
-
 export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => void; menuOpen?: boolean } = {}) {
   const pathname = usePathname();
   const router = useRouter();
@@ -129,8 +115,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
     },
   });
 
-  const pageName = Object.entries(pageNames).find(([key]) => pathname.startsWith(key))?.[1] || 'Apex OS';
-  const showPageIdentity = pathname !== '/users';
+  const showHomeIdentity = pathname === '/dashboard';
   
   const { logout } = useAuthStore();
 
@@ -175,6 +160,29 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
 
   const count = (unreadCount as any)?.count ?? 0;
 
+  const desktopSearchTrigger = (
+    <button
+      onClick={() => setPaletteOpen(true)}
+      className="hidden sm:flex w-72 lg:w-96 items-center justify-between gap-2 text-xs px-3 py-2 rounded-xl transition-colors"
+      style={{
+        backgroundColor: 'var(--bg-tertiary)',
+        color: 'var(--text-secondary)',
+        border: '1px solid var(--text-primary)',
+      }}
+    >
+      <span className="flex items-center gap-2">
+        <Search size={13} />
+        <span>Search…</span>
+      </span>
+      <kbd
+        className="hidden lg:inline font-mono text-[10px] px-1.5 py-0.5 rounded"
+        style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)', border: '1px solid var(--border-primary)' }}
+      >
+        Ctrl K
+      </kbd>
+    </button>
+  );
+
   return (
     <>
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
@@ -202,21 +210,14 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         </button>
       )}
 
-      {/* Left: page name */}
+      {/* The dashboard alone carries a contextual identity; non-home pages place the wide search field here. */}
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        {showPageIdentity && (
-          <>
-            <h1 className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{pageName}</h1>
-            {user?.department && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full hidden sm:inline"
-                style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-              >
-                {user.department.name}
-              </span>
-            )}
-          </>
+        {showHomeIdentity && (
+          <span className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+            Company Administrator
+          </span>
         )}
+        {!showHomeIdentity && desktopSearchTrigger}
       </div>
 
       {/* Right: actions */}
@@ -230,42 +231,8 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         >
           <Search size={16} />
         </button>
-        {/* Global search trigger */}
-        <button
-          onClick={() => setPaletteOpen(true)}
-          className="hidden sm:flex items-center gap-2 text-xs px-3 py-2 rounded-xl transition-colors"
-          style={{
-            backgroundColor: 'var(--bg-tertiary)',
-            color: 'var(--text-secondary)',
-            border: '1px solid var(--border-primary)',
-          }}
-        >
-          <Search size={13} />
-          <span>Search…</span>
-          <kbd
-            className="hidden lg:inline font-mono text-[10px] px-1.5 py-0.5 rounded"
-            style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)', border: '1px solid var(--border-primary)' }}
-          >
-            Ctrl K
-          </kbd>
-        </button>
-
-        {/* Switch Mode — only for SUPER_ADMIN */}
-        {isSuperAdmin && (
-          <button
-            onClick={() => router.push('/select-mode')}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl transition-colors"
-            style={{
-              backgroundColor: 'transparent',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border-primary)',
-            }}
-            title="Switch between Super Admin and Team Lead mode"
-          >
-            <RefreshCw size={13} />
-            <span className="hidden sm:inline">Switch Mode</span>
-          </button>
-        )}
+        {/* Keep the home layout compact; non-home pages render this control at the far left. */}
+        {showHomeIdentity && desktopSearchTrigger}
 
         {/* New Ticket */}
         <CreateTicketLink
@@ -293,7 +260,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
               className="w-2.5 h-2.5 rounded-full flex-shrink-0"
               style={{ backgroundColor: workStatusColor }}
             />
-            <span className="hidden sm:inline text-xs" style={{ color: 'var(--text-secondary)' }}>
+            <span className="hidden sm:inline text-xs" style={{ color: 'var(--text-primary)' }}>
               {workStatusLabel}
             </span>
           </button>
@@ -449,7 +416,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
               <p className="text-sm font-semibold max-w-[100px] truncate leading-none" style={{ color: 'var(--text-primary)' }}>
                 {user?.name?.split(' ')[0]}
               </p>
-              <p className="text-[10px] font-mono uppercase text-slate-400 mt-0.5 truncate leading-none">
+              <p className="text-[10px] font-mono uppercase text-slate-400 mt-0.5 py-px truncate leading-[1.35]">
                 {roleName}
               </p>
             </div>
@@ -490,6 +457,18 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
                     {label}
                   </button>
                 ))}
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => { router.push('/select-mode'); setShowUserMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left"
+                    style={{ color: 'var(--text-secondary)' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <RefreshCw size={14} />
+                    Switch Mode
+                  </button>
+                )}
               </div>
 
               <div className="p-1.5" style={{ borderTop: '1px solid var(--border-subtle)' }}>

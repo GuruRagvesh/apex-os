@@ -8,3 +8,4 @@
 // only a screen never load the authenticated client.
 
 export { dashboardApi } from './dashboard-api';
+export type { HomeKpis } from './dashboard-api';

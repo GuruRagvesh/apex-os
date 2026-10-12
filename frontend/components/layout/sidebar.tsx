@@ -515,22 +515,6 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
 
       {/* Footer area */}
       <div className="p-3 space-y-2.5" style={{ borderTop: '1px solid rgba(30,41,59,0.5)' }}>
-        {/* OPERATIONS PANEL status block — collapses to a small live dot */}
-        {collapsed ? (
-          <div className="flex items-center justify-center py-1" title="Operations Panel — Live">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-          </div>
-        ) : (
-          <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800/40 font-mono text-[9px] text-slate-500 space-y-1">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="font-bold uppercase tracking-tight">OPERATIONS PANEL</span>
-              <span className="text-emerald-500 font-black">● LIVE</span>
-            </div>
-            <p className="truncate">SLA_SHIELD: STABLE_BOUND</p>
-            <p>METRICS_CONNEC: DYNAMIC</p>
-          </div>
-        )}
-
         {/* User profile card */}
         {collapsed ? (
           <div className="flex flex-col items-center gap-2">

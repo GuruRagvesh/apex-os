@@ -70,8 +70,6 @@ export function WorkdayBar() {
   const breakLogs = session?.breakLogs ?? [];
   const onLeaveToday = (todayData as any)?.onLeaveToday;
   const leaveInfo = (todayData as any)?.leaveInfo;
-  const isResumed = (todayData as any)?.isResumed;
-  const autoClosedCount = (todayData as any)?.autoClosedCount ?? 0;
   const needsAutoCloseConsent = (todayData as any)?.needsAutoCloseConsent ?? false;
   const autoCloseTime = (todayData as any)?.autoCloseTime ?? null;
   const openBreak = breakLogs.find((row: any) => !row.endAt) ?? null;
@@ -462,29 +460,9 @@ export function WorkdayBar() {
   }
 
   // WORKING state
-  const completedBreaks = breakLogs.filter((b: any) => b.endAt);
   return (
     <>
-      <div className="flex items-center justify-between bg-white dark:bg-gray-900 border border-green-200 dark:border-green-800 rounded-xl px-4 py-3 mb-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className={dotCls} />
-          <div>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              Working <span className="text-gray-400 font-normal">·</span> 
-              <span className="text-green-600 dark:text-green-400">{formatMinutes(elapsed)} active</span>
-              {isResumed && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-md">Resumed</span>}
-              {attendanceBadge}
-            </p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              {todayData?.sessionCount > 1 && `${todayData.sessionCount} sessions · `}
-              {autoClosedCount > 0 && `${autoClosedCount} auto-closed · `}
-              {totalBreakMinutes > 0
-                ? `${formatMinutes(totalBreakMinutes)} breaks`
-                : 'No breaks yet'}
-              {startWorkAt && ` · First start ${new Date(startWorkAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-            </p>
-          </div>
-        </div>
+      <div className="flex items-center justify-end bg-white dark:bg-gray-900 border border-green-200 dark:border-green-800 rounded-xl px-4 py-3 mb-4 shadow-sm">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowBreakModal(true)}
