@@ -365,7 +365,7 @@ code, pre, .mono, .font-mono, [data-mono] {
 .apex-hero-kpi-value { display: block; font-size: 28px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: var(--hero-title); }
 .apex-hero-kpi-sub { display: block; margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--hero-copy); }
 .apex-hero-kpi-toggle {
-  position: absolute; right: 12px; bottom: 12px;
+  margin-top: 8px;
   display: inline-flex; padding: 2px; border-radius: 999px;
   background: rgba(15, 39, 71, 0.22);
 }
