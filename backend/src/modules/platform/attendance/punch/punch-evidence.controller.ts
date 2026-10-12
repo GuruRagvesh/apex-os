@@ -177,9 +177,9 @@ export class PunchEvidenceController {
   /** The authenticated employee's own evidence. Scoped by JWT, not by query. */
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  async listMine(@CurrentUser() user: any, @Query('limit') limit?: string) {
+  async listMine(@CurrentUser() user: any, @Query('limit') limit?: string, @Query('date') date?: string) {
     const userId = user?.id ?? user?.sub;
-    return this.punchEvidence.listMine(userId, limit ? Number(limit) : undefined);
+    return this.punchEvidence.listMine(userId, limit ? Number(limit) : undefined, date);
   }
 
   /**

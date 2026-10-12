@@ -68,9 +68,9 @@ export function DayDetailDrawer({
   });
 
   const evidence = useQuery({
-    queryKey: ['my-punch-evidence-v2'],
-    queryFn: () => getMyPunchEvidence(90),
-    enabled: open,
+    queryKey: ['my-punch-evidence-v2', date],
+    queryFn: () => getMyPunchEvidence(200, date as string),
+    enabled: open && !!date,
     staleTime: 60_000,
     retry: false,
   });
@@ -85,7 +85,7 @@ export function DayDetailDrawer({
   const day = detail.data ?? seed;
   if (!date) return null;
 
-  const dayEvidence = (evidence.data ?? []).filter((e) => e.businessDate === date);
+  const dayEvidence = (evidence.data ?? []).filter((e) => e.businessDate.slice(0, 10) === date);
 
   return (
     <V2DrawerShell
