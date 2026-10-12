@@ -93,6 +93,7 @@ model User {
   notifications             Notification[]
   pushSubscriptions         PushSubscription[]
   workdayNotes              WorkdayNote[]
+  dashboardWorkspace        DashboardWorkspace?
   operationalEvents         OperationalEvent[]             @relation("EventActor")
   projectMembers            ProjectMember[]
   assigneeCycles            ReviewCycleLog[]               @relation("CycleAssignee")
@@ -1306,6 +1307,19 @@ model WorkdayNote {
   @@index([userId, createdAt])
   @@index([workSessionId])
   @@map("workday_notes")
+}
+
+/// Private Home-page content. Only the authenticated user can read or edit it.
+model DashboardWorkspace {
+  userId     String   @id
+  notes      String   @default("") @db.Text
+  checklist  Json     @default("[]")
+  shortcuts  Json     @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("dashboard_workspaces")
 }
 
 model BusinessDayOverride {

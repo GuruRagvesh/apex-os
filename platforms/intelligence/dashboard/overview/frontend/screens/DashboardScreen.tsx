@@ -16,6 +16,11 @@ import { HeroKpis } from '../components/HeroKpis';
 import { WorkdayStatusBox } from '../components/WorkdayStatusBox';
 import { motion } from 'motion/react';
 import { AlertTriangle } from 'lucide-react';
+import type { HomeExperience } from './home-types';
+import { SmartAnnouncementsCarousel, type HomeCarouselData } from '../components/SmartAnnouncementsCarousel';
+import { WorkspaceSection } from './WorkspaceSection';
+import { TeamInsightsSection, ProjectInsightsSection } from './TeamProjectSections';
+import { OperationsRadar } from './OperationsRadar';
 
 type HeroDaypart = 'morning' | 'afternoon' | 'evening' | 'night';
 
@@ -123,6 +128,22 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
     staleTime: 30000,
   });
 
+  const { data: experience, isPending: experienceLoading, isError: experienceError, refetch: retryExperience } = useQuery({
+    queryKey: ['home-experience', user?.id],
+    queryFn: () => dashboardApi.getHomeExperience() as Promise<HomeExperience>,
+    enabled: !!user?.id,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const { data: carousel, isPending: carouselLoading, isError: carouselError, refetch: retryCarousel } = useQuery({
+    queryKey: ['home-carousel', user?.id],
+    queryFn: () => dashboardApi.getHomeCarousel() as Promise<HomeCarouselData>,
+    enabled: !!user?.id,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
   if (isLoading) return <HomeSkeleton />;
 
   const firstName = user?.name?.split(' ')[0] ?? 'there';
@@ -198,6 +219,14 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
         </div>
       )}
 
+      {/* Shared Home sections use the same role-scoped read model for all roles. */}
+      <div className="mb-3">
+        <SmartAnnouncementsCarousel data={carousel} recognition={experience?.recognition}
+          loading={carouselLoading && !!user} error={carouselError} onRetry={() => retryCarousel()} />
+      </div>
+      {experienceLoading && user && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading home insights…</div>}
+      {experienceError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Home insights could not be loaded. <button type="button" onClick={() => retryExperience()} className="underline">Retry</button></div>}
+
       {/* ── MY CALENDAR: attendance / productivity ── */}
       {personalPanel && (
         <motion.div
@@ -208,6 +237,15 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
           {personalPanel}
         </motion.div>
       )}
+
+      {user?.id && <div className="mt-6 space-y-5">
+        <WorkspaceSection userId={user.id} />
+        {experience && <>
+          <TeamInsightsSection team={experience.team} />
+          <ProjectInsightsSection projects={experience.projects} />
+          <OperationsRadar experience={experience} userId={user.id} />
+        </>}
+      </div>}
     </div>
   );
 }

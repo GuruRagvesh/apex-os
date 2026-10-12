@@ -54,6 +54,7 @@ export default function TicketsPage() {
   });
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [myTickets, setMyTickets] = useState(false);
+  const [reviewFilter, setReviewFilter] = useState<'actionable-review' | 'personal-review' | ''>('');
   const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'all' | 'approvals'>('all');
   /** The query string the filters were last read from (null until the first read). */
@@ -94,6 +95,7 @@ export default function TicketsPage() {
     });
     setOverdueOnly(params.get('overdue') === 'true' || quickFilter === 'overdue');
     setMyTickets(params.get('mine') === 'true' || quickFilter === 'mine');
+    setReviewFilter(quickFilter === 'actionable-review' || quickFilter === 'personal-review' ? quickFilter : '');
     setPage(Math.max(1, Number(params.get('page')) || 1));
     setFiltersFromUrl(queryString);
   }, [queryString]);
@@ -115,6 +117,7 @@ export default function TicketsPage() {
   });
   if (overdueOnly) extraFilters.overdue = 'true';
   if (myTickets && currentUser?.id) extraFilters.assignedToId = currentUser.id;
+  if (reviewFilter) extraFilters.filter = reviewFilter;
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['tickets', { ...filters, ...extraFilters, search: debouncedSearch }, page],
@@ -210,7 +213,7 @@ export default function TicketsPage() {
     return acc;
   }, {});
 
-  const hasActiveFilters = search || Object.values(filters).some(Boolean) || overdueOnly || myTickets;
+  const hasActiveFilters = search || Object.values(filters).some(Boolean) || overdueOnly || myTickets || reviewFilter;
 
   const roleName = (currentUser?.role as any)?.name ?? currentUser?.role ?? '';
   const scopeText =
@@ -440,6 +443,13 @@ export default function TicketsPage() {
             <UserCheck size={12} />My Tickets
           </button>
 
+          {reviewFilter && <button
+            type="button"
+            onClick={() => { setReviewFilter(''); setPage(1); updateQuery({ filter: null, page: null }); }}
+            className="rounded-full border px-3 py-1.5 text-xs font-semibold"
+            style={{ backgroundColor: 'var(--accent)', color: 'white', borderColor: 'var(--accent)' }}
+          >{reviewFilter === 'personal-review' ? 'My in-review work' : 'My review queue'} ×</button>}
+
           {hasActiveFilters && (
             <button
               onClick={() => {
@@ -447,6 +457,7 @@ export default function TicketsPage() {
                 setFilters({ status: '', priority: '', departmentId: '', assignedToId: '', projectId: '', dateFrom: '', dateTo: '', dueAfter: '', dueBefore: '' });
                 setOverdueOnly(false);
                 setMyTickets(false);
+                setReviewFilter('');
                 setPage(1);
                 router.replace(pathname, { scroll: false });
               }}
