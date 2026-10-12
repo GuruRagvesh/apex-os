@@ -38,6 +38,11 @@ export const dashboardApi = {
   getTicketTrend: (days?: number) => r(api.get('/dashboard/ticket-trend', { params: { days } })),
   getHomeSummary: () => r(api.get('/home/summary')),
   getHomeKpis: (): Promise<HomeKpis> => r(api.get('/home/kpis')),
+  getHomeExperience: () => r(api.get('/home/experience')),
+  getHomeCarousel: () => r(api.get('/home/carousel')),
+  getHomeActivity: (scope: 'my' | 'team' | 'company') => r(api.get('/home/activity', { params: { scope } })),
+  getHomeWorkspace: () => r(api.get('/home/workspace')),
+  updateHomeWorkspace: (data: any) => r(api.put('/home/workspace', data)),
 };
 
 /** GET /home/kpis — mirrors HomeInsightsService.getKpis. Null means "not applicable to this role". */

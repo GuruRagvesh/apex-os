@@ -681,6 +681,34 @@ export class TicketsService {
       };
     }
 
+    // Home's review KPI counts decisions the viewer can actually take. Keep
+    // its destination on the same authority rule instead of showing every
+    // REVIEW ticket the viewer can merely see.
+    if (query.filter === 'actionable-review' || query.filter === 'personal-review') {
+      const candidates = await this.prisma.ticket.findMany({
+        where: this.andWhere(where, { status: TicketStatus.REVIEW }),
+        include: this.includeOptions,
+        orderBy,
+      });
+      const matching: typeof candidates = [];
+      if (query.filter === 'personal-review') {
+        matching.push(...candidates.filter((ticket) => ticket.assignedToId === user?.id || ticket.createdById === user?.id || ticket.assignees.some((assignee) => assignee.userId === user?.id)));
+      } else {
+        for (let index = 0; index < candidates.length; index += 20) {
+          const batch = candidates.slice(index, index + 20);
+          const allowed = await Promise.all(batch.map((ticket) => this.ticketAccess.viewerCanApprove(user, ticket)));
+          for (let item = 0; item < batch.length; item++) if (allowed[item]) matching.push(batch[item]);
+        }
+      }
+      return {
+        tickets: await this.addSlaMany(matching.slice(skip, skip + limit)),
+        total: matching.length,
+        page,
+        limit,
+        totalPages: Math.ceil(matching.length / limit),
+      };
+    }
+
     const [tickets, total] = await Promise.all([
       this.prisma.ticket.findMany({
         where,
