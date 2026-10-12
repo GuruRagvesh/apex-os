@@ -183,7 +183,7 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
             <WorkdayBar />
           </div>
 
-          <HeroKpis isLead={isLeadOrAbove} userId={user?.id} />
+          <HeroKpis isLead={isLeadOrAbove} userId={user?.id} role={role} />
         </div>
       </motion.section>
 

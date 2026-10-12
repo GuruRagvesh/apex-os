@@ -15,7 +15,7 @@ import { getHomeProductivity, type HomeProductivityDay } from './home-insights-a
 import { TinyPunchPhoto } from './TinyPunchPhoto';
 import {
   addDays, attendanceStreak, attendanceWeek, clockLabel, datesBetween, hoursLabel, monthOf,
-  pickWeek, productiveDays, productivityScore, productivityWeek, rangeLabel, shiftMonth,
+  hasActivity, pickWeek, productiveDays, productivityWeek, rangeLabel, shiftMonth,
   type WeekWindow,
 } from './home-week';
 import s from './home-calendar.module.css';
@@ -181,7 +181,7 @@ export function HomeCalendarPanel() {
             </>
           ) : (
             <>
-              <span><i style={{ background: 'color-mix(in srgb, var(--color-success) 30%, transparent)' }} />Above your daily average</span>
+              <span><i style={{ background: 'color-mix(in srgb, var(--color-success) 30%, transparent)' }} />More productive hours than your average</span>
               <span><Star size={11} style={{ color: 'var(--color-success)' }} aria-hidden="true" />Top 3 days this month</span>
               <span>{monthProductivity.isError ? 'Productivity data could not be loaded.' : 'Productive hours = time logged on tickets (breaks excluded).'}</span>
             </>
@@ -469,7 +469,7 @@ function DayPopup({
 
   const title = new Date(`${date}T12:00:00.000Z`).toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
   const status = day ? presentDay(day) : null;
-  const score = productivityScore(productivity);
+  const active = hasActivity(productivity);
   const isTop = highlight.top.includes(date);
   const isAbove = highlight.aboveAverage.has(date);
 
@@ -480,7 +480,7 @@ function DayPopup({
           <div className={s.popupTitle}>{title}</div>
           {mode === 'attendance'
             ? status && <div className={s.popupStatus} style={{ color: status.color }}>{status.label}</div>
-            : <div className={s.popupStatus} style={{ color: isAbove ? 'var(--color-success)' : 'var(--text-secondary)' }}>{isTop ? 'One of your top days' : isAbove ? 'Above your daily average' : score > 0 ? 'Below your daily average' : 'No ticket activity'}</div>}
+            : <div className={s.popupStatus} style={{ color: isAbove ? 'var(--color-success)' : 'var(--text-secondary)' }}>{isTop ? 'One of your top days' : isAbove ? 'Above your daily average' : active ? 'Below your daily average' : 'No ticket activity'}</div>}
         </div>
         <button type="button" className={s.popupClose} onClick={onClose} aria-label="Close"><X size={16} /></button>
       </div>
@@ -526,6 +526,7 @@ function DayPopup({
               </ul>
             </div>
           )}
+          {!isAbove && <SlowerDay day={day} productivity={productivity} averageMinutes={highlight.averageMinutes} />}
           {productivity && productivity.doneTickets.length > 0 && (
             <div className={s.ticketList}>
               {productivity.doneTickets.slice(0, 4).map((t) => (
@@ -539,6 +540,29 @@ function DayPopup({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/** A kind, factual note for days that were not above average. */
+function SlowerDay({ day, productivity, averageMinutes }: { day: MyAttendanceDayV2 | undefined; productivity: HomeProductivityDay | undefined; averageMinutes: number }) {
+  const outcome = day?.outcome;
+  if (outcome === 'WEEKLY_OFF' || outcome === 'HOLIDAY') return <div className={s.whySlow}><p>{outcome === 'HOLIDAY' ? 'Holiday' : 'Weekly off'}: no work expected.</p></div>;
+  if (outcome === 'LEAVE' || outcome === 'LWP') return <div className={s.whySlow}><p>You were on leave this day.</p></div>;
+  if (day?.isToday) return <div className={s.whySlow}><p>Today is still in progress.</p></div>;
+  const minutes = productivity?.ticketMinutes ?? 0;
+  const presence = day?.presenceMinutes ?? day?.workedMinutes ?? null;
+  const lines: string[] = [];
+  if (averageMinutes > 0) lines.push(`${hoursLabel(minutes)} on tickets, ${hoursLabel(Math.max(0, averageMinutes - minutes))} less than your average day.`);
+  if (presence != null && presence > 0 && minutes < presence / 2) {
+    lines.push(`You were at work for ${hoursLabel(presence)}, but most of it was not logged on a ticket. Reviews, meetings and other untracked work don't count here yet.`);
+  }
+  if (!day?.punchInAt && !minutes) lines.push('No punch-in or ticket time was recorded.');
+  if (lines.length === 0) return null;
+  return (
+    <div className={s.whySlow}>
+      <p>Why this day was slower</p>
+      <ul>{lines.map((l) => <li key={l}>{l}</li>)}</ul>
     </div>
   );
 }

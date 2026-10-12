@@ -39,7 +39,15 @@ function Tile({
  * approvals, leave approvals. Employees and interns: their own active tickets,
  * projects and tickets waiting in review.
  */
-export function HeroKpis({ isLead, userId }: { isLead: boolean; userId?: string }) {
+/** What "team" actually covers for this role: admins see the whole company, managers their department. */
+function scopeLabel(role: string): { short: string; sub: string; projects: string } {
+  if (role === 'ADMIN' || role === 'SUPER_ADMIN') return { short: 'Company', sub: 'open across the company', projects: 'across the company' };
+  if (role === 'MANAGER') return { short: 'Department', sub: 'open in your department', projects: 'in your department' };
+  return { short: 'Team', sub: 'open across your team', projects: 'in your team' };
+}
+
+export function HeroKpis({ isLead, userId, role = '' }: { isLead: boolean; userId?: string; role?: string }) {
+  const scopeName = scopeLabel(role);
   const router = useRouter();
   const [scope, setScope] = useState<Scope>(isLead ? 'team' : 'mine');
   const { data, isError } = useQuery({
@@ -57,21 +65,21 @@ export function HeroKpis({ isLead, userId }: { isLead: boolean; userId?: string 
       <Tile
         label="Active tickets"
         value={show(activeValue)}
-        sub={scope === 'team' ? 'open across your team' : 'assigned to you'}
+        sub={scope === 'team' ? scopeName.sub : 'assigned to you'}
         icon={Ticket}
         onClick={() => router.push(scope === 'team' || !userId ? '/tickets' : `/tickets?assignedToId=${userId}`)}
       >
         {isLead && (
           <div className="apex-hero-kpi-toggle" role="group" aria-label="Active tickets scope">
             <button type="button" aria-pressed={scope === 'mine'} onClick={() => setScope('mine')}>My</button>
-            <button type="button" aria-pressed={scope === 'team'} onClick={() => setScope('team')}>Team</button>
+            <button type="button" aria-pressed={scope === 'team'} onClick={() => setScope('team')}>{scopeName.short}</button>
           </div>
         )}
       </Tile>
       <Tile
         label="Active projects"
         value={show(data?.activeProjects)}
-        sub={isLead ? 'in your team' : 'you are part of'}
+        sub={isLead ? scopeName.projects : 'you are part of'}
         icon={FolderKanban}
         onClick={() => router.push('/projects?status=ACTIVE')}
       />

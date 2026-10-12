@@ -166,10 +166,9 @@ export function attendanceStreak(today: string, byDate: Map<string, MyAttendance
 
 // ── Productivity figures ────────────────────────────────────────────────────
 
-/** One score per day so days can be compared: an hour of ticket time, a done ticket and half a credit per submission. */
-export function productivityScore(day: HomeProductivityDay | undefined): number {
-  if (!day) return 0;
-  return day.ticketMinutes + day.ticketsDone * 60 + day.ticketsSubmitted * 30;
+/** Whether anything happened on a day: ticket time, a finished ticket or a submission. */
+export function hasActivity(day: HomeProductivityDay | undefined): boolean {
+  return !!day && (day.ticketMinutes > 0 || day.ticketsDone > 0 || day.ticketsSubmitted > 0);
 }
 
 export interface ProductivityWeek {
@@ -188,7 +187,7 @@ export function productivityWeek(from: string, to: string, byDate: Map<string, H
   for (const date of datesBetween(from, to)) {
     const day = byDate.get(date);
     if (!day) continue;
-    if (productivityScore(day) > 0) activeDays += 1;
+    if (hasActivity(day)) activeDays += 1;
     total += day.ticketMinutes;
     done += day.ticketsDone;
     submitted += day.ticketsSubmitted;
@@ -203,27 +202,31 @@ export function productivityWeek(from: string, to: string, byDate: Map<string, H
 }
 
 export interface ProductiveDays {
-  average: number;
   averageMinutes: number;
   averageDone: number;
   aboveAverage: Set<string>;
   top: string[];
 }
 
-/** Days above the person's own average, plus their top three. */
+/**
+ * Good days are judged on ONE measure: productive hours (time logged on
+ * tickets). A day is good when it beats the person's own average for days
+ * they logged time; the top three of those get a star. Finished and submitted
+ * tickets are shown alongside, never folded into a combined score.
+ */
 export function productiveDays(days: HomeProductivityDay[]): ProductiveDays {
-  const scored = days.filter((d) => productivityScore(d) > 0);
-  const n = scored.length || 1;
-  const average = scored.reduce((sum, d) => sum + productivityScore(d), 0) / n;
-  const averageMinutes = scored.reduce((sum, d) => sum + d.ticketMinutes, 0) / n;
-  const averageDone = scored.reduce((sum, d) => sum + d.ticketsDone, 0) / n;
-  const aboveAverage = new Set(scored.filter((d) => productivityScore(d) > average).map((d) => d.date));
-  const top = [...scored]
-    .sort((a, b) => productivityScore(b) - productivityScore(a))
+  const logged = days.filter((d) => d.ticketMinutes > 0);
+  const n = logged.length || 1;
+  const averageMinutes = logged.reduce((sum, d) => sum + d.ticketMinutes, 0) / n;
+  const active = days.filter(hasActivity);
+  const averageDone = active.reduce((sum, d) => sum + d.ticketsDone, 0) / (active.length || 1);
+  const aboveAverage = new Set(logged.filter((d) => d.ticketMinutes > averageMinutes).map((d) => d.date));
+  const top = [...logged]
+    .sort((a, b) => b.ticketMinutes - a.ticketMinutes)
     .slice(0, 3)
     .filter((d) => aboveAverage.has(d.date))
     .map((d) => d.date);
-  return { average, averageMinutes, averageDone, aboveAverage, top };
+  return { averageMinutes, averageDone, aboveAverage, top };
 }
 
 // ── Formatting ──────────────────────────────────────────────────────────────
