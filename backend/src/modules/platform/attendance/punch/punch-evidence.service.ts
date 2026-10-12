@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import type { AttendancePunchEvidence } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
@@ -475,9 +475,16 @@ export class PunchEvidenceService {
    * Scoped to userId by construction. PE-1 exposes no company-wide or
    * other-employee read; that needs its own permission model.
    */
-  async listMine(userId: string, limit = 90) {
+  async listMine(userId: string, limit = 90, date?: string) {
+    let businessDate: Date | undefined;
+    if (date !== undefined) {
+      businessDate = new Date(`${date}T00:00:00.000Z`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(businessDate.getTime()) || businessDate.toISOString().slice(0, 10) !== date) {
+        throw new BadRequestException('Use a valid business date (YYYY-MM-DD).');
+      }
+    }
     const rows = await this.prisma.attendancePunchEvidence.findMany({
-      where: { userId },
+      where: { userId, ...(businessDate ? { businessDate } : {}) },
       orderBy: [{ businessDate: 'desc' }, { serverOccurredAt: 'desc' }],
       take: Math.min(Math.max(limit, 1), 200),
       include: { attendanceLocation: { select: { name: true } } },

@@ -365,6 +365,20 @@ describe('PunchEvidenceService (PE-1)', () => {
       });
     });
 
+    it('filters the selected business date in the database before the history limit', async () => {
+      const { service, prisma } = build();
+      await service.listMine('emp-1', 200, '2026-10-07');
+      const args = prisma.attendancePunchEvidence.findMany.mock.calls[0][0];
+      expect(args.where).toEqual({ userId: 'emp-1', businessDate: new Date('2026-10-07T00:00:00.000Z') });
+      expect(args.take).toBe(200);
+    });
+
+    it.each(['2026-02-30', '2026-13-01', 'not-a-date', '2026-10-07T00:00:00Z'])('rejects invalid business date %s before querying', async date => {
+      const { service, prisma } = build();
+      await expect(service.listMine('emp-1', 200, date)).rejects.toThrow('valid business date');
+      expect(prisma.attendancePunchEvidence.findMany).not.toHaveBeenCalled();
+    });
+
     it('18b. the history query cannot be widened by the caller', async () => {
       const { service, prisma } = build();
       await service.listMine('emp-1', 100000);
