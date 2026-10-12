@@ -585,9 +585,10 @@ describe('Punch requires a live photo (PE-3)', () => {
     expect(serialised).not.toContain('a'.repeat(64));
   });
 
-  it('the photo API surface is upload-only, with no list or delete', () => {
+  it('the photo API surface has upload and signed local delivery, with no list or delete', () => {
     expect(Object.getOwnPropertyNames(PunchPhotoController.prototype).sort()).toEqual([
       'constructor',
+      'localPhoto',
       'upload',
     ]);
     expect(Object.getOwnPropertyNames(PunchEvidenceController.prototype).sort()).toEqual([

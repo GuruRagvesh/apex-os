@@ -79,6 +79,7 @@ export class LeaveSettlementService {
     year: number,
     excludeLeaveId?: string,
     leaveType?: LeaveType,
+    window?: { start: Date; end: Date },
   ): Promise<number> {
     const bounds = this.tva.financialYearBounds(`${year}-${year + 1}`);
     const approved = await tx.leaveRequest.findMany({
@@ -86,8 +87,8 @@ export class LeaveSettlementService {
         userId,
         status: LeaveStatus.APPROVED,
         startDate: {
-          gte: this.tva.companyDayStart(bounds.start),
-          lte: this.tva.companyDayEnd(bounds.end),
+          gte: this.tva.companyDayStart(window?.start ?? bounds.start),
+          lte: this.tva.companyDayEnd(window?.end ?? bounds.end),
         },
         ...(excludeLeaveId ? { id: { not: excludeLeaveId } } : {}),
         ...(leaveType ? { type: leaveType } : {}),
@@ -199,17 +200,31 @@ export class LeaveSettlementService {
           leave.type === LeaveType.CASUAL || leave.type === LeaveType.EMERGENCY
             ? leave.type
             : undefined;
-        const allocation = await this.balance.getYearlyAllocation(
-          leave.userId,
-          year,
-          entitlementType,
-        );
+        const employee = await tx.user.findUnique({
+          where: { id: leave.userId },
+          select: { role: { select: { name: true } } },
+        });
+        const isIntern = employee?.role?.name === 'INTERN';
+        const businessDate = this.tva.companyBusinessDate(leave.startDate);
+        const [windowYear, windowMonth] = businessDate.split('-').map(Number);
+        const internWindow = isIntern ? {
+          start: new Date(Date.UTC(windowYear, windowMonth - 1, 1)),
+          end: new Date(Date.UTC(windowYear, windowMonth, 0)),
+        } : undefined;
+        const allocation = isIntern
+          ? entitlementType === LeaveType.EMERGENCY ? 0 : 1
+          : await this.balance.getYearlyAllocation(
+              leave.userId,
+              year,
+              entitlementType,
+            );
         const consumed = await this.consumedPaidDays(
           tx,
           leave.userId,
           year,
           leave.id,
           entitlementType,
+          internWindow,
         );
         settlement = this.split(requestedDays, allocation - consumed);
       }

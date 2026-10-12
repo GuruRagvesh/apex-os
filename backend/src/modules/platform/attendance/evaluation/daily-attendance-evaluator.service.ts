@@ -805,8 +805,14 @@ export class DailyAttendanceEvaluatorService {
 
     const allowedFrom = new Date(shiftStart.getTime() + (shift.graceMinutes ?? 0) * 60_000);
 
-    const diff = Math.floor((punchInAt.getTime() - allowedFrom.getTime()) / 60_000);
-    return diff > 0 ? diff : 0;
+    const diffMs = punchInAt.getTime() - allowedFrom.getTime();
+    if (diffMs <= 0) return 0;
+
+    // The end of the grace window is inclusive only through its final exact
+    // second. Any instant after it is late, even when less than a whole minute
+    // has elapsed. Round a positive partial minute up so 10:30:01 is one late
+    // minute rather than being silently treated as 10:30:00.
+    return Math.ceil(diffMs / 60_000);
   }
 
   private provenanceOf(context: DailyAttendanceContext, extra: Partial<EvaluationProvenance>) {

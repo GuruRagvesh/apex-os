@@ -1,26 +1,39 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useQueries, useQuery } from '@tanstack/react-query';
+import { useAuthStore } from '@/store/auth.store';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, Award, CalendarCheck, CalendarDays, ChevronDown,
-  ChevronLeft, ChevronRight, Clock3, Flame, Gauge, Minus, PencilLine, Sparkles, Star, Ticket, Timer, X,
+  ChevronLeft, ChevronRight, Flame, Gauge, Minus, PencilLine, Sparkles, Star, Ticket, Timer, X,
 } from 'lucide-react';
 import { getMyAttendanceV2, type MyAttendanceDayV2 } from '../my-attendance-v2-api';
 import { getMyPunchEvidence, type OwnPunchEvidence } from '../../attendance/punch-api';
+import { getMyLeaveBalance, LEAVE_TYPE_LABEL, type PersonalLeaveType } from '../../attendance/leave-balance-api';
 import { monthLabel, presentDay, formatTime } from '../status-presentation';
 import { CorrectionDialog } from '../CorrectionDialog';
 import { getHomeProductivity, type HomeProductivityDay } from './home-insights-api';
 import { TinyPunchPhoto } from './TinyPunchPhoto';
 import {
-  addDays, attendanceStreak, attendanceWeek, clockLabel, datesBetween, hoursLabel, monthOf,
+  addDays, attendanceStreak, attendanceWeek, datesBetween, hoursLabel, monthOf,
   hasActivity, pickWeek, productiveDays, productivityWeek, rangeLabel, shiftMonth,
   type WeekWindow,
 } from './home-week';
 import s from './home-calendar.module.css';
 
 type Mode = 'attendance' | 'productivity';
+
+const ATTENDANCE_LEGEND = [
+  { label: 'Present', color: '#16A34A' },
+  { label: 'Late / short hours', color: '#EA580C' },
+  { label: 'Half day', color: '#7E22CE' },
+  { label: 'Leave / insufficient presence', color: '#DC2626' },
+  { label: 'Regularized', color: '#39FF14' },
+  { label: 'Holiday', color: '#CA8A04' },
+  { label: 'Weekly off', color: '#64748B' },
+] as const;
 
 function localToday(): string {
   const d = new Date();
@@ -53,7 +66,7 @@ export function HomeCalendarPanel() {
   const today = localToday();
   const [mode, setMode] = useState<Mode>('attendance');
   const [month, setMonth] = useState(() => monthOf(today));
-  const [popup, setPopup] = useState<{ date: string; rect: DOMRect } | null>(null);
+  const [popup, setPopup] = useState<{ date: string; anchor: HTMLElement } | null>(null);
   const [correctionDate, setCorrectionDate] = useState<string | null>(null);
 
   // Attendance: the displayed month, plus the months the weekly figures and
@@ -118,7 +131,7 @@ export function HomeCalendarPanel() {
   const canGoNext = month < monthOf(today);
   const [y, m] = month.split('-').map(Number);
 
-  const openDay = (date: string, el: HTMLElement) => setPopup({ date, rect: el.getBoundingClientRect() });
+  const openDay = (date: string, anchor: HTMLElement) => setPopup({ date, anchor });
 
   return (
     <section className={s.panel} aria-label="My calendar">
@@ -151,6 +164,13 @@ export function HomeCalendarPanel() {
           </div>
         </header>
 
+        {mode === 'attendance' && (
+          <div className={s.attendanceLegend} aria-label="Attendance colour guide">
+            <span className={s.legendTitle}>Day colours</span>
+            {ATTENDANCE_LEGEND.map((item) => <span key={item.label}><i style={{ background: item.color }} />{item.label}</span>)}
+          </div>
+        )}
+
         {monthQuery?.isLoading ? (
           <div className={s.skeleton}>Loading your calendar…</div>
         ) : monthQuery?.isError ? (
@@ -169,24 +189,15 @@ export function HomeCalendarPanel() {
           />
         )}
 
-        <div className={s.legend} aria-label="Legend">
-          {mode === 'attendance' ? (
-            <>
-              <span><i style={{ background: '#00B954' }} />Present</span>
-              <span><i style={{ background: '#F07500' }} />Late / short hours</span>
-              <span><i style={{ background: '#B91C1C' }} />Absent</span>
-              <span><i style={{ background: '#0C7FB8' }} />Leave</span>
-              <span><i style={{ background: '#EEAF00' }} />Holiday</span>
-              <span><i style={{ background: '#8493B0' }} />Weekly off</span>
-            </>
-          ) : (
+        {mode === 'productivity' && (
+          <div className={s.legend} aria-label="Productivity legend">
             <>
               <span><i style={{ background: 'color-mix(in srgb, var(--color-success) 30%, transparent)' }} />More productive hours than your average</span>
               <span><Star size={11} style={{ color: 'var(--color-success)' }} aria-hidden="true" />Top 3 days this month</span>
               <span>{monthProductivity.isError ? 'Productivity data could not be loaded.' : 'Productive hours = time logged on tickets (breaks excluded).'}</span>
             </>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {mode === 'attendance'
@@ -196,7 +207,7 @@ export function HomeCalendarPanel() {
       {popup && (
         <DayPopup
           date={popup.date}
-          rect={popup.rect}
+          anchor={popup.anchor}
           mode={mode}
           day={attendanceByDate.get(popup.date)}
           punch={punches.get(popup.date)}
@@ -268,7 +279,16 @@ function CalendarGrid({
           const punch = punches.get(date);
           const status = day ? presentDay(day) : null;
           return (
-            <button key={date} type="button" className={cls.join(' ')} onClick={(e) => onOpen(date, e.currentTarget)}
+            <button key={date} type="button" className={cls.join(' ')}
+              style={{
+                background: day?.outcome && status
+                  ? `color-mix(in srgb, ${status.tint} 43%, #FFFFFF)`
+                  : undefined,
+                borderColor: day?.outcome && status
+                  ? `color-mix(in srgb, ${status.color} 13%, #DDEBFA)`
+                  : undefined,
+              }}
+              onClick={(e) => onOpen(date, e.currentTarget)}
               aria-label={`${date}: ${status?.label ?? 'no attendance result'}`}>
               <div className={s.dayTop}>
                 <span className={s.dayNumber}>{dayNum}</span>
@@ -285,8 +305,6 @@ function CalendarGrid({
                     <span className={s.punchTime}>{day.punchOutAt ? formatTime(day.punchOutAt) : (day.isInProgress ? 'Working' : '—')}</span>
                   </span>
                 </>
-              ) : status && day?.outcome ? (
-                <span className={s.statusText} style={{ color: status.color }}>{status.label}</span>
               ) : null}
             </button>
           );
@@ -331,6 +349,58 @@ function weekName(week: WeekWindow) {
   return week.kind === 'this' ? 'This week' : 'Last week';
 }
 
+function HomeLeaveBalance() {
+  const role = useAuthStore((state) => state.user?.role?.name);
+  const isIntern = role === 'INTERN';
+  const casual = useQuery({
+    queryKey: ['my-leave-balance', 'CASUAL', 'role-policy-v2'],
+    queryFn: () => getMyLeaveBalance('CASUAL' as PersonalLeaveType),
+    staleTime: 300_000,
+    retry: false,
+  });
+  const emergency = useQuery({
+    queryKey: ['my-leave-balance', 'EMERGENCY', 'role-policy-v2'],
+    queryFn: () => getMyLeaveBalance('EMERGENCY' as PersonalLeaveType),
+    enabled: !isIntern,
+    staleTime: 300_000,
+    retry: false,
+  });
+  return (
+    <section className={`${s.card} ${s.leaveBalance}`} aria-label="Leave balance">
+      <h2>Leave balance</h2>
+      <div className={s.leaveGrid} data-single={isIntern || undefined}>
+        <LeaveBalanceRing type="CASUAL" label={isIntern ? 'Paid Leave' : undefined} query={casual} tone="#2566C4" />
+        {!isIntern && <LeaveBalanceRing type="EMERGENCY" query={emergency} tone="#F59E0B" />}
+      </div>
+    </section>
+  );
+}
+
+function LeaveBalanceRing({ type, label, query, tone }: {
+  type: PersonalLeaveType;
+  label?: string;
+  query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof getMyLeaveBalance>>>>;
+  tone: string;
+}) {
+  const data = query.data;
+  const allocation = data?.allocation ?? null;
+  const used = data?.approved ?? null;
+  const percent = allocation !== null && allocation > 0 && used !== null ? Math.min(100, Math.max(0, Math.round((used / allocation) * 100))) : null;
+  return (
+    <article className={s.leaveRingCard}>
+      {query.isPending ? <p className={s.leaveUnavailable}>Loading…</p> : query.isError ? <p className={s.leaveUnavailable}>Unavailable</p> : (
+        <>
+          <div className={s.leaveRing} style={{ background: `conic-gradient(${tone} ${percent ?? 0}%, #E8F0FA 0)` }}>
+            <div><strong>{used ?? '—'}</strong><span>used</span></div>
+          </div>
+          <h3>{label ?? LEAVE_TYPE_LABEL[type]}</h3>
+          <p><strong>{used ?? '—'}</strong> used of <strong>{allocation ?? '—'}</strong> allocated</p>
+        </>
+      )}
+    </article>
+  );
+}
+
 function AttendanceSide({ today, week, byDate }: { today: string; week: WeekWindow; byDate: Map<string, MyAttendanceDayV2> }) {
   const current = attendanceWeek(week.start, week.end, byDate);
   const previous = attendanceWeek(week.previousStart, week.previousEnd, byDate);
@@ -357,9 +427,7 @@ function AttendanceSide({ today, week, byDate }: { today: string; week: WeekWind
       <KpiCard label={`Avg working hours · ${weekName(week)}`} value={hoursLabel(current.avgWorkMinutes)} sub={rangeLabel(week.start, week.end)} icon={<Timer size={16} />}>
         <Delta now={current.avgWorkMinutes} before={previous.avgWorkMinutes} />
       </KpiCard>
-      <KpiCard label={`Avg punch-in · ${weekName(week)}`} value={clockLabel(current.avgPunchInMinutes)} sub={`${current.daysWorked} day${current.daysWorked === 1 ? '' : 's'} worked`} icon={<Clock3 size={16} />}>
-        <Delta now={current.avgPunchInMinutes} before={previous.avgPunchInMinutes} unit="clock" invert />
-      </KpiCard>
+      <HomeLeaveBalance />
       <div className={`${s.card} ${s.summary}`}>
         <div className={s.kpiHead} style={{ marginBottom: 8 }}>
           <span className={s.kpiLabel}>Weekly summary</span>
@@ -425,10 +493,10 @@ function ProductivitySide({ week, byDate, loading, failed }: { week: WeekWindow;
 // ── Day popup ────────────────────────────────────────────────────────────────
 
 function DayPopup({
-  date, rect, mode, day, punch, productivity, highlight, correctionAllowed, onCorrection, onClose,
+  date, anchor, mode, day, punch, productivity, highlight, correctionAllowed, onCorrection, onClose,
 }: {
   date: string;
-  rect: DOMRect;
+  anchor: HTMLElement;
   mode: Mode;
   day: MyAttendanceDayV2 | undefined;
   punch: { in: OwnPunchEvidence | null; out: OwnPunchEvidence | null } | undefined;
@@ -439,31 +507,55 @@ function DayPopup({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number }>({ top: rect.bottom + 8, left: rect.left });
+  const [pos, setPos] = useState({ top: 12, left: 12, maxHeight: 400, placement: 'bottom' as 'top' | 'bottom', ready: false });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const width = el.offsetWidth;
-    const height = el.offsetHeight;
-    let left = rect.left + rect.width / 2 - width / 2;
-    left = Math.max(12, Math.min(left, window.innerWidth - width - 12));
-    let top = rect.bottom + 8;
-    if (top + height > window.innerHeight - 12) top = Math.max(12, rect.top - height - 8);
-    setPos({ top, left });
-  }, [rect, mode]);
+
+    const updatePosition = () => {
+      const rect = anchor.getBoundingClientRect();
+      const margin = 12;
+      const gap = 10;
+      const width = el.offsetWidth;
+      const maxHeight = Math.max(220, window.innerHeight - margin * 2);
+      const height = Math.min(el.scrollHeight, maxHeight);
+      const below = window.innerHeight - rect.bottom - margin - gap;
+      const above = rect.top - margin - gap;
+      const placement: 'top' | 'bottom' = below >= Math.min(height, 300) || below >= above ? 'bottom' : 'top';
+      const desiredTop = placement === 'bottom' ? rect.bottom + gap : rect.top - height - gap;
+      const top = Math.max(margin, Math.min(desiredTop, window.innerHeight - height - margin));
+      const desiredLeft = rect.left + rect.width / 2 - width / 2;
+      const left = Math.max(margin, Math.min(desiredLeft, window.innerWidth - width - margin));
+
+      setPos((current) => {
+        const next = { top, left, maxHeight, placement, ready: true };
+        return current.top === next.top && current.left === next.left && current.maxHeight === next.maxHeight && current.placement === next.placement && current.ready
+          ? current
+          : next;
+      });
+    };
+
+    updatePosition();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updatePosition) : null;
+    observer?.observe(el);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [anchor, mode, date]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
-    const onScroll = () => onClose();
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onDown);
-    window.addEventListener('scroll', onScroll, true);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onDown);
-      window.removeEventListener('scroll', onScroll, true);
     };
   }, [onClose]);
 
@@ -473,14 +565,25 @@ function DayPopup({
   const isTop = highlight.top.includes(date);
   const isAbove = highlight.aboveAverage.has(date);
 
-  return (
-    <div ref={ref} className={s.popup} style={{ top: pos.top, left: pos.left }} role="dialog" aria-label={`${title} details`}>
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      ref={ref}
+      className={s.popup}
+      data-placement={pos.placement}
+      style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight, visibility: pos.ready ? 'visible' : 'hidden' }}
+      role="dialog"
+      aria-modal="false"
+      aria-label={`${title} details`}
+    >
       <div className={s.popupHead}>
         <div>
+          <div className={s.popupEyebrow}>{mode === 'attendance' ? 'Attendance details' : 'Productivity details'}</div>
           <div className={s.popupTitle}>{title}</div>
           {mode === 'attendance'
-            ? status && <div className={s.popupStatus} style={{ color: status.color }}>{status.label}</div>
-            : <div className={s.popupStatus} style={{ color: isAbove ? 'var(--color-success)' : 'var(--text-secondary)' }}>{isTop ? 'One of your top days' : isAbove ? 'Above your daily average' : active ? 'Below your daily average' : 'No ticket activity'}</div>}
+            ? status && <div className={s.popupStatus} style={{ color: status.color, background: `color-mix(in srgb, ${status.color} 10%, #FFFFFF)` }}><i style={{ background: status.color }} />{status.label}</div>
+            : <div className={s.popupStatus} data-tone={isTop || isAbove ? 'positive' : 'neutral'}>{isTop ? 'One of your top days' : isAbove ? 'Above your daily average' : active ? 'Below your daily average' : 'No ticket activity'}</div>}
         </div>
         <button type="button" className={s.popupClose} onClick={onClose} aria-label="Close"><X size={16} /></button>
       </div>
@@ -540,7 +643,8 @@ function DayPopup({
           </div>
         </>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
