@@ -1,8 +1,13 @@
 /**
- * Production database backup.
+ * Production and staging database backup.
  *
  *   npx ts-node scripts/backup/run-database-backup.ts
  *   npx ts-node scripts/backup/run-database-backup.ts --type=PRE_MIGRATION
+ *
+ * The environment is declared by APP_ENV and proven by assertBackupTarget:
+ * production writes only to the production vault, staging only to its own
+ * staging vault (EXPECTED_STAGING_VAULT_BUCKET), never the other way round.
+ * The manifest records which environment and vault a dump came from.
  *
  * Intended to be driven by a Render Cron Job, NOT by the API process. The
  * backup lifecycle must not depend on the application staying alive, and a
@@ -15,10 +20,11 @@
  *
  * Environment (all supplied by the operator, never committed):
  *
- *   APP_ENV=production
+ *   APP_ENV=production | staging
  *   DATABASE_URL
- *   EXPECTED_PRODUCTION_DB_HOST     read independently from the dashboard
- *   EXPECTED_PRODUCTION_DB_NAME     likewise
+ *   EXPECTED_PRODUCTION_DB_HOST / _NAME   (production) read independently from the dashboard
+ *   EXPECTED_STAGING_DB_HOST / _NAME      (staging)    likewise
+ *   EXPECTED_STAGING_VAULT_BUCKET         (staging)    the staging vault, from the vault dashboard
  *   R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET
  *
  * Exits non-zero on FAILED so the cron platform reports it. A backup that
@@ -33,7 +39,10 @@ import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { runPgTool, toPgTarget } from './pg-connection';
-import { assertProductionTarget, mask, TargetRefused } from './backup-identity';
+// assertBackupTarget runs assertProductionTarget for production and the
+// staging identity checks for staging, and pins each to its own vault.
+import { assertBackupTarget, mask, TargetRefused } from './backup-identity';
+import { pgRestoreList } from './verify-backup-reference';
 import {
   applyRun,
   markFailed,
@@ -57,6 +66,8 @@ export interface BackupDeps {
   serverVersion: (databaseUrl: string) => Promise<string>;
   /** The local pg_dump major version. */
   clientMajorVersion: () => Promise<number>;
+  /** Proves a dump is structurally readable (pg_restore --list). */
+  verifyDump: (dumpPath: string) => Promise<void>;
   now: () => Date;
   loadState: () => Promise<BackupState>;
   saveState: (state: BackupState) => Promise<void>;
@@ -91,7 +102,8 @@ export async function runBackup(
   let manifest = startManifest({
     backupId: randomUUID(),
     type,
-    environment: 'production',
+    // Set from the proven target below; until then nothing is asserted.
+    environment: '(unverified)',
     databaseName: '(unverified)',
     startedAt,
   });
@@ -114,11 +126,16 @@ export async function runBackup(
   // 1. Prove which database this is before reading a byte of it.
   let identity;
   try {
-    identity = assertProductionTarget(env);
+    identity = assertBackupTarget(env);
   } catch (err) {
     return fail(err instanceof TargetRefused ? err.message : String(err));
   }
-  manifest = { ...manifest, databaseName: mask(identity.database) };
+  manifest = {
+    ...manifest,
+    environment: identity.environment,
+    vaultBucket: identity.bucket,
+    databaseName: mask(identity.database),
+  };
 
   const databaseUrl = env.DATABASE_URL!;
 
@@ -158,9 +175,12 @@ export async function runBackup(
   try {
     await deps.dump(databaseUrl, localPath);
 
+    // A dump pg_restore cannot list is not a backup, whatever its size.
+    await deps.verifyDump(localPath);
+
     const byteSize = statSync(localPath).size;
     const sha256 = await sha256File(localPath);
-    const objectKey = objectKeyFor(type, deps.now(), 'prod');
+    const objectKey = objectKeyFor(type, deps.now(), identity.environment === 'production' ? 'prod' : 'staging');
 
     await vault.put(objectKey, localPath);
 
@@ -172,6 +192,16 @@ export async function runBackup(
       remote,
       deps.now().toISOString(),
     );
+
+    // 5. Size alone proves that an object of that size exists; reading it
+    //    back and hashing it proves it is THIS dump.
+    if (manifest.status === 'SUCCESS') {
+      const readBackPath = join(workDir, 'read-back.dump');
+      await vault.getToFile(objectKey, readBackPath);
+      if ((await sha256File(readBackPath)) !== sha256) {
+        throw new Error('Read-back SHA-256 of the uploaded dump does not match the local dump.');
+      }
+    }
   } catch (err: any) {
     return fail(err?.message ?? String(err));
   } finally {
@@ -259,12 +289,15 @@ async function pgDump(databaseUrl: string, outPath: string): Promise<void> {
   );
 }
 
+// pg_restore --list lives with the backup verification it is shared with.
+export { pgRestoreList };
+
 if (require.main === module) {
   const typeArg = process.argv.find((a) => a.startsWith('--type='));
   const type = (typeArg?.split('=')[1] ?? 'DAILY') as BackupType;
 
   (async () => {
-    console.log('── Apex OS production database backup ─────────────────────────');
+    console.log('── Apex OS database backup ────────────────────────────────────');
     console.log(`  type            : ${type}`);
 
     const vault = createR2Vault(readR2Config(process.env));
@@ -275,6 +308,7 @@ if (require.main === module) {
       dump: pgDump,
       serverVersion: readServerVersion,
       clientMajorVersion: readClientMajor,
+      verifyDump: pgRestoreList,
       now: () => new Date(),
       // State lives in the vault, not on the ephemeral disk. The local file is
       // only a scratch copy for this process.

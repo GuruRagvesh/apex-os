@@ -237,3 +237,68 @@ export function assertPhotoTarget(env: NodeJS.ProcessEnv): PhotoTarget {
 
   return { ...identity, environment: 'staging', bucket };
 }
+
+/**
+ * The staging evidence vault. Separate from production in both directions:
+ * staging may never write to the production vault, and production may never
+ * write here.
+ */
+export const STAGING_VAULT_BUCKET_MARKER = /staging/i;
+
+export type BackupEnvironment = 'production' | 'staging';
+
+export interface BackupTarget extends TargetIdentity {
+  environment: BackupEnvironment;
+  bucket: string;
+}
+
+/**
+ * Which database a backup may read and which vault it may write.
+ *
+ * Production: APP_ENV, DATABASE_URL and the dashboard identity must agree
+ * (assertProductionTarget), and the vault must be exactly the production
+ * vault.
+ *
+ * Staging: the same three-way agreement against EXPECTED_STAGING_DB_HOST /
+ * _NAME, no production marker anywhere, and a vault that is (a) not the
+ * production vault, (b) named as a staging vault, and (c) exactly the bucket
+ * the operator declared in EXPECTED_STAGING_VAULT_BUCKET. A staging dump in
+ * the production vault, or the reverse, is refused before anything is read.
+ */
+export function assertBackupTarget(env: NodeJS.ProcessEnv): BackupTarget {
+  const appEnv = (env.APP_ENV ?? '').trim().toLowerCase();
+  const bucket = (env.R2_BUCKET ?? '').trim();
+  if (!bucket) throw new TargetRefused('R2_BUCKET is not set.');
+
+  if (appEnv === 'production') {
+    const identity = assertProductionTarget(env);
+    if (bucket !== PRODUCTION_VAULT_BUCKET) {
+      throw new TargetRefused(`Production backups must go to the production vault, not "${bucket}".`);
+    }
+    return { ...identity, environment: 'production', bucket };
+  }
+
+  if (appEnv === 'staging') {
+    if (bucket === PRODUCTION_VAULT_BUCKET) {
+      throw new TargetRefused('Staging may not write to the production vault.');
+    }
+    if (!STAGING_VAULT_BUCKET_MARKER.test(bucket)) {
+      throw new TargetRefused(`Staging backups must go to a staging vault; "${bucket}" is not named as one.`);
+    }
+    const declared = (env.EXPECTED_STAGING_VAULT_BUCKET ?? '').trim();
+    if (!declared) {
+      throw new TargetRefused('EXPECTED_STAGING_VAULT_BUCKET must be set, read independently from the vault dashboard.');
+    }
+    if (declared !== bucket) {
+      throw new TargetRefused('R2_BUCKET does not match EXPECTED_STAGING_VAULT_BUCKET.');
+    }
+    // Database identity: the same checks the staging photo runner trusts.
+    const photo = assertPhotoTarget(env);
+    return { host: photo.host, database: photo.database, environment: 'staging', bucket };
+  }
+
+  throw new TargetRefused(
+    `APP_ENV is "${appEnv || '(unset)'}". Declare "production" or "staging" explicitly; ` +
+      'an ambiguous environment is refused rather than guessed.',
+  );
+}
