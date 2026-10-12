@@ -15,14 +15,14 @@ import s from './insights.module.css';
 export type InsightScope = 'month' | 'year';
 type MonthResult = { month: string; data?: MyAttendanceOverviewV2; failed: boolean };
 const OUTCOMES = [
-  { key: 'PRESENT', label: 'Present', color: '#15B66A' },
+  { key: 'PRESENT', label: 'Present', color: '#16A34A' },
   { key: 'HALF_DAY', label: 'Half day', color: '#9462D9' },
-  { key: 'ABSENT', label: 'Absent', color: '#E45262' },
-  { key: 'LEAVE', label: 'Leave', color: '#59A7ED' },
-  { key: 'LWP', label: 'Unpaid leave', color: '#59A7ED' },
-  { key: 'HOLIDAY', label: 'Holiday', color: '#DFAF22' },
-  { key: 'WEEKLY_OFF', label: 'Weekly off', color: '#9DAAC0' },
-  { key: 'EXEMPT', label: 'Not applicable', color: '#9DAAC0' },
+  { key: 'ABSENT', label: 'Absent', color: '#DC2626' },
+  { key: 'LEAVE', label: 'Leave', color: '#DC2626' },
+  { key: 'LWP', label: 'Unpaid leave', color: '#DC2626' },
+  { key: 'HOLIDAY', label: 'Holiday', color: '#CA8A04' },
+  { key: 'WEEKLY_OFF', label: 'Weekly off', color: '#64748B' },
+  { key: 'EXEMPT', label: 'Not applicable', color: '#64748B' },
 ];
 
 /** Personal record exploration. Summaries count canonical rows, never evaluate attendance policy. */

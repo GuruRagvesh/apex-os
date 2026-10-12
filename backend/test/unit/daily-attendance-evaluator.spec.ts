@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 // context resolver are mocked. No database.
 
 const DATE = '2026-08-20'; // a Thursday
-const ist = (hhmm: string) => new Date(`${DATE}T${hhmm}:00.000+05:30`);
+const ist = (time: string) => new Date(`${DATE}T${time.length === 5 ? `${time}:00` : time}.000+05:30`);
 
 const BASE_SOURCES = {
   assignedHolidayCalendarId: 'hc-1',
@@ -775,6 +775,17 @@ describe('staging 09:30-10:30 punch-in window and employee-relative span', () =>
     expect(result.lwpDeducted).toBe(0);
     expect(result.status).not.toBe('HALF_DAY');
     expect(result.status).not.toBe('ABSENT');
+  });
+
+  it('10:30:01 Punch In is late at the exact second boundary', async () => {
+    const result = await evaluateSpan('10:30:01', '19:30:01');
+
+    expect(result.lateMinutes).toBe(1);
+    expect(result.exceptionFlags).toContain('LATE_BEYOND_PUNCH_WINDOW');
+    expect(result.evaluationState).toBe('NEEDS_REVIEW');
+    expect(result.calculationReason).toBe('POLICY_DECISION_DEFERRED');
+    expect(result.leaveDeducted).toBe(0);
+    expect(result.lwpDeducted).toBe(0);
   });
 
   it('10:00 to 19:00 satisfies the 540-minute presence span', async () => {

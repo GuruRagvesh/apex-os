@@ -32,6 +32,7 @@ interface SettleFixtures {
   requestedDays?: number;
   otherApproved?: any[];
   compOffCredit?: any;
+  employeeRole?: string;
 }
 
 function settlementRig(f: SettleFixtures = {}) {
@@ -51,6 +52,9 @@ function settlementRig(f: SettleFixtures = {}) {
         updates.push(data);
         return Promise.resolve({ ...LEAVE, ...data });
       }),
+    },
+    user: {
+      findUnique: jest.fn().mockResolvedValue({ role: { name: f.employeeRole ?? 'EMPLOYEE' } }),
     },
   };
 
@@ -707,6 +711,22 @@ describe('LH-2 migration invents no history', () => {
     await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
     expect(balance.getYearlyAllocation).toHaveBeenCalledWith('emp-1', 2026, type);
     expect(tx.leaveRequest.findMany.mock.calls[0][0].where.type).toBe(type);
+  });
+
+  it('16a. intern settlement is capped at one Casual paid day in that request month', async () => {
+    const { service, balance, tx } = settlementRig({
+      leave: { ...LEAVE, type: 'CASUAL' },
+      employeeRole: 'INTERN',
+      requestedDays: 2,
+    });
+
+    const result = await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
+
+    expect(balance.getYearlyAllocation).not.toHaveBeenCalled();
+    expect(result.settlement).toMatchObject({ fundingOutcome: 'PARTIAL', paidDays: 1, unpaidDays: 1 });
+    const range = tx.leaveRequest.findMany.mock.calls[0][0].where.startDate;
+    expect(range.gte.toISOString().slice(0, 10)).toBe('2026-07-31');
+    expect(range.lte.toISOString().slice(0, 10)).toBe('2026-08-31');
   });
 
   it('17. COMP_OFF final approval atomically consumes one locked credit', async () => {

@@ -76,11 +76,18 @@ async function bootstrap() {
   const cloudinaryKeys = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
   const missingCloudinary = cloudinaryKeys.filter((k) => !process.env[k]);
   if (missingCloudinary.length) {
-    console.warn(
-      `⚠️  WARN: Attendance photo storage is not fully configured — missing ` +
-        `${missingCloudinary.join(', ')}. Punch photo capture will be refused. ` +
-        `Check /health -> attendancePhotoStorage.configured for the runtime answer.`,
-    );
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(
+        `⚠️  INFO: Cloudinary is not configured — private local attendance photo storage ` +
+          `is active for development. Missing: ${missingCloudinary.join(', ')}.`,
+      );
+    } else {
+      console.warn(
+        `⚠️  WARN: Attendance photo storage is not fully configured — missing ` +
+          `${missingCloudinary.join(', ')}. Punch photo capture will be refused. ` +
+          `Check /health -> attendancePhotoStorage.configured for the runtime answer.`,
+      );
+    }
   }
 
   // ── Start ─────────────────────────────────────────────────────────────────

@@ -83,13 +83,13 @@ describe('LeaveBalanceService', () => {
       expect(allocation).toBe(12);
     });
 
-    it('returns default value if role quota not found', async () => {
+    it('returns the 14-day annual default if role quota is not configured', async () => {
       mockPrisma.user.findUnique.mockResolvedValue({
         id: 'user1',
         role: { name: 'CONTRACTOR' },
       });
       const allocation = await service.getYearlyAllocation('user1');
-      expect(allocation).toBe(12);
+      expect(allocation).toBe(14);
     });
   });
 
