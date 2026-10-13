@@ -26,7 +26,7 @@ function clock(iso: string | null | undefined): string {
  * agree and no extra request is made.
  */
 export function WorkdayStatusBox() {
-  const { data, dataUpdatedAt } = useQuery({
+  const { data, dataUpdatedAt, isLoading, isError } = useQuery({
     queryKey: ['workday-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
     refetchInterval: 60000,
@@ -40,23 +40,25 @@ export function WorkdayStatusBox() {
 
   const session = (data as any)?.session;
   const status: string = session?.status ?? 'OFFLINE';
-  if (!session || ['OFFLINE', 'LOGGED_OUT', 'ON_LEAVE', 'LOGGED_IN', 'AUTO_CLOSED'].includes(status)) return null;
-
   const sinceFetch = dataUpdatedAt ? Math.max(0, (Date.now() - dataUpdatedAt) / 60000) : 0;
-  const worked = ((data as any)?.elapsedWorkMinutes ?? 0) + (status === 'WORKING' ? sinceFetch : 0);
+  const worked = ((data as any)?.elapsedWorkMinutes ?? session?.totalWorkMinutes ?? 0) + (status === 'WORKING' ? sinceFetch : 0);
   const breaks = ((data as any)?.totalBreakMinutes ?? session?.totalBreakMinutes ?? 0) + (status === 'ON_BREAK' ? sinceFetch : 0);
   const startedAt = (data as any)?.firstStartTime ?? session?.startWorkAt;
   const onBreak = status === 'ON_BREAK';
+  const statusLabel = isLoading ? 'Loading status' : isError ? 'Status unavailable' : ({
+    WORKING: 'Working', ON_BREAK: 'On break', IDLE: 'Paused', ON_LEAVE: 'On leave',
+    LOGGED_OUT: 'Day ended', LOGGED_IN: 'Ready to start', AUTO_CLOSED: 'Auto-closed', OFFLINE: 'Not started',
+  } as Record<string, string>)[status] ?? 'Not started';
 
   return (
     <div className="apex-hero-status" role="status" aria-label="Today's workday">
       <div className="flex items-center gap-2">
-        <span className={`apex-hero-status-dot ${onBreak ? 'is-break' : ''}`} aria-hidden="true" />
-        <span className="apex-hero-status-title">{onBreak ? 'On break' : 'Working'}</span>
-        <span className="apex-hero-status-value"><Timer size={13} aria-hidden="true" />{hm(worked)}</span>
+        <span className={`apex-hero-status-dot ${onBreak ? 'is-break' : status === 'WORKING' ? '' : 'is-inactive'}`} aria-hidden="true" />
+        <span className="apex-hero-status-title">{statusLabel}</span>
+        <span className="apex-hero-status-value"><Timer size={15} aria-hidden="true" />{isLoading || isError ? '—' : hm(worked)}</span>
       </div>
-      <div className="apex-hero-status-line"><Coffee size={12} aria-hidden="true" />Break <strong>{hm(breaks)}</strong></div>
-      <div className="apex-hero-status-line"><LogIn size={12} aria-hidden="true" />Punched in at <strong>{clock(startedAt)}</strong></div>
+      <div className="apex-hero-status-line"><Coffee size={14} aria-hidden="true" />Break <strong>{isLoading || isError ? '—' : hm(breaks)}</strong></div>
+      <div className="apex-hero-status-line"><LogIn size={14} aria-hidden="true" />{startedAt ? <>Punched in at <strong>{clock(startedAt)}</strong></> : 'No punch-in today'}</div>
     </div>
   );
 }

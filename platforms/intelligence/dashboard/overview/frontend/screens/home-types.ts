@@ -14,7 +14,7 @@ export type HomeExperience = {
   team: {
     detailed: boolean;
     attentionCount: number;
-    rows: { id: string; name: string; status: string; active: number | null; overdue: number | null; productiveMinutes: number | null; averageMinutes: number | null }[];
+    rows: { id: string; name: string; status: string; active: number | null; completed: number | null; overdue: number | null; productiveMinutes: number | null; averageMinutes: number | null }[];
   };
   projects: {
     id: string; code: string; name: string; endDate: string | null; lead: string | null;
@@ -31,9 +31,9 @@ export type HomeExperience = {
 };
 
 export type HomeWorkspace = {
-  notes: string;
+  notes: string[];
   checklist: { id: string; text: string; done: boolean }[];
-  shortcuts: Partial<Record<'mail' | 'teams' | 'drive', string>>;
+  essentials: { id: string; label: string; url: string }[];
   updatedAt: string | null;
 };
 

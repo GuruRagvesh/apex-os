@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Coffee, LogIn, Timer } from 'lucide-react';
 import { BreakModal } from './BreakModal';
 import { EndDayModal } from './EndDayModal';
 import { AutoCloseConsentModal } from './AutoCloseConsentModal';
@@ -30,7 +30,11 @@ function formatMinutes(minutes: number) {
   return `${m}m`;
 }
 
-export function WorkdayBar() {
+/**
+ * The hero variant keeps the workday state and its primary action together.
+ * Other surfaces retain the compact, task-oriented bar they already use.
+ */
+export function WorkdayBar({ hero = false }: { hero?: boolean }) {
   const [showBreakModal, setShowBreakModal] = useState(false);
   const [showEndModal, setShowEndModal] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -214,6 +218,27 @@ export function WorkdayBar() {
   ) : null;
 
   const dotCls = `w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[status] ?? 'bg-gray-400'}`;
+  const workdayLabel = ({
+    WORKING: 'Working', ON_BREAK: 'On break', IDLE: 'Paused', ON_LEAVE: 'On leave',
+    LOGGED_OUT: 'Day ended', LOGGED_IN: 'Ready to start', AUTO_CLOSED: 'Auto-closed', OFFLINE: 'Not started',
+  } as Record<string, string>)[status] ?? 'Not started';
+  const punchInLabel = startWorkAt
+    ? `Punched in ${new Date(startWorkAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    : 'No punch-in today';
+  const heroSummary = hero ? (
+    <div className="apex-hero-workday-summary" role="status" aria-label="Today's workday">
+      <div className="apex-hero-workday-primary">
+        <span className={dotCls} aria-hidden="true" />
+        <div>
+          <span className="apex-hero-workday-eyebrow">Today’s workday</span>
+          <strong>{workdayLabel}</strong>
+        </div>
+      </div>
+      <span className="apex-hero-workday-metric"><Timer size={15} aria-hidden="true" />{formatMinutes(elapsed)}</span>
+      <span className="apex-hero-workday-metric"><Coffee size={15} aria-hidden="true" />Break {formatMinutes(liveTotalBreakMinutes)}</span>
+      <span className="apex-hero-workday-punch"><LogIn size={15} aria-hidden="true" />{punchInLabel}</span>
+    </div>
+  ) : null;
 
   // ── Stale session: session from a previous day never closed ──────────────────
   if (isStaleSession) {
@@ -336,18 +361,20 @@ export function WorkdayBar() {
   if (!session || status === 'OFFLINE') {
     return (
       <>
-        <div className="flex items-center justify-between bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className={dotCls} />
-            <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Not started</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">Click to begin your workday</p>
+        <div className={hero ? 'apex-hero-workday-bar' : 'flex items-center justify-between bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4 shadow-sm'}>
+          {hero ? heroSummary : (
+            <div className="flex items-center gap-2">
+              <span className={dotCls} />
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Not started</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Click to begin your workday</p>
+              </div>
             </div>
-          </div>
+          )}
           <button
             onClick={handleStartWork}
             disabled={loading === 'start'}
-            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-action' : 'flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50'}
           >
             {loading === 'start' ? 'Starting...' : 'Start Work'}
           </button>
@@ -360,18 +387,20 @@ export function WorkdayBar() {
   if (status === 'LOGGED_IN') {
     return (
       <>
-        <div className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4">
-          <div className="flex items-center gap-2">
-            <span className={dotCls} />
-            <div>
-              <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Ready to start</p>
-              <p className="text-xs text-yellow-600 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
+        <div className={hero ? 'apex-hero-workday-bar' : 'flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4'}>
+          {hero ? heroSummary : (
+            <div className="flex items-center gap-2">
+              <span className={dotCls} />
+              <div>
+                <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Ready to start</p>
+                <p className="text-xs text-yellow-600 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
+              </div>
             </div>
-          </div>
+          )}
           <button
             onClick={handleStartWork}
             disabled={loading === 'start'}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-action' : 'px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50'}
           >
             {loading === 'start' ? 'Starting...' : 'Start Work'}
           </button>
@@ -388,24 +417,26 @@ export function WorkdayBar() {
     const plannedMins = openBreak?.estimatedMinutes ?? null;
     return (
       <>
-        <div className="flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl px-4 py-3 mb-4">
-          <div className="flex items-center gap-2">
-            <span className={dotCls} />
-            <div>
-              <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
-                On Break{breakTypeLabel ? ` · ${breakTypeLabel}` : ''}
-              </p>
-              <p className="text-xs text-orange-500 dark:text-orange-400">
-                {breakElapsed > 0 ? `${breakElapsed} min so far` : 'Just started'}
-                {plannedMins && ` · ${plannedMins} min planned`}
-                {elapsed > 0 && ` · ${formatMinutes(elapsed)} worked today`}
-              </p>
+        <div className={hero ? 'apex-hero-workday-bar' : 'flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl px-4 py-3 mb-4'}>
+          {hero ? heroSummary : (
+            <div className="flex items-center gap-2">
+              <span className={dotCls} />
+              <div>
+                <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                  On Break{breakTypeLabel ? ` · ${breakTypeLabel}` : ''}
+                </p>
+                <p className="text-xs text-orange-500 dark:text-orange-400">
+                  {breakElapsed > 0 ? `${breakElapsed} min so far` : 'Just started'}
+                  {plannedMins && ` · ${plannedMins} min planned`}
+                  {elapsed > 0 && ` · ${formatMinutes(elapsed)} worked today`}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
           <button
             onClick={handleEndBreak}
             disabled={loading === 'endBreak'}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-action' : 'px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50'}
           >
             {loading === 'endBreak' ? 'Resuming...' : 'Resume Work'}
           </button>
@@ -462,19 +493,20 @@ export function WorkdayBar() {
   // WORKING state
   return (
     <>
-      <div className="flex items-center justify-end bg-white dark:bg-gray-900 border border-green-200 dark:border-green-800 rounded-xl px-4 py-3 mb-4 shadow-sm">
+      <div className={hero ? 'apex-hero-workday-bar' : 'flex items-center justify-end bg-white dark:bg-gray-900 border border-green-200 dark:border-green-800 rounded-xl px-4 py-3 mb-4 shadow-sm'}>
+        {hero && heroSummary}
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowBreakModal(true)}
             disabled={!!loading}
-            className="px-3 py-1.5 text-sm font-medium border border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-secondary' : 'px-3 py-1.5 text-sm font-medium border border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors disabled:opacity-50'}
           >
             Break
           </button>
           <button
             onClick={openEndDay}
             disabled={!!loading}
-            className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-secondary' : 'px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50'}
           >
             End Day
           </button>

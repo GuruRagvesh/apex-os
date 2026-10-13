@@ -29,12 +29,13 @@ const DURATIONS = [
 interface Props {
   onClose: () => void;
   onBreakStarted: () => void;
+  initialBreakType?: string;
 }
 
-export function BreakModal({ onClose, onBreakStarted }: Props) {
+export function BreakModal({ onClose, onBreakStarted, initialBreakType = '' }: Props) {
   const queryClient = useQueryClient();
   const { permission, isSupported, requestPermission } = useDesktopNotifications();
-  const [breakType, setBreakType] = useState('');
+  const [breakType, setBreakType] = useState(initialBreakType);
   const [duration, setDuration] = useState<number | null>(null);
   const [customDuration, setCustomDuration] = useState('');
   const [showCustomDuration, setShowCustomDuration] = useState(false);

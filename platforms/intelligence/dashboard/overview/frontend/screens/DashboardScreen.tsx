@@ -13,12 +13,11 @@ import { dashboardApi } from '../api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { HomeSkeleton } from '../components/HomeSkeleton';
 import { HeroKpis } from '../components/HeroKpis';
-import { WorkdayStatusBox } from '../components/WorkdayStatusBox';
 import { motion } from 'motion/react';
 import { AlertTriangle } from 'lucide-react';
 import type { HomeExperience } from './home-types';
 import { SmartAnnouncementsCarousel, type HomeCarouselData } from '../components/SmartAnnouncementsCarousel';
-import { WorkspaceSection } from './WorkspaceSection';
+import { HeroQuickActions } from './HeroQuickActions';
 import { TeamInsightsSection, ProjectInsightsSection } from './TeamProjectSections';
 import { OperationsRadar } from './OperationsRadar';
 
@@ -174,7 +173,7 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
   return (
     <div className="apex-fade-in" style={{ maxWidth: '1280px', margin: '0 auto', paddingBottom: 48 }}>
 
-      {/* ── HERO: greeting, workday status, Start Work and the four KPIs ── */}
+      {/* ── HERO: greeting, integrated workday controls and the KPI row ── */}
       <motion.section
         ref={heroRef}
         initial={{ opacity: 0, y: -15, scale: 0.99 }}
@@ -197,11 +196,11 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
                 {roleGuidance}
               </p>
             </div>
-            <WorkdayStatusBox />
+            {user?.id && <HeroQuickActions userId={user.id} />}
           </div>
 
           <div className="apex-hero-workday">
-            <WorkdayBar />
+            <WorkdayBar hero />
           </div>
 
           <HeroKpis isLead={isLeadOrAbove} userId={user?.id} role={role} />
@@ -239,7 +238,6 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
       )}
 
       {user?.id && <div className="mt-6 space-y-5">
-        <WorkspaceSection userId={user.id} />
         {experience && <>
           <TeamInsightsSection team={experience.team} />
           <ProjectInsightsSection projects={experience.projects} />

@@ -45,8 +45,21 @@ export const dashboardApi = {
   updateHomeWorkspace: (data: any) => r(api.put('/home/workspace', data)),
 };
 
-/** GET /home/kpis — mirrors HomeInsightsService.getKpis. Null means "not applicable to this role". */
+export interface HomeKpiScope {
+  openTickets: number;
+  inProgressTickets: number;
+  underReviewTickets: number;
+  pendingTicketApprovals: number;
+  activeProjects: number;
+  /** Own pending leave requests in My scope; actionable approvals in scoped mode. */
+  leaveApprovals: number;
+}
+
+/** GET /home/kpis — all six hero figures use either My or one authorized shared scope. */
 export interface HomeKpis {
+  mine: HomeKpiScope;
+  scoped: HomeKpiScope | null;
+  /** Legacy fields retained while any older clients are deployed. */
   activeTickets: { mine: number; team: number | null };
   activeProjects: number;
   pendingTicketApprovals: number | null;

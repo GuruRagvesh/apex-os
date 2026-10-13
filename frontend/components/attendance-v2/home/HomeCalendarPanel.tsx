@@ -6,18 +6,18 @@ import Link from 'next/link';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import {
-  ArrowDownRight, ArrowRight, ArrowUpRight, Award, CalendarCheck, CalendarDays, ChevronDown,
-  ChevronLeft, ChevronRight, Flame, Gauge, Minus, PencilLine, Sparkles, Star, Ticket, Timer, X,
+  ArrowDownRight, ArrowRight, ArrowUpRight, CalendarCheck, CalendarDays, ChevronDown,
+  ChevronLeft, ChevronRight, Flame, Gauge, LogIn, LogOut, Minus, PencilLine, Sparkles, Star, Ticket, Timer, X,
 } from 'lucide-react';
 import { getMyAttendanceV2, type MyAttendanceDayV2 } from '../my-attendance-v2-api';
 import { getMyPunchEvidence, type OwnPunchEvidence } from '../../attendance/punch-api';
-import { getMyLeaveBalance, LEAVE_TYPE_LABEL, type PersonalLeaveType } from '../../attendance/leave-balance-api';
+import { getMyLeaveBalance, type PersonalLeaveType } from '../../attendance/leave-balance-api';
 import { monthLabel, presentDay, formatTime } from '../status-presentation';
 import { CorrectionDialog } from '../CorrectionDialog';
 import { getHomeProductivity, type HomeProductivityDay } from './home-insights-api';
 import { TinyPunchPhoto } from './TinyPunchPhoto';
 import {
-  addDays, attendanceStreak, attendanceWeek, datesBetween, hoursLabel, monthOf,
+  addDays, attendanceStreak, attendanceWeek, clockLabel, datesBetween, hoursLabel, monthOf,
   hasActivity, pickWeek, productiveDays, productivityWeek, rangeLabel, shiftMonth,
   type WeekWindow,
 } from './home-week';
@@ -349,7 +349,26 @@ function weekName(week: WeekWindow) {
   return week.kind === 'this' ? 'This week' : 'Last week';
 }
 
-function HomeLeaveBalance() {
+function KpiScoreMetric({ label, value, icon, detail, full = false }: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  detail?: string;
+  full?: boolean;
+}) {
+  return (
+    <article className={`${s.kpiScoreMetric} ${full ? s.kpiScoreMetricFull : ''}`}>
+      <span className={s.kpiScoreMetricIcon} aria-hidden="true">{icon}</span>
+      <div className={s.kpiScoreMetricCopy}>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        {detail && <small>{detail}</small>}
+      </div>
+    </article>
+  );
+}
+
+function AttendanceKpiScore({ current, streak }: { current: ReturnType<typeof attendanceWeek>; streak: number }) {
   const role = useAuthStore((state) => state.user?.role?.name);
   const isIntern = role === 'INTERN';
   const casual = useQuery({
@@ -365,81 +384,41 @@ function HomeLeaveBalance() {
     staleTime: 300_000,
     retry: false,
   });
+  const queries = isIntern ? [casual] : [casual, emergency];
+  const loaded = queries.every((query) => query.isSuccess);
+  const unavailable = queries.some((query) => query.isError);
+  const balance = loaded
+    ? queries.reduce((total, query) => total + (query.data?.balance ?? 0), 0)
+    : null;
+  const level = Math.max(1, Math.ceil(Math.max(1, streak) / 5));
+  const nextLevelAt = level * 5 + 5;
+  const daysToNextLevel = Math.max(0, nextLevelAt - streak);
+
   return (
-    <section className={`${s.card} ${s.leaveBalance}`} aria-label="Leave balance">
-      <h2>Leave balance</h2>
-      <div className={s.leaveGrid} data-single={isIntern || undefined}>
-        <LeaveBalanceRing type="CASUAL" label={isIntern ? 'Paid Leave' : undefined} query={casual} tone="#2566C4" />
-        {!isIntern && <LeaveBalanceRing type="EMERGENCY" query={emergency} tone="#F59E0B" />}
+    <section className={`${s.card} ${s.kpiScore}`} aria-label="KPI score">
+      <header className={s.kpiScoreHead}>
+        <div><h2>KPI score</h2><p>Your work rhythm at a glance</p></div>
+        <span className={s.kpiIcon} aria-hidden="true"><Gauge size={16} /></span>
+      </header>
+      <div className={s.kpiScoreGrid}>
+        <KpiScoreMetric label="Avg working hours" value={hoursLabel(current.avgWorkMinutes)} icon={<Timer size={15} />} detail="Daily average" />
+        <KpiScoreMetric label="Avg punch in" value={clockLabel(current.avgPunchInMinutes)} icon={<LogIn size={15} />} detail="Working days" />
+        <KpiScoreMetric label="Avg punch out" value={clockLabel(current.avgPunchOutMinutes)} icon={<LogOut size={15} />} detail="Completed days" />
+        <KpiScoreMetric label="Leave balance" value={balance == null ? '—' : `${balance} day${balance === 1 ? '' : 's'}`} icon={<CalendarDays size={15} />} detail={unavailable ? 'Unavailable' : loaded ? 'Available leave' : 'Loading…'} />
+        <KpiScoreMetric label="Consistency streak" value={`${streak} day${streak === 1 ? '' : 's'}`} icon={<Flame size={15} />} detail={`Level ${level}${daysToNextLevel ? ` · ${daysToNextLevel} to next badge` : ' · Badge unlocked'}`} full />
       </div>
     </section>
   );
 }
 
-function LeaveBalanceRing({ type, label, query, tone }: {
-  type: PersonalLeaveType;
-  label?: string;
-  query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof getMyLeaveBalance>>>>;
-  tone: string;
-}) {
-  const data = query.data;
-  const allocation = data?.allocation ?? null;
-  const used = data?.approved ?? null;
-  const percent = allocation !== null && allocation > 0 && used !== null ? Math.min(100, Math.max(0, Math.round((used / allocation) * 100))) : null;
-  return (
-    <article className={s.leaveRingCard}>
-      {query.isPending ? <p className={s.leaveUnavailable}>Loading…</p> : query.isError ? <p className={s.leaveUnavailable}>Unavailable</p> : (
-        <>
-          <div className={s.leaveRing} style={{ background: `conic-gradient(${tone} ${percent ?? 0}%, #E8F0FA 0)` }}>
-            <div><strong>{used ?? '—'}</strong><span>used</span></div>
-          </div>
-          <h3>{label ?? LEAVE_TYPE_LABEL[type]}</h3>
-          <p><strong>{used ?? '—'}</strong> used of <strong>{allocation ?? '—'}</strong> allocated</p>
-        </>
-      )}
-    </article>
-  );
-}
-
 function AttendanceSide({ today, week, byDate }: { today: string; week: WeekWindow; byDate: Map<string, MyAttendanceDayV2> }) {
   const current = attendanceWeek(week.start, week.end, byDate);
-  const previous = attendanceWeek(week.previousStart, week.previousEnd, byDate);
   const earliest = Array.from(byDate.keys()).sort()[0] ?? today;
   const streak = attendanceStreak(today, byDate, earliest);
-  const allOnTime = current.daysWorked > 0 && current.onTimeFullDays === current.daysWorked;
-
-  const diff = current.daysWorked && previous.daysWorked ? current.totalWorkMinutes - previous.totalWorkMinutes : null;
-  const headline = current.daysWorked === 0
-    ? `No attendance recorded for ${weekName(week).toLowerCase()} yet.`
-    : diff == null
-    ? `${weekName(week)} you worked ${hoursLabel(current.totalWorkMinutes)} across ${current.daysWorked} day${current.daysWorked === 1 ? '' : 's'}.`
-    : Math.abs(diff) < 15
-      ? `${weekName(week)} you worked about the same hours as the week before (${hoursLabel(current.totalWorkMinutes)}).`
-      : `${weekName(week)} you worked ${hoursLabel(Math.abs(diff))} ${diff > 0 ? 'more' : 'less'} than the week before.`;
-  const nudge = allOnTime
-    ? `Congratulations: every day you came in within flexi time and completed your full hours.`
-    : current.daysWorked === 0
-      ? 'Your weekly summary and streak appear here once you punch in.'
-      : `${current.onTimeFullDays} of ${current.daysWorked} days were on time with full hours. Aim for all of them next week.`;
 
   return (
     <aside className={s.side} aria-label={`${weekName(week)} attendance`}>
-      <KpiCard label={`Avg working hours · ${weekName(week)}`} value={hoursLabel(current.avgWorkMinutes)} sub={rangeLabel(week.start, week.end)} icon={<Timer size={16} />}>
-        <Delta now={current.avgWorkMinutes} before={previous.avgWorkMinutes} />
-      </KpiCard>
-      <HomeLeaveBalance />
-      <div className={`${s.card} ${s.summary}`}>
-        <div className={s.kpiHead} style={{ marginBottom: 8 }}>
-          <span className={s.kpiLabel}>Weekly summary</span>
-          <span className={s.kpiIcon} aria-hidden="true"><Sparkles size={16} /></span>
-        </div>
-        <p>{headline}</p>
-        <small>{nudge}</small>
-        <div className={s.badgeRow}>
-          <span className={s.badge}><Flame size={12} aria-hidden="true" />{streak}-day streak</span>
-          {allOnTime && <span className={s.badge}><Award size={12} aria-hidden="true" />Full week on time</span>}
-        </div>
-      </div>
+      <AttendanceKpiScore current={current} streak={streak} />
     </aside>
   );
 }

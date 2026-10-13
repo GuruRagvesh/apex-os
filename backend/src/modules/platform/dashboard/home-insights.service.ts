@@ -6,9 +6,8 @@ import { LeaveAccessService } from '../../../common/services/leave-access.servic
 import { TVAService } from '../../../common/services/tva.service';
 import { addDays } from '../analytics/analytics-period';
 import { DashboardService } from './dashboard.service';
+import { LeaveService } from '../../operations/leave/leave.service';
 
-/** Statuses that count as "active" work on the Home hero. */
-const ACTIVE_STATUSES = [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.REVIEW];
 const DONE_STATUSES = [TicketStatus.DONE, TicketStatus.CLOSED];
 const LEAD_ROLES = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 /** Two months plus a week covers a calendar month and the week before it. */
@@ -40,6 +39,7 @@ export class HomeInsightsService {
     private leaveAccess: LeaveAccessService,
     private tva: TVAService,
     private dashboard: DashboardService,
+    private leaveService: LeaveService,
   ) {}
 
   private andWhere(...clauses: any[]): any {
@@ -59,38 +59,62 @@ export class HomeInsightsService {
     const isLead = LEAD_ROLES.includes(roleName);
     const ticketScope = await this.ticketAccess.buildTicketWhereForUser({}, user);
     const projectScope = await this.dashboard.buildProjectScope(user);
-    const active = { status: { in: ACTIVE_STATUSES } };
+    const mine = this.mine(user.id);
+    const ownProjectScope = { members: { some: { userId: user.id } } };
+    const leaveScope = isLead ? await this.leaveAccess.buildLeaveWhereForUser({}, user) : null;
 
-    const [myActive, teamActive, activeProjects, myInReview] = await Promise.all([
-      this.prisma.ticket.count({ where: this.andWhere(this.mine(user.id), active) }),
-      isLead ? this.prisma.ticket.count({ where: this.andWhere(ticketScope, active) }) : Promise.resolve(null),
-      this.prisma.project.count({ where: this.andWhere(projectScope, { status: 'ACTIVE' }) }),
-      this.prisma.ticket.count({ where: this.andWhere(this.mine(user.id), { status: TicketStatus.REVIEW }) }),
+    const [
+      mineOpen, mineInProgress, mineInReview, minePendingTicketApproval, mineActiveProjects, minePendingLeave,
+      scopeOpen, scopeInProgress, scopeInReview, scopePendingTicketApproval, scopeActiveProjects, pendingLeaveCandidates,
+    ] = await Promise.all([
+      this.prisma.ticket.count({ where: this.andWhere(mine, { status: TicketStatus.OPEN }) }),
+      this.prisma.ticket.count({ where: this.andWhere(mine, { status: TicketStatus.IN_PROGRESS }) }),
+      this.prisma.ticket.count({ where: this.andWhere(mine, { status: TicketStatus.REVIEW }) }),
+      this.prisma.ticket.count({ where: this.andWhere(mine, { status: TicketStatus.PENDING_APPROVAL, approvalState: 'PENDING' }) }),
+      this.prisma.project.count({ where: this.andWhere(ownProjectScope, { status: 'ACTIVE' }) }),
+      this.prisma.leaveRequest.count({ where: { userId: user.id, status: LeaveStatus.PENDING } }),
+      isLead ? this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.OPEN }) }) : Promise.resolve(null),
+      isLead ? this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.IN_PROGRESS }) }) : Promise.resolve(null),
+      isLead ? this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.REVIEW }) }) : Promise.resolve(null),
+      // A pending task is actionable only for its recorded approver. This is
+      // the same queue exposed by TicketsService.getPendingApprovals().
+      isLead ? this.prisma.ticket.count({ where: { approverId: user.id, status: TicketStatus.PENDING_APPROVAL, approvalState: 'PENDING' } }) : Promise.resolve(null),
+      isLead ? this.prisma.project.count({ where: this.andWhere(projectScope, { status: 'ACTIVE' }) }) : Promise.resolve(null),
+      isLead ? this.prisma.leaveRequest.findMany({
+        where: this.andWhere(leaveScope!, { status: LeaveStatus.PENDING, NOT: { userId: user.id } }),
+        include: { user: { include: { role: true, department: true } } },
+      }) : Promise.resolve([]),
     ]);
+    const scopeLeaveApprovals = isLead
+      ? (await Promise.all(pendingLeaveCandidates.map(async (leave) => this.leaveService.viewerCanApprove(user, leave)))).filter(Boolean).length
+      : null;
+    const mineKpis = {
+      openTickets: mineOpen,
+      inProgressTickets: mineInProgress,
+      underReviewTickets: mineInReview,
+      pendingTicketApprovals: minePendingTicketApproval,
+      activeProjects: mineActiveProjects,
+      leaveApprovals: minePendingLeave,
+    };
+    const scopedKpis = isLead ? {
+      openTickets: scopeOpen!,
+      inProgressTickets: scopeInProgress!,
+      underReviewTickets: scopeInReview!,
+      pendingTicketApprovals: scopePendingTicketApproval!,
+      activeProjects: scopeActiveProjects!,
+      leaveApprovals: scopeLeaveApprovals!,
+    } : null;
 
-    let pendingTicketApprovals: number | null = null;
-    let pendingLeaveApprovals: number | null = null;
-    if (isLead) {
-      // Same rule as the REVIEW_PENDING alert: QUERY tickets are approved by
-      // their creator only, so a visible QUERY someone else raised is excluded.
-      pendingTicketApprovals = await this.prisma.ticket.count({
-        where: this.andWhere(ticketScope, {
-          status: TicketStatus.REVIEW,
-          OR: [{ NOT: { type: 'QUERY' } }, { type: 'QUERY', createdById: user.id }],
-        }),
-      });
-      const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
-      pendingLeaveApprovals = await this.prisma.leaveRequest.count({
-        where: this.andWhere(leaveScope, { status: LeaveStatus.PENDING, NOT: { userId: user.id } }),
-      });
-    }
-
+    // Keep the former fields during the UI transition; HeroKpis reads the
+    // structured pair above so all six cards always use one shared scope.
     return {
-      activeTickets: { mine: myActive, team: teamActive },
-      activeProjects,
-      pendingTicketApprovals,
-      pendingLeaveApprovals,
-      myInReview,
+      mine: mineKpis,
+      scoped: scopedKpis,
+      activeTickets: { mine: mineOpen + mineInProgress + mineInReview, team: scopedKpis ? scopedKpis.openTickets + scopedKpis.inProgressTickets + scopedKpis.underReviewTickets : null },
+      activeProjects: mineActiveProjects,
+      pendingTicketApprovals: scopedKpis?.underReviewTickets ?? null,
+      pendingLeaveApprovals: scopedKpis?.leaveApprovals ?? null,
+      myInReview: mineInReview,
     };
   }
 
