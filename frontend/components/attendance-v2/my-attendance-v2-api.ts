@@ -123,7 +123,8 @@ export interface FinancialYearV2 {
 export interface MyAttendanceOverviewV2 {
   today: MyAttendanceTodayV2;
   month: { year: number; month: number; days: MyAttendanceDayV2[] };
-  financialYear: FinancialYearV2;
+  /** Absent when the backend predates the financial-year overview; the yearly view is then not offered. */
+  financialYear?: FinancialYearV2;
 }
 
 export async function getMyAttendanceV2(month: string): Promise<MyAttendanceOverviewV2> {

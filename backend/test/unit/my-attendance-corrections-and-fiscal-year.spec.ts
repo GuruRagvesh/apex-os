@@ -5,6 +5,7 @@
  *   R1-R5   a recovered historical day is shown as stored, honestly, and never replaces a native day
  *   C1-C8   correction requests: future dates, stored values, review-only OTHER, duplicates, RBAC
  *   H1-H4   history includes former employees who have records; operational views do not
+ *   M1-M4   an older backend that sends no financial year does not break the page
  *   S1      the read surfaces write nothing
  */
 import * as fs from 'fs';
@@ -17,6 +18,7 @@ import { MyAttendanceV2Service } from '../../src/modules/platform/attendance/v2/
 import { RegularizationService } from '../../src/modules/platform/attendance/regularization/regularization.service';
 import { AttendanceConsoleService } from '../../src/modules/platform/attendance/console/attendance-console.service';
 import { makeRawSqlDouble } from '../helpers/raw-sql-double';
+import { usableFinancialYear } from '../../../frontend/components/attendance-v2/financial-year';
 
 const tva = () => new TVAService({ get: () => undefined } as unknown as ConfigService);
 
@@ -306,6 +308,35 @@ describe('H history includes former employees who have records', () => {
     await service.roster(HR, { businessDate: '2026-08-03' });
     expect(userFinds[0].where.AND[0].OR[0]).toEqual({ isActive: true });
     expect(userFinds[0].where.AND[0].OR[1].dailyAttendanceRecords).toBeDefined();
+  });
+});
+
+// ── M: backward compatibility with a backend that predates the financial year ──────────────────────────────────
+
+describe('M missing financialYear from an older backend', () => {
+  const real = financialYearV2(2026, 4);
+
+  it('M1. a missing, null or non-object value means no yearly view (nothing is invented)', () => {
+    for (const value of [undefined, null, 'FY 2026-27', 7, []]) expect(usableFinancialYear(value)).toBeNull();
+  });
+
+  it('M2. an incomplete or malformed year is refused rather than repaired', () => {
+    const { months, ...noMonths } = real;
+    for (const bad of [{}, noMonths, { ...real, months: [] }, { ...real, months: ['2026-4'] }, { ...real, months: ['2026-13'] }, { ...real, startMonth: 13 }, { ...real, startYear: '2026' }, { ...real, label: '' }]) {
+      expect(usableFinancialYear(bad)).toBeNull();
+    }
+  });
+
+  it('M3. the real backend year is returned unchanged, so the backend stays the source of truth', () => {
+    expect(usableFinancialYear(real)).toBe(real);
+    expect(usableFinancialYear(real)?.months[0]).toBe('2026-04');
+  });
+
+  it('M4. the page reads the year only through the guard, never straight off the response', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../../../frontend/components/attendance-v2/MyAttendanceInsights.tsx'), 'utf8');
+    expect(src).toContain('usableFinancialYear(overview.financialYear)');
+    expect(src.match(/overview\.financialYear\./)).toBeNull();
+    expect(fs.readFileSync(path.join(__dirname, '../../../frontend/components/attendance-v2/my-attendance-v2-api.ts'), 'utf8')).toMatch(/financialYear\?: FinancialYearV2/);
   });
 });
 
