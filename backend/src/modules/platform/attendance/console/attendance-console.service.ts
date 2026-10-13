@@ -210,6 +210,39 @@ export class AttendanceConsoleService {
     return out;
   }
 
+  /**
+   * Who appears on a report for a period.
+   *
+   * TODAY and anything after it is an OPERATIONAL view: only active people are expected to be here.
+   * A period that has begun (a month register, a past day) is HISTORY: an employee who has since left still has a real record for those days, and
+   * hiding them would silently drop attendance (and its payroll weight) from the report. So history includes
+   * active people AND anyone who holds a stored attendance row in the period. Nobody is reactivated and
+   * nothing is written; this only widens what a read returns.
+   */
+  private peopleFilter(from: string, to: string, companyToday: string): any {
+    if (from >= companyToday) return { isActive: true };
+    // Wrapped in AND so it composes with the scope's top-level filters without ever sharing a key with them.
+    return {
+      AND: [
+        {
+          OR: [
+            { isActive: true },
+            {
+              dailyAttendanceRecords: {
+                some: {
+                  date: {
+                    gte: this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`)),
+                    lte: this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`)),
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
   private scopeWhere(scope: ConsoleScope, extra: any = {}) {
     return scope.userIds === null ? extra : { ...extra, userId: { in: scope.userIds } };
   }
@@ -234,7 +267,7 @@ export class AttendanceConsoleService {
 
     const [employees, records, pendingRegularizations] = await Promise.all([
       this.prisma.user.findMany({
-        where: this.scopeWhere(scope, { isActive: true }, ),
+        where: this.scopeWhere(scope, this.peopleFilter(date, date, this.tva.companyToday())),
         select: { id: true },
       }),
       this.prisma.dailyAttendance.findMany({
@@ -338,7 +371,7 @@ export class AttendanceConsoleService {
     const page = Math.max(1, filters.page ?? 1);
     const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
 
-    const userWhere: any = { isActive: true };
+    const userWhere: any = this.peopleFilter(date, date, this.tva.companyToday());
     if (scope.userIds !== null) userWhere.id = { in: scope.userIds };
     if (filters.departmentId) userWhere.departmentId = filters.departmentId;
     if (filters.employeeId) userWhere.id = filters.employeeId;
@@ -624,13 +657,13 @@ export class AttendanceConsoleService {
     }
 
     const scope = this.assertEligible(await this.resolveScope(actor));
-    const userWhere: any = { isActive: true };
+    const userWhere: any = this.peopleFilter(from, to, today);
     if (scope.userIds !== null) userWhere.id = { in: scope.userIds };
     if (filters.departmentId) userWhere.departmentId = filters.departmentId;
 
     const employees = await this.prisma.user.findMany({
       where: userWhere,
-      select: { id: true, name: true, employeeId: true, department: { select: { id: true, name: true } } },
+      select: { id: true, name: true, employeeId: true, isActive: true, department: { select: { id: true, name: true } } },
       orderBy: { name: 'asc' },
     });
 
@@ -771,6 +804,8 @@ export class AttendanceConsoleService {
         userId: e.id,
         name: e.name,
         employeeId: e.employeeId,
+        // A former employee shown for the days they worked. Reports mark them; they are not reactivated.
+        isActive: e.isActive,
         department: e.department?.name ?? null,
 
         // ── The seven register figures ──

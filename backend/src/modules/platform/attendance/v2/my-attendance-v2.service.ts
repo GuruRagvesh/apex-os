@@ -3,8 +3,13 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { DailyAttendanceEvaluatorService } from '../evaluation/daily-attendance-evaluator.service';
 import {
+  HISTORICAL_RECOVERY_REASON,
+  financialYearV2,
+  type FinancialYearV2,
   mapDay,
+  mapRecoveredDay,
   mapToday,
+  type StoredRecoveredDay,
   type MyAttendanceDayV2,
   type MyAttendanceMonthV2,
   type MyAttendanceTodayV2,
@@ -42,7 +47,7 @@ export class MyAttendanceV2Service {
   async overview(
     userId: string,
     month: string,
-  ): Promise<{ today: MyAttendanceTodayV2; month: MyAttendanceMonthV2 }> {
+  ): Promise<{ today: MyAttendanceTodayV2; month: MyAttendanceMonthV2; financialYear: FinancialYearV2 }> {
     const companyToday = this.tva.companyToday();
     const [year, monthNumber] = month.split('-').map(Number);
 
@@ -51,7 +56,15 @@ export class MyAttendanceV2Service {
       this.monthDays(userId, month, companyToday),
     ]);
 
-    return { today, month: { year, month: monthNumber, days } };
+    // The financial year the requested month belongs to, from the ONE company
+    // definition (TVAService, April start by default). The screen builds its
+    // yearly view from these months and never works out a year of its own.
+    const fy = this.tva.financialYear(new Date(`${month}-01T12:00:00.000Z`));
+    return {
+      today,
+      month: { year, month: monthNumber, days },
+      financialYear: financialYearV2(fy.startYear, this.tva.financialYearStartMonth()),
+    };
   }
 
   async today(userId: string, companyToday?: string): Promise<MyAttendanceTodayV2> {
@@ -82,6 +95,11 @@ export class MyAttendanceV2Service {
       return mapDay({ result: null, date, companyToday });
     }
 
+    // A recovered historical day is shown as stored: the live evaluator has no
+    // policy or profile for those dates and would answer NOT_EMPLOYED.
+    const recovered = (await this.recoveredDays(userId, date, date)).get(date);
+    if (recovered) return mapRecoveredDay(recovered, companyToday);
+
     const result = await this.evaluator.evaluate(userId, date);
     const sessions = await this.sessionFacts(userId, date, date);
 
@@ -92,6 +110,36 @@ export class MyAttendanceV2Service {
       anySessionAutoClosed: sessions.autoClosed.has(date),
       hasWorkEvidence: sessions.present.has(date),
     });
+  }
+
+  /**
+   * Recovered historical days (calculationReason HISTORICAL_RECOVERY_IMPORT) for
+   * one employee, keyed by yyyy-MM-dd. Read-only; nothing else is consulted, so
+   * a native day is never replaced by anything here.
+   */
+  private async recoveredDays(userId: string, from: string, to: string): Promise<Map<string, StoredRecoveredDay>> {
+    const rows = await this.prisma.dailyAttendance.findMany({
+      where: {
+        userId,
+        calculationReason: HISTORICAL_RECOVERY_REASON,
+        date: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T00:00:00.000Z`) },
+      },
+      select: { date: true, status: true, evaluationState: true, punchInAt: true, punchOutAt: true, workedMinutes: true, exceptionFlags: true },
+    });
+    const out = new Map<string, StoredRecoveredDay>();
+    for (const r of rows) {
+      const date = r.date.toISOString().slice(0, 10);
+      out.set(date, {
+        date,
+        status: r.status,
+        evaluationState: r.evaluationState,
+        punchInAt: r.punchInAt,
+        punchOutAt: r.punchOutAt,
+        workedMinutes: r.workedMinutes,
+        exceptionFlags: (r.exceptionFlags as string[]) ?? [],
+      });
+    }
+    return out;
   }
 
   /**
@@ -110,11 +158,17 @@ export class MyAttendanceV2Service {
     if (dates.length === 0) return [];
 
     const sessions = await this.sessionFacts(userId, dates[0], dates[dates.length - 1]);
+    const recovered = await this.recoveredDays(userId, dates[0], dates[dates.length - 1]);
 
     const days: MyAttendanceDayV2[] = [];
     for (const date of dates) {
       if (date > companyToday) {
         days.push(mapDay({ result: null, date, companyToday }));
+        continue;
+      }
+      const stored = recovered.get(date);
+      if (stored) {
+        days.push(mapRecoveredDay(stored, companyToday));
         continue;
       }
       // Sequential on purpose, matching the existing employee range route: each

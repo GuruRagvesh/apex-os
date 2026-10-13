@@ -49,6 +49,9 @@ const REQUEST_TYPES = [
   'FACE_EXCEPTION',
   'LATE_CORRECTION',
   'HALF_DAY_CORRECTION',
+  // Review-only: status / worked-hours / other concerns. Approval records the
+  // decision and never revises the official day (see approveAsHr).
+  'OTHER',
 ] as const;
 
 export interface CreateRegularizationInput {
@@ -143,6 +146,10 @@ export class RegularizationService {
     const screenshots = validateScreenshots(files);
     if (!(await this.enabled())) throw new RegularizationDisabledError();
     this.assertDate(input.businessDate);
+    // A day that has not happened has nothing to correct.
+    if (input.businessDate > this.tva.companyToday()) {
+      throw new BadRequestException('Attendance for a future date cannot be corrected');
+    }
 
     if (!REQUEST_TYPES.includes(input.requestType)) {
       throw new BadRequestException('Unknown correction type');
@@ -168,6 +175,15 @@ export class RegularizationService {
       where: { userId_date: { userId, date } },
     });
 
+    // A recovered historical day is a verified, locked fact from before the attendance policy existed. The
+    // ordinary evaluator cannot re-judge those dates, so a punch correction could not be applied to it (and
+    // must never be allowed to overwrite it). Such a day can still be raised for HR to review as OTHER.
+    if (official?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT' && input.requestType !== 'OTHER') {
+      throw new BadRequestException(
+        'This day is a recovered historical record. Choose "Other attendance issue" so HR can review it; a punch correction cannot be applied to it.',
+      );
+    }
+
     const created = await this.prisma.attendanceRegularization.create({
       data: {
         userId,
@@ -177,6 +193,10 @@ export class RegularizationService {
         requestedPunchIn: input.requestedPunchIn ? new Date(input.requestedPunchIn) : null,
         requestedPunchOut: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
         basedOnFingerprint: official?.sourceFingerprint ?? null,
+        // The stored values the employee is arguing against, kept on the request so
+        // a later reviewer can read "18:04 -> 18:31" without the live record.
+        originalPunchIn: official?.punchInAt ?? null,
+        originalPunchOut: official?.punchOutAt ?? null,
         status: 'PENDING',
         ...(screenshots.length ? { screenshots: { create: screenshots } } : {}),
       },
@@ -519,7 +539,10 @@ export class RegularizationService {
       // Staleness guard. A null captured fingerprint means there was no
       // official record to argue against yet, which is a legitimate starting
       // point and not a conflict.
+      // A review-only request (OTHER) rewrites nothing, so there is no newer
+      // official result it could overwrite.
       if (
+        row.requestType !== 'OTHER' &&
         row.basedOnFingerprint &&
         current?.sourceFingerprint &&
         row.basedOnFingerprint !== current.sourceFingerprint
@@ -528,6 +551,13 @@ export class RegularizationService {
       }
 
       const businessDate = this.tva.companyBusinessDate(row.date);
+
+      // Never let a punch correction rewrite a recovered historical day (see create()).
+      if (row.requestType !== 'OTHER' && current?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT') {
+        throw new ForbiddenException(
+          'This day is a recovered historical record; a punch correction cannot be applied to it. Reject this request and raise it as Other for review.',
+        );
+      }
 
       const approved = await tx.attendanceRegularization.update({
         where: { id },
@@ -540,12 +570,13 @@ export class RegularizationService {
 
       // Re-evaluated inside the same transaction, so the approval and the
       // revised official fact commit together or not at all.
-      const revision = await this.evaluator.reviseForApprovedCorrection(
-        tx,
-        row.userId,
-        businessDate,
-        id,
-      );
+      // OTHER is review-only: HR's approval is recorded, the official day is not
+      // touched. Whatever it concerns is then fixed through the ordinary,
+      // audited routes (a punch correction or a manual recovery).
+      const revision =
+        row.requestType === 'OTHER'
+          ? null
+          : await this.evaluator.reviseForApprovedCorrection(tx, row.userId, businessDate, id);
 
       return { approved, revision, businessDate };
     });
@@ -563,17 +594,19 @@ export class RegularizationService {
 
     // The official change is audited against the ATTENDANCE record, not just
     // the request, so a payroll dispute can be answered from either side.
-    this.eventLogger.log({
-      actorId: actor.id,
-      entityType: 'DailyAttendance',
-      entityId: revision.after.id,
-      action: OperationalAction.ATTENDANCE_OFFICIAL_REVISED,
-      fromState: revision.before?.status ?? 'NONE',
-      toState: revision.after.status,
-      metadata: { businessDate, regularizationId: id, revision: revision.after.revision },
-      beforeValue: this.auditSnapshot(revision.before),
-      afterValue: this.auditSnapshot(revision.after),
-    }).catch(() => {});
+    if (revision) {
+      this.eventLogger.log({
+        actorId: actor.id,
+        entityType: 'DailyAttendance',
+        entityId: revision.after.id,
+        action: OperationalAction.ATTENDANCE_OFFICIAL_REVISED,
+        fromState: revision.before?.status ?? 'NONE',
+        toState: revision.after.status,
+        metadata: { businessDate, regularizationId: id, revision: revision.after.revision },
+        beforeValue: this.auditSnapshot(revision.before),
+        afterValue: this.auditSnapshot(revision.after),
+      }).catch(() => {});
+    }
 
     return approved;
   }

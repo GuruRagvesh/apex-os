@@ -111,6 +111,8 @@ export type AttendanceCalculationReason =
   | 'POLICY_DECISION_DEFERRED'
   | 'CORRECTED_WORKDAY'
   | 'AMBIGUOUS_LEAVE'
+  // Stored by the historical recovery import; the evaluator itself never produces it.
+  | 'HISTORICAL_RECOVERY_IMPORT'
   // Non-classifications: attendance simply does not apply.
   | 'NOT_APPLICABLE_EXEMPT'
   | 'NOT_APPLICABLE_NOT_EMPLOYED'

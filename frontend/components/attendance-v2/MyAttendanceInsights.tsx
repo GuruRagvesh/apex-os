@@ -8,7 +8,7 @@ import { CalendarDays, CheckCircle2, Clock3, CircleAlert, ChevronRight, History,
 import { getMyAttendanceV2, type MyAttendanceDayV2, type MyAttendanceOverviewV2 } from './my-attendance-v2-api';
 import { getMyRegularizations, stageLabel, type Regularization } from '../attendance/regularization-api';
 import { exceptionCopy, monthLabel, presentDay } from './status-presentation';
-import { finalizedRecords, monthsInYear, reviewRecords } from './insights-presentation';
+import { adjacentFinancialYearMonth, finalizedRecords, financialYearTitle, monthsInFinancialYear, reviewRecords } from './insights-presentation';
 import { AttendanceTrend } from './AttendanceTrend';
 import s from './insights.module.css';
 
@@ -36,11 +36,13 @@ export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect,
 }) {
   const queryClient = useQueryClient();
   const [correctionsOpen, setCorrectionsOpen] = useState(false);
-  const year = month.slice(0, 4);
+  // The yearly view is the company FINANCIAL year (April to March) exactly as the backend defines it.
+  const fy = overview.financialYear;
   const companyDate = overview.today.date;
-  const yearMonths = monthsInYear(year, companyDate);
+  const yearMonths = monthsInFinancialYear(fy, companyDate);
+  const monthKeyLabel = (key: string) => monthLabel(Number(key.slice(0, 4)), Number(key.slice(5)));
   const annual = useQuery({
-    queryKey: ['my-attendance-v2-year-records', year, companyDate],
+    queryKey: ['my-attendance-v2-year-records', fy.label, companyDate],
     enabled: scope === 'year',
     staleTime: 60_000,
     retry: false,
@@ -81,8 +83,8 @@ export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect,
   const hasFinal = !loading && !incomplete && final.length > 0;
   const count = (outcome: string) => hasFinal ? final.filter(day => day.outcome === outcome).length : null;
   const late = hasFinal ? final.filter(day => day.modifiers.includes('LATE') || day.modifiers.includes('LATE_EXEMPTED')).length : null;
-  const rangeLabel = scope === 'month' ? monthLabel(overview.month.year, overview.month.month) : year + ' · Jan–' + monthLabel(Number(year), Number(yearMonths.at(-1)?.slice(5) ?? '12')).split(' ')[0].slice(0, 3);
-  const requestRows = corrections.data?.filter(row => row.date.startsWith(scope === 'year' ? year : month));
+  const rangeLabel = scope === 'month' ? monthLabel(overview.month.year, overview.month.month) : financialYearTitle(fy) + ' · ' + monthKeyLabel(yearMonths[0] ?? fy.months[0]) + ' – ' + monthKeyLabel(yearMonths.at(-1) ?? fy.months[0]);
+  const requestRows = corrections.data?.filter(row => scope === 'year' ? fy.months.includes(row.date.slice(0, 7)) : row.date.startsWith(month));
 
   return (
     <section className={s.dashboard} aria-label="Personal attendance dashboard">
@@ -95,8 +97,11 @@ export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect,
       <div className={s.periodLine}>
         <span><CalendarDays size={15} /><strong>{rangeLabel}</strong></span>
         {scope === 'month' ? <label className={s.periodInput}>Change month<input aria-label="Dashboard month" type="month" value={month} max={companyDate.slice(0, 7)} onChange={event => { if (event.target.value && event.target.value <= companyDate.slice(0, 7)) onMonthChange(event.target.value); }} /></label> :
-          <label className={s.periodInput}>Year<input aria-label="Dashboard year" type="number" min="1970" max={companyDate.slice(0, 4)} defaultValue={year} key={year}
-            onBlur={event => { const value = event.target.value; if (/^\d{4}$/.test(value) && value >= '1970' && value <= companyDate.slice(0, 4)) onMonthChange(value + (value === companyDate.slice(0, 4) ? companyDate.slice(4, 7) : '-12')); }} /></label>}
+          <span className={s.periodInput} aria-label="Financial year">
+            <button type="button" aria-label="Previous financial year" onClick={() => { const target = adjacentFinancialYearMonth(fy, -1, companyDate); if (target) onMonthChange(target); }}>‹</button>
+            <strong>{financialYearTitle(fy)}</strong>
+            <button type="button" aria-label="Next financial year" disabled={adjacentFinancialYearMonth(fy, 1, companyDate) === null} onClick={() => { const target = adjacentFinancialYearMonth(fy, 1, companyDate); if (target) onMonthChange(target); }}>›</button>
+          </span>}
       </div>
 
           {incomplete && <div className={s.notice} role="alert"><CircleAlert size={17} /><span>Some months could not be loaded. Period totals are unavailable; the chart shows only the records received.</span><button onClick={() => annual.refetch()}><RefreshCw size={14} />Retry</button></div>}
@@ -110,7 +115,7 @@ export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect,
             <>
               {scope === 'year' && <div className={s.yearGrid} aria-label="Year attendance months">
                 {periods.map(period => <button key={period.month} onClick={() => { onMonthChange(period.month); onScopeChange('month'); }}>
-                  <strong>{monthLabel(Number(year), Number(period.month.slice(5))).split(' ')[0].slice(0, 3)}</strong>
+                  <strong>{monthKeyLabel(period.month).split(' ')[0].slice(0, 3)}</strong>
                   <span>{period.data ? finalizedRecords(period.data.month.days).length + ' finalized' : 'Unavailable'}</span>
                   <div className={s.miniStrip}>{period.data?.month.days.filter(day => !day.isFuture).map(day => <i key={day.date} style={{ background: day.outcome ? presentDay(day).color : '#E9EEF6' }} />)}</div>
                 </button>)}

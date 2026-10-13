@@ -39,6 +39,7 @@ function build(over: any = {}) {
   const tva: any = {
     now: () => NOW,
     companyDateOnly: () => dateOnly,
+    companyToday: () => '2099-12-31',
     companyTimezone: () => 'Asia/Kolkata',
     companyBusinessDate: () => DATE,
   };

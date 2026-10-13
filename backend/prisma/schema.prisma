@@ -1873,6 +1873,9 @@ enum RegularizationRequestType {
   FACE_EXCEPTION
   LATE_CORRECTION
   HALF_DAY_CORRECTION
+  /// Review-only: a status, worked-hours or other attendance concern. Approving it
+  /// records the decision and never rewrites the official attendance day.
+  OTHER
 }
 
 enum RegularizationStatus {
