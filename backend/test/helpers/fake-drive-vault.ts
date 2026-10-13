@@ -20,6 +20,8 @@ export interface FakeDriveOptions {
   sharePublicly?: boolean;
   /** upload() throws. */
   failUpload?: boolean;
+  /** remove() throws. */
+  failRemove?: boolean;
 }
 
 const FOLDER = 'application/vnd.google-apps.folder';
@@ -157,9 +159,23 @@ export class FakeDriveVault implements ArchiveVault {
     return permissionProblem(await this.permissions(fileId), this.account_) === null;
   }
 
+  /** Like Drive: deleting a folder deletes everything inside it. */
   async remove(fileId: string) {
-    this.files.delete(fileId);
-    this.removed.push(fileId);
+    if (this.opts.failRemove) throw new Error('simulated delete failure');
+    const doomed = [fileId];
+    for (let i = 0; i < doomed.length; i++) {
+      for (const f of this.files.values()) if (f.info.parents.includes(doomed[i])) doomed.push(f.info.fileId);
+    }
+    for (const id of doomed) {
+      this.files.delete(id);
+      this.removed.push(id);
+    }
+  }
+
+  async setAppProperties(fileId: string, appProperties: Record<string, string>) {
+    const f = this.files.get(fileId);
+    if (!f) throw new Error('404');
+    f.info.appProperties = { ...f.info.appProperties, ...appProperties };
   }
 
   async createRoot() {

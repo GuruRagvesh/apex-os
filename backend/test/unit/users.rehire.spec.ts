@@ -8,7 +8,7 @@ import { UsersService } from '../../src/modules/core/users/users.service';
 
 const D = (s: string) => new Date(`${s}T00:00:00.000Z`);
 
-function fixture(over: { user?: any; profiles?: any[]; archivedAt?: Date | null } = {}) {
+function fixture(over: { user?: any; profiles?: any[]; archivedAt?: Date | null; snapshot?: any } = {}) {
   const user = {
     id: 'shruti',
     name: 'Shruti Deokule',
@@ -38,9 +38,15 @@ function fixture(over: { user?: any; profiles?: any[]; archivedAt?: Date | null 
       create: jest.fn().mockResolvedValue({ id: 'profile-new' }),
     },
     operationalEvent: { create: jest.fn().mockResolvedValue({}) },
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    userLifecycleOperation: { count: jest.fn().mockResolvedValue(0) },
+    userArchiveSnapshot: {
+      findFirst: jest.fn().mockResolvedValue(over.snapshot === undefined ? null : over.snapshot),
+      update: jest.fn().mockResolvedValue({}),
+    },
   };
   const prisma = {
-    user: { findUnique: jest.fn().mockResolvedValue(user) },
+    user: { findUnique: jest.fn().mockResolvedValue(user), findFirst: jest.fn().mockResolvedValue(null) },
     role: { findUnique: jest.fn().mockResolvedValue({ id: 'role-employee', name: 'EMPLOYEE' }) },
     operationalEvent: {
       findFirst: jest.fn().mockResolvedValue(
@@ -48,6 +54,7 @@ function fixture(over: { user?: any; profiles?: any[]; archivedAt?: Date | null 
       ),
     },
     $transaction: jest.fn(async (cb: any) => cb(tx)),
+    userLifecycleOperation: { create: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) },
   };
   const service = new UsersService(prisma as any, {} as any, { log: jest.fn().mockResolvedValue(undefined) } as any, {} as any, {} as any);
   return { service, prisma, tx, user };
@@ -131,14 +138,17 @@ describe('rehiring an inactive person', () => {
     expect(tx.operationalEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         entityId: 'shruti',
-        action: 'USER_REACTIVATED',
+        action: 'USER_REHIRED',
         fromState: 'INACTIVE',
         toState: 'ACTIVE',
-        metadata: expect.objectContaining({ rehire: true, previousJoiningDate: '2026-01-05', joiningDate: '2026-08-24', previousDepartmentId: 'dept-old' }),
+        metadata: expect.objectContaining({
+          rehire: true, previousJoiningDate: '2026-01-05', joiningDate: '2026-08-24', previousDepartmentId: 'dept-old',
+          reasonCode: 'USER_REHIRED', eventSchemaVersion: 1, operationId: expect.any(String),
+        }),
       }),
     });
-    // USER_REACTIVATED is a reactivation action, so the archived state clears.
-    expect(UsersService.REACTIVATE_ACTIONS).toContain('USER_REACTIVATED');
+    // Only the canonical event is written for a rehire.
+    expect(tx.operationalEvent.create.mock.calls.filter((c: any) => c[0].data.action === 'USER_REACTIVATED')).toHaveLength(0);
   });
 
   it('refuses a rehire date on or before the start of the previous profile, changing nothing', async () => {
@@ -185,5 +195,61 @@ describe('the rehire route', () => {
     const src: string = require('fs').readFileSync(require('path').resolve(__dirname, '../../src/modules/core/users/users.controller.ts'), 'utf8');
     const block = src.slice(src.indexOf("@Post(':id/rehire')"), src.indexOf('rehire(\n') > 0 ? src.indexOf('rehire(\n') : src.indexOf('rehire(\r\n'));
     expect(block).toContain('@Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)');
+  });
+});
+
+describe('rehire and the archive lifecycle', () => {
+  it('invalidates the usable archive snapshot so it can no longer authorize a deletion', async () => {
+    const { service, tx } = fixture({ snapshot: { id: 'snap-1', version: 2 } });
+    await service.rehire('shruti', REHIRE, 'admin-1');
+    expect(tx.userArchiveSnapshot.update).toHaveBeenCalledWith({
+      where: { id: 'snap-1' },
+      data: expect.objectContaining({ status: 'INVALIDATED_REHIRED', invalidationReason: 'USER_REHIRED' }),
+    });
+    const events = tx.operationalEvent.create.mock.calls.map((c: any) => c[0].data.action);
+    expect(events).toEqual(['ARCHIVE_SNAPSHOT_INVALIDATED', 'USER_REHIRED']);
+  });
+
+  it('revokes every token issued before the rehire', async () => {
+    const { service, tx } = fixture();
+    await service.rehire('shruti', REHIRE, 'admin-1');
+    expect(tx.user.update.mock.calls[0][0].data.sessionsRevokedAt).toBeInstanceOf(Date);
+  });
+
+  it('accepts the same email, and a changed email only when it is free', async () => {
+    const same = fixture();
+    await same.service.rehire('shruti', { ...REHIRE, email: 'SHRUTI.technointern@outlook.com' }, 'admin-1');
+    expect(same.tx.user.update.mock.calls[0][0].data.email).toBeUndefined();
+
+    const changed = fixture();
+    await changed.service.rehire('shruti', { ...REHIRE, email: 'shruti.new@example.test' }, 'admin-1');
+    expect(changed.tx.user.update.mock.calls[0][0].data.email).toBe('shruti.new@example.test');
+
+    const taken = fixture();
+    taken.prisma.user.findFirst.mockResolvedValue({ id: 'someone-else' });
+    await expect(taken.service.rehire('shruti', { ...REHIRE, email: 'taken@example.test' }, 'admin-1')).rejects.toThrow(/Email already registered/);
+    expect(taken.prisma.$transaction).not.toHaveBeenCalled();
+
+    const bad = fixture();
+    await expect(bad.service.rehire('shruti', { ...REHIRE, email: 'not-an-email' }, 'admin-1')).rejects.toThrow(/valid email/);
+  });
+
+  it('cannot run while another lifecycle operation holds the user', async () => {
+    const { service, prisma } = fixture();
+    prisma.userLifecycleOperation.create.mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' }));
+    await expect(service.rehire('shruti', REHIRE, 'admin-1')).rejects.toThrow(/already running/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('cannot rehire a user who is being permanently deleted', async () => {
+    const { service, tx, prisma } = fixture();
+    tx.userLifecycleOperation.count.mockResolvedValue(1);
+    await expect(service.rehire('shruti', REHIRE, 'admin-1')).rejects.toThrow(/being permanently deleted/);
+    expect(prisma.userLifecycleOperation.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ state: 'FAILED' }) }));
+  });
+
+  it('refuses the system account', async () => {
+    const { service } = fixture({ user: { isSystemAccount: true } });
+    await expect(service.rehire('shruti', REHIRE, 'admin-1')).rejects.toThrow(/system account/);
   });
 });

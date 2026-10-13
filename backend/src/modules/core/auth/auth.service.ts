@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, ConflictException, BadRequestExcepti
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { LoginDto, RegisterDto } from './dto/login.dto';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
@@ -17,7 +18,7 @@ const RESET_ERROR = 'Invalid or expired code';
 @Injectable()
 export class AuthService {
   /** In-memory OTP store: email → { otp, expires } */
-  private otpStore = new Map<string, { otp: string; expires: number }>();
+  private otpStore = new Map<string, { otp: string; expires: number; userId: string; emailAtIssue: string; issuedAt: number; codeId: string }>();
 
   constructor(
     private prisma: PrismaService,
@@ -39,7 +40,8 @@ export class AuthService {
   async login(dto: LoginDto) {
     const user = await this.findUserByEmailCI(dto.email, { role: true, department: true });
 
-    if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
+    // A system principal (the Deleted account) is never a login, whatever its state.
+    if (!user || !user.isActive || (user as any).isSystemAccount) throw new UnauthorizedException('Invalid credentials');
 
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');
@@ -145,8 +147,9 @@ export class AuthService {
     const user = await this.findUserByEmailCI(normalizedEmail);
 
     // Unknown email: return generic response without revealing account existence.
-    // Do NOT store an OTP or call EmailService for unknown addresses.
-    if (!user) return OTP_GENERIC_RESPONSE;
+    // Do NOT store an OTP or call EmailService for unknown addresses. Inactive,
+    // archived and system accounts are treated the same way.
+    if (!user || !user.isActive || (user as any).isSystemAccount) return OTP_GENERIC_RESPONSE;
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -155,8 +158,18 @@ export class AuthService {
     // the controller (400) and no OTP is left in memory with no delivery channel.
     await this.emailService.sendOtpEmail(normalizedEmail, otp);
 
-    // Email confirmed dispatched — store OTP with 10-minute TTL.
-    this.otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000 });
+    // Email confirmed dispatched — store OTP with 10-minute TTL, bound to THIS
+    // account: its id, the email it was sent to, when, and a one-time id. A code
+    // issued before an archive, rehire or deletion can never reset the account
+    // that holds the email afterwards.
+    this.otpStore.set(normalizedEmail, {
+      otp,
+      expires: Date.now() + 10 * 60 * 1000,
+      userId: user.id,
+      emailAtIssue: normalizedEmail,
+      issuedAt: Date.now(),
+      codeId: randomUUID(),
+    });
 
     return OTP_GENERIC_RESPONSE;
   }
@@ -179,11 +192,23 @@ export class AuthService {
     if (entry.otp !== otp) throw new BadRequestException(RESET_ERROR);
 
     const user = await this.findUserByEmailCI(normalizedEmail);
-    if (!user) throw new BadRequestException(RESET_ERROR);
+    const revokedAt = (user as any)?.sessionsRevokedAt as Date | null | undefined;
+    if (
+      !user ||
+      user.id !== entry.userId ||
+      entry.emailAtIssue !== normalizedEmail ||
+      !user.isActive ||
+      (user as any).isSystemAccount ||
+      (revokedAt && revokedAt.getTime() >= entry.issuedAt)
+    ) {
+      this.otpStore.delete(normalizedEmail);
+      throw new BadRequestException(RESET_ERROR);
+    }
+    // One-time: consumed before the password changes.
+    this.otpStore.delete(normalizedEmail);
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await this.updatePassword(user.id, hashed);
-    this.otpStore.delete(normalizedEmail);
 
     return { message: 'Password reset successfully' };
   }

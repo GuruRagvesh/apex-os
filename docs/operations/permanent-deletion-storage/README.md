@@ -1,6 +1,6 @@
 # Permanent-deletion storage: configuration and verification
 
-This covers only the two storage systems that a permanent deletion will depend on, and the commands that configure and verify them. **Nothing here selects, archives or deletes a user.** The deletion workflow itself, and the frontend Permanent Delete action, are separate, later changes.
+This covers only the two storage systems that a permanent deletion will depend on, and the commands that configure and verify them. **Nothing here selects, archives or deletes a user.** The deletion workflow itself is documented in [archived-user-lifecycle](../archived-user-lifecycle/README.md).
 
 | Storage | Holds | Where | Credentials |
 |---|---|---|---|

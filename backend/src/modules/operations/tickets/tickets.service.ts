@@ -3413,4 +3413,118 @@ export class TicketsService {
 
     return { overdue, dueSoon, reviewAgeing, unassigned, blocked, total: candidates.length };
   }
+
+  // ── Archive User: active-work closure ─────────────────────────────────────
+  //
+  // Archiving a person must not leave live work pointing at them. These two
+  // methods let the lifecycle service do that inside ITS transaction, through
+  // this service's own transition path (transition matrix, timers, history,
+  // SLA stamps) rather than by writing ticket columns directly.
+
+  /**
+   * Read-only plan for one person's open tickets (status not DONE/CLOSED):
+   *   close     they are the primary and no active co-assignee remains
+   *   promote   they are the primary; the earliest active co-assignee takes over
+   *   remove    they are a co-assignee only; the ticket stays with the others
+   *   unwatch   open tickets they watch
+   *   blocked   tickets still in PENDING_APPROVAL (a decision, not a status change)
+   */
+  async planArchiveTicketChanges(userId: string) {
+    const open = { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } };
+    const tickets = await this.prisma.ticket.findMany({
+      where: { ...open, OR: [{ assignedToId: userId }, { assignees: { some: { userId } } }] },
+      select: {
+        id: true,
+        status: true,
+        assignedToId: true,
+        assignees: {
+          select: { id: true, userId: true, assignedAt: true, user: { select: { isActive: true, isSystemAccount: true } } },
+          orderBy: [{ assignedAt: 'asc' }, { id: 'asc' }],
+        },
+      },
+      orderBy: { id: 'asc' },
+    });
+    const plan = {
+      close: [] as string[],
+      promote: [] as { ticketId: string; to: string }[],
+      remove: [] as { ticketId: string; closeAfter: boolean }[],
+      unwatch: [] as string[],
+      blocked: [] as string[],
+    };
+    for (const t of tickets) {
+      if (t.status === TicketStatus.PENDING_APPROVAL) {
+        plan.blocked.push(t.id);
+        continue;
+      }
+      // Deterministic: earliest assignedAt, then assignment row id.
+      const eligible = t.assignees.filter((a) => a.userId !== userId && a.user.isActive && !a.user.isSystemAccount);
+      if (t.assignedToId === userId) {
+        if (eligible.length > 0) plan.promote.push({ ticketId: t.id, to: eligible[0].userId });
+        else plan.close.push(t.id);
+      } else {
+        const primaryActive = t.assignedToId !== null;
+        plan.remove.push({ ticketId: t.id, closeAfter: !primaryActive && eligible.length === 0 });
+      }
+    }
+    const watched = await this.prisma.ticketWatcher.findMany({
+      where: { userId, ticket: open },
+      select: { ticketId: true },
+      orderBy: { ticketId: 'asc' },
+    });
+    plan.unwatch = watched.map((w) => w.ticketId);
+    return plan;
+  }
+
+  /**
+   * Applies a plan inside the caller's transaction. Status and primary-owner
+   * changes go through prepareUpdate/commitUpdate; co-assignee and watcher rows
+   * are removed directly with a history row. Notifications run only after the
+   * caller commits (returned as afterCommit callbacks).
+   */
+  async applyArchiveTicketChanges(
+    tx: Prisma.TransactionClient,
+    plan: Awaited<ReturnType<TicketsService['planArchiveTicketChanges']>>,
+    userId: string,
+    actor: any,
+    operationId: string,
+  ) {
+    const afterCommit: AfterCommit = [];
+    const opts: UpdateOptions = { suppressCompletionNotification: true };
+    const mark = (ticketId: string, field: string, oldValue: string | null, newValue: string | null) =>
+      tx.ticketHistory.create({ data: { ticketId, field, oldValue, newValue, changedById: actor.id } });
+
+    const close = async (ticketId: string) => {
+      const prepared = await this.prepareUpdate(ticketId, { status: TicketStatus.CLOSED }, actor.id, actor, opts);
+      await this.commitUpdate(tx, prepared, actor.id, opts, afterCommit);
+      await mark(ticketId, 'archiveOperation', null, operationId);
+    };
+
+    for (const ticketId of plan.close) await close(ticketId);
+    for (const p of plan.promote) {
+      const prepared = await this.prepareUpdate(p.ticketId, { assignedToId: p.to }, actor.id, actor, opts);
+      await this.commitUpdate(tx, prepared, actor.id, opts, afterCommit);
+      await tx.ticketAssignee.deleteMany({ where: { ticketId: p.ticketId, userId } });
+      await mark(p.ticketId, 'archiveOperation', null, operationId);
+    }
+    for (const r of plan.remove) {
+      await tx.ticketAssignee.deleteMany({ where: { ticketId: r.ticketId, userId } });
+      await mark(r.ticketId, 'assignees', 'removed: archived user', null);
+      if (r.closeAfter) await close(r.ticketId);
+      else await mark(r.ticketId, 'archiveOperation', null, operationId);
+    }
+    if (plan.unwatch.length > 0) {
+      await tx.ticketWatcher.deleteMany({ where: { userId, ticketId: { in: plan.unwatch } } });
+      for (const ticketId of plan.unwatch) await mark(ticketId, 'watchers', 'removed: archived user', null);
+    }
+    return {
+      afterCommit,
+      counts: { closed: plan.close.length + plan.remove.filter((r) => r.closeAfter).length, promoted: plan.promote.length, removed: plan.remove.length, unwatched: plan.unwatch.length },
+    };
+  }
+
+  /** Runs the callbacks returned by applyArchiveTicketChanges once the caller has committed. */
+  async runArchiveAfterCommit(afterCommit: AfterCommit) {
+    await this.runAfterCommit(afterCommit);
+  }
+
 }

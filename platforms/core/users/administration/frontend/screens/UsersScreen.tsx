@@ -9,6 +9,7 @@ import { departmentsApi } from '@apex/core-organization-departments/api';
 import { useAuthStore } from '@apex/core-identity';
 import { cn } from '@apex/shared-utilities';
 import {
+  Archive,
   BriefcaseBusiness,
   Building2,
   Download,
@@ -21,11 +22,13 @@ import {
   ShieldAlert,
   Trash2,
   UserCheck,
+  UserPlus,
   UsersRound,
   UserX,
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { ArchiveUserModal, PermanentDeleteModal, RehireUserModal } from './UserLifecycleModals';
 
 const rolePresentation: Record<string, { label: string; badge: string }> = {
   SUPER_ADMIN: { label: 'SUPER ADMIN', badge: 'bg-violet-100 text-violet-800 ring-violet-200 dark:bg-violet-400/15 dark:text-white dark:ring-violet-300/80' },
@@ -102,11 +105,10 @@ export default function UsersPage() {
   const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true, isHR: false });
   const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // Archive User / Rehire / Permanently Delete (UserLifecycleModals).
+  const [archiveTarget, setArchiveTarget] = useState<any | null>(null);
+  const [rehireTarget, setRehireTarget] = useState<any | null>(null);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<any | null>(null);
-  const [permanentDeleteBlockers, setPermanentDeleteBlockers] = useState<Record<string, number> | null>(null);
-  const [permanentDeleteBlockedUser, setPermanentDeleteBlockedUser] = useState<any | null>(null);
-  const [backupDownloadedForUserId, setBackupDownloadedForUserId] = useState<string | null>(null);
-  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
 
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
@@ -114,6 +116,18 @@ export default function UsersPage() {
     enabled: hasHydrated && isAdmin,
   });
   const userList: any[] = usersResponse?.users ?? (Array.isArray(usersResponse) ? usersResponse : []);
+
+  const archivedIds = userList.filter((u: any) => isArchivedUser(u)).map((u: any) => u.id).sort();
+  const { data: lifecycleStatus } = useQuery({
+    queryKey: ['user-lifecycle', 'archived-status', archivedIds.join(',')],
+    queryFn: () => usersApi.archivedStatus(archivedIds) as Promise<any[]>,
+    enabled: hasHydrated && isAdmin && archivedIds.length > 0,
+  });
+  const lifecycleById = new Map<string, any>((Array.isArray(lifecycleStatus) ? lifecycleStatus : []).map((x: any) => [x.userId, x]));
+  const refreshAfterLifecycle = () => {
+    void qc.invalidateQueries({ queryKey: ['users'] });
+    void qc.invalidateQueries({ queryKey: ['user-lifecycle'] });
+  };
 
   const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any[]>, enabled: hasHydrated && isAdmin });
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]>, enabled: hasHydrated && isAdmin });
@@ -183,38 +197,6 @@ export default function UsersPage() {
       toast.error(err?.message || 'Failed to deactivate user');
       setDeactivateTarget(null);
     },
-  });
-
-  const permanentDeleteMutation = useMutation({
-    mutationFn: (vars: { id: string; user: any }) => usersApi.permanentDelete(vars.id),
-    onSuccess: () => {
-      toast.success('User permanently deleted');
-      qc.invalidateQueries({ queryKey: ['users'] });
-      setPermanentDeleteTarget(null);
-    },
-    onError: (err: any, vars) => {
-      if (err?.blockers) {
-        setPermanentDeleteBlockedUser(vars.user);
-        setPermanentDeleteTarget(null);
-        setPermanentDeleteBlockers(err.blockers);
-      } else {
-        toast.error(err?.message || 'Permanent delete failed');
-        setPermanentDeleteTarget(null);
-      }
-    },
-  });
-
-  const archiveMutation = useMutation({
-    mutationFn: (id: string) => usersApi.archiveAfterBackup(id, { confirmBackupDownloaded: true }),
-    onSuccess: (res: any) => {
-      toast.success(res?.message || 'User archived. Backup saved and emailed. Personal data anonymized.');
-      qc.invalidateQueries({ queryKey: ['users'] });
-      setPermanentDeleteBlockers(null);
-      setPermanentDeleteBlockedUser(null);
-      setBackupDownloadedForUserId(null);
-      setArchiveConfirmOpen(false);
-    },
-    onError: (err: any) => toast.error(err?.message || 'Archive failed'),
   });
 
   // ADMIN + HR is the HR ADMIN and is allowed. Only SUPER_ADMIN is refused:
@@ -358,6 +340,17 @@ export default function UsersPage() {
               && u.id !== me?.id
               && !archived
               && (me?.role?.name === 'SUPER_ADMIN' || roleName !== 'SUPER_ADMIN');
+            const canManageArchived = isAdmin
+              && u.id !== me?.id
+              && archived
+              && (me?.role?.name === 'SUPER_ADMIN' || roleName !== 'SUPER_ADMIN');
+            const lifecycle = lifecycleById.get(u.id);
+            const lifecycleBusy = !!lifecycle?.operationInProgress;
+            const deleteDisabledReason = lifecycleBusy
+              ? 'Another archive, rehire or deletion is running'
+              : !lifecycle?.verificationAvailable
+                ? 'Backup verification unavailable'
+                : null;
             const reportsTo = resolveManagerName(u, userList);
 
             return (
@@ -479,6 +472,15 @@ export default function UsersPage() {
                           >
                             <UserX size={20} />
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setArchiveTarget(u)}
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-amber-700 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                            title="Archive user"
+                            aria-label={`Archive ${u.name}`}
+                          >
+                            <Archive size={19} />
+                          </button>
                         </>
                       ) : (
                         <>
@@ -495,15 +497,43 @@ export default function UsersPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setPermanentDeleteTarget(u)}
-                            disabled={permanentDeleteMutation.isPending}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-700 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
-                            title="Permanently delete user"
-                            aria-label={`Permanently delete ${u.name}`}
+                            onClick={() => setArchiveTarget(u)}
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-amber-700 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                            title="Archive user"
+                            aria-label={`Archive ${u.name}`}
                           >
-                            <Trash2 size={19} />
+                            <Archive size={19} />
                           </button>
                         </>
+                      )}
+                    </div>
+                  )}
+
+                  {canManageArchived && (
+                    <div className="relative z-10 flex h-[148px] flex-shrink-0 flex-col gap-2 border-l pl-3" style={{ borderColor: 'var(--accent-border)' }}>
+                      <button
+                        type="button"
+                        onClick={() => setRehireTarget(u)}
+                        disabled={lifecycleBusy}
+                        className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
+                        style={{ background: 'linear-gradient(145deg, #4ade80, #16a34a)' }}
+                        title={lifecycleBusy ? 'Another archive, rehire or deletion is running' : 'Rehire user'}
+                        aria-label={`Rehire ${u.name}`}
+                      >
+                        <UserPlus size={20} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPermanentDeleteTarget(u)}
+                        disabled={!!deleteDisabledReason}
+                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
+                        title={deleteDisabledReason ?? 'Permanently delete user'}
+                        aria-label={deleteDisabledReason ? `Permanently delete ${u.name} (${deleteDisabledReason})` : `Permanently delete ${u.name}`}
+                      >
+                        <Trash2 size={19} />
+                      </button>
+                      {!lifecycle?.verificationAvailable && (
+                        <span className="sr-only">Backup verification unavailable</span>
                       )}
                     </div>
                   )}
@@ -670,142 +700,28 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* Permanent Delete Confirmation Modal */}
+      {archiveTarget && (
+        <ArchiveUserModal
+          user={archiveTarget}
+          onClose={() => setArchiveTarget(null)}
+          onArchived={() => { setArchiveTarget(null); refreshAfterLifecycle(); }}
+        />
+      )}
+      {rehireTarget && (
+        <RehireUserModal
+          user={rehireTarget}
+          roles={Array.isArray(roles) ? roles : []}
+          departments={Array.isArray(departments) ? departments : []}
+          onClose={() => setRehireTarget(null)}
+          onRehired={() => { setRehireTarget(null); refreshAfterLifecycle(); }}
+        />
+      )}
       {permanentDeleteTarget && (
-        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
-            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Permanently delete user?</h3>
-            <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-              <strong>{permanentDeleteTarget.name}</strong> will be removed from the system forever. This cannot be undone.
-            </p>
-            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>
-              Download backup first if you need a record of their history.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => permanentDeleteMutation.mutate({ id: permanentDeleteTarget.id, user: permanentDeleteTarget })}
-                disabled={permanentDeleteMutation.isPending}
-                className="apex-btn flex-1 justify-center py-2.5 font-medium disabled:opacity-50 text-white"
-                style={{ backgroundColor: 'var(--color-danger)' }}
-              >
-                {permanentDeleteMutation.isPending ? 'Deleting...' : 'Permanently Delete'}
-              </button>
-              <button onClick={() => setPermanentDeleteTarget(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Permanent Delete Blocker Modal */}
-      {permanentDeleteBlockers && (
-        <div className="fixed inset-0 !m-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
-            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Cannot delete — user has linked records</h3>
-            <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
-              This user has operational history that prevents permanent deletion:
-            </p>
-            <ul className="mb-4 space-y-1.5">
-              {Object.entries(permanentDeleteBlockers).map(([key, count]) => (
-                <li key={key} className="flex justify-between text-sm px-1">
-                  <span style={{ color: 'var(--text-secondary)' }}>{key}</span>
-                  <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{count}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="mb-4 rounded-lg p-3 space-y-1.5" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-              <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Required before archive:</p>
-              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>✓ Backup will be emailed to responsible senior users</p>
-              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>✓ Backup will be saved in backup vault</p>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Optional: Download a local copy below</p>
-            </div>
-            <div className="space-y-2">
-              <div className="flex gap-3">
-                {permanentDeleteBlockedUser && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setDownloadingId(permanentDeleteBlockedUser.id);
-                      const toastId = `backup-blocker-${permanentDeleteBlockedUser.id}`;
-                      toast.loading('Downloading backup...', { id: toastId });
-                      try {
-                        await usersApi.downloadBackup(permanentDeleteBlockedUser.id, permanentDeleteBlockedUser.name);
-                        toast.success('Backup downloaded', { id: toastId });
-                        setBackupDownloadedForUserId(permanentDeleteBlockedUser.id);
-                      } catch {
-                        toast.error('Backup download failed', { id: toastId });
-                      } finally {
-                        setDownloadingId(null);
-                      }
-                    }}
-                    disabled={downloadingId === permanentDeleteBlockedUser.id}
-                    className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5 gap-1.5 disabled:opacity-50"
-                  >
-                    {downloadingId === permanentDeleteBlockedUser.id
-                      ? <><Loader2 size={14} className="animate-spin" /> Downloading...</>
-                      : <><Download size={14} /> {backupDownloadedForUserId === permanentDeleteBlockedUser.id ? 'Re-download Backup' : 'Download Backup'}</>
-                    }
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => { setPermanentDeleteBlockers(null); setPermanentDeleteBlockedUser(null); setBackupDownloadedForUserId(null); }}
-                  className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5"
-                >
-                  Close
-                </button>
-              </div>
-              {permanentDeleteBlockedUser && (
-                <button
-                  type="button"
-                  onClick={() => setArchiveConfirmOpen(true)}
-                  disabled={archiveMutation.isPending}
-                  className="apex-btn w-full justify-center py-2.5 font-medium text-white disabled:opacity-50"
-                  style={{ backgroundColor: '#d97706' }}
-                >
-                  Archive after backup
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Archive After Backup Confirmation Modal */}
-      {archiveConfirmOpen && permanentDeleteBlockedUser && (
-        <div className="fixed inset-0 !m-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
-            <h3 className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>Archive user?</h3>
-            <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
-              Apex OS will email the backup to responsible senior users and save it in the backup vault <strong>before</strong> anonymizing <strong>{permanentDeleteBlockedUser.name}</strong>&apos;s personal data.
-            </p>
-            <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
-              Tickets, work sessions, comments, leave records, and all reports will remain intact. The user&apos;s name, email, phone, address, and financial details will be removed.
-            </p>
-            <p className="text-xs mb-5" style={{ color: 'var(--text-tertiary)' }}>
-              Archive will be blocked if vault or email delivery is not configured. This cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => archiveMutation.mutate(permanentDeleteBlockedUser.id)}
-                disabled={archiveMutation.isPending}
-                className="apex-btn flex-1 justify-center py-2.5 font-medium text-white disabled:opacity-50"
-                style={{ backgroundColor: '#d97706' }}
-              >
-                {archiveMutation.isPending ? 'Archiving...' : 'Confirm Archive'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setArchiveConfirmOpen(false)}
-                className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <PermanentDeleteModal
+          user={permanentDeleteTarget}
+          onClose={() => setPermanentDeleteTarget(null)}
+          onDeleted={() => { setPermanentDeleteTarget(null); refreshAfterLifecycle(); }}
+        />
       )}
 
       {/* New User Modal */}

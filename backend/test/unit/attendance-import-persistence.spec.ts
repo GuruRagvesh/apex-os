@@ -461,14 +461,20 @@ describe('the migration is additive and the audit is durable', () => {
     expect(sql).not.toContain('attendance_import_batches_fileSha256_key');
   });
 
-  it('32. deleting a user who uploaded a batch is blocked with a readable reason', () => {
-    // The FKs are RESTRICT, so without this the delete would fail with a raw
-    // constraint error instead of the list of what is in the way.
+  it('32. deleting a user who uploaded a batch keeps the batch and never hits the RESTRICT FKs', () => {
+    // The FKs are RESTRICT. Permanent deletion (the archived-user lifecycle)
+    // handles each one before the user row goes: the batch survives with its
+    // uploader re-assigned to the Deleted account and approver/applier cleared,
+    // and all three are exported to the archive first. The legacy delete that
+    // only counted them is gone.
+    const { HANDLERS } = require('../../src/modules/core/users/lifecycle/dependency-matrix');
+    const byKey = new Map(HANDLERS.map((h: any) => [h.key, h]));
+    for (const [field, action] of [['uploadedById', 'REASSIGN'], ['approvedById', 'NULL'], ['appliedById', 'NULL']]) {
+      const h: any = byKey.get(`AttendanceImportBatch.${field}`);
+      expect([field, h?.action, h?.history, h?.sheet]).toEqual([field, action, true, 'Attendance Imports']);
+    }
     const users = readFileSync(resolve(__dirname, '../../src/modules/core/users/users.service.ts'), 'utf8');
-    expect(users).toContain('attendanceImportBatch.count');
-    expect(users).toContain('Attendance Imports Uploaded');
-    expect(users).toContain('Attendance Imports Approved');
-    expect(users).toContain('Attendance Imports Applied');
+    expect(users).not.toMatch(/async permanentDelete\(/);
   });
 });
 

@@ -85,7 +85,16 @@ export const usersApi = {
   deleteDocument: (userId: string, docId: string) => r(api.delete(`/users/${userId}/documents/${docId}`)),
   verifyDocument: (userId: string, docId: string, status: string, rejectionReason?: string) =>
     r(api.patch(`/users/${userId}/documents/${docId}/verify`, { status, rejectionReason })),
-  permanentDelete: (id: string) => r(api.delete(`/users/${id}/permanent`)),
-  archiveAfterBackup: (id: string, data: { confirmBackupDownloaded: true }) =>
-    r(api.post(`/users/${id}/archive-after-backup`, data)),
+  // Archive User and permanent deletion (UserLifecycleController). The server
+  // derives the actor and every state; the client sends only a random
+  // idempotency key and, for deletion, the typed confirmation.
+  archivePreflight: (id: string) => r(api.get(`/user-lifecycle/${id}/archive/preflight`)),
+  archive: (id: string, idempotencyKey: string) => r(api.post(`/user-lifecycle/${id}/archive`, { idempotencyKey })),
+  archivedStatus: (ids: string[]) => r(api.get('/user-lifecycle/archived-status', { params: { ids: ids.join(',') } })),
+  permanentDeletePreflight: (id: string) => r(api.get(`/user-lifecycle/${id}/permanent-delete/preflight`)),
+  permanentDelete: (id: string, data: { idempotencyKey: string; confirmation: string }) =>
+    r(api.post(`/user-lifecycle/${id}/permanent-delete`, data)),
+  lifecycleOperation: (operationId: string) => r(api.get(`/user-lifecycle/operations/${operationId}`)),
+  retryArchiveCleanup: (operationId: string) => r(api.post(`/user-lifecycle/operations/${operationId}/archive-cleanup-retry`)),
+  retryDeleteCleanup: (operationId: string) => r(api.post(`/user-lifecycle/operations/${operationId}/cleanup-retry`)),
 };

@@ -1,0 +1,156 @@
+/**
+ * Controlled vocabulary for the archived-user lifecycle.
+ *
+ * Every state, reason, error and event name written by the lifecycle is one of
+ * these constants. Free text never reaches an operation result, a receipt, a
+ * cleanup item or an event: a code cannot carry a name, an email or a provider
+ * handle by accident.
+ */
+
+import { randomUUID } from 'crypto';
+
+export const ARCHIVE_SCHEMA_VERSION = 'archive-v2';
+export const NO_HISTORY_CLASSIFICATION_VERSION = 'no-history-v1';
+export const RETENTION_CLASSIFICATION_VERSION = 'retention-classification-v1';
+export const LIFECYCLE_EVENT_SCHEMA_VERSION = 1;
+
+export const OPERATION_KIND = {
+  ARCHIVE: 'ARCHIVE',
+  REHIRE: 'REHIRE',
+  PERMANENT_DELETE: 'PERMANENT_DELETE',
+} as const;
+export type OperationKind = (typeof OPERATION_KIND)[keyof typeof OPERATION_KIND];
+
+export const OPERATION_STATE = {
+  PREFLIGHTED: 'PREFLIGHTED',
+  RUNNING: 'RUNNING',
+  VERIFIED_FOR_DELETE: 'VERIFIED_FOR_DELETE',
+  ARCHIVE_CLEANUP_PENDING: 'ARCHIVE_CLEANUP_PENDING',
+  DB_DELETED: 'DB_DELETED',
+  CLEANUP_PENDING: 'CLEANUP_PENDING',
+  PERMANENTLY_DELETED: 'PERMANENTLY_DELETED',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+} as const;
+export type OperationState = (typeof OPERATION_STATE)[keyof typeof OPERATION_STATE];
+
+/** States that hold the per-user in-flight slot (mirrors the partial unique index). */
+export const INFLIGHT_STATES: OperationState[] = [
+  OPERATION_STATE.PREFLIGHTED,
+  OPERATION_STATE.RUNNING,
+  OPERATION_STATE.VERIFIED_FOR_DELETE,
+  OPERATION_STATE.ARCHIVE_CLEANUP_PENDING,
+];
+
+export const SNAPSHOT_STATUS = {
+  PENDING: 'PENDING',
+  VERIFIED: 'VERIFIED',
+  NO_HISTORY_VERIFIED: 'NO_HISTORY_VERIFIED',
+  FAILED: 'FAILED',
+  INVALIDATED_REHIRED: 'INVALIDATED_REHIRED',
+  INVALIDATED_DATA_CHANGED: 'INVALIDATED_DATA_CHANGED',
+  CONSUMED_BY_PERMANENT_DELETE: 'CONSUMED_BY_PERMANENT_DELETE',
+} as const;
+export type SnapshotStatus = (typeof SNAPSHOT_STATUS)[keyof typeof SNAPSHOT_STATUS];
+
+export const USABLE_SNAPSHOT_STATUSES: SnapshotStatus[] = [SNAPSHOT_STATUS.VERIFIED, SNAPSHOT_STATUS.NO_HISTORY_VERIFIED];
+
+export const CLEANUP_ITEM_STATE = { PENDING: 'PENDING', DONE: 'DONE' } as const;
+
+export const RETENTION_RESULT = {
+  NO_HOLD: 'NO_HOLD',
+  RETENTION_PERIOD_ACTIVE: 'RETENTION_PERIOD_ACTIVE',
+  LEGAL_HOLD: 'LEGAL_HOLD',
+  RETENTION_APPROVED_FOR_DELETION: 'RETENTION_APPROVED_FOR_DELETION',
+} as const;
+export type RetentionResult = (typeof RETENTION_RESULT)[keyof typeof RETENTION_RESULT];
+
+/** Events. Readers accept legacy names; new operations write only canonical ones. */
+export const LIFECYCLE_EVENT = {
+  ARCHIVE_PREFLIGHT_COMPLETED: 'ARCHIVE_PREFLIGHT_COMPLETED',
+  ACTIVE_WORK_CLOSED_FOR_ARCHIVE: 'ACTIVE_WORK_CLOSED_FOR_ARCHIVE',
+  ARCHIVE_BACKUP_STARTED: 'ARCHIVE_BACKUP_STARTED',
+  ARCHIVE_BACKUP_VERIFIED: 'ARCHIVE_BACKUP_VERIFIED',
+  ARCHIVE_NO_HISTORY_VERIFIED: 'ARCHIVE_NO_HISTORY_VERIFIED',
+  USER_ARCHIVED: 'USER_ARCHIVED',
+  USER_REHIRED: 'USER_REHIRED',
+  ARCHIVE_SNAPSHOT_INVALIDATED: 'ARCHIVE_SNAPSHOT_INVALIDATED',
+  PERMANENT_DELETE_REQUESTED: 'PERMANENT_DELETE_REQUESTED',
+  PERMANENT_DELETE_VERIFICATION_FAILED: 'PERMANENT_DELETE_VERIFICATION_FAILED',
+  USER_PERMANENTLY_DELETED: 'USER_PERMANENTLY_DELETED',
+} as const;
+
+/** Every event name that means "archived", legacy first. */
+export const ARCHIVE_EVENT_NAMES = ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'];
+/** Every event name that means "back to active". */
+export const RETURN_EVENT_NAMES = ['USER_REACTIVATED', 'USER_REHIRED'];
+
+/** Reason codes: why something happened or was refused. Never free text. */
+export const REASON = {
+  USER_ARCHIVED: 'USER_ARCHIVED',
+  USER_REHIRED: 'USER_REHIRED',
+  ADMIN_REQUEST: 'ADMIN_REQUEST',
+  NOT_FOUND: 'NOT_FOUND',
+  SELF_TARGET: 'SELF_TARGET',
+  SYSTEM_ACCOUNT: 'SYSTEM_ACCOUNT',
+  NOT_ACTIVE: 'NOT_ACTIVE',
+  NOT_ARCHIVED: 'NOT_ARCHIVED',
+  ALREADY_ARCHIVED: 'ALREADY_ARCHIVED',
+  OPERATION_IN_PROGRESS: 'OPERATION_IN_PROGRESS',
+  ARCHIVE_CLEANUP_PENDING: 'ARCHIVE_CLEANUP_PENDING',
+  ACTIVE_RESPONSIBILITIES: 'ACTIVE_RESPONSIBILITIES',
+  TICKET_AWAITING_APPROVAL: 'TICKET_AWAITING_APPROVAL',
+  ARCHIVE_TOO_LARGE_FOR_WORKBOOK: 'ARCHIVE_TOO_LARGE_FOR_WORKBOOK',
+  ARCHIVE_VAULT_NOT_READY: 'ARCHIVE_VAULT_NOT_READY',
+  ARCHIVE_FILE_UNREADABLE: 'ARCHIVE_FILE_UNREADABLE',
+  ARCHIVE_VERIFY_FAILED: 'ARCHIVE_VERIFY_FAILED',
+  ARCHIVE_PRIVACY_FAILED: 'ARCHIVE_PRIVACY_FAILED',
+  ARCHIVE_DB_FAILED: 'ARCHIVE_DB_FAILED',
+  ARCHIVE_DATA_CHANGED: 'ARCHIVE_DATA_CHANGED',
+  SNAPSHOT_MISSING: 'SNAPSHOT_MISSING',
+  SNAPSHOT_NOT_USABLE: 'SNAPSHOT_NOT_USABLE',
+  SNAPSHOT_WRONG_ENVIRONMENT: 'SNAPSHOT_WRONG_ENVIRONMENT',
+  SNAPSHOT_STALE: 'SNAPSHOT_STALE',
+  REHIRED_AFTER_SNAPSHOT: 'REHIRED_AFTER_SNAPSHOT',
+  NEW_ACTIVE_WORK: 'NEW_ACTIVE_WORK',
+  NO_HISTORY_NO_LONGER_EMPTY: 'NO_HISTORY_NO_LONGER_EMPTY',
+  ARCHIVE_MISSING_OR_CHANGED: 'ARCHIVE_MISSING_OR_CHANGED',
+  RETENTION_BLOCKED: 'RETENTION_BLOCKED',
+  HANDLE_KEYS_MISSING: 'HANDLE_KEYS_MISSING',
+  CLEANUP_FAILED: 'CLEANUP_FAILED',
+  POLICY_NOT_CONFIGURED: 'POLICY_NOT_CONFIGURED',
+  PERIOD_NOT_ELAPSED: 'PERIOD_NOT_ELAPSED',
+  LEGAL_HOLD: 'LEGAL_HOLD',
+} as const;
+export type ReasonCode = (typeof REASON)[keyof typeof REASON];
+
+/** Provider error codes stored on cleanup items. */
+export const CLEANUP_ERROR = {
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
+  PROVIDER_REFUSED: 'PROVIDER_REFUSED',
+  HANDLE_UNREADABLE: 'HANDLE_UNREADABLE',
+} as const;
+
+/**
+ * A random, opaque identifier. operationId, receiptId, archiveRef,
+ * idempotency keys and cleanup item ids all come from here, never from
+ * anything about the person.
+ */
+export function opaqueId(): string {
+  return randomUUID();
+}
+
+/**
+ * The refusal shape every lifecycle endpoint returns: a code and a message the
+ * UI can show. The message names no person and no provider handle.
+ */
+export class LifecycleRefusal extends Error {
+  constructor(
+    readonly code: ReasonCode,
+    message: string,
+    readonly details: Record<string, number | string | boolean | null> = {},
+  ) {
+    super(message);
+    this.name = 'LifecycleRefusal';
+  }
+}
