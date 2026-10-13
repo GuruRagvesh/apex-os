@@ -773,7 +773,7 @@ export default function UsersPage() {
                 <p className="font-semibold mb-1">This email belongs to {rehireCandidate.name}, who is no longer active.</p>
                 <p style={{ color: 'var(--text-secondary)' }}>
                   {rehireCandidate.archivedAt ? `Archived on ${rehireCandidate.archivedAt.slice(0, 10)}. ` : ''}
-                  Rehire brings back the same account with the password, role, department and joining date above. Their earlier history stays with them.
+                  Rehire brings back the same account with the password, role, department and joining date above. Keep the original joining date to restore them as they were, or use the return date for a new period of employment. Their earlier history stays with them.
                 </p>
                 <div className="flex gap-3 mt-3">
                   <button

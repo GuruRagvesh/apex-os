@@ -63,7 +63,7 @@ export class UsersService {
     return rows[0];
   }
 
-  private async attendanceDefaults(tx: Prisma.TransactionClient, effectiveFrom: Date) {
+  private async attendanceDefaults(tx: Prisma.TransactionClient, effectiveFrom: Date, laterStartAllowed = true): Promise<any> {
     const activeVersion = {
       status: PolicyStatus.ACTIVE,
       isActive: true,
@@ -86,6 +86,24 @@ export class UsersService {
       tx.weeklyOffPolicy.findMany({ where: activeWindow, take: 2 }),
     ]);
 
+    if (shifts.length === 0 && laterStartAllowed) {
+      // Policies are versioned by date. A joining date before the first
+      // version (for example an employee who joined before attendance was set
+      // up) keeps that joining date; their attendance profile starts when the
+      // policies do, exactly as the attendance bootstrap did for existing staff.
+      const next = await tx.shiftPolicy.findFirst({
+        where: {
+          status: PolicyStatus.ACTIVE,
+          isActive: true,
+          category: AttendanceCategory.REGULAR_EMPLOYEE,
+          effectiveFrom: { gt: effectiveFrom },
+        },
+        orderBy: { effectiveFrom: 'asc' },
+        select: { effectiveFrom: true },
+      });
+      // The policy's own start, unchanged, and only one step: never loops.
+      if (next) return this.attendanceDefaults(tx, next.effectiveFrom, false);
+    }
     const shift = this.exactlyOne(shifts, 'regular shift policy');
     const attendancePolicy = await tx.attendancePolicy.findFirst({
       where: { id: shift.attendancePolicyId, ...activeVersion },
@@ -108,6 +126,8 @@ export class UsersService {
       calendar: this.exactlyOne(calendars, 'holiday calendar'),
       weeklyOff: this.exactlyOne(weeklyOffPolicies, 'weekly-off policy'),
       assignedAttendanceLocationId,
+      /** When the attendance profile starts: the joining date, or the first policy date if later. */
+      effectiveFrom,
     };
   }
 
@@ -259,7 +279,7 @@ export class UsersService {
           assignedHolidayCalendarId: defaults.calendar.id,
           assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
           assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
-          effectiveFrom: joiningDate,
+          effectiveFrom: defaults.effectiveFrom,
           effectiveTo: null,
           updatedById: actorId ?? null,
         },
@@ -340,20 +360,33 @@ export class UsersService {
         });
         if (deleting > 0) throw new ConflictException('This user is being permanently deleted.');
         const now = new Date();
-        // Profiles still in force on or after the rehire date belong to the
-        // previous employment. One that STARTS on or after it cannot be closed
-        // before it began, so the rehire date must come later.
-        const carriedOver = await tx.employeeAttendanceProfile.findMany({
-          where: { userId, OR: [{ effectiveTo: null }, { effectiveTo: { gte: joiningDate } }] },
+        // Undoing an archive with the original joining date: the attendance
+        // profile from before the archive is still open (archiving never closes
+        // it), so it simply carries on.
+        const openProfiles = await tx.employeeAttendanceProfile.findMany({
+          where: { userId, effectiveTo: null },
           select: { id: true, effectiveFrom: true },
+          orderBy: { effectiveFrom: 'desc' },
         });
-        const blocking = carriedOver.find((p) => p.effectiveFrom >= joiningDate);
+        const reused = openProfiles.find((p) => p.effectiveFrom >= joiningDate) ?? null;
+        // Otherwise a new profile starts on the rehire date, or when the
+        // attendance policies start if that is later.
+        const defaults = reused ? null : await this.attendanceDefaults(tx, joiningDate);
+        const profileStart = reused ? reused.effectiveFrom : defaults!.effectiveFrom;
+        // Other profiles still in force from then on belong to the previous
+        // employment. One that STARTS on or after it cannot be closed before
+        // it began, so the rehire date must come later.
+        const carriedOver = (await tx.employeeAttendanceProfile.findMany({
+          where: { userId, OR: [{ effectiveTo: null }, { effectiveTo: { gte: profileStart } }] },
+          select: { id: true, effectiveFrom: true },
+        })).filter((p) => p.id !== reused?.id);
+        const blocking = carriedOver.find((p) => p.effectiveFrom >= profileStart);
         if (blocking) {
           throw new BadRequestException(
             `The rehire date must be after ${blocking.effectiveFrom.toISOString().slice(0, 10)}, when their previous attendance profile started.`,
           );
         }
-        const dayBefore = new Date(joiningDate.getTime() - 24 * 60 * 60 * 1000);
+        const dayBefore = new Date(profileStart.getTime() - 24 * 60 * 60 * 1000);
         if (carriedOver.length > 0) {
           await tx.employeeAttendanceProfile.updateMany({
             where: { id: { in: carriedOver.map((p) => p.id) } },
@@ -361,7 +394,6 @@ export class UsersService {
           });
         }
 
-        const defaults = await this.attendanceDefaults(tx, joiningDate);
         const updated = await tx.user.update({
           where: { id: userId },
           data: {
@@ -378,7 +410,7 @@ export class UsersService {
           },
           include: { role: true, department: true },
         });
-        await tx.employeeAttendanceProfile.create({
+        if (defaults) await tx.employeeAttendanceProfile.create({
           data: {
             userId,
             category: AttendanceCategory.REGULAR_EMPLOYEE,
@@ -388,7 +420,7 @@ export class UsersService {
             assignedHolidayCalendarId: defaults.calendar.id,
             assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
             assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
-            effectiveFrom: joiningDate,
+            effectiveFrom: profileStart,
             effectiveTo: null,
             updatedById: actorId,
           },
@@ -429,7 +461,7 @@ export class UsersService {
               operationId,
               snapshotVersion: usable?.version ?? null,
               reasonCode: 'USER_REHIRED',
-              counts: { closedProfiles: carriedOver.length },
+              counts: { closedProfiles: carriedOver.length, reusedProfile: reused ? 1 : 0 },
               eventSchemaVersion: 1,
               rehire: true,
               previousJoiningDate: user.joiningDate?.toISOString().slice(0, 10) ?? null,
@@ -440,6 +472,8 @@ export class UsersService {
               roleId: data.roleId,
               departmentId: data.departmentId ?? null,
               closedProfiles: carriedOver.length,
+              reusedProfileId: reused?.id ?? null,
+              attendanceProfileStart: profileStart.toISOString().slice(0, 10),
             },
           },
         });
