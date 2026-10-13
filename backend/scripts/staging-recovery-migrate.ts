@@ -30,6 +30,13 @@
  * the two additive recovery migrations this branch introduces. Anything else
  * pending means staging is not where this branch expects it to be; stop and look.
  *
+ * ADDITIONAL STAGING DATABASES. A refreshed staging database lives on the SAME Render instance under a new
+ * name. Each such name must be listed, exactly, in STAGING_ALLOWED_DATABASE_NAMES (comma separated). There is
+ * no pattern, prefix or wildcard: a name is accepted only if it is equal to a listed name, the host is still
+ * the exact active-staging host, and the production/legacy refusals above have already run. A malformed list,
+ * or one naming a production/legacy database, refuses EVERYTHING (fail closed). With the variable unset, only
+ * the original active staging database is accepted.
+ *
  * Prints only host, database name and APP_ENV. Never the URL, user or password.
  */
 import { spawnSync } from 'child_process';
@@ -54,7 +61,8 @@ export type StagingRefusal =
   | 'INTERNAL_URL'
   | 'NOT_RENDER_HOST'
   | 'UNKNOWN_DATABASE_HOST'
-  | 'WRONG_DATABASE_NAME';
+  | 'WRONG_DATABASE_NAME'
+  | 'INVALID_STAGING_ALLOWLIST';
 
 export interface StagingIdentity {
   ok: boolean;
@@ -67,8 +75,25 @@ export interface StagingIdentity {
 /** Render hostnames are "<hostId>-a" (internal) or "<hostId>-a.<region>-postgres.render.com" (external). */
 const isHost = (firstLabel: string, hostId: string) => firstLabel === hostId || firstLabel === `${hostId}-a`;
 
-/** Pure: decides whether a URL + APP_ENV is the active staging database. No I/O. */
-export function checkStagingIdentity(rawUrl: string | undefined, appEnv: string | undefined): StagingIdentity {
+/**
+ * The explicit list of extra staging database names, or an error. Exact names only: lowercase letters, digits and
+ * underscores, never a production or legacy name. Any bad entry rejects the whole list.
+ */
+export function parseStagingAllowlist(raw: string | undefined): { names: string[]; error?: string } {
+  const entries = (raw ?? '').split(',').map((x) => x.trim()).filter((x) => x.length > 0);
+  for (const name of entries) {
+    if (!/^[a-z][a-z0-9_]{2,62}$/.test(name)) return { names: [], error: `"${name}" is not an exact database name` };
+    if (name === PRODUCTION.database || name === LEGACY_STAGING.database) return { names: [], error: `"${name}" is a production or legacy database` };
+  }
+  return { names: entries };
+}
+
+/** Pure: decides whether a URL + APP_ENV is an approved staging database. No I/O. */
+export function checkStagingIdentity(
+  rawUrl: string | undefined,
+  appEnv: string | undefined,
+  allowedExtraNames: string | undefined = process.env.STAGING_ALLOWED_DATABASE_NAMES,
+): StagingIdentity {
   const refuse = (code: StagingRefusal, reason: string, host?: string, database?: string): StagingIdentity =>
     ({ ok: false, ...(host !== undefined ? { host } : {}), ...(database !== undefined ? { database } : {}), code, reason });
 
@@ -93,7 +118,11 @@ export function checkStagingIdentity(rawUrl: string | undefined, appEnv: string 
   if (!host.includes('.')) return refuse('INTERNAL_URL', 'internal Render URL; use the EXTERNAL staging URL', host, database);
   if (!/^[a-z0-9-]+\.[a-z0-9-]+\.render\.com$/.test(host)) return refuse('NOT_RENDER_HOST', 'not a Render database hostname', host, database);
   if (!isHost(firstLabel, ACTIVE_STAGING.hostId)) return refuse('UNKNOWN_DATABASE_HOST', 'host is not the active staging database', host, database);
-  if (database !== ACTIVE_STAGING.database) return refuse('WRONG_DATABASE_NAME', 'database name is not the active staging database', host, database);
+  const extra = parseStagingAllowlist(allowedExtraNames);
+  if (extra.error) return refuse('INVALID_STAGING_ALLOWLIST', `STAGING_ALLOWED_DATABASE_NAMES is invalid: ${extra.error}`, host, database);
+  if (database !== ACTIVE_STAGING.database && !extra.names.includes(database)) {
+    return refuse('WRONG_DATABASE_NAME', 'database name is not an approved staging database', host, database);
+  }
   return { ok: true, host, database };
 }
 
