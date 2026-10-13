@@ -34,6 +34,7 @@ function fixture(roleName: string = 'INTERN') {
           status: PolicyStatus.ACTIVE,
         },
       ]),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     attendancePolicy: {
       findFirst: jest.fn().mockResolvedValue({
@@ -155,6 +156,39 @@ describe('UsersService attendance onboarding', () => {
 
     expect(tx.user.create).not.toHaveBeenCalled();
     expect(tx.employeeAttendanceProfile.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps a joining date before the policies start; the attendance profile starts with the policies', async () => {
+    const { service, tx } = fixture('INTERN');
+    const shifts = await tx.shiftPolicy.findMany();
+    tx.shiftPolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce(shifts);
+    tx.shiftPolicy.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-09-15T00:00:00.000Z') });
+
+    await expect(
+      service.create({
+        name: 'New Intern',
+        email: 'new.intern@example.test',
+        password: 'secret',
+        roleId: 'role-intern',
+        joiningDate: '2026-08-24',
+      }),
+    ).resolves.toBeDefined();
+
+    expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ joiningDate: new Date('2026-08-24T00:00:00.000Z') }) }));
+    expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({ data: expect.objectContaining({ effectiveFrom: new Date('2026-09-15T00:00:00.000Z') }) });
+    expect(tx.shiftPolicy.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ effectiveFrom: { gt: new Date('2026-08-24T00:00:00.000Z') } }),
+      orderBy: { effectiveFrom: 'asc' },
+    }));
+  });
+
+  it('still refuses when no regular shift policy exists at any date', async () => {
+    const { service, tx } = fixture('INTERN');
+    tx.shiftPolicy.findMany.mockResolvedValue([]);
+    await expect(
+      service.create({ name: 'New Intern', email: 'new.intern@example.test', password: 'secret', roleId: 'role-intern', joiningDate: '2026-08-24' }),
+    ).rejects.toThrow('no active regular shift policy is configured');
+    expect(tx.user.create).not.toHaveBeenCalled();
   });
 
   it('propagates profile creation failure through the user transaction', async () => {

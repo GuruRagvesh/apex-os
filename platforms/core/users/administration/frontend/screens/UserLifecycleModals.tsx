@@ -163,6 +163,12 @@ export function ArchiveUserModal({ user, onClose, onArchived }: { user: any; onC
   );
 }
 
+/** Today as YYYY-MM-DD in the browser's time zone. */
+function todayLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // ── Rehire ──────────────────────────────────────────────────────────────────
 
 export function RehireUserModal({ user, roles, departments, onClose, onRehired }: { user: any; roles: any[]; departments: any[]; onClose: () => void; onRehired: () => void }) {
@@ -172,7 +178,9 @@ export function RehireUserModal({ user, roles, departments, onClose, onRehired }
     password: '',
     roleId: user.role?.id ?? user.roleId ?? '',
     departmentId: user.departmentId ?? '',
-    joiningDate: '',
+    // Prefilled with their original joining date, which restores them as they
+    // were; change it to the return date for a new period of employment.
+    joiningDate: typeof user.joiningDate === 'string' && user.joiningDate ? user.joiningDate.slice(0, 10) : todayLocal(),
   });
   const rehire = useMutation({
     mutationFn: () => usersApi.rehire(user.id, { ...form, departmentId: form.departmentId || null }),
@@ -218,8 +226,9 @@ export function RehireUserModal({ user, roles, departments, onClose, onRehired }
           </div>
         </div>
         <div>
-          <label className="apex-label" htmlFor="rehire-joining">Joining Date *</label>
+          <label className="apex-label" htmlFor="rehire-joining">Rehire date *</label>
           <input id="rehire-joining" type="date" value={form.joiningDate} onChange={(e) => setForm((f) => ({ ...f, joiningDate: e.target.value }))} className="apex-input" />
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Keep the original joining date to restore them as they were (their attendance continues). Use the return date for a new period of employment.</p>
         </div>
       </div>
       <div className="flex gap-3 mt-5">

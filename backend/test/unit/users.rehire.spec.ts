@@ -33,7 +33,8 @@ function fixture(over: { user?: any; profiles?: any[]; archivedAt?: Date | null;
       update: jest.fn(async ({ data }: any) => ({ ...user, ...data, password: 'hashed', role: { id: data.roleId }, department: null })),
     },
     employeeAttendanceProfile: {
-      findMany: jest.fn().mockResolvedValue(profiles),
+      // Honours the one filter the service relies on: open profiles only.
+      findMany: jest.fn(async ({ where }: any = {}) => (where?.effectiveTo === null ? profiles.filter((p: any) => !p.effectiveTo) : profiles)),
       updateMany: jest.fn().mockResolvedValue({ count: profiles.length }),
       create: jest.fn().mockResolvedValue({ id: 'profile-new' }),
     },
@@ -151,13 +152,43 @@ describe('rehiring an inactive person', () => {
     expect(tx.operationalEvent.create.mock.calls.filter((c: any) => c[0].data.action === 'USER_REACTIVATED')).toHaveLength(0);
   });
 
-  it('refuses a rehire date on or before the start of the previous profile, changing nothing', async () => {
-    const { service, tx } = fixture({ profiles: [{ id: 'profile-old', effectiveFrom: D('2026-09-01') }] });
+  it('refuses a rehire date on or before the start of a CLOSED previous profile, changing nothing', async () => {
+    const { service, tx } = fixture({ profiles: [{ id: 'profile-old', effectiveFrom: D('2026-09-01'), effectiveTo: D('2026-10-12') }] });
 
     await expect(service.rehire('shruti', REHIRE, 'admin-1')).rejects.toThrow(/must be after 2026-09-01/);
     expect(tx.user.update).not.toHaveBeenCalled();
     expect(tx.employeeAttendanceProfile.updateMany).not.toHaveBeenCalled();
     expect(tx.operationalEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('undoing an archive with the original joining date keeps their open attendance profile', async () => {
+    // Archiving never closes the profile. Restoring with the original joining
+    // date carries it on: no new profile, nothing closed, no policy lookup.
+    const { service, tx } = fixture({ profiles: [{ id: 'profile-current', effectiveFrom: D('2026-09-15') }] });
+
+    const result = await service.rehire('shruti', REHIRE, 'admin-1');
+
+    expect(result.joiningDate).toEqual(D('2026-08-24'));
+    expect(tx.employeeAttendanceProfile.create).not.toHaveBeenCalled();
+    expect(tx.employeeAttendanceProfile.updateMany).not.toHaveBeenCalled();
+    expect(tx.shiftPolicy.findMany).not.toHaveBeenCalled();
+    const event = tx.operationalEvent.create.mock.calls.map((c: any[]) => c[0].data).find((d: any) => d.action === 'USER_REHIRED');
+    expect(event.metadata).toEqual(expect.objectContaining({ reusedProfileId: 'profile-current', attendanceProfileStart: '2026-09-15', closedProfiles: 0 }));
+  });
+
+  it('a joining date before the attendance policies start keeps the date; the new profile starts with the policies', async () => {
+    const { service, tx } = fixture({ profiles: [] });
+    const shift = { id: 'shift-1', attendancePolicyId: 'ap-1', category: AttendanceCategory.REGULAR_EMPLOYEE, status: PolicyStatus.ACTIVE };
+    tx.shiftPolicy.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([shift]);
+    (tx.shiftPolicy as any).findFirst = jest.fn().mockResolvedValue({ effectiveFrom: D('2026-09-15') });
+
+    const result = await service.rehire('shruti', REHIRE, 'admin-1');
+
+    expect(result.joiningDate).toEqual(D('2026-08-24'));
+    expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({ data: expect.objectContaining({ assignedShiftId: 'shift-1', effectiveFrom: D('2026-09-15') }) });
+    // Only one step forward, from the policy's own start.
+    expect(tx.shiftPolicy.findMany).toHaveBeenCalledTimes(2);
+    expect(tx.shiftPolicy.findMany.mock.calls[1][0].where.effectiveFrom).toEqual({ lte: D('2026-09-15') });
   });
 
   it.each([
