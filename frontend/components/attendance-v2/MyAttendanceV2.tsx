@@ -55,7 +55,8 @@ export function MyAttendanceV2() {
 
   // Forward navigation stops at the current month: there is nothing to show in
   // a month that has not started, and offering the move implies there is.
-  const canGoNext = month < new Date().toISOString().slice(0, 7);
+  const companyMonth = (overview.data?.today.date ?? new Date().toISOString()).slice(0, 7);
+  const canGoNext = month < companyMonth;
 
   const openDay = (date: string, correction = false) => {
     if (correction) { setDrawerOpen(false); setCorrectionDate(date); return; }
@@ -140,16 +141,26 @@ export function MyAttendanceV2() {
         </>
       ) : null}
 
-      {correctionDate && overview.data?.today.correctionAllowed && <CorrectionDialog date={correctionDate} onClose={() => setCorrectionDate(null)} />}
+      {correctionDate && overview.data && canRequestCorrection(correctionDate, overview.data.today) && <CorrectionDialog date={correctionDate} onClose={() => setCorrectionDate(null)} />}
 
       <DayDetailDrawer
         date={selectedDate}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         seed={seed}
+        correctable={!!selectedDate && !!overview.data && canRequestCorrection(selectedDate, overview.data.today)}
+        onRequestCorrection={(date) => openDay(date, true)}
       />
     </div>
   );
+}
+
+/**
+ * Any past day can be queried. Today only once the workday has closed (the backend's own flag, so an
+ * open day is never argued about), and a future day never.
+ */
+function canRequestCorrection(date: string, today: { date: string; correctionAllowed: boolean }): boolean {
+  return date < today.date || (date === today.date && today.correctionAllowed);
 }
 
 function Skeleton({ className }: { className: string }) {

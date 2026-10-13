@@ -12,7 +12,9 @@ export type RegularizationRequestType =
   | 'LOCATION_EXCEPTION'
   | 'FACE_EXCEPTION'
   | 'LATE_CORRECTION'
-  | 'HALF_DAY_CORRECTION';
+  | 'HALF_DAY_CORRECTION'
+  /** Review-only: status / worked-hours / other concerns. Approval never rewrites the official day. */
+  | 'OTHER';
 
 export type RegularizationStatus =
   | 'PENDING'
