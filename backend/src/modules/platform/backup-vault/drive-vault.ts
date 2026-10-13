@@ -169,7 +169,10 @@ export interface ArchiveVault {
   permissions(fileId: string): Promise<DrivePermission[]>;
   /** Non-trashed child folders of `parentId` with exactly this name. Creates nothing. */
   findChildFolders(parentId: string, name: string): Promise<DriveFileInfo[]>;
+  /** Deletes a file, or a folder with everything in it. */
   remove(fileId: string): Promise<void>;
+  /** Merges labels into a file's or folder's appProperties. */
+  setAppProperties(fileId: string, appProperties: Record<string, string>): Promise<void>;
   /** Creates the archive root folder in My Drive. Used once, by --init-root. */
   createRoot(): Promise<string>;
 }
@@ -405,6 +408,14 @@ export function createDriveVault(config: DriveConfig, fetchImpl: FetchLike = (gl
 
     async remove(fileId) {
       await call(`${API}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' }, [204, 200]);
+    },
+
+    async setAppProperties(fileId, appProperties) {
+      await call(`${API}/files/${encodeURIComponent(fileId)}?fields=id`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ appProperties }),
+      });
     },
 
     async createRoot() {

@@ -49,6 +49,12 @@ model User {
   workMode                  String?                        @default("Office")
   joiningDate               DateTime?
   lastWorkingDate           DateTime?
+  /// Tokens issued before this instant are rejected. Set on archive, rehire,
+  /// permanent delete and admin password reset.
+  sessionsRevokedAt         DateTime?
+  /// A non-person row (the "Deleted account" principal). Never signs in and is
+  /// excluded from every list, count, selector and report.
+  isSystemAccount           Boolean                        @default(false)
   probationPeriod           String?
   reportingManager          String?
   teamLeadName              String?
@@ -2368,4 +2374,164 @@ enum AttendanceRecoveryTombstoneType {
   BREAK_LOG
   PUNCH_EVIDENCE
   REGULARIZATION
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Archived-user lifecycle: archive snapshots, lifecycle operations, deletion
+// receipts and the retention gate.
+//
+// None of these tables holds a foreign key to users: they must survive the
+// permanent deletion of the person they describe, and after it they carry no
+// identifier of that person. Every user-like column below is classified in
+// the lifecycle dependency matrix and covered by its schema test.
+// ════════════════════════════════════════════════════════════════════════════
+
+/// One archive, rehire or permanent-delete run. "userId" is required while the
+/// operation is in flight and set to NULL once the user has been deleted.
+model UserLifecycleOperation {
+  id             String   @id
+  userId         String?
+  kind           String
+  state          String
+  /// pg_current_xact_id() of the transaction allowed to delete append-only rows.
+  deleteTxid     String?
+  snapshotId     String?
+  actorId        String
+  idempotencyKey String   @unique
+  /// Controlled, non-PII result codes and counts only.
+  result         Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+  @@index([state])
+  @@map("user_lifecycle_operations")
+}
+
+/// A verified archive of one person at one point in time. A new archive after a
+/// rehire is a new version; an earlier snapshot is never rewritten except to be
+/// invalidated or consumed.
+model UserArchiveSnapshot {
+  id                    String            @id
+  userId                String?
+  /// Random UUID; the Drive folder name. Never derived from the person.
+  archiveRef            String            @unique
+  version               Int
+  status                String
+  backupRequired        Boolean
+  provider              String?
+  environment           String
+  folderId              String?
+  folderPath            String?
+  workbookFileId        String?
+  workbookSizeBytes     Int?
+  workbookSha256        String?
+  fileCount             Int               @default(0)
+  schemaVersion         String
+  classificationVersion String
+  /// Fingerprint after the archive closures; permanent delete compares against it.
+  dataFingerprint       String
+  /// Fingerprint of the data the workbook was built from (before the closures).
+  backupFingerprint     String?
+  dependencyCounts      Json
+  ignoredSetupCounts    Json
+  operationId           String
+  createdById           String
+  createdAt             DateTime          @default(now())
+  verifiedAt            DateTime?
+  invalidatedAt         DateTime?
+  invalidationReason    String?
+  files                 UserArchiveFile[]
+
+  @@unique([userId, version])
+  @@index([status])
+  @@map("user_archive_snapshots")
+}
+
+/// Archive-side metadata for one copied file. The original provider reference
+/// is kept only inside the private workbook, never here.
+model UserArchiveFile {
+  id            String              @id @default(cuid())
+  snapshotId    String
+  seq           Int
+  provider      String
+  shared        Boolean
+  archiveFileId String
+  archivePath   String
+  sizeBytes     Int
+  sha256        String
+  sourceCount   Int
+  snapshot      UserArchiveSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, seq])
+  @@map("user_archive_files")
+}
+
+/// The only durable trace of a permanent deletion. Holds no identifier of the
+/// deleted person.
+model UserDeletionReceipt {
+  receiptId       String                    @id
+  operationId     String                    @unique
+  archiveRef      String
+  snapshotVersion Int
+  counts          Json
+  retentionResult String
+  cleanupState    String
+  createdAt       DateTime                  @default(now())
+  completedAt     DateTime?
+  cleanupItems    UserDeletionCleanupItem[]
+
+  @@map("user_deletion_receipts")
+}
+
+/// One original external object to delete after the database deletion. The
+/// provider handle is encrypted while cleanup is pending and erased once done;
+/// only the keyed HMAC remains.
+model UserDeletionCleanupItem {
+  id                      String              @id
+  receiptId               String
+  provider                String
+  resourceHandleEncrypted String?
+  resourceHandleHmac      String
+  state                   String
+  attempts                Int                 @default(0)
+  lastErrorCode           String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  completedAt             DateTime?
+  receipt                 UserDeletionReceipt @relation(fields: [receiptId], references: [receiptId], onDelete: Cascade)
+
+  @@unique([receiptId, resourceHandleHmac])
+  @@map("user_deletion_cleanup_items")
+}
+
+/// Approved company retention periods. Read-only in this release: no API or UI
+/// writes it, and it is not seeded. No row means POLICY_NOT_CONFIGURED.
+model RetentionRule {
+  id              String    @id @default(cuid())
+  category        String    @unique
+  retentionMonths Int?
+  policyReference String?
+  approvedById    String?
+  approvedAt      DateTime?
+  active          Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("retention_rules")
+}
+
+/// A legal hold blocks permanent deletion until released. Read-only in this
+/// release.
+model UserLegalHold {
+  id           String    @id @default(cuid())
+  userId       String
+  reasonCode   String
+  placedById   String?
+  placedAt     DateTime  @default(now())
+  releasedById String?
+  releasedAt   DateTime?
+
+  @@index([userId])
+  @@map("user_legal_holds")
 }

@@ -176,27 +176,23 @@ describe('the profile save writes columns, not whatever it was handed', () => {
 });
 
 describe('retiring an account cannot lose its attendance history', () => {
-  it('the delete blocker counts the Attendance stack', () => {
-    // It counted 20 relations while the schema has 35, and every Attendance V1
-    // model was among the missing -- so an account holding the records payroll
-    // is computed from looked free to remove.
-    const { readFileSync } = require('fs');
-    const src: string = readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    );
-
+  it('permanent deletion handles the Attendance stack (lifecycle dependency matrix)', () => {
+    // The old blocker counted 20 relations while the schema had 35. The
+    // lifecycle matrix now classifies every relation, and its schema test
+    // fails on any it misses; these are the payroll-critical ones.
+    const { HANDLERS } = require('../../src/modules/core/users/lifecycle/dependency-matrix');
+    const models = new Set(HANDLERS.map((h: any) => h.model));
     for (const model of [
-      'dailyAttendance',
-      'attendancePunchEvidence',
-      'attendancePunchPhoto',
-      'attendanceRegularization',
-      'attendancePunchHandoff',
-      'attendanceMonthClose',
-      'compOffCredit',
-      'employeeAttendanceProfile',
+      'DailyAttendance',
+      'AttendancePunchEvidence',
+      'AttendancePunchPhoto',
+      'AttendanceRegularization',
+      'AttendancePunchHandoff',
+      'AttendanceMonthClose',
+      'CompOffCredit',
+      'EmployeeAttendanceProfile',
     ]) {
-      expect(src).toContain(`${model}.count(`);
+      expect([model, models.has(model)]).toEqual([model, true]);
     }
   });
 
@@ -379,354 +375,6 @@ describe('archival is fail-closed on a verified vault copy', () => {
     expect(serialized).not.toContain(ENV.R2_SECRET_ACCESS_KEY);
     expect(serialized).not.toContain(ENV.R2_ACCESS_KEY_ID);
   });
-
-  it('the browser can no longer authorise archival', () => {
-    // `confirmBackupDownloaded` used to gate this. A download cannot be
-    // verified by the server that offered it.
-    const src: string = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    );
-    const body = src.slice(src.indexOf('async archiveAfterBackup'));
-    const fn = body.slice(0, body.indexOf('async getMyTeam'));
-
-    expect(fn).not.toMatch(/if\s*\(!confirmBackupDownloaded\)/);
-    expect(fn).toContain('archiveUserToDrive(');
-    // User archives go to Google Drive, never to the R2 backup vault.
-    expect(fn).not.toContain('archiveToVault(');
-    // And the OneDrive path is no longer what retires an account.
-    expect(fn).not.toContain('backupVaultService.save(');
-  });
-
-  it('archives under an immutable, timestamped file name', () => {
-    const src: string = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    );
-    const body = src.slice(src.indexOf('async archiveAfterBackup'));
-
-    expect(body).toContain('archived-user-${userId}-');
-    expect(body).toContain('toISOString()');
-  });
-});
-
-describe('archival retires the login and keeps the person', () => {
-  // POLICY: archive and erasure are different operations. Archival used to
-  // overwrite the name with "Archived User <id>", so a 2026 attendance report
-  // read back three years later would attribute the day to an anonymous id,
-  // and a leave approval would no longer say who approved it.
-
-  function archiveService(over: any = {}) {
-    const updates: any[] = [];
-    const events: any[] = [];
-    const user = {
-      id: 'u-1',
-      name: 'Shubham Suryawanshi',
-      email: 'shubham@technoedgels.com',
-      employeeId: 'TE-014',
-      isActive: false,
-      role: { name: 'EMPLOYEE' },
-      ...over.user,
-    };
-    const prisma: any = {
-      user: {
-        findUnique: jest.fn(async ({ select }: any) =>
-          select?.employeeId ? { employeeId: user.employeeId } : user,
-        ),
-        findMany: jest.fn(async () => []),
-        count: jest.fn(async () => over.reports ?? 0),
-        update: jest.fn(async ({ data }: any) => {
-          updates.push(data);
-          return { ...user, ...data };
-        }),
-      },
-      ticket: { count: jest.fn(async () => over.openTickets ?? 0) },
-      managerDeptAccess: { count: jest.fn(async () => 0), findMany: jest.fn(async () => []) },
-      leaveRequest: { count: jest.fn(async () => 0), findMany: jest.fn(async () => []) },
-      operationalEvent: {
-        findFirst: jest.fn(async () => over.existingArchive ?? null),
-        findMany: jest.fn(async () => []),
-      },
-    };
-    const service = new UsersService(
-      prisma, policy as any,
-      { log: jest.fn(async (e: any) => void events.push(e)) } as any,
-      {} as any, {} as any,
-    );
-    return { service, updates, events, prisma, user };
-  }
-
-  it('archives by deactivating, and touches nothing else', async () => {
-    const { service, updates } = archiveService();
-    // Exercise the mutation directly: the surrounding flow needs a vault.
-    await (service as any).prisma.user.update({ where: { id: 'u-1' }, data: { isActive: false } });
-
-    expect(updates[0]).toEqual({ isActive: false });
-  });
-
-  it('no longer anonymises anything, anywhere in the flow', () => {
-    const src: string = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    );
-    const fn = src.slice(src.indexOf('async archiveAfterBackup'));
-    // Ends at the next method, public or private. Overshooting reaches
-    // resolveArchiveRecipients, which legitimately mentions the old anonymised
-    // address shape in order to filter it out of notification recipients.
-    const ends = [fn.indexOf('\n  async ', 10), fn.indexOf('\n  private ', 10)].filter((i) => i > 0);
-    const body = fn.slice(0, Math.min(...ends));
-
-    // The exact shapes that destroyed the identity.
-    expect(body).not.toContain('Archived User ${');
-    expect(body).not.toContain('@apex.local');
-    expect(body).not.toMatch(/name:\s*`Archived/);
-    // And no nulling of the person's details.
-    for (const field of ['panNumber: null', 'aadhaarNumber: null', 'bankName: null', 'phone: null']) {
-      expect(body).not.toContain(field);
-    }
-  });
-
-  it('reports already-archived deterministically instead of archiving twice', async () => {
-    const when = new Date('2026-08-31T10:00:00.000Z');
-    const { service, updates, events } = archiveService({
-      // Carries an action: state is the LATEST transition, so an event with
-      // no action is not an archival.
-      existingArchive: { timestamp: when, action: 'USER_ARCHIVED_AFTER_BACKUP' },
-    });
-
-    const result = await service.archiveAfterBackup('u-1', 'admin-1', true);
-
-    expect(result.message).toMatch(/already archived/i);
-    expect(result.vaulted).toBe(true);
-    // No second vault object, no second email, no second audit event.
-    expect(updates).toEqual([]);
-    expect(events).toEqual([]);
-  });
-
-  it('blocks while the user still owns active work', async () => {
-    const { service, updates } = archiveService({ reports: 4, openTickets: 7 });
-
-    await expect(service.archiveAfterBackup('u-1', 'admin-1', true)).rejects.toThrow();
-    // Checked BEFORE the archive is generated, so a blocked attempt writes
-    // nothing at all.
-    expect(updates).toEqual([]);
-  });
-
-  it('names what has to be handed over', async () => {
-    const { service } = archiveService({ reports: 4, openTickets: 7 });
-    const blocking = await service.activeResponsibilities('u-1');
-
-    expect(blocking['Direct reports']).toBe(4);
-    expect(blocking['Open tickets assigned']).toBe(7);
-  });
-
-  it('historical records never block archival', async () => {
-    // Past attendance is a fact about last month. Four direct reports is a
-    // fact about next Monday. Only the second is a reason to wait.
-    const { service } = archiveService();
-    const blocking = await service.activeResponsibilities('u-1');
-
-    expect(blocking).toEqual({});
-  });
-
-  it('reads archived status from the audit trail, not a destroyed email', () => {
-    const src: string = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    );
-    const fn = src.slice(src.indexOf('async archivedAt('));
-    const body = fn.slice(0, fn.indexOf('\n  }'));
-
-    expect(body).toContain('operationalEvent');
-    expect(body).toContain('ARCHIVE_ACTIONS');
-    // The vocabulary itself, now shared: the current name, the older one that
-    // accounts retired before the change still carry, and the reactivation
-    // that cancels either.
-    expect(src).toContain("ARCHIVE_ACTIONS = ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED']");
-    expect(src).toContain("REACTIVATE_ACTIONS = ['USER_REACTIVATED']");
-  });
-
-  it('the success message no longer claims data was anonymised', () => {
-    const src: string = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    );
-
-    expect(src).not.toContain('Personal data anonymized');
-  });
-});
-
-describe('the archive marker and the deactivation commit together', () => {
-  // The audit event IS the archived marker, so these two writes must be
-  // atomic. Previously the event went through eventLogger.log() -- fire and
-  // forget, and swallowing its own errors -- so any failure left an account
-  // deactivated with no marker: indistinguishable from an ordinary
-  // deactivation, invisible to the idempotency check, and a retry would have
-  // produced a second vault object and a second round of notifications.
-
-  const read = () =>
-    require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    ) as string;
-
-  const archiveBody = () => {
-    const src = read();
-    const fn = src.slice(src.indexOf('async archiveAfterBackup'));
-    const ends = [fn.indexOf('\n  async ', 10), fn.indexOf('\n  private ', 10)].filter((i) => i > 0);
-    return fn.slice(0, Math.min(...ends));
-  };
-
-  it('both writes happen inside one transaction', () => {
-    const body = archiveBody();
-    const tx = body.slice(body.indexOf('$transaction'));
-    const scope = tx.slice(0, tx.indexOf('\n    });'));
-
-    expect(body).toContain('this.prisma.$transaction');
-    expect(scope).toContain('tx.user.update');
-    expect(scope).toContain("action: 'USER_ARCHIVED_AFTER_BACKUP'");
-  });
-
-  it('the marker is not written through the swallowing logger', () => {
-    // eventLogger.log() catches its own errors and is not awaited, so a
-    // failure there is invisible. State cannot be carried that way.
-    const body = archiveBody();
-    const afterTx = body.slice(body.indexOf('$transaction'));
-
-    expect(afterTx).not.toMatch(/eventLogger\.log\([\s\S]*USER_ARCHIVED_AFTER_BACKUP/);
-    expect(body).not.toMatch(/eventLogger[\s\S]{0,400}USER_ARCHIVED_AFTER_BACKUP[\s\S]{0,400}catch\(\(\) => \{\}\)/);
-  });
-
-  it('the deactivation is never written outside the transaction', () => {
-    const body = archiveBody();
-    // The only isActive write in this method must be the transactional one.
-    const writes = body.match(/user\.update\(\{[^}]*data:\s*\{\s*isActive/g) ?? [];
-    const txWrites = body.match(/tx\.user\.update\(\{[^}]*data:\s*\{\s*isActive/g) ?? [];
-
-    expect(writes.length).toBe(txWrites.length);
-  });
-
-  it('re-checks for a concurrent archival inside the transaction', () => {
-    // Two administrators clicking at once: the check before the transaction
-    // can go stale between reading and writing.
-    const body = archiveBody();
-    const tx = body.slice(body.indexOf('$transaction'));
-    const scope = tx.slice(0, tx.indexOf('\n    });'));
-
-    expect(scope).toContain('operationalEvent.findFirst');
-    expect(scope).toMatch(/throw new BadRequestException/);
-  });
-
-  it('the Drive archive is verified before the transaction opens, and stays outside it', () => {
-    // An object store and Postgres cannot share a transaction. The ordering is
-    // chosen so the survivable failure is the harmless one: a verified backup
-    // with no archival, which is simply retried.
-    const body = archiveBody();
-
-    expect(body.indexOf('archiveUserToDrive(')).toBeGreaterThan(-1);
-    expect(body.indexOf('archiveUserToDrive(')).toBeLessThan(body.indexOf('$transaction'));
-    const tx = body.slice(body.indexOf('$transaction'));
-    const scope = tx.slice(0, tx.indexOf('\n    });'));
-    expect(scope).not.toContain('archiveUserToDrive');
-    expect(scope).not.toContain('sendArchiveBackup');
-  });
-
-  it('the dependency gate runs before anything is generated or uploaded', () => {
-    const body = archiveBody();
-
-    expect(body.indexOf('activeResponsibilities(')).toBeLessThan(body.indexOf('generateBackup('));
-    expect(body.indexOf('activeResponsibilities(')).toBeLessThan(body.indexOf('archiveUserToDrive('));
-  });
-});
-
-describe('notification informs; it does not gate', () => {
-  // Making an employee's retirement depend on Resend being up was the wrong
-  // dependency direction. The audit event proves the retirement happened;
-  // email only tells people that it did.
-
-  const body = () => {
-    const src: string = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    );
-    const fn = src.slice(src.indexOf('async archiveAfterBackup'));
-    const ends = [fn.indexOf('\n  async ', 10), fn.indexOf('\n  private ', 10)].filter((i) => i > 0);
-    return fn.slice(0, Math.min(...ends));
-  };
-
-  it('sends only after the transaction has committed', () => {
-    // THE ORDERING TEST. Moving the send back above the commit fails here.
-    const b = body();
-
-    expect(b.indexOf('$transaction')).toBeLessThan(b.indexOf('sendArchiveBackup'));
-    expect(b.indexOf('$transaction')).toBeLessThan(b.indexOf('resolveArchiveRecipients'));
-  });
-
-  it('cannot abort the archive, because the send is inside a catch', () => {
-    const b = body();
-    const after = b.slice(b.indexOf('$transaction'));
-    const send = after.slice(after.indexOf('sendArchiveBackup') - 600, after.indexOf('sendArchiveBackup'));
-
-    expect(send).toContain('try {');
-  });
-
-  it('no longer throws when every recipient fails', () => {
-    // The old guard: `if (deliveryResult.sent.length === 0) throw`.
-    const b = body();
-
-    expect(b).not.toMatch(/deliveryResult\.sent\.length === 0\s*\)\s*\{\s*throw/);
-    expect(b).not.toContain('Archive aborted');
-  });
-
-  it('reports archive and notification as separate outcomes', () => {
-    const b = body();
-
-    // A LITERAL, not a conditional. Deriving archiveStatus from the send would
-    // reintroduce exactly the coupling this change removes -- the archive
-    // reported as failed because an email did.
-    expect(b).toMatch(/archiveStatus:\s*'SUCCESS'/);
-    expect(b).not.toMatch(/archiveStatus:\s*notificationStatus/);
-    expect(b).not.toMatch(/archiveStatus:[^,\n]*\?/);
-    expect(b).toContain('notificationStatus');
-    // And the message tells the truth about the half that failed.
-    expect(b).toMatch(/notification email could not be sent/i);
-  });
-
-  it('records the unsent notification without claiming the archive failed', () => {
-    const b = body();
-
-    expect(b).toContain('USER_ARCHIVE_NOTIFICATION_FAILED');
-    const marker = b.slice(b.indexOf('USER_ARCHIVE_NOTIFICATION_FAILED'));
-    // Non-critical: it must not be able to break a completed archive.
-    expect(marker.slice(0, 500)).toContain('.catch(() => {})');
-  });
-
-  it('does not leak provider internals to the caller', () => {
-    const b = body();
-    const failureMessage = b.slice(b.indexOf('notification email could not be sent') - 300);
-
-    for (const leak of ['RESEND_API_KEY', 'smtp', 'SMTP']) {
-      expect(failureMessage.slice(0, 400)).not.toContain(leak);
-    }
-  });
-
-  it('attempts nothing when the archive never happened', () => {
-    // R2 verification and the transaction both throw, so execution never
-    // reaches the notification block below them.
-    const b = body();
-
-    expect(b.indexOf('archiveUserToDrive(')).toBeLessThan(b.indexOf('sendArchiveBackup'));
-    expect(b.indexOf('activeResponsibilities(')).toBeLessThan(b.indexOf('sendArchiveBackup'));
-  });
-
-  it('an already-archived retry sends nothing and archives nothing', () => {
-    const b = body();
-    const early = b.slice(0, b.indexOf('generateBackup('));
-
-    expect(early).toContain("archiveStatus: 'ALREADY_ARCHIVED'");
-    expect(early).not.toContain('sendArchiveBackup');
-    expect(early).not.toContain('archiveUserToDrive');
-  });
 });
 
 describe('lifecycle is the latest transition, not the first one ever', () => {
@@ -752,6 +400,24 @@ describe('lifecycle is the latest transition, not the first one ever', () => {
   }
 
   const T = (iso: string) => new Date(iso);
+
+  it('reads archived status from the audit trail, not a destroyed email', () => {
+    const src: string = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
+      'utf8',
+    );
+    const fn = src.slice(src.indexOf('async archivedAt('));
+    const body = fn.slice(0, fn.indexOf('\n  }'));
+
+    expect(body).toContain('operationalEvent');
+    expect(body).toContain('ARCHIVE_ACTIONS');
+    // The vocabulary itself, now shared: the current name, the older one that
+    // accounts retired before the change still carry, and the reactivation
+    // that cancels either.
+    expect(src).toContain("ARCHIVE_ACTIONS = ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED']");
+    // Rehire writes the canonical USER_REHIRED; readers accept both.
+    expect(src).toContain("REACTIVATE_ACTIONS = ['USER_REACTIVATED', 'USER_REHIRED']");
+  });
 
   it('is archived after an archive event', async () => {
     const at = T('2026-08-01T10:00:00.000Z');
@@ -791,18 +457,18 @@ describe('lifecycle is the latest transition, not the first one ever', () => {
   });
 
   it('queries newest-first everywhere the state is derived', () => {
-    // Three places read it: archivedAt(), the users list, and the
-    // in-transaction re-check. All must order desc or the rule silently
-    // reverts for that caller.
-    const src: string = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../../src/modules/core/users/users.service.ts'),
-      'utf8',
-    );
+    // Three places read it: archivedAt() and the users list here, and the
+    // lifecycle service's own reader (used inside the archive transaction).
+    // All must order desc or the rule silently reverts for that caller.
+    const read = (p: string): string => require('fs').readFileSync(require('path').resolve(__dirname, p), 'utf8');
+    const src = read('../../src/modules/core/users/users.service.ts');
     const derivations = src.match(/ARCHIVE_ACTIONS[\s\S]{0,400}?orderBy:\s*\{\s*timestamp:\s*'(asc|desc)'/g) ?? [];
 
-    expect(derivations.length).toBeGreaterThanOrEqual(3);
+    expect(derivations.length).toBeGreaterThanOrEqual(2);
     for (const d of derivations) expect(d).toContain("'desc'");
     expect(src).not.toMatch(/ARCHIVE_ACTIONS[\s\S]{0,400}?timestamp:\s*'asc'/);
+    const lifecycle = read('../../src/modules/core/users/lifecycle/user-lifecycle.service.ts');
+    expect(lifecycle).toMatch(/ARCHIVE_EVENT_NAMES, \.\.\.RETURN_EVENT_NAMES[\s\S]{0,200}?orderBy:\s*\{\s*timestamp:\s*'desc'/);
   });
 
   it('reactivation writes a transition rather than a plain edit', async () => {
@@ -816,6 +482,8 @@ describe('lifecycle is the latest transition, not the first one ever', () => {
         update: jest.fn(async ({ data }: any) => ({ id: 'u-1', ...data })),
       },
       role: { findUnique: jest.fn(async () => ({ name: 'EMPLOYEE' })) },
+      // A deactivated (not archived) account: no archive event.
+      operationalEvent: { findFirst: jest.fn(async () => null) },
     };
     const service = new UsersService(
       prisma, policy as any,
@@ -828,6 +496,20 @@ describe('lifecycle is the latest transition, not the first one ever', () => {
     audit.length = 0;
     await service.update('u-1', { isActive: false } as any, 'admin-1');
     expect(audit[0].action).toBe('USER_DEACTIVATED');
+  });
+
+  it('an ARCHIVED account cannot come back through the reactivate toggle: Rehire is the only way', async () => {
+    const prisma: any = {
+      user: {
+        findUnique: jest.fn(async () => ({ roleId: 'r-1', employeeId: 'TE-1' })),
+        update: jest.fn(),
+      },
+      role: { findUnique: jest.fn(async () => ({ name: 'EMPLOYEE' })) },
+      operationalEvent: { findFirst: jest.fn(async () => ({ action: 'USER_ARCHIVED', timestamp: new Date() })) },
+    };
+    const service = new UsersService(prisma, policy as any, { log: jest.fn() } as any, {} as any, {} as any);
+    await expect(service.update('u-1', { isActive: true } as any, 'admin-1')).rejects.toThrow(/Use Rehire/);
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('an ordinary edit is still an edit', async () => {
@@ -866,6 +548,8 @@ describe('Account & Access can make an inactive INTERN an active HR ADMIN', () =
         }),
       },
       role: { findUnique: jest.fn(async () => ({ name: roleName })) },
+      // Deactivated, not archived.
+      operationalEvent: { findFirst: jest.fn(async () => null) },
     };
     const service = new UsersService(
       prisma, policy as any,
