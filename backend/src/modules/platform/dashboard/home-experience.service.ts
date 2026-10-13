@@ -15,6 +15,19 @@ const TERMINAL_TICKET_STATUSES: TicketStatus[] = [
   TicketStatus.CLOSED,
 ];
 
+const WORKSPACE_ESSENTIALS_LIMIT = 5;
+const WORKSPACE_NOTES_LIMIT = 3;
+
+type WorkspaceEssential = { id: string; label: string; url: string };
+
+function defaultEssentials(): WorkspaceEssential[] {
+  return Array.from({ length: WORKSPACE_ESSENTIALS_LIMIT }, (_, index) => ({
+    id: `essential-${index + 1}`,
+    label: `Essential ${index + 1}`,
+    url: '',
+  }));
+}
+
 @Injectable()
 export class HomeExperienceService {
   constructor(
@@ -32,16 +45,54 @@ export class HomeExperienceService {
     return parts.length > 1 ? { AND: parts } : parts[0] ?? {};
   }
 
+  private workspaceEssentials(raw: unknown): WorkspaceEssential[] {
+    const defaults = defaultEssentials();
+    if (Array.isArray(raw)) {
+      return defaults.map((fallback, index) => {
+        const item = raw[index];
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return fallback;
+        const value = item as Record<string, unknown>;
+        return {
+          id: typeof value.id === 'string' ? value.id : fallback.id,
+          label: typeof value.label === 'string' && value.label.trim() ? value.label.trim() : fallback.label,
+          url: typeof value.url === 'string' ? value.url : '',
+        };
+      });
+    }
+    // Existing users have the former Mail/Teams/Drive object. Preserve those
+    // values and give them two additional editable slots without a migration.
+    if (raw && typeof raw === 'object') {
+      const legacy = raw as Record<string, unknown>;
+      const names = ['Mail', 'Teams', 'Drive'];
+      const keys = ['mail', 'teams', 'drive'];
+      return defaults.map((fallback, index) => index < keys.length
+        ? { ...fallback, label: names[index], url: typeof legacy[keys[index]] === 'string' ? legacy[keys[index]] as string : '' }
+        : fallback);
+    }
+    return defaults;
+  }
+
+  private workspaceNotes(raw: string | null | undefined): string[] {
+    if (!raw) return Array.from({ length: WORKSPACE_NOTES_LIMIT }, () => '');
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.version === 1 && Array.isArray(parsed.items)) {
+        return Array.from({ length: WORKSPACE_NOTES_LIMIT }, (_, index) => typeof parsed.items[index] === 'string' ? parsed.items[index] : '');
+      }
+    } catch { /* Legacy plain-text note; it belongs in Note 1. */ }
+    return [raw, '', ''];
+  }
+
   async getWorkspace(userId: string) {
     const row = await this.prisma.dashboardWorkspace.findUnique({ where: { userId } });
     const today = this.tva.companyToday();
     const checklist = Array.isArray(row?.checklist) ? row.checklist as any[] : [];
     return {
-      notes: row?.notes ?? '',
+      notes: this.workspaceNotes(row?.notes),
       checklist: checklist.map((item) => ({
         id: item.id, text: item.text, done: item.completedOn === today,
       })),
-      shortcuts: row?.shortcuts ?? {},
+      essentials: this.workspaceEssentials(row?.shortcuts),
       updatedAt: row?.updatedAt ?? null,
     };
   }
@@ -51,16 +102,20 @@ export class HomeExperienceService {
       throw new BadRequestException('Workspace must be an object');
     }
     const body = input as Record<string, unknown>;
-    const allowed = ['notes', 'checklist', 'shortcuts'];
+    const allowed = ['notes', 'checklist', 'essentials', 'shortcuts'];
     if (Object.keys(body).some((key) => !allowed.includes(key)) || !Object.keys(body).length) {
       throw new BadRequestException('Unknown or missing workspace fields');
     }
     const data: any = {};
     if ('notes' in body) {
-      if (typeof body.notes !== 'string' || body.notes.length > 5000) {
-        throw new BadRequestException('Notes must be 5000 characters or fewer');
+      if (typeof body.notes === 'string') {
+        if (body.notes.length > 5000) throw new BadRequestException('Notes must be 5000 characters or fewer');
+        data.notes = body.notes;
+      } else if (!Array.isArray(body.notes) || body.notes.length > WORKSPACE_NOTES_LIMIT || body.notes.some((note) => typeof note !== 'string' || note.length > 1600)) {
+        throw new BadRequestException('Workspace can contain up to three notes of 1600 characters each');
+      } else {
+        data.notes = JSON.stringify({ version: 1, items: body.notes });
       }
-      data.notes = body.notes;
     }
     if ('checklist' in body) {
       if (!Array.isArray(body.checklist) || body.checklist.length > 30) {
@@ -78,7 +133,23 @@ export class HomeExperienceService {
         return { id: entry.id, text: entry.text.trim(), completedOn: entry.done ? this.tva.companyToday() : null };
       });
     }
-    if ('shortcuts' in body) {
+    if ('essentials' in body) {
+      if (!Array.isArray(body.essentials) || body.essentials.length !== WORKSPACE_ESSENTIALS_LIMIT) {
+        throw new BadRequestException('Workspace must contain exactly five essentials');
+      }
+      const ids = new Set<string>();
+      const essentials = body.essentials.map((item: any, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item) ||
+          typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(item.id) || ids.has(item.id) ||
+          typeof item.label !== 'string' || !item.label.trim() || item.label.trim().length > 40 ||
+          typeof item.url !== 'string' || item.url.length > 500 || (item.url && !/^https:\/\/[^\s]+$/i.test(item.url))) {
+          throw new BadRequestException(`Essential ${index + 1} is invalid`);
+        }
+        ids.add(item.id);
+        return { id: item.id, label: item.label.trim(), url: item.url };
+      });
+      data.shortcuts = essentials;
+    } else if ('shortcuts' in body) {
       if (!body.shortcuts || typeof body.shortcuts !== 'object' || Array.isArray(body.shortcuts)) {
         throw new BadRequestException('Shortcuts must be an object');
       }
@@ -210,7 +281,7 @@ export class HomeExperienceService {
     ].sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime()).slice(0, 5);
 
     const [team, projectHours, personalSummary] = await Promise.all([
-      this.getTeamInsights(user, activeTickets, isOverdue, now),
+      this.getTeamInsights(user, activeTickets, scope, isOverdue, now),
       projects.length && isLeader
         ? this.prisma.ticketTimeLog.findMany({
             where: { countsAsWork: true, durationSeconds: { not: null }, ticket: { projectId: { in: projects.map((project) => project.id) } } },
@@ -355,7 +426,7 @@ export class HomeExperienceService {
     };
   }
 
-  private async getTeamInsights(user: any, activeTickets: any[], isOverdue: (ticket: any) => boolean, now: Date) {
+  private async getTeamInsights(user: any, activeTickets: any[], ticketScope: any, isOverdue: (ticket: any) => boolean, now: Date) {
     const role = this.access.roleName(user);
     const detailed = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
     let userIds: string[] | null = null;
@@ -431,6 +502,16 @@ export class HomeExperienceService {
     });
     const attentionCount = detailed ? rows.filter((member) => (member.overdue ?? 0) > 0 || (member.active ?? 0) > 0 && member.status === 'ON_LEAVE').length : 0;
     rows.sort((a, b) => (b.overdue ?? 0) - (a.overdue ?? 0) || (b.active ?? 0) - (a.active ?? 0) || a.name.localeCompare(b.name));
-    return { detailed, rows: rows.slice(0, 6), attentionCount };
+    const visibleRows = await Promise.all(rows.slice(0, 6).map(async (member) => ({
+      ...member,
+      completed: detailed ? await this.prisma.ticket.count({
+        where: this.andWhere(
+          ticketScope,
+          { status: { in: [TicketStatus.DONE, TicketStatus.CLOSED] } },
+          { OR: [{ assignedToId: member.id }, { assignees: { some: { userId: member.id } } }] },
+        ),
+      }) : null,
+    })));
+    return { detailed, rows: visibleRows, attentionCount };
   }
 }

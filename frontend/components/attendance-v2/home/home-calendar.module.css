@@ -211,6 +211,23 @@ button.day:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
 .up { color: var(--color-success); }
 .down { color: var(--color-danger); }
 .flat { color: var(--text-tertiary); }
+.kpiProgress { height: 6px; overflow: hidden; border-radius: 999px; background: var(--bg-tertiary); }
+.kpiProgress > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
+.streakNext { display: block; font-size: 11px; font-weight: 700; color: var(--text-secondary); }
+
+/* One compact scorecard keeps personal attendance measures readable as a set. */
+.kpiScore { padding: 15px; }
+.kpiScoreHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.kpiScoreHead h2 { font-size: 15px; font-weight: 800; letter-spacing: -.015em; color: var(--text-primary); }
+.kpiScoreHead p { margin-top: 2px; font-size: 10px; font-weight: 600; color: var(--text-secondary); }
+.kpiScoreGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kpiScoreMetric { display: flex; gap: 8px; min-width: 0; padding: 9px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-secondary); }
+.kpiScoreMetricFull { grid-column: 1 / -1; }
+.kpiScoreMetricIcon { display: inline-flex; width: 25px; height: 25px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 8px; color: var(--accent); background: var(--accent-subtle); }
+.kpiScoreMetricCopy { min-width: 0; }
+.kpiScoreMetricCopy > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); }
+.kpiScoreMetricCopy strong { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; color: var(--text-primary); }
+.kpiScoreMetricCopy small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 600; color: var(--text-secondary); }
 
 .summary { padding: 14px 16px; }
 .summary p { font-size: 13px; line-height: 1.45; color: var(--text-primary); font-weight: 600; }

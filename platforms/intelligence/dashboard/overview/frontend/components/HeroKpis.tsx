@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarClock, ClipboardCheck, FolderKanban, Ticket, type LucideIcon } from 'lucide-react';
-import { dashboardApi } from '../api';
+import { CalendarClock, ClipboardCheck, FileClock, FolderKanban, Ticket, Timer, type LucideIcon } from 'lucide-react';
+import { dashboardApi, type HomeKpiScope } from '../api';
 
-type Scope = 'mine' | 'team';
+type Scope = 'mine' | 'scoped';
 
 function Tile({
   label, value, sub, icon: Icon, onClick, children,
@@ -33,82 +33,60 @@ function Tile({
   );
 }
 
-/**
- * The four "needs attention" figures inside the Home hero.
- * Leads and above: active tickets (mine/team), active projects, ticket
- * approvals, leave approvals. Employees and interns: their own active tickets,
- * projects and tickets waiting in review.
- */
-/** What "team" actually covers for this role: admins see the whole company, managers their department. */
-function scopeLabel(role: string): { short: string; sub: string; projects: string } {
-  if (role === 'ADMIN' || role === 'SUPER_ADMIN') return { short: 'Company', sub: 'open across the company', projects: 'across the company' };
-  if (role === 'MANAGER') return { short: 'Department', sub: 'open in your department', projects: 'in your department' };
-  return { short: 'Team', sub: 'open across your team', projects: 'in your team' };
+/** What the shared non-personal scope means for a role. */
+function scopeLabel(role: string): { short: string; detail: string; projects: string } {
+  if (role === 'ADMIN' || role === 'SUPER_ADMIN') return { short: 'Company', detail: 'across the company', projects: 'company projects' };
+  if (role === 'MANAGER') return { short: 'Department', detail: 'in your department', projects: 'department projects' };
+  return { short: 'Team', detail: 'across your team', projects: 'team projects' };
 }
 
+function ticketHref(status: 'OPEN' | 'IN_PROGRESS' | 'REVIEW' | 'PENDING_APPROVAL', scope: Scope, userId?: string) {
+  if (scope === 'mine' && userId) return `/tickets?status=${status}&assignedToId=${userId}`;
+  return `/tickets?status=${status}`;
+}
+
+/**
+ * The Home hero is an action queue, not a historic reporting surface. One
+ * shared scope switch changes every card together so its six numbers can be
+ * read as one coherent My/Team/Department/Company snapshot.
+ */
 export function HeroKpis({ isLead, userId, role = '' }: { isLead: boolean; userId?: string; role?: string }) {
-  const scopeName = scopeLabel(role);
   const router = useRouter();
-  const [scope, setScope] = useState<Scope>(isLead ? 'team' : 'mine');
+  const [scope, setScope] = useState<Scope>('mine');
+  const scopeName = scopeLabel(role);
   const { data, isError } = useQuery({
     queryKey: ['home-kpis'],
     queryFn: () => dashboardApi.getHomeKpis(),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
-
+  const selected: HomeKpiScope | undefined = scope === 'scoped' ? data?.scoped ?? undefined : data?.mine;
   const show = (n: number | null | undefined) => (isError ? '–' : n ?? '…');
-  const activeValue = scope === 'team' ? data?.activeTickets.team : data?.activeTickets.mine;
+  const isScoped = scope === 'scoped';
+  const workSub = isScoped ? scopeName.detail : 'assigned to you';
+  const reviewSub = isScoped ? 'in your authorized scope' : 'waiting for a decision';
+  const ticketApprovalSub = isScoped ? 'waiting for your approval' : 'your requests awaiting approval';
+  const leaveSub = isScoped ? 'waiting for your decision' : 'your pending leave requests';
 
   return (
-    <div className={`grid gap-3 ${isLead ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'}`}>
-      <Tile
-        label="Active tickets"
-        value={show(activeValue)}
-        sub={scope === 'team' ? scopeName.sub : 'assigned to you'}
-        icon={Ticket}
-        onClick={() => router.push(scope === 'team' || !userId ? '/tickets' : `/tickets?assignedToId=${userId}`)}
-      >
-        {isLead && (
-          <div className="apex-hero-kpi-toggle" role="group" aria-label="Active tickets scope">
-            <button type="button" aria-pressed={scope === 'mine'} onClick={() => setScope('mine')}>My</button>
-            <button type="button" aria-pressed={scope === 'team'} onClick={() => setScope('team')}>{scopeName.short}</button>
-          </div>
-        )}
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <Tile label="Open tickets" value={show(selected?.openTickets)} sub={workSub} icon={Ticket}
+        onClick={() => router.push(ticketHref('OPEN', scope, userId))}>
+        {isLead && <div className="apex-hero-kpi-toggle" role="group" aria-label="All dashboard KPIs scope">
+          <button type="button" aria-pressed={scope === 'mine'} onClick={() => setScope('mine')}>My</button>
+          <button type="button" aria-pressed={scope === 'scoped'} onClick={() => setScope('scoped')}>{scopeName.short}</button>
+        </div>}
       </Tile>
-      <Tile
-        label="Active projects"
-        value={show(data?.activeProjects)}
-        sub={isLead ? scopeName.projects : 'you are part of'}
-        icon={FolderKanban}
-        onClick={() => router.push('/projects?status=ACTIVE')}
-      />
-      {isLead ? (
-        <>
-          <Tile
-            label="Ticket approvals"
-            value={show(data?.pendingTicketApprovals)}
-            sub="under review, need you"
-            icon={ClipboardCheck}
-            onClick={() => router.push('/tickets?status=REVIEW')}
-          />
-          <Tile
-            label="Leave approvals"
-            value={show(data?.pendingLeaveApprovals)}
-            sub="waiting for a decision"
-            icon={CalendarClock}
-            onClick={() => router.push('/leave?tab=needs-action')}
-          />
-        </>
-      ) : (
-        <Tile
-          label="My tickets in review"
-          value={show(data?.myInReview)}
-          sub="waiting for approval"
-          icon={ClipboardCheck}
-          onClick={() => router.push('/tickets?status=REVIEW')}
-        />
-      )}
+      <Tile label="In progress" value={show(selected?.inProgressTickets)} sub={workSub} icon={Timer}
+        onClick={() => router.push(ticketHref('IN_PROGRESS', scope, userId))} />
+      <Tile label="Under review" value={show(selected?.underReviewTickets)} sub={reviewSub} icon={ClipboardCheck}
+        onClick={() => router.push(ticketHref('REVIEW', scope, userId))} />
+      <Tile label="Ticket approvals" value={show(selected?.pendingTicketApprovals)} sub={ticketApprovalSub} icon={FileClock}
+        onClick={() => router.push(ticketHref('PENDING_APPROVAL', scope, userId))} />
+      <Tile label="Active projects" value={show(selected?.activeProjects)} sub={isScoped ? scopeName.projects : 'projects you belong to'} icon={FolderKanban}
+        onClick={() => router.push('/projects?status=ACTIVE')} />
+      <Tile label={isScoped ? 'Leave approvals' : 'Leave request'} value={show(selected?.leaveApprovals)} sub={leaveSub} icon={CalendarClock}
+        onClick={() => router.push(isScoped ? '/leave?tab=needs-action' : '/leave')} />
     </div>
   );
 }

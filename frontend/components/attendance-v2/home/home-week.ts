@@ -98,6 +98,8 @@ export interface AttendanceWeek {
   totalWorkMinutes: number;
   /** Average punch-in as minutes after local midnight. */
   avgPunchInMinutes: number | null;
+  /** Average punch-out as minutes after local midnight; only completed days count. */
+  avgPunchOutMinutes: number | null;
   totalBreakMinutes: number;
   onTimeFullDays: number;
 }
@@ -113,6 +115,8 @@ export function attendanceWeek(from: string, to: string, byDate: Map<string, MyA
   let totalBreakMinutes = 0;
   let punchSum = 0;
   let punchCount = 0;
+  let punchOutSum = 0;
+  let punchOutCount = 0;
   let onTimeFullDays = 0;
   for (const date of datesBetween(from, to)) {
     const day = byDate.get(date);
@@ -125,6 +129,10 @@ export function attendanceWeek(from: string, to: string, byDate: Map<string, MyA
     totalBreakMinutes += day.breakMinutes ?? 0;
     punchSum += minutesOfDay(day.punchInAt);
     punchCount += 1;
+    if (day.punchOutAt) {
+      punchOutSum += minutesOfDay(day.punchOutAt);
+      punchOutCount += 1;
+    }
     if (isStreakDay(day) === 'counts') onTimeFullDays += 1;
   }
   return {
@@ -132,6 +140,7 @@ export function attendanceWeek(from: string, to: string, byDate: Map<string, MyA
     avgWorkMinutes: daysWorked ? totalWorkMinutes / daysWorked : null,
     totalWorkMinutes,
     avgPunchInMinutes: punchCount ? punchSum / punchCount : null,
+    avgPunchOutMinutes: punchOutCount ? punchOutSum / punchOutCount : null,
     totalBreakMinutes,
     onTimeFullDays,
   };
