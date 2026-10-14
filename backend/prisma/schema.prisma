@@ -363,6 +363,48 @@ model Ticket {
   @@map("tickets")
 }
 
+/// A private, reusable Create Ticket form preset owned by one authenticated
+/// user. Reference ids deliberately remain scalar values: templates must
+/// survive reference retirement so the UI can mark them NEEDS_UPDATE instead
+/// of silently cascading them away.
+model QuickTicketTemplate {
+  id               String   @id @default(cuid())
+  ownerUserId      String
+  code             String
+  codeSequence     Int
+  name             String
+  title            String
+  description      String?
+  departmentId     String?
+  taskTypeId       String?
+  taskSubtypeId    String?
+  assigneeIds      String[] @default([])
+  priority         Priority?
+  estimatedMinutes Int?
+  projectId        String?
+  isVisible        Boolean  @default(true)
+  isPinned         Boolean  @default(false)
+  displayOrder     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([ownerUserId, code])
+  @@unique([ownerUserId, codeSequence])
+  @@unique([ownerUserId, name])
+  @@index([ownerUserId, isVisible, isPinned, displayOrder])
+  @@map("quick_ticket_templates")
+}
+
+/// Per-user Quick Tag presentation settings. Kept in the tickets domain so
+/// this feature does not alter the user/role preference or lifecycle modules.
+model QuickTicketTemplatePreference {
+  ownerUserId  String   @id
+  visibleCount Int      @default(5)
+  updatedAt    DateTime @updatedAt
+
+  @@map("quick_ticket_template_preferences")
+}
+
 model TicketAssignee {
   id         String   @id @default(cuid())
   ticketId   String

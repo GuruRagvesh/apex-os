@@ -479,8 +479,8 @@ export class TicketsService {
   }
 
   // Selectable recipients for cross-department QUERY/HELP routing. Deliberately
-  // separate from the TASK assignee flow (usersApi.getAll() + client-side dept
-  // filter) — TASK assignment stays department/team scoped exactly as before.
+  // separate from the TASK creation directory, whose role gate is implemented
+  // by getTaskCreationAssignees().
   // Returns only the minimal identity fields needed to route a request: never
   // the full user record (no payroll/personal fields, no archived/inactive
   // users). Employee/Intern raising a QUERY are funneled to TL/Manager of the
@@ -502,9 +502,8 @@ export class TicketsService {
     if (!department) throw new NotFoundException('Target department not found');
 
     // QUERY and HELP are anyone-to-anyone: any active user in the target department
-    // is a valid recipient, regardless of the requester's or recipient's role. Only
-    // TASK assignment is role/department scoped — that flow is untouched and never
-    // reaches this method.
+    // is a valid recipient, regardless of the requester's or recipient's role.
+    // TASK creation never reaches this method.
     const where: any = { departmentId: targetDepartmentId, isActive: true };
 
     const users = await this.prisma.user.findMany({
@@ -550,6 +549,34 @@ export class TicketsService {
     });
 
     return departments;
+  }
+
+  async getTaskCreationAssignees(user: any) {
+    const roleName = user?.role?.name ?? user?.role ?? '';
+    if (!['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
+      throw new ForbiddenException('You do not have permission to assign Task tickets to other users');
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        avatar: true,
+        role: { select: { name: true } },
+        department: { select: { id: true, name: true } },
+      },
+      orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
+    });
+
+    return users.map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      avatar: candidate.avatar,
+      role: candidate.role,
+      departmentId: candidate.department?.id ?? null,
+      departmentName: candidate.department?.name ?? null,
+    }));
   }
 
   async processApproval(id: string, payload: { action: 'APPROVE' | 'REJECT'; reason?: string }, user: any) {
@@ -975,7 +1002,10 @@ export class TicketsService {
   // executionDueAt computation instead of a second, drifting copy of this logic.
   private async normalizeTicketCreateData(data: any, userId: string, user?: any): Promise<{ data: any; assigneeIds: string[] }> {
     // Extract assigneeIds before passing data to Prisma (not a real Ticket column)
-    let assigneeIds: string[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
+    const rawAssigneeIds: unknown[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
+    let assigneeIds: string[] = [...new Set(
+      rawAssigneeIds.filter((id): id is string => typeof id === 'string' && Boolean(id)),
+    )];
     delete data.assigneeIds;
 
     // A new ticket starts OPEN (the column default) or PENDING_APPROVAL (set
@@ -1058,11 +1088,40 @@ export class TicketsService {
     // isUUID() returns false for a real cuid, so the lookup must also match by id,
     // mirroring the departmentId resolution above. Without the id branch, a valid
     // assignedToId sent from the client was silently nulled out here.)
-    if (data.assignedToId && !isUUID(data.assignedToId)) {
+    const isSelfAssignedWorkerTask = ['EMPLOYEE', 'INTERN'].includes(creatorRole) && requestType === 'TASK';
+    if (data.assignedToId && !isUUID(data.assignedToId) && !isSelfAssignedWorkerTask) {
       const assignee = await this.prisma.user.findFirst({
         where: { OR: [{ id: data.assignedToId }, { name: { equals: data.assignedToId, mode: 'insensitive' } }] },
       });
       data.assignedToId = assignee?.id ?? undefined;
+    }
+
+    // TASK creation permits cross-department assignees only for the approved
+    // hierarchy. Employee/Intern was forced to self above. Validate the full
+    // list server-side so a crafted payload cannot select an inactive or
+    // unauthorized account even though the UI uses the scoped endpoint.
+    if (requestType === 'TASK') {
+      const selectedIds = [...new Set([
+        ...assigneeIds,
+        ...(data.assignedToId ? [data.assignedToId] : []),
+      ])];
+      if (selectedIds.length) {
+        const mayAssignOthers = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(creatorRole);
+        if (!mayAssignOthers && selectedIds.some((id) => id !== userId)) {
+          throw new ForbiddenException('You do not have permission to assign Task tickets to other users');
+        }
+        // The authenticated Employee/Intern is already known active and was
+        // forced to self. Elevated creators may select anybody, so verify each
+        // selected id against active users regardless of department.
+        if (mayAssignOthers) {
+          const selectedUsers = await Promise.all(selectedIds.map((id) =>
+            this.prisma.user.findFirst({ where: { id, isActive: true }, select: { id: true } }),
+          ));
+          if (selectedUsers.some((candidate) => !candidate)) {
+            throw new BadRequestException('Every assignee must be an active user');
+          }
+        }
+      }
     }
 
     // ── Cross-department routing for QUERY / HELP ────────────────────────────

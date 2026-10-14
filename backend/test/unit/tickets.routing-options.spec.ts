@@ -1,18 +1,17 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { TicketsService } from '../../src/modules/operations/tickets/tickets.service';
 
 // TicketsService.getRoutingOptions — selectable recipients for cross-department
 // QUERY/HELP routing (GET /tickets/routing-options). Separate from the TASK
-// assignee flow (usersApi.getAll() + client-side department filter), which this
-// endpoint intentionally refuses to serve.
+// creation-assignee endpoint, which this endpoint intentionally does not serve.
 //
 // QUERY and HELP are anyone-to-anyone: any active user in the target department is
 // a valid recipient, regardless of the requester's role or the recipient's role.
 // There was a prior restriction funneling Employee/Intern-authored QUERY requests
 // to TEAM_LEAD/MANAGER only — that was wrong (it silently blocked e.g. an Employee
 // asking another department's Employee/Intern a QUERY) and has been removed. Only
-// TASK assignment stays role/department scoped, and that flow never reaches this
-// method at all.
+// TASK creation has its own role-gated cross-department directory and never
+// reaches this method.
 describe('TicketsService.getRoutingOptions', () => {
   let prisma: any;
   let service: TicketsService;
@@ -88,7 +87,7 @@ describe('TicketsService.getRoutingOptions', () => {
   const departments = { 'dept-target': { id: 'dept-target', name: 'Marketing' } };
   const ALL_ACTIVE_IDS = ['u-emp', 'u-intern', 'u-mgr', 'u-tl'];
 
-  it('rejects type=TASK — TASK keeps its existing department-scoped assignee flow, never this endpoint', async () => {
+  it('rejects type=TASK because TASK uses the separate creation-assignee endpoint', async () => {
     service = makeService(targetDeptUsers, departments);
     await expect(
       service.getRoutingOptions('TASK', 'dept-target', { role: { name: 'MANAGER' } }),
@@ -167,4 +166,41 @@ describe('TicketsService.getRoutingOptions', () => {
     expect((target as any).password).toBeUndefined();
     expect((target as any).ctcAnnual).toBeUndefined();
   });
+
+  it.each(['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'])(
+    'returns active Task creation assignees across departments for %s',
+    async (role) => {
+      const users = [
+        ...targetDeptUsers,
+        {
+          id: 'u-sales', name: 'Sales User', avatar: 'avatar.png', email: 'sales@x.com', isActive: true,
+          departmentId: 'dept-sales', role: { name: 'EMPLOYEE' },
+          department: { id: 'dept-sales', name: 'Sales' }, teamMemberships: [],
+        },
+      ];
+      service = makeService(users, departments);
+
+      const result = await service.getTaskCreationAssignees({ role: { name: role } });
+
+      expect(result.map((candidate: any) => candidate.id)).toEqual(expect.arrayContaining([...ALL_ACTIVE_IDS, 'u-sales']));
+      expect(result.some((candidate: any) => candidate.id === 'u-archived')).toBe(false);
+      expect(result.find((candidate: any) => candidate.id === 'u-sales')).toEqual({
+        id: 'u-sales',
+        name: 'Sales User',
+        avatar: 'avatar.png',
+        role: { name: 'EMPLOYEE' },
+        departmentId: 'dept-sales',
+        departmentName: 'Sales',
+      });
+    },
+  );
+
+  it.each(['EMPLOYEE', 'INTERN'])(
+    'refuses the cross-department Task assignee directory for %s',
+    async (role) => {
+      service = makeService(targetDeptUsers, departments);
+      await expect(service.getTaskCreationAssignees({ role: { name: role } })).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+    },
+  );
 });
