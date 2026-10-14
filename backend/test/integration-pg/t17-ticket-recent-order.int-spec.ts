@@ -199,6 +199,7 @@ describe('T17 Phase 6C recent ordering in every ticket list view (PostgreSQL)', 
         getSlaConfig: async () => ({ review: { LOW: 48, MEDIUM: 24, HIGH: 8, URGENT: 4 } }),
         decorateTicket: async (t: any) => markOverdue(t),
         decorateTickets: async (ts: any[]) => ts.map(markOverdue),
+        getTimingState: (t: any) => markOverdue(t).timing,
       } as any,
       ledger, {} as any, new ActiveWorkdayPolicyService(tva), tva,
     );
