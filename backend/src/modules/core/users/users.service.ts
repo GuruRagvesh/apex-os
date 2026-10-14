@@ -63,10 +63,17 @@ export class UsersService {
     return rows[0];
   }
 
-  private async attendanceDefaults(tx: Prisma.TransactionClient, effectiveFrom: Date, laterStartAllowed = true): Promise<any> {
-    const activeVersion = {
-      status: PolicyStatus.ACTIVE,
-      isActive: true,
+  private async attendanceDefaults(
+    tx: Prisma.TransactionClient,
+    effectiveFrom: Date,
+    laterStartAllowed = true,
+  ): Promise<any> {
+    // A version that has been superseded is still authoritative inside its
+    // closed historical window. This is the same rule the attendance readers
+    // use and prevents a future-dated activation from disabling Add User until
+    // the new version starts.
+    const governingVersion = {
+      status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] },
       effectiveFrom: { lte: effectiveFrom },
       OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
     };
@@ -78,36 +85,96 @@ export class UsersService {
 
     const [shifts, leavePolicies, calendars, weeklyOffPolicies] = await Promise.all([
       tx.shiftPolicy.findMany({
-        where: { ...activeVersion, category: AttendanceCategory.REGULAR_EMPLOYEE },
+        where: { ...governingVersion, category: AttendanceCategory.REGULAR_EMPLOYEE },
         take: 2,
       }),
-      tx.leavePolicy.findMany({ where: activeVersion, take: 2 }),
-      tx.holidayCalendar.findMany({ where: activeVersion, take: 2 }),
+      tx.leavePolicy.findMany({ where: governingVersion, take: 2 }),
+      tx.holidayCalendar.findMany({ where: governingVersion, take: 2 }),
       tx.weeklyOffPolicy.findMany({ where: activeWindow, take: 2 }),
     ]);
 
-    if (shifts.length === 0 && laterStartAllowed) {
-      // Policies are versioned by date. A joining date before the first
-      // version (for example an employee who joined before attendance was set
-      // up) keeps that joining date; their attendance profile starts when the
-      // policies do, exactly as the attendance bootstrap did for existing staff.
-      const next = await tx.shiftPolicy.findFirst({
-        where: {
-          status: PolicyStatus.ACTIVE,
-          isActive: true,
-          category: AttendanceCategory.REGULAR_EMPLOYEE,
-          effectiveFrom: { gt: effectiveFrom },
-        },
-        orderBy: { effectiveFrom: 'asc' },
-        select: { effectiveFrom: true },
-      });
-      // The policy's own start, unchanged, and only one step: never loops.
-      if (next) return this.attendanceDefaults(tx, next.effectiveFrom, false);
+    // Never hide an ambiguous configuration by advancing past it.
+    if (shifts.length > 1) this.exactlyOne(shifts, 'regular shift policy');
+    if (leavePolicies.length > 1) this.exactlyOne(leavePolicies, 'leave policy');
+    if (calendars.length > 1) this.exactlyOne(calendars, 'holiday calendar');
+    if (weeklyOffPolicies.length > 1) this.exactlyOne(weeklyOffPolicies, 'weekly-off policy');
+
+    const shift = shifts[0] ?? null;
+    const attendancePolicy = shift
+      ? await tx.attendancePolicy.findFirst({
+          where: { id: shift.attendancePolicyId, ...governingVersion },
+        })
+      : null;
+
+    const missing = [
+      shifts.length === 0 ? 'shift' : null,
+      attendancePolicy === null ? 'attendance' : null,
+      leavePolicies.length === 0 ? 'leave' : null,
+      calendars.length === 0 ? 'calendar' : null,
+      weeklyOffPolicies.length === 0 ? 'weeklyOff' : null,
+    ].filter((value): value is string => value !== null);
+
+    if (missing.length > 0 && laterStartAllowed) {
+      const usableVersion = { status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] } };
+      const future = { gt: effectiveFrom };
+      const [nextShift, nextLeave, nextCalendar, nextWeeklyOff, nextLinkedAttendance] = await Promise.all([
+        missing.includes('shift') || missing.includes('attendance')
+          ? tx.shiftPolicy.findFirst({
+              where: { ...usableVersion, category: AttendanceCategory.REGULAR_EMPLOYEE, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+        missing.includes('leave')
+          ? tx.leavePolicy.findFirst({
+              where: { ...usableVersion, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+        missing.includes('calendar')
+          ? tx.holidayCalendar.findFirst({
+              where: { ...usableVersion, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+        missing.includes('weeklyOff')
+          ? tx.weeklyOffPolicy.findFirst({
+              where: { isActive: true, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+        missing.includes('attendance') && shift
+          ? tx.attendancePolicy.findFirst({
+              where: { id: shift.attendancePolicyId, ...usableVersion, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+      ]);
+
+      const nextFor: Record<string, Date | null> = {
+        shift: nextShift?.effectiveFrom ?? null,
+        attendance: nextLinkedAttendance?.effectiveFrom ?? nextShift?.effectiveFrom ?? null,
+        leave: nextLeave?.effectiveFrom ?? null,
+        calendar: nextCalendar?.effectiveFrom ?? null,
+        weeklyOff: nextWeeklyOff?.effectiveFrom ?? null,
+      };
+      const missingStarts = missing.map((key) => nextFor[key]);
+      if (missingStarts.every((date): date is Date => date instanceof Date)) {
+        // Start on the latest of the missing policies' first possible dates,
+        // then re-evaluate the whole bundle. Re-evaluation catches gaps and
+        // may advance again, but every attempt moves strictly forward.
+        const nextEffectiveFrom = new Date(Math.max(...missingStarts.map((date) => date!.getTime())));
+        if (nextEffectiveFrom.getTime() > effectiveFrom.getTime()) {
+          return this.attendanceDefaults(tx, nextEffectiveFrom, true);
+        }
+      }
     }
-    const shift = this.exactlyOne(shifts, 'regular shift policy');
-    const attendancePolicy = await tx.attendancePolicy.findFirst({
-      where: { id: shift.attendancePolicyId, ...activeVersion },
-    });
+
+    const resolvedShift = this.exactlyOne(shifts, 'regular shift policy');
     if (!attendancePolicy) {
       throw new BadRequestException(
         'Attendance onboarding is unavailable: the active shift has no active attendance policy',
@@ -121,7 +188,7 @@ export class UsersService {
     }
 
     return {
-      shift,
+      shift: resolvedShift,
       leavePolicy: this.exactlyOne(leavePolicies, 'leave policy'),
       calendar: this.exactlyOne(calendars, 'holiday calendar'),
       weeklyOff: this.exactlyOne(weeklyOffPolicies, 'weekly-off policy'),

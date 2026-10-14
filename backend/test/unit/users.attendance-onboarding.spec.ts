@@ -43,9 +43,18 @@ function fixture(roleName: string = 'INTERN') {
         geoFenceEnabled: false,
       }),
     },
-    leavePolicy: { findMany: jest.fn().mockResolvedValue([{ id: 'leave-1' }]) },
-    holidayCalendar: { findMany: jest.fn().mockResolvedValue([{ id: 'calendar-1' }]) },
-    weeklyOffPolicy: { findMany: jest.fn().mockResolvedValue([{ id: 'weekly-1' }]) },
+    leavePolicy: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'leave-1' }]),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    holidayCalendar: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'calendar-1' }]),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    weeklyOffPolicy: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'weekly-1' }]),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     attendanceLocation: { findMany: jest.fn() },
     user: { create: jest.fn().mockResolvedValue(createdUser) },
     employeeAttendanceProfile: { create: jest.fn().mockResolvedValue({ id: 'profile-1' }) },
@@ -182,6 +191,82 @@ describe('UsersService attendance onboarding', () => {
     }));
   });
 
+  it('advances to a later holiday calendar even when the shift already covers the joining date', async () => {
+    const { service, tx } = fixture('INTERN');
+    const calendar = { id: 'calendar-1' };
+    tx.holidayCalendar.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([calendar]);
+    tx.holidayCalendar.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-08-27T00:00:00.000Z') });
+
+    await expect(
+      service.create({
+        name: 'Sherin Shaji',
+        email: 'sherin@example.test',
+        password: 'secret',
+        roleId: 'role-intern',
+        departmentId: 'department-1',
+        joiningDate: '2026-08-24',
+      }),
+    ).resolves.toBeDefined();
+
+    expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ joiningDate: new Date('2026-08-24T00:00:00.000Z') }),
+    }));
+    expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        assignedHolidayCalendarId: 'calendar-1',
+        effectiveFrom: new Date('2026-08-27T00:00:00.000Z'),
+      }),
+    });
+  });
+
+  it('waits for the complete leave, holiday and weekly-off bundle', async () => {
+    const { service, tx } = fixture('TEAM_LEAD');
+    tx.leavePolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'leave-1' }]);
+    tx.leavePolicy.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-08-25T00:00:00.000Z') });
+    tx.holidayCalendar.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'calendar-1' }]);
+    tx.holidayCalendar.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-08-27T00:00:00.000Z') });
+    tx.weeklyOffPolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'weekly-1' }]);
+    tx.weeklyOffPolicy.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-08-26T00:00:00.000Z') });
+
+    await service.create({
+      name: 'New Team Lead',
+      email: 'new.teamlead@example.test',
+      password: 'secret',
+      roleId: 'role-team_lead',
+      joiningDate: '2026-08-24',
+    });
+
+    expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ effectiveFrom: new Date('2026-08-27T00:00:00.000Z') }),
+    });
+  });
+
+  it('uses a superseded policy version when its closed window governs the joining date', async () => {
+    const { service, tx } = fixture('EMPLOYEE');
+
+    await service.create({
+      name: 'Historical Employee',
+      email: 'historical.employee@example.test',
+      password: 'secret',
+      roleId: 'role-employee',
+      joiningDate: '2026-09-01',
+    });
+
+    const expectedStatus = { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] };
+    expect(tx.shiftPolicy.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: expectedStatus }),
+    }));
+    expect(tx.leavePolicy.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: expectedStatus }),
+    }));
+    expect(tx.holidayCalendar.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: expectedStatus }),
+    }));
+    expect(tx.attendancePolicy.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: expectedStatus }),
+    }));
+  });
+
   it('still refuses when no regular shift policy exists at any date', async () => {
     const { service, tx } = fixture('INTERN');
     tx.shiftPolicy.findMany.mockResolvedValue([]);
@@ -189,6 +274,25 @@ describe('UsersService attendance onboarding', () => {
       service.create({ name: 'New Intern', email: 'new.intern@example.test', password: 'secret', roleId: 'role-intern', joiningDate: '2026-08-24' }),
     ).rejects.toThrow('no active regular shift policy is configured');
     expect(tx.user.create).not.toHaveBeenCalled();
+  });
+
+  it('still refuses when no holiday calendar exists at or after the joining date', async () => {
+    const { service, tx } = fixture('INTERN');
+    tx.holidayCalendar.findMany.mockResolvedValue([]);
+    tx.holidayCalendar.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.create({
+        name: 'New Intern',
+        email: 'new.intern@example.test',
+        password: 'secret',
+        roleId: 'role-intern',
+        joiningDate: '2026-08-24',
+      }),
+    ).rejects.toThrow('no active holiday calendar is configured');
+
+    expect(tx.user.create).not.toHaveBeenCalled();
+    expect(tx.employeeAttendanceProfile.create).not.toHaveBeenCalled();
   });
 
   it('propagates profile creation failure through the user transaction', async () => {

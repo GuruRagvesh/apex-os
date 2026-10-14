@@ -24,9 +24,9 @@ function fixture(over: { user?: any; profiles?: any[]; archivedAt?: Date | null;
   const tx = {
     shiftPolicy: { findMany: jest.fn().mockResolvedValue([{ id: 'shift-1', attendancePolicyId: 'ap-1', category: AttendanceCategory.REGULAR_EMPLOYEE, status: PolicyStatus.ACTIVE }]) },
     attendancePolicy: { findFirst: jest.fn().mockResolvedValue({ id: 'ap-1', status: PolicyStatus.ACTIVE, geoFenceEnabled: false }) },
-    leavePolicy: { findMany: jest.fn().mockResolvedValue([{ id: 'leave-1' }]) },
-    holidayCalendar: { findMany: jest.fn().mockResolvedValue([{ id: 'calendar-1' }]) },
-    weeklyOffPolicy: { findMany: jest.fn().mockResolvedValue([{ id: 'weekly-1' }]) },
+    leavePolicy: { findMany: jest.fn().mockResolvedValue([{ id: 'leave-1' }]), findFirst: jest.fn().mockResolvedValue(null) },
+    holidayCalendar: { findMany: jest.fn().mockResolvedValue([{ id: 'calendar-1' }]), findFirst: jest.fn().mockResolvedValue(null) },
+    weeklyOffPolicy: { findMany: jest.fn().mockResolvedValue([{ id: 'weekly-1' }]), findFirst: jest.fn().mockResolvedValue(null) },
     attendanceLocation: { findMany: jest.fn() },
     user: {
       create: jest.fn(),
