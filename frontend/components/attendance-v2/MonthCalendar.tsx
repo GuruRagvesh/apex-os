@@ -7,10 +7,10 @@ import { monthLabel, presentDay, presentOutcome, modifierLabel, exceptionCopy } 
 import s from './visual-fidelity.module.css';
 
 const legend = [
-  { label: 'Present', color: '#16A34A' }, { label: 'Late / Short hours', color: '#EA580C' },
-  { label: 'Absent / leave', color: '#DC2626' }, { label: 'Half day', color: '#7E22CE' },
-  { label: 'Regularized', color: '#39FF14' }, { label: 'Holiday', color: '#CA8A04' },
-  { label: 'Weekly off', color: '#64748B' }, { label: 'Needs review', color: '#454C59' },
+  { label: 'Present', color: '#18B86B' }, { label: 'Late / Short hours', color: '#F08A35' },
+  { label: 'Absent / leave', color: '#EC5D78' }, { label: 'Half day', color: '#9B6DE3' },
+  { label: 'Regularized', color: '#54D36C' }, { label: 'Holiday', color: '#E5B52E' },
+  { label: 'Weekly off', color: '#4F8FD8' }, { label: 'Needs review', color: '#8494AA' },
 ];
 export function MonthCalendar({ year, month, days, selectedDate, onSelect, onPrevMonth, onNextMonth, onMonthChange, canGoNext }: {
   year: number; month: number; days: MyAttendanceDayV2[]; selectedDate: string | null;

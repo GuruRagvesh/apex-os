@@ -80,6 +80,18 @@ describe('lifecycle dependency matrix covers the schema', () => {
     expect(HANDLERS.filter((h) => h.appendOnly).map((h) => h.model).sort()).toEqual(['AttendancePunchEvidence', 'WorkdayNote']);
   });
 
+  it('preserves organizer and attendee names in shared meeting history after account deletion', () => {
+    const actionFor = (key: string) => HANDLERS.find((h) => h.key === key)?.action;
+
+    expect(actionFor('MeetingParticipant.userId')).toBe('NULL');
+    expect(actionFor('Meeting.organizerId')).toBe('REASSIGN');
+    expect(actionFor('Meeting.counterpartyId')).toBe('REASSIGN');
+    expect(NOT_USER_REFERENCES['Meeting.createdByRole']).toBeDefined();
+    expect(SCHEMA).toMatch(/organizerNameSnapshot\s+String/);
+    expect(SCHEMA).toMatch(/counterpartyNameSnapshot\s+String/);
+    expect(SCHEMA).toMatch(/displayNameSnapshot\s+String/);
+  });
+
   it('never reassigns to a real person and never scrubs by name', () => {
     expect(HANDLERS.filter((h) => h.action === 'NAME').every((h) => !!h.where)).toBe(true);
     const nameRule = HANDLERS.find((h) => h.action === 'NAME')!;

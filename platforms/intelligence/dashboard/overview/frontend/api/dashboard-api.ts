@@ -51,13 +51,14 @@ export interface HomeKpiScope {
   underReviewTickets: number;
   pendingTicketApprovals: number;
   activeProjects: number;
-  /** Own pending leave requests in My scope; actionable approvals in scoped mode. */
+  /** Actionable leave approvals; zero for roles without approval authority. */
   leaveApprovals: number;
 }
 
-/** GET /home/kpis — all six hero figures use either My or one authorized shared scope. */
+/** GET /home/kpis — personal work plus role-authorized approval queues. */
 export interface HomeKpis {
   mine: HomeKpiScope;
+  /** Deprecated compatibility field; the Home hero no longer switches scope. */
   scoped: HomeKpiScope | null;
   /** Legacy fields retained while any older clients are deployed. */
   activeTickets: { mine: number; team: number | null };

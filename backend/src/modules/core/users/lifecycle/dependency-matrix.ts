@@ -103,6 +103,7 @@ export const HANDLERS: Handler[] = [
 
   // ── 3. The person's own rows, children before parents ─────────────────────
   { key: 'TicketTimeLog.userId', model: 'TicketTimeLog', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Ticket Time Logs', note: 'Ticket totals derive from the remaining logs.' },
+  { key: 'MeetingParticipant.userId', model: 'MeetingParticipant', field: 'userId', fk: true, holds: 'id', action: 'NULL', history: true, sheet: 'Meeting Participation', note: 'Clears the deleted account reference while preserving the attendee row and its historical display-name snapshot.' },
   { key: 'TicketAssignee.userId', model: 'TicketAssignee', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Ticket Co-assignments', note: 'Open tickets were handled at archive.' },
   { key: 'TicketWatcher.userId', model: 'TicketWatcher', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Ticket Watching', note: 'Open-ticket watching was removed at archive.' },
   { key: 'Notification.userId', model: 'Notification', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Notifications', note: 'Own inbox.' },
@@ -137,6 +138,8 @@ export const HANDLERS: Handler[] = [
 
   // ── 4. Shared records: reassign required actor/owner columns ──────────────
   { key: 'Ticket.createdById', model: 'Ticket', field: 'createdById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Tickets Created', note: 'Shared ticket stays.' },
+  { key: 'Meeting.organizerId', model: 'Meeting', field: 'organizerId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Meetings Organized', note: 'Historical meeting stays; the required organizer reference moves to the Deleted account principal.' },
+  { key: 'Meeting.counterpartyId', model: 'Meeting', field: 'counterpartyId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Meeting Counterparties', note: 'Historical meeting stays; the required person-met-with reference moves to the Deleted account principal.' },
   { key: 'Comment.authorId', model: 'Comment', field: 'authorId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Comments', note: 'Text kept.' },
   { key: 'TicketHistory.changedById', model: 'TicketHistory', field: 'changedById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Ticket History', note: 'Shared audit.' },
   { key: 'OperationalEvent.actorId', model: 'OperationalEvent', field: 'actorId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Events By User', note: 'Exact identifiers scrubbed from JSON separately.' },
@@ -227,6 +230,7 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'LeavePolicy.supersededById': 'Points at the superseding policy version.',
   'OperationalEvent.actorRoleId': 'A role id.',
   'OperationalEvent.actorContext': 'A context label, not a person.',
+  'Meeting.createdByRole': 'A role snapshot captured with the meeting, not a person reference.',
   'PushSubscription.userAgent': 'A browser string.',
   'TicketTimeLog.ownerType': 'An enum label.',
   'TicketTimeLog.pauseReason': 'An enum label.',

@@ -96,6 +96,7 @@ export default function TicketsPage() {
     setOverdueOnly(params.get('overdue') === 'true' || quickFilter === 'overdue');
     setMyTickets(params.get('mine') === 'true' || quickFilter === 'mine');
     setReviewFilter(quickFilter === 'actionable-review' || quickFilter === 'personal-review' ? quickFilter : '');
+    setActiveTab(params.get('tab') === 'approvals' ? 'approvals' : 'all');
     setPage(Math.max(1, Number(params.get('page')) || 1));
     setFiltersFromUrl(queryString);
   }, [queryString]);

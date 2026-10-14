@@ -3,7 +3,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../../platform/settings/settings.service';
 import { LeaveStatus, LeaveType } from '@prisma/client';
 import { TVAService } from '../../../common/services/tva.service';
-import { LeaveWorkingDayService } from './leave-working-day.service';
+import {
+  LeaveCalendarUnresolvedError,
+  LeaveWorkingDayService,
+} from './leave-working-day.service';
 import {
   ATTENDANCE_V2_DEFAULTS,
   ATTENDANCE_V2_SETTING_KEY,
@@ -85,6 +88,13 @@ export class LeaveBalanceService {
       return 12;
     }
 
+    // Company-wide paid-leave rule: every non-intern role has two independent
+    // entitlements — 10 Casual days and 4 Emergency days per financial year.
+    // Do this before policy lookup so an older assigned profile cannot silently
+    // replace the approved company allocation with stale values.
+    if (leaveType === LeaveType.CASUAL) return 10;
+    if (leaveType === LeaveType.EMERGENCY) return 4;
+
     if (await this.v2AuthorityEnabled()) {
       const fromPolicy = await this.allocationFromLeavePolicy(userId, year, leaveType);
       if (fromPolicy !== null) return fromPolicy;
@@ -93,8 +103,6 @@ export class LeaveBalanceService {
     }
 
     if (!user) return 0;
-    if (leaveType === LeaveType.CASUAL) return 10;
-    if (leaveType === LeaveType.EMERGENCY) return 4;
     const quotas = await this.settings.getLeaveQuotas();
     return quotas[user.role.name] ?? 14;
   }
@@ -288,17 +296,45 @@ export class LeaveBalanceService {
     const policy = await this.settings.get('leave_policy');
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
 
+    // Leave records that predate the employee's first V2 attendance profile
+    // were submitted and approved under the legacy working-day rules. Trying
+    // to replay those records through the newer effective-dated calendar has
+    // no authoritative profile to resolve and used to make the *entire*
+    // balance endpoint fail. Keep the compatibility boundary explicit: only
+    // records created before the first V2 profile may use their original
+    // legacy calculation. Any unresolved current/V2 record still fails safely.
+    const firstV2Profile = await this.prisma.employeeAttendanceProfile.findFirst({
+      where: { userId },
+      orderBy: { effectiveFrom: 'asc' },
+      select: { effectiveFrom: true },
+    });
+
     let approvedDays = 0;
     let pendingDays = 0;
 
     for (const leave of leaves) {
-      const duration = await this.calculateLeaveDuration(
-        leave.startDate,
-        leave.endDate,
-        leave.isHalfDay,
-        workingDaysSetting,
-        userId,
-      );
+      let duration: number;
+      try {
+        duration = await this.calculateLeaveDuration(
+          leave.startDate,
+          leave.endDate,
+          leave.isHalfDay,
+          workingDaysSetting,
+          userId,
+        );
+      } catch (error) {
+        const isPreFoundationRecord =
+          error instanceof LeaveCalendarUnresolvedError &&
+          firstV2Profile?.effectiveFrom &&
+          leave.createdAt < firstV2Profile.effectiveFrom;
+
+        if (!isPreFoundationRecord) throw error;
+        duration = this.legacyDuration(
+          leave.startDate,
+          leave.endDate,
+          workingDaysSetting,
+        );
+      }
       if (leave.status === LeaveStatus.APPROVED) {
         approvedDays += duration;
       } else if (leave.status === LeaveStatus.PENDING) {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 import { getPunchStatus } from './punch-api';
 
 /**
@@ -17,7 +18,8 @@ export function useAttendanceV2(): { punchEnabled: boolean; isLoading: boolean }
     queryFn: getPunchStatus,
     // A deployment flag, not live data: no need to re-ask on every focus.
     staleTime: 5 * 60_000,
-    retry: false,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
   });
 
   return { punchEnabled: data?.enabled === true, isLoading };

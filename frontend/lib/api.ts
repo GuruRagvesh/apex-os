@@ -101,6 +101,12 @@ export const workdayApi = {
   getToday: () => r(api.get('/workday/today')),
   getTeam: () => r(api.get('/workday/team')),
   getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
+  getMeetingOptions: () => r(api.get('/workday/meetings/options')),
+  getMeetings: () => r(api.get('/workday/meetings')),
+  getPendingMeetingClassification: () => r(api.get('/workday/meetings/pending-classification')),
+  lookupMeeting: (code: string) => r(api.get(`/workday/meetings/lookup/${encodeURIComponent(code)}`)),
+  startMeeting: () => r(api.post('/workday/meetings/start', {})),
+  classifyMeeting: (data: any) => r(api.post('/workday/meetings/classify', data)),
 };
 
 // Sales CRM — Leads: moved in Phase 2C to the Sales CRM shared component,

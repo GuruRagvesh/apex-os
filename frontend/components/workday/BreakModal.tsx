@@ -15,7 +15,6 @@ const BREAK_TYPES = [
   { type: 'RESTROOM', label: 'Restroom' },
   { type: 'PERSONAL', label: 'Personal' },
   { type: 'POWER_CUT', label: 'Connection Issue' },
-  { type: 'MEETING', label: 'Meeting' },
   { type: 'OTHER', label: 'Other' },
 ];
 

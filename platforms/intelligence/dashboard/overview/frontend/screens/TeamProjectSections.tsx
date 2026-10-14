@@ -1,36 +1,75 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, FolderKanban, Users } from 'lucide-react';
+import { Building2, FolderKanban, UserRound, Users } from 'lucide-react';
 import type { HomeExperience } from './home-types';
-import { EmptyState, SectionFrame, SmallLink, formatDate, formatMinutes } from './home-ui';
+import { EmptyState, SectionFrame, SmallLink, formatDate } from './home-ui';
 
-const statusLabels: Record<string, string> = {
-  WORKING: 'Working', ON_BREAK: 'On break', ON_LEAVE: 'On leave',
-  IDLE: 'Idle', LOGGED_OUT: 'Day ended', LOGGED_IN: 'Signed in', OFFLINE: 'Offline',
-};
-
-function statusColor(status: string) {
-  if (status === 'WORKING') return 'bg-emerald-500';
-  if (status === 'ON_BREAK' || status === 'IDLE') return 'bg-amber-500';
-  if (status === 'ON_LEAVE') return 'bg-violet-500';
-  return 'bg-slate-400';
-}
+const EMPTY_DEPARTMENTS: HomeExperience['team']['departments'] = [];
 
 export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) {
+  const [departmentId, setDepartmentId] = useState('');
+  const [personId, setPersonId] = useState('');
+  const departments = team.departments ?? EMPTY_DEPARTMENTS;
+
+  useEffect(() => {
+    setDepartmentId((current) => departments.some((department) => department.id === current)
+      ? current
+      : departments[0]?.id ?? '');
+  }, [departments]);
+
+  const selectedDepartment = departments.find((department) => department.id === departmentId)
+    ?? departments[0];
+  const people = useMemo(() => team.showDepartmentFilter
+    ? selectedDepartment?.people ?? []
+    : departments.flatMap((department) => department.people)
+      .filter((person, index, all) => all.findIndex((candidate) => candidate.id === person.id) === index),
+  [departments, selectedDepartment, team.showDepartmentFilter]);
+
+  useEffect(() => {
+    setPersonId((current) => people.some((person) => person.id === current)
+      ? current
+      : people[0]?.id ?? '');
+  }, [departmentId, people]);
+
+  const filters = <div className="flex flex-wrap items-center justify-end gap-2">
+    {team.showDepartmentFilter && <label className="relative flex min-w-[190px] items-center">
+      <Building2 size={14} className="pointer-events-none absolute left-3 text-slate-500" aria-hidden />
+      <span className="sr-only">Department</span>
+      <select
+        value={selectedDepartment?.id ?? ''}
+        onChange={(event) => setDepartmentId(event.target.value)}
+        className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        aria-label="Filter team insights by department"
+      >
+        {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+      </select>
+    </label>}
+    <label className="relative flex min-w-[210px] items-center">
+      <UserRound size={14} className="pointer-events-none absolute left-3 text-slate-500" aria-hidden />
+      <span className="sr-only">Person</span>
+      <select
+        value={personId}
+        onChange={(event) => setPersonId(event.target.value)}
+        disabled={!people.length}
+        className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        aria-label="Filter team insights by person"
+      >
+        {!people.length && <option value="">No people available</option>}
+        {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+      </select>
+    </label>
+  </div>;
+
   return (
-    <SectionFrame icon={Users} title="Team insights" aside={<SmallLink href="/team">View team</SmallLink>}>
-      {team.rows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[650px] border-collapse text-left text-xs">
-        <thead><tr className="border-b border-slate-200 text-[11px] text-slate-500 dark:border-slate-700 dark:text-slate-400"><th className="py-2 font-medium">Team member</th><th className="py-2 font-medium">Status</th>{team.detailed && <><th className="py-2 text-right font-medium">Active</th><th className="py-2 text-right font-medium" title="Done and closed tickets in your authorized scope">Completed</th><th className="py-2 text-right font-medium">Overdue</th><th className="py-2 text-right font-medium">Productive hours</th><th className="py-2 text-right font-medium">Avg working hours</th></>}</tr></thead>
-        <tbody>{team.rows.map((member) => <tr key={member.id} className="border-b border-slate-100 text-slate-700 last:border-b-0 dark:border-slate-800 dark:text-slate-200">
-          <td className="py-3 font-medium"><span className="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-blue-100 text-[10px] text-blue-700 dark:bg-blue-950 dark:text-blue-300">{member.name.charAt(0).toUpperCase()}</span>{member.name}</td>
-          <td className="py-3"><span className={`mr-1.5 inline-block size-1.5 rounded-full ${statusColor(member.status)}`} />{statusLabels[member.status] ?? member.status.toLowerCase().replace(/_/g, ' ')}</td>
-          {team.detailed && <><td className="py-3 text-right font-semibold">{member.active}</td><td className="py-3 text-right font-semibold text-emerald-600 dark:text-emerald-400">{member.completed}</td><td className={`py-3 text-right font-semibold ${(member.overdue ?? 0) > 0 ? 'text-rose-600' : ''}`}>{member.overdue}</td><td className="py-3 text-right">{formatMinutes(member.productiveMinutes)}</td><td className="py-3 text-right">{formatMinutes(member.averageMinutes)}</td></>}
-        </tr>)}</tbody>
-      </table></div> : <EmptyState>{team.detailed ? 'No team members are currently in your authorized scope.' : 'No shared team membership is available yet.'}</EmptyState>}
-      {team.attentionCount > 0 && <div className="mt-4 flex gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200"><AlertTriangle size={15} className="shrink-0" /><span><strong>Team workload attention</strong><br />{team.attentionCount} member{team.attentionCount === 1 ? '' : 's'} with overdue assignments or active tickets while on leave.</span></div>}
-      {!team.detailed && team.rows.length > 0 && <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">Collaborator availability is shown here. Individual workload and hours require oversight access.</p>}
+    <SectionFrame icon={Users} title="Team insights" aside={filters}>
+      <div
+        className="min-h-[190px] rounded-xl border border-dashed border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-800/30"
+        aria-label="Selected person insight canvas"
+        data-department-id={selectedDepartment?.id ?? ''}
+        data-person-id={personId}
+      />
     </SectionFrame>
   );
 }
