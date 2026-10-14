@@ -12,8 +12,10 @@ describe('management leave entitlements', () => {
         findFirst: jest.fn().mockResolvedValue({
           assignedLeavePolicy: {
             totalPaidLeaves: 14,
-            casualLeaveAllocation: 10,
-            emergencyLeaveAllocation: 4,
+            // Deliberately stale values: the approved company-wide typed
+            // entitlements must win over an older assigned profile.
+            casualLeaveAllocation: 6,
+            emergencyLeaveAllocation: 6,
           },
         }),
       },
@@ -41,7 +43,7 @@ describe('management leave entitlements', () => {
     return { service: new LeaveBalanceService(prisma, settings, tva, workingDays), prisma };
   };
 
-  it('keeps Casual 10 and Emergency 4 as separate FY authorities', async () => {
+  it('keeps Casual 10 and Emergency 4 as separate FY authorities even when an assigned policy is stale', async () => {
     const { service } = rig();
     expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.CASUAL)).toBe(10);
     expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.EMERGENCY)).toBe(4);

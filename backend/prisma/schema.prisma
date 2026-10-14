@@ -127,6 +127,9 @@ model User {
   punchHandoffs             AttendancePunchHandoff[]
   createdRegularizations    AttendanceRegularization[]     @relation("RegularizationCreator")
   finalizedMonthCloses      AttendanceMonthClose[]         @relation("MonthCloseFinalizer")
+  meetingsOrganized         Meeting[]                      @relation("MeetingOrganizer")
+  meetingsAsCounterparty    Meeting[]                      @relation("MeetingCounterparty")
+  meetingParticipations     MeetingParticipant[]
 
   @@index([departmentId])
   @@index([roleId])
@@ -184,6 +187,7 @@ model Department {
   requestedTickets Ticket[]                   @relation("TicketRequestingDepartment")
   targetedTickets  Ticket[]                   @relation("TicketTargetDepartment")
   salesLeads       Lead[]
+  meetings         Meeting[]
 
   @@map("departments")
 }
@@ -659,13 +663,67 @@ model BreakLog {
   createdAt        DateTime        @default(now())
   reason           String?
   source           String?
+  meetingId        String?
   user             User            @relation(fields: [userId], references: [id])
   workSession      WorkSession     @relation(fields: [workSessionId], references: [id])
   ticketTimeLogs   TicketTimeLog[]
+  meeting          Meeting?        @relation(fields: [meetingId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([workSessionId])
+  @@index([meetingId])
   @@map("break_logs")
+}
+
+/// A captured meeting occurrence. Shared meetings expose meetingCode as the
+/// bridge other users can verify and join; personal meetings keep it null.
+model Meeting {
+  id                       String               @id @default(cuid())
+  topic                    String
+  meetingType              String
+  timingMode               String
+  departmentId             String?
+  organizerId              String
+  organizerNameSnapshot    String
+  counterpartyId           String
+  counterpartyNameSnapshot String
+  meetingCode              String?              @unique
+  visibility               String               @default("PERSONAL")
+  createdByRole            String?
+  status                   String               @default("PENDING")
+  scheduledStartAt         DateTime?
+  plannedMinutes           Int?
+  requestedAt              DateTime             @default(now())
+  startedAt                DateTime?
+  endedAt                  DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  organizer                User                 @relation("MeetingOrganizer", fields: [organizerId], references: [id])
+  counterparty             User                 @relation("MeetingCounterparty", fields: [counterpartyId], references: [id])
+  department               Department?          @relation(fields: [departmentId], references: [id])
+  participants             MeetingParticipant[]
+  breakLogs                BreakLog[]
+
+  @@index([organizerId, createdAt])
+  @@index([counterpartyId, status])
+  @@index([status, scheduledStartAt])
+  @@index([departmentId])
+  @@index([meetingCode, visibility])
+  @@map("meetings")
+}
+
+model MeetingParticipant {
+  id                  String   @id @default(cuid())
+  meetingId           String
+  userId              String?
+  displayNameSnapshot String
+  createdAt           DateTime @default(now())
+  meeting             Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([meetingId, userId])
+  @@index([userId, meetingId])
+  @@map("meeting_participants")
 }
 
 model UserWorkdayPolicyOverride {
@@ -1488,7 +1546,7 @@ model DailyAttendance {
 }
 
 model AttendanceRegularization {
-  screenshots CorrectionScreenshot[]
+  screenshots        CorrectionScreenshot[]
   id                 String                    @id @default(cuid())
   /// The import row that produced this correction, if any. Back-reference
   /// only: the foreign key lives on AttendanceImportRow.
@@ -2319,14 +2377,15 @@ enum AttendanceImportRowState {
 /// Employee-supplied supporting files, separate from immutable punch evidence.
 /// Bytes are private and only served through correction authorization.
 model CorrectionScreenshot {
-  id String @id @default(cuid())
+  id               String                   @id @default(cuid())
   regularizationId String
-  filename String
-  mimeType String
-  byteSize Int
-  content Bytes
-  createdAt DateTime @default(now())
-  regularization AttendanceRegularization @relation(fields: [regularizationId], references: [id], onDelete: Cascade)
+  filename         String
+  mimeType         String
+  byteSize         Int
+  content          Bytes
+  createdAt        DateTime                 @default(now())
+  regularization   AttendanceRegularization @relation(fields: [regularizationId], references: [id], onDelete: Cascade)
+
   @@index([regularizationId])
   @@map("correction_screenshots")
 }

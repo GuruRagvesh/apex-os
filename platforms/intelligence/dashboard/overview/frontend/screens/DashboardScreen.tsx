@@ -19,7 +19,6 @@ import type { HomeExperience } from './home-types';
 import { SmartAnnouncementsCarousel, type HomeCarouselData } from '../components/SmartAnnouncementsCarousel';
 import { HeroQuickActions } from './HeroQuickActions';
 import { TeamInsightsSection, ProjectInsightsSection } from './TeamProjectSections';
-import { OperationsRadar } from './OperationsRadar';
 
 type HeroDaypart = 'morning' | 'afternoon' | 'evening' | 'night';
 
@@ -86,6 +85,7 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
   const user = useAuthStore(s => s.user);
   const roleObj = user?.role as any;
   const role: string = roleObj?.name ?? (typeof roleObj === 'string' ? roleObj : '') ?? '';
+  const isContributor = role === 'EMPLOYEE' || role === 'INTERN';
 
   const [heroTimeOverride, setHeroTimeOverride]   = useState<HeroDaypart | null>(null);
   const heroRef = useRef<HTMLElement | null>(null);
@@ -219,10 +219,10 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
       )}
 
       {/* Shared Home sections use the same role-scoped read model for all roles. */}
-      <div className="mb-3">
-        <SmartAnnouncementsCarousel data={carousel} recognition={experience?.recognition}
-          loading={carouselLoading && !!user} error={carouselError} onRetry={() => retryCarousel()} />
-      </div>
+      {(!isContributor || Boolean(carousel?.announcement) || Boolean(carousel?.criticalAnnouncements.length)) && <div className="mb-3">
+        <SmartAnnouncementsCarousel data={carousel} recognition={isContributor ? [] : experience?.recognition}
+          announcementsOnly={isContributor} loading={carouselLoading && !!user} error={carouselError} onRetry={() => retryCarousel()} />
+      </div>}
       {experienceLoading && user && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading home insights…</div>}
       {experienceError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Home insights could not be loaded. <button type="button" onClick={() => retryExperience()} className="underline">Retry</button></div>}
 
@@ -237,11 +237,10 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
         </motion.div>
       )}
 
-      {user?.id && <div className="mt-6 space-y-5">
+      {user?.id && isLeadOrAbove && <div className="mt-6 space-y-5">
         {experience && <>
           <TeamInsightsSection team={experience.team} />
           <ProjectInsightsSection projects={experience.projects} />
-          <OperationsRadar experience={experience} userId={user.id} />
         </>}
       </div>}
     </div>

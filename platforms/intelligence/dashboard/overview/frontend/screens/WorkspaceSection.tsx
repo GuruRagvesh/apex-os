@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ClipboardList, ExternalLink, GripVertical, Pencil, Plus, StickyNote, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { CalendarPlus, Check, ClipboardList, ExternalLink, FolderPlus, GripVertical, Pencil, Plus, StickyNote, Ticket, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuthStore } from '@apex/core-identity';
+import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { dashboardApi } from '../api';
 import type { HomeWorkspace } from './home-types';
 import { EmptyState, SectionFrame } from './home-ui';
@@ -11,6 +14,11 @@ import { EmptyState, SectionFrame } from './home-ui';
 const EMPTY_NOTES = ['', '', ''];
 
 export function WorkspaceSection({ userId, drawer = false }: { userId: string; drawer?: boolean }) {
+  const router = useRouter();
+  const user = useAuthStore((state) => state.user);
+  const ticketGate = useTicketCreationGate({ enabled: drawer });
+  const roleName = String((user?.role as any)?.name ?? user?.role ?? '').toUpperCase();
+  const canCreateProject = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const queryClient = useQueryClient();
   const queryKey = ['home-workspace', userId];
   const { data, isPending, isError, refetch } = useQuery({ queryKey, queryFn: () => dashboardApi.getHomeWorkspace() as Promise<HomeWorkspace> });
@@ -60,6 +68,31 @@ export function WorkspaceSection({ userId, drawer = false }: { userId: string; d
           <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={() => { setEssentials(data.essentials); setEditingEssentials(false); }} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700">Cancel</button><button type="button" disabled={mutation.isPending} onClick={saveEssentials} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Save essentials</button></div>
         </div>}
       </section>
+
+      {drawer && <nav className="apex-workspace-action-strip" aria-label="Quick actions">
+        <button
+          type="button"
+          className="apex-workspace-action apex-workspace-action-ticket"
+          aria-disabled={!ticketGate.allowed || undefined}
+          title={!ticketGate.allowed ? ticketGate.reason ?? 'Ticket creation is unavailable' : 'Create ticket'}
+          onClick={() => { if (ticketGate.allowed) router.push('/tickets/new'); }}
+        >
+          <span className="apex-workspace-action-icon"><Ticket size={17} /></span>
+          <span className="apex-workspace-action-label">Create Ticket</span>
+        </button>
+        {canCreateProject && <button type="button" className="apex-workspace-action apex-workspace-action-project" onClick={() => router.push('/projects?create=1')} title="Create project">
+          <span className="apex-workspace-action-icon"><FolderPlus size={17} /></span>
+          <span className="apex-workspace-action-label">Create Project</span>
+        </button>}
+        <button type="button" className="apex-workspace-action apex-workspace-action-leave" onClick={() => router.push('/leave')} title="Apply leave">
+          <span className="apex-workspace-action-icon"><CalendarPlus size={17} /></span>
+          <span className="apex-workspace-action-label">Apply Leave</span>
+        </button>
+        <button type="button" className="apex-workspace-action apex-workspace-action-edit" onClick={() => router.push('/settings?tab=appearance')} title="Edit hero bar appearance">
+          <span className="apex-workspace-action-icon"><Pencil size={17} /></span>
+          <span className="apex-workspace-action-label">Edit Hero Bar</span>
+        </button>
+      </nav>}
 
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
         <div className="mb-3"><h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100"><StickyNote size={15} className="text-blue-600" /> Personal notes</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Private notes, separated by focus.</p></div>

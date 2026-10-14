@@ -11,12 +11,10 @@ const prisma: any = {
   project: { count: jest.fn() },
   leaveRequest: { count: jest.fn(), findMany: jest.fn() },
 };
-const ticketAccess: any = { buildTicketWhereForUser: jest.fn(async () => ({ departmentId: 'd1' })) };
 const leaveAccess: any = { buildLeaveWhereForUser: jest.fn(async () => ({ departmentId: 'd1' })) };
-const dashboard: any = { buildProjectScope: jest.fn(async () => ({})) };
 const leaveService: any = { viewerCanApprove: jest.fn(async () => true) };
 
-const make = () => new HomeInsightsService(prisma, ticketAccess, leaveAccess, createTvaDouble(NOW) as any, dashboard, leaveService);
+const make = () => new HomeInsightsService(prisma, leaveAccess, createTvaDouble(NOW) as any, leaveService);
 const employee = { id: 'u1', role: { name: 'EMPLOYEE' } };
 const lead = { id: 'u2', role: { name: 'TEAM_LEAD' } };
 
@@ -31,30 +29,41 @@ describe('HomeInsightsService', () => {
     prisma.leaveRequest.findMany.mockResolvedValue([]);
   });
 
-  it('gives employees personal KPIs only, including their pending leave requests', async () => {
+  it('gives employees personal work KPIs and no approval queues', async () => {
     const kpis = await make().getKpis(employee);
+    expect(kpis.mine).toEqual({
+      openTickets: 3, inProgressTickets: 3, underReviewTickets: 3,
+      pendingTicketApprovals: 0, activeProjects: 2, leaveApprovals: 0,
+    });
+    expect(kpis.scoped).toBeNull();
+    expect(kpis.pendingTicketApprovals).toBeNull();
+    expect(kpis.pendingLeaveApprovals).toBeNull();
+    expect(prisma.leaveRequest.findMany).not.toHaveBeenCalled();
+  });
+
+  it('gives leads personal work KPIs and only actionable approvals', async () => {
+    prisma.leaveRequest.findMany.mockResolvedValue([{ id: 'leave-1', userId: 'u3' }]);
+    const kpis = await make().getKpis(lead);
     expect(kpis.mine).toEqual({
       openTickets: 3, inProgressTickets: 3, underReviewTickets: 3,
       pendingTicketApprovals: 3, activeProjects: 2, leaveApprovals: 1,
     });
     expect(kpis.scoped).toBeNull();
-    expect(kpis.pendingTicketApprovals).toBeNull();
-    expect(kpis.pendingLeaveApprovals).toBeNull();
-    expect(prisma.leaveRequest.count).toHaveBeenCalledWith({ where: { userId: 'u1', status: 'PENDING' } });
-  });
-
-  it('gives leads scoped KPI counts and only leaves they can approve', async () => {
-    prisma.leaveRequest.findMany.mockResolvedValue([{ id: 'leave-1', userId: 'u3' }]);
-    const kpis = await make().getKpis(lead);
-    expect(kpis.scoped).toEqual({
-      openTickets: 3, inProgressTickets: 3, underReviewTickets: 3,
-      pendingTicketApprovals: 3, activeProjects: 2, leaveApprovals: 1,
-    });
     expect(kpis.pendingTicketApprovals).toBe(3);
     expect(kpis.pendingLeaveApprovals).toBe(1);
     expect(leaveService.viewerCanApprove).toHaveBeenCalledWith(lead, { id: 'leave-1', userId: 'u3' });
     const leaveWhere = prisma.leaveRequest.findMany.mock.calls[0][0].where;
     expect(JSON.stringify(leaveWhere)).toContain('"NOT":{"userId":"u2"}');
+  });
+
+  it('counts company projects for managers and membership projects for team leads', async () => {
+    await make().getKpis({ id: 'manager-1', role: { name: 'MANAGER' } });
+    expect(prisma.project.count).toHaveBeenLastCalledWith({ where: { status: 'ACTIVE' } });
+
+    await make().getKpis(lead);
+    expect(prisma.project.count).toHaveBeenLastCalledWith({
+      where: { AND: [{ members: { some: { userId: 'u2' } } }, { status: 'ACTIVE' }] },
+    });
   });
 
   it('buckets done tickets by company date, not UTC date', async () => {

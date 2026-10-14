@@ -6,11 +6,11 @@ import { useAuthStore } from '@/store/auth.store';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/topbar';
 import { ColdStartBanner } from '@apex/apps-web/components/cold-start-banner';
-import { QuickActionDock } from '@/components/ui/QuickActionDock';
 import { QuickActionPalette } from '@apex/shared-ui/components/QuickActionPalette';
 import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 import { ActiveReviewBanner } from '@apex/operations-tickets-lifecycle/components/active-review-banner';
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
+import { WorkPauseGuard } from '@/components/workday/WorkPauseGuard';
 import { syncStoredOwner } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
@@ -156,8 +156,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main id="apex-main-content" className="flex-1 overflow-y-auto p-3 sm:p-6">{children}</main>
       </div>
       <ColdStartBanner />
-      {/* Existing FAB dock — kept as-is (Alt+Q) */}
-      <QuickActionDock />
       {/* New command palette — Alt+K */}
       <QuickActionPalette
         isOpen={paletteOpen}
@@ -166,6 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       />
       {/* Device push opt-in. Reminder timing and delivery are owned by the backend. */}
       <DesktopNotificationManager />
+      <WorkPauseGuard />
     </div>
   );
 }

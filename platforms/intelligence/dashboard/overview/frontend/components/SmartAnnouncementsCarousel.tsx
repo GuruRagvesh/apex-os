@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Award, List, Megaphone, Pause, Play, Trophy, X, type LucideIcon } from 'lucide-react';
+import { Award, List, Megaphone, Trophy, X, type LucideIcon } from 'lucide-react';
 import { useReducedMotion } from 'motion/react';
 import * as Dialog from '@radix-ui/react-dialog';
 
@@ -44,6 +44,7 @@ export const SMART_CAROUSEL_SAMPLE: { data: HomeCarouselData; recognition: TeamA
 type Props = {
   data?: HomeCarouselData;
   recognition?: TeamAchievement[];
+  announcementsOnly?: boolean;
   loading?: boolean;
   error?: boolean;
   onRetry?: () => void;
@@ -62,10 +63,9 @@ type TickerItem = {
 const EMPTY_RECOGNITION: TeamAchievement[] = [];
 
 /** Retains the existing Home integration contract; visually this is now a continuous news ticker. */
-export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITION, loading = false, error = false, onRetry }: Props) {
+export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITION, announcementsOnly = false, loading = false, error = false, onRetry }: Props) {
   const reduceMotion = useReducedMotion();
   const [interactionPaused, setInteractionPaused] = useState(false);
-  const [userPaused, setUserPaused] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedCritical, setSelectedCritical] = useState<HomeAnnouncement | null>(null);
@@ -76,11 +76,11 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
   const items = useMemo<TickerItem[]>(() => {
     const result: TickerItem[] = [];
     if (data?.announcement) result.push({
-      key: `announcement-${data.announcement.id}`, category: 'Company announcement',
+      key: `announcement-${data.announcement.id}`, category: announcementsOnly ? 'Breaking news' : 'Company announcement',
       title: data.announcement.title, summary: data.announcement.body,
       icon: Megaphone, kind: 'announcement',
     });
-    if (data?.spotlight.leaders.length) {
+    if (!announcementsOnly && data?.spotlight.leaders.length) {
       const leaders = data.spotlight.leaders;
       result.push({
         key: `spotlight-${data.spotlight.weekStart}`, category: 'Recognition spotlight',
@@ -89,13 +89,15 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
         icon: Trophy, kind: 'spotlight',
       });
     }
-    for (const achievement of recognition.slice(0, 5)) result.push({
-      key: `achievement-${achievement.id}`, category: 'Team recognition',
-      title: `${achievement.person} completed ${achievement.ticketId}`,
-      summary: achievement.title, icon: Award, kind: 'achievement', achievement,
-    });
+    if (!announcementsOnly) {
+      for (const achievement of recognition.slice(0, 5)) result.push({
+        key: `achievement-${achievement.id}`, category: 'Team recognition',
+        title: `${achievement.person} completed ${achievement.ticketId}`,
+        summary: achievement.title, icon: Award, kind: 'achievement', achievement,
+      });
+    }
     return result;
-  }, [data, recognition]);
+  }, [announcementsOnly, data, recognition]);
 
   useEffect(() => {
     const group = firstGroupRef.current;
@@ -114,7 +116,7 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
     return () => observer.disconnect();
   }, [items]);
 
-  const paused = interactionPaused || userPaused || detailsOpen;
+  const paused = interactionPaused || detailsOpen;
   const canAnimate = Boolean(items.length && measurements.groupWidth && !reduceMotion);
   const repeatCount = canAnimate
     ? Math.max(2, Math.ceil(measurements.viewportWidth / measurements.groupWidth) + 2)
@@ -141,7 +143,7 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
             <Megaphone size={14} aria-hidden="true" /> Critical announcement: {item.title}
           </button>
         ))}
-        <section aria-label="Announcements and recognition ticker"
+        {(!announcementsOnly || items.length > 0) && <section aria-label={announcementsOnly ? 'Breaking news' : 'Announcements and recognition ticker'}
           onMouseEnter={() => setInteractionPaused(true)}
           onMouseLeave={() => setInteractionPaused(false)}
           onFocusCapture={() => setInteractionPaused(true)}
@@ -156,7 +158,7 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
             </span>
             <span className="hidden sm:block">
               <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4477bf] dark:text-blue-300">APEX OS</span>
-              <span className="block text-[13px] font-semibold text-[#172b50] dark:text-slate-100">Live updates</span>
+              <span className="block text-[13px] font-semibold text-[#172b50] dark:text-slate-100">{announcementsOnly ? 'Breaking news' : 'Live updates'}</span>
             </span>
           </div>
 
@@ -192,18 +194,13 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
 
           <div className="relative z-10 flex h-[86px] shrink-0 items-center gap-1 border-l border-slate-200 bg-white px-2 dark:border-slate-700 dark:bg-slate-900 sm:px-3">
             {error && onRetry && <button type="button" onClick={onRetry} className="mr-1 text-xs font-medium text-blue-600 underline">Retry</button>}
-            {canAnimate && <button type="button" onClick={() => setUserPaused((value) => !value)}
-              aria-label={userPaused ? 'Resume ticker' : 'Pause ticker'} aria-pressed={userPaused}
-              className="rounded-full p-2 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 dark:text-slate-300 dark:hover:bg-slate-800">
-              {userPaused ? <Play size={16} aria-hidden="true" /> : <Pause size={16} aria-hidden="true" />}
-            </button>}
             <button type="button" onClick={() => { setSelectedCritical(null); setSelectedKey(null); setDetailsOpen(true); }}
               aria-label="Browse all updates" disabled={!items.length}
               className="rounded-full p-2 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800">
               <List size={18} aria-hidden="true" />
             </button>
           </div>
-        </section>
+        </section>}
       </div>
 
       <Dialog.Root open={detailsOpen} onOpenChange={(open) => { setDetailsOpen(open); if (!open) { setSelectedCritical(null); setSelectedKey(null); } }}>

@@ -186,6 +186,17 @@ export default function ProjectsPage() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
+  // Quick Access deep-link: open the existing form, then remove the one-shot
+  // query flag so refreshing or returning to the page does not reopen it.
+  useEffect(() => {
+    if (searchParams.get('create') !== '1' || !canCreate) return;
+    setShowNew(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('create');
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [canCreate, pathname, router, searchParams]);
+
   useEffect(() => {
     if (debouncedSearch !== urlSearch) setParams({ q: debouncedSearch || null, page: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
