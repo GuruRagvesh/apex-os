@@ -15,6 +15,13 @@ export type HomeExperience = {
     detailed: boolean;
     attentionCount: number;
     rows: { id: string; name: string; status: string; active: number | null; completed: number | null; overdue: number | null; productiveMinutes: number | null; averageMinutes: number | null }[];
+    hierarchyRole: string;
+    showDepartmentFilter: boolean;
+    departments: {
+      id: string;
+      name: string;
+      people: { id: string; name: string; role: string; teamId?: string; teamName?: string }[];
+    }[];
   };
   projects: {
     id: string; code: string; name: string; endDate: string | null; lead: string | null;

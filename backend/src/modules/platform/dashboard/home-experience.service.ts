@@ -7,7 +7,6 @@ import { TicketTimingService } from '../../../common/services/ticket-timing.serv
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { LeaveService } from '../../operations/leave/leave.service';
-import { calculateWorkdayRuntime } from '../workday/workday.calculation';
 
 const TERMINAL_TICKET_STATUSES: TicketStatus[] = [
   TicketStatus.PENDING_APPROVAL,
@@ -281,7 +280,7 @@ export class HomeExperienceService {
     ].sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime()).slice(0, 5);
 
     const [team, projectHours, personalSummary] = await Promise.all([
-      this.getTeamInsights(user, activeTickets, scope, isOverdue, now),
+      this.getTeamHierarchy(user),
       projects.length && isLeader
         ? this.prisma.ticketTimeLog.findMany({
             where: { countsAsWork: true, durationSeconds: { not: null }, ticket: { projectId: { in: projects.map((project) => project.id) } } },
@@ -426,92 +425,174 @@ export class HomeExperienceService {
     };
   }
 
-  private async getTeamInsights(user: any, activeTickets: any[], ticketScope: any, isOverdue: (ticket: any) => boolean, now: Date) {
+  /**
+   * Filter options for the intentionally blank Team Insights canvas.
+   *
+   * Hierarchy comes from relations, never from names or a user's free-text
+   * designation:
+   * - Team Lead: active teams they lead and those teams' active contributors.
+   * - Manager: departments in ManagerDeptAccess and everyone below Manager in
+   *   those departments.
+   * - Admin/Super Admin: every department, its assigned Manager(s), Team Leads
+   *   and contributors.
+   */
+  private async getTeamHierarchy(user: any) {
     const role = this.access.roleName(user);
     const detailed = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
-    let userIds: string[] | null = null;
-    if (!detailed) {
-      const memberships = await this.prisma.teamMember.findMany({ where: { userId: user.id, team: { isActive: true } }, select: { teamId: true } });
-      const peers = memberships.length ? await this.prisma.teamMember.findMany({
-        where: { teamId: { in: memberships.map((membership) => membership.teamId) }, team: { isActive: true } },
-        select: { userId: true },
-      }) : [];
-      userIds = [...new Set(peers.map((peer) => peer.userId))];
-      if (!userIds.length && user.departmentId) {
-        const departmentPeers = await this.prisma.user.findMany({
-          where: { isActive: true, departmentId: user.departmentId }, select: { id: true },
-        });
-        userIds = departmentPeers.map((peer) => peer.id);
-      }
-    } else if (role === 'TEAM_LEAD') {
+    const empty = {
+      detailed,
+      rows: [],
+      attentionCount: 0,
+      hierarchyRole: role,
+      showDepartmentFilter: false,
+      departments: [],
+    };
+    if (!detailed) return empty;
+
+    if (role === 'TEAM_LEAD') {
       const teams = await this.prisma.team.findMany({
-        where: { teamLeadId: user.id, isActive: true }, select: { members: { select: { userId: true } } },
+        where: { teamLeadId: user.id, isActive: true },
+        select: {
+          id: true,
+          name: true,
+          department: { select: { id: true, name: true } },
+          members: {
+            where: {
+              user: {
+                isActive: true,
+                role: { name: { in: ['EMPLOYEE', 'INTERN'] } },
+              },
+            },
+            select: {
+              user: { select: { id: true, name: true, role: { select: { name: true } } } },
+            },
+          },
+        },
+        orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
       });
-      userIds = [...new Set(teams.flatMap((team) => team.members.map((member) => member.userId)))];
-      if (!userIds.length) {
-        const departments = await this.access.managedDepartmentIds(user);
-        const departmentPeers = await this.prisma.user.findMany({
-          where: { isActive: true, departmentId: { in: departments } }, select: { id: true },
-        });
-        userIds = departmentPeers.map((peer) => peer.id);
+
+      const grouped = new Map<string, { id: string; name: string; people: any[] }>();
+      for (const team of teams) {
+        const department = grouped.get(team.department.id) ?? {
+          id: team.department.id,
+          name: team.department.name,
+          people: [],
+        };
+        const known = new Set(department.people.map((person) => person.id));
+        for (const member of team.members) {
+          if (known.has(member.user.id)) continue;
+          known.add(member.user.id);
+          department.people.push({
+            id: member.user.id,
+            name: member.user.name,
+            role: member.user.role.name,
+            teamId: team.id,
+            teamName: team.name,
+          });
+        }
+        grouped.set(team.department.id, department);
       }
-    } else if (role === 'MANAGER') {
-      const departments = await this.access.managedDepartmentIds(user);
-      const members = await this.prisma.user.findMany({ where: { isActive: true, departmentId: { in: departments } }, select: { id: true } });
-      userIds = members.map((member) => member.id);
-    }
-    const users = await this.prisma.user.findMany({
-      where: { isActive: true, id: { not: user.id }, ...(userIds ? { id: { in: userIds.filter((id) => id !== user.id) } } : {}) },
-      select: { id: true, name: true, currentStatus: true }, orderBy: { name: 'asc' }, take: 150,
-    });
-    if (!users.length) return { detailed, rows: [], attentionCount: 0 };
-    const ids = users.map((member) => member.id);
-    const today = this.tva.companyDateOnly();
-    const [leaves, sessions, previousSessions] = await Promise.all([
-      this.prisma.leaveRequest.findMany({
-        where: { userId: { in: ids }, status: LeaveStatus.APPROVED, startDate: { lte: today }, endDate: { gte: today } }, select: { userId: true },
-      }),
-      detailed ? this.prisma.workSession.findMany({ where: { userId: { in: ids }, date: today }, include: { breakLogs: true }, orderBy: { createdAt: 'asc' } }) : Promise.resolve([]),
-      detailed ? this.prisma.workSession.findMany({
-        where: { userId: { in: ids }, date: { gte: this.tva.companyDateOnly(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)), lt: today }, logoutAt: { not: null } },
-        select: { userId: true, date: true, totalWorkMinutes: true },
-      }) : Promise.resolve([]),
-    ]);
-    const onLeave = new Set(leaves.map((leave) => leave.userId));
-    const rows = users.map((member) => {
-      const assigned = activeTickets.filter((ticket) => ticket.assignedToId === member.id || ticket.assignees.some((assignee: any) => assignee.userId === member.id));
-      const memberSessions = sessions.filter((session) => session.userId === member.id).map((session) => ({
-        ...session,
-        breakLogs: session.breakLogs.filter((entry) => entry.breakType !== 'MEETING'),
+      const departments = [...grouped.values()].map((department) => ({
+        ...department,
+        people: department.people.sort((a, b) => a.name.localeCompare(b.name)),
       }));
-      const workMinutes = memberSessions.length ? calculateWorkdayRuntime(memberSessions as any, now).elapsedWorkMinutes : null;
-      const pastByDay = new Map<string, number>();
-      for (const session of previousSessions.filter((session) => session.userId === member.id)) {
-        const date = session.date.toISOString().slice(0, 10);
-        pastByDay.set(date, (pastByDay.get(date) ?? 0) + session.totalWorkMinutes);
+      return { ...empty, departments };
+    }
+
+    let departmentIds: string[] | null = null;
+    if (role === 'MANAGER') {
+      const assignments = await this.prisma.managerDeptAccess.findMany({
+        where: { managerId: user.id },
+        select: { departmentId: true },
+      });
+      departmentIds = [...new Set(assignments.map((assignment) => assignment.departmentId))];
+      // Preserve old installations that predate ManagerDeptAccess without
+      // mixing a Manager's unrelated profile department into explicit scope.
+      if (!departmentIds.length && user.departmentId) departmentIds = [user.departmentId];
+    }
+    const departments = await this.prisma.department.findMany({
+      where: departmentIds ? { id: { in: departmentIds } } : {},
+      select: {
+        id: true,
+        name: true,
+        managerAccess: {
+          where: { manager: { isActive: true, role: { name: 'MANAGER' } } },
+          select: { manager: { select: { id: true, name: true, role: { select: { name: true } } } } },
+        },
+        users: {
+          where: {
+            isActive: true,
+            role: { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } },
+          },
+          select: { id: true, name: true, role: { select: { name: true } } },
+        },
+        teams: {
+          where: { isActive: true, teamLead: { isActive: true, role: { name: 'TEAM_LEAD' } } },
+          select: {
+            id: true,
+            name: true,
+            teamLead: { select: { id: true, name: true, role: { select: { name: true } } } },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const roleRank: Record<string, number> = { MANAGER: 0, TEAM_LEAD: 1, EMPLOYEE: 2, INTERN: 3 };
+    const hierarchy = departments.map((department) => {
+      const people = new Map<string, { id: string; name: string; role: string; teamId?: string; teamName?: string }>();
+
+      // Managers belong to a department through ManagerDeptAccess, not through
+      // their primary User.departmentId. Only company-wide viewers see them in
+      // the person filter; a Manager never sees themselves or peer Managers.
+      if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+        for (const access of department.managerAccess) {
+          if (access.manager.id !== user.id) {
+            people.set(access.manager.id, {
+              id: access.manager.id,
+              name: access.manager.name,
+              role: access.manager.role.name,
+            });
+          }
+        }
       }
-      const past = [...pastByDay.values()];
+
+      const teamByLead = new Map(department.teams
+        .filter((team) => team.teamLead)
+        .map((team) => [team.teamLead!.id, team]));
+      for (const team of department.teams) {
+        if (!team.teamLead || team.teamLead.id === user.id) continue;
+        people.set(team.teamLead.id, {
+          id: team.teamLead.id,
+          name: team.teamLead.name,
+          role: team.teamLead.role.name,
+          teamId: team.id,
+          teamName: team.name,
+        });
+      }
+      for (const member of department.users) {
+        if (member.id === user.id) continue;
+        const team = teamByLead.get(member.id);
+        people.set(member.id, {
+          id: member.id,
+          name: member.name,
+          role: member.role.name,
+          ...(team ? { teamId: team.id, teamName: team.name } : {}),
+        });
+      }
+
       return {
-        id: member.id, name: member.name,
-        status: onLeave.has(member.id) ? 'ON_LEAVE' : member.currentStatus,
-        active: detailed ? assigned.length : null,
-        overdue: detailed ? assigned.filter(isOverdue).length : null,
-        productiveMinutes: detailed ? workMinutes : null,
-        averageMinutes: detailed && past.length ? Math.round(past.reduce((sum, minutes) => sum + minutes, 0) / past.length) : null,
+        id: department.id,
+        name: department.name,
+        people: [...people.values()].sort((a, b) =>
+          (roleRank[a.role] ?? 99) - (roleRank[b.role] ?? 99) || a.name.localeCompare(b.name)),
       };
     });
-    const attentionCount = detailed ? rows.filter((member) => (member.overdue ?? 0) > 0 || (member.active ?? 0) > 0 && member.status === 'ON_LEAVE').length : 0;
-    rows.sort((a, b) => (b.overdue ?? 0) - (a.overdue ?? 0) || (b.active ?? 0) - (a.active ?? 0) || a.name.localeCompare(b.name));
-    const visibleRows = await Promise.all(rows.slice(0, 6).map(async (member) => ({
-      ...member,
-      completed: detailed ? await this.prisma.ticket.count({
-        where: this.andWhere(
-          ticketScope,
-          { status: { in: [TicketStatus.DONE, TicketStatus.CLOSED] } },
-          { OR: [{ assignedToId: member.id }, { assignees: { some: { userId: member.id } } }] },
-        ),
-      }) : null,
-    })));
-    return { detailed, rows: visibleRows, attentionCount };
+
+    return {
+      ...empty,
+      showDepartmentFilter: role === 'ADMIN' || role === 'SUPER_ADMIN' || hierarchy.length > 1,
+      departments: hierarchy,
+    };
   }
 }

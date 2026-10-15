@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
+import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, CalendarCheck, CalendarDays, ChevronDown,
   ChevronLeft, ChevronRight, Flame, Gauge, LogIn, LogOut, Minus, PencilLine, Sparkles, Star, Ticket, Timer, X,
@@ -26,13 +27,14 @@ import s from './home-calendar.module.css';
 type Mode = 'attendance' | 'productivity';
 
 const ATTENDANCE_LEGEND = [
-  { label: 'Present', color: '#16A34A' },
-  { label: 'Late / short hours', color: '#EA580C' },
-  { label: 'Half day', color: '#7E22CE' },
-  { label: 'Leave / insufficient presence', color: '#DC2626' },
-  { label: 'Regularized', color: '#39FF14' },
-  { label: 'Holiday', color: '#CA8A04' },
-  { label: 'Weekly off', color: '#64748B' },
+  { label: 'Present', color: '#18B86B' },
+  { label: 'Late / Short hours', color: '#F08A35' },
+  { label: 'Absent / leave', color: '#EC5D78' },
+  { label: 'Half day', color: '#9B6DE3' },
+  { label: 'Regularized', color: '#54D36C' },
+  { label: 'Holiday', color: '#E5B52E' },
+  { label: 'Weekly off', color: '#4F8FD8' },
+  { label: 'Needs review', color: '#8494AA' },
 ] as const;
 
 function localToday(): string {
@@ -64,7 +66,10 @@ function photoId(e: OwnPunchEvidence | null | undefined): string | null {
 
 export function HomeCalendarPanel() {
   const today = localToday();
+  const role = useAuthStore((state) => (state.user?.role as any)?.name ?? state.user?.role ?? '');
+  const isIntern = String(role).toUpperCase() === 'INTERN';
   const [mode, setMode] = useState<Mode>('attendance');
+  const [attendanceFilter, setAttendanceFilter] = useState<string | null>(null);
   const [month, setMonth] = useState(() => monthOf(today));
   const [popup, setPopup] = useState<{ date: string; anchor: HTMLElement } | null>(null);
   const [correctionDate, setCorrectionDate] = useState<string | null>(null);
@@ -81,7 +86,8 @@ export function HomeCalendarPanel() {
       queryKey: ['my-attendance-v2', m],
       queryFn: () => getMyAttendanceV2(m),
       staleTime: 60_000,
-      retry: false,
+      retry: shouldRetryTransientQuery,
+      retryDelay: transientQueryRetryDelay,
     })),
   });
   const attendanceByDate = useMemo(() => {
@@ -96,7 +102,8 @@ export function HomeCalendarPanel() {
     queryKey: ['my-punch-evidence-v2'],
     queryFn: () => getMyPunchEvidence(90),
     staleTime: 60_000,
-    retry: false,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
   });
   const punches = useMemo(() => evidenceByDate(evidence.data), [evidence.data]);
 
@@ -111,14 +118,16 @@ export function HomeCalendarPanel() {
     queryFn: () => getHomeProductivity(monthStart, monthTo),
     enabled: monthStart <= today,
     staleTime: 60_000,
-    retry: false,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
   });
   const weekTo = week.end < today ? week.end : today;
   const weekProductivity = useQuery({
     queryKey: ['home-productivity', week.previousStart, weekTo],
     queryFn: () => getHomeProductivity(week.previousStart, weekTo),
     staleTime: 60_000,
-    retry: false,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
   });
   const productivityByDate = useMemo(() => {
     const map = new Map<string, HomeProductivityDay>();
@@ -164,30 +173,45 @@ export function HomeCalendarPanel() {
           </div>
         </header>
 
-        {mode === 'attendance' && (
-          <div className={s.attendanceLegend} aria-label="Attendance colour guide">
-            <span className={s.legendTitle}>Day colours</span>
-            {ATTENDANCE_LEGEND.map((item) => <span key={item.label}><i style={{ background: item.color }} />{item.label}</span>)}
-          </div>
-        )}
+        <div className={mode === 'attendance' ? s.attendanceCalendarLayout : undefined}>
+          {mode === 'attendance' && (
+            <aside className={s.attendanceLegend} aria-label="Attendance colour guide">
+              <span className={s.legendTitle}>Day colours</span>
+              {ATTENDANCE_LEGEND.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  aria-pressed={attendanceFilter === item.label}
+                  onClick={() => { setAttendanceFilter(attendanceFilter === item.label ? null : item.label); setPopup(null); }}
+                >
+                  <i style={{ background: item.color }} aria-hidden="true" />{item.label}
+                </button>
+              ))}
+              {attendanceFilter && <button type="button" className={s.clearFilter} onClick={() => setAttendanceFilter(null)}>Clear filter</button>}
+            </aside>
+          )}
 
-        {monthQuery?.isLoading ? (
-          <div className={s.skeleton}>Loading your calendar…</div>
-        ) : monthQuery?.isError ? (
-          <div className={s.skeleton}>Your attendance could not be loaded. Refresh to try again.</div>
-        ) : (
-          <CalendarGrid
-            month={month}
-            today={today}
-            mode={mode}
-            selected={popup?.date ?? null}
-            attendanceByDate={attendanceByDate}
-            punches={punches}
-            productivityByDate={productivityByDate}
-            highlight={highlight}
-            onOpen={openDay}
-          />
-        )}
+          <div className={s.calendarMain}>
+            {monthQuery?.isLoading ? (
+              <div className={s.skeleton}>Loading your calendar…</div>
+            ) : monthQuery?.isError ? (
+              <div className={s.skeleton}>Your attendance could not be loaded. Refresh to try again.</div>
+            ) : (
+              <CalendarGrid
+                month={month}
+                today={today}
+                mode={mode}
+                attendanceFilter={mode === 'attendance' ? attendanceFilter : null}
+                selected={popup?.date ?? null}
+                attendanceByDate={attendanceByDate}
+                punches={punches}
+                productivityByDate={productivityByDate}
+                highlight={highlight}
+                onOpen={openDay}
+              />
+            )}
+          </div>
+        </div>
 
         {mode === 'productivity' && (
           <div className={s.legend} aria-label="Productivity legend">
@@ -201,8 +225,10 @@ export function HomeCalendarPanel() {
       </div>
 
       {mode === 'attendance'
-        ? <AttendanceSide today={today} week={week} byDate={attendanceByDate} />
+        ? <AttendanceSide today={today} week={week} byDate={attendanceByDate} isIntern={isIntern} />
         : <ProductivitySide week={week} byDate={productivityByDate} loading={weekProductivity.isLoading} failed={weekProductivity.isError} />}
+
+      {mode === 'attendance' && !isIntern && <LeaveBalanceAnalysis />}
 
       {popup && (
         <DayPopup
@@ -226,11 +252,12 @@ export function HomeCalendarPanel() {
 // ── Calendar grid ────────────────────────────────────────────────────────────
 
 function CalendarGrid({
-  month, today, mode, selected, attendanceByDate, punches, productivityByDate, highlight, onOpen,
+  month, today, mode, attendanceFilter, selected, attendanceByDate, punches, productivityByDate, highlight, onOpen,
 }: {
   month: string;
   today: string;
   mode: Mode;
+  attendanceFilter: string | null;
   selected: string | null;
   attendanceByDate: Map<string, MyAttendanceDayV2>;
   punches: Map<string, { in: OwnPunchEvidence | null; out: OwnPunchEvidence | null }>;
@@ -252,7 +279,7 @@ function CalendarGrid({
           const dayNum = Number(date.slice(8));
           if (!inMonth || future) {
             return (
-              <div key={date} className={`${s.day} ${s.muted}`} aria-hidden={!inMonth}>
+              <div key={date} className={`${s.day} ${s.muted} ${attendanceFilter ? s.dimmedDay : ''}`} aria-hidden={!inMonth}>
                 <div className={s.dayTop}><span className={s.dayNumber}>{inMonth ? dayNum : ''}</span></div>
               </div>
             );
@@ -278,16 +305,14 @@ function CalendarGrid({
           const day = attendanceByDate.get(date);
           const punch = punches.get(date);
           const status = day ? presentDay(day) : null;
+          if (attendanceFilter && (!day || !matchesHomeAttendanceFilter(day, attendanceFilter))) cls.push(s.dimmedDay);
           return (
             <button key={date} type="button" className={cls.join(' ')}
+              data-status={status?.label}
               style={{
-                background: day?.outcome && status
-                  ? `color-mix(in srgb, ${status.tint} 43%, #FFFFFF)`
-                  : undefined,
-                borderColor: day?.outcome && status
-                  ? `color-mix(in srgb, ${status.color} 13%, #DDEBFA)`
-                  : undefined,
-              }}
+                '--day-tint': day?.outcome && status ? status.tint : undefined,
+                '--day-status': day?.outcome && status ? status.color : undefined,
+              } as CSSProperties}
               onClick={(e) => onOpen(date, e.currentTarget)}
               aria-label={`${date}: ${status?.label ?? 'no attendance result'}`}>
               <div className={s.dayTop}>
@@ -312,6 +337,19 @@ function CalendarGrid({
       </div>
     </div>
   );
+}
+
+function matchesHomeAttendanceFilter(day: MyAttendanceDayV2, filter: string): boolean {
+  const lateOrShort = day.modifiers.some((value) => ['LATE', 'LATE_EXEMPTED', 'INSUFFICIENT_PRESENCE', 'INSUFFICIENT_EFFECTIVE_WORK'].includes(value));
+  if (filter === 'Needs review') return day.evaluationState === 'NEEDS_REVIEW' || day.outcome === 'UNRESOLVED';
+  if (filter === 'Late / Short hours') return lateOrShort;
+  if (filter === 'Regularized') return day.modifiers.includes('REGULARIZED');
+  if (filter === 'Present') return day.outcome === 'PRESENT' && !lateOrShort && !day.modifiers.includes('REGULARIZED');
+  if (filter === 'Absent / leave') return ['ABSENT', 'LEAVE', 'LWP'].includes(day.outcome ?? '');
+  if (filter === 'Half day') return day.outcome === 'HALF_DAY';
+  if (filter === 'Holiday') return day.outcome === 'HOLIDAY';
+  if (filter === 'Weekly off') return day.outcome === 'WEEKLY_OFF';
+  return false;
 }
 
 // ── Side KPIs ────────────────────────────────────────────────────────────────
@@ -369,49 +407,158 @@ function KpiScoreMetric({ label, value, icon, detail, full = false }: {
 }
 
 function AttendanceKpiScore({ current, streak }: { current: ReturnType<typeof attendanceWeek>; streak: number }) {
-  const role = useAuthStore((state) => state.user?.role?.name);
-  const isIntern = role === 'INTERN';
-  const casual = useQuery({
-    queryKey: ['my-leave-balance', 'CASUAL', 'role-policy-v2'],
-    queryFn: () => getMyLeaveBalance('CASUAL' as PersonalLeaveType),
-    staleTime: 300_000,
-    retry: false,
-  });
-  const emergency = useQuery({
-    queryKey: ['my-leave-balance', 'EMERGENCY', 'role-policy-v2'],
-    queryFn: () => getMyLeaveBalance('EMERGENCY' as PersonalLeaveType),
-    enabled: !isIntern,
-    staleTime: 300_000,
-    retry: false,
-  });
-  const queries = isIntern ? [casual] : [casual, emergency];
-  const loaded = queries.every((query) => query.isSuccess);
-  const unavailable = queries.some((query) => query.isError);
-  const balance = loaded
-    ? queries.reduce((total, query) => total + (query.data?.balance ?? 0), 0)
-    : null;
   const level = Math.max(1, Math.ceil(Math.max(1, streak) / 5));
   const nextLevelAt = level * 5 + 5;
   const daysToNextLevel = Math.max(0, nextLevelAt - streak);
 
   return (
-    <section className={`${s.card} ${s.kpiScore}`} aria-label="KPI score">
+    <section className={`${s.card} ${s.kpiScore}`} aria-label="The Trailer">
       <header className={s.kpiScoreHead}>
-        <div><h2>KPI score</h2><p>Your work rhythm at a glance</p></div>
+        <div><h2>The Trailer</h2><p>Your work rhythm at a glance</p></div>
         <span className={s.kpiIcon} aria-hidden="true"><Gauge size={16} /></span>
       </header>
       <div className={s.kpiScoreGrid}>
         <KpiScoreMetric label="Avg working hours" value={hoursLabel(current.avgWorkMinutes)} icon={<Timer size={15} />} detail="Daily average" />
         <KpiScoreMetric label="Avg punch in" value={clockLabel(current.avgPunchInMinutes)} icon={<LogIn size={15} />} detail="Working days" />
         <KpiScoreMetric label="Avg punch out" value={clockLabel(current.avgPunchOutMinutes)} icon={<LogOut size={15} />} detail="Completed days" />
-        <KpiScoreMetric label="Leave balance" value={balance == null ? '—' : `${balance} day${balance === 1 ? '' : 's'}`} icon={<CalendarDays size={15} />} detail={unavailable ? 'Unavailable' : loaded ? 'Available leave' : 'Loading…'} />
         <KpiScoreMetric label="Consistency streak" value={`${streak} day${streak === 1 ? '' : 's'}`} icon={<Flame size={15} />} detail={`Level ${level}${daysToNextLevel ? ` · ${daysToNextLevel} to next badge` : ' · Badge unlocked'}`} full />
       </div>
     </section>
   );
 }
 
-function AttendanceSide({ today, week, byDate }: { today: string; week: WeekWindow; byDate: Map<string, MyAttendanceDayV2> }) {
+function LeaveBalanceAnalysis({ compactIntern = false }: { compactIntern?: boolean } = {}) {
+  const role = useAuthStore((state) => (state.user?.role as any)?.name ?? state.user?.role ?? '');
+  const isIntern = String(role).toUpperCase() === 'INTERN';
+  const casual = useQuery({
+    queryKey: ['my-leave-balance', 'CASUAL', 'role-policy-v2'],
+    queryFn: () => getMyLeaveBalance('CASUAL' as PersonalLeaveType),
+    staleTime: 300_000,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
+    refetchOnMount: 'always',
+  });
+  const emergency = useQuery({
+    queryKey: ['my-leave-balance', 'EMERGENCY', 'role-policy-v2'],
+    queryFn: () => getMyLeaveBalance('EMERGENCY' as PersonalLeaveType),
+    enabled: !isIntern,
+    staleTime: 300_000,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
+    refetchOnMount: 'always',
+  });
+  if (isIntern) return <InternPaidLeaveAnalysis query={casual} compact={compactIntern} />;
+
+  const entries = [
+    { key: 'casual', label: 'Casual Leave', query: casual, tone: 'blue' as const },
+    { key: 'emergency', label: 'Emergency Leave', query: emergency, tone: 'amber' as const },
+  ];
+
+  return (
+    <section className={`${s.card} ${s.leaveAnalysis}`} aria-label="Leave usage and allocation analysis">
+      <header className={s.leaveAnalysisHeader}>
+        <span className={s.leaveAnalysisIcon} aria-hidden="true"><CalendarDays size={19} /></span>
+        <div>
+          <h2>Leave usage &amp; allocation analysis</h2>
+        </div>
+        <span className={s.leavePeriod}>Current year · {new Date().getFullYear()}</span>
+      </header>
+      <div className={s.leaveAnalysisGrid}>
+        {entries.map((entry) => {
+          if (entry.query.isLoading) return <div key={entry.key} className={s.leaveAnalysisState}>Loading {entry.label.toLowerCase()}…</div>;
+          if (entry.query.isError || !entry.query.data) return <div key={entry.key} className={s.leaveAnalysisState}>{entry.label} balance is unavailable.</div>;
+          return <LeaveAnalysisCard key={entry.key} label={entry.label} tone={entry.tone} balance={entry.query.data} />;
+        })}
+      </div>
+    </section>
+  );
+}
+
+function InternPaidLeaveAnalysis({ query, compact = false }: { query: {
+  data?: { allocation: number; approved: number; pending: number; balance: number };
+  isLoading: boolean;
+  isError: boolean;
+}; compact?: boolean }) {
+  const balance = query.data;
+  const allocated = Math.max(0, balance?.allocation ?? 1);
+  const used = Math.max(0, balance?.approved ?? 0);
+  const pending = Math.max(0, balance?.pending ?? 0);
+  const remaining = Math.max(0, balance?.balance ?? allocated - used);
+  const usedPercent = allocated ? Math.min(100, (used / allocated) * 100) : 0;
+  const pendingPercent = allocated ? Math.min(100 - usedPercent, (pending / allocated) * 100) : 0;
+  const chart = `conic-gradient(#2563EB 0 ${usedPercent}%, #60A5FA ${usedPercent}% ${usedPercent + pendingPercent}%, #DCE9F8 ${usedPercent + pendingPercent}% 100%)`;
+
+  return (
+    <section className={`${s.card} ${s.internLeaveAnalysis} ${compact ? s.internLeaveSide : ''}`} aria-label="Monthly paid leave balance">
+      <header className={s.internLeaveHeader}>
+        <span className={s.leaveAnalysisIcon} aria-hidden="true"><CalendarCheck size={18} /></span>
+        <div><h2>Paid leave balance</h2></div>
+      </header>
+      {query.isLoading ? <div className={s.internLeaveState}>Loading paid leave…</div>
+        : query.isError || !balance ? <div className={s.internLeaveState}>Paid leave balance is unavailable.</div>
+        : <div className={s.internLeaveBody}>
+          <div className={s.internLeaveChart} style={{ background: chart }} role="img" aria-label={`${used} days used out of ${allocated} allocated`}>
+            <div><strong>{remaining}</strong><span>left</span></div>
+          </div>
+          <div className={s.internLeaveStats}>
+            <div><span>Allocated</span><strong>{allocated} day</strong></div>
+            <div><span>Used</span><strong>{used} day{used === 1 ? '' : 's'}</strong></div>
+            <div><span>Pending</span><strong>{pending} day{pending === 1 ? '' : 's'}</strong></div>
+          </div>
+        </div>}
+    </section>
+  );
+}
+
+function LeaveAnalysisCard({ label, tone, balance }: {
+  label: string;
+  tone: 'blue' | 'amber';
+  balance: { allocation: number; approved: number; pending: number; balance: number };
+}) {
+  const allocated = Math.max(0, balance.allocation);
+  const used = Math.max(0, balance.approved);
+  const pending = Math.max(0, balance.pending);
+  const remaining = Math.max(0, balance.balance);
+  const denominator = Math.max(allocated, used + pending + remaining, 1);
+  const usedPercent = Math.min(100, (used / denominator) * 100);
+  const pendingPercent = Math.min(100 - usedPercent, (pending / denominator) * 100);
+  const usagePercent = allocated ? Math.min(100, Math.round((used / allocated) * 100)) : 0;
+  const usedColor = tone === 'amber' ? '#D97706' : '#2563EB';
+  const pendingColor = tone === 'amber' ? '#FBBF24' : '#60A5FA';
+  const chart = `conic-gradient(${usedColor} 0 ${usedPercent}%, ${pendingColor} ${usedPercent}% ${usedPercent + pendingPercent}%, #DCE9F8 ${usedPercent + pendingPercent}% 100%)`;
+
+  return (
+    <article className={s.leaveAnalysisCard} data-tone={tone}>
+      <div className={s.leaveCardHeading}>
+        <span className={s.leaveTypeIcon} aria-hidden="true"><CalendarCheck size={17} /></span>
+        <div><h3>{label} analysis</h3></div>
+      </div>
+      <div className={s.leaveCardBody}>
+        <div className={s.leaveFigures}>
+          <div className={s.leaveAllocationRow}>
+            <div><span>Allocated</span><strong>{allocated}<small> days</small></strong></div>
+            <div><span>Remaining</span><strong>{remaining}<small> days</small></strong></div>
+          </div>
+          <div className={s.leaveUsageHead}><span>Usage progress</span><strong>{usagePercent}%</strong></div>
+          <div className={s.leaveUsageTrack}><span style={{ width: `${usagePercent}%`, background: usedColor }} /></div>
+          <div className={s.leaveBreakdown}>
+            <span><i style={{ background: usedColor }} />Used <strong>{used}d</strong></span>
+            <span><i style={{ background: pendingColor }} />Pending <strong>{pending}d</strong></span>
+          </div>
+        </div>
+        <div className={s.leaveChartStage}>
+          <div className={s.leaveChartShadow} aria-hidden="true" />
+          <div className={s.leaveChart} style={{ background: chart }} role="img" aria-label={`${label}: ${used} days used out of ${allocated} allocated`}>
+            <div><strong>{used}d</strong><span>used</span></div>
+          </div>
+          <p><strong>{remaining}d</strong> available</p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AttendanceSide({ today, week, byDate, isIntern }: { today: string; week: WeekWindow; byDate: Map<string, MyAttendanceDayV2>; isIntern: boolean }) {
   const current = attendanceWeek(week.start, week.end, byDate);
   const earliest = Array.from(byDate.keys()).sort()[0] ?? today;
   const streak = attendanceStreak(today, byDate, earliest);
@@ -419,6 +566,7 @@ function AttendanceSide({ today, week, byDate }: { today: string; week: WeekWind
   return (
     <aside className={s.side} aria-label={`${weekName(week)} attendance`}>
       <AttendanceKpiScore current={current} streak={streak} />
+      {isIntern && <LeaveBalanceAnalysis compactIntern />}
     </aside>
   );
 }

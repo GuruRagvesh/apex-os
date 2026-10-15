@@ -4,7 +4,7 @@
 
 .panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 230px;
   gap: 16px;
   align-items: start;
 }
@@ -20,7 +20,14 @@
   min-width: 0;
 }
 
-.calendar { padding: 18px 20px 16px; }
+.calendar {
+  padding: 18px 20px 16px;
+  border-color: #dbe5f3;
+  border-radius: 16px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
+}
 
 .header {
   display: flex;
@@ -31,9 +38,9 @@
 }
 .title {
   font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--text-primary);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: #172b50;
   margin-right: auto;
 }
 
@@ -51,8 +58,8 @@
   padding: 6px 14px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 700;
-  color: var(--text-secondary);
+  font-weight: 600;
+  color: #526a8d;
   transition: background-color .15s, color .15s;
 }
 .toggle button[aria-pressed="true"] {
@@ -77,8 +84,8 @@
   height: 32px; padding: 0 10px;
   border-radius: 10px;
   border: 1px solid var(--border-primary);
-  font-size: 12px; font-weight: 700;
-  color: var(--text-primary);
+  font-size: 12px; font-weight: 600;
+  color: #172b50;
 }
 .monthPicker input {
   position: absolute; inset: 0; opacity: 0; cursor: pointer;
@@ -87,51 +94,66 @@
 .scroll { overflow-x: auto; }
 .weekdays, .grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(84px, 1fr));
-  gap: 5px;
-  min-width: 620px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 7px;
+  min-width: 630px;
 }
-.weekdays { margin-bottom: 8px; }
+.weekdays { margin-bottom: 7px; }
 .weekdays span {
   display: flex; align-items: center; justify-content: center;
-  min-height: 25px;
-  border-radius: 9px;
-  background: #f2f7fd;
-  font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
-  color: #315a8a;
+  min-height: 23px;
+  background: transparent;
+  font-size: 10px; line-height: 1; font-weight: 700; text-transform: uppercase; letter-spacing: .065em;
+  color: #4477bf;
 }
 
 .day {
   position: relative;
-  min-height: 82px;
-  padding: 7px 8px;
+  min-height: 63px;
+  padding: 8px 11px;
   border-radius: 11px;
-  border: 1px solid #e2eefa;
-  background: #fbfdff;
+  border: 1px solid #e8eef8;
+  background: #fdfefe;
   text-align: left;
   color: var(--text-primary);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
-  transition: border-color .15s, box-shadow .15s;
+  transition: border-color .15s, box-shadow .15s, background-color .15s, transform .15s;
 }
-button.day:hover { border-color: var(--accent); }
-button.day:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.muted { opacity: .45; }
-.today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring, var(--accent)); }
+button.day:hover { border-color: #73c2fb; box-shadow: 0 5px 15px rgba(35, 86, 145, .1); transform: translateY(-1px); }
+button.day:focus-visible { outline: 2px solid #0072ff; outline-offset: 2px; }
+.day[data-status] {
+  background: color-mix(in srgb, var(--day-tint) 88%, var(--day-status) 12%);
+  border-width: 1.5px;
+  border-color: color-mix(in srgb, var(--day-status) 52%, #dce7f4);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--day-status) 9%, transparent);
+}
+.day[data-status="Needs review"] {
+  background: linear-gradient(145deg, #f7f9fc, #edf2f7);
+  border-color: #c5cfdd;
+  box-shadow: inset 3px 0 0 #a2afc0;
+}
+.day[data-status="Needs review"] .statusDot { border-radius: 2px; transform: rotate(45deg); }
+.muted {
+  opacity: 1;
+  color: #8393b4;
+  background: linear-gradient(130deg, #f8faff, #fcfdff);
+}
+.today { border: 1.5px solid #0072ff; box-shadow: 0 0 0 2px #e4f1ff; }
+.selected { border: 2px solid #01266a; box-shadow: 0 0 0 2px #b8d9ff; }
 
-.dayTop { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.dayNumber { font-size: 12px; font-weight: 800; color: #123d73; }
-.statusDot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 2px rgba(255,255,255,.6); }
+.dayTop { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-height: 15px; }
+.dayNumber { font-size: 13px; line-height: 1; font-weight: 700; letter-spacing: -.015em; color: #172b50; }
+.statusDot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 2px rgba(255,255,255,.78); }
 
-.punchRow { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.punchTime { font-size: 9px; font-weight: 700; color: #315a8a; white-space: nowrap; }
-.punchLabel { font-size: 8px; font-weight: 700; text-transform: uppercase; color: #6684a8; letter-spacing: .04em; }
+.punchRow { display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 20px; }
+.punchTime { font-size: 11px; line-height: 1.05; font-weight: 600; letter-spacing: -.012em; color: #111827; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.punchLabel { font-size: 8px; font-weight: 600; text-transform: uppercase; color: #6b82a6; letter-spacing: .04em; }
 
 .photo {
-  width: 22px; height: 22px;
+  width: 20px; height: 20px;
   border-radius: 50%;
   flex-shrink: 0;
   overflow: hidden;
@@ -163,37 +185,137 @@ button.day:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
 .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.attendanceCalendarLayout { display: block; }
+.calendarMain { min-width: 0; }
 .attendanceLegend {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: row;
   align-items: center;
-  gap: 7px 9px;
+  gap: 6px;
   margin: 0 0 12px;
-  padding: 8px 10px;
-  border: 1px solid #d8e8fa;
+  padding: 6px 8px;
+  overflow-x: auto;
+  border: 1px solid #dce9f8;
   border-radius: 12px;
-  background: #f7fbff;
+  background: linear-gradient(155deg, #fbfdff, #f3f8fe);
 }
-.attendanceLegend span { display: inline-flex; align-items: center; gap: 6px; padding: 4px 7px; border-radius: 7px; background: #ffffff; font-size: 10px; font-weight: 700; color: #315a8a; }
-.attendanceLegend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .12); }
-.legendTitle { padding-left: 0 !important; background: transparent !important; color: var(--text-primary) !important; text-transform: uppercase; letter-spacing: .07em; font-size: 9px !important; }
+.attendanceLegend button { display: inline-flex; align-items: center; gap: 6px; min-height: 25px; width: auto; flex: 0 0 auto; padding: 4px 7px; border: 1px solid transparent; border-radius: 7px; background: transparent; font-size: 10.5px; line-height: 1; font-weight: 600; letter-spacing: -.005em; color: #526a8d; white-space: nowrap; text-align: left; transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s; }
+.attendanceLegend button:hover { background: #edf5ff; color: #173f70; }
+.attendanceLegend button:focus-visible { outline: 2px solid #73c2fb; outline-offset: 1px; }
+.attendanceLegend button[aria-pressed="true"] { background: #e4f0ff; border-color: #2666c4; color: #01266a; box-shadow: 0 0 0 1px #2666c4; }
+.attendanceLegend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.legendTitle { flex: 0 0 auto; padding: 0 8px 0 2px !important; border-right: 1px solid #dce9f8; color: #172b50 !important; text-transform: uppercase; letter-spacing: .065em; font-size: 8px !important; line-height: 1; font-weight: 800; white-space: nowrap; }
+.attendanceLegend .clearFilter { justify-content: center; margin-left: auto; border-color: #d8e7f7; background: #fff; color: #2666c4; }
+.dimmedDay { opacity: .35; }
+button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
 
-/* Compact leave usage card in the attendance KPI rail. */
-.leaveBalance { padding: 14px 16px 15px; }
-.leaveBalance h2 { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #315a8a; }
-.leaveGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
-.leaveGrid[data-single="true"] { grid-template-columns: minmax(0, 1fr); }
-.leaveGrid[data-single="true"] .leaveRingCard { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; column-gap: 10px; text-align: left; padding: 10px 14px; }
-.leaveGrid[data-single="true"] .leaveRing { grid-row: 1 / 3; margin: 0; }
-.leaveRingCard { min-width: 0; padding: 10px 6px; border: 1px solid #d9e8f8; border-radius: 13px; background: #f8fbff; text-align: center; }
-.leaveRing { width: 66px; height: 66px; margin: 0 auto 8px; padding: 7px; border-radius: 50%; }
-.leaveRing > div { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px #e1ecf8; }
-.leaveRing strong { font-size: 17px; line-height: 1; color: #123d73; }
-.leaveRing span { margin-top: 2px; font-size: 7px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: #6a86a7; }
-.leaveRingCard h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 800; color: #173f70; }
-.leaveRingCard p { margin-top: 3px; font-size: 8px; color: #6684a8; white-space: nowrap; }
-.leaveRingCard p strong { font-size: inherit; color: #315a8a; }
-.leaveUnavailable { margin: 25px 0; color: #6684a8; font-size: 10px; font-weight: 700; }
+/* Full-width leave analysis below the calendar. */
+.leaveAnalysis {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 92% -20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 35%),
+    var(--surface-card);
+}
+.leaveAnalysisHeader { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #e5eef9; }
+.leaveAnalysisIcon { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 13px; color: #1d4ed8; background: linear-gradient(145deg, #eff6ff, #dbeafe); border: 1px solid #bfdbfe; box-shadow: 0 7px 16px rgba(37, 99, 235, .12); }
+.leaveAnalysisHeader h2 { font-size: 16px; line-height: 1.2; font-weight: 800; letter-spacing: -.015em; color: var(--text-primary); text-transform: uppercase; }
+.leaveAnalysisHeader p { margin-top: 3px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.leavePeriod { margin-left: auto; padding: 8px 12px; border: 1px solid #d9e8f8; border-radius: 10px; background: #f8fbff; color: #315a8a; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.leaveAnalysisGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.leaveAnalysisGrid[data-single="true"] { grid-template-columns: minmax(0, 1fr); }
+.leaveAnalysisState { min-height: 190px; display: grid; place-items: center; border: 1px solid #d9e8f8; border-radius: 17px; background: #f8fbff; color: #6684a8; font-size: 11px; font-weight: 700; }
+.leaveAnalysisCard { min-width: 0; padding: 16px; border: 1px solid #d8e7f7; border-radius: 17px; background: linear-gradient(145deg, rgba(255,255,255,.98), #f7fbff); box-shadow: 0 9px 24px rgba(18, 61, 115, .07); }
+.leaveAnalysisCard[data-tone="amber"] { background: linear-gradient(145deg, rgba(255,255,255,.98), #fffbf3); }
+.leaveCardHeading { display: flex; align-items: center; gap: 10px; padding-bottom: 13px; border-bottom: 1px solid #e5eef9; }
+.leaveTypeIcon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: #2563eb; background: #eaf3ff; border: 1px solid #c7ddfa; }
+[data-tone="amber"] .leaveTypeIcon { color: #c56a00; background: #fff5db; border-color: #f8d37a; }
+.leaveCardHeading h3 { font-size: 12px; line-height: 1.2; font-weight: 800; color: #153b6d; text-transform: uppercase; }
+.leaveCardHeading p { margin-top: 3px; font-size: 9px; font-weight: 600; color: #6684a8; }
+.leaveCardBody { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(150px, .65fr); gap: 16px; align-items: stretch; margin-top: 14px; }
+.leaveFigures { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
+.leaveAllocationRow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 11px 13px; border: 1px solid #dce9f8; border-radius: 13px; background: rgba(255,255,255,.9); box-shadow: 0 3px 8px rgba(18,61,115,.05); }
+.leaveAllocationRow > div:last-child { text-align: right; }
+.leaveAllocationRow span { display: block; font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: #7590b2; }
+.leaveAllocationRow strong { display: block; margin-top: 3px; font-size: 22px; line-height: 1; color: #123d73; }
+.leaveAllocationRow > div:last-child strong { color: #087f5b; }
+.leaveAllocationRow small { font-size: 9px; font-weight: 700; color: #7890ae; }
+.leaveUsageHead { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; font-size: 9px; font-weight: 800; color: #45658d; }
+.leaveUsageTrack { height: 8px; margin-top: 6px; padding: 2px; overflow: hidden; border-radius: 999px; background: #e5edf7; box-shadow: inset 0 1px 2px rgba(15,23,42,.12); }
+.leaveUsageTrack span { display: block; height: 100%; min-width: 0; border-radius: inherit; box-shadow: 0 0 8px currentColor; transition: width .25s ease; }
+.leaveBreakdown { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; }
+.leaveBreakdown span { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 700; color: #587696; }
+.leaveBreakdown i { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 0 3px rgba(148,163,184,.11); }
+.leaveBreakdown strong { color: #173f70; }
+.leaveChartStage { position: relative; min-height: 158px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #dce9f8; border-radius: 15px; background: linear-gradient(150deg, #fff, #f0f7ff); perspective: 600px; }
+.leaveChartStage::before { content: ''; position: absolute; width: 150px; height: 75px; bottom: 13px; border-radius: 50%; background: radial-gradient(ellipse, rgba(37,99,235,.17), transparent 68%); filter: blur(5px); }
+.leaveChartShadow { position: absolute; width: 104px; height: 104px; border-radius: 50%; background: #afc7e5; transform: translateY(7px) rotateX(61deg); opacity: .48; filter: blur(2px); }
+.leaveChart { position: relative; width: 102px; height: 102px; display: grid; place-items: center; border-radius: 50%; transform: rotateX(8deg); box-shadow: 0 11px 17px rgba(18,61,115,.18), inset 0 0 0 1px rgba(255,255,255,.72); }
+.leaveChart::after { content: ''; position: absolute; inset: 17px; border-radius: 50%; background: linear-gradient(145deg, #fff, #eef5fd); box-shadow: inset 0 2px 5px rgba(18,61,115,.10), 0 1px 2px rgba(255,255,255,.9); }
+.leaveChart > div { position: relative; z-index: 1; text-align: center; }
+.leaveChart strong { display: block; font-size: 19px; line-height: 1; color: #123d73; }
+.leaveChart span { display: block; margin-top: 3px; font-size: 7px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #6a86a7; }
+.leaveChartStage > p { position: relative; z-index: 1; margin-top: 9px; font-size: 8px; font-weight: 700; color: #6684a8; }
+.leaveChartStage > p strong { color: #087f5b; }
+
+/* Interns have one monthly paid-leave entitlement, so their presentation is a
+   compact half-width card rather than the two-category annual analysis. */
+.internLeaveAnalysis {
+  grid-column: 1 / -1;
+  justify-self: start;
+  width: min(100%, 520px);
+  overflow: hidden;
+  padding: 16px;
+  border-radius: 17px;
+  border-color: #dbe5f3;
+  background: radial-gradient(circle at 100% 0, rgba(96,165,250,.13), transparent 42%), var(--surface-card);
+}
+.internLeaveHeader { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid #e5eef9; }
+.internLeaveHeader h2 { font-size: 14px; line-height: 1.2; font-weight: 700; color: #172b50; }
+.internLeaveBody { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 18px; align-items: center; padding-top: 14px; }
+.internLeaveChart { position: relative; width: 94px; height: 94px; display: grid; place-items: center; justify-self: center; border-radius: 50%; box-shadow: 0 10px 19px rgba(37,99,235,.17), inset 0 0 0 1px rgba(255,255,255,.8); }
+.internLeaveChart::after { content: ''; position: absolute; inset: 16px; border-radius: 50%; background: linear-gradient(145deg, #fff, #eef5fd); box-shadow: inset 0 2px 5px rgba(18,61,115,.1); }
+.internLeaveChart > div { position: relative; z-index: 1; text-align: center; }
+.internLeaveChart strong { display: block; font-size: 22px; line-height: 1; font-weight: 700; color: #172b50; }
+.internLeaveChart span { display: block; margin-top: 3px; font-size: 7px; font-weight: 700; color: #6b82a6; text-transform: uppercase; letter-spacing: .07em; }
+.internLeaveStats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.internLeaveStats > div { min-width: 0; padding: 9px; border: 1px solid #e2eaf5; border-radius: 10px; background: #fbfdff; }
+.internLeaveStats span { display: block; font-size: 8px; font-weight: 600; color: #7890ae; text-transform: uppercase; letter-spacing: .04em; }
+.internLeaveStats strong { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; color: #172b50; }
+.internLeaveState { min-height: 108px; display: grid; place-items: center; color: #6b82a6; font-size: 10px; font-weight: 600; }
+.internLeaveSide {
+  grid-column: auto;
+  justify-self: stretch;
+  width: 100%;
+  padding: 12px;
+  border-radius: 16px;
+}
+.internLeaveSide .internLeaveHeader { position: relative; min-height: 30px; align-items: center; justify-content: center; gap: 0; padding-bottom: 10px; }
+.internLeaveSide .internLeaveHeader > div { width: 100%; padding: 0 30px; text-align: center; }
+.internLeaveSide .leaveAnalysisIcon { position: absolute; left: 0; width: 28px; height: 28px; border-radius: 8px; }
+.internLeaveSide .leaveAnalysisIcon svg { width: 14px; height: 14px; }
+.internLeaveSide .internLeaveHeader h2 { font-size: 13px; line-height: 1.1; }
+.internLeaveSide .internLeaveBody { grid-template-columns: minmax(0, 1fr); gap: 10px; padding-top: 12px; }
+.internLeaveSide .internLeaveChart { width: 104px; height: 104px; }
+.internLeaveSide .internLeaveStats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.internLeaveSide .internLeaveStats > div { padding: 7px 5px; text-align: center; }
+.internLeaveSide .internLeaveStats span { font-size: 7px; letter-spacing: .025em; }
+.internLeaveSide .internLeaveStats strong { font-size: 10px; }
+
+@media (max-width: 900px) {
+  .leaveAnalysisGrid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .leaveAnalysis { padding: 15px; }
+  .leaveAnalysisHeader { align-items: flex-start; flex-wrap: wrap; }
+  .leavePeriod { width: 100%; margin-left: 0; text-align: center; }
+  .leaveCardBody { grid-template-columns: minmax(0, 1fr); }
+  .leaveChartStage { min-height: 150px; }
+  .internLeaveAnalysis { width: 100%; }
+  .internLeaveBody { grid-template-columns: 94px minmax(0, 1fr); gap: 10px; }
+  .internLeaveStats { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* Side KPIs */
 .side { display: flex; flex-direction: column; gap: 12px; }
@@ -216,18 +338,25 @@ button.day:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
 .streakNext { display: block; font-size: 11px; font-weight: 700; color: var(--text-secondary); }
 
 /* One compact scorecard keeps personal attendance measures readable as a set. */
-.kpiScore { padding: 15px; }
-.kpiScoreHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
-.kpiScoreHead h2 { font-size: 15px; font-weight: 800; letter-spacing: -.015em; color: var(--text-primary); }
-.kpiScoreHead p { margin-top: 2px; font-size: 10px; font-weight: 600; color: var(--text-secondary); }
-.kpiScoreGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.kpiScoreMetric { display: flex; gap: 8px; min-width: 0; padding: 9px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-secondary); }
+.kpiScore {
+  padding: 12px;
+  border-color: #dbe5f3;
+  border-radius: 16px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
+}
+.kpiScoreHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.kpiScoreHead h2 { font-size: 15px; line-height: 1.05; font-weight: 700; letter-spacing: -.015em; color: #172b50; }
+.kpiScoreHead p { margin-top: 4px; font-size: 10.5px; line-height: 1.15; font-weight: 500; color: #6b82a6; }
+.kpiScoreGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
+.kpiScoreMetric { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 9px; border: 1px solid #dce7f4; border-radius: 11px; background: linear-gradient(145deg, #fbfdff, #f5f8fc); }
 .kpiScoreMetricFull { grid-column: 1 / -1; }
 .kpiScoreMetricIcon { display: inline-flex; width: 25px; height: 25px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 8px; color: var(--accent); background: var(--accent-subtle); }
 .kpiScoreMetricCopy { min-width: 0; }
-.kpiScoreMetricCopy > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); }
-.kpiScoreMetricCopy strong { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; color: var(--text-primary); }
-.kpiScoreMetricCopy small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 600; color: var(--text-secondary); }
+.kpiScoreMetricCopy > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; line-height: 1; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; color: #7189a8; }
+.kpiScoreMetricCopy strong { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 1; font-weight: 700; letter-spacing: -.015em; color: #172b50; }
+.kpiScoreMetricCopy small { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; line-height: 1.1; font-weight: 500; color: #607a9b; }
 
 .summary { padding: 14px 16px; }
 .summary p { font-size: 13px; line-height: 1.45; color: var(--text-primary); font-weight: 600; }

@@ -16,14 +16,14 @@ import s from './insights.module.css';
 export type InsightScope = 'month' | 'year';
 type MonthResult = { month: string; data?: MyAttendanceOverviewV2; failed: boolean };
 const OUTCOMES = [
-  { key: 'PRESENT', label: 'Present', color: '#16A34A' },
-  { key: 'HALF_DAY', label: 'Half day', color: '#9462D9' },
-  { key: 'ABSENT', label: 'Absent', color: '#DC2626' },
-  { key: 'LEAVE', label: 'Leave', color: '#DC2626' },
-  { key: 'LWP', label: 'Unpaid leave', color: '#DC2626' },
-  { key: 'HOLIDAY', label: 'Holiday', color: '#CA8A04' },
-  { key: 'WEEKLY_OFF', label: 'Weekly off', color: '#64748B' },
-  { key: 'EXEMPT', label: 'Not applicable', color: '#64748B' },
+  { key: 'PRESENT', label: 'Present', color: '#18B86B' },
+  { key: 'HALF_DAY', label: 'Half day', color: '#9B6DE3' },
+  { key: 'ABSENT', label: 'Absent', color: '#EC5D78' },
+  { key: 'LEAVE', label: 'Leave', color: '#EC5D78' },
+  { key: 'LWP', label: 'Unpaid leave', color: '#EC5D78' },
+  { key: 'HOLIDAY', label: 'Holiday', color: '#E5B52E' },
+  { key: 'WEEKLY_OFF', label: 'Weekly off', color: '#4F8FD8' },
+  { key: 'EXEMPT', label: 'Not applicable', color: '#6D9BD2' },
 ];
 
 /** Personal record exploration. Summaries count canonical rows, never evaluate attendance policy. */
