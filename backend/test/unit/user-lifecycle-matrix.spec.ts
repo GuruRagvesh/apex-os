@@ -81,7 +81,101 @@ describe('lifecycle dependency matrix covers the schema', () => {
     for (const k of ['AttendancePunchEvidence.userId', 'WorkdayNote.userId', 'BreakLog.userId', 'TicketTimeLog.userId', 'AttendanceEvent.userId', 'CompOffCredit.employeeId']) {
       expect([k, at(k) < at('WorkSession.userId')]).toEqual([k, true]);
     }
-    expect(HANDLERS.filter((h) => h.appendOnly).map((h) => h.model).sort()).toEqual(['AttendancePunchEvidence', 'WorkdayNote']);
+    expect(HANDLERS.filter((h) => h.appendOnly).map((h) => h.model).sort()).toEqual(['AttendancePunchEvidence', 'FnfAdjustment', 'LifecycleRemediationAttempt', 'WorkdayNote']);
+  });
+
+  describe('lifecycle foundation (Phase 1) handlers', () => {
+    const at = (k: string) => {
+      const i = HANDLERS.findIndex((h) => h.key === k);
+      if (i < 0) throw new Error(`missing handler ${k}`);
+      return i;
+    };
+    const ctx = { systemUserId: 's', operationId: 'op-running', now: new Date() };
+    const u = { id: 'u1', email: 'a@x.test', employeeId: null };
+
+    it('deletes F&F adjustments, then exit cases, then employment periods (FK order)', () => {
+      expect(at('FnfAdjustment.subjectUserId')).toBeLessThan(at('ExitCase.userId'));
+      expect(at('ExitCase.userId')).toBeLessThan(at('EmploymentPeriod.userId'));
+    });
+
+    it('keeps the running operation\'s attempts (subject cleared) and deletes the rest after earlier operations cascade', () => {
+      const running = HANDLERS[at('LifecycleRemediationAttempt.subjectUserId[running]')];
+      const rest = HANDLERS[at('LifecycleRemediationAttempt.subjectUserId')];
+      expect(running.action).toBe('NULL');
+      expect(rest.action).toBe('DEL');
+      expect(at('UserLifecycleOperation.userId')).toBeLessThan(at('LifecycleRemediationAttempt.subjectUserId'));
+      expect(at('LifecycleRemediationAttempt.subjectUserId[running]')).toBeLessThan(at('LifecycleRemediationAttempt.subjectUserId'));
+      expect(handlerWhere(running, u, ctx)).toEqual({ subjectUserId: 'u1', lifecycleOperationId: 'op-running' });
+      expect(handlerWhere(rest, u, ctx)).toEqual({ subjectUserId: 'u1', OR: [{ lifecycleOperationId: null }, { lifecycleOperationId: { not: 'op-running' } }] });
+      // Inventory runs without an operation: the running rule selects nothing.
+      expect(handlerWhere(running, u, { ...ctx, operationId: null })).toEqual({ id: { in: [] } });
+    });
+
+    it('never deletes routing snapshots: every reference is only cleared', () => {
+      const routing = HANDLERS.filter((h) => h.model === 'RoutingSnapshot');
+      expect(routing.map((h) => h.field).sort()).toEqual(['createdById', 'resolvedApproverId', 'subjectUserId']);
+      expect(routing.every((h) => h.action === 'NULL')).toBe(true);
+    });
+
+    it('reassigns every legal-hold actor on other people\'s holds (the per-state CHECK forbids NULL actors)', () => {
+      for (const field of ['requestedById', 'placedById', 'rejectedById', 'withdrawnById', 'releasedById']) {
+        const h = HANDLERS[at(`UserLegalHold.${field}`)];
+        expect([field, h.action]).toEqual([field, 'REASSIGN']);
+        expect(handlerWhere(h, u, ctx)).toEqual({ [field]: 'u1', userId: { not: 'u1' } });
+      }
+    });
+
+    it('reassigns required actors on append-only rows instead of clearing them', () => {
+      for (const k of ['FnfAdjustment.approvedById', 'FnfAdjustment.recordedById', 'LifecycleRemediationAttempt.actorId', 'DepartmentTransfer.actorId']) {
+        expect([k, HANDLERS[at(k)].action]).toEqual([k, 'REASSIGN']);
+      }
+    });
+
+    it('archives exit and F&F records in full on their own sheet, outside the retention gate', () => {
+      const fnf = HANDLERS.filter((h) => h.sheet === 'Exit and F&F');
+      expect(fnf.length).toBeGreaterThanOrEqual(8);
+      expect(fnf.every((h) => h.retention === undefined)).toBe(true);
+    });
+
+    it('keeps verified pre-Phase-1 snapshots valid: empty new handlers do not change the fingerprint', () => {
+      const rows: Record<string, any[]> = {};
+      for (const h of HANDLERS) rows[h.key] = [];
+      rows['Notification.userId'] = [{ id: 'n1' }];
+      rows['LeaveRequest.userId'] = [{ id: 'l1', userId: 'u1' }];
+      const inv: Inventory = { subject: u, user: { id: 'u1' }, rows, screenshots: [], counts: {} };
+      // The fingerprint exactly as it was computed before the Phase 1 handlers existed.
+      const legacy = HANDLERS.filter((h) => !FINGERPRINT_OPTIONAL_WHEN_EMPTY.has(h.key)).map((h) => ({
+        key: h.key,
+        count: h.key === 'Notification.userId' ? 0 : rows[h.key].length,
+        rows: h.key === 'Notification.userId' ? [] : rows[h.key],
+      }));
+      const expected = createHash('sha256').update(canonical({ user: inv.user, handlers: legacy, screenshots: [] })).digest('hex');
+      expect(dataFingerprint(inv)).toBe(expected);
+      // A row in a new table does count.
+      expect(dataFingerprint({ ...inv, rows: { ...rows, 'ExitCase.userId': [{ id: 'x1' }] } })).not.toBe(expected);
+    });
+
+    it('remediation attempts appended after archiving do not make the snapshot stale', () => {
+      const rows: Record<string, any[]> = {};
+      for (const h of HANDLERS) rows[h.key] = [];
+      const inv: Inventory = { subject: u, user: { id: 'u1' }, rows, screenshots: [], counts: {} };
+      expect(dataFingerprint({ ...inv, rows: { ...rows, 'LifecycleRemediationAttempt.subjectUserId': [{ id: 'a1', code: 'X' }] } })).toBe(dataFingerprint(inv));
+    });
+
+    it('a hold requested or released after archiving does not make the snapshot stale', () => {
+      const rows: Record<string, any[]> = {};
+      for (const h of HANDLERS) rows[h.key] = [];
+      const inv: Inventory = { subject: u, user: { id: 'u1' }, rows, screenshots: [], counts: {} };
+      const before = dataFingerprint(inv);
+      expect(dataFingerprint({ ...inv, rows: { ...rows, 'UserLegalHold.userId': [{ id: 'h1', status: 'REQUESTED' }] } })).toBe(before);
+    });
+
+    it('marks only Phase 1 handlers optional in the fingerprint', () => {
+      const legacyKeys = ['UserLegalHold.placedById', 'UserLegalHold.releasedById', 'UserLegalHold.userId', 'LeaveRequest.userId'];
+      for (const k of legacyKeys) expect([k, FINGERPRINT_OPTIONAL_WHEN_EMPTY.has(k)]).toEqual([k, false]);
+      expect(FINGERPRINT_OPTIONAL_WHEN_EMPTY.has('RoutingSnapshot.subjectUserId')).toBe(true);
+      expect(FINGERPRINT_OPTIONAL_WHEN_EMPTY.has('UserLegalHold.requestedById')).toBe(true);
+    });
   });
 
   it('preserves organizer and attendee names in shared meeting history after account deletion', () => {

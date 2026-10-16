@@ -78,10 +78,14 @@ describe('NotificationEventService', () => {
   });
 
   describe('sendNotification', () => {
-    it('does not create or send notification if preference for event is false', async () => {
+    // Phase 1 (spec §4, review item G): a legacy `false` mutes popup, push and
+    // email for that event, but the Notification Center row is always created.
+    it('still creates the Notification Center row when the event preference is false, and sends no popup', async () => {
       mockUsersService.getPreferences.mockResolvedValue({
         assignedTicket: false,
       });
+      mockPrisma.notification.create.mockResolvedValue({ id: 'notif1', title: 'New Assignment' });
+      jest.spyOn(service, 'isInQuietHours').mockReturnValue(false);
 
       const result = await service.sendNotification('user1', 'assignedTicket', {
         title: 'New Assignment',
@@ -89,8 +93,33 @@ describe('NotificationEventService', () => {
         type: NotificationType.INFO,
       });
 
-      expect(result).toBeNull();
-      expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+      expect(result).toEqual({ id: 'notif1', title: 'New Assignment' });
+      expect(mockPrisma.notification.create).toHaveBeenCalled();
+      expect(mockGateway.emitNotificationToUser).not.toHaveBeenCalled();
+    });
+
+    it('lets per-channel preferences override the legacy flag, key by key', async () => {
+      mockUsersService.getPreferences.mockResolvedValue({
+        assignedTicket: false,
+        channels: { assignedTicket: { popup: true } },
+      });
+      mockPrisma.notification.create.mockResolvedValue({ id: 'notif2' });
+      jest.spyOn(service, 'isInQuietHours').mockReturnValue(false);
+
+      await service.sendNotification('user1', 'assignedTicket', { title: 't', message: 'm', type: NotificationType.INFO });
+
+      expect(mockPrisma.notification.create).toHaveBeenCalled();
+      expect(mockGateway.emitNotificationToUser).toHaveBeenCalledWith('user1', expect.anything());
+    });
+
+    it('creates the row but sends no popup when channels mute the popup', async () => {
+      mockUsersService.getPreferences.mockResolvedValue({ channels: { assignedTicket: { popup: false, push: false, email: false } } });
+      mockPrisma.notification.create.mockResolvedValue({ id: 'notif3' });
+      jest.spyOn(service, 'isInQuietHours').mockReturnValue(false);
+
+      const result = await service.sendNotification('user1', 'assignedTicket', { title: 't', message: 'm', type: NotificationType.INFO });
+
+      expect(result).toEqual({ id: 'notif3' });
       expect(mockGateway.emitNotificationToUser).not.toHaveBeenCalled();
     });
 

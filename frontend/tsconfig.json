@@ -42,6 +42,8 @@
       "@apex/intelligence-analytics": ["../platforms/intelligence/analytics/overview/index.ts"],
       "@apex/intelligence-analytics/api": ["../platforms/intelligence/analytics/overview/frontend/api/index.ts"],
       "@apex/shared-auth": ["../shared/auth/index.ts"],
+      "@apex/shared-remediation": ["../shared/remediation/index.ts"],
+      "@apex/shared-remediation/api": ["../shared/remediation/frontend/remediation-api.ts"],
       "@apex/apps-web/components/*": ["../apps/web/components/*"],
       "@apex/shared-ui": ["../shared/ui/index.ts"],
       "@apex/shared-ui/components/*": ["../shared/ui/frontend/components/*"],

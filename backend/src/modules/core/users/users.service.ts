@@ -8,6 +8,7 @@ import { BackupVaultService } from '../../platform/backup-vault/backup-vault.ser
 import { AttendanceCategory, PolicyStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
+import { sanitizeChannels } from '../../operations/notifications/notification-channels';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
 // Only this document type is allowed to update the user's avatar/photo.
@@ -25,6 +26,22 @@ export class UsersService {
     private emailService: EmailService,
     private backupVaultService: BackupVaultService,
   ) {}
+
+  /**
+   * Setup health for one person (Phase 1, read-only). Admin, Super Admin and HR
+   * authority (isHR) only. Empty until Phase 2 detection writes issues.
+   */
+  async listSetupIssues(userId: string, actor: any) {
+    if (!this.accessPolicy.isHrOrAdmin(actor)) throw new ForbiddenException('Only Admin, Super Admin or HR can view setup health.');
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) throw new NotFoundException('User not found');
+    const issues = await this.prisma.userSetupIssue.findMany({
+      where: { userId },
+      orderBy: [{ status: 'asc' }, { firstDetectedAt: 'asc' }],
+      select: { id: true, code: true, domain: true, severity: true, remediationClass: true, status: true, firstDetectedAt: true, lastDetectedAt: true, acknowledgedAt: true, resolvedAt: true },
+    });
+    return { userId, issues };
+  }
 
   /** The Deleted account principal is never edited, reset, reactivated or deactivated. */
   private async assertNotSystemAccount(id: string) {
@@ -1220,6 +1237,13 @@ export class UsersService {
   }
 
   async savePreferences(userId: string, prefs: any): Promise<any> {
+    // Phase 1: `channels` is validated, never stored as sent.
+    if (prefs && typeof prefs === 'object' && 'channels' in prefs) {
+      const channels = sanitizeChannels(prefs.channels);
+      prefs = { ...prefs };
+      if (channels) prefs.channels = channels;
+      else delete prefs.channels;
+    }
     const saved = await this.prisma.appSetting.upsert({
       where: { key: `user-prefs-${userId}` },
       create: { key: `user-prefs-${userId}`, value: prefs, updatedBy: userId },

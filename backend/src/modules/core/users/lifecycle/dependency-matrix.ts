@@ -134,10 +134,31 @@ export const HANDLERS: Handler[] = [
     scope: (_u, ctx) => (ctx.operationId ? { id: { not: ctx.operationId } } : {}),
     history: false, sheet: 'Lifecycle Operations', note: 'Lifecycle bookkeeping (no-history-v1 ignores it): earlier operations about the person; the running one is scrubbed by the service.',
   },
-  { key: 'UserLegalHold.userId', model: 'UserLegalHold', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Legal Holds', note: 'Only released holds can exist here; an active hold blocks deletion.' },
+  { key: 'UserLegalHold.userId', model: 'UserLegalHold', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Legal Holds', note: 'Only released, rejected or withdrawn holds can exist here; an active or requested hold blocks deletion.' },
+
   // Private Create Ticket presets. They describe nothing that happened, so they are not history.
   { key: 'QuickTicketTemplate.ownerUserId', model: 'QuickTicketTemplate', field: 'ownerUserId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Ticket Templates', note: 'The person\'s own private templates: archived in the workbook, then deleted.' },
   { key: 'QuickTicketTemplatePreference.ownerUserId', model: 'QuickTicketTemplatePreference', field: 'ownerUserId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Ticket Templates', note: 'The person\'s own Quick Tag display preference.' },
+
+  // ── 3b. Lifecycle foundation (Phase 1): own rows, children before parents ─
+  // The running operation's attempts stay linked to its scrubbed receipt.
+  {
+    key: 'LifecycleRemediationAttempt.subjectUserId[running]', model: 'LifecycleRemediationAttempt', field: 'subjectUserId', fk: false, holds: 'id', action: 'NULL',
+    where: (u, ctx) => (ctx.operationId ? { subjectUserId: u.id, lifecycleOperationId: ctx.operationId } : { id: { in: [] } }),
+    history: false, sheet: 'Lifecycle Operations', note: 'The running operation\'s attempts stay with its receipt; the subject is cleared under the trigger exception.',
+  },
+  {
+    key: 'LifecycleRemediationAttempt.subjectUserId', model: 'LifecycleRemediationAttempt', field: 'subjectUserId', fk: false, holds: 'id', action: 'DEL',
+    scope: (_u, ctx) => (ctx.operationId ? { OR: [{ lifecycleOperationId: null }, { lifecycleOperationId: { not: ctx.operationId } }] } : {}),
+    history: false, sheet: 'Lifecycle Operations', appendOnly: true, note: 'Bookkeeping about the person (earlier lifecycle attempts also cascade with their operations); deleted under the trigger exception.',
+  },
+  { key: 'FnfAdjustment.subjectUserId', model: 'FnfAdjustment', field: 'subjectUserId', fk: false, holds: 'id', action: 'DEL', history: true, sheet: 'Exit and F&F', appendOnly: true, note: 'Append-only; deleted only under the row-scoped trigger exception, before the exit case that owns the settlement.' },
+  { key: 'ExitCase.userId', model: 'ExitCase', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Exit and F&F', note: 'Cascades clearance items and the settlement. Outside the retention gate; archived in full.' },
+  { key: 'EmploymentPeriod.userId', model: 'EmploymentPeriod', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Employment Periods', note: 'After exit cases. The initial NEW_HIRE period is setup-only.' },
+  { key: 'UserSetupIssue.userId', model: 'UserSetupIssue', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: false, sheet: 'Setup Health', note: 'Setup health about the person.' },
+  { key: 'HierarchyAssignment.subjectUserId', model: 'HierarchyAssignment', field: 'subjectUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'The person\'s own TL/Manager assignments. The initial one is setup-only.' },
+  { key: 'HierarchyAssignment.assigneeUserId', model: 'HierarchyAssignment', field: 'assigneeUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'An open row where the person is TL/Manager blocks archival; ended rows are deleted.' },
+  { key: 'DepartmentTransfer.userId', model: 'DepartmentTransfer', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Transfers', note: 'Cascades the transfer\'s review inventory.' },
 
   // ── 4. Shared records: reassign required actor/owner columns ──────────────
   { key: 'Ticket.createdById', model: 'Ticket', field: 'createdById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Tickets Created', note: 'Shared ticket stays.' },
@@ -154,6 +175,16 @@ export const HANDLERS: Handler[] = [
   { key: 'AttendanceRecoveryTombstone.deletedById', model: 'AttendanceRecoveryTombstone', field: 'deletedById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ employeeId: { not: u.id } }), history: true, sheet: 'Recovery Tombstones', note: 'Required column on other people\'s tombstones.' },
   { key: 'UserLifecycleOperation.actorId', model: 'UserLifecycleOperation', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ OR: [{ userId: null }, { userId: { not: u.id } }] }), history: true, sheet: 'Lifecycle Operations', note: 'Operations the person ran on others.' },
   { key: 'UserArchiveSnapshot.createdById', model: 'UserArchiveSnapshot', field: 'createdById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ OR: [{ userId: null }, { userId: { not: u.id } }] }), history: true, sheet: 'Lifecycle Operations', note: 'Archives the person created of others.' },
+  { key: 'DepartmentTransfer.actorId', model: 'DepartmentTransfer', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Transfers', note: 'Transfers the person performed for others.' },
+  ...(['approvedById', 'recordedById'] as const).map((field): Handler => ({
+    key: `FnfAdjustment.${field}`, model: 'FnfAdjustment', field, fk: false, holds: 'id', action: 'REASSIGN',
+    scope: (u) => ({ subjectUserId: { not: u.id } }), history: true, sheet: 'Exit and F&F', note: 'Required actor on another person\'s adjustment; moved under the trigger exception.',
+  })),
+  { key: 'LifecycleRemediationAttempt.actorId', model: 'LifecycleRemediationAttempt', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Lifecycle Operations', note: 'Attempts the person made on others; moved under the trigger exception.' },
+  // v2.3 §2.5.3: the per-state CHECK forbids NULL actors on non-legacy holds.
+  ...(['requestedById', 'placedById', 'rejectedById', 'withdrawnById', 'releasedById'] as const).map((field): Handler => ({
+    key: `UserLegalHold.${field}`, model: 'UserLegalHold', field, fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Policies Acted On', note: 'Hold kept; the actor moves to the Deleted account principal.',
+  })),
 
   // ── 5. Shared records: clear optional references ──────────────────────────
   { key: 'Ticket.assignedToId', model: 'Ticket', field: 'assignedToId', fk: true, holds: 'id', action: 'NULL', history: true, sheet: 'Tickets Assigned', note: 'Open tickets were closed or re-homed at archive.' },
@@ -216,10 +247,47 @@ export const HANDLERS: Handler[] = [
   })),
   { key: 'AppSetting.updatedBy', model: 'AppSetting', field: 'updatedBy', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Audit pointer.' },
   { key: 'RetentionRule.approvedById', model: 'RetentionRule', field: 'approvedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Rule kept.' },
-  ...(['placedById', 'releasedById'] as const).map((field): Handler => ({
-    key: `UserLegalHold.${field}`, model: 'UserLegalHold', field, fk: false, holds: 'id', action: 'NULL', scope: others, history: true, sheet: 'Policies Acted On', note: 'Hold kept.',
+
+  // ── 6. Lifecycle foundation (Phase 1): clear optional references ──────────
+  ...(['subjectUserId', 'resolvedApproverId', 'createdById'] as const).map((field): Handler => ({
+    key: `RoutingSnapshot.${field}`, model: 'RoutingSnapshot', field, fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Routing History',
+    note: 'Snapshots are immutable audit records and are never deleted; only the reference is cleared, under the trigger exception.',
   })),
+  { key: 'LeaveRequest.fundingChangedById', model: 'LeaveRequest', field: 'fundingChangedById', fk: false, holds: 'id', action: 'NULL', scope: others, history: true, sheet: 'Leave Decisions', note: 'Funding changes made for others.' },
+  { key: 'EmploymentPeriod.createdById', model: 'EmploymentPeriod', field: 'createdById', fk: false, holds: 'id', action: 'NULL', scope: others, history: true, sheet: 'Employment Periods', note: 'Periods recorded for others.' },
+  ...(['acknowledgedById', 'resolvedById', 'waivedById'] as const).map((field): Handler => ({
+    key: `UserSetupIssue.${field}`, model: 'UserSetupIssue', field, fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Setup Health', note: 'Issues the person handled for others.',
+  })),
+  { key: 'HierarchyAssignment.createdById', model: 'HierarchyAssignment', field: 'createdById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Reporting Lines', note: 'Assignments the person recorded.' },
+  { key: 'PolicyHealthIssue.resolvedById', model: 'PolicyHealthIssue', field: 'resolvedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Issue kept.' },
+  { key: 'PunchEvidenceReview.reviewedById', model: 'PunchEvidenceReview', field: 'reviewedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Punch Evidence', note: 'Reviews of others\' evidence; the person\'s own reviews cascade with their evidence.' },
+  ...(['createdById', 'withdrawnById'] as const).map((field): Handler => ({
+    key: `ExitCase.${field}`, model: 'ExitCase', field, fk: false, holds: 'id', action: 'NULL', scope: others, history: true, sheet: 'Exit and F&F', note: 'Exit cases the person handled for others.',
+  })),
+  ...(['ownerId', 'completedById'] as const).map((field): Handler => ({
+    key: `ExitClearanceItem.${field}`, model: 'ExitClearanceItem', field, fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Exit and F&F', note: 'Clearance items the person owned for others.',
+  })),
+  { key: 'FnfSettlement.releasedById', model: 'FnfSettlement', field: 'releasedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Exit and F&F', note: 'Settlements the person released for others.' },
 ];
+
+/**
+ * Handlers added after verified snapshots already existed (lifecycle
+ * foundation, Phase 1). While they find no rows they are left out of the data
+ * fingerprint, so archives verified before they existed do not turn stale. Any
+ * row they do find is fingerprinted like every other.
+ */
+export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set(
+  HANDLERS.map((h) => h.key).filter((k) =>
+    /^(LifecycleRemediationAttempt|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview)\./.test(k)
+    || [
+      'LeaveRequest.fundingChangedById',
+      'UserLegalHold.requestedById',
+      'UserLegalHold.rejectedById',
+      'UserLegalHold.withdrawnById',
+      'QuickTicketTemplate.ownerUserId',
+      'QuickTicketTemplatePreference.ownerUserId',
+    ].includes(k)),
+);
 
 /**
  * Columns that look like user references but are not, or that the service
@@ -253,16 +321,6 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'UserArchiveSnapshot.userId': 'Managed by the service: consumed snapshot cleared, others cleared.',
   'QuickTicketTemplate.assigneeIds': 'Service-managed array cleanup: the deleted person is removed from other owners\' templates inside the Permanent Delete transaction (TEMPLATE_ASSIGNEES_REMOVED).',
 };
-
-/**
- * Handlers added after verified snapshots already existed. While they find no
- * rows they are left out of the data fingerprint, so archives verified before
- * they existed do not turn stale. Any row they do find is fingerprinted.
- */
-export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set([
-  'QuickTicketTemplate.ownerUserId',
-  'QuickTicketTemplatePreference.ownerUserId',
-]);
 
 /** JSON columns scrubbed of exact identity matches (id, email, employee code). */
 export const JSON_SCRUB_COLUMNS: { model: string; table: string; column: string }[] = [

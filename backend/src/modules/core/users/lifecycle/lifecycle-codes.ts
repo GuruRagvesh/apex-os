@@ -121,8 +121,25 @@ export const REASON = {
   POLICY_NOT_CONFIGURED: 'POLICY_NOT_CONFIGURED',
   PERIOD_NOT_ELAPSED: 'PERIOD_NOT_ELAPSED',
   LEGAL_HOLD: 'LEGAL_HOLD',
+  LEGAL_HOLD_ACTIVE: 'LEGAL_HOLD_ACTIVE',
+  LEGAL_HOLD_REQUESTED: 'LEGAL_HOLD_REQUESTED',
 } as const;
 export type ReasonCode = (typeof REASON)[keyof typeof REASON];
+
+/**
+ * Lifecycle reason -> remediation code (spec §11.6.1). Reasons without an
+ * entry have no remediation in Phase 1 and keep their existing refusal shape.
+ */
+export const REMEDIATION_CODE_FOR_REASON: Partial<Record<ReasonCode, string>> = {
+  [REASON.ARCHIVE_VAULT_NOT_READY]: 'ARCHIVE_VAULT_NOT_READY',
+  [REASON.ARCHIVE_PRIVACY_FAILED]: 'ARCHIVE_PRIVACY_FAILED',
+  [REASON.LEGAL_HOLD_ACTIVE]: 'LEGAL_HOLD_ACTIVE',
+  [REASON.LEGAL_HOLD_REQUESTED]: 'LEGAL_HOLD_REQUESTED',
+  [REASON.HANDLE_KEYS_MISSING]: 'LIFECYCLE_KEYS_MISSING',
+  [REASON.RETENTION_BLOCKED]: 'RETENTION_POLICY_NOT_CONFIGURED',
+  [REASON.OPERATION_IN_PROGRESS]: 'OPERATION_IN_PROGRESS',
+  [REASON.CLEANUP_FAILED]: 'CLEANUP_PENDING',
+};
 
 /** Provider error codes stored on cleanup items. */
 export const CLEANUP_ERROR = {

@@ -61,6 +61,12 @@ export class UsersController {
     return this.usersService.savePreferences(user.id ?? user.sub, body);
   }
 
+  /** Read-only setup health (Phase 1). Authority is checked in the service: Admin, Super Admin or isHR. */
+  @Get(':userId/setup-issues')
+  setupIssues(@Param('userId') userId: string, @CurrentUser() user: any) {
+    return this.usersService.listSetupIssues(userId, user);
+  }
+
   @Get()
   findAll(@Query() query: { search?: string; departmentId?: string; roleId?: string }, @CurrentUser() user: any) {
     return this.usersService.findAll(query, user);

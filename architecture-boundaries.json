@@ -29,6 +29,8 @@
     "@apex/sales-crm-shell/components": "platforms/business/sales-crm/shell/frontend/components",
     "@apex/sales-crm-shared/api": "platforms/business/sales-crm/shared/frontend/api",
     "@apex/shared-auth": "shared/auth",
+    "@apex/shared-remediation": "shared/remediation",
+    "@apex/shared-remediation/api": "shared/remediation/frontend/remediation-api",
     "@apex/apps-web/components": "apps/web/components",
     "@apex/operations-projects": "platforms/operations/projects/project-management",
     "@apex/operations-projects/api": "platforms/operations/projects/project-management/frontend/api",
@@ -80,7 +82,7 @@
 
   "sharedModulePublicEntry": {
     "description": "Modules under shared/ that have migrated real code and therefore publish a public entry point. Anything outside the module may import the module root or its index file only — reaching into its internal frontend/, backend/, shared/ or tests/ folders is a boundary violation, exactly as for a platform component. Only modules listed here are enforced; the remaining shared/ folders are still Phase 0 scaffolds with nothing to protect.",
-    "modules": ["shared/auth", "shared/ui", "shared/utilities", "shared/configuration"]
+    "modules": ["shared/auth", "shared/ui", "shared/utilities", "shared/configuration", "shared/remediation"]
   },
 
   "publicSubpaths": {
@@ -111,6 +113,7 @@
       "@apex/operations-tickets-lifecycle/shared/review-workspace": "platforms/operations/tickets/lifecycle/shared/review-workspace",
       "@apex/operations-tickets-lifecycle/components/active-review-banner": "platforms/operations/tickets/lifecycle/frontend/components/active-review-banner",
       "@apex/operations-tickets-lifecycle/shared/ticket-vocabulary": "platforms/operations/tickets/lifecycle/shared/ticket-vocabulary",
+      "@apex/shared-remediation/api": "shared/remediation/frontend/remediation-api",
       "@apex/shared-utilities/use-debounce": "shared/utilities/use-debounce",
       "@apex/shared-utilities/use-theme": "shared/utilities/use-theme",
       "@apex/shared-utilities/download-screenshot": "shared/utilities/download-screenshot",
