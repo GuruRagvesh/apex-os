@@ -391,7 +391,7 @@ model QuickTicketTemplate {
   @@unique([ownerUserId, code])
   @@unique([ownerUserId, codeSequence])
   @@unique([ownerUserId, name])
-  @@index([ownerUserId, isVisible, isPinned, displayOrder])
+  @@index([ownerUserId, isVisible, isPinned, displayOrder], map: "quick_ticket_templates_ownerUserId_isVisible_isPinned_displayOr")
   @@map("quick_ticket_templates")
 }
 
