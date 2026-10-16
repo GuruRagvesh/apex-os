@@ -71,7 +71,6 @@ const draftRow = {
   recurrence: { mode: 'none', oneTimeAt: '', endPreset: '1_month', endDate: '' },
 } as const;
 const draft: TicketDraftNav = {
-  globals: { departmentId: 'd1', projectId: '', priority: 'MEDIUM', taskTypeId: '', taskSubtypeId: '' },
   rows: [{ ...draftRow, assigneeIds: [...draftRow.assigneeIds], recurrence: { ...draftRow.recurrence } }],
 };
 
@@ -94,7 +93,7 @@ describe('envelopes: versioned, whitelisted, owned, fresh', () => {
     for (const extra of [{ title: 'Secret' }, { description: 'x' }, { notes: 'x' }, { customSubtype: 'x' }, { attachments: [] }, { comments: [] }]) {
       expect(isValidEnvelope({ ...d, data: { ...draft, rows: [{ ...draft.rows[0], ...extra }] } })).toBe(false);
     }
-    expect(isValidEnvelope({ ...d, data: { ...draft, globals: { ...draft.globals, email: 'a@b.c' } } })).toBe(false);
+    expect(isValidEnvelope({ ...d, data: { ...draft, globals: { departmentId: 'd1' } } })).toBe(false);
   });
 
   it('rejects wrong shapes: free text where an id goes, bad dates, negative or huge scroll, bad enums, missing fields', () => {
@@ -290,7 +289,7 @@ describe('New Ticket draft holds no text', () => {
     const out = draftRowFrom(formRow);
     const json = JSON.stringify(out);
     for (const secret of ['Payroll', 'Confidential', 'private', 'free text', 'because', 'extra']) expect(json).not.toContain(secret);
-    const env = buildEnvelope('ticket-new', { globals: draft.globals, rows: [out] }, at({ path: '/tickets/new' }));
+    const env = buildEnvelope('ticket-new', { rows: [out] }, at({ path: '/tickets/new' }));
     expect(env).not.toBeNull();
   });
 });

@@ -136,6 +136,10 @@ export const HANDLERS: Handler[] = [
   },
   { key: 'UserLegalHold.userId', model: 'UserLegalHold', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Legal Holds', note: 'Only released, rejected or withdrawn holds can exist here; an active or requested hold blocks deletion.' },
 
+  // Private Create Ticket presets. They describe nothing that happened, so they are not history.
+  { key: 'QuickTicketTemplate.ownerUserId', model: 'QuickTicketTemplate', field: 'ownerUserId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Ticket Templates', note: 'The person\'s own private templates: archived in the workbook, then deleted.' },
+  { key: 'QuickTicketTemplatePreference.ownerUserId', model: 'QuickTicketTemplatePreference', field: 'ownerUserId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Ticket Templates', note: 'The person\'s own Quick Tag display preference.' },
+
   // ── 3b. Lifecycle foundation (Phase 1): own rows, children before parents ─
   // The running operation's attempts stay linked to its scrubbed receipt.
   {
@@ -275,7 +279,14 @@ export const HANDLERS: Handler[] = [
 export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set(
   HANDLERS.map((h) => h.key).filter((k) =>
     /^(LifecycleRemediationAttempt|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview)\./.test(k)
-    || ['LeaveRequest.fundingChangedById', 'UserLegalHold.requestedById', 'UserLegalHold.rejectedById', 'UserLegalHold.withdrawnById'].includes(k)),
+    || [
+      'LeaveRequest.fundingChangedById',
+      'UserLegalHold.requestedById',
+      'UserLegalHold.rejectedById',
+      'UserLegalHold.withdrawnById',
+      'QuickTicketTemplate.ownerUserId',
+      'QuickTicketTemplatePreference.ownerUserId',
+    ].includes(k)),
 );
 
 /**
@@ -308,6 +319,7 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'User.verifiedBy': 'NAME text about another person; no ownership proof, kept and counted.',
   'EmployeeDocument.verifiedBy': 'NAME text about another document; no ownership proof, kept and counted.',
   'UserArchiveSnapshot.userId': 'Managed by the service: consumed snapshot cleared, others cleared.',
+  'QuickTicketTemplate.assigneeIds': 'Service-managed array cleanup: the deleted person is removed from other owners\' templates inside the Permanent Delete transaction (TEMPLATE_ASSIGNEES_REMOVED).',
 };
 
 /** JSON columns scrubbed of exact identity matches (id, email, employee code). */

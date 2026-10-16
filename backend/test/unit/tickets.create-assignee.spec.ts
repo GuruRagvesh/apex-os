@@ -81,6 +81,31 @@ describe('TicketsService.create — assignedToId resolution (cuid, not UUID)', (
     );
   });
 
+  it.each(['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'])(
+    'keeps a cross-department Task assignee selected by %s',
+    async (roleName) => {
+      const assigneeId = 'cross-department-user';
+      prisma.user.findFirst.mockResolvedValue({ id: assigneeId, name: 'Cross Department User', isActive: true });
+      prisma.ticket.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'ticket-cross', ticketId: 'TKT-CROSS', assignedTo: null, ...data }),
+      );
+
+      await service.create(
+        { title: 'Cross department task', type: 'TASK', assignedToId: assigneeId, assigneeIds: [assigneeId] },
+        'creator-1',
+        { id: 'creator-1', role: { name: roleName } },
+      );
+
+      expect(prisma.ticket.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ assignedToId: assigneeId }) }),
+      );
+      expect(prisma.ticketAssignee.createMany).toHaveBeenCalledWith({
+        data: [{ ticketId: 'ticket-cross', userId: assigneeId }],
+        skipDuplicates: true,
+      });
+    },
+  );
+
   it('falls back to undefined when neither id nor name matches any user', async () => {
     prisma.user.findFirst.mockResolvedValue(null);
     prisma.ticket.create.mockImplementation(({ data }: any) =>

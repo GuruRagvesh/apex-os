@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { canonical, dataFingerprint, Inventory } from '../../src/modules/core/users/lifecycle/dependency-inventory';
+import { removeTemplateAssignee } from '../../src/modules/core/users/lifecycle/template-assignees';
 import {
   FINGERPRINT_OPTIONAL_WHEN_EMPTY,
   HANDLERS,
@@ -203,6 +204,45 @@ describe('lifecycle dependency matrix covers the schema', () => {
     expect(handlerWhere(scrub, { id: 'u1', email: 'a@x.test', employeeId: null }, ctx)).toEqual({ id: { in: [] } });
     const ops = HANDLERS.find((h) => h.key === 'UserLifecycleOperation.userId')!;
     expect(handlerWhere(ops, { id: 'u1', email: 'a@x.test', employeeId: null }, ctx)).toEqual({ userId: 'u1', id: { not: 'op' } });
+  });
+});
+
+describe('quick ticket templates (PR #109, spec §8.2)', () => {
+  const find = (key: string) => HANDLERS.find((h) => h.key === key);
+
+  it('deletes the owner\'s templates and preference row, as bookkeeping, on their own workbook sheet', () => {
+    for (const key of ['QuickTicketTemplate.ownerUserId', 'QuickTicketTemplatePreference.ownerUserId']) {
+      const h = find(key);
+      expect([key, h?.action, h?.history, h?.sheet]).toEqual([key, 'DEL', false, 'Ticket Templates']);
+    }
+  });
+
+  it('classifies the assigneeIds array as service-managed cleanup, with a reason', () => {
+    expect(NOT_USER_REFERENCES['QuickTicketTemplate.assigneeIds']).toMatch(/array cleanup/i);
+  });
+
+  it('the cleanup is one statement with the subject\'s id only', async () => {
+    const calls: { sql: string; values: unknown[] }[] = [];
+    const tx = { $executeRaw: async (q: TemplateStringsArray, ...values: unknown[]) => { calls.push({ sql: q.join('?'), values }); return 3; } };
+    expect(await removeTemplateAssignee(tx, 'user-to-delete')).toBe(3);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toBe('UPDATE "quick_ticket_templates" SET "assigneeIds" = array_remove("assigneeIds", ?) WHERE ? = ANY("assigneeIds")');
+    expect(calls[0].values).toEqual(['user-to-delete', 'user-to-delete']);
+  });
+
+  it('keeps archives verified before templates existed valid: empty template handlers do not change the fingerprint', () => {
+    const rows: Record<string, any[]> = {};
+    for (const h of HANDLERS) rows[h.key] = [];
+    rows['LeaveRequest.userId'] = [{ id: 'l1', userId: 'u1' }];
+    const u = { id: 'u1', email: 'a@x.test', employeeId: null };
+    const inv: Inventory = { subject: u, user: { id: 'u1' }, rows, screenshots: [], counts: {} };
+    const before = HANDLERS.filter((h) => !FINGERPRINT_OPTIONAL_WHEN_EMPTY.has(h.key)).map((h) => ({
+      key: h.key,
+      count: ['UserLifecycleOperation.userId', 'ActivityLog.entityId[User]', 'Notification.userId', 'PushSubscription.userId'].includes(h.key) ? 0 : rows[h.key].length,
+      rows: rows[h.key],
+    }));
+    expect(dataFingerprint(inv)).toBe(createHash('sha256').update(canonical({ user: inv.user, handlers: before, screenshots: [] })).digest('hex'));
+    expect(dataFingerprint({ ...inv, rows: { ...rows, 'QuickTicketTemplate.ownerUserId': [{ id: 't1' }] } })).not.toBe(dataFingerprint(inv));
   });
 });
 
