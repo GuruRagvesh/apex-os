@@ -8,14 +8,14 @@ import { useAuthStore } from '@/store/auth.store';
 import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, CalendarCheck, CalendarDays, ChevronDown,
-  ChevronLeft, ChevronRight, Flame, Gauge, LogIn, LogOut, Minus, PencilLine, Sparkles, Star, Ticket, Timer, X,
+  ChevronLeft, ChevronRight, Flame, Gauge, LogIn, LogOut, Minus, PencilLine, Star, Ticket, Timer, X,
 } from 'lucide-react';
 import { getMyAttendanceV2, type MyAttendanceDayV2 } from '../my-attendance-v2-api';
 import { getMyPunchEvidence, type OwnPunchEvidence } from '../../attendance/punch-api';
 import { getMyLeaveBalance, type PersonalLeaveType } from '../../attendance/leave-balance-api';
 import { monthLabel, presentDay, formatTime } from '../status-presentation';
 import { CorrectionDialog } from '../CorrectionDialog';
-import { getHomeProductivity, type HomeProductivityDay } from './home-insights-api';
+import { getHomePersonalHighlights, getHomeProductivity, type HomeProductivityDay } from './home-insights-api';
 import { TinyPunchPhoto } from './TinyPunchPhoto';
 import {
   addDays, attendanceStreak, attendanceWeek, clockLabel, datesBetween, hoursLabel, monthOf,
@@ -67,7 +67,9 @@ function photoId(e: OwnPunchEvidence | null | undefined): string | null {
 export function HomeCalendarPanel() {
   const today = localToday();
   const role = useAuthStore((state) => (state.user?.role as any)?.name ?? state.user?.role ?? '');
-  const isIntern = String(role).toUpperCase() === 'INTERN';
+  const normalizedRole = String(role).toUpperCase();
+  const isIntern = normalizedRole === 'INTERN';
+  const hasPersonalHighlights = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER'].includes(normalizedRole);
   const [mode, setMode] = useState<Mode>('attendance');
   const [attendanceFilter, setAttendanceFilter] = useState<string | null>(null);
   const [month, setMonth] = useState(() => monthOf(today));
@@ -117,6 +119,14 @@ export function HomeCalendarPanel() {
     queryKey: ['home-productivity', monthStart, monthTo],
     queryFn: () => getHomeProductivity(monthStart, monthTo),
     enabled: monthStart <= today,
+    staleTime: 60_000,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
+  });
+  const personalHighlights = useQuery({
+    queryKey: ['home-personal-highlights', month],
+    queryFn: () => getHomePersonalHighlights(month),
+    enabled: hasPersonalHighlights,
     staleTime: 60_000,
     retry: shouldRetryTransientQuery,
     retryDelay: transientQueryRetryDelay,
@@ -216,8 +226,8 @@ export function HomeCalendarPanel() {
         {mode === 'productivity' && (
           <div className={s.legend} aria-label="Productivity legend">
             <>
-              <span><i style={{ background: 'color-mix(in srgb, var(--color-success) 30%, transparent)' }} />More productive hours than your average</span>
-              <span><Star size={11} style={{ color: 'var(--color-success)' }} aria-hidden="true" />Top 3 days this month</span>
+              <span><i style={{ background: 'color-mix(in srgb, var(--color-success) 36%, transparent)' }} />Productive day</span>
+              <span><i style={{ background: 'color-mix(in srgb, var(--color-danger) 30%, transparent)' }} />Lower-productivity day</span>
               <span>{monthProductivity.isError ? 'Productivity data could not be loaded.' : 'Productive hours = time logged on tickets (breaks excluded).'}</span>
             </>
           </div>
@@ -225,8 +235,8 @@ export function HomeCalendarPanel() {
       </div>
 
       {mode === 'attendance'
-        ? <AttendanceSide today={today} week={week} byDate={attendanceByDate} isIntern={isIntern} />
-        : <ProductivitySide week={week} byDate={productivityByDate} loading={weekProductivity.isLoading} failed={weekProductivity.isError} />}
+        ? <AttendanceSide today={today} week={week} byDate={attendanceByDate} isIntern={isIntern} averageBreakMinutes={personalHighlights.data?.averageBreakMinutes ?? null} showAverageBreak={hasPersonalHighlights} />
+        : <ProductivitySide week={week} byDate={productivityByDate} loading={weekProductivity.isLoading} failed={weekProductivity.isError} month={{ start: monthStart, end: monthTo, label: monthLabel(y, m), days: monthProductivity.data, loading: monthProductivity.isLoading, failed: monthProductivity.isError, future: monthStart > today }} />}
 
       {mode === 'attendance' && !isIntern && <LeaveBalanceAnalysis />}
 
@@ -287,8 +297,11 @@ function CalendarGrid({
           const cls = [s.day, date === today ? s.today : '', selected === date ? s.selected : ''];
           if (mode === 'productivity') {
             const p = productivityByDate.get(date);
+            const active = hasActivity(p);
             const isTop = highlight.top.includes(date);
-            if (isTop) cls.push(s.topDay); else if (highlight.aboveAverage.has(date)) cls.push(s.productive);
+            if (isTop) cls.push(s.topDay);
+            else if (highlight.aboveAverage.has(date)) cls.push(s.productive);
+            else if (highlight.belowAverage.has(date)) cls.push(s.lessProductive);
             const tickets = (p?.ticketsDone ?? 0) + (p?.ticketsSubmitted ?? 0);
             return (
               <button key={date} type="button" className={cls.join(' ')} onClick={(e) => onOpen(date, e.currentTarget)}
@@ -297,8 +310,8 @@ function CalendarGrid({
                   <span className={s.dayNumber}>{dayNum}</span>
                   {isTop && <span className={s.topBadge}><Star size={10} style={{ display: 'inline', verticalAlign: '-1px' }} aria-hidden="true" /> Top</span>}
                 </div>
-                <span className={s.prodHours}>{p && p.ticketMinutes > 0 ? hoursLabel(p.ticketMinutes) : '—'}</span>
-                <span className={s.prodMeta}>{tickets > 0 ? `${p?.ticketsDone ?? 0} done · ${p?.ticketsSubmitted ?? 0} sent` : 'No ticket activity'}</span>
+                {active && <span className={s.prodHours}>{hoursLabel(p?.ticketMinutes ?? 0)}</span>}
+                {active && tickets > 0 && <span className={s.prodMeta}>{p?.ticketsDone ?? 0} solved · {p?.ticketsSubmitted ?? 0} sent</span>}
               </button>
             );
           }
@@ -406,7 +419,7 @@ function KpiScoreMetric({ label, value, icon, detail, full = false }: {
   );
 }
 
-function AttendanceKpiScore({ current, streak }: { current: ReturnType<typeof attendanceWeek>; streak: number }) {
+function AttendanceKpiScore({ current, streak, averageBreakMinutes, showAverageBreak }: { current: ReturnType<typeof attendanceWeek>; streak: number; averageBreakMinutes: number | null; showAverageBreak: boolean }) {
   const level = Math.max(1, Math.ceil(Math.max(1, streak) / 5));
   const nextLevelAt = level * 5 + 5;
   const daysToNextLevel = Math.max(0, nextLevelAt - streak);
@@ -421,6 +434,7 @@ function AttendanceKpiScore({ current, streak }: { current: ReturnType<typeof at
         <KpiScoreMetric label="Avg working hours" value={hoursLabel(current.avgWorkMinutes)} icon={<Timer size={15} />} detail="Daily average" />
         <KpiScoreMetric label="Avg punch in" value={clockLabel(current.avgPunchInMinutes)} icon={<LogIn size={15} />} detail="Working days" />
         <KpiScoreMetric label="Avg punch out" value={clockLabel(current.avgPunchOutMinutes)} icon={<LogOut size={15} />} detail="Completed days" />
+        {showAverageBreak && <KpiScoreMetric label="Avg break time" value={hoursLabel(averageBreakMinutes)} icon={<Timer size={15} />} detail="Selected month · meetings excluded" />}
         <KpiScoreMetric label="Consistency streak" value={`${streak} day${streak === 1 ? '' : 's'}`} icon={<Flame size={15} />} detail={`Level ${level}${daysToNextLevel ? ` · ${daysToNextLevel} to next badge` : ' · Badge unlocked'}`} full />
       </div>
     </section>
@@ -459,7 +473,7 @@ function LeaveBalanceAnalysis({ compactIntern = false }: { compactIntern?: boole
       <header className={s.leaveAnalysisHeader}>
         <span className={s.leaveAnalysisIcon} aria-hidden="true"><CalendarDays size={19} /></span>
         <div>
-          <h2>Leave usage &amp; allocation analysis</h2>
+          <h2>Leave Usage &amp; Allocation Analysis</h2>
         </div>
         <span className={s.leavePeriod}>Current year · {new Date().getFullYear()}</span>
       </header>
@@ -492,7 +506,7 @@ function InternPaidLeaveAnalysis({ query, compact = false }: { query: {
     <section className={`${s.card} ${s.internLeaveAnalysis} ${compact ? s.internLeaveSide : ''}`} aria-label="Monthly paid leave balance">
       <header className={s.internLeaveHeader}>
         <span className={s.leaveAnalysisIcon} aria-hidden="true"><CalendarCheck size={18} /></span>
-        <div><h2>Paid leave balance</h2></div>
+        <div><h2>Paid Leave Balance</h2></div>
       </header>
       {query.isLoading ? <div className={s.internLeaveState}>Loading paid leave…</div>
         : query.isError || !balance ? <div className={s.internLeaveState}>Paid leave balance is unavailable.</div>
@@ -531,7 +545,7 @@ function LeaveAnalysisCard({ label, tone, balance }: {
     <article className={s.leaveAnalysisCard} data-tone={tone}>
       <div className={s.leaveCardHeading}>
         <span className={s.leaveTypeIcon} aria-hidden="true"><CalendarCheck size={17} /></span>
-        <div><h3>{label} analysis</h3></div>
+        <div><h3>{label} Analysis</h3></div>
       </div>
       <div className={s.leaveCardBody}>
         <div className={s.leaveFigures}>
@@ -558,44 +572,39 @@ function LeaveAnalysisCard({ label, tone, balance }: {
   );
 }
 
-function AttendanceSide({ today, week, byDate, isIntern }: { today: string; week: WeekWindow; byDate: Map<string, MyAttendanceDayV2>; isIntern: boolean }) {
+function AttendanceSide({ today, week, byDate, isIntern, averageBreakMinutes, showAverageBreak }: { today: string; week: WeekWindow; byDate: Map<string, MyAttendanceDayV2>; isIntern: boolean; averageBreakMinutes: number | null; showAverageBreak: boolean }) {
   const current = attendanceWeek(week.start, week.end, byDate);
   const earliest = Array.from(byDate.keys()).sort()[0] ?? today;
   const streak = attendanceStreak(today, byDate, earliest);
 
   return (
     <aside className={s.side} aria-label={`${weekName(week)} attendance`}>
-      <AttendanceKpiScore current={current} streak={streak} />
+      <AttendanceKpiScore current={current} streak={streak} averageBreakMinutes={averageBreakMinutes} showAverageBreak={showAverageBreak} />
       {isIntern && <LeaveBalanceAnalysis compactIntern />}
     </aside>
   );
 }
 
-function ProductivitySide({ week, byDate, loading, failed }: { week: WeekWindow; byDate: Map<string, HomeProductivityDay>; loading: boolean; failed: boolean }) {
+/** The calendar's selected month, so "Created vs Solved" follows the month filter. */
+interface SelectedMonthProductivity {
+  start: string;
+  end: string;
+  label: string;
+  days: HomeProductivityDay[] | undefined;
+  loading: boolean;
+  failed: boolean;
+  future: boolean;
+}
+
+function ProductivitySide({ week, byDate, loading, failed, month }: { week: WeekWindow; byDate: Map<string, HomeProductivityDay>; loading: boolean; failed: boolean; month: SelectedMonthProductivity }) {
   if (loading) return <aside className={s.side}><div className={`${s.card} ${s.kpi}`}><span className={s.kpiSub}>Loading productivity…</span></div></aside>;
   if (failed) return <aside className={s.side}><div className={`${s.card} ${s.kpi}`}><span className={s.kpiSub}>Productivity could not be loaded. Refresh to try again.</span></div></aside>;
 
   const current = productivityWeek(week.start, week.end, byDate);
   const previous = productivityWeek(week.previousStart, week.previousEnd, byDate);
-  const doneDiff = current.ticketsDone - previous.ticketsDone;
-  const minutesDiff = current.totalProductiveMinutes - previous.totalProductiveMinutes;
-  const improving = doneDiff > 0 || (doneDiff === 0 && minutesDiff > 30);
-  const slipping = doneDiff < 0 || (doneDiff === 0 && minutesDiff < -30);
-  const nothingYet = current.totalProductiveMinutes === 0 && current.ticketsDone === 0 && current.ticketsSubmitted === 0;
-  const headline = nothingYet
-    ? `No ticket activity recorded for ${weekName(week).toLowerCase()} yet.`
-    : improving
-    ? `${weekName(week)} your productivity went up: ${current.ticketsDone} ticket${current.ticketsDone === 1 ? '' : 's'} done${doneDiff > 0 ? `, ${doneDiff} more than the week before` : ''}. Keep going!`
-    : slipping
-      ? `${weekName(week)} you closed ${Math.abs(doneDiff) || 'fewer'} ${Math.abs(doneDiff) === 1 ? 'ticket' : 'tickets'} fewer than the week before.`
-      : `${weekName(week)} you kept the same pace as the week before.`;
-  const nudge = nothingYet
-    ? 'Time logged on tickets and tickets you finish will show up here.'
-    : slipping
-    ? `Try to close ${Math.max(1, Math.abs(doneDiff))} more next week to get back on track.`
-    : current.ticketsSubmitted > current.ticketsDone
-      ? `${current.ticketsSubmitted} ticket${current.ticketsSubmitted === 1 ? ' is' : 's are'} waiting for review. Follow up to get them closed.`
-      : 'Set yourself a target for next week and beat it.';
+  const monthByDate = new Map((month.days ?? []).map((day) => [day.date, day] as const));
+  const monthTotals = productivityWeek(month.start, month.end, monthByDate);
+  const chartMax = Math.max(1, monthTotals.ticketsCreated, monthTotals.ticketsDone);
 
   return (
     <aside className={s.side} aria-label={`${weekName(week)} productivity`}>
@@ -605,13 +614,26 @@ function ProductivitySide({ week, byDate, loading, failed }: { week: WeekWindow;
       <KpiCard label={`Tickets solved · ${weekName(week)}`} value={String(current.ticketsDone)} sub={`${current.ticketsSubmitted} sent for review`} icon={<Ticket size={16} />}>
         <Delta now={current.ticketsDone} before={previous.ticketsDone} unit="count" />
       </KpiCard>
-      <div className={`${s.card} ${s.summary}`}>
+      <div className={`${s.card} ${s.ticketChart}`}>
         <div className={s.kpiHead} style={{ marginBottom: 8 }}>
-          <span className={s.kpiLabel}>Weekly summary</span>
-          <span className={s.kpiIcon} aria-hidden="true"><Sparkles size={16} /></span>
+          <span className={s.kpiLabel}>Tickets Created vs Solved</span>
+          <span className={s.kpiIcon} aria-hidden="true"><Ticket size={16} /></span>
         </div>
-        <p>{headline}</p>
-        <small>{nudge}</small>
+        {month.future ? (
+          <small className={s.ticketChartCaption}>{month.label} has not started yet.</small>
+        ) : month.loading ? (
+          <small className={s.ticketChartCaption}>Loading {month.label}…</small>
+        ) : month.failed ? (
+          <small className={s.ticketChartCaption}>Ticket counts for {month.label} could not be loaded.</small>
+        ) : (
+          <>
+            <div className={s.ticketChartPlot} role="img" aria-label={`${monthTotals.ticketsCreated} tickets created and ${monthTotals.ticketsDone} tickets solved in ${month.label}`}>
+              <div><span>Created</span><i><b style={{ width: `${monthTotals.ticketsCreated / chartMax * 100}%` }} /></i><strong>{monthTotals.ticketsCreated}</strong></div>
+              <div><span>Solved</span><i><b style={{ width: `${monthTotals.ticketsDone / chartMax * 100}%` }} /></i><strong>{monthTotals.ticketsDone}</strong></div>
+            </div>
+            <small className={s.ticketChartCaption}>{month.label} · {rangeLabel(month.start, month.end)}</small>
+          </>
+        )}
       </div>
     </aside>
   );
