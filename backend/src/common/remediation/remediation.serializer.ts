@@ -126,7 +126,7 @@ export function buildRemediation(code: string, opts: BuildOptions = {}): Remedia
   return sanitizeRemediation({
     code,
     ...e,
-    actions: actionsFor(e.actions, opts.previewCount),
+    actions: actionsFor(e.actions, opts.previewCount, e.actionLabels),
     status: opts.status ?? 'OPEN',
     lastCheckedAt: (opts.now ?? new Date()).toISOString(),
     affectedUserId: opts.affectedUserId,

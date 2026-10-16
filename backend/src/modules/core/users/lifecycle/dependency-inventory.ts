@@ -17,6 +17,19 @@ type Client = Prisma.TransactionClient | any;
 const VOLATILE_USER_FIELDS = ['password', 'lastActiveAt', 'currentStatus', 'updatedAt', 'sessionsRevokedAt'];
 
 /**
+ * Nullable user columns introduced after archive-v2 snapshots were already in
+ * use. Prisma returns these keys with a null value after the migration, while
+ * the same user row did not contain the keys when an older snapshot was
+ * fingerprinted. Omitting only the null representation keeps those snapshots
+ * compatible; a real value remains part of the fingerprint and is therefore a
+ * genuine data change.
+ */
+const FINGERPRINT_OPTIONAL_USER_FIELDS_WHEN_NULL = new Set([
+  'employmentState',
+  'scheduledActivationOn',
+]);
+
+/**
  * no-history-v1: the rows that may exist for a person who never did anything.
  * Named, versioned and stored on every snapshot. Anything not listed counts.
  */
@@ -120,7 +133,11 @@ export async function collectInventory(db: Client, userId: string, ctx: MatrixCo
   );
   counts['CorrectionScreenshot[own]'] = screenshots.length;
   const userRow: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(user)) if (!VOLATILE_USER_FIELDS.includes(k)) userRow[k] = v;
+  for (const [k, v] of Object.entries(user)) {
+    if (VOLATILE_USER_FIELDS.includes(k)) continue;
+    if (v === null && FINGERPRINT_OPTIONAL_USER_FIELDS_WHEN_NULL.has(k)) continue;
+    userRow[k] = v;
+  }
   return { subject, user: userRow, rows, screenshots, counts };
 }
 
@@ -192,6 +209,11 @@ export function dataFingerprint(inv: Inventory): string {
     const rows = fingerprintRows(h, inv.rows[h.key] ?? []);
     return rows === null ? [] : [{ key: h.key, count: rows.length, rows: rows.map((r) => fingerprintRow(h, r)) }];
   });
-  const body = { user: inv.user, handlers, screenshots: inv.screenshots };
+  // Normalize here as well as during collection because tests, import tools and
+  // compatibility readers can construct an Inventory directly.
+  const user = Object.fromEntries(Object.entries(inv.user).filter(([key, value]) => (
+    !(value === null && FINGERPRINT_OPTIONAL_USER_FIELDS_WHEN_NULL.has(key))
+  )));
+  const body = { user, handlers, screenshots: inv.screenshots };
   return createHash('sha256').update(canonical(body)).digest('hex');
 }

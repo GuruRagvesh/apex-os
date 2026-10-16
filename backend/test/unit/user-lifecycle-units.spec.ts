@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { evaluateRetention } from '../../src/modules/core/users/lifecycle/retention';
-import { decryptHandle, encryptHandle, handleHmac, readHandleKeys } from '../../src/modules/core/users/lifecycle/handle-crypto';
+import { decryptHandle, encryptHandle, handleHmac, handleKeyConfigurationIssues, readHandleKeys } from '../../src/modules/core/users/lifecycle/handle-crypto';
 import { archiveFileName, canonicalRef, collectFileObjects } from '../../src/modules/core/users/lifecycle/archive-files';
 import { buildArchiveWorkbook, EXCEL_MAX_CELL_CHARS, readFilesSheet, sheetRowsFor } from '../../src/modules/core/users/lifecycle/archive-workbook';
 import { classifyNoHistory, dataFingerprint, Inventory } from '../../src/modules/core/users/lifecycle/dependency-inventory';
@@ -24,16 +24,16 @@ function inventory(over: Partial<Record<string, any[]>> = {}, user: Record<strin
   };
 }
 
-describe('retention gate (default deny)', () => {
+describe('retention and legal-hold gate', () => {
   const att = { ATTENDANCE: [new Date('2026-09-01T00:00:00Z')] };
   const rule = (over: any = {}) => ({ category: 'ATTENDANCE', retentionMonths: 12, active: true, approvedAt: NOW, ...over });
 
   it('has no hold when there are no protected rows and no legal hold', () => {
     expect(evaluateRetention({ protectedDates: {}, rules: [], activeLegalHolds: 0, now: NOW }).result).toBe('NO_HOLD');
   });
-  it('blocks with POLICY_NOT_CONFIGURED when no rule exists', () => {
+  it('reports POLICY_NOT_CONFIGURED without treating missing setup as a retention instruction', () => {
     const r = evaluateRetention({ protectedDates: att, rules: [], activeLegalHolds: 0, now: NOW });
-    expect(r).toEqual(expect.objectContaining({ result: 'RETENTION_PERIOD_ACTIVE', allowsDeletion: false }));
+    expect(r).toEqual(expect.objectContaining({ result: 'RETENTION_APPROVED_FOR_DELETION', allowsDeletion: true }));
     expect(r.categories.ATTENDANCE.reason).toBe('POLICY_NOT_CONFIGURED');
   });
   it.each([
@@ -60,6 +60,9 @@ describe('cleanup handle encryption', () => {
   it('needs both 32-byte keys', () => {
     expect(readHandleKeys({})).toBeNull();
     expect(readHandleKeys({ ...env, LIFECYCLE_HANDLE_HMAC_KEY: 'short' })).toBeNull();
+    expect(readHandleKeys({ ...env, LIFECYCLE_HANDLE_HMAC_KEY: env.LIFECYCLE_HANDLE_ENCRYPTION_KEY })).toBeNull();
+    expect(handleKeyConfigurationIssues({})).toEqual(['LIFECYCLE_HANDLE_ENCRYPTION_KEY', 'LIFECYCLE_HANDLE_HMAC_KEY']);
+    expect(handleKeyConfigurationIssues({ ...env, LIFECYCLE_HANDLE_HMAC_KEY: env.LIFECYCLE_HANDLE_ENCRYPTION_KEY })).toEqual(['LIFECYCLE_HANDLE_KEYS_MUST_DIFFER']);
     expect(readHandleKeys(env)).not.toBeNull();
   });
   it('round-trips, never stores the handle in the clear, and uses a keyed HMAC', () => {
@@ -128,6 +131,17 @@ describe('archive-v2 workbook', () => {
 });
 
 describe('no-history-v1 and the fingerprint', () => {
+  it('keeps pre-Phase-1 user fingerprints compatible while detecting real employment values', () => {
+    const legacy = inventory({}, { roleId: 'role-1' });
+    const withNullPhase1Columns = inventory({}, {
+      roleId: 'role-1',
+      employmentState: null,
+      scheduledActivationOn: null,
+    });
+    expect(dataFingerprint(withNullPhase1Columns)).toBe(dataFingerprint(legacy));
+    expect(dataFingerprint(inventory({}, { roleId: 'role-1', employmentState: 'SCHEDULED_TO_JOIN' }))).not.toBe(dataFingerprint(legacy));
+    expect(dataFingerprint(inventory({}, { roleId: 'role-1', scheduledActivationOn: new Date('2026-12-01T00:00:00Z') }))).not.toBe(dataFingerprint(legacy));
+  });
   it('ignores only the named setup-only rows', () => {
     const setup = inventory({
       'EmployeeAttendanceProfile.userId': [{ id: 'p1' }],

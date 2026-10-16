@@ -63,6 +63,8 @@ export interface SubmitPunchEvidenceInput {
   latitude?: number | null;
   longitude?: number | null;
   accuracyMeters?: number | null;
+  /** Optional browser/device reading. Its absence never refuses a punch. */
+  altitudeMeters?: number | null;
   source?: 'WEB' | 'PWA' | 'MOBILE';
   deviceMetadata?: Record<string, any> | null;
   /** Opaque id returned by POST /attendance/punch-photo. */

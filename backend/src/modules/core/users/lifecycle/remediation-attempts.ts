@@ -30,6 +30,7 @@ export async function recordLifecycleAttempt(db: any, input: AttemptInput): Prom
   for (let i = 0; i < MAX_RACE_RETRIES; i++) {
     try {
       const last = await db.lifecycleRemediationAttempt.aggregate({ where: { operationId: input.operationId }, _max: { attemptNo: true } });
+      const attemptNo = (last._max.attemptNo ?? 0) + 1;
       await db.lifecycleRemediationAttempt.create({
         data: {
           id: randomUUID(),
@@ -37,7 +38,7 @@ export async function recordLifecycleAttempt(db: any, input: AttemptInput): Prom
           operationId: input.operationId,
           lifecycleOperationId: input.operationId,
           subjectUserId: input.subjectUserId,
-          attemptNo: (last._max.attemptNo ?? 0) + 1,
+          attemptNo,
           code: remediation.code,
           phase: input.phase,
           outcome: input.outcome,
@@ -46,6 +47,7 @@ export async function recordLifecycleAttempt(db: any, input: AttemptInput): Prom
         },
       });
       await db.userLifecycleOperation.update({ where: { id: input.operationId }, data: { remediation: remediation as any } });
+      await notifyActor(db, input, remediation, attemptNo);
       return true;
     } catch (err: any) {
       if (err?.code === 'P2002') continue; // a concurrent attempt took this number
@@ -53,6 +55,32 @@ export async function recordLifecycleAttempt(db: any, input: AttemptInput): Prom
     }
   }
   return false;
+}
+
+/**
+ * Puts the diagnosis in the acting administrator's Notification Center (Phase
+ * 2, A5). Codes and the registry's own copy only; never a provider handle. A
+ * resolution is not a problem to report. Best effort: a failure here never
+ * changes the operation's outcome.
+ */
+async function notifyActor(db: any, input: AttemptInput, remediation: RemediationResult, attemptNo: number) {
+  if (input.outcome === 'RESOLVED' || input.outcome === 'PASSED' || !input.actorId) return;
+  try {
+    await db.notification.create({
+      data: {
+        userId: input.actorId,
+        title: remediation.title || 'Lifecycle action needs attention',
+        message: remediation.problem || 'A user lifecycle operation could not complete.',
+        type: remediation.severity === 'BLOCKING' ? 'ERROR' : 'WARNING',
+        link: '/users',
+        entityType: 'UserLifecycleOperation',
+        entityId: input.operationId,
+        dedupeKey: `lifecycle-remediation:${input.operationId}:${attemptNo}`,
+      },
+    });
+  } catch {
+    // The attempt history is the record of truth; the notification is a convenience.
+  }
 }
 
 /** Client view of the history for one operation, oldest first. */

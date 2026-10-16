@@ -440,23 +440,28 @@ describe('archived-user lifecycle (PostgreSQL)', () => {
     expect(await w.prisma.ticket.count({ where: { OR: [{ assignedToId: fresh.id }, { createdById: fresh.id }] } })).toBe(0);
   });
 
-  it('blocks deletion on retention until an approved period has passed, then deletes and cleans up non-shared files', async () => {
+  it('treats missing retention setup as a warning, enforces an approved period, then deletes and cleans up non-shared files', async () => {
     const A = w.seed.employees.A;
     const B = w.seed.employees.B;
     const t = await giveHistory(w, A.id, B.id);
     await w.svc.archive(A.id, w.admin, { idempotencyKey: key() });
 
-    const blocked = await w.svc.deletePreflight(A.id, w.admin);
-    expect(blocked.allowed).toBe(false);
-    expect(blocked.reasons.map((r) => r.code)).toContain('RETENTION_BLOCKED');
-    expect(blocked.retention?.categories.ATTENDANCE?.reason).toBe('POLICY_NOT_CONFIGURED');
+    const withoutRule = await w.svc.deletePreflight(A.id, w.admin);
+    expect(withoutRule.allowed).toBe(true);
+    expect(withoutRule.reasons.map((r) => r.code)).not.toContain('RETENTION_BLOCKED');
+    expect(withoutRule.retention?.categories.ATTENDANCE?.reason).toBe('POLICY_NOT_CONFIGURED');
 
-    // An active rule with NULL months is not a policy.
+    // An active row with NULL months is not an approved retention instruction.
     await w.prisma.retentionRule.create({ data: { category: 'ATTENDANCE', retentionMonths: null, active: true, approvedAt: NOW } });
-    expect((await w.svc.deletePreflight(A.id, w.admin)).retention?.categories.ATTENDANCE?.reason).toBe('POLICY_NOT_CONFIGURED');
+    const nullRule = await w.svc.deletePreflight(A.id, w.admin);
+    expect(nullRule.allowed).toBe(true);
+    expect(nullRule.retention?.categories.ATTENDANCE?.reason).toBe('POLICY_NOT_CONFIGURED');
     await w.prisma.retentionRule.update({ where: { category: 'ATTENDANCE' }, data: { retentionMonths: 12 } });
     await w.prisma.retentionRule.create({ data: { category: 'LEAVE', retentionMonths: 12, active: true, approvedAt: NOW } });
-    expect((await w.svc.deletePreflight(A.id, w.admin)).retention?.categories.ATTENDANCE?.reason).toBe('PERIOD_NOT_ELAPSED');
+    const held = await w.svc.deletePreflight(A.id, w.admin);
+    expect(held.allowed).toBe(false);
+    expect(held.reasons.map((r) => r.code)).toContain('RETENTION_BLOCKED');
+    expect(held.retention?.categories.ATTENDANCE?.reason).toBe('PERIOD_NOT_ELAPSED');
 
     w.ports.setNow(new Date('2028-01-01T00:00:00Z'));
     const pre = await w.svc.deletePreflight(A.id, w.admin);
@@ -541,13 +546,57 @@ describe('archived-user lifecycle (PostgreSQL)', () => {
     expect(await w.prisma.user.findUnique({ where: { id: A.id } })).not.toBeNull();
   });
 
+  it('rebuilds a stale archived-user snapshot as N+1 without reactivating or reopening work, then reuses it', async () => {
+    const A = w.seed.employees.A;
+    const t = await giveHistory(w, A.id, w.seed.employees.B.id);
+    await w.svc.archive(A.id, w.admin, { idempotencyKey: key() });
+    const first = await w.prisma.userArchiveSnapshot.findFirstOrThrow({ where: { userId: A.id, status: 'VERIFIED' } });
+    const closedStatus = (await w.prisma.ticket.findUniqueOrThrow({ where: { id: t.sole.id } })).status;
+
+    await w.prisma.comment.create({ data: { ticketId: t.sharedCo.id, authorId: A.id, content: 'record added after the first archive' } });
+    expect(await w.svc.verifiedArchivePreflight(A.id, w.admin)).toEqual(expect.objectContaining({ canPrepare: true, action: 'REBUILD', reason: 'SNAPSHOT_STALE' }));
+
+    const rebuilt = await w.svc.prepareVerifiedArchive(A.id, w.admin, { idempotencyKey: key() });
+    expect(rebuilt).toEqual(expect.objectContaining({ state: 'COMPLETED', result: expect.objectContaining({ snapshotVersion: 2, reused: false }) }));
+    const second = await w.prisma.userArchiveSnapshot.findFirstOrThrow({ where: { userId: A.id, status: 'VERIFIED' } });
+    expect(second.version).toBe(2);
+    expect(second.archiveRef).not.toBe(first.archiveRef);
+    expect((await w.prisma.userArchiveSnapshot.findUniqueOrThrow({ where: { id: first.id } })).status).toBe('INVALIDATED_DATA_CHANGED');
+    expect(await w.prisma.user.findUniqueOrThrow({ where: { id: A.id } })).toEqual(expect.objectContaining({ isActive: false, currentStatus: 'LOGGED_OUT' }));
+    expect((await w.prisma.ticket.findUniqueOrThrow({ where: { id: t.sole.id } })).status).toBe(closedStatus);
+    expect(await w.prisma.operationalEvent.count({ where: { entityId: A.id, action: 'USER_ARCHIVED' } })).toBe(1);
+
+    const reused = await w.svc.prepareVerifiedArchive(A.id, w.admin, { idempotencyKey: key() });
+    expect(reused.result).toEqual(expect.objectContaining({ snapshotVersion: 2, reused: true }));
+    expect(await w.prisma.userArchiveSnapshot.count({ where: { userId: A.id } })).toBe(2);
+    expect((await w.svc.deletePreflight(A.id, w.admin)).reasons.map((r) => r.code)).not.toContain('SNAPSHOT_STALE');
+  });
+
+  it('keeps the prior snapshot and archived account unchanged when rebuilding fails', async () => {
+    const A = w.seed.employees.A;
+    const t = await giveHistory(w, A.id, w.seed.employees.B.id);
+    await w.svc.archive(A.id, w.admin, { idempotencyKey: key() });
+    const first = await w.prisma.userArchiveSnapshot.findFirstOrThrow({ where: { userId: A.id, status: 'VERIFIED' } });
+    await w.prisma.comment.create({ data: { ticketId: t.sharedCo.id, authorId: A.id, content: 'forces snapshot N+1' } });
+    w.files.failRead = true;
+
+    await expect(w.svc.prepareVerifiedArchive(A.id, w.admin, { idempotencyKey: key() })).rejects.toBeDefined();
+
+    expect((await w.prisma.userArchiveSnapshot.findUniqueOrThrow({ where: { id: first.id } })).status).toBe('VERIFIED');
+    expect(await w.prisma.userArchiveSnapshot.count({ where: { userId: A.id } })).toBe(1);
+    expect(await w.prisma.user.findUniqueOrThrow({ where: { id: A.id } })).toEqual(expect.objectContaining({ isActive: false, currentStatus: 'LOGGED_OUT' }));
+  });
+
   it('rehire invalidates the snapshot, reopens nothing, and a re-archive is a new version in a new folder', async () => {
     const A = w.seed.employees.A;
     const t = await giveHistory(w, A.id, w.seed.employees.B.id);
     await w.svc.archive(A.id, w.admin, { idempotencyKey: key() });
     const first = await w.prisma.userArchiveSnapshot.findFirstOrThrow({ where: { userId: A.id } });
     const users = w.moduleRef.get(UsersService);
-    await users.rehire(A.id, { password: 'brand-new-pass', roleId: 'r-employee', departmentId: null, joiningDate: '2026-11-01', email: 'a.rehired@integration.invalid' }, w.admin.id);
+    // Today in company time: a future return date would (correctly) leave the
+    // account SCHEDULED_TO_JOIN until that date (Phase 2, B7).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.COMPANY_TIMEZONE || 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    await users.rehire(A.id, { password: 'brand-new-pass', roleId: 'r-employee', departmentId: null, joiningDate: today, email: 'a.rehired@integration.invalid' }, w.admin.id);
 
     expect((await w.prisma.userArchiveSnapshot.findUniqueOrThrow({ where: { id: first.id } })).status).toBe('INVALIDATED_REHIRED');
     const back = await w.prisma.user.findUniqueOrThrow({ where: { id: A.id } });

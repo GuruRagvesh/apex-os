@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException, Optional } from '@nestjs/common';
 import { Workbook } from 'exceljs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
@@ -9,10 +9,13 @@ import { AttendanceCategory, PolicyStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { sanitizeChannels } from '../../operations/notifications/notification-channels';
+import { RemediationException, buildRemediation } from '../../../common/remediation';
+import { SetupIssueCode, UserSetupIssuesService } from './user-setup-issues.service';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
 // Only this document type is allowed to update the user's avatar/photo.
 const PROFILE_PHOTO_DOCUMENT_TYPE = 'PROFILE_PHOTO';
+const EMPLOYMENT_BASELINE = '2020-12-01';
 function isProfilePhotoType(documentType?: string): boolean {
   return (documentType ?? '').toUpperCase().replace(/[\s-]+/g, '_') === PROFILE_PHOTO_DOCUMENT_TYPE;
 }
@@ -25,6 +28,7 @@ export class UsersService {
     private eventLogger: EventLoggerService,
     private emailService: EmailService,
     private backupVaultService: BackupVaultService,
+    @Optional() private setupIssues?: UserSetupIssuesService,
   ) {}
 
   /**
@@ -57,7 +61,9 @@ export class UsersService {
       if (Number.isNaN(value.getTime())) {
         throw new BadRequestException('Joining date must be a valid date');
       }
-      return new Date(`${value.toISOString().slice(0, 10)}T00:00:00.000Z`);
+      const normalized = new Date(`${value.toISOString().slice(0, 10)}T00:00:00.000Z`);
+      this.assertEmploymentBaseline(normalized);
+      return normalized;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       throw new BadRequestException('Joining date must be a valid date');
@@ -66,7 +72,137 @@ export class UsersService {
     if (Number.isNaN(raw.getTime()) || raw.toISOString().slice(0, 10) !== value) {
       throw new BadRequestException('Joining date must be a valid date');
     }
+    this.assertEmploymentBaseline(raw);
     return raw;
+  }
+
+  private assertEmploymentBaseline(value: Date) {
+    if (value.toISOString().slice(0, 10) < EMPLOYMENT_BASELINE) {
+      throw new BadRequestException(`Joining date cannot be before ${EMPLOYMENT_BASELINE}.`);
+    }
+  }
+
+  private normalizedEmail(value: unknown): string {
+    const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+    return email;
+  }
+
+  private assertPassword(value: unknown) {
+    if (typeof value !== 'string' || value.length < 8 || value.length > 128 || value.trim().length === 0) {
+      throw new BadRequestException('Password must be between 8 and 128 characters and cannot be blank.');
+    }
+  }
+
+  private personName(value: unknown): string {
+    const name = typeof value === 'string' ? value.trim() : '';
+    if (!name || name.length > 200) throw new BadRequestException('Enter the person\'s name (up to 200 characters).');
+    return name;
+  }
+
+  /**
+   * What an email address already belongs to (Phase 2, B2). Decided inside the
+   * caller's transaction under a lock on the normalized address, so two
+   * submissions for one address cannot both pass the check.
+   *
+   *   active or scheduled to join  -> EMAIL_BELONGS_TO_ACTIVE_USER (view them)
+   *   deactivated                  -> EMAIL_BELONGS_TO_DEACTIVATED_USER (Reactivate)
+   *   archived                     -> EMAIL_BELONGS_TO_ARCHIVED_USER (Rehire)
+   *   system account               -> EMAIL_RESERVED_FOR_SYSTEM_ACCOUNT (refused)
+   *   permanently deleted          -> no row holds it: a fresh account is fine
+   */
+  private async assertEmailAvailable(tx: Prisma.TransactionClient, email: string, exceptUserId?: string) {
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM (SELECT pg_advisory_xact_lock(hashtextextended(${`user-email:${email}`}, 0))) AS l`;
+    const existing = await tx.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' }, ...(exceptUserId ? { id: { not: exceptUserId } } : {}) },
+      select: { id: true, name: true, isActive: true, isSystemAccount: true, employmentState: true, scheduledActivationOn: true },
+    });
+    if (!existing) return;
+    if (existing.isSystemAccount) {
+      throw new ConflictException({ message: 'This email belongs to a system account and cannot be used.', code: 'EMAIL_RESERVED_FOR_SYSTEM_ACCOUNT' });
+    }
+    if (existing.isActive || existing.employmentState === 'SCHEDULED_TO_JOIN') {
+      throw new ConflictException({
+        message: existing.isActive
+          ? `${existing.name} already uses this email.`
+          : `${existing.name} already uses this email and is scheduled to join.`,
+        code: 'EMAIL_BELONGS_TO_ACTIVE_USER',
+        existingUser: {
+          id: existing.id,
+          name: existing.name,
+          scheduledActivationOn: existing.scheduledActivationOn?.toISOString().slice(0, 10) ?? null,
+        },
+      });
+    }
+    // Same-account return paths keep the person's history with them; a second
+    // account for one person is never created.
+    const archivedAt = await this.archivedAt(existing.id);
+    if (archivedAt) {
+      throw new ConflictException({
+        message: `${existing.name} is archived with this email. Rehire them to bring the same account back.`,
+        code: 'EMAIL_BELONGS_TO_ARCHIVED_USER',
+        inactiveUser: { id: existing.id, name: existing.name, archivedAt: archivedAt.toISOString() },
+      });
+    }
+    throw new ConflictException({
+      message: `${existing.name} is deactivated with this email. Reactivate them instead of creating a second account.`,
+      code: 'EMAIL_BELONGS_TO_DEACTIVATED_USER',
+      inactiveUser: { id: existing.id, name: existing.name, archivedAt: null },
+    });
+  }
+
+  /**
+   * Role and department are checked again at commit (B1/B8): either may have
+   * been removed after the form loaded. The department is optional.
+   */
+  private async assertRoleAndDepartment(tx: Prisma.TransactionClient, roleId: unknown, departmentId: string | null) {
+    const role = typeof roleId === 'string' && roleId ? await tx.role.findUnique({ where: { id: roleId }, select: { id: true } }) : null;
+    if (!role) throw new RemediationException(buildRemediation('ROLE_NOT_FOUND_OR_REMOVED', { details: { field: 'roleId' } }));
+    if (departmentId) {
+      const department = await tx.department.findUnique({ where: { id: departmentId }, select: { id: true } });
+      if (!department) throw new RemediationException(buildRemediation('DEPARTMENT_NOT_FOUND_OR_REMOVED', { details: { field: 'departmentId' } }));
+    }
+  }
+
+  /** A role or department deleted between the check and the write breaks the foreign key. */
+  private async translateCommitError(error: any, roleId: unknown, departmentId: string | null): Promise<never> {
+    if (error?.code === 'P2003') {
+      const role = typeof roleId === 'string' && roleId ? await this.prisma.role.findUnique({ where: { id: roleId }, select: { id: true } }) : null;
+      if (!role) throw new RemediationException(buildRemediation('ROLE_NOT_FOUND_OR_REMOVED', { details: { field: 'roleId' } }));
+      if (departmentId) throw new RemediationException(buildRemediation('DEPARTMENT_NOT_FOUND_OR_REMOVED', { details: { field: 'departmentId' } }));
+    }
+    if (error?.code === 'P2002' && String(error?.meta?.target ?? '').includes('email')) {
+      throw new ConflictException({ message: 'Another account was just created with this email.', code: 'EMAIL_BELONGS_TO_ACTIVE_USER' });
+    }
+    throw error;
+  }
+
+  private departmentInput(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
+  /** Open setup issues, as warnings the form can show next to its success message. */
+  private async setupWarnings(userId: string, open: SetupIssueCode[]) {
+    if (!this.setupIssues) return [];
+    await this.setupIssues.refreshForUser(userId, open);
+    const rows = await (this.prisma as any).userSetupIssue.findMany({
+      where: { userId, status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+      select: { code: true },
+      orderBy: { firstDetectedAt: 'asc' },
+    }).catch(() => []);
+    return (rows as Array<{ code: string }>).map((r) => r.code);
+  }
+
+  private companyDate(): string {
+    const timezone = process.env.COMPANY_TIMEZONE || 'Asia/Kolkata';
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
   }
 
   private exactlyOne<T>(rows: T[], label: string): T {
@@ -103,18 +239,22 @@ export class UsersService {
     const [shifts, leavePolicies, calendars, weeklyOffPolicies] = await Promise.all([
       tx.shiftPolicy.findMany({
         where: { ...governingVersion, category: AttendanceCategory.REGULAR_EMPLOYEE },
+        orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }],
         take: 2,
       }),
-      tx.leavePolicy.findMany({ where: governingVersion, take: 2 }),
-      tx.holidayCalendar.findMany({ where: governingVersion, take: 2 }),
-      tx.weeklyOffPolicy.findMany({ where: activeWindow, take: 2 }),
+      tx.leavePolicy.findMany({ where: governingVersion, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
+      tx.holidayCalendar.findMany({ where: governingVersion, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
+      tx.weeklyOffPolicy.findMany({ where: activeWindow, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
     ]);
 
-    // Never hide an ambiguous configuration by advancing past it.
-    if (shifts.length > 1) this.exactlyOne(shifts, 'regular shift policy');
-    if (leavePolicies.length > 1) this.exactlyOne(leavePolicies, 'leave policy');
-    if (calendars.length > 1) this.exactlyOne(calendars, 'holiday calendar');
-    if (weeklyOffPolicies.length > 1) this.exactlyOne(weeklyOffPolicies, 'weekly-off policy');
+    // Overlap is a setup warning, not authority to block employment. The
+    // latest effective-from approved version wins; id is a stable tie-breaker.
+    const configurationWarnings = [
+      shifts.length > 1 ? 'SHIFT_POLICY_OVERLAP' : null,
+      leavePolicies.length > 1 ? 'LEAVE_POLICY_OVERLAP' : null,
+      calendars.length > 1 ? 'HOLIDAY_CALENDAR_OVERLAP' : null,
+      weeklyOffPolicies.length > 1 ? 'WEEKLY_OFF_POLICY_OVERLAP' : null,
+    ].filter((value): value is string => value !== null);
 
     const shift = shifts[0] ?? null;
     const attendancePolicy = shift
@@ -191,7 +331,7 @@ export class UsersService {
       }
     }
 
-    const resolvedShift = this.exactlyOne(shifts, 'regular shift policy');
+    const resolvedShift = this.exactlyOne(shifts.slice(0, 1), 'regular shift policy');
     if (!attendancePolicy) {
       throw new BadRequestException(
         'Attendance onboarding is unavailable: the active shift has no active attendance policy',
@@ -206,13 +346,62 @@ export class UsersService {
 
     return {
       shift: resolvedShift,
-      leavePolicy: this.exactlyOne(leavePolicies, 'leave policy'),
-      calendar: this.exactlyOne(calendars, 'holiday calendar'),
-      weeklyOff: this.exactlyOne(weeklyOffPolicies, 'weekly-off policy'),
+      leavePolicy: this.exactlyOne(leavePolicies.slice(0, 1), 'leave policy'),
+      calendar: this.exactlyOne(calendars.slice(0, 1), 'holiday calendar'),
+      weeklyOff: this.exactlyOne(weeklyOffPolicies.slice(0, 1), 'weekly-off policy'),
       assignedAttendanceLocationId,
+      configurationWarnings,
       /** When the attendance profile starts: the joining date, or the first policy date if later. */
       effectiveFrom,
     };
+  }
+
+  /**
+   * Account creation must not depend on attendance policy administration being
+   * complete. A valid bundle still creates the profile atomically; a missing,
+   * overlapping or otherwise unresolved bundle creates a visible setup issue
+   * instead. Unexpected database/runtime failures are not swallowed.
+   */
+  private async attendanceDefaultsForOnboarding(tx: Prisma.TransactionClient, effectiveFrom: Date) {
+    try {
+      const defaults = await this.attendanceDefaults(tx, effectiveFrom);
+      return {
+        defaults,
+        setupPending: defaults.configurationWarnings.length > 0,
+        reasonCodes: defaults.configurationWarnings,
+      } as const;
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+      return { defaults: null, setupPending: true, reasonCodes: ['POLICY_BUNDLE_UNAVAILABLE'] } as const;
+    }
+  }
+
+  private async recordAttendanceSetupPending(tx: Prisma.TransactionClient, userId: string, actorId?: string, reasonCodes: string[] = ['POLICY_BUNDLE_UNAVAILABLE']) {
+    const now = new Date();
+    await tx.userSetupIssue.upsert({
+      where: { dedupeKey: `user:${userId}:attendance-policy-setup` },
+      create: {
+        id: randomUUID(),
+        userId,
+        code: 'ATTENDANCE_POLICY_SETUP_PENDING',
+        domain: 'ATTENDANCE',
+        severity: 'WARNING',
+        remediationClass: 'ADMIN_FIXABLE_FRONTEND',
+        dedupeKey: `user:${userId}:attendance-policy-setup`,
+        details: { reasonCodes },
+      },
+      update: {
+        status: 'OPEN',
+        lastDetectedAt: now,
+        resolvedAt: null,
+        resolvedById: null,
+        details: { reasonCodes },
+      },
+    });
+
+    // Announced after commit by UserSetupIssuesService, through the
+    // notification service, so channel preferences apply (B9).
+    void actorId;
   }
 
   async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
@@ -315,25 +504,12 @@ export class UsersService {
     },
     actorId?: string,
   ) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: data.email },
-      select: { id: true, name: true, isActive: true },
-    });
-    if (existing?.isActive) throw new ConflictException('Email already registered');
-    if (existing) {
-      // An archived or deactivated person keeps their record -- and so their
-      // email -- so their history still says who they were. Coming back is a
-      // rehire of that same account, never a second account for one person.
-      const archivedAt = await this.archivedAt(existing.id);
-      throw new ConflictException({
-        message: `${existing.name} already has an inactive account with this email. Rehire them to bring the same account back.`,
-        code: 'EMAIL_BELONGS_TO_INACTIVE_USER',
-        inactiveUser: { id: existing.id, name: existing.name, archivedAt: archivedAt?.toISOString() ?? null },
-      });
-    }
-
-    const role = await this.prisma.role.findUnique({ where: { id: data.roleId } });
-    if (!role) throw new BadRequestException('Selected role does not exist');
+    // Identity is validated in one place, in the same way for Create User,
+    // Reactivate and Rehire (B1). Values are never logged.
+    const personName = this.personName(data?.name);
+    const email = this.normalizedEmail(data?.email);
+    this.assertPassword(data?.password);
+    const departmentId = this.departmentInput(data?.departmentId);
 
     // Role authority and attendance applicability are separate decisions.
     // Every human account created through this administration workflow must be
@@ -341,35 +517,64 @@ export class UsersService {
     // An exemption must be an explicit attendance-profile decision; it must
     // never be inferred from the user's role.
     const joiningDate = this.joiningDate(data.joiningDate);
+    const scheduled = joiningDate.toISOString().slice(0, 10) > this.companyDate();
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
-    const { joiningDate: _inputJoiningDate, ...userInput } = data;
     const user = await this.prisma.$transaction(async (tx) => {
-      // Resolve all referenced authorities before inserting the user. A
-      // missing or ambiguous policy therefore leaves no partial account.
-      const defaults = await this.attendanceDefaults(tx, joiningDate);
+      await this.assertEmailAvailable(tx, email);
+      await this.assertRoleAndDepartment(tx, data.roleId, departmentId);
+      // Attendance setup is important but is not authority to refuse an
+      // employee account. Missing/ambiguous policy configuration becomes a
+      // setup issue; unrelated access remains available.
+      const onboarding = await this.attendanceDefaultsForOnboarding(tx, joiningDate);
       const created = await tx.user.create({
-        data: { ...userInput, joiningDate, password: hashedPassword },
+        data: {
+          name: personName,
+          roleId: data.roleId,
+          departmentId,
+          email,
+          joiningDate,
+          password: hashedPassword,
+          isActive: !scheduled,
+          employmentState: scheduled ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+          scheduledActivationOn: scheduled ? joiningDate : null,
+        },
         include: { role: true, department: true },
       });
-
-      await tx.employeeAttendanceProfile.create({
+      const allocated = await tx.$queryRaw<Array<{ employeeId: string }>>`
+        SELECT "apex_assign_employee_id"(${created.id}, NULL) AS "employeeId"
+      `;
+      await tx.employmentPeriod.create({
         data: {
+          id: randomUUID(),
           userId: created.id,
-          category: AttendanceCategory.REGULAR_EMPLOYEE,
-          attendanceRequired: true,
-          assignedShiftId: defaults.shift.id,
-          assignedLeavePolicyId: defaults.leavePolicy.id,
-          assignedHolidayCalendarId: defaults.calendar.id,
-          assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
-          assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
-          effectiveFrom: defaults.effectiveFrom,
-          effectiveTo: null,
-          updatedById: actorId ?? null,
+          startDate: joiningDate,
+          startReason: 'NEW_HIRE',
+          createdById: actorId ?? null,
         },
       });
-      return created;
-    });
+
+      if (onboarding.defaults) {
+        const defaults = onboarding.defaults;
+        await tx.employeeAttendanceProfile.create({
+          data: {
+            userId: created.id,
+            category: AttendanceCategory.REGULAR_EMPLOYEE,
+            attendanceRequired: true,
+            assignedShiftId: defaults.shift.id,
+            assignedLeavePolicyId: defaults.leavePolicy.id,
+            assignedHolidayCalendarId: defaults.calendar.id,
+            assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
+            assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
+            effectiveFrom: defaults.effectiveFrom,
+            effectiveTo: null,
+            updatedById: actorId ?? null,
+          },
+        });
+      }
+      if (onboarding.setupPending) await this.recordAttendanceSetupPending(tx, created.id, actorId, onboarding.reasonCodes);
+      return { ...created, employeeId: allocated[0]?.employeeId ?? created.employeeId ?? null };
+    }).catch((error) => this.translateCommitError(error, data.roleId, departmentId));
     this.eventLogger.log({
       actorId: actorId ?? user.id,
       entityType: 'User',
@@ -377,8 +582,93 @@ export class UsersService {
       action: OperationalAction.USER_CREATED,
       metadata: { name: user.name, email: user.email, roleId: user.roleId },
     }).catch(() => {});
+    // Setup gaps are warnings shown with the success, never a failure (B9).
+    const setupWarnings = await this.setupWarnings(user.id, ['DEPARTMENT_MISSING', 'HIERARCHY_MISSING']);
     const { password, ...result } = user;
-    return result;
+    return { ...result, setupWarnings };
+  }
+
+  /**
+   * Brings a DEACTIVATED person back (B6): the same user, the same employment
+   * period and joining date, with all history kept. Archived people come back
+   * through Rehire, which starts a new employment period; someone scheduled to
+   * join activates on their joining date. Sessions and reset codes issued
+   * before the reactivation stop working (sessionsRevokedAt).
+   */
+  async reactivate(userId: string, data: { roleId?: string; departmentId?: string | null } | undefined, actorId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, isActive: true, isSystemAccount: true, roleId: true, departmentId: true, employmentState: true, scheduledActivationOn: true, joiningDate: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.isSystemAccount) throw new ForbiddenException('This is a system account and cannot be reactivated.');
+    if (userId === actorId) throw new ForbiddenException('Cannot reactivate your own account');
+    if (user.isActive) throw new BadRequestException(`${user.name} is already active.`);
+    if (user.employmentState === 'SCHEDULED_TO_JOIN') {
+      throw new BadRequestException({
+        message: `${user.name} has not joined yet. The account activates on ${user.scheduledActivationOn?.toISOString().slice(0, 10) ?? 'their joining date'}.`,
+        code: 'USER_SCHEDULED_TO_JOIN',
+      });
+    }
+    if (await this.archivedAt(userId)) {
+      throw new BadRequestException({ message: `${user.name} is archived. Use Rehire to bring them back.`, code: 'USER_IS_ARCHIVED' });
+    }
+    const roleId = typeof data?.roleId === 'string' && data.roleId ? data.roleId : user.roleId;
+    const departmentId = data && 'departmentId' in data ? this.departmentInput(data.departmentId) : user.departmentId;
+    // Deactivated before their joining date: they go back to waiting for it,
+    // not straight in.
+    const joinsLater = !!user.joiningDate && user.joiningDate.toISOString().slice(0, 10) > this.companyDate();
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${userId} FOR UPDATE`;
+      const running = await (tx as any).userLifecycleOperation.count({ where: { userId, state: { in: ['RUNNING', 'VERIFIED_FOR_DELETE'] } } });
+      if (running > 0) throw new ConflictException('An archive, rehire or deletion is running for this user.');
+      const latest = await (tx as any).operationalEvent.findFirst({
+        where: { entityType: 'User', entityId: userId, action: { in: [...UsersService.ARCHIVE_ACTIONS, ...UsersService.REACTIVATE_ACTIONS] } },
+        orderBy: { timestamp: 'desc' },
+        select: { action: true },
+      });
+      if (latest && UsersService.ARCHIVE_ACTIONS.includes(latest.action)) {
+        throw new BadRequestException({ message: `${user.name} is archived. Use Rehire to bring them back.`, code: 'USER_IS_ARCHIVED' });
+      }
+      await this.assertRoleAndDepartment(tx, roleId, departmentId);
+      const row = await tx.user.update({
+        where: { id: userId },
+        data: {
+          isActive: !joinsLater,
+          employmentState: joinsLater ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+          scheduledActivationOn: joinsLater ? user.joiningDate : null,
+          roleId,
+          departmentId,
+          sessionsRevokedAt: new Date(),
+        },
+        include: { role: true, department: true },
+      });
+      await (tx as any).operationalEvent.create({
+        data: {
+          actorId,
+          entityType: 'User',
+          entityId: userId,
+          action: OperationalAction.USER_REACTIVATED,
+          fromState: 'DEACTIVATED',
+          toState: joinsLater ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+          metadata: {
+            reasonCode: 'USER_REACTIVATED',
+            counts: {},
+            eventSchemaVersion: 1,
+            previousRoleId: user.roleId,
+            previousDepartmentId: user.departmentId,
+            roleId,
+            departmentId,
+          },
+        },
+      });
+      return row;
+    }).catch((error) => this.translateCommitError(error, roleId, departmentId));
+
+    const setupWarnings = await this.setupWarnings(userId, ['DEPARTMENT_MISSING', 'HIERARCHY_MISSING']);
+    const { password, ...result } = updated as any;
+    return { ...result, setupWarnings };
   }
 
   /**
@@ -406,20 +696,21 @@ export class UsersService {
     if (user.isSystemAccount) throw new ForbiddenException('This is a system account and cannot be rehired.');
     if (userId === actorId) throw new ForbiddenException('Cannot rehire your own account');
     if (user.isActive) throw new BadRequestException(`${user.name} is already active.`);
-    // The email may stay or change; a change must be free across every account.
-    let email: string | undefined;
-    if (typeof data?.email === 'string' && data.email.trim() && data.email.trim().toLowerCase() !== user.email.trim().toLowerCase()) {
-      email = data.email.trim();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BadRequestException('Enter a valid email address.');
-      const taken = await this.prisma.user.findFirst({ where: { id: { not: userId }, email: { equals: email, mode: 'insensitive' } }, select: { id: true } });
-      if (taken) throw new ConflictException('Email already registered');
+    // Rehire is for archived people only (B7). A deactivated person keeps
+    // their employment period and comes back through Reactivate.
+    if (!(await this.archivedAt(userId))) {
+      throw new BadRequestException({
+        message: `${user.name} is not archived. Use Reactivate to bring back a deactivated account.`,
+        code: 'USER_NOT_ARCHIVED',
+      });
     }
-    if (!data?.password || String(data.password).length < 6) {
-      throw new BadRequestException('A new password of at least 6 characters is required to rehire.');
-    }
-    const role = await this.prisma.role.findUnique({ where: { id: data.roleId } });
-    if (!role) throw new BadRequestException('Selected role does not exist');
+    // The email may stay or change, but identity is always normalized and
+    // checked case-insensitively in exactly the same way as Create User.
+    const email = this.normalizedEmail(data?.email ?? user.email);
+    this.assertPassword(data?.password);
+    const departmentId = this.departmentInput(data?.departmentId);
     const joiningDate = this.joiningDate(data.joiningDate);
+    const scheduled = joiningDate.toISOString().slice(0, 10) > this.companyDate();
     const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : undefined;
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
@@ -443,6 +734,8 @@ export class UsersService {
           where: { userId, kind: 'PERMANENT_DELETE', state: { in: ['RUNNING', 'VERIFIED_FOR_DELETE'] } },
         });
         if (deleting > 0) throw new ConflictException('This user is being permanently deleted.');
+        await this.assertEmailAvailable(tx, email, userId);
+        await this.assertRoleAndDepartment(tx, data.roleId, departmentId);
         const now = new Date();
         // Undoing an archive with the original joining date: the attendance
         // profile from before the archive is still open (archiving never closes
@@ -455,8 +748,14 @@ export class UsersService {
         const reused = openProfiles.find((p) => p.effectiveFrom >= joiningDate) ?? null;
         // Otherwise a new profile starts on the rehire date, or when the
         // attendance policies start if that is later.
-        const defaults = reused ? null : await this.attendanceDefaults(tx, joiningDate);
-        const profileStart = reused ? reused.effectiveFrom : defaults!.effectiveFrom;
+        const onboarding = reused
+          ? { defaults: null, setupPending: false, reasonCodes: [] as string[] }
+          : await this.attendanceDefaultsForOnboarding(tx, joiningDate);
+        const defaults = onboarding.defaults;
+        // Even when attendance setup is pending, the employment period may
+        // start. Close the previous profile at the new joining boundary, but
+        // do not invent policy assignments for the new period.
+        const profileStart = reused ? reused.effectiveFrom : (defaults?.effectiveFrom ?? joiningDate);
         // Other profiles still in force from then on belong to the previous
         // employment. One that STARTS on or after it cannot be closed before
         // it began, so the rehire date must come later.
@@ -481,16 +780,18 @@ export class UsersService {
         const updated = await tx.user.update({
           where: { id: userId },
           data: {
-            isActive: true,
+            isActive: !scheduled,
+            employmentState: scheduled ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+            scheduledActivationOn: scheduled ? joiningDate : null,
             password: hashedPassword,
             roleId: data.roleId,
-            departmentId: data.departmentId ?? null,
+            departmentId,
             joiningDate,
             lastWorkingDate: null,
             // Tokens issued before the rehire stop working.
             sessionsRevokedAt: now,
             ...(name ? { name } : {}),
-            ...(email ? { email } : {}),
+            email,
           },
           include: { role: true, department: true },
         });
@@ -507,6 +808,24 @@ export class UsersService {
             effectiveFrom: profileStart,
             effectiveTo: null,
             updatedById: actorId,
+          },
+        });
+        if (onboarding.setupPending) {
+          await this.recordAttendanceSetupPending(tx, userId, actorId, onboarding.reasonCodes);
+        }
+        const periodDayBefore = new Date(joiningDate.getTime() - 24 * 60 * 60 * 1000);
+        await tx.employmentPeriod.updateMany({
+          where: { userId, endDate: null },
+          data: { endDate: periodDayBefore, endReason: 'OTHER' },
+        });
+        await tx.employmentPeriod.create({
+          data: {
+            id: randomUUID(),
+            userId,
+            startDate: joiningDate,
+            startReason: 'REHIRE',
+            probationStatus: null,
+            createdById: actorId,
           },
         });
 
@@ -540,7 +859,7 @@ export class UsersService {
             entityId: userId,
             action: 'USER_REHIRED',
             fromState: 'INACTIVE',
-            toState: 'ACTIVE',
+            toState: scheduled ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
             metadata: {
               operationId,
               snapshotVersion: usable?.version ?? null,
@@ -554,15 +873,17 @@ export class UsersService {
               previousDepartmentId: user.departmentId,
               joiningDate: joiningDate.toISOString().slice(0, 10),
               roleId: data.roleId,
-              departmentId: data.departmentId ?? null,
+              departmentId,
               closedProfiles: carriedOver.length,
               reusedProfileId: reused?.id ?? null,
-              attendanceProfileStart: profileStart.toISOString().slice(0, 10),
+              attendanceProfileStart: reused || defaults ? profileStart.toISOString().slice(0, 10) : null,
+              attendanceSetupPending: onboarding.setupPending,
+              scheduledActivationOn: scheduled ? joiningDate.toISOString().slice(0, 10) : null,
             },
           },
         });
         return updated;
-      });
+      }).catch((error) => this.translateCommitError(error, data.roleId, departmentId));
       await (this.prisma as any).userLifecycleOperation.update({
         where: { id: operationId },
         data: { state: 'COMPLETED', result: { reasonCode: 'USER_REHIRED' } },
@@ -575,8 +896,9 @@ export class UsersService {
       throw err;
     }
 
+    const setupWarnings = await this.setupWarnings(userId, ['DEPARTMENT_MISSING', 'HIERARCHY_MISSING']);
     const { password, ...result } = rehired;
-    return result;
+    return { ...result, setupWarnings };
   }
 
   /**
@@ -673,6 +995,14 @@ export class UsersService {
     // reactivate toggle stays for ordinary deactivation.
     if (clean.isActive === true && (await this.archivedAt(id))) {
       throw new BadRequestException('This user is archived. Use Rehire to bring them back.');
+    }
+    // Reactivation revokes sessions and reset codes and re-checks role and
+    // department, so it is never a plain field edit (B6).
+    if (clean.isActive === true) {
+      const current = await this.prisma.user.findUnique({ where: { id }, select: { isActive: true } });
+      if (current?.isActive === false) {
+        throw new BadRequestException({ message: 'This user is deactivated. Use Reactivate to bring them back.', code: 'USE_REACTIVATE' });
+      }
     }
 
     // HR AUTHORITY MAY BE COMBINED WITH ANY ROLE EXCEPT SUPER ADMIN.
@@ -776,7 +1106,7 @@ export class UsersService {
 
   async remove(id: string, actorId?: string) {
     await this.assertNotSystemAccount(id);
-    await this.prisma.user.update({ where: { id }, data: { isActive: false } });
+    await this.prisma.user.update({ where: { id }, data: { isActive: false, employmentState: 'DEACTIVATED', scheduledActivationOn: null } });
     this.eventLogger.log({
       actorId: actorId ?? id,
       entityType: 'User',

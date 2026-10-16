@@ -490,8 +490,11 @@ describe('lifecycle is the latest transition, not the first one ever', () => {
       { log: jest.fn(async (e: any) => void audit.push(e)) } as any, {} as any, {} as any,
     );
 
-    await service.update('u-1', { isActive: true } as any, 'admin-1');
-    expect(audit[0].action).toBe('USER_REACTIVATED');
+    // Reactivation is its own operation now (Phase 2, B6): it revokes sessions
+    // and re-checks role and department, so the plain toggle refuses it.
+    prisma.user.findUnique.mockResolvedValueOnce({ isSystemAccount: false }).mockResolvedValueOnce({ isActive: false });
+    await expect(service.update('u-1', { isActive: true } as any, 'admin-1')).rejects.toThrow(/Use Reactivate/);
+    expect(prisma.user.update).not.toHaveBeenCalled();
 
     audit.length = 0;
     await service.update('u-1', { isActive: false } as any, 'admin-1');

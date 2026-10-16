@@ -37,6 +37,7 @@ export interface LocationSample {
   latitude: number;
   longitude: number;
   accuracyMeters: number | null;
+  altitudeMeters?: number | null;
   /** From position.timestamp, not the browser clock at handling time. */
   capturedAt: string;
 }
@@ -99,6 +100,10 @@ export function toSample(position: any): LocationSample | null {
     // than it is, and the server compares it against policy.
     accuracyMeters:
       typeof position?.coords?.accuracy === 'number' ? position.coords.accuracy : null,
+    altitudeMeters:
+      typeof position?.coords?.altitude === 'number' && Number.isFinite(position.coords.altitude)
+        ? position.coords.altitude
+        : null,
     capturedAt: new Date(ts).toISOString(),
   };
 }

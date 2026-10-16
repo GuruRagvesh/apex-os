@@ -20,10 +20,13 @@ Generate each key separately, on a trusted machine, and paste it straight into t
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-- Archive and Rehire do not need the two handle keys. **Permanent delete refuses with `HANDLE_KEYS_MISSING`** when either is absent or not exactly 32 bytes.
+- Archive and Rehire do not need the two handle keys. **Permanent delete refuses with `HANDLE_KEYS_MISSING`** when either is absent, not exactly 32 bytes, or both values are the same.
 - Use different keys per environment.
 - **Do not rotate the keys while a deletion is in `CLEANUP_PENDING`.** Its stored references can only be decrypted with the keys that wrote them. Finish or retry the cleanup first.
 - A lost key never exposes data. It only means pending cleanup items must be removed from the provider by hand.
+- This lifecycle uses the private Google Drive archive vault. Cloudflare R2 variables are not required for Archive, Rehire, verified-archive preparation or Permanent Delete.
+- **Render:** generate two new values privately (never reuse a value that has been pasted anywhere), add them only to the backend web service's Environment as `LIFECYCLE_HANDLE_ENCRYPTION_KEY` and `LIFECYCLE_HANDLE_HMAC_KEY`, then restart or redeploy the backend. Nothing is added to Vercel or the frontend. The delete preflight and the archived card name a missing or invalid variable by its name only; the values are never shown or logged.
+- `COMPANY_TIMEZONE` (default `Asia/Kolkata`) is the one company timezone used for joining dates, scheduled activation and setup-issue reminders.
 
 The migration `20261014000000_user_lifecycle_archive` must be applied before the code is deployed. It adds the lifecycle tables, `users.isSystemAccount`, `users.sessionsRevokedAt`, the row-scoped append-only DELETE exception, and the "Deleted account" principal (only when the INTERN role exists).
 
@@ -46,7 +49,35 @@ If the Drive folder itself cannot be removed, the operation is left in `ARCHIVE_
 
 ## Rehire
 
-Rehire is the only way back from archived, from the archived card or from **Add user** with the same email. It may change the email (checked for uniqueness), invalidates the archive snapshot (`INVALIDATED_REHIRED`), revokes old sessions, and reopens nothing. A later archive is a new version in a new folder. Edit and Reactivate refuse archived users.
+Rehire is the only way back from archived, from the archived card or from **Add user** with the same email. It may change the email (checked for uniqueness), invalidates the archive snapshot (`INVALIDATED_REHIRED`), revokes old sessions and password reset codes, and reopens nothing. It keeps the user ID and employee ID, closes the previous employment period and opens a new one on the return date, so the gap stays visible. A future return date makes the account `SCHEDULED_TO_JOIN`. A later archive is a new version in a new folder. Edit and Reactivate refuse archived users, and Rehire refuses anyone who is not archived (`USER_NOT_ARCHIVED`).
+
+## Reactivate
+
+For a **deactivated** user only (`POST /users/:id/reactivate`). It brings back the same account and the same employment period: joining date, employee ID and history are unchanged and no new period is opened. The role is re-checked and the department may be changed or cleared. Sessions and reset codes issued before the reactivation stop working. Someone deactivated before their joining date goes back to `SCHEDULED_TO_JOIN`. The plain edit (`PUT /users/:id` with `isActive: true`) refuses with `USE_REACTIVATE`.
+
+## Create User
+
+- Email is trimmed and lowercased and compared case-insensitively, under a lock on the address, so two simultaneous submissions cannot both succeed. An address already held gives one of: `EMAIL_BELONGS_TO_ACTIVE_USER` (view the person; also used for someone scheduled to join), `EMAIL_BELONGS_TO_DEACTIVATED_USER` (Reactivate), `EMAIL_BELONGS_TO_ARCHIVED_USER` (Rehire) or `EMAIL_RESERVED_FOR_SYSTEM_ACCOUNT` (refused). After a permanent deletion the address is free for a fresh account.
+- Password 8 to 128 characters, not only spaces. Joining date on or after 2020-12-01. Department optional.
+- Role and department are checked again inside the transaction. One removed after the form opened gives `ROLE_NOT_FOUND_OR_REMOVED` or `DEPARTMENT_NOT_FOUND_OR_REMOVED`; the form keeps every value and offers Choose another role / department, Continue without department, or Open departments (new tab).
+- The employee ID comes from the Phase 1 allocator and is shown after creation; numbers are never reused.
+- A future joining date creates the account as `SCHEDULED_TO_JOIN`: sign-in is refused before that company-local date (the message names the date only after a correct password), and the activation job (every 5 minutes, idempotent) activates it on the day.
+
+## Setup issues
+
+Recorded per person and code in `user_setup_issues`, never blocking access: `DEPARTMENT_MISSING`, `HIERARCHY_MISSING` (no active Team Lead or Manager, and no company fallback Manager), `ATTENDANCE_POLICY_SETUP_PENDING`, `SCHEDULED_ACTIVATION_FAILED`, `EMPLOYEE_ID_BACKFILL_FAILED`. A role or department removed during submission is a form remediation (above); continuing without a department records `DEPARTMENT_MISSING`.
+
+Admins, Super Admins and HR are notified once when an issue opens, through the notification service (their channel preferences apply; the Notification Center always keeps it), and once more after 15 days if it is still open. There is no monthly email. A daily job (09:00 company time) re-checks open issues and resolves the ones whose cause is gone.
+
+## Employee ID backfill
+
+`backend/scripts/employee-id/backfill-missing-employee-ids.ts` assigns IDs to people who have none.
+
+```bash
+npx ts-node --transpile-only scripts/employee-id/backfill-missing-employee-ids.ts
+```
+
+Without flags it is a dry run that prints the target (host and database only) and the count. `--execute --confirm-target=<host:port/database>` writes, one short transaction per person; a second run finds nothing to do. Existing codes, including malformed legacy ones, are never changed. A failure for one person opens `EMPLOYEE_ID_BACKFILL_FAILED` and the run continues. The rollback file (`--rollback-file=<path>`) lists each user ID and code assigned; setting those back to NULL undoes the run, and the numbers stay retired.
 
 ## Permanently delete
 
@@ -55,12 +86,16 @@ Only for an archived user whose snapshot is still usable. Before anything is del
 - the snapshot is missing, stale, from another environment, or invalidated by a rehire;
 - the data fingerprint no longer matches the snapshot, or new live work appeared;
 - the archive in Drive is missing or its bytes changed;
-- retention (`RETENTION_PERIOD_ACTIVE`, `LEGAL_HOLD`, or `POLICY_NOT_CONFIGURED` when no rule applies; default deny);
+- an active or requested legal hold, or an explicitly approved retention period that has not elapsed;
 - `HANDLE_KEYS_MISSING`.
+
+Missing retention configuration is reported as `POLICY_NOT_CONFIGURED`, but is a setup warning rather than a retention instruction and does not block deletion. An explicit approved period is always enforced until it expires.
+
+When a legacy snapshot is missing, genuinely stale or damaged, the archived-user card offers **Prepare Verified Archive** or **Rebuild Verified Archive**. This scans the already archived account, writes and reads back immutable snapshot version N+1, and never reactivates the user or reopens work. A matching healthy snapshot is reused. A failed replacement leaves the previous snapshot and archived account unchanged.
 
 The admin types the user's email to confirm. The database deletion is one short transaction with no network calls. External files are removed afterwards: the operation goes `DB_DELETED` → `CLEANUP_PENDING` → `PERMANENTLY_DELETED`. Shared files (for example ticket attachments) are copied into the archive but never deleted. If a provider is down, **Retry cleanup** (`POST /user-lifecycle/operations/:id/cleanup-retry`) is idempotent.
 
-Users archived before this feature show **"Backup verification unavailable"** and cannot be permanently deleted.
+Users archived before this feature show **"Backup verification unavailable"** until an administrator prepares their first verified snapshot.
 
 ## Checking an operation
 

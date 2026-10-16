@@ -16,6 +16,7 @@ export interface SubmitPunchInput {
   latitude: number;
   longitude: number;
   accuracyMeters?: number | null;
+  altitudeMeters?: number | null;
   clientCapturedAt?: string | null;
   photoAssetId: string;
 
@@ -60,6 +61,10 @@ export interface OwnPunchEvidence {
   latitude: number | null;
   longitude: number | null;
   accuracyMeters: number | null;
+  altitudeMeters: number | null;
+  altitudeStatus: string | null;
+  accuracyStatus: string | null;
+  policyContextStatus: string | null;
   distanceFromLocationMeters: number | null;
   geofenceRadiusMeters: number | null;
   accuracyThresholdMeters: number | null;

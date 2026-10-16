@@ -91,6 +91,7 @@ export function PunchModal({
         latitude: reading.latitude,
         longitude: reading.longitude,
         accuracyMeters: reading.accuracyMeters,
+        altitudeMeters: reading.altitudeMeters,
         clientCapturedAt: capturedAtRef.current,
         photoAssetId,
       });

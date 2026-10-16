@@ -165,6 +165,11 @@ describe('sample selection', () => {
     expect(toSample(position({ coords: { accuracy: undefined } }))!.accuracyMeters).toBeNull();
   });
 
+  it('captures altitude when available and leaves it null when the device omits it', () => {
+    expect(toSample(position({ coords: { altitude: 552.4 } }))!.altitudeMeters).toBe(552.4);
+    expect(toSample(position({ coords: { altitude: undefined } }))!.altitudeMeters).toBeNull();
+  });
+
   it('refuses a position with no usable coordinates', () => {
     expect(toSample({ coords: { latitude: NaN, longitude: 1 }, timestamp: NOW })).toBeNull();
     expect(toSample(null)).toBeNull();

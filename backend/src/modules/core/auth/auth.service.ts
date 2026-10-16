@@ -41,7 +41,23 @@ export class AuthService {
     const user = await this.findUserByEmailCI(dto.email, { role: true, department: true });
 
     // A system principal (the Deleted account) is never a login, whatever its state.
-    if (!user || !user.isActive || (user as any).isSystemAccount) throw new UnauthorizedException('Invalid credentials');
+    if (!user || (user as any).isSystemAccount) throw new UnauthorizedException('Invalid credentials');
+    if (!user.isActive) {
+      // Someone scheduled to join is told when their account starts, but only
+      // after the right password, so the message reveals nothing to a guesser.
+      const scheduledFor = (user as any).employmentState === 'SCHEDULED_TO_JOIN' ? (user as any).scheduledActivationOn as Date | null : null;
+      if (scheduledFor && (await bcrypt.compare(dto.password, user.password))) {
+        const startsOn = scheduledFor.toISOString().slice(0, 10);
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.COMPANY_TIMEZONE || 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        throw new UnauthorizedException({
+          message: startsOn > today
+            ? `Your account starts on ${startsOn}. You can sign in from that date.`
+            : 'Your account is being activated. Please try again in a few minutes.',
+          code: 'ACCOUNT_SCHEDULED_TO_JOIN',
+        });
+      }
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');
@@ -100,8 +116,8 @@ export class AuthService {
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
-    if (!newPassword || newPassword.length < 8) {
-      throw new BadRequestException('New password must be at least 8 characters');
+    if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128 || newPassword.trim().length === 0) {
+      throw new BadRequestException('Password must be between 8 and 128 characters and cannot be blank.');
     }
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -175,8 +191,8 @@ export class AuthService {
   }
 
   async resetPasswordWithOtp(email: string, otp: string, newPassword: string) {
-    if (!newPassword || newPassword.length < 8) {
-      throw new BadRequestException('New password must be at least 8 characters');
+    if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128 || newPassword.trim().length === 0) {
+      throw new BadRequestException('Password must be between 8 and 128 characters and cannot be blank.');
     }
 
     const normalizedEmail = email.trim().toLowerCase();

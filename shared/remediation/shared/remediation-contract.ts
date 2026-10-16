@@ -26,6 +26,7 @@ export const ALLOWED_RETRY_ENDPOINTS = [
   'LIFECYCLE_ARCHIVE_CLEANUP_RETRY',
   'ARCHIVE_PREFLIGHT',
   'PERMANENT_DELETE_PREFLIGHT',
+  'VERIFIED_ARCHIVE_PREPARE',
 ] as const;
 export type AllowedRetryEndpoint = (typeof ALLOWED_RETRY_ENDPOINTS)[number];
 
@@ -37,10 +38,15 @@ export const REMEDIATION_ACTION_IDS = [
   'OPEN_USER_DIRECTORY',
   'OPEN_LEAVE_POLICY_SETTINGS',
   'OPEN_NOTIFICATION_SETTINGS',
+  'OPEN_ARCHIVE_FOLDER',
+  'OPEN_DEPARTMENTS',
+  'CHOOSE_ANOTHER_ROLE',
+  'CHOOSE_ANOTHER_DEPARTMENT',
+  'CONTINUE_WITHOUT_DEPARTMENT',
 ] as const;
 export type RemediationActionId = (typeof REMEDIATION_ACTION_IDS)[number];
 
-export type RemediationActionKind = 'NAVIGATE' | 'RETRY_VERIFICATION' | 'SAFE_REPAIR' | 'OPEN_CONFIGURATION' | 'COPY_DIAGNOSTIC';
+export type RemediationActionKind = 'NAVIGATE' | 'RETRY_VERIFICATION' | 'SAFE_REPAIR' | 'OPEN_CONFIGURATION' | 'COPY_DIAGNOSTIC' | 'OPEN_ARCHIVE_FOLDER' | 'FORM_FIX';
 
 export const ACTION_KIND: Record<RemediationActionId, RemediationActionKind> = {
   RETRY_VERIFICATION: 'RETRY_VERIFICATION',
@@ -50,6 +56,12 @@ export const ACTION_KIND: Record<RemediationActionId, RemediationActionKind> = {
   OPEN_USER_DIRECTORY: 'NAVIGATE',
   OPEN_LEAVE_POLICY_SETTINGS: 'OPEN_CONFIGURATION',
   OPEN_NOTIFICATION_SETTINGS: 'OPEN_CONFIGURATION',
+  OPEN_ARCHIVE_FOLDER: 'OPEN_ARCHIVE_FOLDER',
+  OPEN_DEPARTMENTS: 'NAVIGATE',
+  // Handled by the form that raised the error; the form keeps every value.
+  CHOOSE_ANOTHER_ROLE: 'FORM_FIX',
+  CHOOSE_ANOTHER_DEPARTMENT: 'FORM_FIX',
+  CONTINUE_WITHOUT_DEPARTMENT: 'FORM_FIX',
 };
 
 export interface RemediationAction {
@@ -90,7 +102,28 @@ export interface RemediationResult {
 export const NAVIGATE_ROUTES: Partial<Record<RemediationActionId, (r: RemediationResult) => string | null>> = {
   OPEN_USER_PROFILE: (r) => (r.affectedUserId ? `/users/${encodeURIComponent(r.affectedUserId)}` : null),
   OPEN_USER_DIRECTORY: () => '/users',
+  OPEN_DEPARTMENTS: () => '/departments',
 };
+
+/**
+ * NAVIGATE actions raised from inside an open form. They open in a new tab so
+ * the form, and every value typed into it, stays where it is.
+ */
+export const NEW_TAB_NAVIGATION: readonly RemediationActionId[] = ['OPEN_DEPARTMENTS'];
+
+export type FormFixHandlers = Partial<Record<RemediationActionId, () => void | Promise<void>>>;
+type ActionRunner = (action: RemediationAction, result: RemediationResult) => Promise<RemediationResult | void>;
+
+/** Wraps a runner so FORM_FIX actions go to the form that raised the error. */
+export function withFormFixes(runner: ActionRunner, fixes: FormFixHandlers): ActionRunner {
+  return async (action, result) => {
+    if (action.kind === 'FORM_FIX') {
+      await fixes[action.id]?.();
+      return;
+    }
+    return runner(action, result);
+  };
+}
 
 /** Fixed settings routes for OPEN_CONFIGURATION actions. */
 export const SETTINGS_ROUTES: Partial<Record<RemediationActionId, string>> = {
@@ -109,10 +142,15 @@ export const DENIED_DETAIL_KEYS: readonly string[] = [
 export const DISPLAYABLE_DETAIL_KEYS: Record<string, string[]> = {
   LEGAL_HOLD_ACTIVE: ['holdStatus', 'otherBlockers'],
   LEGAL_HOLD_REQUESTED: ['holdStatus', 'otherBlockers'],
-  LIFECYCLE_KEYS_MISSING: ['otherBlockers'],
-  RETENTION_POLICY_NOT_CONFIGURED: ['retentionResult', 'otherBlockers'],
+  LIFECYCLE_KEYS_MISSING: ['keyConfigurationIssues', 'otherBlockers'],
+  RETENTION_POLICY_NOT_CONFIGURED: ['retentionCategories'],
+  RETENTION_PERIOD_ACTIVE: ['retentionCategories', 'eligibleOn', 'otherBlockers'],
+  ARCHIVE_SNAPSHOT_MISSING: ['otherBlockers'],
+  ARCHIVE_SNAPSHOT_STALE: ['otherBlockers'],
   OPERATION_IN_PROGRESS: ['otherBlockers'],
   CLEANUP_PENDING: ['pendingItems'],
+  ROLE_NOT_FOUND_OR_REMOVED: ['field'],
+  DEPARTMENT_NOT_FOUND_OR_REMOVED: ['field'],
 };
 
 /** True when an error (as the authenticated client rejects it) carries a remediation. */
@@ -145,6 +183,8 @@ export function visibleActions(r: RemediationResult): RemediationAction[] {
     if (kind === 'NAVIGATE' && !NAVIGATE_ROUTES[a.id]?.(r)) continue;
     if (kind === 'OPEN_CONFIGURATION' && !SETTINGS_ROUTES[a.id]) continue;
     if (kind === 'COPY_DIAGNOSTIC' && !r.code && !r.operationId) continue;
+    // Resolved by the server for the affected user at click time.
+    if (kind === 'OPEN_ARCHIVE_FOLDER' && !r.affectedUserId) continue;
     if (out.some((x) => x.id === a.id)) continue;
     out.push({ ...a, kind });
   }

@@ -38,7 +38,7 @@ import { canonical, classifyNoHistory, collectInventory, dataFingerprint, Invent
 import { archiveFileName, collectFileObjects, FileObject, FileStore, markShared } from './archive-files';
 import { ArchivedFileEntry, buildArchiveWorkbook, readFilesSheet } from './archive-workbook';
 import { createProviderFileStore } from './provider-file-store';
-import { decryptHandle, encryptHandle, handleHmac, readHandleKeys } from './handle-crypto';
+import { decryptHandle, encryptHandle, handleHmac, handleKeyConfigurationIssues, readHandleKeys } from './handle-crypto';
 import { evaluateRetention, protectedRowDate, RetentionEvaluation } from './retention';
 import { activeHoldWhere, HoldStatusView, strongestHold } from '../../../../common/lifecycle-domain';
 import { AllowedRetryEndpoint, RemediationException, RemediationResult, buildRemediation, pickByPrecedence } from '../../../../common/remediation';
@@ -127,13 +127,25 @@ export interface DeletePreflight {
   allowed: boolean;
   reasons: { code: ReasonCode; message: string }[];
   snapshot: { status: string | null; version: number | null; verificationAvailable: boolean; backupRequired: boolean | null };
-  retention: { result: string; categories: Record<string, { rows: number; reason: string }> } | null;
+  retention: { result: string; categories: Record<string, { rows: number; reason: string; eligibleOn?: string }> } | null;
+  /** Non-blocking conditions shown beside the blockers (Phase 2): e.g. no retention rule configured. */
+  warnings: RemediationResult[];
   verifiedArchive: boolean;
   cleanupObjects: number;
   /** The strongest blocking legal hold, or null (Phase 1). */
   holdStatus: HoldStatusView | null;
   /** The highest-precedence blocker as a remediation, or null when none applies (Phase 1). */
   remediation: RemediationResult | null;
+}
+
+export interface VerifiedArchivePreflight {
+  userId: string;
+  canPrepare: boolean;
+  action: 'REUSE' | 'PREPARE' | 'REBUILD';
+  reason: 'CURRENT' | 'SNAPSHOT_MISSING' | 'SNAPSHOT_STALE' | 'NO_HISTORY_CHANGED';
+  backupRequired: boolean;
+  snapshot: { status: string | null; version: number | null; verificationAvailable: boolean };
+  operationInProgress: boolean;
 }
 
 @Injectable()
@@ -350,6 +362,35 @@ export class UserLifecycleService {
     return r;
   }
 
+  /** Retention categories with the given reason, and the latest eligibility date among them. */
+  private retentionDetails(retention: DeletePreflight['retention'], reason: string): { retentionCategories?: string[]; eligibleOn?: string } {
+    const hits = Object.entries(retention?.categories ?? {}).filter(([, v]) => v.reason === reason);
+    if (hits.length === 0) return {};
+    const dates = hits.map(([, v]) => v.eligibleOn).filter((d): d is string => !!d).sort();
+    return { retentionCategories: hits.map(([k]) => k), ...(dates.length ? { eligibleOn: dates[dates.length - 1] } : {}) };
+  }
+
+  /**
+   * The archive folder for an authorized admin, resolved at click time: the
+   * latest usable snapshot's folder, else the configured archive root. The URL
+   * never travels in a remediation payload.
+   */
+  async archiveFolder(userId: string, actor: Actor): Promise<{ url: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    this.assertTarget(user, actor);
+    const snapshot = await this.prisma.userArchiveSnapshot.findFirst({ where: { userId, folderId: { not: null } }, orderBy: { version: 'desc' }, select: { folderId: true } });
+    let folderId = snapshot?.folderId ?? null;
+    if (!folderId) {
+      try {
+        folderId = readDriveConfig(this.ports.env(), this.environment()).rootFolderId ?? null;
+      } catch {
+        folderId = null;
+      }
+    }
+    if (!folderId) throw new NotFoundException({ code: REASON.ARCHIVE_VAULT_NOT_READY, message: 'No archive folder is configured for this environment.' });
+    return { url: `https://drive.google.com/drive/folders/${encodeURIComponent(folderId)}` };
+  }
+
   /** The strongest blocking legal hold for a person (ACTIVE / legacy-active beats REQUESTED). */
   private async holdStatusFor(db: any, userId: string): Promise<HoldStatusView | null> {
     const rows = await db.userLegalHold.findMany({ where: { userId, ...activeHoldWhere() }, select: { status: true, releasedAt: true } });
@@ -388,6 +429,239 @@ export class UserLifecycleService {
       backupRequired,
       remediation,
     };
+  }
+
+  /**
+   * Read-only status for preparing an immutable snapshot of an already archived
+   * account. Provider read-back happens in the POST so this endpoint never
+   * changes state and remains inexpensive enough for the archived-user card.
+   */
+  async verifiedArchivePreflight(userId: string, actor: Actor): Promise<VerifiedArchivePreflight> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    this.assertTarget(user, actor);
+    const archived = await this.archivedAt(this.prisma, userId);
+    if (!archived || user!.isActive) {
+      throw new ConflictException({ code: REASON.NOT_ARCHIVED, message: 'Only an archived user can have a verified archive prepared.' });
+    }
+    const [snapshot, op] = await Promise.all([
+      this.prisma.userArchiveSnapshot.findFirst({ where: { userId, status: { in: USABLE_SNAPSHOT_STATUSES } }, orderBy: { version: 'desc' } }),
+      this.inflight(this.prisma, userId),
+    ]);
+    const inv = await collectInventory(this.prisma, userId, { systemUserId: DELETED_ACCOUNT.id, operationId: null, now: this.ports.now() });
+    const history = classifyNoHistory(inv);
+    const same = !!snapshot && snapshot.environment === this.environment() && snapshot.dataFingerprint === dataFingerprint(inv);
+    const noHistoryChanged = snapshot?.status === SNAPSHOT_STATUS.NO_HISTORY_VERIFIED && !history.noHistory;
+    const action = !snapshot ? 'PREPARE' : same && !noHistoryChanged ? 'REUSE' : 'REBUILD';
+    const reason = !snapshot ? 'SNAPSHOT_MISSING' : noHistoryChanged ? 'NO_HISTORY_CHANGED' : same ? 'CURRENT' : 'SNAPSHOT_STALE';
+    return {
+      userId,
+      canPrepare: !op,
+      action,
+      reason,
+      backupRequired: !history.noHistory,
+      snapshot: { status: snapshot?.status ?? null, version: snapshot?.version ?? null, verificationAvailable: !!snapshot },
+      operationInProgress: !!op,
+    };
+  }
+
+  /**
+   * Creates snapshot N+1 for an already archived account without reactivating
+   * it, closing work, changing sessions or writing another USER_ARCHIVED event.
+   * A matching existing snapshot is read back and reused. Any replacement is
+   * uploaded and verified before one short transaction atomically invalidates
+   * the old snapshot and records the new one.
+   */
+  async prepareVerifiedArchive(userId: string, actor: Actor, input: { idempotencyKey?: string }) {
+    const idempotencyKey = this.validIdempotencyKey(input?.idempotencyKey);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    this.assertTarget(user, actor);
+    if (!(await this.archivedAt(this.prisma, userId)) || user!.isActive) {
+      throw new ConflictException({ code: REASON.NOT_ARCHIVED, message: 'Only an archived user can have a verified archive prepared.' });
+    }
+    const existingByKey = await this.prisma.userLifecycleOperation.findUnique({ where: { idempotencyKey } });
+    if (existingByKey) return this.operationView(existingByKey);
+    const pending = await this.inflight(this.prisma, userId);
+    if (pending) {
+      throw new ConflictException({ code: REASON.OPERATION_IN_PROGRESS, message: 'Another archive, rehire or deletion is already running for this user.', operationId: pending.id });
+    }
+    const { op, replay } = await this.startOperation(OPERATION_KIND.ARCHIVE, userId, actor.id, idempotencyKey);
+    if (replay) return this.operationView(op);
+
+    const now = this.ports.now();
+    const environment = this.environment();
+    const ctx: MatrixContext = { systemUserId: DELETED_ACCOUNT.id, operationId: op.id, now };
+    const drive: { vault?: ArchiveVault; folderId?: string } = {};
+    try {
+      const blockers = await this.responsibilityBlockers(this.prisma, userId, user!.employeeId ?? null, now);
+      if (Object.keys(blockers).length > 0) {
+        throw new LifecycleRefusal(REASON.ACTIVE_RESPONSIBILITIES, 'This archived user has responsibilities that must be handed over before rebuilding the archive.', blockers);
+      }
+      const active = await this.activeWork(this.prisma, userId);
+      if (Object.values(active.summary).some((n) => n > 0)) {
+        throw new LifecycleRefusal(REASON.NEW_ACTIVE_WORK, 'This archived user has active work. Resolve it before rebuilding the archive.');
+      }
+
+      const inv = await collectInventory(this.prisma, userId, ctx);
+      const history = classifyNoHistory(inv);
+      const fingerprint = dataFingerprint(inv);
+      const current = await this.prisma.userArchiveSnapshot.findFirst({
+        where: { userId, status: { in: USABLE_SNAPSHOT_STATUSES } },
+        include: { files: true },
+        orderBy: { version: 'desc' },
+      });
+
+      // Reuse means provider verification succeeded now, not merely that the
+      // database fingerprint matched.
+      if (current && current.environment === environment && current.dataFingerprint === fingerprint) {
+        let reusable = current.status === SNAPSHOT_STATUS.NO_HISTORY_VERIFIED && history.noHistory;
+        if (current.status === SNAPSHOT_STATUS.VERIFIED) {
+          try {
+            await this.verifyExistingArchive(current, current.files);
+            reusable = true;
+          } catch {
+            reusable = false;
+          }
+        }
+        if (reusable) {
+          await this.finishOperation(op.id, OPERATION_STATE.COMPLETED, {
+            reasonCode: REASON.ADMIN_REQUEST,
+            snapshotVersion: current.version,
+            backupRequired: current.backupRequired,
+            reused: true,
+          }, { snapshotId: current.id });
+          return this.operationView(await this.prisma.userLifecycleOperation.findUniqueOrThrow({ where: { id: op.id } }));
+        }
+      }
+
+      const previous = await this.prisma.userArchiveSnapshot.aggregate({ where: { userId }, _max: { version: true } });
+      const version = (previous._max.version ?? 0) + 1;
+      const archiveRef = opaqueId();
+      const snapshotId = opaqueId();
+      let backup: Awaited<ReturnType<UserLifecycleService['writeArchive']>> | null = null;
+      if (!history.noHistory) {
+        backup = await this.writeArchive(this.prisma, inv, {
+          archiveRef,
+          version,
+          environment,
+          operationId: op.id,
+          classificationVersion: history.classificationVersion,
+          fingerprint,
+          now,
+          closures: [],
+        }, drive);
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${userId} FOR UPDATE`;
+        const running = await tx.userLifecycleOperation.findUnique({ where: { id: op.id } });
+        if (!running || running.state !== OPERATION_STATE.RUNNING) throw new LifecycleRefusal(REASON.OPERATION_IN_PROGRESS, 'The verified archive operation is no longer running.');
+        const locked = await tx.user.findUnique({ where: { id: userId } });
+        if (!locked || locked.isActive || !(await this.archivedAt(tx, userId))) throw new LifecycleRefusal(REASON.NOT_ARCHIVED, 'Only an archived user can have a verified archive prepared.');
+        const blockersNow = await this.responsibilityBlockers(tx, userId, locked.employeeId ?? null, now);
+        if (Object.keys(blockersNow).length > 0) throw new LifecycleRefusal(REASON.ACTIVE_RESPONSIBILITIES, 'Responsibilities changed while the archive was being prepared.', blockersNow);
+        const workNow = await this.activeWork(tx, userId);
+        if (Object.values(workNow.summary).some((n) => n > 0)) throw new LifecycleRefusal(REASON.NEW_ACTIVE_WORK, 'Active work appeared while the archive was being prepared.');
+        if (dataFingerprint(await collectInventory(tx, userId, ctx)) !== fingerprint) {
+          throw new LifecycleRefusal(REASON.ARCHIVE_DATA_CHANGED, 'This user\'s data changed while the archive was being written. The existing snapshot remains unchanged; try again.');
+        }
+
+        const old = await tx.userArchiveSnapshot.findMany({ where: { userId, status: { in: USABLE_SNAPSHOT_STATUSES } }, select: { id: true, version: true } });
+        await tx.userArchiveSnapshot.updateMany({
+          where: { userId, status: { in: USABLE_SNAPSHOT_STATUSES } },
+          data: { status: SNAPSHOT_STATUS.INVALIDATED_DATA_CHANGED, invalidatedAt: now, invalidationReason: REASON.ADMIN_REQUEST },
+        });
+        await tx.userArchiveSnapshot.create({
+          data: {
+            id: snapshotId,
+            userId,
+            archiveRef,
+            version,
+            status: backup ? SNAPSHOT_STATUS.VERIFIED : SNAPSHOT_STATUS.NO_HISTORY_VERIFIED,
+            backupRequired: !!backup,
+            provider: backup ? 'google-drive' : null,
+            environment,
+            folderId: backup?.folderId ?? null,
+            folderPath: backup?.folderPath ?? null,
+            workbookFileId: backup?.workbookFileId ?? null,
+            workbookSizeBytes: backup?.workbookSizeBytes ?? null,
+            workbookSha256: backup?.workbookSha256 ?? null,
+            fileCount: backup?.files.length ?? 0,
+            schemaVersion: ARCHIVE_SCHEMA_VERSION,
+            classificationVersion: history.classificationVersion,
+            dataFingerprint: fingerprint,
+            backupFingerprint: fingerprint,
+            dependencyCounts: history.historyCounts,
+            ignoredSetupCounts: history.ignoredSetupCounts,
+            operationId: op.id,
+            createdById: actor.id,
+            verifiedAt: now,
+          },
+        });
+        if (backup?.files.length) {
+          await tx.userArchiveFile.createMany({
+            data: backup.files.map((f) => ({
+              snapshotId,
+              seq: f.seq,
+              provider: f.provider,
+              shared: f.shared,
+              archiveFileId: f.archiveFileId,
+              archivePath: `files/${f.archiveFileName}`,
+              sizeBytes: f.sizeBytes,
+              sha256: f.sha256,
+              sourceCount: f.sources.length,
+            })),
+          });
+        }
+        for (const prior of old) {
+          await this.writeEvent(tx, {
+            actorId: actor.id,
+            entityType: 'User',
+            entityId: userId,
+            action: LIFECYCLE_EVENT.ARCHIVE_SNAPSHOT_INVALIDATED,
+            fromState: 'ARCHIVED',
+            toState: 'ARCHIVED',
+            reasonCode: REASON.ADMIN_REQUEST,
+            operationId: op.id,
+            snapshotVersion: prior.version,
+          });
+        }
+        await this.writeEvent(tx, {
+          actorId: actor.id,
+          entityType: 'User',
+          entityId: userId,
+          action: backup ? LIFECYCLE_EVENT.ARCHIVE_BACKUP_VERIFIED : LIFECYCLE_EVENT.ARCHIVE_NO_HISTORY_VERIFIED,
+          fromState: 'ARCHIVED',
+          toState: 'ARCHIVED',
+          reasonCode: REASON.ADMIN_REQUEST,
+          operationId: op.id,
+          snapshotVersion: version,
+          counts: { files: backup?.files.length ?? 0 },
+        });
+        await tx.userLifecycleOperation.update({
+          where: { id: op.id },
+          data: {
+            state: OPERATION_STATE.COMPLETED,
+            snapshotId,
+            result: { reasonCode: REASON.ADMIN_REQUEST, snapshotVersion: version, backupRequired: !!backup, files: backup?.files.length ?? 0, reused: false },
+          },
+        });
+      }, { timeout: this.ports.transactionTimeoutMs, maxWait: MAX_TX_WAIT_MS });
+
+      return this.operationView(await this.prisma.userLifecycleOperation.findUniqueOrThrow({ where: { id: op.id } }));
+    } catch (err: any) {
+      const code: ReasonCode = err instanceof LifecycleRefusal ? err.code : err instanceof FolderNotPrivate ? REASON.ARCHIVE_PRIVACY_FAILED : REASON.ARCHIVE_DB_FAILED;
+      const cleanupFailed = await this.discardPendingArchive(drive);
+      await this.finishOperation(op.id, cleanupFailed ? OPERATION_STATE.ARCHIVE_CLEANUP_PENDING : OPERATION_STATE.FAILED, {
+        reasonCode: code,
+        ...(cleanupFailed ? { pendingFolderId: drive.folderId } : {}),
+      });
+      if (!(err instanceof LifecycleRefusal) && !(err instanceof FolderNotPrivate)) {
+        this.logger.error(`Verified archive operation ${op.id} failed: ${String(err?.message ?? err).split('\n')[0].slice(0, 200)}`);
+      }
+      const remediation = this.remediationFor(code, { userId, operationId: op.id, retryEndpoint: cleanupFailed ? 'LIFECYCLE_ARCHIVE_CLEANUP_RETRY' : undefined });
+      if (remediation) await recordLifecycleAttempt(this.prisma, { operationId: op.id, subjectUserId: userId, phase: 'FAILURE', outcome: 'BLOCKED', actorId: actor.id, remediation });
+      throw this.toHttp(err, code, undefined, remediation);
+    }
   }
 
   /** Whether the archive vault is configured here. Reads configuration only; never contacts the provider. */
@@ -789,6 +1063,7 @@ export class UserLifecycleService {
       this.prisma.userLifecycleOperation.findMany({ where: { userId: { in: ids }, state: { in: [OPERATION_STATE.RUNNING, OPERATION_STATE.VERIFIED_FOR_DELETE, OPERATION_STATE.ARCHIVE_CLEANUP_PENDING] } }, select: { userId: true, kind: true, state: true } }),
       this.prisma.userLegalHold.findMany({ where: { userId: { in: ids }, ...activeHoldWhere() }, select: { userId: true, status: true, releasedAt: true } }),
     ]);
+    const keysConfigured = !!readHandleKeys(this.ports.env());
     return ids.map((id) => {
       const s = snapshots.find((x) => x.userId === id);
       const o = ops.find((x) => x.userId === id);
@@ -800,6 +1075,8 @@ export class UserLifecycleService {
         verificationAvailable: !!s,
         operationInProgress: o ? { kind: o.kind, state: o.state } : null,
         holdStatus: strongestHold(holds.filter((h: any) => h.userId === id)),
+        // Global readiness, so each archived card can say why Delete is unavailable.
+        deletionKeysConfigured: keysConfigured,
       };
     });
   }
@@ -892,6 +1169,7 @@ export class UserLifecycleService {
       cleanupObjects: 0,
       holdStatus: null,
       remediation: null,
+      warnings: [],
     };
     const finish = () => {
       // Precedence (E2): legal hold, then missing keys, then ordinary retention, then the rest.
@@ -901,10 +1179,21 @@ export class UserLifecycleService {
       out.remediation = reason
         ? this.remediationFor(reason.code, {
             userId,
-            details: { ...(out.holdStatus ? { holdStatus: out.holdStatus } : {}), ...(others.length ? { otherBlockers: others } : {}), ...(out.retention ? { retentionResult: out.retention.result } : {}) },
-            retryEndpoint: 'PERMANENT_DELETE_PREFLIGHT',
+            details: {
+              ...(out.holdStatus ? { holdStatus: out.holdStatus } : {}),
+              ...(others.length ? { otherBlockers: others } : {}),
+              ...(out.retention ? { retentionResult: out.retention.result } : {}),
+              ...(reason.code === REASON.HANDLE_KEYS_MISSING ? { keyConfigurationIssues: handleKeyConfigurationIssues(this.ports.env()) } : {}),
+              ...(reason.code === REASON.RETENTION_BLOCKED ? this.retentionDetails(out.retention, REASON.PERIOD_NOT_ELAPSED) : {}),
+            },
+            // Archive repair runs the rebuild; everything else re-runs this preflight.
+            retryEndpoint: REMEDIATION_CODE_FOR_REASON[reason.code]?.startsWith('ARCHIVE_SNAPSHOT_') ? 'VERIFIED_ARCHIVE_PREPARE' : 'PERMANENT_DELETE_PREFLIGHT',
           })
         : null;
+      const unconfigured = this.retentionDetails(out.retention, REASON.POLICY_NOT_CONFIGURED);
+      if (unconfigured.retentionCategories) {
+        out.warnings = [buildRemediation('RETENTION_POLICY_NOT_CONFIGURED', { affectedUserId: userId, details: { retentionCategories: unconfigured.retentionCategories }, now: this.ports.now() })];
+      }
       out.allowed = reasons.length === 0;
       return out;
     };
@@ -914,16 +1203,16 @@ export class UserLifecycleService {
       return finish();
     }
     if (!snapshot) {
-      refuse(REASON.SNAPSHOT_MISSING, 'Backup verification unavailable. This user was archived before verified snapshots existed.');
+      refuse(REASON.SNAPSHOT_MISSING, 'Backup verification unavailable: no verified archive exists yet. Prepare a verified archive before deleting.');
       return finish();
     }
     if (snapshot.environment !== this.environment()) refuse(REASON.SNAPSHOT_WRONG_ENVIRONMENT, 'The archive belongs to a different environment.');
     if (await this.inflight(this.prisma, userId)) refuse(REASON.OPERATION_IN_PROGRESS, 'Another archive, rehire or deletion is running for this user.');
     const now = this.ports.now();
     const inv = await collectInventory(this.prisma, userId, { systemUserId: DELETED_ACCOUNT.id, operationId: null, now });
-    if (dataFingerprint(inv) !== snapshot.dataFingerprint) refuse(REASON.SNAPSHOT_STALE, 'This user\'s data changed after archiving. Archive them again before deleting.');
+    if (dataFingerprint(inv) !== snapshot.dataFingerprint) refuse(REASON.SNAPSHOT_STALE, 'This user\'s data changed after archiving. Rebuild the verified archive before deleting.');
     if (snapshot.status === SNAPSHOT_STATUS.NO_HISTORY_VERIFIED && !classifyNoHistory(inv).noHistory) {
-      refuse(REASON.NO_HISTORY_NO_LONGER_EMPTY, 'This user now has history. Archive them again before deleting.');
+      refuse(REASON.NO_HISTORY_NO_LONGER_EMPTY, 'This user now has history. Rebuild the verified archive before deleting.');
     }
     const work = await this.activeWork(this.prisma, userId);
     if (Object.values(work.summary).some((n) => n > 0)) refuse(REASON.NEW_ACTIVE_WORK, 'This user has active work again. Archive them again before deleting.');
@@ -940,7 +1229,9 @@ export class UserLifecycleService {
         out.verifiedArchive = true;
         out.cleanupObjects = plan.length;
       } catch (err: any) {
-        if (err instanceof LifecycleRefusal || err instanceof FolderNotPrivate) refuse(REASON.ARCHIVE_MISSING_OR_CHANGED, err.message);
+        // A sharing problem is fixed by the archive owner in Drive, not by a rebuild.
+        if (err instanceof FolderNotPrivate || (err instanceof LifecycleRefusal && /shared beyond/i.test(err.message))) refuse(REASON.ARCHIVE_PRIVACY_FAILED, 'The archive is shared beyond the archive account.');
+        else if (err instanceof LifecycleRefusal) refuse(REASON.ARCHIVE_MISSING_OR_CHANGED, err.message);
         else refuse(REASON.ARCHIVE_MISSING_OR_CHANGED, 'The existing archive could not be verified.');
       }
     } else if (snapshot.status === SNAPSHOT_STATUS.NO_HISTORY_VERIFIED) {

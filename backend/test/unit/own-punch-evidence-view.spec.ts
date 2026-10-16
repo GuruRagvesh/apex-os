@@ -101,7 +101,10 @@ describe('own punch evidence view', () => {
     expect(Object.keys(toOwnEvidenceView(row())).sort()).toEqual(
       [
         'accuracyMeters',
+        'accuracyStatus',
         'accuracyThresholdMeters',
+        'altitudeMeters',
+        'altitudeStatus',
         'businessDate',
         'clientCapturedAt',
         'distanceFromLocationMeters',
@@ -113,6 +116,7 @@ describe('own punch evidence view', () => {
         'longitude',
         'photoAssetId',
         'photoVerification',
+        'policyContextStatus',
         'serverOccurredAt',
         'source',
         'type',

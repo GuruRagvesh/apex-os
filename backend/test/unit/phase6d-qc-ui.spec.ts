@@ -120,9 +120,10 @@ describe('Sonali 5: Users & Roles dialogs are centred on the screen', () => {
   });
 
   it('no dialog logic changed: the same mutations the screen always used', () => {
-    for (const s of ['usersApi.deactivate(id)', 'usersApi.update(id, { isActive })']) {
-      expect(users).toContain(s);
-    }
+    expect(users).toContain('usersApi.deactivate(id)');
+    // Phase 2: reactivation is its own audited operation, not a field toggle.
+    expect(users).not.toContain('usersApi.update(id, { isActive })');
+    expect(lifecycleModals).toContain('usersApi.reactivate(user.id, {');
     // Archive and permanent deletion moved to the lifecycle endpoints.
     for (const s of ['usersApi.archive(user.id, key)', 'usersApi.permanentDelete(user.id, { idempotencyKey: key, confirmation })', 'usersApi.rehire(user.id,']) {
       expect(lifecycleModals).toContain(s);
@@ -160,7 +161,9 @@ describe('Sonali 6: user cards keep the approved responsive directory layout', (
     expect(card).toContain('title="Archive user"');
     expect(card).toContain("title={lifecycleBusy ? 'Another archive, rehire or deletion is running' : 'Rehire user'}");
     expect(card).toContain("title={deleteDisabledReason ?? 'Permanently delete user'}");
-    expect(users).toContain('updateCachedUserActiveStatus(vars.id, vars.isActive);');
+    expect(users).toContain('updateCachedUserActiveStatus(u.id, !!u.isActive);');
+    // Someone scheduled to join is never offered Reactivate.
+    expect(card).toContain('{!scheduled && <button');
     expect(users).toContain('updateCachedUserActiveStatus(id, false);');
   });
 });

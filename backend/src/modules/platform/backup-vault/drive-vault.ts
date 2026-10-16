@@ -2,9 +2,9 @@
  * The deleted-user archive vault: a private Google Drive, reached with OAuth
  * 2.0 offline access on behalf of one named account, scope `drive.file`.
  *
- * Cloudflare R2 is NOT used for deleted-user archives. (The full database
- * backup that permanent deletion also requires lives in R2; that is a separate
- * vault with separate credentials.)
+ * Cloudflare R2 is NOT used or required for the archived-user lifecycle. Any
+ * independent database-backup subsystem is separate from Archive, Rehire and
+ * Permanent Delete readiness.
  *
  * `drive.file` lets Apex OS see and manage only the files and folders it
  * created itself. The archive root folder must therefore be created by this
