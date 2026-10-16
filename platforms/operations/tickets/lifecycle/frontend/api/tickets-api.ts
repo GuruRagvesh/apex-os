@@ -110,7 +110,7 @@ export const ticketsApi = {
   getStats: () => r(api.get('/tickets/stats')),
   getSlaRisk: () => r(api.get('/tickets/sla-risk')),
   // Cross-department recipients for QUERY/HELP routing — separate from the TASK
-  // assignee flow (getAll() + client-side department filter), which is untouched.
+  // creation-assignee directory below.
   // _ts busts the cache: Express auto-generates an ETag for this JSON response, and
   // when the browser revalidates with a matching If-None-Match it gets back a bare
   // 304 with no body. Axios's default validateStatus only accepts 2xx, so a 304
@@ -125,6 +125,8 @@ export const ticketsApi = {
   // getRoutingOptions above — see that comment for why _ts is required here.
   getRoutingDepartments: (type: 'QUERY' | 'HELP') =>
     r(api.get('/tickets/routing-departments', { params: { type, _ts: Date.now() } })),
+  getCreationAssignees: () =>
+    r(api.get('/tickets/creation-assignees', { params: { _ts: Date.now() } })),
   getKanban: (params?: any) => r(api.get('/tickets/kanban', { params })),
   blockTicket: (id: string, reason: string) => r(api.post(`/tickets/${id}/block`, { reason })),
   unblockTicket: (id: string) => r(api.post(`/tickets/${id}/unblock`)),
@@ -154,4 +156,21 @@ export const ticketsApi = {
     a.click();
     URL.revokeObjectURL(url);
   },
+};
+
+/** Personal reusable Create Ticket presets. Ownership always comes from JWT. */
+export const ticketTemplatesApi = {
+  list: () => r(api.get('/ticket-templates')),
+  get: (id: string) => r(api.get(`/ticket-templates/${id}`)),
+  create: (data: any) => r(api.post('/ticket-templates', data)),
+  update: (id: string, data: any) => r(api.patch(`/ticket-templates/${id}`, data)),
+  remove: (id: string) => r(api.delete(`/ticket-templates/${id}`)),
+  duplicate: (id: string) => r(api.post(`/ticket-templates/${id}/duplicate`, {})),
+  setVisibility: (id: string, isVisible: boolean) =>
+    r(api.patch(`/ticket-templates/${id}/visibility`, { isVisible })),
+  setPin: (id: string, isPinned: boolean) =>
+    r(api.patch(`/ticket-templates/${id}/pin`, { isPinned })),
+  reorder: (ids: string[]) => r(api.patch('/ticket-templates/reorder', { ids })),
+  updatePreference: (visibleCount: number) =>
+    r(api.patch('/ticket-templates/preference', { visibleCount })),
 };

@@ -116,6 +116,14 @@ export class TicketsController {
     return this.ticketsService.getRoutingDepartments(query.type);
   }
 
+  // Minimal, ticket-scoped directory for TASK creation. The service permits
+  // only Team Lead, Manager, Admin and Super Admin callers.
+  @Get('creation-assignees')
+  @Header('Cache-Control', 'no-store')
+  getCreationAssignees(@CurrentUser() user: any) {
+    return this.ticketsService.getTaskCreationAssignees(user);
+  }
+
   // The caller's own running clock (employee work or review) and its ticket.
   // Static route: must stay above @Get(':id').
   @Get('active-timer')

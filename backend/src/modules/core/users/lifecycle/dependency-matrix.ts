@@ -135,6 +135,9 @@ export const HANDLERS: Handler[] = [
     history: false, sheet: 'Lifecycle Operations', note: 'Lifecycle bookkeeping (no-history-v1 ignores it): earlier operations about the person; the running one is scrubbed by the service.',
   },
   { key: 'UserLegalHold.userId', model: 'UserLegalHold', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Legal Holds', note: 'Only released holds can exist here; an active hold blocks deletion.' },
+  // Private Create Ticket presets. They describe nothing that happened, so they are not history.
+  { key: 'QuickTicketTemplate.ownerUserId', model: 'QuickTicketTemplate', field: 'ownerUserId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Ticket Templates', note: 'The person\'s own private templates: archived in the workbook, then deleted.' },
+  { key: 'QuickTicketTemplatePreference.ownerUserId', model: 'QuickTicketTemplatePreference', field: 'ownerUserId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Ticket Templates', note: 'The person\'s own Quick Tag display preference.' },
 
   // ── 4. Shared records: reassign required actor/owner columns ──────────────
   { key: 'Ticket.createdById', model: 'Ticket', field: 'createdById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Tickets Created', note: 'Shared ticket stays.' },
@@ -248,7 +251,18 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'User.verifiedBy': 'NAME text about another person; no ownership proof, kept and counted.',
   'EmployeeDocument.verifiedBy': 'NAME text about another document; no ownership proof, kept and counted.',
   'UserArchiveSnapshot.userId': 'Managed by the service: consumed snapshot cleared, others cleared.',
+  'QuickTicketTemplate.assigneeIds': 'Service-managed array cleanup: the deleted person is removed from other owners\' templates inside the Permanent Delete transaction (TEMPLATE_ASSIGNEES_REMOVED).',
 };
+
+/**
+ * Handlers added after verified snapshots already existed. While they find no
+ * rows they are left out of the data fingerprint, so archives verified before
+ * they existed do not turn stale. Any row they do find is fingerprinted.
+ */
+export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set([
+  'QuickTicketTemplate.ownerUserId',
+  'QuickTicketTemplatePreference.ownerUserId',
+]);
 
 /** JSON columns scrubbed of exact identity matches (id, email, employee code). */
 export const JSON_SCRUB_COLUMNS: { model: string; table: string; column: string }[] = [
