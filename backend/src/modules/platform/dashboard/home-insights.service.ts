@@ -14,6 +14,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface HomeInsightDay {
   date: string;
+  ticketsCreated: number;
   ticketsDone: number;
   ticketsSubmitted: number;
   ticketMinutes: number;
@@ -123,7 +124,7 @@ export class HomeInsightsService {
     const inRange = { gte: rangeStart, lt: rangeEnd };
     const mine = this.mine(user.id);
 
-    const [done, submitted, logs] = await Promise.all([
+    const [done, submitted, created, logs] = await Promise.all([
       this.prisma.ticket.findMany({
         where: this.andWhere(mine, { status: { in: DONE_STATUSES }, closedAt: inRange }),
         select: { id: true, ticketId: true, title: true, closedAt: true, estimatedMinutes: true },
@@ -131,6 +132,13 @@ export class HomeInsightsService {
       this.prisma.ticket.findMany({
         where: this.andWhere(mine, { submittedAt: inRange }),
         select: { submittedAt: true },
+      }),
+      // Workload created during the period and currently assigned to this
+      // person. This keeps the personal comparison scoped like the rest of
+      // the Home productivity view instead of counting company-wide tickets.
+      this.prisma.ticket.findMany({
+        where: this.andWhere(mine, { createdAt: inRange }),
+        select: { createdAt: true },
       }),
       this.prisma.ticketTimeLog.findMany({
         where: {
@@ -145,7 +153,7 @@ export class HomeInsightsService {
 
     const days = new Map<string, HomeInsightDay>();
     for (let d = start; d <= end; d = addDays(d, 1)) {
-      days.set(d, { date: d, ticketsDone: 0, ticketsSubmitted: 0, ticketMinutes: 0, estimatedMinutesDone: 0, doneTickets: [] });
+      days.set(d, { date: d, ticketsCreated: 0, ticketsDone: 0, ticketsSubmitted: 0, ticketMinutes: 0, estimatedMinutesDone: 0, doneTickets: [] });
     }
     const bucket = (at: Date | null | undefined) => (at ? days.get(this.tva.companyBusinessDate(at)) : undefined);
 
@@ -159,6 +167,10 @@ export class HomeInsightsService {
     for (const t of submitted) {
       const row = bucket(t.submittedAt);
       if (row) row.ticketsSubmitted += 1;
+    }
+    for (const t of created) {
+      const row = bucket(t.createdAt);
+      if (row) row.ticketsCreated += 1;
     }
 
     // Split each time log across the company days it covers, so a timer left

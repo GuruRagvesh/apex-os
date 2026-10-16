@@ -7,6 +7,8 @@ import { api, unwrap as r } from '@apex/shared-auth';
  */
 export interface HomeProductivityDay {
   date: string;
+  /** Tickets added to this user's workload on this company business date. */
+  ticketsCreated: number;
   ticketsDone: number;
   ticketsSubmitted: number;
   /** Time logged on tickets; ticket timers pause on breaks, so breaks are excluded. */
@@ -17,4 +19,12 @@ export interface HomeProductivityDay {
 
 export async function getHomeProductivity(from: string, to: string): Promise<HomeProductivityDay[]> {
   return r(api.get('/home/productivity', { params: { from, to } }));
+}
+
+export interface HomePersonalHighlights {
+  averageBreakMinutes: number | null;
+}
+
+export async function getHomePersonalHighlights(month: string): Promise<HomePersonalHighlights> {
+  return r(api.get('/home/personal-highlights', { params: { month } }));
 }

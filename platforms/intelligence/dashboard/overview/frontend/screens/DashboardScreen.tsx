@@ -18,7 +18,8 @@ import { AlertTriangle } from 'lucide-react';
 import type { HomeExperience } from './home-types';
 import { SmartAnnouncementsCarousel, type HomeCarouselData } from '../components/SmartAnnouncementsCarousel';
 import { HeroQuickActions } from './HeroQuickActions';
-import { TeamInsightsSection, ProjectInsightsSection } from './TeamProjectSections';
+import { TeamInsightsSection } from './TeamInsightsSection';
+import { PersonalHighlightsSection } from './PersonalHighlightsSection';
 
 type HeroDaypart = 'morning' | 'afternoon' | 'evening' | 'night';
 
@@ -237,11 +238,11 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
         </motion.div>
       )}
 
+      {user?.id && isContributor && <div className="mt-6"><PersonalHighlightsSection /></div>}
+
       {user?.id && isLeadOrAbove && <div className="mt-6 space-y-5">
-        {experience && <>
-          <TeamInsightsSection team={experience.team} />
-          <ProjectInsightsSection projects={experience.projects} />
-        </>}
+        {experience && <TeamInsightsSection team={experience.team} />}
+        {(role === 'TEAM_LEAD' || role === 'MANAGER') && <PersonalHighlightsSection />}
       </div>}
     </div>
   );

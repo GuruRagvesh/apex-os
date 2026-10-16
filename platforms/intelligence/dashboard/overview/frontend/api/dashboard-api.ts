@@ -39,6 +39,9 @@ export const dashboardApi = {
   getHomeSummary: () => r(api.get('/home/summary')),
   getHomeKpis: (): Promise<HomeKpis> => r(api.get('/home/kpis')),
   getHomeExperience: () => r(api.get('/home/experience')),
+  getTeamInsights: (params: { departmentId?: string; personId?: string; month: string; week: string }) =>
+    r(api.get('/home/team-insights', { params })),
+  getPersonalHighlights: (month?: string) => r(api.get('/home/personal-highlights', { params: { month } })),
   getHomeCarousel: () => r(api.get('/home/carousel')),
   getHomeActivity: (scope: 'my' | 'team' | 'company') => r(api.get('/home/activity', { params: { scope } })),
   getHomeWorkspace: () => r(api.get('/home/workspace')),
