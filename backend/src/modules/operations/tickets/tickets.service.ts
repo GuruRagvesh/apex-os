@@ -99,6 +99,27 @@ export const TICKET_LIST_ORDER: Prisma.TicketOrderByWithRelationInput[] = [
   { updatedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' },
 ];
 
+/** Exactly the fields TicketTimingService.getTimingState reads, plus the id. */
+export const TICKET_TIMING_SELECT = {
+  id: true,
+  status: true,
+  priority: true,
+  isBlocked: true,
+  blockedAt: true,
+  blockedReason: true,
+  cancelledAt: true,
+  createdAt: true,
+  updatedAt: true,
+  actualStartAt: true,
+  scheduledStartAt: true,
+  estimatedMinutes: true,
+  dueDate: true,
+  executionDueAt: true,
+  reviewDueAt: true,
+  reviewStartedAt: true,
+  submittedAt: true,
+} satisfies Prisma.TicketSelect;
+
 /** The title prefix of the "ticket entered review" notification. */
 export const REVIEW_NEEDED_TITLE_PREFIX = 'Review needed:';
 
@@ -665,19 +686,30 @@ export class TicketsService {
     const needsTimingFilter = query.overdue === true || query.overdue === 'true' || query.risk === 'overdue' || query.filter === 'overdue';
 
     if (needsTimingFilter) {
+      // Decide "overdue" from the timing fields alone, then load full details
+      // only for the page shown. Loading every open ticket with all its
+      // relations ran the API out of memory (512MB) on a few hundred tickets.
       const candidates = await this.prisma.ticket.findMany({
         where: this.andWhere(where, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }),
-        include: this.includeOptions,
+        select: TICKET_TIMING_SELECT,
         orderBy,
       });
-      const withSla = await this.addSlaMany(candidates);
-      const overdueTickets = withSla.filter((ticket: any) => ticket.timing?.isOverdue ?? ticket.isOverdue);
+      const slaConfig = await this.ticketTiming.getSlaConfig();
+      const overdueIds = candidates
+        .filter((ticket) => this.ticketTiming.getTimingState(ticket, slaConfig).isOverdue)
+        .map((ticket) => ticket.id);
+      const pageIds = overdueIds.slice(skip, skip + limit);
+      const pageRows = pageIds.length
+        ? await this.prisma.ticket.findMany({ where: { id: { in: pageIds } }, include: this.includeOptions })
+        : [];
+      const byId = new Map(pageRows.map((ticket) => [ticket.id, ticket]));
+      const ordered = pageIds.map((id) => byId.get(id)).filter((ticket): ticket is NonNullable<typeof ticket> => Boolean(ticket));
       return {
-        tickets: overdueTickets.slice(skip, skip + limit),
-        total: overdueTickets.length,
+        tickets: await this.addSlaMany(ordered),
+        total: overdueIds.length,
         page,
         limit,
-        totalPages: Math.ceil(overdueTickets.length / limit),
+        totalPages: Math.ceil(overdueIds.length / limit),
       };
     }
 
