@@ -11,7 +11,7 @@ function setup() {
   };
   const hierarchy = { isApproverFor: jest.fn().mockResolvedValue(false) };
   const access = { isHrOrAdmin: jest.fn().mockReturnValue(false) };
-  const svc = new RegularizationService(prisma as any, { companyDateOnly: (date: Date) => date } as any, { log: jest.fn().mockResolvedValue(undefined) } as any, hierarchy as any, access as any, { get: jest.fn().mockResolvedValue({ regularizationEnabled: true }) } as any, {} as any);
+  const svc = new RegularizationService(prisma as any, { companyDateOnly: (date: Date) => date, companyToday: () => '2026-10-12' } as any, { log: jest.fn().mockResolvedValue(undefined) } as any, hierarchy as any, access as any, { get: jest.fn().mockResolvedValue({ regularizationEnabled: true }) } as any, {} as any);
   return { svc, prisma, hierarchy, access };
 }
 describe('Correction screenshot supporting attachments', () => {

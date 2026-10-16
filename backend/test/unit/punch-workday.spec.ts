@@ -150,6 +150,7 @@ function rig(opts: RigOptions = {}) {
         return Promise.resolve(row);
       }),
     },
+    punchEvidenceReview: { create: jest.fn().mockResolvedValue({ id: 'review-1' }) },
     attendancePunchPhoto: {
       findUnique: jest.fn(() =>
         Promise.resolve('photo' in opts ? opts.photo : { ...FRESH_PHOTO }),
@@ -252,7 +253,7 @@ describe('PE-4 punch starts a workday', () => {
     expect(workday.startWorkInTransaction).not.toHaveBeenCalled();
   });
 
-  it('7. a blocked daily context never reaches the workday', async () => {
+  it('7. a policy-blocked daily context still records the raw workday and review', async () => {
     const { service, prisma, workday } = rig({
       context: {
         ...REQUIRED_CONTEXT,
@@ -261,11 +262,10 @@ describe('PE-4 punch starts a workday', () => {
       },
     });
 
-    await expect(service.submit('emp-1', PUNCH_IN)).rejects.toBeInstanceOf(
-      PunchNotApplicableError,
-    );
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(workday.startWorkInTransaction).not.toHaveBeenCalled();
+    await expect(service.submit('emp-1', PUNCH_IN)).resolves.toBeDefined();
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(workday.startWorkInTransaction).toHaveBeenCalled();
+    expect(prisma.punchEvidenceReview.create).toHaveBeenCalled();
   });
 
   it('8. a missing or expired photo never reaches the workday', async () => {

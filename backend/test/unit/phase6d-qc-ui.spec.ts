@@ -12,6 +12,8 @@ const read = (rel: string) => fs.readFileSync(path.join(REPO, rel), 'utf8').repl
 const sidebar = read('frontend/components/layout/sidebar.tsx');
 const css = read('frontend/app/globals.css');
 const users = read('platforms/core/users/administration/frontend/screens/UsersScreen.tsx');
+// Archive, Rehire and Permanently delete live in their own module; they are Users & Roles dialogs too.
+const lifecycleModals = read('platforms/core/users/administration/frontend/screens/UserLifecycleModals.tsx');
 const deptList = read('platforms/core/organization/departments/frontend/screens/DepartmentsScreen.tsx');
 const deptDetail = read('platforms/core/organization/departments/frontend/screens/DepartmentDetailScreen.tsx');
 const deptTeams = read('platforms/workforce/teams/team-management/frontend/components/DepartmentTeams.tsx');
@@ -109,14 +111,24 @@ describe('Sonali 5: Users & Roles dialogs are centred on the screen', () => {
 
   it('every Users & Roles dialog is a fixed full-screen overlay with blur, no margin, and fits short screens', () => {
     const overlays = users.match(/fixed inset-0 !m-0 z-\[?\d+\]? flex items-center justify-center p-4 bg-black\/\d+ backdrop-blur-sm/g) ?? [];
-    expect(overlays.length).toBe(6);
-    expect(users.split('modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto').length - 1).toBe(6);
+    // UsersScreen: Edit, Deactivate, New User. The lifecycle module has one shared
+    // shell used by Archive, Rehire and Permanently delete.
+    expect(overlays.length).toBe(3);
+    expect(users.split('modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto').length - 1).toBe(3);
+    expect((lifecycleModals.match(/fixed inset-0 !m-0 z-\[?\d+\]? flex items-center justify-center p-4 bg-black\/\d+ backdrop-blur-sm/g) ?? []).length).toBe(1);
+    expect(lifecycleModals.split('modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto').length - 1).toBe(1);
   });
 
   it('no dialog logic changed: the same mutations the screen always used', () => {
-    for (const s of ['usersApi.deactivate(id)', 'usersApi.permanentDelete(vars.id)', 'usersApi.archiveAfterBackup(id, { confirmBackupDownloaded: true })', 'usersApi.update(id, { isActive })']) {
-      expect(users).toContain(s);
+    expect(users).toContain('usersApi.deactivate(id)');
+    // Phase 2: reactivation is its own audited operation, not a field toggle.
+    expect(users).not.toContain('usersApi.update(id, { isActive })');
+    expect(lifecycleModals).toContain('usersApi.reactivate(user.id, {');
+    // Archive and permanent deletion moved to the lifecycle endpoints.
+    for (const s of ['usersApi.archive(user.id, key)', 'usersApi.permanentDelete(user.id, { idempotencyKey: key, confirmation })', 'usersApi.rehire(user.id,']) {
+      expect(lifecycleModals).toContain(s);
     }
+    expect(users).not.toContain('archiveAfterBackup');
   });
 });
 
@@ -145,8 +157,13 @@ describe('Sonali 6: user cards keep the approved responsive directory layout', (
     expect(card).toContain('title="Download user backup (.xlsx)"');
     expect(card).toContain('title="Deactivate user"');
     expect(card).toContain('title="Reactivate user"');
-    expect(card).toContain('title="Permanently delete user"');
-    expect(users).toContain('updateCachedUserActiveStatus(vars.id, vars.isActive);');
+    // Archived cards: Rehire and Permanently delete; the delete title says why it is disabled.
+    expect(card).toContain('title="Archive user"');
+    expect(card).toContain("title={lifecycleBusy ? 'Another archive, rehire or deletion is running' : 'Rehire user'}");
+    expect(card).toContain("title={deleteDisabledReason ?? 'Permanently delete user'}");
+    expect(users).toContain('updateCachedUserActiveStatus(u.id, !!u.isActive);');
+    // Someone scheduled to join is never offered Reactivate.
+    expect(card).toContain('{!scheduled && <button');
     expect(users).toContain('updateCachedUserActiveStatus(id, false);');
   });
 });

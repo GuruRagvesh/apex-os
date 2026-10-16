@@ -5,11 +5,12 @@ import { NotificationsModule } from '../../operations/notifications/notification
 import { TicketsModule } from '../../operations/tickets/tickets.module'; // for ticketLedger if needed
 import { WorkdayNotesController } from './workday-notes.controller';
 import { WorkdayNotesService } from './workday-notes.service';
+import { MeetingService } from './meeting.service';
 
 @Module({
   imports: [NotificationsModule, TicketsModule],
   controllers: [WorkdayController, WorkdayNotesController],
-  providers: [WorkdayService, WorkdayNotesService],
-  exports: [WorkdayService],
+  providers: [WorkdayService, WorkdayNotesService, MeetingService],
+  exports: [WorkdayService, MeetingService],
 })
 export class WorkdayModule {}

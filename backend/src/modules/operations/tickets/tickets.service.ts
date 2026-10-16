@@ -99,6 +99,27 @@ export const TICKET_LIST_ORDER: Prisma.TicketOrderByWithRelationInput[] = [
   { updatedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' },
 ];
 
+/** Exactly the fields TicketTimingService.getTimingState reads, plus the id. */
+export const TICKET_TIMING_SELECT = {
+  id: true,
+  status: true,
+  priority: true,
+  isBlocked: true,
+  blockedAt: true,
+  blockedReason: true,
+  cancelledAt: true,
+  createdAt: true,
+  updatedAt: true,
+  actualStartAt: true,
+  scheduledStartAt: true,
+  estimatedMinutes: true,
+  dueDate: true,
+  executionDueAt: true,
+  reviewDueAt: true,
+  reviewStartedAt: true,
+  submittedAt: true,
+} satisfies Prisma.TicketSelect;
+
 /** The title prefix of the "ticket entered review" notification. */
 export const REVIEW_NEEDED_TITLE_PREFIX = 'Review needed:';
 
@@ -479,8 +500,8 @@ export class TicketsService {
   }
 
   // Selectable recipients for cross-department QUERY/HELP routing. Deliberately
-  // separate from the TASK assignee flow (usersApi.getAll() + client-side dept
-  // filter) — TASK assignment stays department/team scoped exactly as before.
+  // separate from the TASK creation directory, whose role gate is implemented
+  // by getTaskCreationAssignees().
   // Returns only the minimal identity fields needed to route a request: never
   // the full user record (no payroll/personal fields, no archived/inactive
   // users). Employee/Intern raising a QUERY are funneled to TL/Manager of the
@@ -502,9 +523,8 @@ export class TicketsService {
     if (!department) throw new NotFoundException('Target department not found');
 
     // QUERY and HELP are anyone-to-anyone: any active user in the target department
-    // is a valid recipient, regardless of the requester's or recipient's role. Only
-    // TASK assignment is role/department scoped — that flow is untouched and never
-    // reaches this method.
+    // is a valid recipient, regardless of the requester's or recipient's role.
+    // TASK creation never reaches this method.
     const where: any = { departmentId: targetDepartmentId, isActive: true };
 
     const users = await this.prisma.user.findMany({
@@ -550,6 +570,34 @@ export class TicketsService {
     });
 
     return departments;
+  }
+
+  async getTaskCreationAssignees(user: any) {
+    const roleName = user?.role?.name ?? user?.role ?? '';
+    if (!['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
+      throw new ForbiddenException('You do not have permission to assign Task tickets to other users');
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        avatar: true,
+        role: { select: { name: true } },
+        department: { select: { id: true, name: true } },
+      },
+      orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
+    });
+
+    return users.map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      avatar: candidate.avatar,
+      role: candidate.role,
+      departmentId: candidate.department?.id ?? null,
+      departmentName: candidate.department?.name ?? null,
+    }));
   }
 
   async processApproval(id: string, payload: { action: 'APPROVE' | 'REJECT'; reason?: string }, user: any) {
@@ -665,19 +713,58 @@ export class TicketsService {
     const needsTimingFilter = query.overdue === true || query.overdue === 'true' || query.risk === 'overdue' || query.filter === 'overdue';
 
     if (needsTimingFilter) {
+      // Decide "overdue" from the timing fields alone, then load full details
+      // only for the page shown. Loading every open ticket with all its
+      // relations ran the API out of memory (512MB) on a few hundred tickets.
       const candidates = await this.prisma.ticket.findMany({
         where: this.andWhere(where, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }),
+        select: TICKET_TIMING_SELECT,
+        orderBy,
+      });
+      const slaConfig = await this.ticketTiming.getSlaConfig();
+      const overdueIds = candidates
+        .filter((ticket) => this.ticketTiming.getTimingState(ticket, slaConfig).isOverdue)
+        .map((ticket) => ticket.id);
+      const pageIds = overdueIds.slice(skip, skip + limit);
+      const pageRows = pageIds.length
+        ? await this.prisma.ticket.findMany({ where: { id: { in: pageIds } }, include: this.includeOptions })
+        : [];
+      const byId = new Map(pageRows.map((ticket) => [ticket.id, ticket]));
+      const ordered = pageIds.map((id) => byId.get(id)).filter((ticket): ticket is NonNullable<typeof ticket> => Boolean(ticket));
+      return {
+        tickets: await this.addSlaMany(ordered),
+        total: overdueIds.length,
+        page,
+        limit,
+        totalPages: Math.ceil(overdueIds.length / limit),
+      };
+    }
+
+    // Home's review KPI counts decisions the viewer can actually take. Keep
+    // its destination on the same authority rule instead of showing every
+    // REVIEW ticket the viewer can merely see.
+    if (query.filter === 'actionable-review' || query.filter === 'personal-review') {
+      const candidates = await this.prisma.ticket.findMany({
+        where: this.andWhere(where, { status: TicketStatus.REVIEW }),
         include: this.includeOptions,
         orderBy,
       });
-      const withSla = await this.addSlaMany(candidates);
-      const overdueTickets = withSla.filter((ticket: any) => ticket.timing?.isOverdue ?? ticket.isOverdue);
+      const matching: typeof candidates = [];
+      if (query.filter === 'personal-review') {
+        matching.push(...candidates.filter((ticket) => ticket.assignedToId === user?.id || ticket.createdById === user?.id || ticket.assignees.some((assignee) => assignee.userId === user?.id)));
+      } else {
+        for (let index = 0; index < candidates.length; index += 20) {
+          const batch = candidates.slice(index, index + 20);
+          const allowed = await Promise.all(batch.map((ticket) => this.ticketAccess.viewerCanApprove(user, ticket)));
+          for (let item = 0; item < batch.length; item++) if (allowed[item]) matching.push(batch[item]);
+        }
+      }
       return {
-        tickets: overdueTickets.slice(skip, skip + limit),
-        total: overdueTickets.length,
+        tickets: await this.addSlaMany(matching.slice(skip, skip + limit)),
+        total: matching.length,
         page,
         limit,
-        totalPages: Math.ceil(overdueTickets.length / limit),
+        totalPages: Math.ceil(matching.length / limit),
       };
     }
 
@@ -947,7 +1034,10 @@ export class TicketsService {
   // executionDueAt computation instead of a second, drifting copy of this logic.
   private async normalizeTicketCreateData(data: any, userId: string, user?: any): Promise<{ data: any; assigneeIds: string[] }> {
     // Extract assigneeIds before passing data to Prisma (not a real Ticket column)
-    let assigneeIds: string[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
+    const rawAssigneeIds: unknown[] = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
+    let assigneeIds: string[] = [...new Set(
+      rawAssigneeIds.filter((id): id is string => typeof id === 'string' && Boolean(id)),
+    )];
     delete data.assigneeIds;
 
     // A new ticket starts OPEN (the column default) or PENDING_APPROVAL (set
@@ -1030,11 +1120,40 @@ export class TicketsService {
     // isUUID() returns false for a real cuid, so the lookup must also match by id,
     // mirroring the departmentId resolution above. Without the id branch, a valid
     // assignedToId sent from the client was silently nulled out here.)
-    if (data.assignedToId && !isUUID(data.assignedToId)) {
+    const isSelfAssignedWorkerTask = ['EMPLOYEE', 'INTERN'].includes(creatorRole) && requestType === 'TASK';
+    if (data.assignedToId && !isUUID(data.assignedToId) && !isSelfAssignedWorkerTask) {
       const assignee = await this.prisma.user.findFirst({
         where: { OR: [{ id: data.assignedToId }, { name: { equals: data.assignedToId, mode: 'insensitive' } }] },
       });
       data.assignedToId = assignee?.id ?? undefined;
+    }
+
+    // TASK creation permits cross-department assignees only for the approved
+    // hierarchy. Employee/Intern was forced to self above. Validate the full
+    // list server-side so a crafted payload cannot select an inactive or
+    // unauthorized account even though the UI uses the scoped endpoint.
+    if (requestType === 'TASK') {
+      const selectedIds = [...new Set([
+        ...assigneeIds,
+        ...(data.assignedToId ? [data.assignedToId] : []),
+      ])];
+      if (selectedIds.length) {
+        const mayAssignOthers = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(creatorRole);
+        if (!mayAssignOthers && selectedIds.some((id) => id !== userId)) {
+          throw new ForbiddenException('You do not have permission to assign Task tickets to other users');
+        }
+        // The authenticated Employee/Intern is already known active and was
+        // forced to self. Elevated creators may select anybody, so verify each
+        // selected id against active users regardless of department.
+        if (mayAssignOthers) {
+          const selectedUsers = await Promise.all(selectedIds.map((id) =>
+            this.prisma.user.findFirst({ where: { id, isActive: true }, select: { id: true } }),
+          ));
+          if (selectedUsers.some((candidate) => !candidate)) {
+            throw new BadRequestException('Every assignee must be an active user');
+          }
+        }
+      }
     }
 
     // ── Cross-department routing for QUERY / HELP ────────────────────────────
@@ -3385,4 +3504,118 @@ export class TicketsService {
 
     return { overdue, dueSoon, reviewAgeing, unassigned, blocked, total: candidates.length };
   }
+
+  // ── Archive User: active-work closure ─────────────────────────────────────
+  //
+  // Archiving a person must not leave live work pointing at them. These two
+  // methods let the lifecycle service do that inside ITS transaction, through
+  // this service's own transition path (transition matrix, timers, history,
+  // SLA stamps) rather than by writing ticket columns directly.
+
+  /**
+   * Read-only plan for one person's open tickets (status not DONE/CLOSED):
+   *   close     they are the primary and no active co-assignee remains
+   *   promote   they are the primary; the earliest active co-assignee takes over
+   *   remove    they are a co-assignee only; the ticket stays with the others
+   *   unwatch   open tickets they watch
+   *   blocked   tickets still in PENDING_APPROVAL (a decision, not a status change)
+   */
+  async planArchiveTicketChanges(userId: string) {
+    const open = { status: { notIn: [TicketStatus.DONE, TicketStatus.CLOSED] } };
+    const tickets = await this.prisma.ticket.findMany({
+      where: { ...open, OR: [{ assignedToId: userId }, { assignees: { some: { userId } } }] },
+      select: {
+        id: true,
+        status: true,
+        assignedToId: true,
+        assignees: {
+          select: { id: true, userId: true, assignedAt: true, user: { select: { isActive: true, isSystemAccount: true } } },
+          orderBy: [{ assignedAt: 'asc' }, { id: 'asc' }],
+        },
+      },
+      orderBy: { id: 'asc' },
+    });
+    const plan = {
+      close: [] as string[],
+      promote: [] as { ticketId: string; to: string }[],
+      remove: [] as { ticketId: string; closeAfter: boolean }[],
+      unwatch: [] as string[],
+      blocked: [] as string[],
+    };
+    for (const t of tickets) {
+      if (t.status === TicketStatus.PENDING_APPROVAL) {
+        plan.blocked.push(t.id);
+        continue;
+      }
+      // Deterministic: earliest assignedAt, then assignment row id.
+      const eligible = t.assignees.filter((a) => a.userId !== userId && a.user.isActive && !a.user.isSystemAccount);
+      if (t.assignedToId === userId) {
+        if (eligible.length > 0) plan.promote.push({ ticketId: t.id, to: eligible[0].userId });
+        else plan.close.push(t.id);
+      } else {
+        const primaryActive = t.assignedToId !== null;
+        plan.remove.push({ ticketId: t.id, closeAfter: !primaryActive && eligible.length === 0 });
+      }
+    }
+    const watched = await this.prisma.ticketWatcher.findMany({
+      where: { userId, ticket: open },
+      select: { ticketId: true },
+      orderBy: { ticketId: 'asc' },
+    });
+    plan.unwatch = watched.map((w) => w.ticketId);
+    return plan;
+  }
+
+  /**
+   * Applies a plan inside the caller's transaction. Status and primary-owner
+   * changes go through prepareUpdate/commitUpdate; co-assignee and watcher rows
+   * are removed directly with a history row. Notifications run only after the
+   * caller commits (returned as afterCommit callbacks).
+   */
+  async applyArchiveTicketChanges(
+    tx: Prisma.TransactionClient,
+    plan: Awaited<ReturnType<TicketsService['planArchiveTicketChanges']>>,
+    userId: string,
+    actor: any,
+    operationId: string,
+  ) {
+    const afterCommit: AfterCommit = [];
+    const opts: UpdateOptions = { suppressCompletionNotification: true };
+    const mark = (ticketId: string, field: string, oldValue: string | null, newValue: string | null) =>
+      tx.ticketHistory.create({ data: { ticketId, field, oldValue, newValue, changedById: actor.id } });
+
+    const close = async (ticketId: string) => {
+      const prepared = await this.prepareUpdate(ticketId, { status: TicketStatus.CLOSED }, actor.id, actor, opts);
+      await this.commitUpdate(tx, prepared, actor.id, opts, afterCommit);
+      await mark(ticketId, 'archiveOperation', null, operationId);
+    };
+
+    for (const ticketId of plan.close) await close(ticketId);
+    for (const p of plan.promote) {
+      const prepared = await this.prepareUpdate(p.ticketId, { assignedToId: p.to }, actor.id, actor, opts);
+      await this.commitUpdate(tx, prepared, actor.id, opts, afterCommit);
+      await tx.ticketAssignee.deleteMany({ where: { ticketId: p.ticketId, userId } });
+      await mark(p.ticketId, 'archiveOperation', null, operationId);
+    }
+    for (const r of plan.remove) {
+      await tx.ticketAssignee.deleteMany({ where: { ticketId: r.ticketId, userId } });
+      await mark(r.ticketId, 'assignees', 'removed: archived user', null);
+      if (r.closeAfter) await close(r.ticketId);
+      else await mark(r.ticketId, 'archiveOperation', null, operationId);
+    }
+    if (plan.unwatch.length > 0) {
+      await tx.ticketWatcher.deleteMany({ where: { userId, ticketId: { in: plan.unwatch } } });
+      for (const ticketId of plan.unwatch) await mark(ticketId, 'watchers', 'removed: archived user', null);
+    }
+    return {
+      afterCommit,
+      counts: { closed: plan.close.length + plan.remove.filter((r) => r.closeAfter).length, promoted: plan.promote.length, removed: plan.remove.length, unwatched: plan.unwatch.length },
+    };
+  }
+
+  /** Runs the callbacks returned by applyArchiveTicketChanges once the caller has committed. */
+  async runArchiveAfterCommit(afterCommit: AfterCommit) {
+    await this.runAfterCommit(afterCommit);
+  }
+
 }

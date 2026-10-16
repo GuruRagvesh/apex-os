@@ -45,6 +45,16 @@ export function createTvaDouble(now: Date, timezone = 'Asia/Kolkata') {
   const companyBusinessDate = (date?: Date): string =>
     formatInTimeZone(at(date), timezone, 'yyyy-MM-dd');
 
+  /** Matches TVAService.companyInstantAt(): a wall-clock time on a business date. */
+  const companyInstantAt = (businessDate: string, hhmm: string): Date | null => {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm?.trim() ?? '');
+    if (!match) return null;
+    const anchor = new Date(`${businessDate}T12:00:00.000Z`);
+    if (Number.isNaN(anchor.getTime())) return null;
+    const hh = match[1].padStart(2, '0');
+    return new Date(formatInTimeZone(anchor, timezone, `yyyy-MM-dd'T'${hh}:${match[2]}:00.000XXX`));
+  };
+
   const elapsedSeconds = (start: Date, end?: Date): number =>
     Math.max(0, Math.floor((at(end).getTime() - start.getTime()) / 1000));
 
@@ -56,6 +66,7 @@ export function createTvaDouble(now: Date, timezone = 'Asia/Kolkata') {
     companyDayEnd: jest.fn(companyDayEnd),
     companyBusinessDate: jest.fn(companyBusinessDate),
     companyToday: jest.fn(() => companyBusinessDate()),
+    companyInstantAt: jest.fn(companyInstantAt),
     elapsedSeconds: jest.fn(elapsedSeconds),
   };
 }

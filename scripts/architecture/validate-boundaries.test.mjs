@@ -842,6 +842,47 @@ testCase(
   { expectExit: 1, expectRule: 'shared-module-public-entry' },
 );
 
+// ── Phase 1 lifecycle foundation: shared-remediation boundary ─────────────
+// The dialog, hook and contract are public through the root barrel; the HTTP
+// clients only through '@apex/shared-remediation/api'. The internal spelling
+// of the same file is rejected.
+testCase(
+  'accepts a screen importing the shared-remediation barrel and its public api subpath',
+  (root) => {
+    write(root, 'shared/remediation/index.ts', `export const RemediationDialog = () => null;
+`);
+    write(root, 'shared/remediation/frontend/remediation-api.ts', `export const createRemediationActionRunner = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { RemediationDialog } from '@apex/shared-remediation';
+import { createRemediationActionRunner } from '@apex/shared-remediation/api';
+export const S = [RemediationDialog, createRemediationActionRunner];
+`,
+    );
+  },
+  { expectExit: 0 },
+);
+
+testCase(
+  'rejects importing shared-remediation api through its internal frontend path',
+  (root) => {
+    write(root, 'shared/remediation/index.ts', `export const RemediationDialog = () => null;
+`);
+    write(root, 'shared/remediation/frontend/remediation-api.ts', `export const createRemediationActionRunner = () => null;
+`);
+    write(
+      root,
+      'platforms/core/users/administration/frontend/screens/UsersScreen.tsx',
+      `import { createRemediationActionRunner } from '@apex/shared-remediation/frontend/remediation-api';
+export const S = createRemediationActionRunner;
+`,
+    );
+  },
+  { expectExit: 1, expectRule: 'shared-module-public-entry' },
+);
+
 // 45. Reaching shared-auth internals by dynamic import() is checked too.
 testCase(
   'detects dynamic import() of shared-auth internals',
@@ -4781,6 +4822,29 @@ function assertContract(name, fn) {
     failed += 1;
   }
 }
+
+assertContract('the shared-remediation root barrel never reaches axios or the authenticated client', () => {
+  const problems = [];
+  const seen = new Set();
+  const visit = (rel) => {
+    if (seen.has(rel)) return;
+    seen.add(rel);
+    const src = readRepo(rel);
+    if (src === null) { problems.push(`${rel} is missing`); return; }
+    for (const m of codeOf(src).matchAll(/(?:import|export)[^'"]*?from\s*['"]([^'"]+)['"]/g)) {
+      const spec = m[1];
+      if (spec === 'axios' || spec.startsWith('@apex/shared-auth') || spec.includes('remediation-api')) problems.push(`${rel} imports ${spec}`);
+      if (spec.startsWith('.')) {
+        const base = join(dirname(rel), spec).replaceAll(String.fromCharCode(92), '/');
+        const next = ['.ts', '.tsx', '/index.ts'].map((ext) => base + ext).find((f) => readRepo(f) !== null);
+        if (next) visit(next);
+      }
+    }
+  };
+  visit('shared/remediation/index.ts');
+  if (!seen.has('shared/remediation/frontend/RemediationDialog.tsx')) problems.push('the barrel no longer exports the dialog');
+  return problems;
+});
 
 assertContract('exactly one production axios.create, and it is in shared/auth', () => {
   const problems = [];

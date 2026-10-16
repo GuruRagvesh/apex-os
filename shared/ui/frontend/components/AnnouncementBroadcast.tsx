@@ -65,7 +65,7 @@ export function AnnouncementBroadcast({
         <div className="space-y-1 text-left">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-mono uppercase tracking-wider leading-none">
             <span className={`font-bold ${hasAlert ? 'text-red-400' : 'text-blue-400'}`}>
-              {hasAlert ? 'Operational Alert' : 'Latest Alert'}
+              Breaking News
             </span>
             <span className="text-slate-400 font-semibold">• {today}</span>
             {hasAlert && alertCount > 1 && (
@@ -138,7 +138,7 @@ export function AnnouncementBroadcast({
                 <Info className="w-3.5 h-3.5" />
               </div>
               <div className="space-y-1.5 font-sans">
-                <h4 className="text-xs font-bold text-white">{hasAlert ? 'Operational Alert Details' : 'Alert Status'}</h4>
+                <h4 className="text-xs font-bold text-white">{hasAlert ? 'Breaking News Details' : 'Alert Status'}</h4>
                 <div className="space-y-1 font-semibold text-[10px] text-slate-400">
                   <p><span className={hasAlert ? 'text-red-400' : 'text-blue-400'}>Alert:</span> {hasAlert ? eventTitle : 'No active alerts at this time'}</p>
                   <p><span className="text-blue-400">Scope:</span> All team members in your operational scope</p>

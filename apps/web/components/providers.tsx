@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@apex/core-identity';
+import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 import { createUserChangeTracker, tokenStorageAction } from './session-boundary';
 
 // Keeps cached data and other tabs in step with who is signed in. It never
@@ -44,7 +45,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 1000 * 30, retry: 1 },
+          queries: {
+            staleTime: 1000 * 30,
+            retry: shouldRetryTransientQuery,
+            retryDelay: transientQueryRetryDelay,
+            refetchOnReconnect: true,
+          },
         },
       }),
   );

@@ -46,12 +46,17 @@ export function DayDetailDrawer({
   open,
   onClose,
   seed,
+  correctable = false,
+  onRequestCorrection,
 }: {
   date: string | null;
   open: boolean;
   onClose: () => void;
   /** The month row, shown immediately while the detail request is in flight. */
   seed?: MyAttendanceDayV2;
+  /** Whether a correction may be requested for this date (decided by the page from the backend's flags). */
+  correctable?: boolean;
+  onRequestCorrection?: (date: string) => void;
 }) {
   const requests = useQuery({
     queryKey: ['my-regularizations'],
@@ -60,6 +65,9 @@ export function DayDetailDrawer({
     retry: false,
   });
   const pending = requests.data?.find(request => request.date.slice(0, 10) === date && (request.status === 'PENDING' || request.status === 'MANAGER_APPROVED'));
+  const decided = requests.data
+    ?.filter(request => request.date.slice(0, 10) === date && (request.status === 'HR_APPROVED' || request.status === 'REJECTED'))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   const detail = useQuery({
     queryKey: ['my-attendance-v2-day', date],
     queryFn: () => getMyAttendanceDayV2(date as string),
@@ -68,9 +76,9 @@ export function DayDetailDrawer({
   });
 
   const evidence = useQuery({
-    queryKey: ['my-punch-evidence-v2'],
-    queryFn: () => getMyPunchEvidence(90),
-    enabled: open,
+    queryKey: ['my-punch-evidence-v2', date],
+    queryFn: () => getMyPunchEvidence(200, date as string),
+    enabled: open && !!date,
     staleTime: 60_000,
     retry: false,
   });
@@ -85,7 +93,7 @@ export function DayDetailDrawer({
   const day = detail.data ?? seed;
   if (!date) return null;
 
-  const dayEvidence = (evidence.data ?? []).filter((e) => e.businessDate === date);
+  const dayEvidence = (evidence.data ?? []).filter((e) => e.businessDate.slice(0, 10) === date);
 
   return (
     <V2DrawerShell
@@ -105,7 +113,9 @@ export function DayDetailDrawer({
         {day ? (
           <>
             <Badges day={day} />
-            {pending && <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-xs">Correction {stageLabel(pending.status).toLowerCase()}</p>}
+            {pending ? <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-xs">Correction {stageLabel(pending.status).toLowerCase()}</p>
+              : decided ? <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">Latest correction request: {stageLabel(decided.status).toLowerCase()}</p> : null}
+            {correctable && !pending && onRequestCorrection ? <button type="button" className={s.outline} onClick={() => onRequestCorrection(date)}>Request correction</button> : null}
             <DaySummary day={day} />
             <StatusInsight day={day} />
             <Evidence
@@ -291,6 +301,16 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
         </p>
         {item.accuracyMeters !== null ? (
           <p>GPS accuracy ±{Math.round(item.accuracyMeters)} m</p>
+        ) : (
+          <p className="text-amber-500">GPS accuracy unavailable — sent for HR review</p>
+        )}
+        {item.altitudeMeters !== null && item.altitudeMeters !== undefined ? (
+          <p>Altitude {Math.round(item.altitudeMeters)} m</p>
+        ) : (
+          <p>Altitude unavailable</p>
+        )}
+        {item.policyContextStatus === 'POLICY_SETUP_PENDING' ? (
+          <p className="text-amber-500">Attendance policy setup pending — raw punch recorded for review</p>
         ) : null}
         {item.distanceFromLocationMeters !== null ? (
           <p>{Math.round(item.distanceFromLocationMeters)} m from the registered location</p>

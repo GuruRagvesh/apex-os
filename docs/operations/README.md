@@ -12,6 +12,7 @@ recovering it, and stabilising it.
 | [`production/`](production/) | Production-environment reports and live verification. |
 | [`stabilization/`](stabilization/) | Stabilisation programmes, priority boards, remaining-issue registers, fix packs. |
 | [`monitoring/`](monitoring/) | Health checks, monitoring inventories, runtime error registers. |
+| [`archived-user-lifecycle/`](archived-user-lifecycle/) | Archive, Rehire and Permanently delete: configuration, phases, failure handling, design. |
 
 ## Does not belong here
 

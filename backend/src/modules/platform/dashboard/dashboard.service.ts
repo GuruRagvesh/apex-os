@@ -45,7 +45,8 @@ export class DashboardService {
     return tickets.filter((ticket) => this.ticketTiming.getTimingState(ticket, config).isOverdue).length;
   }
 
-  private async buildProjectScope(user: any): Promise<any> {
+  /** Project visibility for the dashboard; also used by HomeInsightsService. */
+  async buildProjectScope(user: any): Promise<any> {
     const roleName = this.accessPolicy.roleName(user);
     if (!user || this.accessPolicy.isAdmin(user)) return {};
     if (['EMPLOYEE', 'INTERN'].includes(roleName)) {

@@ -15,7 +15,6 @@ const BREAK_TYPES = [
   { type: 'RESTROOM', label: 'Restroom' },
   { type: 'PERSONAL', label: 'Personal' },
   { type: 'POWER_CUT', label: 'Connection Issue' },
-  { type: 'MEETING', label: 'Meeting' },
   { type: 'OTHER', label: 'Other' },
 ];
 
@@ -29,12 +28,13 @@ const DURATIONS = [
 interface Props {
   onClose: () => void;
   onBreakStarted: () => void;
+  initialBreakType?: string;
 }
 
-export function BreakModal({ onClose, onBreakStarted }: Props) {
+export function BreakModal({ onClose, onBreakStarted, initialBreakType = '' }: Props) {
   const queryClient = useQueryClient();
   const { permission, isSupported, requestPermission } = useDesktopNotifications();
-  const [breakType, setBreakType] = useState('');
+  const [breakType, setBreakType] = useState(initialBreakType);
   const [duration, setDuration] = useState<number | null>(null);
   const [customDuration, setCustomDuration] = useState('');
   const [showCustomDuration, setShowCustomDuration] = useState(false);

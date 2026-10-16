@@ -132,8 +132,18 @@ if (/model\s+AttendanceException\b/.test(schema)) {
       'becomes a second opinion about payroll-relevant facts.',
   );
 }
+// Models outside attendance that legitimately carry an acknowledgement. Named,
+// so a new one is a reviewed decision rather than a silent pass:
+//   UserSetupIssue -- per-user setup health (lifecycle foundation, Phase 1);
+//                     an admin acknowledges a known gap. It is not an
+//                     attendance exception and never hides one.
+const NON_ATTENDANCE_MODELS = ['UserSetupIssue'];
+const attendanceSchema = NON_ATTENDANCE_MODELS.reduce(
+  (s, model) => s.replace(new RegExp('^model\\s+' + model + '\\s*\\{[\\s\\S]*?^\\}', 'm'), ''),
+  schema,
+);
 for (const word of ['acknowledged', 'acknowledgedAt', 'exceptionResolvedAt', 'snoozedUntil']) {
-  if (new RegExp('\\b' + word + '\\b').test(schema)) {
+  if (new RegExp('\\b' + word + '\\b').test(attendanceSchema)) {
     failures.push(
       `schema.prisma has a ${word} column. An exception must disappear because the record was ` +
         'corrected, not because somebody dismissed it.',

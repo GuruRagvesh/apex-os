@@ -1,6 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 import { HealthController } from '../../src/modules/platform/health/health.controller';
 import { PunchPhotoStorage } from '../../src/modules/platform/attendance/punch/punch-photo.storage';
 
@@ -55,6 +57,32 @@ describe('PunchPhotoStorage configuration rule', () => {
       /not configured/i,
     );
   });
+
+  it('uses private signed local storage in development', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'apex-punch-photo-'));
+    try {
+      const storage = storageWith({
+        NODE_ENV: 'development',
+        JWT_SECRET: 'unit-test-signing-secret',
+        PORT: '3001',
+        ATTENDANCE_PHOTO_LOCAL_DIR: directory,
+      });
+      const bytes = Buffer.from('private-photo-bytes');
+
+      expect(storage.providerName()).toBe('local-private');
+      expect(storage.isConfigured()).toBe(true);
+      const key = await storage.upload('user-1', bytes, 'image/jpeg');
+      const url = storage.signedUrl(key);
+      const token = url.split('/').pop()!;
+      const stored = await storage.readLocalSignedPhoto(token);
+
+      expect(stored.content).toEqual(bytes);
+      expect(stored.mimeType).toBe('image/jpeg');
+      expect(url).toMatch(/^http:\/\/localhost:3001\/api\/attendance\/punch-photo\/local\//);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('health readiness reporting', () => {
@@ -91,7 +119,7 @@ describe('health readiness reporting', () => {
     const body: any = await controllerWith({}).check();
 
     expect(body.attendancePhotoStorage).toEqual({
-      provider: 'cloudinary',
+      provider: 'unconfigured',
       configured: false,
     });
   });

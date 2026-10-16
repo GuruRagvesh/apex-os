@@ -8,6 +8,94 @@
   font-display: swap;
 }
 
+/* Quick Access drawer action rail. Inspired by the compact expanding icon bar
+   in the supplied reference, while using Apex OS colours and focus behavior. */
+.apex-workspace-action-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.45rem;
+  overflow-x: auto;
+  border: 1px solid #dbeafe;
+  border-radius: 1rem;
+  background: rgba(239, 246, 255, 0.86);
+  box-shadow: 0 10px 28px rgba(30, 64, 175, 0.08);
+}
+
+.apex-workspace-action {
+  display: inline-flex;
+  align-items: center;
+  height: 2.65rem;
+  max-width: 2.65rem;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+  background: #fff;
+  color: #1e3a8a;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: max-width 260ms cubic-bezier(.2,.8,.2,1), border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.apex-workspace-action:hover,
+.apex-workspace-action:focus-visible {
+  max-width: 11rem;
+  border-color: #93c5fd;
+  background: #f8fbff;
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.14);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.apex-workspace-action-icon {
+  display: grid;
+  width: 2.55rem;
+  min-width: 2.55rem;
+  height: 2.55rem;
+  place-items: center;
+}
+
+.apex-workspace-action-label {
+  padding-right: 0.95rem;
+  opacity: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: opacity 140ms ease 50ms;
+}
+
+.apex-workspace-action:hover .apex-workspace-action-label,
+.apex-workspace-action:focus-visible .apex-workspace-action-label {
+  opacity: 1;
+}
+
+.apex-workspace-action-project { color: #6d28d9; }
+.apex-workspace-action-leave { color: #047857; }
+.apex-workspace-action-edit { color: #b45309; }
+.apex-workspace-action[aria-disabled='true'] { cursor: not-allowed; opacity: 0.48; }
+
+.dark .apex-workspace-action-strip {
+  border-color: #334155;
+  background: rgba(15, 23, 42, 0.88);
+}
+
+.dark .apex-workspace-action {
+  border-color: #334155;
+  background: #111c2f;
+  color: #bfdbfe;
+}
+
+@media (hover: none), (max-width: 640px) {
+  .apex-workspace-action {
+    max-width: 10rem;
+  }
+  .apex-workspace-action-label {
+    opacity: 1;
+  }
+}
+
 @font-face {
   font-family: 'Hyperlegible Sans';
   src: url('/fonts/hyperlegible-sans/HyperlegibleSans-Medium.woff2') format('woff2');
@@ -59,7 +147,7 @@
   --radius-lg: 24px;
 
   /* Surfaces */
-  --bg-primary:       #f8fafc;
+  --bg-primary:       #f0f7ff;
   --bg-secondary:     #ffffff;
   --bg-tertiary:      #f1f5f9;
   --surface-card:     #ffffff;
@@ -236,6 +324,290 @@ code, pre, .mono, .font-mono, [data-mono] {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.025em;
+}
+
+/* Dashboard hero: display hierarchy stays within the global Hyperlegible Sans system. */
+.apex-dashboard-hero {
+  --hero-title: #0f2747;
+  --hero-copy: #405875;
+  --hero-mesh-base: rgba(255, 255, 255, 0.17);
+  --hero-mesh-lit: rgba(255, 255, 255, 0.68);
+  --hero-pointer-x: -240px;
+  --hero-pointer-y: -240px;
+  position: relative;
+  overflow: hidden;
+  min-height: 260px;
+  padding: 2rem;
+  border: 1px solid var(--section-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+  transition: background 320ms ease, border-color 320ms ease, box-shadow 320ms ease;
+}
+.apex-dashboard-hero[data-hero-daypart="morning"] {
+  --hero-title: #ffffff;
+  --hero-copy: #eff6ff;
+  --hero-mesh-base: rgba(255, 255, 255, 0.16);
+  --hero-mesh-lit: rgba(255, 246, 196, 0.72);
+  background: linear-gradient(180deg, #1d5f8f 0%, #6f9fbd 52%, #e3c47d 82%, #f2d476 100%);
+  border-color: #78a3bd;
+  box-shadow: 0 14px 34px rgba(29, 95, 143, 0.20);
+}
+.apex-dashboard-hero[data-hero-daypart="afternoon"] {
+  --hero-title: #ffffff;
+  --hero-copy: #f8fafc;
+  --hero-mesh-base: rgba(255, 255, 255, 0.15);
+  --hero-mesh-lit: rgba(255, 255, 255, 0.74);
+  background: linear-gradient(180deg, #1679bf 0%, #55ace1 44%, #bce3f5 77%, #f4edc4 100%);
+  border-color: #67b3df;
+  box-shadow: 0 14px 34px rgba(22, 121, 191, 0.19);
+}
+.apex-dashboard-hero[data-hero-daypart="evening"] {
+  --hero-title: #ffffff;
+  --hero-copy: #f3f6ff;
+  --hero-mesh-base: rgba(221, 230, 255, 0.16);
+  --hero-mesh-lit: rgba(255, 220, 202, 0.74);
+  background:
+    radial-gradient(ellipse 62% 54% at 18% 48%, rgba(105, 72, 132, 0.58) 0%, rgba(105, 72, 132, 0) 72%),
+    radial-gradient(ellipse 48% 38% at 82% 71%, rgba(237, 113, 98, 0.38) 0%, rgba(237, 113, 98, 0) 74%),
+    linear-gradient(180deg, #123f78 0%, #315f98 34%, #70638f 61%, #c77d82 81%, #efb27d 100%);
+  border-color: #687ca5;
+  box-shadow: 0 16px 40px rgba(25, 47, 91, 0.28);
+}
+.apex-dashboard-hero[data-hero-daypart="night"] {
+  --hero-title: #ffffff;
+  --hero-copy: #dbeafe;
+  --hero-mesh-base: rgba(191, 219, 254, 0.15);
+  --hero-mesh-lit: rgba(239, 246, 255, 0.72);
+  background: linear-gradient(180deg, #01266a 0%, #2666c4 58%, #73c2fb 100%);
+  border-color: #2666c4;
+  box-shadow: 0 16px 38px rgba(1, 38, 106, 0.28);
+}
+.apex-hero-mesh,
+.apex-hero-mesh-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.apex-hero-mesh {
+  z-index: 0;
+  overflow: hidden;
+}
+.apex-hero-mesh-layer {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.apex-hero-mesh-layer path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: square;
+  stroke-linejoin: round;
+}
+.apex-hero-mesh-base path {
+  stroke: var(--hero-mesh-base);
+  stroke-width: 1;
+}
+.apex-hero-mesh-lit {
+  opacity: 0;
+  -webkit-mask-image: radial-gradient(circle 150px at var(--hero-pointer-x) var(--hero-pointer-y), #000 0%, #000 38%, transparent 76%);
+  mask-image: radial-gradient(circle 150px at var(--hero-pointer-x) var(--hero-pointer-y), #000 0%, #000 38%, transparent 76%);
+  transition: opacity 180ms ease;
+}
+.apex-hero-mesh-lit path {
+  stroke: var(--hero-mesh-lit);
+  stroke-width: 1.35;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--hero-mesh-lit) 52%, transparent));
+}
+.apex-dashboard-hero[data-pointer-active="true"] .apex-hero-mesh-lit {
+  opacity: 1;
+}
+.apex-dashboard-hero-title {
+  font-family: var(--font-sans);
+  font-size: clamp(1.875rem, 3vw, 2.5rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  color: var(--hero-title);
+}
+.apex-dashboard-hero-copy {
+  color: var(--hero-copy);
+}
+/* Hero KPI tiles and workday status: frosted glass over the daypart sky. */
+.apex-hero-kpi,
+.apex-hero-status {
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.16);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--hero-title);
+}
+.apex-hero-kpi { min-height: 92px; padding: 9px 12px; transition: background 160ms ease, transform 160ms ease; }
+.apex-hero-kpi:hover { background: rgba(255, 255, 255, 0.24); transform: translateY(-1px); }
+
+/*
+ * Keep the KPI row legible where the daypart gradient becomes pale.
+ * Morning and afternoon use a mid-blue glass surface. Evening uses a distinct
+ * blue-violet twilight glass; night retains the brighter white-glass treatment.
+ */
+.apex-dashboard-hero[data-hero-daypart="morning"] .apex-hero-kpi,
+.apex-dashboard-hero[data-hero-daypart="afternoon"] .apex-hero-kpi {
+  border-color: rgba(219, 238, 255, 0.62);
+  background: linear-gradient(145deg, rgba(23, 101, 164, 0.86), rgba(16, 75, 136, 0.74));
+  box-shadow: 0 10px 24px rgba(12, 62, 112, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.20);
+  -webkit-backdrop-filter: blur(13px) saturate(135%);
+  backdrop-filter: blur(13px) saturate(135%);
+}
+.apex-dashboard-hero[data-hero-daypart="morning"] .apex-hero-kpi:hover,
+.apex-dashboard-hero[data-hero-daypart="afternoon"] .apex-hero-kpi:hover {
+  background: linear-gradient(145deg, rgba(27, 113, 181, 0.92), rgba(16, 75, 136, 0.82));
+  box-shadow: 0 13px 28px rgba(12, 62, 112, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi {
+  border-color: rgba(229, 232, 255, 0.48);
+  background: linear-gradient(145deg, rgba(24, 54, 101, 0.70), rgba(83, 57, 104, 0.54));
+  box-shadow: 0 12px 28px rgba(20, 35, 75, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  -webkit-backdrop-filter: blur(15px) saturate(145%);
+  backdrop-filter: blur(15px) saturate(145%);
+}
+.apex-dashboard-hero[data-hero-daypart="night"] .apex-hero-kpi {
+  border-color: rgba(255, 255, 255, 0.52);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.13));
+  box-shadow: 0 11px 26px rgba(40, 18, 54, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.30);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  backdrop-filter: blur(14px) saturate(145%);
+}
+.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi:hover {
+  background: linear-gradient(145deg, rgba(29, 67, 122, 0.78), rgba(100, 63, 113, 0.62));
+  box-shadow: 0 15px 32px rgba(19, 34, 73, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.apex-dashboard-hero[data-hero-daypart="night"] .apex-hero-kpi:hover {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.19));
+  box-shadow: 0 14px 30px rgba(30, 15, 48, 0.31), inset 0 1px 0 rgba(255, 255, 255, 0.36);
+}
+.apex-dashboard-hero[data-hero-daypart="morning"] .apex-hero-kpi-icon,
+.apex-dashboard-hero[data-hero-daypart="afternoon"] .apex-hero-kpi-icon {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi-icon {
+  background: rgba(229, 220, 255, 0.20);
+  box-shadow: inset 0 0 0 1px rgba(240, 232, 255, 0.22);
+}
+.apex-dashboard-hero[data-hero-daypart="night"] .apex-hero-kpi-icon {
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+.apex-hero-kpi-label { font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: 0.055em; color: var(--hero-copy); }
+.apex-hero-kpi-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.22); color: var(--hero-title);
+}
+.apex-hero-kpi-value { display: block; font-size: 24px; font-weight: 800; letter-spacing: -0.025em; line-height: 1; color: var(--hero-title); }
+.apex-hero-kpi-sub { display: block; margin-top: 3px; font-size: 10px; line-height: 1.2; font-weight: 600; color: var(--hero-copy); }
+.apex-hero-status { min-width: min(100%, 270px); padding: 14px 18px; display: flex; flex-direction: column; gap: 7px; border-radius: 22px; }
+.apex-hero-status-title { font-size: 16px; font-weight: 800; }
+.apex-hero-status-value { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.apex-hero-status-line { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--hero-copy); }
+.apex-hero-status-line strong { color: var(--hero-title); font-weight: 700; font-variant-numeric: tabular-nums; }
+.apex-hero-status-dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3); }
+.apex-hero-status-dot.is-break { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3); }
+.apex-hero-status-dot.is-inactive { background: #cbd5e1; box-shadow: 0 0 0 3px rgba(203, 213, 225, 0.25); }
+.apex-hero-workday { width: 100%; }
+.apex-hero-workday > div:first-child { width: 100%; min-width: 0; flex-wrap: wrap; gap: 12px; margin-bottom: 0; }
+.apex-hero-workday-bar {
+  width: 100%; min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 16px 12px 18px; border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: linear-gradient(105deg, rgba(9, 39, 75, 0.40), rgba(27, 84, 132, 0.28));
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: 0 12px 26px rgba(10, 46, 83, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.apex-hero-workday-summary { display: flex; align-items: center; gap: 16px; min-width: 0; color: var(--hero-title); }
+.apex-hero-workday-primary { display: flex; align-items: center; gap: 10px; padding-right: 16px; border-right: 1px solid rgba(255, 255, 255, 0.23); white-space: nowrap; }
+.apex-hero-workday-primary > div { display: flex; flex-direction: column; gap: 1px; }
+.apex-hero-workday-eyebrow { color: var(--hero-copy); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.apex-hero-workday-primary strong { color: var(--hero-title); font-size: 15px; font-weight: 800; }
+.apex-hero-workday-metric, .apex-hero-workday-punch { display: inline-flex; align-items: center; gap: 6px; color: var(--hero-copy); font-size: 12px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.apex-hero-workday-punch { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.apex-hero-workday-action, .apex-hero-workday-secondary {
+  flex-shrink: 0; min-height: 42px; padding: 0 18px; border-radius: 12px;
+  font-size: 14px; font-weight: 800; transition: transform 140ms ease-out, box-shadow 140ms ease-out, background 140ms ease-out;
+}
+.apex-hero-workday-action { background: #ffffff; color: #143c68; box-shadow: 0 5px 14px rgba(7, 28, 56, 0.20); }
+.apex-hero-workday-action:hover { background: #f4f8ff; transform: translateY(-1px); box-shadow: 0 8px 18px rgba(7, 28, 56, 0.25); }
+.apex-hero-workday-secondary { border: 1px solid rgba(255, 255, 255, 0.36); background: rgba(255, 255, 255, 0.13); color: var(--hero-title); }
+.apex-hero-workday-secondary:hover { background: rgba(255, 255, 255, 0.24); transform: translateY(-1px); }
+.apex-hero-workday-action:active, .apex-hero-workday-secondary:active { transform: scale(0.97); }
+.apex-hero-workday-action:focus-visible, .apex-hero-workday-secondary:focus-visible { outline: 3px solid rgba(255, 255, 255, 0.82); outline-offset: 3px; }
+.apex-hero-quick-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.apex-hero-quick-action { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; padding: 0 21px; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 13px; background: rgba(10, 43, 77, 0.20); color: var(--hero-title); font-size: 14px; font-weight: 800; box-shadow: 0 5px 14px rgba(7, 31, 57, 0.16); transition: transform 140ms ease-out, background 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out; }
+.apex-hero-quick-action:hover { transform: translateY(-1px); background: rgba(255, 255, 255, 0.20); border-color: rgba(255, 255, 255, 0.48); }
+.apex-hero-quick-action:active { transform: scale(0.97); }
+.apex-hero-quick-action:disabled { cursor: not-allowed; opacity: 0.52; }
+.apex-hero-quick-action:disabled:hover { transform: none; background: rgba(10, 43, 77, 0.20); border-color: rgba(255, 255, 255, 0.28); }
+.apex-hero-quick-action:focus-visible { outline: 3px solid rgba(255, 255, 255, 0.82); outline-offset: 3px; }
+.apex-hero-quick-action-break { background: #168763; border-color: rgba(167, 243, 208, 0.72); color: #ffffff; box-shadow: 0 6px 16px rgba(5, 76, 55, 0.24); }
+.apex-hero-quick-action-break:hover { background: #0f7052; border-color: rgba(209, 250, 229, 0.90); box-shadow: 0 8px 20px rgba(5, 76, 55, 0.32); }
+.apex-hero-quick-action-break:disabled,
+.apex-hero-quick-action-break:disabled:hover { background: #168763; border-color: rgba(167, 243, 208, 0.52); box-shadow: none; }
+.apex-hero-quick-action-meeting { background: #d98a00; border-color: #f8c55b; color: #ffffff; }
+.apex-hero-quick-action-meeting:hover { background: #bb7300; border-color: #ffd780; box-shadow: 0 7px 18px rgba(120, 69, 0, 0.24); }
+.apex-hero-quick-action-primary { background: rgba(255, 255, 255, 0.88); color: #113c69; border-color: rgba(255, 255, 255, 0.74); box-shadow: 0 4px 12px rgba(7, 31, 57, 0.18); }
+.apex-hero-quick-action-primary:hover { background: #fff; }
+.apex-workspace-drawer-layer { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: flex-start; justify-content: flex-end; padding: 16px; }
+.apex-workspace-drawer-scrim { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(7, 20, 38, 0.42); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.apex-workspace-drawer { position: relative; z-index: 1; display: flex; width: min(540px, calc(100vw - 32px)); max-height: calc(100vh - 32px); flex-direction: column; overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.42); border-radius: 18px; background: rgba(255, 255, 255, 0.98); box-shadow: -12px 18px 56px rgba(15, 23, 42, 0.28); animation: apex-workspace-drawer-in 220ms ease-out both; }
+.apex-workspace-drawer-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e8f0; }
+.apex-workspace-drawer-close { display: inline-flex; size: 34px; align-items: center; justify-content: center; border-radius: 10px; color: #475569; transition: background 140ms ease-out, color 140ms ease-out; }
+.apex-workspace-drawer-close:hover { background: #f1f5f9; color: #0f172a; }
+.apex-workspace-drawer-close:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+.apex-workspace-drawer-content { min-height: 0; overflow-y: auto; padding: 18px 20px 22px; }
+@keyframes apex-workspace-drawer-in { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: translateX(0); } }
+
+@media (max-width: 760px) {
+  .apex-hero-workday-bar { align-items: stretch; flex-direction: column; }
+  .apex-hero-workday-summary { flex-wrap: wrap; gap: 10px 14px; }
+  .apex-hero-workday-primary { padding-right: 14px; }
+  .apex-hero-workday-punch { max-width: none; }
+  .apex-hero-workday-action, .apex-hero-workday-secondary { width: 100%; }
+  .apex-hero-quick-actions { width: 100%; justify-content: flex-start; }
+  .apex-workspace-drawer-layer { padding: 10px; }
+  .apex-workspace-drawer { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+  .apex-workspace-drawer-header, .apex-workspace-drawer-content { padding-left: 16px; padding-right: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .apex-hero-workday-action, .apex-hero-workday-secondary { transition: background 120ms ease, opacity 120ms ease; }
+  .apex-hero-quick-action, .apex-workspace-drawer-close { transition: background 120ms ease, opacity 120ms ease; }
+  .apex-workspace-drawer { animation: none; }
+}
+
+.apex-news-ticker-viewport {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 3%, black 97%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 3%, black 97%, transparent);
+}
+.apex-news-ticker-track {
+  animation: apex-news-ticker-scroll var(--apex-ticker-duration, 24s) linear infinite;
+  will-change: transform;
+}
+@keyframes apex-news-ticker-scroll {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(var(--apex-ticker-distance, -600px), 0, 0); }
+}
+@media (max-width: 640px) {
+  .apex-dashboard-hero { min-height: 230px; padding: 1.25rem; }
+  .apex-hero-mesh-lit { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .apex-hero-mesh-layer path { filter: none; }
+  .apex-hero-mesh-layer animate { display: none; }
+  .apex-news-ticker-viewport { -webkit-mask-image: none; mask-image: none; }
+  .apex-news-ticker-track { animation: none; transform: none; will-change: auto; }
 }
 
 .apex-profile-hero {

@@ -492,7 +492,7 @@ export function AttendanceConsole() {
                 <tbody>
                   {register.employees.map((e) => (
                     <tr key={e.userId} className="border-t border-[var(--border-primary)]">
-                      <td className="apex-text py-2 font-medium">{e.name}</td>
+                      <td className="apex-text py-2 font-medium">{e.name}{e.isActive === false && <span className="apex-text-subtle ml-2 text-[11px] font-normal uppercase tracking-wide">Inactive</span>}</td>
                       <td className="apex-text-muted py-2 text-right">{e.daysPresent}</td>
                       <td className="apex-text-muted py-2 text-right">{e.daysAbsent}</td>
                       <td className="apex-text-muted py-2 text-right">{e.halfDays}</td>

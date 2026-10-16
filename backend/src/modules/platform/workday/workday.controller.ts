@@ -2,13 +2,47 @@ import { Controller, Post, Get, Body, Request, UseGuards, Param } from '@nestjs/
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { WorkdayService } from './workday.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
+import { ClassifyMeetingInput, MeetingService } from './meeting.service';
 
 @ApiTags('Workday')
 @Controller('workday')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class WorkdayController {
-  constructor(private readonly workdayService: WorkdayService) {}
+  constructor(
+    private readonly workdayService: WorkdayService,
+    private readonly meetingService: MeetingService,
+  ) {}
+
+  @Get('meetings/options')
+  meetingOptions(@Request() req: any) {
+    return this.meetingService.options(req.user.id ?? req.user.sub);
+  }
+
+  @Get('meetings')
+  meetings(@Request() req: any) {
+    return this.meetingService.list(req.user.id ?? req.user.sub);
+  }
+
+  @Get('meetings/pending-classification')
+  pendingMeetingClassification(@Request() req: any) {
+    return this.meetingService.pendingClassification(req.user.id ?? req.user.sub);
+  }
+
+  @Get('meetings/lookup/:code')
+  lookupMeeting(@Request() req: any, @Param('code') code: string) {
+    return this.meetingService.lookup(req.user.id ?? req.user.sub, code);
+  }
+
+  @Post('meetings/classify')
+  classifyMeeting(@Request() req: any, @Body() dto: ClassifyMeetingInput) {
+    return this.meetingService.classify(req.user.id ?? req.user.sub, dto);
+  }
+
+  @Post('meetings/start')
+  startMeeting(@Request() req: any) {
+    return this.workdayService.startBreak(req.user.id ?? req.user.sub, { breakType: 'MEETING' });
+  }
 
   @Get('history/:userId')
   getHistory(@Param('userId') userId: string, @Request() req: any) {

@@ -5,6 +5,7 @@ import { UsersService } from '../../core/users/users.service';
 import { NotificationType } from '@prisma/client';
 import { TVAService } from '../../../common/services/tva.service';
 import { PushNotificationService } from './push-notification.service';
+import { effectiveChannels } from './notification-channels';
 
 const NOTIF_DEFAULTS = {
   assignedTicket: true,
@@ -61,10 +62,9 @@ export class NotificationEventService {
     }
     const resolvedPrefs = { ...NOTIF_DEFAULTS, ...prefs };
 
-    // 2. Check notification preference
-    if (eventKey && resolvedPrefs[eventKey] === false) {
-      return null;
-    }
+    // 2. Preferences decide the delivery channels only (spec §4). The
+    //    Notification Center row below is created whatever they say.
+    const channels = effectiveChannels(resolvedPrefs, eventKey);
 
     // 3. Create persistent notification in database
     let notification: any;
@@ -98,12 +98,12 @@ export class NotificationEventService {
 
     const inQuietHours = this.isInQuietHours(quietFrom, quietTo, userTimezone, this.tva.now());
 
-    if (!inQuietHours && resolvedPrefs.inApp !== false) {
+    if (!inQuietHours && channels.popup) {
       // 5. Deliver real-time socket notification
       this.gateway.emitNotificationToUser(userId, notification);
     }
 
-    if (resolvedPrefs.pushEnabled !== false && this.pushNotifications) {
+    if (channels.push && this.pushNotifications) {
       try { await this.pushNotifications.deliver(notification); }
       catch { /* Push failure never rolls back the durable in-app notification. */ }
     }

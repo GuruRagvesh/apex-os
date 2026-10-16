@@ -596,56 +596,6 @@ describe('T10 review-start gate and attachment ownership (PostgreSQL)', () => {
     });
   }
 
-  it('U1. a user who uploaded an attachment cannot be permanently deleted: the blocker is named and counted, nothing changes', async () => {
-    const t = await newTicket();
-    await inactiveUser('u-t10-uploader');
-    const att = await prisma.attachment.create({
-      data: { ticketId: t.id, filename: 'kept.pdf', url: 'test-store://kept', uploadedById: 'u-t10-uploader', purpose: 'REFERENCE' } as any,
-    });
-    const before = await snapshot();
-    resetEffects();
-
-    const err: any = await usersService().permanentDelete('u-t10-uploader', MGR).then(() => null, (e) => e);
-    expect(err?.getStatus?.()).toBe(409);
-    expect(err.getResponse()).toMatchObject({
-      message: 'Cannot permanently delete user with linked records.',
-      blockers: { 'Ticket Attachments Uploaded': 1 },
-    });
-    expect(Object.keys(err.getResponse().blockers)).toEqual(['Ticket Attachments Uploaded']); // the attachment alone blocks
-    expect(await snapshot()).toEqual(before);
-    expect(await prisma.user.findUnique({ where: { id: 'u-t10-uploader' } })).not.toBeNull();
-    expect(await prisma.attachment.findUnique({ where: { id: att.id } })).toEqual(att); // uploader and row unchanged
-    expect(deletionLogged()).toBe(false);
-  });
-
-  it('U2. locked review evidence keeps its uploader and lock when that uploader\'s deletion is refused', async () => {
-    const t = await inProgress();
-    await tickets.submitForReview(t.id, actor(E), file('evidence.pdf'), storage);
-    const [proof] = await attachmentsOf(t.id);
-    await prisma.user.update({ where: { id: E }, data: { isActive: false } });
-    resetEffects();
-
-    const err: any = await usersService().permanentDelete(E, MGR).then(() => null, (e) => e);
-    expect(err?.getStatus?.()).toBe(409);
-    expect(err.getResponse().blockers).toMatchObject({ 'Ticket Attachments Uploaded': 1 });
-    expect(await prisma.attachment.findUnique({ where: { id: proof.id } })).toEqual(proof);
-    expect(proof).toMatchObject({ uploadedById: E, lockReason: 'SUBMITTED_FOR_REVIEW' });
-    expect(deletionLogged()).toBe(false);
-  });
-
-  it('U3. a user with no linked records is still permanently deleted, as before', async () => {
-    await inactiveUser('u-t10-unused');
-    resetEffects();
-    await expect(usersService().permanentDelete('u-t10-unused', MGR)).resolves.toEqual({ message: 'User permanently deleted' });
-    expect(await prisma.user.findUnique({ where: { id: 'u-t10-unused' } })).toBeNull();
-    expect(deletionLogged()).toBe(true);
-    // Active users and self-deletion are still refused.
-    await inactiveUser('u-t10-unused-2');
-    await prisma.user.update({ where: { id: 'u-t10-unused-2' }, data: { isActive: true } });
-    await expect(usersService().permanentDelete('u-t10-unused-2', MGR)).rejects.toThrow('Deactivate user before permanent deletion');
-    await expect(usersService().permanentDelete(MGR, MGR)).rejects.toThrow('Cannot permanently delete your own account');
-  });
-
   it('S1. self-assigned work is still approved comment-only by the hierarchy (no ratings stored)', async () => {
     // The self-assigned classification is forced so approve() applies its
     // rating rule here; resolving the reporting hierarchy itself is covered

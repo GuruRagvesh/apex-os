@@ -161,13 +161,8 @@ const isDraftRow = exactObject<DraftRow>({
   scheduledEndAt: isDateTimeLocal,
   recurrence: isDraftRecurrence,
 });
-export interface DraftGlobals { departmentId: string; projectId: string; priority: string; taskTypeId: string; taskSubtypeId: string }
-const isDraftGlobals = exactObject<DraftGlobals>({
-  departmentId: isId, projectId: isId, priority: oneOf(DRAFT_PRIORITIES), taskTypeId: isId, taskSubtypeId: isId,
-});
-export interface TicketDraftNav { globals: DraftGlobals; rows: DraftRow[] }
+export interface TicketDraftNav { rows: DraftRow[] }
 const isTicketDraftNav = exactObject<TicketDraftNav>({
-  globals: isDraftGlobals,
   rows: (v: unknown): v is DraftRow[] => arrayOf(isDraftRow, 50)(v) && (v as unknown[]).length >= 1,
 });
 

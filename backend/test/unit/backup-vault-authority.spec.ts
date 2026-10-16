@@ -36,14 +36,18 @@ describe('R2 is the only vault that can gate production safety', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('archival goes through the verified R2 path', () => {
-    const users = readFileSync(
-      resolve(SRC, 'modules/core/users/users.service.ts'),
-      'utf8',
-    );
+  it('archival goes through the verified Google Drive lifecycle path, never R2 or OneDrive', () => {
+    const users = readFileSync(resolve(SRC, 'modules/core/users/users.service.ts'), 'utf8');
+    const lifecycle = readFileSync(resolve(SRC, 'modules/core/users/lifecycle/user-lifecycle.service.ts'), 'utf8');
 
-    expect(users).toContain('archiveToVault(');
+    // UsersService no longer archives or deletes anyone itself.
+    expect(users).not.toMatch(/async (archiveAfterBackup|permanentDelete)\(/);
+    expect(users).not.toContain('archiveToVault(');
     expect(users).not.toContain('backupVaultService.save(');
+    // The lifecycle service writes the archive to Drive and reads it back.
+    expect(lifecycle).toContain('private async writeArchive(');
+    expect(lifecycle).toContain('vault.download(');
+    expect(lifecycle).not.toContain('archiveToVault(');
   });
 
   it('the verified path reads the object back rather than trusting the upload', () => {

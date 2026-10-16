@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Coffee, LogIn, Timer, UsersRound } from 'lucide-react';
 import { BreakModal } from './BreakModal';
+import { MeetingModal } from './MeetingModal';
 import { EndDayModal } from './EndDayModal';
 import { AutoCloseConsentModal } from './AutoCloseConsentModal';
 import { PunchModal } from '../attendance/PunchModal';
@@ -30,8 +32,13 @@ function formatMinutes(minutes: number) {
   return `${m}m`;
 }
 
-export function WorkdayBar() {
+/**
+ * The hero variant keeps the workday state and its primary action together.
+ * Other surfaces retain the compact, task-oriented bar they already use.
+ */
+export function WorkdayBar({ hero = false }: { hero?: boolean }) {
   const [showBreakModal, setShowBreakModal] = useState(false);
+  const [meetingToClassify, setMeetingToClassify] = useState<any | null>(null);
   const [showEndModal, setShowEndModal] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [breakElapsed, setBreakElapsed] = useState(0);
@@ -49,7 +56,8 @@ export function WorkdayBar() {
     queryKey: ['my-attendance-today'],
     queryFn: getMyAttendanceToday,
     staleTime: 60_000,
-    retry: false,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
   });
   const attendanceLine = todaySummary(todayAttendance);
 
@@ -66,15 +74,18 @@ export function WorkdayBar() {
   const status = session?.status ?? 'OFFLINE';
   const startWorkAt = (todayData as any)?.firstStartTime ?? session?.startWorkAt;
   const totalBreakMinutes = (todayData as any)?.totalBreakMinutes ?? session?.totalBreakMinutes ?? 0;
-  const elapsedWorkMinutes = (todayData as any)?.elapsedWorkMinutes ?? 0;
+  // Meeting time is reported independently and must not inflate focused work.
+  const elapsedWorkMinutes = (todayData as any)?.focusedWorkMinutes ?? (todayData as any)?.elapsedWorkMinutes ?? 0;
   const breakLogs = session?.breakLogs ?? [];
   const onLeaveToday = (todayData as any)?.onLeaveToday;
   const leaveInfo = (todayData as any)?.leaveInfo;
-  const isResumed = (todayData as any)?.isResumed;
-  const autoClosedCount = (todayData as any)?.autoClosedCount ?? 0;
   const needsAutoCloseConsent = (todayData as any)?.needsAutoCloseConsent ?? false;
   const autoCloseTime = (todayData as any)?.autoCloseTime ?? null;
   const openBreak = breakLogs.find((row: any) => !row.endAt) ?? null;
+  // Meeting classification is intentionally event-driven. Do not restore an
+  // old unclassified meeting on page load: this dialog belongs only to the
+  // exact moment the user resumes from an active meeting break.
+  const closeMeetingModal = () => setMeetingToClassify(null);
 
   // Live elapsed time (WORKING) and live break timer (ON_BREAK)
   useEffect(() => {
@@ -108,6 +119,8 @@ export function WorkdayBar() {
 
   const localDiffMins = dataUpdatedAt ? Math.floor((Date.now() - dataUpdatedAt) / 60000) : 0;
   const liveTotalBreakMinutes = status === 'ON_BREAK' ? totalBreakMinutes + Math.max(0, localDiffMins) : totalBreakMinutes;
+  const liveMeetingMinutes = ((todayData as any)?.meetingMinutes ?? 0)
+    + (status === 'ON_BREAK' && openBreak?.breakType === 'MEETING' ? Math.max(0, localDiffMins) : 0);
 
   // Stale session: session started on a previous calendar day and never closed
   const today = new Date().toDateString();
@@ -187,13 +200,34 @@ export function WorkdayBar() {
     setLoading('endBreak');
     try {
       const result = await workdayApi.endBreak() as any;
-      toast.success(`Break ended — ${result?.durationMinutes ?? 0} min`);
-      refetch();
+      if (openBreak?.breakType === 'MEETING') {
+        if (!result?.breakLog?.meetingId) {
+          setMeetingToClassify(result.breakLog);
+        }
+        toast.success(result?.breakLog?.meetingId ? 'Meeting ended' : 'Meeting timer stopped');
+      } else {
+        toast.success(`Break ended — ${result?.durationMinutes ?? 0} min`);
+      }
+      await refetch();
     } catch (err: any) { 
       toast.error(err?.message || 'Failed to end break');
-      refetch();
+      await refetch();
     }
     finally { setLoading(null); }
+  };
+
+  const handleStartMeeting = async () => {
+    setLoading('meeting');
+    try {
+      await workdayApi.startMeeting();
+      toast.success('Meeting timer started');
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.message || 'Meeting could not be started');
+      refetch();
+    } finally {
+      setLoading(null);
+    }
   };
 
   // PE-4: rendered by whichever branch owns the button that opened it. Null
@@ -216,6 +250,28 @@ export function WorkdayBar() {
   ) : null;
 
   const dotCls = `w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[status] ?? 'bg-gray-400'}`;
+  const workdayLabel = openBreak?.breakType === 'MEETING' ? 'In meeting' : ({
+    WORKING: 'Working', ON_BREAK: 'On break', IDLE: 'Paused', ON_LEAVE: 'On leave',
+    LOGGED_OUT: 'Day ended', LOGGED_IN: 'Ready to start', AUTO_CLOSED: 'Auto-closed', OFFLINE: 'Not started',
+  } as Record<string, string>)[status] ?? 'Not started';
+  const punchInLabel = startWorkAt
+    ? `Punched in ${new Date(startWorkAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    : 'No punch-in today';
+  const heroSummary = hero ? (
+    <div className="apex-hero-workday-summary" role="status" aria-label="Today's workday">
+      <div className="apex-hero-workday-primary">
+        <span className={dotCls} aria-hidden="true" />
+        <div>
+          <span className="apex-hero-workday-eyebrow">Today’s workday</span>
+          <strong>{workdayLabel}</strong>
+        </div>
+      </div>
+      <span className="apex-hero-workday-metric"><Timer size={15} aria-hidden="true" />{formatMinutes(elapsed)}</span>
+      <span className="apex-hero-workday-metric"><Coffee size={15} aria-hidden="true" />Break {formatMinutes(liveTotalBreakMinutes)}</span>
+      <span className="apex-hero-workday-metric"><UsersRound size={15} aria-hidden="true" />Meeting {(todayData as any)?.meetingCount ?? 0} · {formatMinutes(liveMeetingMinutes)}</span>
+      <span className="apex-hero-workday-punch"><LogIn size={15} aria-hidden="true" />{punchInLabel}</span>
+    </div>
+  ) : null;
 
   // ── Stale session: session from a previous day never closed ──────────────────
   if (isStaleSession) {
@@ -338,18 +394,20 @@ export function WorkdayBar() {
   if (!session || status === 'OFFLINE') {
     return (
       <>
-        <div className="flex items-center justify-between bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className={dotCls} />
-            <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Not started</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">Click to begin your workday</p>
+        <div className={hero ? 'apex-hero-workday-bar' : 'flex items-center justify-between bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 mb-4 shadow-sm'}>
+          {hero ? heroSummary : (
+            <div className="flex items-center gap-2">
+              <span className={dotCls} />
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Not started</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Click to begin your workday</p>
+              </div>
             </div>
-          </div>
+          )}
           <button
             onClick={handleStartWork}
             disabled={loading === 'start'}
-            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-action' : 'flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50'}
           >
             {loading === 'start' ? 'Starting...' : 'Start Work'}
           </button>
@@ -362,18 +420,20 @@ export function WorkdayBar() {
   if (status === 'LOGGED_IN') {
     return (
       <>
-        <div className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4">
-          <div className="flex items-center gap-2">
-            <span className={dotCls} />
-            <div>
-              <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Ready to start</p>
-              <p className="text-xs text-yellow-600 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
+        <div className={hero ? 'apex-hero-workday-bar' : 'flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl px-4 py-3 mb-4'}>
+          {hero ? heroSummary : (
+            <div className="flex items-center gap-2">
+              <span className={dotCls} />
+              <div>
+                <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Ready to start</p>
+                <p className="text-xs text-yellow-600 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
+              </div>
             </div>
-          </div>
+          )}
           <button
             onClick={handleStartWork}
             disabled={loading === 'start'}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-action' : 'px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50'}
           >
             {loading === 'start' ? 'Starting...' : 'Start Work'}
           </button>
@@ -384,32 +444,35 @@ export function WorkdayBar() {
   }
 
   if (status === 'ON_BREAK') {
+    const isMeeting = openBreak?.breakType === 'MEETING';
     const breakTypeLabel = openBreak?.breakType
       ? openBreak.breakType.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase())
       : null;
     const plannedMins = openBreak?.estimatedMinutes ?? null;
     return (
       <>
-        <div className="flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl px-4 py-3 mb-4">
-          <div className="flex items-center gap-2">
-            <span className={dotCls} />
-            <div>
-              <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
-                On Break{breakTypeLabel ? ` · ${breakTypeLabel}` : ''}
-              </p>
-              <p className="text-xs text-orange-500 dark:text-orange-400">
-                {breakElapsed > 0 ? `${breakElapsed} min so far` : 'Just started'}
-                {plannedMins && ` · ${plannedMins} min planned`}
-                {elapsed > 0 && ` · ${formatMinutes(elapsed)} worked today`}
-              </p>
+        <div className={hero ? 'apex-hero-workday-bar' : `flex items-center justify-between rounded-xl px-4 py-3 mb-4 border ${isMeeting ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'}`}>
+          {hero ? heroSummary : (
+            <div className="flex items-center gap-2">
+              <span className={dotCls} />
+              <div>
+                <p className={`text-sm font-medium ${isMeeting ? 'text-blue-800' : 'text-orange-700 dark:text-orange-300'}`}>
+                  {isMeeting ? 'In Meeting' : `On Break${breakTypeLabel ? ` · ${breakTypeLabel}` : ''}`}
+                </p>
+                <p className={`text-xs ${isMeeting ? 'text-blue-600' : 'text-orange-500 dark:text-orange-400'}`}>
+                  {breakElapsed > 0 ? `${breakElapsed} min so far` : 'Just started'}
+                  {plannedMins && ` · ${plannedMins} min planned`}
+                  {elapsed > 0 && ` · ${formatMinutes(elapsed)} worked today`}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
           <button
             onClick={handleEndBreak}
             disabled={loading === 'endBreak'}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-action' : 'px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50'}
           >
-            {loading === 'endBreak' ? 'Resuming...' : 'Resume Work'}
+            {loading === 'endBreak' ? 'Ending...' : 'Resume Work'}
           </button>
         </div>
         {needsAutoCloseConsent && !consentDismissed && (
@@ -418,6 +481,7 @@ export function WorkdayBar() {
             onClose={() => { setConsentDismissed(true); refetch(); }}
           />
         )}
+        {meetingToClassify && <MeetingModal breakLog={meetingToClassify} onClose={closeMeetingModal} onChanged={() => refetch()} />}
       </>
     );
   }
@@ -436,6 +500,7 @@ export function WorkdayBar() {
             <span className="text-xs text-yellow-700/80 dark:text-yellow-300/80">Start and end a break to continue, or end your day.</span>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={handleStartMeeting} disabled={!!loading} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50">Meeting</button>
             <button onClick={() => setShowBreakModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50">Take Break</button>
             <button onClick={openEndDay} disabled={!!loading} className="px-3 py-1.5 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 disabled:opacity-50">End Day</button>
           </div>
@@ -447,6 +512,7 @@ export function WorkdayBar() {
             onBreakStarted={() => { setShowBreakModal(false); refetch(); }}
           />
         )}
+        {meetingToClassify && <MeetingModal breakLog={meetingToClassify} onClose={closeMeetingModal} onChanged={() => refetch()} />}
         {showEndModal && (
           <EndDayModal
             session={session}
@@ -462,41 +528,29 @@ export function WorkdayBar() {
   }
 
   // WORKING state
-  const completedBreaks = breakLogs.filter((b: any) => b.endAt);
   return (
     <>
-      <div className="flex items-center justify-between bg-white dark:bg-gray-900 border border-green-200 dark:border-green-800 rounded-xl px-4 py-3 mb-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className={dotCls} />
-          <div>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              Working <span className="text-gray-400 font-normal">·</span> 
-              <span className="text-green-600 dark:text-green-400">{formatMinutes(elapsed)} active</span>
-              {isResumed && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-md">Resumed</span>}
-              {attendanceBadge}
-            </p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              {todayData?.sessionCount > 1 && `${todayData.sessionCount} sessions · `}
-              {autoClosedCount > 0 && `${autoClosedCount} auto-closed · `}
-              {totalBreakMinutes > 0
-                ? `${formatMinutes(totalBreakMinutes)} breaks`
-                : 'No breaks yet'}
-              {startWorkAt && ` · First start ${new Date(startWorkAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-            </p>
-          </div>
-        </div>
+      <div className={hero ? 'apex-hero-workday-bar' : 'flex items-center justify-end bg-white dark:bg-gray-900 border border-green-200 dark:border-green-800 rounded-xl px-4 py-3 mb-4 shadow-sm'}>
+        {hero && heroSummary}
         <div className="flex items-center gap-2">
-          <button
+          {!hero && <button
+            onClick={handleStartMeeting}
+            disabled={!!loading}
+            className="px-3 py-1.5 text-sm font-medium border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50"
+          >
+            Meeting
+          </button>}
+          {!hero && <button
             onClick={() => setShowBreakModal(true)}
             disabled={!!loading}
             className="px-3 py-1.5 text-sm font-medium border border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors disabled:opacity-50"
           >
             Break
-          </button>
+          </button>}
           <button
             onClick={openEndDay}
             disabled={!!loading}
-            className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+            className={hero ? 'apex-hero-workday-action' : 'px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50'}
           >
             End Day
           </button>
@@ -509,6 +563,7 @@ export function WorkdayBar() {
           onBreakStarted={() => { setShowBreakModal(false); refetch(); }}
         />
       )}
+      {meetingToClassify && <MeetingModal breakLog={meetingToClassify} onClose={closeMeetingModal} onChanged={() => refetch()} />}
       {showEndModal && (
         <EndDayModal
           session={session}

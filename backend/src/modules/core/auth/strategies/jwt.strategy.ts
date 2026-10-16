@@ -20,12 +20,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string }) {
+  async validate(payload: { sub: string; email: string; iat?: number }) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { role: true, department: true },
     });
-    if (!user || !user.isActive) throw new UnauthorizedException();
+    if (!user || !user.isActive || (user as any).isSystemAccount) throw new UnauthorizedException();
+    // Archive, rehire, permanent delete and admin password reset revoke every
+    // token issued before them (compared in whole seconds, as iat is).
+    const revokedAt = (user as any).sessionsRevokedAt as Date | null;
+    if (revokedAt && (typeof payload.iat !== 'number' || payload.iat < Math.floor(revokedAt.getTime() / 1000))) {
+      throw new UnauthorizedException();
+    }
     const { password, ...result } = user;
     return result;
   }

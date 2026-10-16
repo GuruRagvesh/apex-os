@@ -61,7 +61,7 @@ export default function CommandCard({
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="apex-section-border relative text-left w-full h-full bg-white dark:bg-[#0F172A] border rounded-[22px] p-5 flex flex-col justify-between transition-all duration-[220ms] ease-out hover:border-blue-500 hover:shadow-[0_12px_28px_rgba(37,99,235,0.08)] dark:hover:shadow-[0_12px_28px_rgba(37,99,235,0.15)] hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 select-none group"
+      className="apex-section-border relative text-left w-full h-full bg-white dark:bg-[#0F172A] border rounded-[22px] p-5 flex flex-col justify-start transition-all duration-[220ms] ease-out hover:border-blue-500 hover:shadow-[0_12px_28px_rgba(37,99,235,0.08)] dark:hover:shadow-[0_12px_28px_rgba(37,99,235,0.15)] hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 select-none group"
     >
       {/* Absolute Hover preview peek panel */}
       <div className="hidden md:block">
@@ -79,7 +79,7 @@ export default function CommandCard({
             <div className={`p-2 rounded-xl transition-colors duration-200 ${isHovered ? 'bg-[#EFF6FF] dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' : 'bg-slate-50 dark:bg-slate-900 text-slate-400 dark:text-slate-500'}`}>
               <Icon className="w-5 h-5 transition-transform duration-200 group-hover:scale-110" />
             </div>
-            <span className="font-sans font-bold text-[#0B1220] dark:text-slate-100 text-sm tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+            <span className="font-sans font-extrabold text-[#0B1220] dark:text-slate-100 text-base leading-tight tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
               {title}
             </span>
           </div>
@@ -123,7 +123,7 @@ export default function CommandCard({
       </div>
 
       {/* Mini CTA row indicator */}
-      <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end w-full transition-colors">
+      <div className="mt-auto pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end w-full transition-colors">
         <ArrowUpRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
       </div>
     </button>

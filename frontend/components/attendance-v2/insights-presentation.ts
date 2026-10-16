@@ -10,10 +10,34 @@ export function reviewRecords(days: MyAttendanceDayV2[]) {
     (day.evaluationState === 'NEEDS_REVIEW' || day.outcome === 'UNRESOLVED'));
 }
 
-/** Calendar navigation only; future months are not fetched. */
-export function monthsInYear(year: string, companyDate: string): string[] {
-  return Array.from({ length: 12 }, (_, index) => year + '-' + String(index + 1).padStart(2, '0'))
-    .filter(month => month <= companyDate.slice(0, 7));
+/**
+ * The months of a financial year that have started, in order.
+ *
+ * The year comes from the backend (April to March), so January to March belong to the
+ * year that began the previous April and the yearly view never starts in January.
+ * Future months are not fetched.
+ */
+export function monthsInFinancialYear(fy: { months: string[] }, companyDate: string): string[] {
+  return fy.months.filter(month => month <= companyDate.slice(0, 7));
+}
+
+/**
+ * The first month of the neighbouring financial year, or null when that year has not started.
+ * Plain arithmetic on the backend-supplied start month, not a second definition of the year.
+ */
+export function adjacentFinancialYearMonth(
+  fy: { startYear: number; endYear: number; startMonth: number },
+  delta: -1 | 1,
+  companyDate: string,
+): string | null {
+  const year = delta < 0 ? fy.startYear - 1 : fy.endYear;
+  const month = year + '-' + String(fy.startMonth).padStart(2, '0');
+  return month <= companyDate.slice(0, 7) ? month : null;
+}
+
+/** 'FY 2026-27' from the backend's start and end years. */
+export function financialYearTitle(fy: { startYear: number; endYear: number }): string {
+  return 'FY ' + fy.startYear + '-' + String(fy.endYear).slice(2);
 }
 
 export type TrendMeasure = 'punch' | 'worked';

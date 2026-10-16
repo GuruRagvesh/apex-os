@@ -392,6 +392,8 @@ interface BalanceFixtures {
   workingDayCount?: number;
   workingDaysSetting?: string;
   leaves?: any[];
+  firstProfileEffectiveFrom?: Date;
+  workingDayError?: Error;
 }
 
 function balanceRig(f: BalanceFixtures = {}) {
@@ -401,9 +403,18 @@ function balanceRig(f: BalanceFixtures = {}) {
       update: jest.fn(),
     },
     employeeAttendanceProfile: {
-      findFirst: jest.fn().mockResolvedValue(
-        'leavePolicy' in f ? { id: 'prof-1', assignedLeavePolicy: f.leavePolicy } : null,
-      ),
+      findFirst: jest.fn().mockImplementation((args: any) => {
+        if (args?.select?.effectiveFrom) {
+          return Promise.resolve(
+            f.firstProfileEffectiveFrom
+              ? { effectiveFrom: f.firstProfileEffectiveFrom }
+              : null,
+          );
+        }
+        return Promise.resolve(
+          'leavePolicy' in f ? { id: 'prof-1', assignedLeavePolicy: f.leavePolicy } : null,
+        );
+      }),
     },
     leaveRequest: {
       findMany: jest.fn().mockResolvedValue(f.leaves ?? []),
@@ -429,7 +440,9 @@ function balanceRig(f: BalanceFixtures = {}) {
 
   const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
   const workingDays: any = {
-    countWorkingDays: jest.fn().mockResolvedValue(f.workingDayCount ?? 1),
+    countWorkingDays: f.workingDayError
+      ? jest.fn().mockRejectedValue(f.workingDayError)
+      : jest.fn().mockResolvedValue(f.workingDayCount ?? 1),
     // The real implementation, so legacy date arithmetic is genuinely exercised.
     enumerateBusinessDates: new LeaveWorkingDayService(tva, {} as any, {} as any)
       .enumerateBusinessDates.bind(new LeaveWorkingDayService(tva, {} as any, {} as any)),
@@ -574,6 +587,52 @@ describe('LH-1 leave balance authority', () => {
     expect(prisma.dailyAttendance.upsert).not.toHaveBeenCalled();
     expect(prisma.workSession.update).not.toHaveBeenCalled();
     expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('30. pre-foundation leave keeps its original legacy duration without hiding the balance', async () => {
+    const unresolved = new LeaveCalendarUnresolvedError(['NO_PROFILE_FOR_DATE']);
+    const { service } = balanceRig({
+      v2: true,
+      leavePolicy: { id: 'lp-1', totalPaidLeaves: 14 },
+      firstProfileEffectiveFrom: new Date('2026-08-27T00:00:00.000Z'),
+      workingDayError: unresolved,
+      leaves: [
+        {
+          id: 'legacy-emergency',
+          status: 'APPROVED',
+          createdAt: new Date('2026-05-16T00:00:00.000Z'),
+          startDate: new Date('2026-05-18T00:00:00.000Z'),
+          endDate: new Date('2026-05-19T00:00:00.000Z'),
+          isHalfDay: false,
+        },
+      ],
+    });
+
+    const balance = await service.getLeaveBalance('emp-1', 2026);
+
+    expect(balance).toEqual({ allocation: 14, approved: 2, pending: 0, balance: 12 });
+  });
+
+  it('31. an unresolved V2-era leave still fails safely', async () => {
+    const unresolved = new LeaveCalendarUnresolvedError(['MISSING_WEEKLY_OFF_POLICY']);
+    const { service } = balanceRig({
+      v2: true,
+      leavePolicy: { id: 'lp-1', totalPaidLeaves: 14 },
+      firstProfileEffectiveFrom: new Date('2026-08-27T00:00:00.000Z'),
+      workingDayError: unresolved,
+      leaves: [
+        {
+          id: 'current-leave',
+          status: 'PENDING',
+          createdAt: new Date('2026-10-12T00:00:00.000Z'),
+          startDate: new Date('2026-10-13T00:00:00.000Z'),
+          endDate: new Date('2026-10-13T00:00:00.000Z'),
+          isHalfDay: false,
+        },
+      ],
+    });
+
+    await expect(service.getLeaveBalance('emp-1', 2026)).rejects.toBe(unresolved);
   });
 });
 
