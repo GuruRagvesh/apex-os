@@ -340,8 +340,40 @@ const NOTIF_DEFAULTS = {
   quietTo:        '08:00',
 };
 
+// Per-event channels (spec §4, §11.4). Notification Center always keeps every
+// notification; these switches only decide popups and push. There is no email
+// delivery path for these events yet, so no email switch is shown.
+type ChannelKey = 'popup' | 'push';
+const NOTIF_EVENTS: { group: 'Ticket Events' | 'Leave Events'; key: keyof typeof NOTIF_DEFAULTS; label: string; desc: string; managerOnly?: boolean }[] = [
+  { group: 'Ticket Events', key: 'assignedTicket', label: 'Ticket assigned to me', desc: 'When a ticket is assigned to you' },
+  { group: 'Ticket Events', key: 'statusChanged', label: 'Status changed', desc: "When a ticket's status is updated" },
+  { group: 'Ticket Events', key: 'commentAdded', label: 'Comment added', desc: 'When someone comments on your ticket' },
+  { group: 'Ticket Events', key: 'overdueTicket', label: 'Overdue alert', desc: 'When a ticket you own goes overdue' },
+  { group: 'Ticket Events', key: 'ticketResolved', label: 'Ticket resolved', desc: 'When your raised ticket is resolved' },
+  { group: 'Leave Events', key: 'leaveApproved', label: 'Leave approved', desc: 'When your leave request is approved' },
+  { group: 'Leave Events', key: 'leaveRejected', label: 'Leave rejected', desc: 'When your leave request is rejected' },
+  { group: 'Leave Events', key: 'teamLeaveApply', label: 'Team member applied', desc: 'When a team member applies for leave', managerOnly: true },
+];
+
+function ChannelSwitch({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+      className="relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+      style={{ backgroundColor: checked ? 'var(--accent)' : 'var(--bg-tertiary)' }}
+    >
+      <span className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform" style={{ transform: checked ? 'translateX(18px)' : 'translateX(2px)' }} />
+    </button>
+  );
+}
+
 function NotificationsSection({ isManager }: { isManager: boolean }) {
   const [prefs, setPrefs] = useState(NOTIF_DEFAULTS);
+  const [channels, setChannels] = useState<Record<string, Partial<Record<ChannelKey | 'email', boolean>>>>({});
   const [saving, setSaving] = useState(false);
   const [enablingDevice, setEnablingDevice] = useState(false);
 
@@ -355,6 +387,7 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
         // Server wins over localStorage for cross-device sync; local is the cache
         const merged = { ...NOTIF_DEFAULTS, ...local, ...remote };
         setPrefs((p) => ({ ...p, ...merged }));
+        if (merged.channels && typeof merged.channels === 'object') setChannels(merged.channels);
       })
       .catch(() => {
         // Offline fallback: use localStorage only
@@ -368,15 +401,25 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
 
   const toggle = (k: keyof typeof prefs) => setPrefs((p) => ({ ...p, [k]: !p[k] }));
 
+  // A legacy `false` for an event reads as every channel off; a per-channel
+  // choice wins over it, channel by channel.
+  const channelOn = (eventKey: string, c: ChannelKey) => {
+    const own = channels[eventKey]?.[c];
+    return typeof own === 'boolean' ? own : (prefs as any)[eventKey] !== false;
+  };
+  const toggleChannel = (eventKey: string, c: ChannelKey) =>
+    setChannels((ch) => ({ ...ch, [eventKey]: { ...(ch[eventKey] ?? {}), [c]: !channelOn(eventKey, c) } }));
+
   const handleSave = async () => {
     setSaving(true);
+    const body = { ...prefs, channels };
     try {
-      await usersApi.updatePreferences(prefs);
-      localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
+      await usersApi.updatePreferences(body);
+      localStorage.setItem('apexNotifPrefs', JSON.stringify(body));
       toast.success('Notification preferences saved');
     } catch (err: any) {
       // API save failed — still persist locally so the UX isn't broken
-      localStorage.setItem('apexNotifPrefs', JSON.stringify(prefs));
+      localStorage.setItem('apexNotifPrefs', JSON.stringify(body));
       toast.error('Could not sync notification preferences. Saved on this browser only.');
     } finally {
       setSaving(false);
@@ -400,21 +443,28 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
 
   return (
     <div className="space-y-5">
-      <div className={cardCls}>
-        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Ticket Events</h3>
-        <ToggleRow label="Ticket assigned to me"  desc="Notify when a ticket is assigned to you"        checked={prefs.assignedTicket} onChange={() => toggle('assignedTicket')} />
-        <ToggleRow label="Status changed"          desc="Notify when a ticket's status is updated"       checked={prefs.statusChanged}  onChange={() => toggle('statusChanged')} />
-        <ToggleRow label="Comment added"           desc="Notify when someone comments on your ticket"    checked={prefs.commentAdded}   onChange={() => toggle('commentAdded')} />
-        <ToggleRow label="Overdue alert"           desc="Notify when a ticket you own goes overdue"      checked={prefs.overdueTicket}  onChange={() => toggle('overdueTicket')} />
-        <ToggleRow label="Ticket resolved"         desc="Notify when your raised ticket is resolved"     checked={prefs.ticketResolved} onChange={() => toggle('ticketResolved')} />
-      </div>
-
-      <div className={cardCls}>
-        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Leave Events</h3>
-        <ToggleRow label="Leave approved"     desc="Notify when your leave request is approved" checked={prefs.leaveApproved} onChange={() => toggle('leaveApproved')} />
-        <ToggleRow label="Leave rejected"     desc="Notify when your leave request is rejected" checked={prefs.leaveRejected} onChange={() => toggle('leaveRejected')} />
-        {isManager && <ToggleRow label="Team member applied" desc="Notify when a team member applies for leave" checked={prefs.teamLeaveApply} onChange={() => toggle('teamLeaveApply')} />}
-      </div>
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }} data-testid="notification-center-note">
+        Notification Center always keeps every notification. These switches only choose whether you also get a popup or a push alert.
+      </p>
+      {(['Ticket Events', 'Leave Events'] as const).map((group) => (
+        <div key={group} className={cardCls} data-testid={`notif-matrix-${group === 'Ticket Events' ? 'tickets' : 'leave'}`}>
+          <div className="flex items-center gap-3">
+            <h3 className="font-semibold flex-1" style={{ color: 'var(--text-primary)' }}>{group}</h3>
+            <span className="w-12 text-center text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Popup</span>
+            <span className="w-12 text-center text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Push</span>
+          </div>
+          {NOTIF_EVENTS.filter((e) => e.group === group && (!e.managerOnly || isManager)).map((e) => (
+            <div key={e.key} className="flex items-center gap-3 py-1" data-event={e.key}>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{e.label}</p>
+                <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{e.desc}</p>
+              </div>
+              <span className="w-12 flex justify-center"><ChannelSwitch label={`${e.label}: popup`} checked={channelOn(e.key, 'popup')} onChange={() => toggleChannel(e.key, 'popup')} /></span>
+              <span className="w-12 flex justify-center"><ChannelSwitch label={`${e.label}: push`} checked={channelOn(e.key, 'push')} onChange={() => toggleChannel(e.key, 'push')} /></span>
+            </div>
+          ))}
+        </div>
+      ))}
 
       <div className={cardCls}>
         <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Delivery</h3>

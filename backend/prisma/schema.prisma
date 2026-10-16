@@ -131,6 +131,18 @@ model User {
   meetingsAsCounterparty    Meeting[]                      @relation("MeetingCounterparty")
   meetingParticipations     MeetingParticipant[]
 
+  // ── Lifecycle foundation (Phase 1) ─────────────────────────────────────────
+  /// Null on legacy rows: derived at read time (deriveEmploymentState).
+  /// isActive stays the login authority until every reader is migrated.
+  employmentState       EmploymentState?
+  scheduledActivationOn DateTime?             @db.Date
+  employmentPeriods     EmploymentPeriod[]
+  setupIssues           UserSetupIssue[]
+  hierarchySubjectOf    HierarchyAssignment[] @relation("HierarchySubject")
+  hierarchyAssignedTo   HierarchyAssignment[] @relation("HierarchyAssignee")
+  departmentTransfers   DepartmentTransfer[]
+  exitCases             ExitCase[]
+
   @@index([departmentId])
   @@index([roleId])
   @@index([isActive])
@@ -171,23 +183,24 @@ model Role {
 }
 
 model Department {
-  id               String                     @id @default(cuid())
-  name             String                     @unique
-  description      String?
-  color            String                     @default("#6366f1")
-  createdAt        DateTime                   @default(now())
-  managerAccess    ManagerDeptAccess[]
-  projects         Project[]
-  taskTypes        TaskType[]
-  tickets          Ticket[]
-  users            User[]
-  userMemberships  UserDepartmentMembership[]
-  roleAssignments  UserRoleAssignment[]
-  teams            Team[]
-  requestedTickets Ticket[]                   @relation("TicketRequestingDepartment")
-  targetedTickets  Ticket[]                   @relation("TicketTargetDepartment")
-  salesLeads       Lead[]
-  meetings         Meeting[]
+  id                   String                     @id @default(cuid())
+  name                 String                     @unique
+  description          String?
+  color                String                     @default("#6366f1")
+  createdAt            DateTime                   @default(now())
+  managerAccess        ManagerDeptAccess[]
+  projects             Project[]
+  taskTypes            TaskType[]
+  tickets              Ticket[]
+  users                User[]
+  userMemberships      UserDepartmentMembership[]
+  roleAssignments      UserRoleAssignment[]
+  teams                Team[]
+  requestedTickets     Ticket[]                   @relation("TicketRequestingDepartment")
+  targetedTickets      Ticket[]                   @relation("TicketTargetDepartment")
+  salesLeads           Lead[]
+  meetings             Meeting[]
+  hierarchyAssignments HierarchyAssignment[]
 
   @@map("departments")
 }
@@ -492,11 +505,30 @@ model LeaveRequest {
   /// one-to-one link would have made multi-day comp off structurally impossible.
   compOffCredits      CompOffCredit[]
 
+  // ── Lifecycle foundation (Phase 1) ────────────────────────────────────────
+  // All nullable: null means legacy and is derived at read time, never
+  // rewritten. submissionMode null reads as EMERGENCY when type = EMERGENCY,
+  // else STANDARD; setupStatus null reads as LEGACY_UNASSESSED;
+  // isLateSubmission null reads as unknown.
+  submissionMode          LeaveSubmissionMode?
+  fundingBucket           LeaveFundingBucket?
+  fundingChangedById      String?
+  fundingChangeReason     String?
+  provisionallyApprovedAt DateTime?
+  evidenceDueOn           DateTime?            @db.Date
+  evidenceSubmittedAt     DateTime?
+  reviewDueOn             DateTime?            @db.Date
+  isLateSubmission        Boolean?
+  setupStatus             PolicyContextStatus?
+  routingSnapshotId       String?
+  routingSnapshot         RoutingSnapshot?     @relation(fields: [routingSnapshotId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
   @@index([userId])
   @@index([status])
   @@index([startDate])
   @@index([userId, status])
   @@index([approvalStage])
+  @@index([routingSnapshotId])
   @@map("leave_requests")
 }
 
@@ -1345,6 +1377,14 @@ model AttendancePunchEvidence {
 
   createdAt DateTime @default(now())
 
+  // Phase 1: written at INSERT only (the append-only trigger is unchanged).
+  // Null on historical rows means "not recorded at the time".
+  altitudeMeters      Float?
+  altitudeStatus      EvidenceAvailability?
+  accuracyStatus      EvidenceAvailability?
+  policyContextStatus PolicyContextStatus?
+  review              PunchEvidenceReview?
+
   user               User                  @relation(fields: [userId], references: [id])
   workSession        WorkSession?          @relation(fields: [workSessionId], references: [id])
   attendanceLocation AttendanceLocation?   @relation(fields: [attendanceLocationId], references: [id])
@@ -1419,6 +1459,9 @@ model LeavePolicy {
   /// historical/legacy leave types; new CASUAL/EMERGENCY funding never pools.
   casualLeaveAllocation            Int                         @default(10)
   emergencyLeaveAllocation         Int                         @default(4)
+  /// The approved Sick entitlement. Unread until Phase 3 switches every
+  /// entitlement reader at once; nothing outside this schema may reference it.
+  sickLeaveAllocation              Int                         @default(4)
   /// Explicit approved half-day attendance expectations.
   firstHalfInEarliest              String                      @default("09:30")
   firstHalfInLatest                String                      @default("10:30")
@@ -2448,19 +2491,22 @@ enum AttendanceRecoveryTombstoneType {
 /// One archive, rehire or permanent-delete run. "userId" is required while the
 /// operation is in flight and set to NULL once the user has been deleted.
 model UserLifecycleOperation {
-  id             String   @id
-  userId         String?
-  kind           String
-  state          String
+  id                  String                        @id
+  userId              String?
+  kind                String
+  state               String
   /// pg_current_xact_id() of the transaction allowed to delete append-only rows.
-  deleteTxid     String?
-  snapshotId     String?
-  actorId        String
-  idempotencyKey String   @unique
+  deleteTxid          String?
+  snapshotId          String?
+  actorId             String
+  idempotencyKey      String                        @unique
   /// Controlled, non-PII result codes and counts only.
-  result         Json?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  result              Json?
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+  /// Latest remediation summary only; the history is lifecycle_remediation_attempts.
+  remediation         Json?
+  remediationAttempts LifecycleRemediationAttempt[]
 
   @@index([userId])
   @@index([state])
@@ -2582,15 +2628,528 @@ model RetentionRule {
 
 /// A legal hold blocks permanent deletion until released. Read-only in this
 /// release.
+///
+/// Phase 1 states. Single authority: placedById/placedAt mean "became ACTIVE"
+/// (placed directly or confirmed from a request); releasedById/releasedAt mean
+/// released. status null is a genuine pre-migration row only: a trigger rejects
+/// new rows without a status and any change back to null, and per-state CHECKs
+/// (not expressible here) keep actors, timestamps and reasons consistent.
+/// REQUESTED and ACTIVE both block Permanent Delete.
 model UserLegalHold {
-  id           String    @id @default(cuid())
-  userId       String
-  reasonCode   String
-  placedById   String?
-  placedAt     DateTime  @default(now())
-  releasedById String?
-  releasedAt   DateTime?
+  id              String           @id @default(cuid())
+  userId          String
+  reasonCode      String
+  placedById      String?
+  placedAt        DateTime?
+  releasedById    String?
+  releasedAt      DateTime?
+  status          LegalHoldStatus?
+  notes           String?
+  reference       String?
+  requestedById   String?
+  requestedAt     DateTime?
+  rejectedById    String?
+  rejectedAt      DateTime?
+  rejectionReason String?
+  withdrawnById   String?
+  withdrawnAt     DateTime?
+  releaseReason   String?
 
   @@index([userId])
+  @@index([status])
   @@map("user_legal_holds")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Lifecycle foundation (Phase 1). Migrations 20261015100000 and 20261015100100.
+// CHECK constraints, partial unique indexes, the employee_id_te_seq sequence,
+// apex_assign_employee_id() and the append-only triggers live in SQL only.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum EmploymentState {
+  SCHEDULED_TO_JOIN
+  ACTIVE
+  DEACTIVATED
+  ARCHIVED
+}
+
+enum SetupIssueStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  WAIVED
+}
+
+enum SetupIssueSeverity {
+  INFO
+  WARNING
+  BLOCKING
+}
+
+enum RemediationClass {
+  WARNING_NON_BLOCKING
+  USER_FIXABLE
+  ADMIN_FIXABLE_FRONTEND
+  SYSTEM_REPAIRABLE
+  MANUAL_EXTERNAL
+  BACKEND_OPERATIONS
+  SECURITY_OR_LEGAL_BLOCK
+}
+
+enum EmploymentStartReason {
+  NEW_HIRE
+  REACTIVATION
+  REHIRE
+  LEGACY_BACKFILL
+}
+
+enum EmploymentEndReason {
+  RESIGNATION
+  TERMINATION
+  DEACTIVATION
+  ARCHIVE
+  CONTRACT_END
+  OTHER
+}
+
+enum ProbationStatus {
+  PROBATION
+  CONFIRMED
+}
+
+enum HierarchyScope {
+  EMPLOYEE
+  DEPARTMENT
+  COMPANY
+}
+
+enum HierarchyRole {
+  TEAM_LEAD
+  MANAGER
+}
+
+enum RoutingWorkflow {
+  LEAVE
+  TICKET_REVIEW
+}
+
+enum RoutingTier {
+  ORIGINAL_REVIEWER
+  EMPLOYEE_TL
+  ORIGINAL_DEPT_TL
+  ORIGINAL_DEPT_MANAGER
+  DEPT_TL
+  DEPT_MANAGER
+  COMPANY_MANAGER
+  HR
+  ADMIN
+}
+
+enum PolicyHealthKind {
+  GAP
+  OVERLAP
+  MISSING_BASELINE
+  INVALID_FUTURE_ACTIVATION
+  NO_POLICY
+  LAST_APPLICABLE_PROTECTED
+}
+
+enum EvidenceAvailability {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+enum PolicyContextStatus {
+  RESOLVED
+  POLICY_SETUP_PENDING
+}
+
+enum PunchReviewStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+enum LeaveSubmissionMode {
+  STANDARD
+  EMERGENCY
+}
+
+enum LeaveFundingBucket {
+  CASUAL
+  SICK
+}
+
+enum TransferStatus {
+  COMPLETED
+  FAILED
+}
+
+enum TransferImpactKind {
+  TICKET
+  PROJECT
+  LEAVE_APPROVAL
+  TICKET_REVIEW
+  PROFILE
+}
+
+enum ExitCaseState {
+  NOTICE_RUNNING
+  CLEARANCE_IN_PROGRESS
+  CLEARED
+  WITHDRAWN
+  COMPLETED
+}
+
+enum NoticeSource {
+  POLICY_PROBATION
+  POLICY_CONFIRMED
+  CONTRACT
+  MANAGEMENT_ADJUSTMENT
+}
+
+enum ClearanceCategory {
+  HANDOVER
+  KNOWLEDGE_TRANSFER
+  ASSETS
+  DOCUMENTS
+  DEPARTMENT
+  ACCESS_SHUTDOWN
+  FINANCIAL
+  FINAL_DOCUMENTS
+  ARCHIVE_READINESS
+}
+
+enum ClearanceStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  WAIVED
+  NOT_APPLICABLE
+}
+
+enum FnfState {
+  NOT_STARTED
+  ON_HOLD_REVIEW_REQUIRED
+  READY_FOR_RELEASE
+  RELEASED
+}
+
+enum FnfAdjustmentKind {
+  ATTENDANCE
+  MISCONDUCT
+  ASSET_RECOVERY
+  NOTICE_RECOVERY
+  OTHER
+}
+
+enum LegalHoldStatus {
+  REQUESTED
+  ACTIVE
+  REJECTED
+  WITHDRAWN
+  RELEASED
+}
+
+enum FnfAdjustmentDirection {
+  DEBIT
+  CREDIT
+}
+
+enum RemediationAttemptPhase {
+  FAILURE
+  VERIFICATION
+  INSTRUCTION
+  RETRY
+  RESOLUTION
+}
+
+/// Non-reuse ledger of issued TE numbers. Holds only the number, never a code,
+/// spelling or user id, so nothing here identifies a deleted person. Immutable:
+/// UPDATE and DELETE are refused by trigger. Written only by
+/// apex_assign_employee_id(), the single serialized allocator.
+model EmployeeIdAllocation {
+  number      BigInt   @id
+  /// LEGACY, GENERATED or MANUAL (CHECK in SQL).
+  source      String
+  allocatedAt DateTime @default(now())
+
+  @@map("employee_id_allocations")
+}
+
+/// One employment stint. At most one open period per user (partial unique).
+model EmploymentPeriod {
+  id                  String                @id
+  userId              String
+  startDate           DateTime              @db.Date
+  endDate             DateTime?             @db.Date
+  startReason         EmploymentStartReason
+  endReason           EmploymentEndReason?
+  /// Null on a REHIRE period means the rehire terms are still pending.
+  probationStatus     ProbationStatus?
+  benefitEligibleFrom DateTime?             @db.Date
+  createdById         String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  exitCases           ExitCase[]
+
+  @@index([userId, startDate])
+  @@map("employment_periods")
+}
+
+/// Per-user setup health. WAIVED is limited to a server allow-list that is
+/// empty in Phase 1.
+model UserSetupIssue {
+  id               String             @id
+  userId           String?
+  code             String
+  domain           String
+  severity         SetupIssueSeverity
+  remediationClass RemediationClass
+  status           SetupIssueStatus   @default(OPEN)
+  dedupeKey        String             @unique
+  details          Json?
+  firstDetectedAt  DateTime           @default(now())
+  lastDetectedAt   DateTime           @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  resolvedAt       DateTime?
+  resolvedById     String?
+  waivedAt         DateTime?
+  waivedById       String?
+  waivedReason     String?
+  firstNotifiedAt  DateTime?
+  reminder15SentAt DateTime?
+  monthlyDigestAt  DateTime?
+  user             User?              @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, status])
+  @@index([status, firstNotifiedAt])
+  @@map("user_setup_issues")
+}
+
+/// Primary Team Lead / Manager for an employee, a department, or the company
+/// fallback Manager (one COMPANY/MANAGER row, set from Settings, not seeded).
+model HierarchyAssignment {
+  id             String         @id
+  scope          HierarchyScope
+  role           HierarchyRole
+  subjectUserId  String?
+  departmentId   String?
+  assigneeUserId String
+  isPrimary      Boolean        @default(true)
+  effectiveFrom  DateTime       @default(now())
+  effectiveTo    DateTime?
+  createdById    String?
+  createdAt      DateTime       @default(now())
+  subjectUser    User?          @relation("HierarchySubject", fields: [subjectUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  department     Department?    @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  assigneeUser   User           @relation("HierarchyAssignee", fields: [assigneeUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([assigneeUserId])
+  @@map("hierarchy_assignments")
+}
+
+/// Immutable routing decision (append-only by trigger). A reroute appends a
+/// new row whose supersedesId points at the one it replaces.
+model RoutingSnapshot {
+  id                   String            @id
+  workflow             RoutingWorkflow
+  entityType           String
+  entityId             String
+  subjectUserId        String?
+  originalDepartmentId String?
+  resolvedApproverId   String?
+  tier                 RoutingTier
+  fallbackReason       String?
+  supersedesId         String?
+  createdById          String?
+  createdAt            DateTime          @default(now())
+  supersedes           RoutingSnapshot?  @relation("RoutingSupersedes", fields: [supersedesId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supersededBy         RoutingSnapshot[] @relation("RoutingSupersedes")
+  leaveRequests        LeaveRequest[]
+
+  @@index([entityType, entityId, createdAt], map: "routing_snapshots_entity_idx")
+  @@index([resolvedApproverId])
+  @@map("routing_snapshots")
+}
+
+model PolicyHealthIssue {
+  id           String           @id
+  policyFamily String
+  kind         PolicyHealthKind
+  dedupeKey    String           @unique
+  rangeFrom    DateTime?        @db.Date
+  rangeTo      DateTime?        @db.Date
+  policyIds    Json             @default("[]")
+  status       SetupIssueStatus @default(OPEN)
+  detectedAt   DateTime         @default(now())
+  resolvedAt   DateTime?
+  resolvedById String?
+
+  @@index([status])
+  @@map("policy_health_issues")
+}
+
+/// HR review state for punch evidence, kept outside the append-only evidence
+/// row. Cascades with the evidence.
+model PunchEvidenceReview {
+  id           String                  @id
+  evidenceId   String                  @unique
+  reasonCodes  String[]                @default([])
+  status       PunchReviewStatus       @default(PENDING)
+  reviewedById String?
+  reviewedAt   DateTime?
+  note         String?
+  createdAt    DateTime                @default(now())
+  evidence     AttendancePunchEvidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status])
+  @@map("punch_evidence_reviews")
+}
+
+model DepartmentTransfer {
+  id               String                     @id
+  userId           String
+  fromDepartmentId String?
+  toDepartmentId   String?
+  fromRoleId       String
+  toRoleId         String
+  effectiveAt      DateTime
+  actorId          String
+  status           TransferStatus
+  createdAt        DateTime                   @default(now())
+  user             User                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  impacts          DepartmentTransferImpact[]
+
+  @@index([userId, effectiveAt], map: "department_transfers_userId_idx")
+  @@map("department_transfers")
+}
+
+model DepartmentTransferImpact {
+  id           String             @id
+  transferId   String
+  kind         TransferImpactKind
+  entityId     String
+  action       String
+  reviewStatus String             @default("PENDING_REVIEW")
+  transfer     DepartmentTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([transferId])
+  @@map("department_transfer_impacts")
+}
+
+/// Resignation, notice and last working day. One open case per user (partial
+/// unique on the open states).
+model ExitCase {
+  id                     String              @id
+  userId                 String
+  employmentPeriodId     String
+  state                  ExitCaseState
+  resignedOn             DateTime            @db.Date
+  noticeDays             Int
+  noticeSource           NoticeSource
+  noticeAdjustmentReason String?
+  lastWorkingDay         DateTime            @db.Date
+  withdrawnAt            DateTime?
+  withdrawnById          String?
+  createdById            String?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  employmentPeriod       EmploymentPeriod    @relation(fields: [employmentPeriodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clearanceItems         ExitClearanceItem[]
+  settlement             FnfSettlement?
+
+  @@map("exit_cases")
+}
+
+model ExitClearanceItem {
+  id            String            @id
+  exitCaseId    String
+  category      ClearanceCategory
+  ownerId       String?
+  status        ClearanceStatus   @default(PENDING)
+  evidenceRef   String?
+  completedAt   DateTime?
+  completedById String?
+  updatedAt     DateTime          @updatedAt
+  exitCase      ExitCase          @relation(fields: [exitCaseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([exitCaseId, category], map: "exit_clearance_items_unique")
+  @@map("exit_clearance_items")
+}
+
+/// F&F hold, deadline (8 working days after the last working day), escalation
+/// and release. Outside the retention-period calculation.
+model FnfSettlement {
+  id              String          @id
+  exitCaseId      String          @unique
+  state           FnfState        @default(NOT_STARTED)
+  holdReason      String?
+  deadlineOn      DateTime        @db.Date
+  lastEscalatedAt DateTime?
+  releasedAt      DateTime?
+  releasedById    String?
+  updatedAt       DateTime        @updatedAt
+  exitCase        ExitCase        @relation(fields: [exitCaseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  adjustments     FnfAdjustment[]
+
+  @@map("fnf_settlements")
+}
+
+/// Itemized manual F&F adjustment. Append-only by trigger; a correction is a
+/// new row whose reversesId points at the original (validated by trigger).
+/// Never created automatically.
+model FnfAdjustment {
+  id            String                 @id
+  settlementId  String
+  /// Denormalised for the Permanent Delete guard.
+  subjectUserId String
+  kind          FnfAdjustmentKind
+  direction     FnfAdjustmentDirection
+  amount        Decimal                @db.Decimal(12, 2)
+  currency      String                 @default("INR") @db.Char(3)
+  reasonCode    String
+  reference     String
+  note          String?
+  approvedById  String
+  approvedAt    DateTime
+  recordedById  String
+  reversesId    String?                @unique
+  createdAt     DateTime               @default(now())
+  settlement    FnfSettlement          @relation(fields: [settlementId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reverses      FnfAdjustment?         @relation("FnfReversal", fields: [reversesId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reversedBy    FnfAdjustment?         @relation("FnfReversal")
+
+  @@index([settlementId])
+  @@map("fnf_adjustments")
+}
+
+/// Append-only operation history: one row per failure, verification,
+/// instruction, retry and resolution. lifecycleOperationId is set exactly when
+/// operationKind is LIFECYCLE (CHECK in SQL).
+model LifecycleRemediationAttempt {
+  id                   String                  @id
+  /// LIFECYCLE, CREATE_USER, REACTIVATE, REHIRE, LEAVE, PUNCH or SETUP (CHECK in SQL).
+  operationKind        String
+  /// Opaque, non-PII correlation id.
+  operationId          String
+  lifecycleOperationId String?
+  subjectUserId        String?
+  attemptNo            Int
+  code                 String
+  phase                RemediationAttemptPhase
+  outcome              String
+  actorId              String
+  /// Already passed through the serializer allow-list.
+  remediation          Json
+  serverAt             DateTime                @default(now())
+  lifecycleOperation   UserLifecycleOperation? @relation(fields: [lifecycleOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([operationId, attemptNo], map: "lifecycle_remediation_attempts_seq")
+  @@index([subjectUserId, serverAt], map: "lifecycle_remediation_attempts_subject_idx")
+  @@index([lifecycleOperationId], map: "lifecycle_remediation_attempts_lifecycle_idx")
+  @@map("lifecycle_remediation_attempts")
 }

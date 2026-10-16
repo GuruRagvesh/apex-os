@@ -7,6 +7,7 @@ import { useLocationAcquisition } from './useLocationAcquisition';
 import { PunchHandoffQr } from './PunchHandoffQr';
 import { newIdempotencyKey, submitPunch, type PunchResult, type PunchType } from './punch-api';
 import { ModalPortal } from '../ui/ModalPortal';
+import { RemediationDialog, useRemediation } from '@apex/shared-remediation';
 
 /**
  * The employee-facing punch flow (PE-4).
@@ -47,6 +48,8 @@ export function PunchModal({
   const geo = useLocationAcquisition();
   const [phase, setPhase] = useState<Phase>('location');
   const [error, setError] = useState<string | null>(null);
+  // A structured server decision opens the remediation dialog over this modal.
+  const remediation = useRemediation();
   const [canRetry, setCanRetry] = useState(false);
   const [result, setResult] = useState<PunchResult | null>(null);
 
@@ -95,6 +98,13 @@ export function PunchModal({
       setPhase('done');
       onPunched(res);
     } catch (err: any) {
+      if (remediation.openFrom(err)) {
+        // A remediation is a server decision, not a blip: no automatic resend.
+        setPhase('failed');
+        setCanRetry(false);
+        setError(err.remediation.title || 'The punch was not accepted.');
+        return;
+      }
       // The shared authenticated client normalises rejected responses to the
       // response body. Support both that shape and a raw AxiosError so a real
       // 422 configuration decision is never misreported as a network outage.
@@ -118,7 +128,7 @@ export function PunchModal({
             : 'The punch was not accepted.',
       );
     }
-  }, [geo.sample, onPunched, type]);
+  }, [geo.sample, onPunched, type, remediation.openFrom]);
 
   const handleCaptured = useCallback(
     (photoAssetId: string) => {
@@ -284,6 +294,7 @@ export function PunchModal({
         )}
       </div>
       </div>
+      <RemediationDialog {...remediation.dialogProps} />
     </ModalPortal>
   );
 }

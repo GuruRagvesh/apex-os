@@ -7,11 +7,13 @@
 // deletion, the typed confirmation). The frontend never asserts that a backup
 // exists, never sends counts and never chooses the actor.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { usersApi } from '@apex/core-users/api';
+import { RemediationDialog, useRemediation } from '@apex/shared-remediation';
+import { createRemediationActionRunner } from '@apex/shared-remediation/api';
 
 /** A random UUID v4 for idempotency; never derived from the person. */
 export function newIdempotencyKey(): string {
@@ -38,6 +40,7 @@ export const BLOCKER_LABELS: Record<string, string> = {
   OPEN_CRM_LEADS: 'Open CRM leads they own',
   ACTIVE_COLLEAGUE_ATTENDANCE_PROFILES: 'Colleagues whose attendance profile names them',
   TICKETS_AWAITING_APPROVAL: 'Their tickets still awaiting approval',
+  OPEN_REPORTING_LINES: 'People for whom they are the primary Team Lead or Manager',
 };
 
 const WORK_LABELS: Record<string, string> = {
@@ -63,7 +66,7 @@ function ModalShell({ title, children, onClose, labelledBy }: { title: string; c
       role="dialog"
       aria-modal="true"
       aria-labelledby={labelledBy}
-      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+      onKeyDown={(e) => { if (e.key === 'Escape' && !e.defaultPrevented) onClose(); }}
     >
       <div className="apex-modal w-full max-w-lg p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto">
         <h3 id={labelledBy} className="font-bold text-lg mb-3" style={{ color: 'var(--text-primary)' }}>{title}</h3>
@@ -90,6 +93,8 @@ function CountList({ entries, labels }: { entries: [string, number][]; labels: R
 
 export function ArchiveUserModal({ user, onClose, onArchived }: { user: any; onClose: () => void; onArchived: () => void }) {
   const key = useMemo(newIdempotencyKey, []);
+  const remediation = useRemediation();
+  const runner = useMemo(createRemediationActionRunner, []);
   const preflight = useQuery({
     queryKey: ['user-lifecycle', 'archive-preflight', user.id],
     queryFn: () => usersApi.archivePreflight(user.id) as Promise<any>,
@@ -101,7 +106,10 @@ export function ArchiveUserModal({ user, onClose, onArchived }: { user: any; onC
       toast.success(`${user.name} archived.`);
       onArchived();
     },
-    onError: (err: any) => toast.error(err?.message || 'Archive failed. Nothing was changed.'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'Archive failed. Nothing was changed.');
+    },
   });
 
   const p = preflight.data;
@@ -159,6 +167,7 @@ export function ArchiveUserModal({ user, onClose, onArchived }: { user: any; onC
           {blockers.length > 0 ? 'Close' : 'Cancel'}
         </button>
       </div>
+      <RemediationDialog {...remediation.dialogProps} runAction={runner} />
     </ModalShell>
   );
 }
@@ -182,13 +191,18 @@ export function RehireUserModal({ user, roles, departments, onClose, onRehired }
     // were; change it to the return date for a new period of employment.
     joiningDate: typeof user.joiningDate === 'string' && user.joiningDate ? user.joiningDate.slice(0, 10) : todayLocal(),
   });
+  const remediation = useRemediation();
+  const runner = useMemo(createRemediationActionRunner, []);
   const rehire = useMutation({
     mutationFn: () => usersApi.rehire(user.id, { ...form, departmentId: form.departmentId || null }),
     onSuccess: (u: any) => {
       toast.success(`${u?.name ?? user.name} rehired. Their earlier history is kept.`);
       onRehired();
     },
-    onError: (err: any) => toast.error(err?.message || 'Rehire failed'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'Rehire failed');
+    },
   });
   const ready = form.name.trim() && form.email.trim() && form.password.length >= 6 && form.roleId && form.joiningDate;
   return (
@@ -237,6 +251,7 @@ export function RehireUserModal({ user, roles, departments, onClose, onRehired }
         </button>
         <button type="button" onClick={onClose} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
       </div>
+      <RemediationDialog {...remediation.dialogProps} runAction={runner} />
     </ModalShell>
   );
 }
@@ -246,6 +261,9 @@ export function RehireUserModal({ user, roles, departments, onClose, onRehired }
 export function PermanentDeleteModal({ user, onClose, onDeleted }: { user: any; onClose: () => void; onDeleted: () => void }) {
   const key = useMemo(newIdempotencyKey, []);
   const [confirmation, setConfirmation] = useState('');
+  const [deletedPending, setDeletedPending] = useState(false);
+  const remediation = useRemediation();
+  const runner = useMemo(createRemediationActionRunner, []);
   const preflight = useQuery({
     queryKey: ['user-lifecycle', 'delete-preflight', user.id],
     queryFn: () => usersApi.permanentDeletePreflight(user.id) as Promise<any>,
@@ -254,13 +272,30 @@ export function PermanentDeleteModal({ user, onClose, onDeleted }: { user: any; 
   const del = useMutation({
     mutationFn: () => usersApi.permanentDelete(user.id, { idempotencyKey: key, confirmation }),
     onSuccess: (op: any) => {
-      if (op?.state === 'CLEANUP_PENDING') toast.success('User deleted. Removing their original files is pending and will be retried.');
-      else toast.success('User permanently deleted.');
+      if (op?.state === 'CLEANUP_PENDING') {
+        toast.success('User deleted. Removing their original files is pending and will be retried.');
+        // Offer the safe cleanup retry before leaving; the list refreshes when the dialog closes.
+        if (op.remediation) {
+          setDeletedPending(true);
+          remediation.openWith(op.remediation);
+          return;
+        }
+      } else toast.success('User permanently deleted.');
       onDeleted();
     },
-    onError: (err: any) => toast.error(err?.message || 'Permanent deletion failed. The user is still archived.'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'Permanent deletion failed. The user is still archived.');
+    },
   });
   const p = preflight.data;
+  // A blocked preflight explains itself in the remediation dialog, once per
+  // blocker: closing it does not reopen the same code on the next refresh.
+  const [dismissedCode, setDismissedCode] = useState<string | null>(null);
+  useEffect(() => {
+    if (p && !p.allowed && p.remediation && p.remediation.code !== dismissedCode) remediation.openWith(p.remediation);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p]);
   const typedOk = confirmation.trim().toLowerCase() === String(user.email ?? '').trim().toLowerCase();
   const retentionCats = Object.entries(p?.retention?.categories ?? {}).filter(([, v]: any) => v.reason !== 'RELEASED').map(([k]) => RETENTION_LABELS[k] ?? k);
 
@@ -301,6 +336,16 @@ export function PermanentDeleteModal({ user, onClose, onDeleted }: { user: any; 
         </button>
         <button type="button" onClick={onClose} className="apex-btn apex-btn-secondary flex-1 justify-center py-2.5">Cancel</button>
       </div>
+      <RemediationDialog
+        {...remediation.dialogProps}
+        runAction={runner}
+        onClose={() => {
+          setDismissedCode(remediation.result?.code ?? null);
+          remediation.close();
+          if (deletedPending) onDeleted();
+          else void preflight.refetch();
+        }}
+      />
     </ModalShell>
   );
 }

@@ -8,7 +8,7 @@
 
 import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { HANDLERS, Handler, MatrixContext, Subject, delegateName, handlerWhere } from './dependency-matrix';
+import { FINGERPRINT_OPTIONAL_WHEN_EMPTY, HANDLERS, Handler, MatrixContext, Subject, delegateName, handlerWhere } from './dependency-matrix';
 import { ARCHIVE_EVENT_NAMES, LIFECYCLE_EVENT, NO_HISTORY_CLASSIFICATION_VERSION, RETURN_EVENT_NAMES } from './lifecycle-codes';
 
 type Client = Prisma.TransactionClient | any;
@@ -33,6 +33,17 @@ export const SETUP_ONLY_ALLOWANCE: Record<string, { max: number; filter?: (row: 
     max: 1,
     filter: (row) => row.value === null || (typeof row.value === 'object' && Object.keys(row.value ?? {}).length === 0),
     note: 'Empty personal preferences.',
+  },
+  // Lifecycle foundation (Phase 1): rows Create User writes before anyone works.
+  'EmploymentPeriod.userId': {
+    max: 1,
+    filter: (row) => row.startReason === 'NEW_HIRE' && row.endDate === null,
+    note: 'The initial open NEW_HIRE employment period.',
+  },
+  'HierarchyAssignment.subjectUserId': {
+    max: 2,
+    filter: (row) => row.scope === 'EMPLOYEE' && row.isPrimary === true && row.effectiveTo === null,
+    note: 'The initial primary TL and Manager assignment.',
   },
 };
 
@@ -142,11 +153,24 @@ export function classifyNoHistory(inv: Inventory): NoHistoryResult {
  * notifications are generated for anyone involved in a ticket, archived or not.
  * They are still archived and still deleted. A rehire after the snapshot is
  * caught separately, by the snapshot status.
+ *
+ * Legal holds (Phase 1) are lifecycle controls too: requesting, confirming,
+ * rejecting or releasing a hold after archiving must not force a re-archive.
+ * Deletion re-reads every hold live under the lock instead, so a hold can never
+ * be bypassed. A person with no holds fingerprints exactly as before.
  */
-const FINGERPRINT_EXCLUDED_HANDLERS = ['UserLifecycleOperation.userId', 'ActivityLog.entityId[User]', 'Notification.userId', 'PushSubscription.userId'];
+const FINGERPRINT_EXCLUDED_HANDLERS = ['UserLifecycleOperation.userId', 'ActivityLog.entityId[User]', 'Notification.userId', 'PushSubscription.userId', 'UserLegalHold.userId'];
+/**
+ * Phase 1 bookkeeping that is never fingerprinted at all (not even its count):
+ * a failed or retried operation appends remediation attempts about the person,
+ * and that must not make their verified snapshot stale.
+ */
+const FINGERPRINT_IGNORED_HANDLERS = ['LifecycleRemediationAttempt.subjectUserId', 'LifecycleRemediationAttempt.subjectUserId[running]'];
 const FINGERPRINT_EXCLUDED_EVENTS = [...LIFECYCLE_BOOKKEEPING_EVENTS, ...ARCHIVE_EVENT_NAMES, ...RETURN_EVENT_NAMES, 'USER_DEACTIVATED'];
 
-function fingerprintRows(h: Handler, rows: any[]): any[] {
+function fingerprintRows(h: Handler, rows: any[]): any[] | null {
+  if (FINGERPRINT_IGNORED_HANDLERS.includes(h.key)) return null;
+  if (rows.length === 0 && FINGERPRINT_OPTIONAL_WHEN_EMPTY.has(h.key)) return null;
   if (FINGERPRINT_EXCLUDED_HANDLERS.includes(h.key)) return [];
   if (h.key === 'OperationalEvent.entityId[User]') return rows.filter((r) => !FINGERPRINT_EXCLUDED_EVENTS.includes(r.action));
   return rows;
@@ -164,9 +188,9 @@ function fingerprintRow(h: Handler, row: any): unknown {
  * them, and the counts. Stored as the hash only.
  */
 export function dataFingerprint(inv: Inventory): string {
-  const handlers = HANDLERS.map((h) => {
+  const handlers = HANDLERS.flatMap((h) => {
     const rows = fingerprintRows(h, inv.rows[h.key] ?? []);
-    return { key: h.key, count: rows.length, rows: rows.map((r) => fingerprintRow(h, r)) };
+    return rows === null ? [] : [{ key: h.key, count: rows.length, rows: rows.map((r) => fingerprintRow(h, r)) }];
   });
   const body = { user: inv.user, handlers, screenshots: inv.screenshots };
   return createHash('sha256').update(canonical(body)).digest('hex');

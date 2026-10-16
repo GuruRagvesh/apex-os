@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveApi, compOffApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
@@ -11,6 +11,8 @@ import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, Info, ChevronDown } f
 import { EmptyState } from '@apex/shared-ui/components/empty-state';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
+import { RemediationDialog, displayLeaveSetupStatus, useRemediation } from '@apex/shared-remediation';
+import { createRemediationActionRunner } from '@apex/shared-remediation/api';
 
 const LEAVE_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'ANNUAL', 'SICK', 'UNPAID', 'OTHER'];
 
@@ -158,6 +160,11 @@ export default function LeavePage() {
     enabled: !!user,
   });
 
+  // Structured errors open the remediation dialog over the leave form, which
+  // keeps every value (spec §11.3). Other errors keep their existing toast.
+  const remediation = useRemediation();
+  const remediationRunner = useMemo(createRemediationActionRunner, []);
+
   const createMutation = useMutation({
     mutationFn: (data: any) => leaveApi.create(data),
     onSuccess: () => {
@@ -168,7 +175,10 @@ export default function LeavePage() {
       setShowNew(false);
       setForm({ type: 'CASUAL', startDate: '', endDate: '', reason: '' });
     },
-    onError: () => toast.error('Failed to submit leave request'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error('Failed to submit leave request');
+    },
   });
 
   const approveMutation = useMutation({
@@ -179,7 +189,10 @@ export default function LeavePage() {
       qc.invalidateQueries({ queryKey: ['leave-stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
     },
-    onError: (err: any) => toast.error(err?.message || 'You do not have permission to perform this action.'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'You do not have permission to perform this action.');
+    },
   });
 
   const rejectMutation = useMutation({
@@ -193,6 +206,7 @@ export default function LeavePage() {
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
     },
     onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
       setRejectingId(null);
       toast.error(err?.message || 'You do not have permission to perform this action.');
     },
@@ -420,6 +434,7 @@ export default function LeavePage() {
                           <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Request Details</p>
                           <p><span className="text-slate-500 font-medium">Duration:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{duration === null ? 'Unavailable — calendar setup required' : `${duration} working days`}{duration !== null && leave.isHalfDay && ` (Half-day: ${leave.halfDayType || 'First Half'})`}</span></p>
                           <p><span className="text-slate-500 font-medium">Reason:</span> <span className="text-slate-800 dark:text-gray-200">{leave.reason}</span></p>
+                          <p data-testid="leave-setup-status" data-setup-status={leave.setupStatus ?? 'LEGACY_UNASSESSED'}><span className="text-slate-500 font-medium">Policy check:</span> <span className="text-slate-800 dark:text-gray-200">{displayLeaveSetupStatus(leave.setupStatus).label}</span></p>
                           {leave.status !== 'PENDING' && (
                             <p><span className="text-slate-500 font-medium">Processed by:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.approvedBy || leave.rejectedBy || 'System'}</span></p>
                           )}
@@ -702,6 +717,7 @@ export default function LeavePage() {
           </div>
         </div>
       )}
+      <RemediationDialog {...remediation.dialogProps} runAction={remediationRunner} />
     </div>
   );
 }

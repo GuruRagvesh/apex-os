@@ -39,6 +39,9 @@ import { ArchivedFileEntry, buildArchiveWorkbook, readFilesSheet } from './archi
 import { createProviderFileStore } from './provider-file-store';
 import { decryptHandle, encryptHandle, handleHmac, readHandleKeys } from './handle-crypto';
 import { evaluateRetention, protectedRowDate, RetentionEvaluation } from './retention';
+import { activeHoldWhere, HoldStatusView, strongestHold } from '../../../../common/lifecycle-domain';
+import { AllowedRetryEndpoint, RemediationException, RemediationResult, buildRemediation, pickByPrecedence } from '../../../../common/remediation';
+import { listLifecycleAttempts, recordLifecycleAttempt } from './remediation-attempts';
 import {
   ARCHIVE_EVENT_NAMES,
   ARCHIVE_SCHEMA_VERSION,
@@ -50,6 +53,7 @@ import {
   OPERATION_KIND,
   OPERATION_STATE,
   REASON,
+  REMEDIATION_CODE_FOR_REASON,
   RETURN_EVENT_NAMES,
   ReasonCode,
   SNAPSHOT_STATUS,
@@ -108,6 +112,13 @@ export interface ArchivePreflight {
   operationInProgress: boolean;
   archiveCleanupPending: boolean;
   backupRequired: boolean;
+  /**
+   * What Retry Verification shows for archive codes (Phase 1): a running
+   * operation, or an archive vault that is not configured for this environment
+   * when a backup is required. Null when neither applies. The archive POST
+   * remains the emitter of ARCHIVE_VAULT_NOT_READY and ARCHIVE_PRIVACY_FAILED (E1).
+   */
+  remediation: RemediationResult | null;
 }
 
 export interface DeletePreflight {
@@ -118,6 +129,10 @@ export interface DeletePreflight {
   retention: { result: string; categories: Record<string, { rows: number; reason: string }> } | null;
   verifiedArchive: boolean;
   cleanupObjects: number;
+  /** The strongest blocking legal hold, or null (Phase 1). */
+  holdStatus: HoldStatusView | null;
+  /** The highest-precedence blocker as a remediation, or null when none applies (Phase 1). */
+  remediation: RemediationResult | null;
 }
 
 @Injectable()
@@ -170,7 +185,7 @@ export class UserLifecycleService {
     const [
       reports, teamMembersLed, teamsLed, managedDepts,
       pendingLeaveMgr, pendingLeaveHr, pendingTicketApprovals,
-      pendingProfileChanges, pendingCorrections, openLeads, colleagueProfiles, awaitingApproval,
+      pendingProfileChanges, pendingCorrections, openLeads, colleagueProfiles, awaitingApproval, openReportingLines,
     ] = await Promise.all([
       employeeId ? db.user.count({ where: { id: { not: userId }, isActive: true, reportingManager: employeeId } }) : 0,
       employeeId ? db.user.count({ where: { id: { not: userId }, isActive: true, teamLeadName: employeeId } }) : 0,
@@ -199,6 +214,8 @@ export class UserLifecycleService {
         },
       }),
       db.ticket.count({ where: { status: 'PENDING_APPROVAL', OR: [{ assignedToId: userId }, { assignees: { some: { userId } } }] } }),
+      // Phase 1: an open TL/Manager assignment held by this person (as the assignee) is never ended automatically.
+      db.hierarchyAssignment.count({ where: { assigneeUserId: userId, effectiveTo: null } }),
     ]);
     const out: Record<string, number> = {};
     const add = (k: string, n: number) => { if (n > 0) out[k] = n; };
@@ -213,6 +230,7 @@ export class UserLifecycleService {
     add('OPEN_CRM_LEADS', openLeads);
     add('ACTIVE_COLLEAGUE_ATTENDANCE_PROFILES', colleagueProfiles);
     add('TICKETS_AWAITING_APPROVAL', awaitingApproval);
+    add('OPEN_REPORTING_LINES', openReportingLines);
     return out;
   }
 
@@ -303,7 +321,38 @@ export class UserLifecycleService {
 
   /** The client-safe view of an operation: codes and counts only. */
   operationView(op: any) {
-    return { operationId: op.id, kind: op.kind, state: op.state, result: op.result ?? null };
+    return { operationId: op.id, kind: op.kind, state: op.state, result: op.result ?? null, remediation: op.remediation ?? null };
+  }
+
+  /** The append-only remediation history of one operation (Admin / Super Admin). */
+  async operationAttempts(operationId: string) {
+    const op = await this.prisma.userLifecycleOperation.findUnique({ where: { id: operationId }, select: { id: true } });
+    if (!op) throw new NotFoundException('Operation not found');
+    return { operationId, attempts: await listLifecycleAttempts(this.prisma, operationId) };
+  }
+
+  /** The remediation for a lifecycle reason, or null when Phase 1 has none for it. */
+  private remediationFor(
+    reason: ReasonCode,
+    opts: { userId?: string | null; operationId?: string; details?: Record<string, unknown>; retryEndpoint?: AllowedRetryEndpoint; previewCount?: number } = {},
+  ): RemediationResult | null {
+    const code = REMEDIATION_CODE_FOR_REASON[reason];
+    if (!code) return null;
+    const r = buildRemediation(code, {
+      affectedUserId: opts.userId ?? undefined,
+      operationId: opts.operationId,
+      details: opts.details,
+      now: this.ports.now(),
+      previewCount: opts.previewCount,
+    });
+    if (opts.retryEndpoint) r.retryEndpoint = opts.retryEndpoint;
+    return r;
+  }
+
+  /** The strongest blocking legal hold for a person (ACTIVE / legacy-active beats REQUESTED). */
+  private async holdStatusFor(db: any, userId: string): Promise<HoldStatusView | null> {
+    const rows = await db.userLegalHold.findMany({ where: { userId, ...activeHoldWhere() }, select: { status: true, releasedAt: true } });
+    return strongestHold(rows);
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -321,16 +370,35 @@ export class UserLifecycleService {
     const inv = await collectInventory(this.prisma, userId, { systemUserId: DELETED_ACCOUNT.id, operationId: null, now: this.ports.now() });
     const backupRequired = !classifyNoHistory(inv).noHistory;
     const state = archived ? 'ARCHIVED' : user!.isActive ? 'ACTIVE' : 'DEACTIVATED';
+    const operationInProgress = !!op && op.state !== OPERATION_STATE.ARCHIVE_CLEANUP_PENDING;
+    const remediation = operationInProgress
+      ? this.remediationFor(REASON.OPERATION_IN_PROGRESS, { userId, operationId: op!.id, retryEndpoint: 'ARCHIVE_PREFLIGHT' })
+      : backupRequired && state !== 'ARCHIVED' && !this.archiveVaultConfigured()
+        ? this.remediationFor(REASON.ARCHIVE_VAULT_NOT_READY, { userId })
+        : null;
     return {
       userId,
       state,
       canArchive: state !== 'ARCHIVED' && !op && Object.keys(blockers).length === 0,
       blockers,
       activeWork: work.summary,
-      operationInProgress: !!op && op.state !== OPERATION_STATE.ARCHIVE_CLEANUP_PENDING,
+      operationInProgress,
       archiveCleanupPending: op?.state === OPERATION_STATE.ARCHIVE_CLEANUP_PENDING,
       backupRequired,
+      remediation,
     };
+  }
+
+  /** Whether the archive vault is configured here. Reads configuration only; never contacts the provider. */
+  private archiveVaultConfigured(): boolean {
+    const environment = this.environment();
+    if (environment !== 'staging' && environment !== 'production') return false;
+    try {
+      readDriveConfig(this.ports.env(), environment);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -520,7 +588,9 @@ export class UserLifecycleService {
       if (!(err instanceof LifecycleRefusal) && !(err instanceof FolderNotPrivate)) {
         this.logger.error(`Archive operation ${op.id} failed: ${String(err?.message ?? err).split('\n')[0].slice(0, 200)}`);
       }
-      throw this.toHttp(err, code);
+      const remediation = this.remediationFor(code, { userId, operationId: op.id, retryEndpoint: cleanupFailed ? 'LIFECYCLE_ARCHIVE_CLEANUP_RETRY' : undefined });
+      if (remediation) await recordLifecycleAttempt(this.prisma, { operationId: op.id, subjectUserId: userId, phase: 'FAILURE', outcome: 'BLOCKED', actorId: actor.id, remediation });
+      throw this.toHttp(err, code, undefined, remediation);
     }
   }
 
@@ -713,9 +783,10 @@ export class UserLifecycleService {
   /** Cheap per-user status for archived cards. No Drive access. */
   async archivedStatus(userIds: string[]) {
     const ids = [...new Set(userIds)].slice(0, 500);
-    const [snapshots, ops] = await Promise.all([
+    const [snapshots, ops, holds] = await Promise.all([
       this.prisma.userArchiveSnapshot.findMany({ where: { userId: { in: ids }, status: { in: USABLE_SNAPSHOT_STATUSES } }, select: { userId: true, status: true, version: true, backupRequired: true } }),
       this.prisma.userLifecycleOperation.findMany({ where: { userId: { in: ids }, state: { in: [OPERATION_STATE.RUNNING, OPERATION_STATE.VERIFIED_FOR_DELETE, OPERATION_STATE.ARCHIVE_CLEANUP_PENDING] } }, select: { userId: true, kind: true, state: true } }),
+      this.prisma.userLegalHold.findMany({ where: { userId: { in: ids }, ...activeHoldWhere() }, select: { userId: true, status: true, releasedAt: true } }),
     ]);
     return ids.map((id) => {
       const s = snapshots.find((x) => x.userId === id);
@@ -727,6 +798,7 @@ export class UserLifecycleService {
         backupRequired: s?.backupRequired ?? null,
         verificationAvailable: !!s,
         operationInProgress: o ? { kind: o.kind, state: o.state } : null,
+        holdStatus: strongestHold(holds.filter((h: any) => h.userId === id)),
       };
     });
   }
@@ -735,7 +807,12 @@ export class UserLifecycleService {
   // Permanent delete
   // ════════════════════════════════════════════════════════════════════════
 
-  private async retentionFor(db: any, inv: Inventory, now: Date): Promise<RetentionEvaluation> {
+  /**
+   * The retention gate. Legal holds are evaluated separately (erratum E2), so
+   * a hold is reported as LEGAL_HOLD_* rather than as a retention block; pass
+   * includeHolds to get the combined result shown on the preflight.
+   */
+  private async retentionFor(db: any, inv: Inventory, now: Date, includeHolds = true): Promise<RetentionEvaluation> {
     const dates: Record<string, Date[]> = { ATTENDANCE: [], LEAVE: [], PAYROLL: [] };
     for (const h of HANDLERS) {
       if (!h.retention) continue;
@@ -751,7 +828,7 @@ export class UserLifecycleService {
     }
     const [rules, holds] = await Promise.all([
       db.retentionRule.findMany({ select: { category: true, retentionMonths: true, active: true, approvedAt: true } }),
-      db.userLegalHold.count({ where: { userId: inv.subject.id, releasedAt: null } }),
+      includeHolds ? db.userLegalHold.count({ where: { userId: inv.subject.id, ...activeHoldWhere() } }) : Promise.resolve(0),
     ]);
     return evaluateRetention({ protectedDates: dates as any, rules, activeLegalHolds: holds, now });
   }
@@ -812,14 +889,32 @@ export class UserLifecycleService {
       retention: null,
       verifiedArchive: false,
       cleanupObjects: 0,
+      holdStatus: null,
+      remediation: null,
     };
+    const finish = () => {
+      // Precedence (E2): legal hold, then missing keys, then ordinary retention, then the rest.
+      const codes = reasons.map((r) => REMEDIATION_CODE_FOR_REASON[r.code] ?? r.code);
+      const { primary, others } = pickByPrecedence(codes);
+      const reason = reasons.find((r) => (REMEDIATION_CODE_FOR_REASON[r.code] ?? r.code) === primary);
+      out.remediation = reason
+        ? this.remediationFor(reason.code, {
+            userId,
+            details: { ...(out.holdStatus ? { holdStatus: out.holdStatus } : {}), ...(others.length ? { otherBlockers: others } : {}), ...(out.retention ? { retentionResult: out.retention.result } : {}) },
+            retryEndpoint: 'PERMANENT_DELETE_PREFLIGHT',
+          })
+        : null;
+      out.allowed = reasons.length === 0;
+      return out;
+    };
+    out.holdStatus = await this.holdStatusFor(this.prisma, userId);
     if (user!.isActive || !archived) {
       refuse(REASON.NOT_ARCHIVED, 'Only archived users can be permanently deleted.');
-      return out;
+      return finish();
     }
     if (!snapshot) {
       refuse(REASON.SNAPSHOT_MISSING, 'Backup verification unavailable. This user was archived before verified snapshots existed.');
-      return out;
+      return finish();
     }
     if (snapshot.environment !== this.environment()) refuse(REASON.SNAPSHOT_WRONG_ENVIRONMENT, 'The archive belongs to a different environment.');
     if (await this.inflight(this.prisma, userId)) refuse(REASON.OPERATION_IN_PROGRESS, 'Another archive, rehire or deletion is running for this user.');
@@ -833,8 +928,11 @@ export class UserLifecycleService {
     if (Object.values(work.summary).some((n) => n > 0)) refuse(REASON.NEW_ACTIVE_WORK, 'This user has active work again. Archive them again before deleting.');
     const retention = await this.retentionFor(this.prisma, inv, now);
     out.retention = { result: retention.result, categories: retention.categories };
-    if (!retention.allowsDeletion) refuse(REASON.RETENTION_BLOCKED, 'Permanent deletion is blocked by a record-retention requirement.');
+    if (out.holdStatus === 'REQUESTED') refuse(REASON.LEGAL_HOLD_REQUESTED, 'A legal hold has been requested for this user and is awaiting review.');
+    else if (out.holdStatus) refuse(REASON.LEGAL_HOLD_ACTIVE, 'This user has an active legal hold.');
     if (!readHandleKeys(this.ports.env())) refuse(REASON.HANDLE_KEYS_MISSING, 'Permanent deletion is not configured on this server.');
+    const retentionWithoutHolds = out.holdStatus ? await this.retentionFor(this.prisma, inv, now, false) : retention;
+    if (!retentionWithoutHolds.allowsDeletion) refuse(REASON.RETENTION_BLOCKED, 'Permanent deletion is blocked by a record-retention requirement.');
     if (snapshot.status === SNAPSHOT_STATUS.VERIFIED && reasons.length === 0) {
       try {
         const plan = await this.verifyExistingArchive(snapshot, snapshot.files);
@@ -847,8 +945,7 @@ export class UserLifecycleService {
     } else if (snapshot.status === SNAPSHOT_STATUS.NO_HISTORY_VERIFIED) {
       out.verifiedArchive = true;
     }
-    out.allowed = reasons.length === 0;
-    return out;
+    return finish();
   }
 
   async permanentDelete(userId: string, actor: Actor, input: { idempotencyKey?: string; confirmation?: string }) {
@@ -863,6 +960,10 @@ export class UserLifecycleService {
     }
     if (!preflight.allowed) {
       await this.writeEvent(this.prisma, { actorId: actor.id, entityType: 'User', entityId: userId, action: LIFECYCLE_EVENT.PERMANENT_DELETE_VERIFICATION_FAILED, reasonCode: preflight.reasons[0]?.code ?? REASON.SNAPSHOT_NOT_USABLE, operationId: 'preflight' });
+      if (preflight.remediation) {
+        const lead = preflight.reasons.find((r) => REMEDIATION_CODE_FOR_REASON[r.code] === preflight.remediation!.code) ?? preflight.reasons[0];
+        throw new RemediationException(preflight.remediation, 409, lead?.message, { reasonCode: lead?.code, reasons: preflight.reasons, retention: preflight.retention });
+      }
       throw new ConflictException({ code: preflight.reasons[0]?.code, message: preflight.reasons[0]?.message, reasons: preflight.reasons, retention: preflight.retention });
     }
     const keys = readHandleKeys(this.ports.env())!;
@@ -894,7 +995,12 @@ export class UserLifecycleService {
         if (!locked || locked.isActive) throw new LifecycleRefusal(REASON.NOT_ARCHIVED, 'Only archived users can be permanently deleted.');
         const inv = await collectInventory(tx, userId, { ...ctx, operationId: null });
         if (dataFingerprint(inv) !== fresh.dataFingerprint) throw new LifecycleRefusal(REASON.SNAPSHOT_STALE, 'This user\'s data changed after archiving.');
-        const retention = await this.retentionFor(tx, inv, now);
+        // Same precedence as the preflight (E2): legal hold, missing keys, retention.
+        const hold = await this.holdStatusFor(tx, userId);
+        if (hold === 'REQUESTED') throw new LifecycleRefusal(REASON.LEGAL_HOLD_REQUESTED, 'A legal hold has been requested for this user and is awaiting review.');
+        if (hold) throw new LifecycleRefusal(REASON.LEGAL_HOLD_ACTIVE, 'This user has an active legal hold.');
+        if (!readHandleKeys(this.ports.env())) throw new LifecycleRefusal(REASON.HANDLE_KEYS_MISSING, 'Permanent deletion is not configured on this server.');
+        const retention = await this.retentionFor(tx, inv, now, false);
         if (!retention.allowsDeletion) throw new LifecycleRefusal(REASON.RETENTION_BLOCKED, 'Permanent deletion is blocked by a record-retention requirement.');
         const work = await this.activeWork(tx, userId);
         if (Object.values(work.summary).some((n) => n > 0)) throw new LifecycleRefusal(REASON.NEW_ACTIVE_WORK, 'This user has active work again.');
@@ -972,7 +1078,9 @@ export class UserLifecycleService {
       await this.finishOperation(op.id, OPERATION_STATE.FAILED, { reasonCode: code });
       await this.writeEvent(this.prisma, { actorId: actor.id, entityType: 'User', entityId: userId, action: LIFECYCLE_EVENT.PERMANENT_DELETE_VERIFICATION_FAILED, reasonCode: code, operationId: op.id }).catch(() => undefined);
       if (!(err instanceof LifecycleRefusal)) this.logger.error(`Permanent delete ${op.id} failed: ${String(err?.message ?? err).split('\n')[0].slice(0, 200)}`);
-      throw this.toHttp(err, code);
+      const remediation = this.remediationFor(code, { userId, operationId: op.id, retryEndpoint: 'PERMANENT_DELETE_PREFLIGHT' });
+      if (remediation) await recordLifecycleAttempt(this.prisma, { operationId: op.id, subjectUserId: userId, phase: 'FAILURE', outcome: 'BLOCKED', actorId: actor.id, remediation });
+      throw this.toHttp(err, code, undefined, remediation);
     }
 
     await this.finishOperation(op.id, OPERATION_STATE.CLEANUP_PENDING, { reasonCode: REASON.ADMIN_REQUEST, receiptId });
@@ -1006,10 +1114,17 @@ export class UserLifecycleService {
       });
     }
     const remaining = await this.prisma.userDeletionCleanupItem.count({ where: { receiptId, state: CLEANUP_ITEM_STATE.PENDING } });
+    const earlierAttempts = await this.prisma.lifecycleRemediationAttempt.count({ where: { operationId: op.id } });
     if (remaining > 0) {
       await this.prisma.userDeletionReceipt.update({ where: { receiptId }, data: { cleanupState: OPERATION_STATE.CLEANUP_PENDING } });
       await this.finishOperation(op.id, OPERATION_STATE.CLEANUP_PENDING, { reasonCode: REASON.CLEANUP_FAILED, receiptId, pendingItems: remaining });
+      const remediation = this.remediationFor(REASON.CLEANUP_FAILED, { operationId: op.id, details: { pendingItems: remaining }, previewCount: remaining })!;
+      await recordLifecycleAttempt(this.prisma, { operationId: op.id, subjectUserId: null, phase: earlierAttempts > 0 ? 'RETRY' : 'FAILURE', outcome: 'PENDING', actorId: actor.id, remediation });
     } else {
+      if (earlierAttempts > 0) {
+        const resolved = { ...this.remediationFor(REASON.CLEANUP_FAILED, { operationId: op.id, details: { pendingItems: 0 } })!, status: 'RESOLVED' as const };
+        await recordLifecycleAttempt(this.prisma, { operationId: op.id, subjectUserId: null, phase: 'RESOLUTION', outcome: 'RESOLVED', actorId: actor.id, remediation: resolved });
+      }
       await this.prisma.userDeletionReceipt.update({ where: { receiptId }, data: { cleanupState: 'DONE', completedAt: this.ports.now() } });
       await this.finishOperation(op.id, OPERATION_STATE.PERMANENTLY_DELETED, { reasonCode: REASON.ADMIN_REQUEST, receiptId });
       await this.writeEvent(this.prisma, { actorId: actor.id, entityType: 'UserDeletionReceipt', entityId: receiptId, action: LIFECYCLE_EVENT.USER_PERMANENTLY_DELETED, fromState: OPERATION_STATE.DB_DELETED, toState: OPERATION_STATE.PERMANENTLY_DELETED, reasonCode: REASON.ADMIN_REQUEST, operationId: op.id });
@@ -1055,7 +1170,10 @@ export class UserLifecycleService {
     return n;
   }
 
-  private toHttp(err: any, code: ReasonCode, message = 'The operation could not be completed. Nothing was changed.') {
+  private toHttp(err: any, code: ReasonCode, message = 'The operation could not be completed. Nothing was changed.', remediation: RemediationResult | null = null) {
+    if (remediation && (err instanceof LifecycleRefusal || err instanceof FolderNotPrivate)) {
+      return new RemediationException(remediation, 409, err.message, { reasonCode: code, ...(err instanceof LifecycleRefusal ? { details: err.details } : {}) });
+    }
     if (err instanceof LifecycleRefusal) return new ConflictException({ code: err.code, message: err.message, details: err.details });
     if (err instanceof FolderNotPrivate) return new ConflictException({ code: REASON.ARCHIVE_PRIVACY_FAILED, message: err.message });
     if (err?.getStatus) return err;

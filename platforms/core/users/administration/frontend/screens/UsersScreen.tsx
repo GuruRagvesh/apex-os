@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { rolesApi } from '@apex/core-organization-roles/api';
@@ -29,6 +29,8 @@ import {
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { ArchiveUserModal, PermanentDeleteModal, RehireUserModal } from './UserLifecycleModals';
+import { RemediationDialog, useRemediation } from '@apex/shared-remediation';
+import { createRemediationActionRunner } from '@apex/shared-remediation/api';
 
 const rolePresentation: Record<string, { label: string; badge: string }> = {
   SUPER_ADMIN: { label: 'SUPER ADMIN', badge: 'bg-violet-100 text-violet-800 ring-violet-200 dark:bg-violet-400/15 dark:text-white dark:ring-violet-300/80' },
@@ -149,6 +151,11 @@ export default function UsersPage() {
     setForm({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
   };
 
+  // Structured errors open the remediation dialog over the form; the form and
+  // its modal stay mounted with every value intact.
+  const remediation = useRemediation();
+  const remediationRunner = useMemo(createRemediationActionRunner, []);
+
   const createMutation = useMutation({
     mutationFn: (data: any) => usersApi.create(data),
     onSuccess: (u: any) => {
@@ -161,6 +168,7 @@ export default function UsersPage() {
         setRehireCandidate(err.inactiveUser);
         return;
       }
+      if (remediation.openFrom(err)) return;
       toast.error(err?.message || 'Failed to create user');
     },
   });
@@ -172,7 +180,10 @@ export default function UsersPage() {
       qc.invalidateQueries({ queryKey: ['users'] });
       closeNew();
     },
-    onError: (err: any) => toast.error(err?.message || 'Rehire failed'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'Rehire failed');
+    },
   });
 
   const toggleActive = useMutation({
@@ -214,7 +225,10 @@ export default function UsersPage() {
       qc.invalidateQueries({ queryKey: ['users'] });
       setEditUser(null);
     },
-    onError: (err: any) => toast.error(err?.message || 'Failed to update user'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'Failed to update user');
+    },
   });
 
   // Client-side filtering
@@ -800,6 +814,7 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+      <RemediationDialog {...remediation.dialogProps} runAction={remediationRunner} />
     </div>
   );
 }

@@ -33,6 +33,12 @@ export class UserLifecycleController {
     return this.lifecycle.operationStatus(operationId);
   }
 
+  /** Read-only remediation history of one operation (Phase 1). */
+  @Get('operations/:operationId/attempts')
+  attempts(@Param('operationId') operationId: string) {
+    return this.lifecycle.operationAttempts(operationId);
+  }
+
   @Post('operations/:operationId/archive-cleanup-retry')
   retryArchiveCleanup(@Param('operationId') operationId: string, @CurrentUser() actor: any) {
     return this.lifecycle.retryArchiveCleanup(operationId, actor);
