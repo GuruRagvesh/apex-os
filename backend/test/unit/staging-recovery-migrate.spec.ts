@@ -107,3 +107,66 @@ describe('staging migration helper — migrations and commands', () => {
     expect(src).not.toMatch(/\/apex_db_dugl\/|PRODUCTION_MARKERS|STAGING_DB\s*=/);
   });
 });
+
+describe('staging migration helper — additional staging databases (exact allowlist)', () => {
+  const NEW_DB = 'apex_db_dugl_ngz6_refresh_20261013';
+  const NEW = url(STAGING_HOST, NEW_DB);
+
+  it('A1. a refreshed staging database is accepted only when it is listed, exactly', () => {
+    expect(checkStagingIdentity(NEW, 'staging', NEW_DB)).toEqual({ ok: true, host: STAGING_HOST, database: NEW_DB });
+    expect(checkStagingIdentity(NEW, 'staging', ` other_db_name , ${NEW_DB} `).ok).toBe(true);
+  });
+
+  it('A2. the original active staging database stays accepted with or without a list', () => {
+    expect(checkStagingIdentity(STAGING, 'staging', '').ok).toBe(true);
+    expect(checkStagingIdentity(STAGING, 'staging', NEW_DB).ok).toBe(true);
+  });
+
+  it('A3. an unlisted name is refused: no pattern, prefix or "anything not production" rule', () => {
+    expect(checkStagingIdentity(NEW, 'staging', '').code).toBe('WRONG_DATABASE_NAME');
+    expect(checkStagingIdentity(NEW, 'staging', 'apex_db_dugl_ngz6_refresh').code).toBe('WRONG_DATABASE_NAME'); // prefix of it
+    expect(checkStagingIdentity(url(STAGING_HOST, `${NEW_DB}2`), 'staging', NEW_DB).code).toBe('WRONG_DATABASE_NAME'); // longer than it
+    expect(checkStagingIdentity(url(STAGING_HOST, 'apex_db_other'), 'staging', NEW_DB).code).toBe('WRONG_DATABASE_NAME');
+  });
+
+  it('A4. a missing list fails closed (only the original database is approved)', () => {
+    const saved = process.env.STAGING_ALLOWED_DATABASE_NAMES;
+    delete process.env.STAGING_ALLOWED_DATABASE_NAMES;
+    try {
+      expect(checkStagingIdentity(NEW, 'staging').code).toBe('WRONG_DATABASE_NAME');
+      expect(checkStagingIdentity(STAGING, 'staging').ok).toBe(true);
+    } finally { if (saved !== undefined) process.env.STAGING_ALLOWED_DATABASE_NAMES = saved; }
+  });
+
+  it.each([
+    ['the production database', 'apex_db_dugl'],
+    ['the legacy staging database', 'apex_os_staging_db'],
+    ['a wildcard', 'apex_db_%'],
+    ['a star', '*'],
+    ['an upper-case or spaced name', 'Apex DB'],
+    ['a name too short', 'ab'],
+    ['a good name next to a bad one', `${NEW_DB},apex_db_dugl`],
+  ])('A5. a list containing %s is rejected as a whole, and refuses even a listed database', (_label, list) => {
+    const r = checkStagingIdentity(NEW, 'staging', list);
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('INVALID_STAGING_ALLOWLIST');
+    expect(checkStagingIdentity(STAGING, 'staging', list).code).toBe('INVALID_STAGING_ALLOWLIST');
+  });
+
+  it('A6. production is refused FIRST, even if someone lists its name or host serves a listed name', () => {
+    expect(checkStagingIdentity(url(PROD_HOST, NEW_DB), 'staging', NEW_DB).code).toBe('PRODUCTION_DATABASE');
+    expect(checkStagingIdentity(url(PROD_HOST, 'apex_db_dugl'), 'staging', 'apex_db_dugl').code).toBe('PRODUCTION_DATABASE');
+    expect(checkStagingIdentity(url(STAGING_HOST, 'apex_db_dugl'), 'staging', NEW_DB).code).toBe('PRODUCTION_DATABASE');
+    expect(checkStagingIdentity(url(LEGACY_HOST, NEW_DB), 'staging', NEW_DB).code).toBe('LEGACY_STAGING_NOT_ACTIVE');
+  });
+
+  it('A7. a listed name does not move the host: another host and the internal URL are still refused', () => {
+    expect(checkStagingIdentity(url('dpg-zzzzzzzzzzzzzzzzzzzz-a.oregon-postgres.render.com', NEW_DB), 'staging', NEW_DB).code).toBe('UNKNOWN_DATABASE_HOST');
+    expect(checkStagingIdentity(url('dpg-db2v0som7kps73ceebd0-a', NEW_DB), 'staging', NEW_DB).code).toBe('INTERNAL_URL');
+    expect(checkStagingIdentity(NEW, 'production', NEW_DB).code).toBe('APP_ENV_NOT_STAGING');
+  });
+
+  it('A8. the refusal output carries no credentials', () => {
+    expect(JSON.stringify(checkStagingIdentity(NEW, 'staging', 'bad name'))).not.toMatch(/someuser|somepassword|postgresql:\/\//);
+  });
+});

@@ -18,6 +18,8 @@ export interface BackupManifest {
   backupId: string;
   type: BackupType;
   environment: string;
+  /** The vault bucket the dump was written to. Absent on older manifests. */
+  vaultBucket?: string;
   /** Masked. The real name is never written into the manifest. */
   databaseName: string;
   serverVersion: string | null;

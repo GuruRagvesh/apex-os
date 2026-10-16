@@ -61,6 +61,12 @@ export class UsersController {
     return this.usersService.savePreferences(user.id ?? user.sub, body);
   }
 
+  /** Read-only setup health (Phase 1). Authority is checked in the service: Admin, Super Admin or isHR. */
+  @Get(':userId/setup-issues')
+  setupIssues(@Param('userId') userId: string, @CurrentUser() user: any) {
+    return this.usersService.listSetupIssues(userId, user);
+  }
+
   @Get()
   findAll(@Query() query: { search?: string; departmentId?: string; roleId?: string }, @CurrentUser() user: any) {
     return this.usersService.findAll(query, user);
@@ -122,27 +128,45 @@ export class UsersController {
     return this.usersService.update(id, body, actor?.id);
   }
 
+  @Post(':id/rehire')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  rehire(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      password: string;
+      roleId: string;
+      departmentId?: string | null;
+      joiningDate?: string;
+      name?: string;
+      email?: string;
+    },
+    @CurrentUser() actor: any,
+  ) {
+    return this.usersService.rehire(id, body, actor?.id);
+  }
+
+  /** Deactivated users only; archived users use Rehire (Phase 2, B6). */
+  @Post(':id/reactivate')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  reactivate(
+    @Param('id') id: string,
+    @Body() body: { roleId?: string; departmentId?: string | null } | undefined,
+    @CurrentUser() actor: any,
+  ) {
+    return this.usersService.reactivate(id, body ?? {}, actor?.id);
+  }
+
   @Put(':id/reset-password')
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   resetPassword(@Param('id') id: string, @Body() body: { newPassword: string }) {
     return this.usersService.resetPassword(id, body.newPassword);
   }
 
-  @Post(':id/archive-after-backup')
-  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  archiveAfterBackup(
-    @Param('id') id: string,
-    @Body() body: { confirmBackupDownloaded: boolean },
-    @CurrentUser() actor: any,
-  ) {
-    return this.usersService.archiveAfterBackup(id, actor?.id, body.confirmBackupDownloaded);
-  }
-
-  @Delete(':id/permanent')
-  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  async permanentDelete(@Param('id') id: string, @CurrentUser() actor: any) {
-    return this.usersService.permanentDelete(id, actor?.id);
-  }
+  // Archive User and permanent deletion moved to UserLifecycleController
+  // (/user-lifecycle/...). The old routes are gone: archiving now closes
+  // active work and verifies a complete archive, and permanent deletion is
+  // available only for archived users with a verified snapshot.
 
   @Delete(':id')
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)

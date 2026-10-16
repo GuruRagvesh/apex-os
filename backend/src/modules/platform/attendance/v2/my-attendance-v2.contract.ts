@@ -109,6 +109,10 @@ export const UNAVAILABLE_REASONS = {
   NO_OFFICIAL_RESULT: 'NO_OFFICIAL_RESULT',
   /** The day has not happened yet. */
   FUTURE_DATE: 'FUTURE_DATE',
+  /** A recovered historical day: the source never recorded break time. Not zero. */
+  NOT_RECORDED_HISTORICAL: 'NOT_RECORDED_HISTORICAL',
+  /** A recovered historical day: lateness was never assessed against a shift. Not on time. */
+  NOT_ASSESSED_HISTORICAL: 'NOT_ASSESSED_HISTORICAL',
 } as const;
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -424,6 +428,117 @@ export function mapDay(input: MapDayInput): MyAttendanceDayV2 {
     sourceFlags: [...flags],
     unmappedSourceFlags: unmappedFlags(flags),
     unavailable: figureGaps(result.presenceMinutes, result.requiredMinutes),
+  };
+}
+
+/**
+ * The company financial year as the screen needs it: its label and its twelve
+ * yyyy-MM months in order. Built from the backend's own definition so the
+ * frontend never re-derives which months belong to a year (April to March by
+ * default, so January to March belong to the year that began the previous April).
+ */
+export interface FinancialYearV2 {
+  label: string;
+  startYear: number;
+  endYear: number;
+  /** 1-12; 4 means the year starts in April. */
+  startMonth: number;
+  months: string[];
+}
+
+export function financialYearV2(startYear: number, startMonth: number): FinancialYearV2 {
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const index = startMonth - 1 + i;
+    const year = startYear + Math.floor(index / 12);
+    return `${year}-${String((index % 12) + 1).padStart(2, '0')}`;
+  });
+  return { label: `${startYear}-${startYear + 1}`, startYear, endYear: startYear + 1, startMonth, months };
+}
+
+/** The marker a recovered historical day carries in DailyAttendance.calculationReason. */
+export const HISTORICAL_RECOVERY_REASON = 'HISTORICAL_RECOVERY_IMPORT';
+
+/** The stored columns of a recovered historical day that this view needs. */
+export interface StoredRecoveredDay {
+  date: string;
+  status: string;
+  evaluationState: string;
+  punchInAt: Date | null;
+  punchOutAt: Date | null;
+  workedMinutes: number;
+  exceptionFlags: string[];
+}
+
+/**
+ * A recovered historical day, shown as stored.
+ *
+ * The live evaluator cannot judge April-August: no attendance policy, shift or
+ * employee profile covers those dates, so it answers NOT_EMPLOYED and the day
+ * would read as "no record" even though a verified, locked fact exists. The
+ * stored fact IS the record, so it is shown as it was recovered, and as honestly
+ * as it was recovered:
+ *
+ *   - break time and lateness were never recorded or assessed, so they are
+ *     unavailable, not 0:00 and not "on time";
+ *   - a day with one punch has no presence span or reliable worked time;
+ *   - no requirement is invented, because none was in force.
+ */
+export function mapRecoveredDay(row: StoredRecoveredDay, companyToday: string): MyAttendanceDayV2 {
+  const hasBoth = row.punchInAt !== null && row.punchOutAt !== null;
+  const onePunch = (row.punchInAt === null) !== (row.punchOutAt === null);
+  // A day with one punch cannot be settled: it is shown as unresolved, never as a clean Present.
+  const outcome: AttendanceOutcome = onePunch ? 'UNRESOLVED' : (OUTCOME_BY_STATUS[row.status] ?? 'UNRESOLVED');
+  const presence = hasBoth ? Math.max(0, Math.round((row.punchOutAt!.getTime() - row.punchInAt!.getTime()) / 60000)) : null;
+  const offDay = row.status === 'HOLIDAY' || row.status === 'WEEKLY_OFF';
+
+  const exceptions = new Set<AttendanceExceptionCode>();
+  for (const flag of row.exceptionFlags) {
+    const classified = classifyFlag(flag as AttendanceExceptionFlag);
+    if (classified.kind === 'exception') exceptions.add(classified.code);
+  }
+  // The stored flag says only MISSING_PUNCH; the mapping calls that the punch-in. Say which punch is actually absent.
+  if (onePunch) {
+    exceptions.delete('MISSING_IN');
+    exceptions.add(row.punchInAt === null ? 'MISSING_IN' : 'MISSING_OUT');
+  }
+
+  const unavailable: UnavailableField[] = [];
+  if (!offDay) {
+    unavailable.push(...figureGaps(presence, null));
+    if (onePunch) unavailable.push({ field: 'workedMinutes', reason: UNAVAILABLE_REASONS.PRESENCE_NOT_MEASURABLE });
+    unavailable.push({ field: 'breakMinutes', reason: UNAVAILABLE_REASONS.NOT_RECORDED_HISTORICAL });
+    unavailable.push({ field: 'lateMinutes', reason: UNAVAILABLE_REASONS.NOT_ASSESSED_HISTORICAL });
+  } else {
+    unavailable.push(...figureGaps(null, null));
+  }
+
+  return {
+    date: row.date,
+    outcome,
+    modifiers: [],
+    exceptions: [...exceptions],
+    evaluationState: row.evaluationState as EvaluationStateV2,
+    isApplicable: true,
+    isToday: row.date === companyToday,
+    isFuture: false,
+    isInProgress: false,
+    presenceMinutes: presence,
+    requiredMinutes: null,
+    workedMinutes: offDay || onePunch ? null : row.workedMinutes,
+    breakMinutes: null,
+    lateMinutes: null,
+    punchInAt: iso(row.punchInAt),
+    punchOutAt: iso(row.punchOutAt),
+    leaveDeducted: null,
+    lwpDeducted: null,
+    reason: HISTORICAL_RECOVERY_REASON,
+    explanation: offDay
+      ? 'Recovered from SalaryBox history: a company non-working day.'
+      : 'Recovered from SalaryBox history. Break time and lateness were not recorded for this period.',
+    sourceStatus: row.status,
+    sourceFlags: [...row.exceptionFlags],
+    unmappedSourceFlags: [],
+    unavailable,
   };
 }
 

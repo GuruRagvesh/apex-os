@@ -29,9 +29,9 @@ export class HealthController {
     // Render may be polling this route to decide whether to keep it running.
     // So `status` deliberately ignores it.
     //
-    // Reports the flag PunchPhotoStorage computed at construction. No network
-    // call is made here, and no credential -- not the cloud name, key, secret,
-    // or any URL -- is read or returned; only whether all three were present.
+    // Reports the provider decision PunchPhotoStorage computed at construction.
+    // No network call is made here, and no credential, directory or URL is
+    // returned.
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -39,7 +39,7 @@ export class HealthController {
       database,
       environment: process.env.APP_ENV || process.env.NODE_ENV || 'development',
       attendancePhotoStorage: {
-        provider: 'cloudinary',
+        provider: this.punchPhotoStorage.providerName(),
         configured: this.punchPhotoStorage.isConfigured(),
       },
     };

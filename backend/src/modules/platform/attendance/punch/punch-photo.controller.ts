@@ -2,8 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
+  NotFoundException,
+  Param,
   Post,
+  Res,
   ServiceUnavailableException,
+  StreamableFile,
   UploadedFile,
   UnauthorizedException,
   UseGuards,
@@ -11,12 +16,14 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../../../../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../../shared/decorators/current-user.decorator';
 import { OptionalJwtAuthGuard } from '../../../../shared/guards/optional-jwt-auth.guard';
 import { PunchHandoffService } from './punch-handoff.service';
 import { MAX_PHOTO_BYTES, PunchPhotoService } from './punch-photo.service';
 import { PunchFeatureDisabledError, PunchPhotoValidationError } from './punch-evidence.types';
+import { PunchPhotoStorage } from './punch-photo.storage';
 
 /**
  * Attendance photo capture (PE-3).
@@ -35,7 +42,28 @@ export class PunchPhotoController {
   constructor(
     private readonly punchPhoto: PunchPhotoService,
     private readonly handoff: PunchHandoffService,
+    private readonly storage: PunchPhotoStorage,
   ) {}
+
+  /**
+   * Development-only delivery for private local captures. The opaque URL is
+   * short-lived and signed; the filename and private directory are never
+   * accepted from the request.
+   */
+  @Get('local/:token')
+  async localPhoto(
+    @Param('token') token: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    try {
+      const photo = await this.storage.readLocalSignedPhoto(token);
+      response.setHeader('Cache-Control', 'private, max-age=60');
+      response.setHeader('X-Content-Type-Options', 'nosniff');
+      return new StreamableFile(photo.content, { type: photo.mimeType, length: photo.content.length });
+    } catch {
+      throw new NotFoundException('Photo link is invalid or has expired');
+    }
+  }
 
   /**
    * Uploads one live camera capture and returns an opaque asset id.

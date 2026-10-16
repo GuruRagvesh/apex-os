@@ -87,6 +87,8 @@ export async function getReviewQueue(from?: string, to?: string) {
 
 /** One employee's row, exactly as the register presents it. */
 export interface RegisterEmployee {
+  /** False for a former employee shown for the days they have a record. */
+  isActive: boolean;
   userId: string;
   name: string;
   daysPresent: number;

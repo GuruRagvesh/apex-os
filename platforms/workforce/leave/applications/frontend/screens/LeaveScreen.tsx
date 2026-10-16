@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveApi, compOffApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
@@ -11,6 +11,8 @@ import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, Info, ChevronDown } f
 import { EmptyState } from '@apex/shared-ui/components/empty-state';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
+import { RemediationDialog, displayLeaveSetupStatus, useRemediation } from '@apex/shared-remediation';
+import { createRemediationActionRunner } from '@apex/shared-remediation/api';
 
 const LEAVE_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'ANNUAL', 'SICK', 'UNPAID', 'OTHER'];
 
@@ -135,38 +137,10 @@ export default function LeavePage() {
 
   const checkApprovalAllowed = (leave: any) => {
     if (!user) return { allowed: false, reason: 'Not logged in' };
-    if (leave.userId === user.id) return { allowed: false, reason: 'Self-approval not allowed' };
-    if (leave.status !== 'PENDING') return { allowed: false, reason: `Already ${leave.status.toLowerCase()}` };
-
-    const roleName = (user.role as any)?.name ?? user.role ?? '';
-    const isHrOrAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || (user as any).isHR;
-
-    if (!isHrOrAdmin && !['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
-      return { allowed: false, reason: 'View only' };
-    }
-
-    const ROLE_LEVEL: Record<string, number> = {
-      SUPER_ADMIN: 0, ADMIN: 1, MANAGER: 2, TEAM_LEAD: 3, EMPLOYEE: 4, INTERN: 5,
-    };
-    const reqLevel = ROLE_LEVEL[leave.user?.role?.name ?? 'EMPLOYEE'] ?? 4;
-    const myLevel = ROLE_LEVEL[roleName] ?? 4;
-
-    if (myLevel >= reqLevel) {
-      return { allowed: false, reason: 'Self-approval not allowed (Cannot approve same or higher role level)' };
-    }
-
-    if (isHrOrAdmin) return { allowed: true };
-
-    // Check department match
-    const isDeptMatch = (user as any).departmentId && leave.user?.department?.id === (user as any).departmentId;
-    if (!isDeptMatch) {
-      return { allowed: false, reason: 'Outside your department scope' };
-    }
-
-    return { allowed: true };
+    return { allowed: leave.viewerCanApprove === true, reason: 'Not in your approval queue' };
   };
 
-  const queryParams = tab === 'mine' ? { userId: user?.id } : tab === 'pending' ? { status: 'PENDING' } : {};
+  const queryParams = tab === 'mine' ? { userId: user?.id } : tab === 'pending' ? { status: 'PENDING', actionable: 'true' } : {};
 
   const { data: leaveData, isLoading, isError, refetch } = useQuery({
     queryKey: ['leave', tab],
@@ -186,6 +160,11 @@ export default function LeavePage() {
     enabled: !!user,
   });
 
+  // Structured errors open the remediation dialog over the leave form, which
+  // keeps every value (spec §11.3). Other errors keep their existing toast.
+  const remediation = useRemediation();
+  const remediationRunner = useMemo(createRemediationActionRunner, []);
+
   const createMutation = useMutation({
     mutationFn: (data: any) => leaveApi.create(data),
     onSuccess: () => {
@@ -196,7 +175,10 @@ export default function LeavePage() {
       setShowNew(false);
       setForm({ type: 'CASUAL', startDate: '', endDate: '', reason: '' });
     },
-    onError: () => toast.error('Failed to submit leave request'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error('Failed to submit leave request');
+    },
   });
 
   const approveMutation = useMutation({
@@ -207,7 +189,10 @@ export default function LeavePage() {
       qc.invalidateQueries({ queryKey: ['leave-stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
     },
-    onError: (err: any) => toast.error(err?.message || 'You do not have permission to perform this action.'),
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'You do not have permission to perform this action.');
+    },
   });
 
   const rejectMutation = useMutation({
@@ -221,6 +206,7 @@ export default function LeavePage() {
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
     },
     onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
       setRejectingId(null);
       toast.error(err?.message || 'You do not have permission to perform this action.');
     },
@@ -379,7 +365,7 @@ export default function LeavePage() {
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {leaves.map((leave: any) => {
               const conflicts = getConflicts(leave);
-              const duration = leave.duration ?? 0;
+              const duration: number | null = typeof leave.duration === 'number' ? leave.duration : null;
               const balanceData = balances[leave.userId];
               const isLoadingBalance = loadingBalances[leave.userId];
               const approvalState = checkApprovalAllowed(leave);
@@ -446,8 +432,9 @@ export default function LeavePage() {
                         </div>
                         <div className="space-y-1.5">
                           <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Request Details</p>
-                          <p><span className="text-slate-500 font-medium">Duration:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{duration} working days {leave.isHalfDay && `(Half-day: ${leave.halfDayType || 'First Half'})`}</span></p>
+                          <p><span className="text-slate-500 font-medium">Duration:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{duration === null ? 'Unavailable — calendar setup required' : `${duration} working days`}{duration !== null && leave.isHalfDay && ` (Half-day: ${leave.halfDayType || 'First Half'})`}</span></p>
                           <p><span className="text-slate-500 font-medium">Reason:</span> <span className="text-slate-800 dark:text-gray-200">{leave.reason}</span></p>
+                          <p data-testid="leave-setup-status" data-setup-status={leave.setupStatus ?? 'LEGACY_UNASSESSED'}><span className="text-slate-500 font-medium">Policy check:</span> <span className="text-slate-800 dark:text-gray-200">{displayLeaveSetupStatus(leave.setupStatus).label}</span></p>
                           {leave.status !== 'PENDING' && (
                             <p><span className="text-slate-500 font-medium">Processed by:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.approvedBy || leave.rejectedBy || 'System'}</span></p>
                           )}
@@ -483,8 +470,8 @@ export default function LeavePage() {
                             <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
                             <div>
                               <p className="text-slate-405" style={{ color: 'var(--text-secondary)' }}>Balance After Approval</p>
-                              <p className={cn("font-extrabold", balanceData.balance - duration < 0 ? "text-red-500" : "text-emerald-500")}>
-                                {Math.max(0, balanceData.balance - duration)} days
+                              <p className={cn('font-extrabold', duration !== null && balanceData.balance - duration < 0 ? 'text-red-500' : 'text-emerald-500')}>
+                                {duration === null ? 'Unavailable' : `${Math.max(0, balanceData.balance - duration)} days`}
                               </p>
                             </div>
                           </div>
@@ -730,6 +717,7 @@ export default function LeavePage() {
           </div>
         </div>
       )}
+      <RemediationDialog {...remediation.dialogProps} runAction={remediationRunner} />
     </div>
   );
 }

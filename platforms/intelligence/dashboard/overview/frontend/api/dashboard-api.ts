@@ -37,4 +37,36 @@ export const dashboardApi = {
   getWorkload: () => r(api.get('/dashboard/workload')),
   getTicketTrend: (days?: number) => r(api.get('/dashboard/ticket-trend', { params: { days } })),
   getHomeSummary: () => r(api.get('/home/summary')),
+  getHomeKpis: (): Promise<HomeKpis> => r(api.get('/home/kpis')),
+  getHomeExperience: () => r(api.get('/home/experience')),
+  getTeamInsights: (params: { departmentId?: string; personId?: string; month: string; week: string }) =>
+    r(api.get('/home/team-insights', { params })),
+  getPersonalHighlights: (month?: string) => r(api.get('/home/personal-highlights', { params: { month } })),
+  getHomeCarousel: () => r(api.get('/home/carousel')),
+  getHomeActivity: (scope: 'my' | 'team' | 'company') => r(api.get('/home/activity', { params: { scope } })),
+  getHomeWorkspace: () => r(api.get('/home/workspace')),
+  updateHomeWorkspace: (data: any) => r(api.put('/home/workspace', data)),
 };
+
+export interface HomeKpiScope {
+  openTickets: number;
+  inProgressTickets: number;
+  underReviewTickets: number;
+  pendingTicketApprovals: number;
+  activeProjects: number;
+  /** Actionable leave approvals; zero for roles without approval authority. */
+  leaveApprovals: number;
+}
+
+/** GET /home/kpis — personal work plus role-authorized approval queues. */
+export interface HomeKpis {
+  mine: HomeKpiScope;
+  /** Deprecated compatibility field; the Home hero no longer switches scope. */
+  scoped: HomeKpiScope | null;
+  /** Legacy fields retained while any older clients are deployed. */
+  activeTickets: { mine: number; team: number | null };
+  activeProjects: number;
+  pendingTicketApprovals: number | null;
+  pendingLeaveApprovals: number | null;
+  myInReview: number;
+}

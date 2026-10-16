@@ -29,6 +29,10 @@ export class SchedulerService {
     private workdayService: WorkdayService,
   ) {}
 
+  @Cron('* * * * *', { name: 'meeting-start-and-end' })
+  async processMeetings() {
+  }
+
   private async sendScheduleNotification(ticket: any, prefix: string) {
     const occurrenceDate = formatInTimeZone(
       this.tva.now(),

@@ -109,9 +109,22 @@ export interface MyAttendanceTodayV2 extends MyAttendanceDayV2 {
   banner: { tone: BannerTone; title: string; detail: string } | null;
 }
 
+/** The company financial year the requested month belongs to, as defined by the backend (April to March). */
+export interface FinancialYearV2 {
+  label: string;
+  startYear: number;
+  endYear: number;
+  /** 1-12; 4 means the year starts in April. */
+  startMonth: number;
+  /** The twelve yyyy-MM months of the year, in order. */
+  months: string[];
+}
+
 export interface MyAttendanceOverviewV2 {
   today: MyAttendanceTodayV2;
   month: { year: number; month: number; days: MyAttendanceDayV2[] };
+  /** Absent when the backend predates the financial-year overview; the yearly view is then not offered. */
+  financialYear?: FinancialYearV2;
 }
 
 export async function getMyAttendanceV2(month: string): Promise<MyAttendanceOverviewV2> {

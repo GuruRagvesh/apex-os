@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { aiApi, taskTypesApi, workdayApi } from '@/lib/api';
 import { usersApi } from '@apex/core-users/api';
-import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
+import { ticketsApi, ticketTemplatesApi } from '@apex/operations-tickets-lifecycle/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import { projectsApi } from '@apex/operations-projects/api';
 import { useAuthStore } from '@apex/core-identity';
@@ -35,6 +35,7 @@ import {
 } from '@apex/operations-tickets-lifecycle/shared/ticket-recurrence';
 import { draftRowFrom } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import { useTicketNavState } from '@apex/operations-tickets-lifecycle/components/use-ticket-nav-state';
+import { QuickTicketTags, type QuickTicketTagsHandle, type QuickTicketTemplate } from '@apex/operations-tickets-lifecycle/components/quick-ticket-tags';
 
 // ─── Request Types ──────────────────────────────────────────────────────────
 // Task / Query / Help are real Ticket.type enum values (stored honestly). The
@@ -67,10 +68,6 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 const EST_MINUTE_STEPS = [0, 5, 10, 15, 20, 30, 45];
 
-// Fields a row inherits from the Global Defaults section until the user overrides them.
-const GLOBAL_FIELDS = ['departmentId', 'projectId', 'priority', 'taskTypeId', 'taskSubtypeId'] as const;
-type GlobalField = typeof GLOBAL_FIELDS[number];
-
 // Date / time inputs carry no timezone. They are company wall-clock values
 // (Asia/Kolkata), the same on every browser, like the Excel import: a date +
 // time is read in the company timezone, and a date alone keeps the system
@@ -102,7 +99,6 @@ interface TicketRow {
   notes: string;
   recurrence: RecurrenceChoice;
   showAdvanced: boolean;
-  custom: Partial<Record<GlobalField, boolean>>;
   errors: string[];
   aiReason?: string;
   aiBusy?: boolean;
@@ -124,6 +120,7 @@ export default function CreateTicketsPage() {
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   const isTL = roleName === 'TEAM_LEAD';
   const isEmployee = roleName === 'EMPLOYEE' || roleName === 'INTERN';
+  const canAssignAcrossDepartments = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const myDeptId = user?.department?.id ?? '';
   const lockDept = isTL || isEmployee;     // department fixed to own dept
   const lockAssignee = isEmployee;          // always self-assigned — TASK only, see isSelfLockedRow
@@ -132,37 +129,28 @@ export default function CreateTicketsPage() {
   // whether the self-lock actually applies, not just the creator's role.
   const isSelfLockedRow = (row: TicketRow) => lockAssignee && row.type === 'TASK';
 
-  const [globalDefaults, setGlobalDefaults] = useState({
-    departmentId: lockDept ? myDeptId : '',
-    projectId: preselectedProjectId,
-    priority: 'MEDIUM',
-    taskTypeId: '',
-    taskSubtypeId: '',
-  });
-
   const makeRow = (): TicketRow => ({
     key: newKey(),
     type: 'TASK',
     title: '', description: '',
-    departmentId: globalDefaults.departmentId,
-    taskTypeId: globalDefaults.taskTypeId,
-    taskSubtypeId: globalDefaults.taskSubtypeId,
+    departmentId: lockDept ? myDeptId : '',
+    taskTypeId: '',
+    taskSubtypeId: '',
     customSubtype: '',
     assigneeIds: lockAssignee && user?.id ? [user.id] : [],
     targetDepartmentId: '',
-    priority: globalDefaults.priority,
+    priority: 'MEDIUM',
     outputTargetMinutes: '',
     // Planning default: now, in company time. Editable and clearable; it starts
     // no timer and never sets actualStartAt (the ticket is created OPEN).
     startDate: companyPlanningNow().date, startTime: companyPlanningNow().time,
     dueDate: '', dueTime: '',
     estHours: '', estMinutes: '',
-    projectId: globalDefaults.projectId,
+    projectId: preselectedProjectId,
     scheduledEndAt: '',
     notes: '',
     recurrence: NO_RECURRENCE,
     showAdvanced: false,
-    custom: {},
     errors: [],
   });
 
@@ -181,25 +169,20 @@ export default function CreateTicketsPage() {
     draftLoaded.current = true;
     const saved = draft.restored;
     if (!saved) return;
-    const globals = { ...saved.globals, departmentId: lockDept ? myDeptId : saved.globals.departmentId };
-    setGlobalDefaults(globals);
     setRows(saved.rows.map((d) => {
       const row: TicketRow = {
         ...makeRow(), ...d, recurrence: { ...d.recurrence } as RecurrenceChoice,
         departmentId: lockDept ? myDeptId : d.departmentId,
       };
       if (isSelfLockedRow(row) && user?.id) row.assigneeIds = [user.id];
-      // A field differing from the restored default was set on the row itself.
-      row.custom = Object.fromEntries(GLOBAL_FIELDS.map((f) => [f, row[f] !== (globals as any)[f]]));
       return row;
     }));
   }, [draft.checked]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Runs on mount (skipped: nothing loaded yet) and then only when the rows or
-  // defaults change: an edit, or the restored draft being applied.
+  // Runs on mount (skipped: nothing loaded yet) and then when rows change.
   useEffect(() => {
     if (!draftLoaded.current) return;
-    draft.save({ globals: { ...globalDefaults }, rows: rows.map((r) => draftRowFrom(r)) });
-  }, [rows, globalDefaults]); // eslint-disable-line react-hooks/exhaustive-deps
+    draft.save({ rows: rows.map((r) => draftRowFrom(r)) });
+  }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
   // Creation needs an active workday. The backend enforces it; this mirrors
   // its answer so the page says why instead of failing on submit.
   const creationGate = useTicketCreationGate();
@@ -209,6 +192,15 @@ export default function CreateTicketsPage() {
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]> });
   const { data: projectsRaw } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.getAll() as Promise<any> });
   const { data: usersData } = useQuery({ queryKey: ['users'], queryFn: () => usersApi.getAll() as Promise<any> });
+  const { data: creationAssigneesData } = useQuery({
+    queryKey: ['ticket-creation-assignees'],
+    queryFn: () => ticketsApi.getCreationAssignees() as Promise<any[]>,
+    enabled: canAssignAcrossDepartments,
+  });
+  const { data: quickTagsData } = useQuery({
+    queryKey: ['quick-ticket-templates'],
+    queryFn: () => ticketTemplatesApi.list() as Promise<any>,
+  });
 
   const projectList = useMemo(() => {
     if (!projectsRaw) return [];
@@ -217,29 +209,43 @@ export default function CreateTicketsPage() {
     return [];
   }, [projectsRaw]);
   const userList: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
+  const creationAssignees: any[] = Array.isArray(creationAssigneesData) ? creationAssigneesData : [];
 
   // Task types are dept-scoped and rows can span departments, so fetch per dept on demand.
   const [taskTypesByDept, setTaskTypesByDept] = useState<Record<string, any[]>>({});
   const loadingDepts = useRef<Set<string>>(new Set());
+  const ensureTaskTypes = useCallback((departmentId: string) => {
+    if (!departmentId || taskTypesByDept[departmentId] || loadingDepts.current.has(departmentId)) return;
+    loadingDepts.current.add(departmentId);
+    taskTypesApi.getByDepartment(departmentId)
+      .then((taskTypes: any) => {
+        setTaskTypesByDept((previous) => ({
+          ...previous,
+          [departmentId]: Array.isArray(taskTypes) ? taskTypes : [],
+        }));
+      })
+      .catch(() => {
+        setTaskTypesByDept((previous) => ({ ...previous, [departmentId]: [] }));
+      })
+      .finally(() => loadingDepts.current.delete(departmentId));
+  }, [taskTypesByDept]);
+
   useEffect(() => {
     const deptIds = new Set<string>();
-    if (globalDefaults.departmentId) deptIds.add(globalDefaults.departmentId);
     rows.forEach((row) => { if (row.departmentId) deptIds.add(row.departmentId); });
-    deptIds.forEach((id) => {
-      if (taskTypesByDept[id] || loadingDepts.current.has(id)) return;
-      loadingDepts.current.add(id);
-      taskTypesApi.getByDepartment(id)
-        .then((tt: any) => setTaskTypesByDept((prev) => ({ ...prev, [id]: Array.isArray(tt) ? tt : [] })))
-        .catch(() => setTaskTypesByDept((prev) => ({ ...prev, [id]: [] })));
+    (quickTagsData?.templates ?? []).forEach((template: any) => {
+      if (template.departmentId) deptIds.add(template.departmentId);
     });
-  }, [globalDefaults.departmentId, rows, taskTypesByDept]);
+    deptIds.forEach(ensureTaskTypes);
+  }, [rows, quickTagsData, ensureTaskTypes]);
 
   const taskTypesFor = (deptId: string): any[] => taskTypesByDept[deptId] ?? [];
   const subtypesFor = (deptId: string, taskTypeId: string): any[] =>
     taskTypesFor(deptId).find((t: any) => t.id === taskTypeId)?.subtypes ?? [];
   const usersFor = (deptId: string): any[] => {
+    if (canAssignAcrossDepartments) return creationAssignees;
     const scoped = deptId ? userList.filter((u: any) => u.departmentId === deptId) : userList;
-    if (isEmployee) return scoped.filter((u: any) => u.id === user?.id || u.role?.name === 'TEAM_LEAD');
+    if (isEmployee) return scoped.filter((u: any) => u.id === user?.id);
     return scoped;
   };
   const deptName = (id: string) => (Array.isArray(departments) ? departments.find((d: any) => d.id === id)?.name : '') ?? '';
@@ -299,31 +305,6 @@ export default function CreateTicketsPage() {
   const routingOptionsFor = (type: RequestType, targetDepartmentId: string): any[] =>
     routingOptionsByKey[`${type}:${targetDepartmentId}`] ?? [];
 
-  // ── Global defaults handlers ─────────────────────────────────────────────────
-  const setGlobal = (field: GlobalField, value: string) => {
-    setGlobalDefaults((g) => {
-      const next = { ...g, [field]: value };
-      if (field === 'departmentId') { next.taskTypeId = ''; next.taskSubtypeId = ''; }
-      if (field === 'taskTypeId') { next.taskSubtypeId = ''; }
-      return next;
-    });
-    // Propagate to rows that still inherit this field (not user-customized).
-    setRows((rs) => rs.map((row) => {
-      if (row.custom[field]) return row;
-      const patch: Partial<TicketRow> = { [field]: value } as any;
-      if (field === 'departmentId') {
-        patch.taskTypeId = ''; patch.taskSubtypeId = '';
-        patch.assigneeIds = row.type === 'TASK' ? (lockAssignee ? row.assigneeIds : []) : row.assigneeIds;
-        patch.custom = { ...row.custom, taskTypeId: false, taskSubtypeId: false };
-      }
-      if (field === 'taskTypeId') {
-        patch.taskSubtypeId = '';
-        patch.custom = { ...row.custom, taskSubtypeId: false };
-      }
-      return { ...row, ...patch, errors: [] };
-    }));
-  };
-
   // ── Row handlers ─────────────────────────────────────────────────────────────
   const patchRow = (key: string, patch: Partial<TicketRow>) =>
     setRows((rs) => rs.map((row) => (row.key === key ? { ...row, ...patch, errors: [] } : row)));
@@ -334,9 +315,6 @@ export default function CreateTicketsPage() {
       const patch: any = { [field]: value, errors: [] };
       // Clearing Start Date clears Start Time too: a time needs a day.
       if (field === 'startDate') patch.startTime = withStartDate(row, value).startTime;
-      if ((GLOBAL_FIELDS as readonly string[]).includes(field as string)) {
-        patch.custom = { ...row.custom, [field]: true };
-      }
       return { ...row, ...patch };
     }));
   };
@@ -350,7 +328,6 @@ export default function CreateTicketsPage() {
       // Requesting-department change only clears the TASK assignee list (dept-scoped);
       // QUERY/HELP recipients are chosen from the separate Target Department, unaffected.
       assigneeIds: row.type === 'TASK' ? (lockAssignee ? row.assigneeIds : []) : row.assigneeIds,
-      custom: { ...row.custom, departmentId: true, taskTypeId: false, taskSubtypeId: false },
       errors: [],
     } : row)));
 
@@ -382,8 +359,7 @@ export default function CreateTicketsPage() {
 
   const changeRowTaskType = (key: string, value: string) =>
     setRows((rs) => rs.map((row) => (row.key === key ? {
-      ...row, taskTypeId: value, taskSubtypeId: '', customSubtype: '',
-      custom: { ...row.custom, taskTypeId: true, taskSubtypeId: false }, errors: [],
+      ...row, taskTypeId: value, taskSubtypeId: '', customSubtype: '', errors: [],
     } : row)));
 
   const addRow = () => setRows((rs) => [...rs, makeRow()]);
@@ -395,6 +371,59 @@ export default function CreateTicketsPage() {
   });
   const removeRow = (key: string) => setRows((rs) => (rs.length <= 1 ? rs : rs.filter((r) => r.key !== key)));
 
+  const hasMeaningfulTicketData = rows.length > 1 || rows.some((row) =>
+    Boolean(
+      row.title.trim() || row.description.trim() || row.dueDate || row.dueTime ||
+      row.estHours || row.estMinutes || row.notes.trim() || row.scheduledEndAt ||
+      row.outputTargetMinutes || row.targetDepartmentId || row.recurrence.mode !== 'none' ||
+      (!isSelfLockedRow(row) && row.assigneeIds.length > 0)
+    ),
+  );
+
+  // The template editor may start from the parent ticket's current selections,
+  // but these values are not applied to other ticket rows. Additional tickets
+  // remain independent unless the user explicitly duplicates a ticket.
+  const quickTagInitialDefaults = useMemo(() => {
+    const parent = rows[0];
+    return {
+      departmentId: parent?.departmentId ?? (lockDept ? myDeptId : ''),
+      taskTypeId: parent?.taskTypeId ?? '',
+      taskSubtypeId: parent?.taskSubtypeId ?? '',
+      priority: parent?.priority ?? 'MEDIUM',
+      projectId: parent?.projectId ?? preselectedProjectId,
+    };
+  }, [rows, lockDept, myDeptId, preselectedProjectId]);
+
+  const applyQuickTag = (template: QuickTicketTemplate) => {
+    setRows((current) => current.map((row, index) => index !== 0 ? row : {
+      ...row,
+      type: 'TASK',
+      title: template.title,
+      description: template.description ?? '',
+      departmentId: template.departmentId,
+      taskTypeId: template.taskTypeId,
+      taskSubtypeId: template.taskSubtypeId ?? '',
+      customSubtype: '',
+      assigneeIds: template.assigneeIds ?? [],
+      targetDepartmentId: '',
+      priority: template.priority ?? 'MEDIUM',
+      outputTargetMinutes: '',
+      startDate: '',
+      startTime: '',
+      dueDate: '',
+      dueTime: '',
+      estHours: template.estimatedMinutes ? String(Math.floor(template.estimatedMinutes / 60)) : '',
+      estMinutes: template.estimatedMinutes ? String(template.estimatedMinutes % 60) : '',
+      projectId: template.projectId ?? '',
+      scheduledEndAt: '',
+      notes: '',
+      recurrence: NO_RECURRENCE,
+      showAdvanced: false,
+      errors: [],
+    }));
+    toast.success(`Applied Default Ticket: ${template.name}`);
+  };
+
   const suggestPriority = async (key: string) => {
     const row = rows.find((r) => r.key === key);
     if (!row || !row.title.trim()) { toast.error('Enter a title first'); return; }
@@ -403,7 +432,7 @@ export default function CreateTicketsPage() {
       const result = await aiApi.suggestPriority(row.title, row.description) as any;
       if (result?.priority) {
         setRows((rs) => rs.map((r) => (r.key === key
-          ? { ...r, priority: result.priority, custom: { ...r.custom, priority: true }, aiReason: result.reason ?? '', aiBusy: false }
+          ? { ...r, priority: result.priority, aiReason: result.reason ?? '', aiBusy: false }
           : r)));
         if (!result.disabled) toast.success(`AI suggests: ${result.priority}`, { icon: '✨' });
       } else {
@@ -546,6 +575,7 @@ export default function CreateTicketsPage() {
 
   // ── Excel import ─────────────────────────────────────────────────────────────
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const defaultTicketsRef = useRef<QuickTicketTagsHandle>(null);
   const [preview, setPreview] = useState<any | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -588,12 +618,11 @@ export default function CreateTicketsPage() {
   const submitLabel = rows.length === 1 ? 'Create Ticket' : `Create ${rows.length} Tickets`;
   const inputCls = 'apex-input';
   const labelCls = 'apex-label';
-  const sectionCls = 'text-xs font-semibold uppercase tracking-wider pb-1.5 mb-3 border-b';
 
   return (
-    <div className="max-w-4xl mx-auto pb-10">
+    <div className="w-full px-[10px] md:px-[50px] pb-10">
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
         <button onClick={handleBack} className="p-2 rounded-lg transition-colors"
           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
@@ -601,9 +630,12 @@ export default function CreateTicketsPage() {
         </button>
         <div className="flex-1">
           <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Create Tickets</h2>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Add one or many tickets — each becomes its own ticket ID</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button type="button" onClick={() => defaultTicketsRef.current?.openCreate()}
+            className="apex-btn-primary flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+            <Plus size={13} /> Create Default Tickets
+          </button>
           <button type="button" onClick={downloadTemplate}
             className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border transition-colors"
             style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
@@ -634,55 +666,20 @@ export default function CreateTicketsPage() {
         </div>
       )}
 
-      {/* ── Global Defaults ─────────────────────────────────────────────────── */}
-      <div className="apex-card p-5 mb-4">
-        <p className={sectionCls} style={{ color: 'var(--text-tertiary)', borderColor: 'var(--border-subtle)' }}>
-          Global Defaults <span className="font-normal normal-case tracking-normal">— applied to new rows; rows you customize keep their own value</span>
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <div>
-            <label className={labelCls}>Department</label>
-            {lockDept ? (
-              <input readOnly value={deptName(myDeptId) || 'Your department'} className="apex-input cursor-not-allowed"
-                style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }} />
-            ) : (
-              <select value={globalDefaults.departmentId} onChange={(e) => setGlobal('departmentId', e.target.value)} className={inputCls}>
-                <option value="">Select…</option>
-                {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            )}
-          </div>
-          <div>
-            <label className={labelCls}>Task Type</label>
-            <select value={globalDefaults.taskTypeId} onChange={(e) => setGlobal('taskTypeId', e.target.value)} className={inputCls}
-              disabled={!globalDefaults.departmentId}>
-              <option value="">{globalDefaults.departmentId ? 'None' : 'Pick department first'}</option>
-              {taskTypesFor(globalDefaults.departmentId).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Subtype</label>
-            <select value={globalDefaults.taskSubtypeId} onChange={(e) => setGlobal('taskSubtypeId', e.target.value)} className={inputCls}
-              disabled={!globalDefaults.taskTypeId || subtypesFor(globalDefaults.departmentId, globalDefaults.taskTypeId).length === 0}>
-              <option value="">None</option>
-              {subtypesFor(globalDefaults.departmentId, globalDefaults.taskTypeId).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Priority</label>
-            <select value={globalDefaults.priority} onChange={(e) => setGlobal('priority', e.target.value)} className={cn(inputCls, 'font-medium', PRIORITY_COLORS[globalDefaults.priority])}>
-              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <div className="col-span-2 md:col-span-1">
-            <label className={labelCls}>Project</label>
-            <select value={globalDefaults.projectId} onChange={(e) => setGlobal('projectId', e.target.value)} className={inputCls}>
-              <option value="">No project</option>
-              {projectList.map((p: any) => <option key={p.id} value={p.id}>{p.projectId} — {p.name}</option>)}
-            </select>
-          </div>
-        </div>
-      </div>
+      <QuickTicketTags
+        ref={defaultTicketsRef}
+        departments={Array.isArray(departments) ? departments : []}
+        projects={projectList}
+        assigneesFor={usersFor}
+        departmentLocked={lockDept}
+        assigneeLocked={lockAssignee}
+        taskTypesFor={taskTypesFor}
+        ensureTaskTypes={ensureTaskTypes}
+        currentUser={user}
+        initialDefaults={quickTagInitialDefaults}
+        hasExistingData={hasMeaningfulTicketData}
+        onApply={applyQuickTag}
+      />
 
       {/* ── Ticket rows ─────────────────────────────────────────────────────── */}
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -812,7 +809,12 @@ export default function CreateTicketsPage() {
                       </div>
                     ) : (
                       <MultiSelect
-                        options={(row.type === 'TASK' ? rowUsers : rowRoutingUsers).map((u: any) => ({ value: u.id, label: u.name, sublabel: formatRole(u.role), avatar: u.avatar }))}
+                        options={(row.type === 'TASK' ? rowUsers : rowRoutingUsers).map((u: any) => ({
+                          value: u.id,
+                          label: u.name,
+                          sublabel: [formatRole(u.role), u.departmentName].filter(Boolean).join(' • '),
+                          avatar: u.avatar,
+                        }))}
                         value={row.assigneeIds}
                         onChange={(v) => setRowField(row.key, 'assigneeIds', v)}
                         disabled={row.type !== 'TASK' && !row.targetDepartmentId}

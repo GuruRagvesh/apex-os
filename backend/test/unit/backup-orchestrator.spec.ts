@@ -23,6 +23,21 @@ const prodEnv = (over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
   DATABASE_URL: `postgresql://u:p@${PROD_HOST}:5432/${PROD_DB}`,
   EXPECTED_PRODUCTION_DB_HOST: PROD_HOST,
   EXPECTED_PRODUCTION_DB_NAME: PROD_DB,
+  R2_BUCKET: 'apex-os-production-backups',
+  ...over,
+});
+
+const STAGING_HOST = 'dpg-staging0001-a.oregon-postgres.render.com';
+const STAGING_DB = 'apex_os_staging';
+const STAGING_VAULT = 'apex-os-staging-backups';
+
+const stagingEnv = (over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
+  APP_ENV: 'staging',
+  DATABASE_URL: `postgresql://u:p@${STAGING_HOST}:5432/${STAGING_DB}`,
+  EXPECTED_STAGING_DB_HOST: STAGING_HOST,
+  EXPECTED_STAGING_DB_NAME: STAGING_DB,
+  R2_BUCKET: STAGING_VAULT,
+  EXPECTED_STAGING_VAULT_BUCKET: STAGING_VAULT,
   ...over,
 });
 
@@ -33,20 +48,25 @@ const EXISTING_STATE: BackupState = {
   lastAttemptStatus: 'SUCCESS',
 };
 
-/** A vault that records what it was asked to do. */
+/** A vault that records what it was asked to do, and returns what it stored. */
 function fakeVault(over: Partial<Vault> = {}) {
   const stored = new Map<string, number>();
+  const bytes = new Map<string, Buffer>();
   const vault: Vault = {
     async put(key, filePath) {
-      const { statSync } = await import('fs');
-      stored.set(key, statSync(filePath).size);
+      const { readFileSync } = await import('fs');
+      const b = readFileSync(filePath);
+      bytes.set(key, b);
+      stored.set(key, b.length);
     },
     async head(key) {
       const size = stored.get(key);
       return size === undefined ? null : { key, byteSize: size };
     },
-    async getToFile() {
-      throw new Error('not used');
+    async getToFile(key, dest) {
+      const b = bytes.get(key);
+      if (!b) throw new Error('NoSuchKey');
+      writeFileSync(dest, b);
     },
     async list() {
       return [];
@@ -68,6 +88,7 @@ function makeDeps(over: Partial<BackupDeps> = {}) {
     dump: async (_url, outPath) => writeFileSync(outPath, Buffer.alloc(2_000_000, 7)),
     serverVersion: async () => '18.4',
     clientMajorVersion: async () => 18,
+    verifyDump: async () => {},
     now: () => new Date('2026-08-27T21:00:00.000Z'),
     loadState: async () => EXISTING_STATE,
     saveState: async (s) => {
@@ -191,6 +212,73 @@ describe('a verified remote copy is the only route to SUCCESS', () => {
 
     expect(savedManifests).toHaveLength(1);
     expect(savedManifests[0].status).toBe('FAILED');
+  });
+});
+
+describe('staging backups go to their own vault, and only there', () => {
+  it('backs staging up to the staging vault and records the environment', async () => {
+    const { deps, stored } = makeDeps();
+    const { manifest } = await runBackup(stagingEnv(), 'DAILY', deps);
+
+    expect(manifest.status).toBe('SUCCESS');
+    expect(manifest.environment).toBe('staging');
+    expect(manifest.vaultBucket).toBe(STAGING_VAULT);
+    expect(manifest.objectKey).toContain('apex-os-staging-');
+    expect(stored.size).toBe(1);
+  });
+
+  it('records production as production', async () => {
+    const { deps } = makeDeps();
+    const { manifest } = await runBackup(prodEnv(), 'DAILY', deps);
+    expect(manifest.environment).toBe('production');
+    expect(manifest.vaultBucket).toBe('apex-os-production-backups');
+  });
+
+  it.each([
+    ['staging into the production vault', stagingEnv({ R2_BUCKET: 'apex-os-production-backups', EXPECTED_STAGING_VAULT_BUCKET: 'apex-os-production-backups' })],
+    ['staging into an undeclared vault', stagingEnv({ EXPECTED_STAGING_VAULT_BUCKET: '' })],
+    ['staging into a vault other than the declared one', stagingEnv({ R2_BUCKET: 'apex-os-staging-other' })],
+    ['staging into a vault not named as staging', stagingEnv({ R2_BUCKET: 'apex-os-scratch', EXPECTED_STAGING_VAULT_BUCKET: 'apex-os-scratch' })],
+    ['staging with a database that differs from the dashboard', stagingEnv({ EXPECTED_STAGING_DB_NAME: 'other' })],
+    ['production into the staging vault', prodEnv({ R2_BUCKET: STAGING_VAULT })],
+    ['an unset APP_ENV', prodEnv({ APP_ENV: '' })],
+  ])('refuses %s without dumping', async (_label, env) => {
+    const dump = jest.fn();
+    const { deps, stored } = makeDeps({ dump });
+    const { manifest } = await runBackup(env, 'DAILY', deps);
+
+    expect(manifest.status).toBe('FAILED');
+    expect(dump).not.toHaveBeenCalled();
+    expect(stored.size).toBe(0);
+  });
+});
+
+describe('the uploaded dump is verified by content, not only size', () => {
+  it('FAILS when the read-back bytes differ from the local dump', async () => {
+    const { vault } = fakeVault();
+    const corrupt: Vault = {
+      ...vault,
+      getToFile: async (_key, dest) => writeFileSync(dest, Buffer.alloc(2_000_000, 8)),
+    };
+    const { deps, getState } = makeDeps({ vault: corrupt });
+    const { manifest } = await runBackup(prodEnv(), 'DAILY', deps);
+
+    expect(manifest.status).toBe('FAILED');
+    expect(manifest.failureReason).toMatch(/Read-back SHA-256/);
+    expect(getState()!.lastSuccessfulAt).toBe(EXISTING_STATE.lastSuccessfulAt);
+  });
+
+  it('FAILS when pg_restore cannot read the dump, before uploading it', async () => {
+    const { deps, stored } = makeDeps({
+      verifyDump: async () => {
+        throw new Error('pg_restore: input file does not appear to be a valid archive');
+      },
+    });
+    const { manifest } = await runBackup(prodEnv(), 'DAILY', deps);
+
+    expect(manifest.status).toBe('FAILED');
+    expect(manifest.failureReason).toMatch(/valid archive/);
+    expect(stored.size).toBe(0);
   });
 });
 

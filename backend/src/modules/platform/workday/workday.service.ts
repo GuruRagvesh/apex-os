@@ -649,7 +649,9 @@ export class WorkdayService {
           plannedEndAt,
           startAt: now,
           reason: dto.breakType,
-          source: fromIdle ? BREAK_FROM_IDLE_SOURCE : 'MANUAL_BREAK',
+          source: dto.breakType === 'MEETING'
+            ? 'MEETING_UNCLASSIFIED'
+            : (fromIdle ? BREAK_FROM_IDLE_SOURCE : 'MANUAL_BREAK'),
         },
       });
 
@@ -709,7 +711,6 @@ export class WorkdayService {
     // Two open breaks at once is corrupt data, not a caller mistake: stays a 500.
     if (openBreaks.length > 1) throw new Error('Multiple open breaks found');
     const openBreak = openBreaks[0];
-
     const durationMinutes = Math.max(0, Math.floor(
       (now.getTime() - openBreak.startAt.getTime()) / 60000,
     ));
@@ -991,6 +992,14 @@ export class WorkdayService {
       breakLogs: s.breakLogs.filter((b: any) => b.breakType !== 'MEETING'),
     }));
     const rt = calculateWorkdayRuntime(sessionsForRuntime as any, now);
+    const meetingMinutes = sessions.reduce((total, currentSession) => total + currentSession.breakLogs
+      .filter((breakLog: any) => breakLog.breakType === 'MEETING')
+      .reduce((sessionTotal: number, breakLog: any) => {
+        const endAt = breakLog.endAt ?? now;
+        return sessionTotal + Math.max(0, breakLog.durationMinutes ?? Math.floor((endAt.getTime() - breakLog.startAt.getTime()) / 60000));
+      }, 0), 0);
+    const meetingCount = sessions.reduce((total, currentSession) => total + currentSession.breakLogs
+      .filter((breakLog: any) => breakLog.breakType === 'MEETING').length, 0);
 
     const remainingBreakMinutes = Math.max(0, DAILY_BREAK_ALLOWANCE_MINUTES - rt.totalBreakMinutes);
     const exceededBreakMinutes = Math.max(0, rt.totalBreakMinutes - DAILY_BREAK_ALLOWANCE_MINUTES);
@@ -1018,6 +1027,9 @@ export class WorkdayService {
       session,
       allSessions: sessions,
       elapsedWorkMinutes: rt.elapsedWorkMinutes,
+      focusedWorkMinutes: Math.max(0, rt.elapsedWorkMinutes - meetingMinutes),
+      meetingMinutes,
+      meetingCount,
       totalBreakMinutes: rt.totalBreakMinutes,
       firstStartTime: rt.firstStartTime,
       currentEndTime: rt.currentEndTime,

@@ -16,6 +16,7 @@ import { AccessPolicyService } from '../../../common/services/access-policy.serv
 import { TVAService } from '../../../common/services/tva.service';
 import { SettingsService } from '../../platform/settings/settings.service';
 import { HierarchyApprovalService } from '../../../common/services/hierarchy-approval.service';
+import { LeaveCalendarUnresolvedError } from './leave-working-day.service';
 
 @Injectable()
 export class LeaveService {
@@ -38,28 +39,59 @@ export class LeaveService {
     return this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }
 
-  async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string; page?: number; limit?: number }, user?: any) {
+  async viewerCanApprove(user: any, leave: any): Promise<boolean> {
+    if (!user) return false;
+    try {
+      await this.leaveAccess.assertCanApproveReject(user, leave, 'approve');
+      if (!(await this.approvalLifecycleEnabled())) return true;
+      if (leave.approvalStage === 'MANAGER_REVIEW') {
+        const chain = await this.hierarchy.resolveApproverChainFor(leave.userId);
+        return chain.some((entry) => entry.id === user.id);
+      }
+      if (leave.approvalStage === 'HR_REVIEW') {
+        const approver = await this.accessPolicy.hydrateUser(user);
+        return this.accessPolicy.isHrOrAdmin(approver);
+      }
+      return false;
+    } catch (error) {
+      if (error instanceof ForbiddenException || error instanceof NotFoundException) return false;
+      throw error;
+    }
+  }
+
+  private async withReadOnlyDetails(item: any, user?: any) {
+    let duration: number | null;
+    try {
+      duration = await this.leaveBalance.getDurationForRequest(item.startDate, item.endDate, item.isHalfDay, item.userId);
+    } catch (error) {
+      if (!(error instanceof LeaveCalendarUnresolvedError)) throw error;
+      duration = null;
+    }
+    return { ...item, duration, durationUnavailable: duration === null, viewerCanApprove: await this.viewerCanApprove(user, item) };
+  }
+
+  async findAll(query: { userId?: string; status?: LeaveStatus; departmentId?: string; page?: number; limit?: number; actionable?: string }, user?: any) {
     const where = await this.leaveAccess.buildLeaveWhereForUser(query, user);
 
     const page  = Math.max(1, Number(query.page)  || 1);
     const limit = Math.min(200, Math.max(1, Number(query.limit) || 50));
     const skip  = (page - 1) * limit;
 
-    const [total, dbItems] = await Promise.all([
-      this.prisma.leaveRequest.count({ where }),
-      this.prisma.leaveRequest.findMany({
-        where,
+    const actionable = query.actionable === 'true';
+    const effectiveWhere = actionable ? { AND: [where, { status: LeaveStatus.PENDING }] } : where;
+    const dbItems = await this.prisma.leaveRequest.findMany({
+        where: effectiveWhere,
         include: { user: { select: { id: true, name: true, email: true, department: true, role: true, reportingManager: true, teamLeadName: true } } },
         orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-    ]);
+        ...(actionable ? {} : { skip, take: limit }),
+      });
+    const permittedItems = actionable
+      ? (await Promise.all(dbItems.map(async (item) => ({ item, allowed: await this.viewerCanApprove(user, item) })))).filter(({ allowed }) => allowed).map(({ item }) => item)
+      : dbItems;
+    const total = actionable ? permittedItems.length : await this.prisma.leaveRequest.count({ where: effectiveWhere });
+    const pageItems = actionable ? permittedItems.slice(skip, skip + limit) : permittedItems;
 
-    const items = await Promise.all(dbItems.map(async (item) => {
-      const duration = await this.leaveBalance.getDurationForRequest(item.startDate, item.endDate, item.isHalfDay, item.userId);
-      return { ...item, duration };
-    }));
+    const items = await Promise.all(pageItems.map((item) => this.withReadOnlyDetails(item, user)));
 
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
@@ -73,8 +105,7 @@ export class LeaveService {
       include,
     });
     if (!leave) throw new NotFoundException('Leave request not found');
-    const duration = await this.leaveBalance.getDurationForRequest(leave.startDate, leave.endDate, leave.isHalfDay, leave.userId);
-    return { ...leave, duration };
+    return this.withReadOnlyDetails(leave, user);
   }
 
   // userId is optional so the existing public surface is unchanged, but
@@ -406,6 +437,9 @@ export class LeaveService {
     const actor = user ?? await this.prisma.user.findUnique({ where: { id: rejectorId }, include: { role: true, department: true } });
     if (!actor) throw new ForbiddenException('Not authorized');
     await this.leaveAccess.assertCanApproveReject(actor, leave, 'reject');
+    if (await this.approvalLifecycleEnabled() && !(await this.viewerCanApprove(actor, leave))) {
+      throw new ForbiddenException('Only the current approval-stage owner can reject this leave request');
+    }
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },

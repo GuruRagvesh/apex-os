@@ -96,6 +96,7 @@ function build(opts: { enabled?: boolean; context?: any; existing?: any; now?: D
         return Promise.resolve(row);
       }),
     },
+    punchEvidenceReview: { create: jest.fn().mockResolvedValue({ id: 'review-1' }) },
     attendancePunchPhoto: {
       findUnique: jest.fn(() => Promise.resolve({ ...FRESH_PHOTO })),
     },
@@ -219,19 +220,20 @@ describe('PunchEvidenceService (PE-1)', () => {
       expect(prisma.attendancePunchEvidence.create).not.toHaveBeenCalled();
     });
 
-    it('10. BLOCKED is rejected and carries the configuration reason', async () => {
-      const { service } = build({
+    it('10. BLOCKED policy context records raw evidence for HR review', async () => {
+      const { service, prisma, created } = build({
         context: {
           ...REQUIRED_CONTEXT,
           attendanceApplicability: 'BLOCKED',
           blockingReasons: ['AMBIGUOUS_HOLIDAY_CALENDAR'],
         },
       });
-      await expect(service.submit('emp-1', VALID)).rejects.toMatchObject({
-        applicability: 'BLOCKED',
-        blockingReasons: ['AMBIGUOUS_HOLIDAY_CALENDAR'],
+      await expect(service.submit('emp-1', VALID)).resolves.toBeDefined();
+      expect(created[0].policyContextStatus).toBe('POLICY_SETUP_PENDING');
+      expect(created[0].locationVerification).toBe('NOT_ENFORCED');
+      expect(prisma.punchEvidenceReview.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ evidenceId: 'ev-1', reasonCodes: ['POLICY_SETUP_PENDING'] }),
       });
-      await expect(service.submit('emp-1', VALID)).rejects.toThrow(/HR review is required/);
     });
 
     it('resolves the context for the JWT subject at the server instant', async () => {
@@ -276,9 +278,25 @@ describe('PunchEvidenceService (PE-1)', () => {
       expect(created[0].latitude).toBe(OFFICE.latitude);
       expect(created[0].longitude).toBe(OFFICE.longitude);
       expect(created[0].accuracyMeters).toBe(12);
+      expect(created[0].accuracyStatus).toBe('AVAILABLE');
+      expect(created[0].altitudeStatus).toBe('UNAVAILABLE');
       // PE-2 resolves this before the insert; it is never written PENDING and
       // corrected later, because the row is append-only.
       expect(created[0].locationVerification).toBe('VERIFIED');
+    });
+
+    it('stores optional altitude and flags unavailable accuracy without rejecting the punch', async () => {
+      const { service, created, prisma } = build({ context: { ...REQUIRED_CONTEXT, attendancePolicy: { geoFenceEnabled: false } } });
+      await service.submit('emp-1', { ...VALID, accuracyMeters: null, altitudeMeters: 560.25 });
+      expect(created[0]).toEqual(expect.objectContaining({
+        altitudeMeters: 560.25,
+        altitudeStatus: 'AVAILABLE',
+        accuracyMeters: null,
+        accuracyStatus: 'UNAVAILABLE',
+      }));
+      expect(prisma.punchEvidenceReview.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ reasonCodes: ['ACCURACY_UNAVAILABLE'] }),
+      });
     });
 
     it('a punch with no GPS is REJECTED from PE-2 onward', async () => {
@@ -363,6 +381,20 @@ describe('PunchEvidenceService (PE-1)', () => {
       expect(prisma.attendancePunchEvidence.findMany.mock.calls[0][0].where).toEqual({
         userId: 'emp-1',
       });
+    });
+
+    it('filters the selected business date in the database before the history limit', async () => {
+      const { service, prisma } = build();
+      await service.listMine('emp-1', 200, '2026-10-07');
+      const args = prisma.attendancePunchEvidence.findMany.mock.calls[0][0];
+      expect(args.where).toEqual({ userId: 'emp-1', businessDate: new Date('2026-10-07T00:00:00.000Z') });
+      expect(args.take).toBe(200);
+    });
+
+    it.each(['2026-02-30', '2026-13-01', 'not-a-date', '2026-10-07T00:00:00Z'])('rejects invalid business date %s before querying', async date => {
+      const { service, prisma } = build();
+      await expect(service.listMine('emp-1', 200, date)).rejects.toThrow('valid business date');
+      expect(prisma.attendancePunchEvidence.findMany).not.toHaveBeenCalled();
     });
 
     it('18b. the history query cannot be widened by the caller', async () => {

@@ -7,4 +7,4 @@
 // Deliberately separate from the component root barrel so presentation-only
 // consumers never load the authenticated client.
 
-export { ticketsApi } from './tickets-api';
+export { ticketsApi, ticketTemplatesApi } from './tickets-api';

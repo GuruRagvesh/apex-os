@@ -43,7 +43,8 @@ export async function getMyLeaveBalance(type: PersonalLeaveType): Promise<LeaveB
 
 export async function getMyCompOffCredits(): Promise<CompOffCredit[]> {
   const rows = await r<CompOffCredit[]>(api.get('/leave/comp-off/me'));
-  return Array.isArray(rows) ? rows : [];
+  if (!Array.isArray(rows)) throw new Error('Comp Off balance unavailable.');
+  return rows;
 }
 
 /**

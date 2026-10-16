@@ -3,7 +3,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../../platform/settings/settings.service';
 import { LeaveStatus, LeaveType } from '@prisma/client';
 import { TVAService } from '../../../common/services/tva.service';
-import { LeaveWorkingDayService } from './leave-working-day.service';
+import {
+  LeaveCalendarUnresolvedError,
+  LeaveWorkingDayService,
+} from './leave-working-day.service';
 import {
   ATTENDANCE_V2_DEFAULTS,
   ATTENDANCE_V2_SETTING_KEY,
@@ -72,6 +75,26 @@ export class LeaveBalanceService {
     year = 2026,
     leaveType?: LeaveType,
   ): Promise<number> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
+
+    // Intern leave is earned monthly, not made available as a 12-day annual
+    // bank. The annual equivalent is returned here for reports; balance and
+    // request validation below enforce the actual one-day monthly window.
+    if (user?.role?.name === 'INTERN') {
+      if (leaveType === LeaveType.EMERGENCY) return 0;
+      return 12;
+    }
+
+    // Company-wide paid-leave rule: every non-intern role has two independent
+    // entitlements — 10 Casual days and 4 Emergency days per financial year.
+    // Do this before policy lookup so an older assigned profile cannot silently
+    // replace the approved company allocation with stale values.
+    if (leaveType === LeaveType.CASUAL) return 10;
+    if (leaveType === LeaveType.EMERGENCY) return 4;
+
     if (await this.v2AuthorityEnabled()) {
       const fromPolicy = await this.allocationFromLeavePolicy(userId, year, leaveType);
       if (fromPolicy !== null) return fromPolicy;
@@ -79,13 +102,9 @@ export class LeaveBalanceService {
       // than inventing a number. Reported, not silently zeroed.
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { role: true },
-    });
     if (!user) return 0;
     const quotas = await this.settings.getLeaveQuotas();
-    return quotas[user.role.name] ?? 12;
+    return quotas[user.role.name] ?? 14;
   }
 
   /** totalPaidLeaves from the employee's effective-dated LeavePolicy, if any. */
@@ -221,8 +240,16 @@ export class LeaveBalanceService {
     userId: string,
     year = 2026,
     leaveType?: LeaveType,
+    asOf?: Date,
   ): Promise<{ allocation: number; approved: number; pending: number; balance: number }> {
-    const allocation = await this.getYearlyAllocation(userId, year, leaveType);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
+    const isIntern = user?.role?.name === 'INTERN';
+    const allocation = isIntern
+      ? leaveType === LeaveType.EMERGENCY ? 0 : 1
+      : await this.getYearlyAllocation(userId, year, leaveType);
 
     // THE BALANCE WINDOW IS THE FINANCIAL YEAR. ALWAYS.
     //
@@ -243,8 +270,19 @@ export class LeaveBalanceService {
     // flag still governs leave DURATION and ALLOCATION, which are separate
     // decisions with their own blast radius, and neither is touched here.
     const fy = this.tva.financialYearBounds(`${year}-${year + 1}`);
-    const startOfYear = this.tva.companyDayStart(fy.start);
-    const endOfYear = this.tva.companyDayEnd(fy.end);
+    let startOfYear = this.tva.companyDayStart(fy.start);
+    let endOfYear = this.tva.companyDayEnd(fy.end);
+
+    // Interns receive one paid Casual day in each calendar month. Unused days
+    // do not silently accumulate into an annual bank.
+    if (isIntern) {
+      const businessDate = this.tva.companyBusinessDate(asOf ?? this.tva.now());
+      const [windowYear, windowMonth] = businessDate.split('-').map(Number);
+      const monthStart = new Date(Date.UTC(windowYear, windowMonth - 1, 1));
+      const monthEnd = new Date(Date.UTC(windowYear, windowMonth, 0));
+      startOfYear = this.tva.companyDayStart(monthStart);
+      endOfYear = this.tva.companyDayEnd(monthEnd);
+    }
 
     const leaves = await this.prisma.leaveRequest.findMany({
       where: {
@@ -258,17 +296,45 @@ export class LeaveBalanceService {
     const policy = await this.settings.get('leave_policy');
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
 
+    // Leave records that predate the employee's first V2 attendance profile
+    // were submitted and approved under the legacy working-day rules. Trying
+    // to replay those records through the newer effective-dated calendar has
+    // no authoritative profile to resolve and used to make the *entire*
+    // balance endpoint fail. Keep the compatibility boundary explicit: only
+    // records created before the first V2 profile may use their original
+    // legacy calculation. Any unresolved current/V2 record still fails safely.
+    const firstV2Profile = await this.prisma.employeeAttendanceProfile.findFirst({
+      where: { userId },
+      orderBy: { effectiveFrom: 'asc' },
+      select: { effectiveFrom: true },
+    });
+
     let approvedDays = 0;
     let pendingDays = 0;
 
     for (const leave of leaves) {
-      const duration = await this.calculateLeaveDuration(
-        leave.startDate,
-        leave.endDate,
-        leave.isHalfDay,
-        workingDaysSetting,
-        userId,
-      );
+      let duration: number;
+      try {
+        duration = await this.calculateLeaveDuration(
+          leave.startDate,
+          leave.endDate,
+          leave.isHalfDay,
+          workingDaysSetting,
+          userId,
+        );
+      } catch (error) {
+        const isPreFoundationRecord =
+          error instanceof LeaveCalendarUnresolvedError &&
+          firstV2Profile?.effectiveFrom &&
+          leave.createdAt < firstV2Profile.effectiveFrom;
+
+        if (!isPreFoundationRecord) throw error;
+        duration = this.legacyDuration(
+          leave.startDate,
+          leave.endDate,
+          workingDaysSetting,
+        );
+      }
       if (leave.status === LeaveStatus.APPROVED) {
         approvedDays += duration;
       } else if (leave.status === LeaveStatus.PENDING) {
@@ -290,6 +356,22 @@ export class LeaveBalanceService {
   ): Promise<void> {
     const start = new Date(startDate);
     const end = new Date(endDate);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
+    const isIntern = user?.role?.name === 'INTERN';
+
+    if (isIntern) {
+      const startMonth = this.tva.companyBusinessDate(start).slice(0, 7);
+      const endMonth = this.tva.companyBusinessDate(end).slice(0, 7);
+      if (startMonth !== endMonth) {
+        throw new ForbiddenException('Intern paid-leave requests must stay within one calendar month.');
+      }
+      if (leaveType === LeaveType.EMERGENCY) {
+        throw new ForbiddenException('Interns have one paid Casual leave day per month and no separate Emergency leave allocation.');
+      }
+    }
 
     // 1. Prevent overlapping leaves
     const overlapping = await this.prisma.leaveRequest.count({
@@ -320,7 +402,7 @@ export class LeaveBalanceService {
     // leave, and would let an underfunded request through on an empty balance.
     // One authority for "which leave year is this date in", used on both sides.
     const balanceYear = this.tva.financialYear(start).startYear;
-    const { balance } = await this.getLeaveBalance(userId, balanceYear, leaveType);
+    const { balance } = await this.getLeaveBalance(userId, balanceYear, leaveType, start);
     const policy = await this.settings.get('leave_policy');
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
 

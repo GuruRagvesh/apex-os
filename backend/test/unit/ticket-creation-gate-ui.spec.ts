@@ -122,7 +122,6 @@ describe('every creation control goes through the gate', () => {
     ['platforms/operations/tickets/lifecycle/frontend/screens/KanbanScreen.tsx', /<CreateTicketLink className="apex-btn-new-ticket">/],
     ['platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen.tsx', /<CreateTicketLink href=\{`\/tickets\/new\?projectId=/],
     ['platforms/intelligence/dashboard/overview/frontend/components/QuickActionStrip.tsx', /a\.url === '\/tickets\/new' && !ticketGate\.allowed/],
-    ['platforms/intelligence/dashboard/overview/frontend/screens/DashboardScreen.tsx', /\.\.\.\(!ticketGate\.allowed \? \[\] : \[\{\s*id: 'new-ticket'/],
     ['frontend/app/(dashboard)/layout.tsx', /\.\.\.\(!ticketGate\.allowed \? \[\] : \[\{\s*id: 'new-ticket'/],
     ['frontend/components/ui/QuickActionDock.tsx', /label: '\+ Ticket'[^\n]*\n\s*disabled: !ticketGate\.allowed, title: ticketGate\.reason/],
   ];

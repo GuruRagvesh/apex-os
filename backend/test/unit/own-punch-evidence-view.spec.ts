@@ -101,7 +101,10 @@ describe('own punch evidence view', () => {
     expect(Object.keys(toOwnEvidenceView(row())).sort()).toEqual(
       [
         'accuracyMeters',
+        'accuracyStatus',
         'accuracyThresholdMeters',
+        'altitudeMeters',
+        'altitudeStatus',
         'businessDate',
         'clientCapturedAt',
         'distanceFromLocationMeters',
@@ -113,6 +116,7 @@ describe('own punch evidence view', () => {
         'longitude',
         'photoAssetId',
         'photoVerification',
+        'policyContextStatus',
         'serverOccurredAt',
         'source',
         'type',
@@ -154,7 +158,11 @@ describe('own evidence authorization', () => {
     // A reading employee B's evidence.
     const listMine = /async listMine\(userId: string[\s\S]*?\n  \}/.exec(SOURCE)![0];
 
-    expect(listMine).toMatch(/where: \{ userId \}/);
+    // The filter always starts from the authenticated userId (shorthand, so it
+    // cannot be rebound to another value); optional narrowing such as the
+    // business date may follow it, but never replaces it.
+    expect(listMine).toMatch(/where: \{ userId[,\s]/);
+    expect(listMine).not.toMatch(/where: \{[^}]*\buserId:/);
     expect(listMine).not.toMatch(/where: \{\s*id\b/);
   });
 

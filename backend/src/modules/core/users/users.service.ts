@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException, Optional } from '@nestjs/common';
 import { Workbook } from 'exceljs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
@@ -7,10 +7,15 @@ import { EmailService } from '../../platform/email/email.service';
 import { BackupVaultService } from '../../platform/backup-vault/backup-vault.service';
 import { AttendanceCategory, PolicyStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
+import { sanitizeChannels } from '../../operations/notifications/notification-channels';
+import { RemediationException, buildRemediation } from '../../../common/remediation';
+import { SetupIssueCode, UserSetupIssuesService } from './user-setup-issues.service';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
 // Only this document type is allowed to update the user's avatar/photo.
 const PROFILE_PHOTO_DOCUMENT_TYPE = 'PROFILE_PHOTO';
+const EMPLOYMENT_BASELINE = '2020-12-01';
 function isProfilePhotoType(documentType?: string): boolean {
   return (documentType ?? '').toUpperCase().replace(/[\s-]+/g, '_') === PROFILE_PHOTO_DOCUMENT_TYPE;
 }
@@ -23,7 +28,30 @@ export class UsersService {
     private eventLogger: EventLoggerService,
     private emailService: EmailService,
     private backupVaultService: BackupVaultService,
+    @Optional() private setupIssues?: UserSetupIssuesService,
   ) {}
+
+  /**
+   * Setup health for one person (Phase 1, read-only). Admin, Super Admin and HR
+   * authority (isHR) only. Empty until Phase 2 detection writes issues.
+   */
+  async listSetupIssues(userId: string, actor: any) {
+    if (!this.accessPolicy.isHrOrAdmin(actor)) throw new ForbiddenException('Only Admin, Super Admin or HR can view setup health.');
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) throw new NotFoundException('User not found');
+    const issues = await this.prisma.userSetupIssue.findMany({
+      where: { userId },
+      orderBy: [{ status: 'asc' }, { firstDetectedAt: 'asc' }],
+      select: { id: true, code: true, domain: true, severity: true, remediationClass: true, status: true, firstDetectedAt: true, lastDetectedAt: true, acknowledgedAt: true, resolvedAt: true },
+    });
+    return { userId, issues };
+  }
+
+  /** The Deleted account principal is never edited, reset, reactivated or deactivated. */
+  private async assertNotSystemAccount(id: string) {
+    const row = await this.prisma.user.findUnique({ where: { id }, select: { isSystemAccount: true } });
+    if (row?.isSystemAccount) throw new ForbiddenException('This is a system account and cannot be changed.');
+  }
 
   private joiningDate(value: string | Date | undefined): Date {
     if (!value) {
@@ -33,7 +61,9 @@ export class UsersService {
       if (Number.isNaN(value.getTime())) {
         throw new BadRequestException('Joining date must be a valid date');
       }
-      return new Date(`${value.toISOString().slice(0, 10)}T00:00:00.000Z`);
+      const normalized = new Date(`${value.toISOString().slice(0, 10)}T00:00:00.000Z`);
+      this.assertEmploymentBaseline(normalized);
+      return normalized;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       throw new BadRequestException('Joining date must be a valid date');
@@ -42,7 +72,137 @@ export class UsersService {
     if (Number.isNaN(raw.getTime()) || raw.toISOString().slice(0, 10) !== value) {
       throw new BadRequestException('Joining date must be a valid date');
     }
+    this.assertEmploymentBaseline(raw);
     return raw;
+  }
+
+  private assertEmploymentBaseline(value: Date) {
+    if (value.toISOString().slice(0, 10) < EMPLOYMENT_BASELINE) {
+      throw new BadRequestException(`Joining date cannot be before ${EMPLOYMENT_BASELINE}.`);
+    }
+  }
+
+  private normalizedEmail(value: unknown): string {
+    const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+    return email;
+  }
+
+  private assertPassword(value: unknown) {
+    if (typeof value !== 'string' || value.length < 8 || value.length > 128 || value.trim().length === 0) {
+      throw new BadRequestException('Password must be between 8 and 128 characters and cannot be blank.');
+    }
+  }
+
+  private personName(value: unknown): string {
+    const name = typeof value === 'string' ? value.trim() : '';
+    if (!name || name.length > 200) throw new BadRequestException('Enter the person\'s name (up to 200 characters).');
+    return name;
+  }
+
+  /**
+   * What an email address already belongs to (Phase 2, B2). Decided inside the
+   * caller's transaction under a lock on the normalized address, so two
+   * submissions for one address cannot both pass the check.
+   *
+   *   active or scheduled to join  -> EMAIL_BELONGS_TO_ACTIVE_USER (view them)
+   *   deactivated                  -> EMAIL_BELONGS_TO_DEACTIVATED_USER (Reactivate)
+   *   archived                     -> EMAIL_BELONGS_TO_ARCHIVED_USER (Rehire)
+   *   system account               -> EMAIL_RESERVED_FOR_SYSTEM_ACCOUNT (refused)
+   *   permanently deleted          -> no row holds it: a fresh account is fine
+   */
+  private async assertEmailAvailable(tx: Prisma.TransactionClient, email: string, exceptUserId?: string) {
+    await tx.$queryRaw`SELECT 1 AS "locked" FROM (SELECT pg_advisory_xact_lock(hashtextextended(${`user-email:${email}`}, 0))) AS l`;
+    const existing = await tx.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' }, ...(exceptUserId ? { id: { not: exceptUserId } } : {}) },
+      select: { id: true, name: true, isActive: true, isSystemAccount: true, employmentState: true, scheduledActivationOn: true },
+    });
+    if (!existing) return;
+    if (existing.isSystemAccount) {
+      throw new ConflictException({ message: 'This email belongs to a system account and cannot be used.', code: 'EMAIL_RESERVED_FOR_SYSTEM_ACCOUNT' });
+    }
+    if (existing.isActive || existing.employmentState === 'SCHEDULED_TO_JOIN') {
+      throw new ConflictException({
+        message: existing.isActive
+          ? `${existing.name} already uses this email.`
+          : `${existing.name} already uses this email and is scheduled to join.`,
+        code: 'EMAIL_BELONGS_TO_ACTIVE_USER',
+        existingUser: {
+          id: existing.id,
+          name: existing.name,
+          scheduledActivationOn: existing.scheduledActivationOn?.toISOString().slice(0, 10) ?? null,
+        },
+      });
+    }
+    // Same-account return paths keep the person's history with them; a second
+    // account for one person is never created.
+    const archivedAt = await this.archivedAt(existing.id);
+    if (archivedAt) {
+      throw new ConflictException({
+        message: `${existing.name} is archived with this email. Rehire them to bring the same account back.`,
+        code: 'EMAIL_BELONGS_TO_ARCHIVED_USER',
+        inactiveUser: { id: existing.id, name: existing.name, archivedAt: archivedAt.toISOString() },
+      });
+    }
+    throw new ConflictException({
+      message: `${existing.name} is deactivated with this email. Reactivate them instead of creating a second account.`,
+      code: 'EMAIL_BELONGS_TO_DEACTIVATED_USER',
+      inactiveUser: { id: existing.id, name: existing.name, archivedAt: null },
+    });
+  }
+
+  /**
+   * Role and department are checked again at commit (B1/B8): either may have
+   * been removed after the form loaded. The department is optional.
+   */
+  private async assertRoleAndDepartment(tx: Prisma.TransactionClient, roleId: unknown, departmentId: string | null) {
+    const role = typeof roleId === 'string' && roleId ? await tx.role.findUnique({ where: { id: roleId }, select: { id: true } }) : null;
+    if (!role) throw new RemediationException(buildRemediation('ROLE_NOT_FOUND_OR_REMOVED', { details: { field: 'roleId' } }));
+    if (departmentId) {
+      const department = await tx.department.findUnique({ where: { id: departmentId }, select: { id: true } });
+      if (!department) throw new RemediationException(buildRemediation('DEPARTMENT_NOT_FOUND_OR_REMOVED', { details: { field: 'departmentId' } }));
+    }
+  }
+
+  /** A role or department deleted between the check and the write breaks the foreign key. */
+  private async translateCommitError(error: any, roleId: unknown, departmentId: string | null): Promise<never> {
+    if (error?.code === 'P2003') {
+      const role = typeof roleId === 'string' && roleId ? await this.prisma.role.findUnique({ where: { id: roleId }, select: { id: true } }) : null;
+      if (!role) throw new RemediationException(buildRemediation('ROLE_NOT_FOUND_OR_REMOVED', { details: { field: 'roleId' } }));
+      if (departmentId) throw new RemediationException(buildRemediation('DEPARTMENT_NOT_FOUND_OR_REMOVED', { details: { field: 'departmentId' } }));
+    }
+    if (error?.code === 'P2002' && String(error?.meta?.target ?? '').includes('email')) {
+      throw new ConflictException({ message: 'Another account was just created with this email.', code: 'EMAIL_BELONGS_TO_ACTIVE_USER' });
+    }
+    throw error;
+  }
+
+  private departmentInput(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
+  /** Open setup issues, as warnings the form can show next to its success message. */
+  private async setupWarnings(userId: string, open: SetupIssueCode[]) {
+    if (!this.setupIssues) return [];
+    await this.setupIssues.refreshForUser(userId, open);
+    const rows = await (this.prisma as any).userSetupIssue.findMany({
+      where: { userId, status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+      select: { code: true },
+      orderBy: { firstDetectedAt: 'asc' },
+    }).catch(() => []);
+    return (rows as Array<{ code: string }>).map((r) => r.code);
+  }
+
+  private companyDate(): string {
+    const timezone = process.env.COMPANY_TIMEZONE || 'Asia/Kolkata';
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
   }
 
   private exactlyOne<T>(rows: T[], label: string): T {
@@ -56,10 +216,17 @@ export class UsersService {
     return rows[0];
   }
 
-  private async attendanceDefaults(tx: Prisma.TransactionClient, effectiveFrom: Date) {
-    const activeVersion = {
-      status: PolicyStatus.ACTIVE,
-      isActive: true,
+  private async attendanceDefaults(
+    tx: Prisma.TransactionClient,
+    effectiveFrom: Date,
+    laterStartAllowed = true,
+  ): Promise<any> {
+    // A version that has been superseded is still authoritative inside its
+    // closed historical window. This is the same rule the attendance readers
+    // use and prevents a future-dated activation from disabling Add User until
+    // the new version starts.
+    const governingVersion = {
+      status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] },
       effectiveFrom: { lte: effectiveFrom },
       OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
     };
@@ -71,18 +238,100 @@ export class UsersService {
 
     const [shifts, leavePolicies, calendars, weeklyOffPolicies] = await Promise.all([
       tx.shiftPolicy.findMany({
-        where: { ...activeVersion, category: AttendanceCategory.REGULAR_EMPLOYEE },
+        where: { ...governingVersion, category: AttendanceCategory.REGULAR_EMPLOYEE },
+        orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }],
         take: 2,
       }),
-      tx.leavePolicy.findMany({ where: activeVersion, take: 2 }),
-      tx.holidayCalendar.findMany({ where: activeVersion, take: 2 }),
-      tx.weeklyOffPolicy.findMany({ where: activeWindow, take: 2 }),
+      tx.leavePolicy.findMany({ where: governingVersion, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
+      tx.holidayCalendar.findMany({ where: governingVersion, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
+      tx.weeklyOffPolicy.findMany({ where: activeWindow, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
     ]);
 
-    const shift = this.exactlyOne(shifts, 'regular shift policy');
-    const attendancePolicy = await tx.attendancePolicy.findFirst({
-      where: { id: shift.attendancePolicyId, ...activeVersion },
-    });
+    // Overlap is a setup warning, not authority to block employment. The
+    // latest effective-from approved version wins; id is a stable tie-breaker.
+    const configurationWarnings = [
+      shifts.length > 1 ? 'SHIFT_POLICY_OVERLAP' : null,
+      leavePolicies.length > 1 ? 'LEAVE_POLICY_OVERLAP' : null,
+      calendars.length > 1 ? 'HOLIDAY_CALENDAR_OVERLAP' : null,
+      weeklyOffPolicies.length > 1 ? 'WEEKLY_OFF_POLICY_OVERLAP' : null,
+    ].filter((value): value is string => value !== null);
+
+    const shift = shifts[0] ?? null;
+    const attendancePolicy = shift
+      ? await tx.attendancePolicy.findFirst({
+          where: { id: shift.attendancePolicyId, ...governingVersion },
+        })
+      : null;
+
+    const missing = [
+      shifts.length === 0 ? 'shift' : null,
+      attendancePolicy === null ? 'attendance' : null,
+      leavePolicies.length === 0 ? 'leave' : null,
+      calendars.length === 0 ? 'calendar' : null,
+      weeklyOffPolicies.length === 0 ? 'weeklyOff' : null,
+    ].filter((value): value is string => value !== null);
+
+    if (missing.length > 0 && laterStartAllowed) {
+      const usableVersion = { status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] } };
+      const future = { gt: effectiveFrom };
+      const [nextShift, nextLeave, nextCalendar, nextWeeklyOff, nextLinkedAttendance] = await Promise.all([
+        missing.includes('shift') || missing.includes('attendance')
+          ? tx.shiftPolicy.findFirst({
+              where: { ...usableVersion, category: AttendanceCategory.REGULAR_EMPLOYEE, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+        missing.includes('leave')
+          ? tx.leavePolicy.findFirst({
+              where: { ...usableVersion, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+        missing.includes('calendar')
+          ? tx.holidayCalendar.findFirst({
+              where: { ...usableVersion, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+        missing.includes('weeklyOff')
+          ? tx.weeklyOffPolicy.findFirst({
+              where: { isActive: true, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+        missing.includes('attendance') && shift
+          ? tx.attendancePolicy.findFirst({
+              where: { id: shift.attendancePolicyId, ...usableVersion, effectiveFrom: future },
+              orderBy: { effectiveFrom: 'asc' },
+              select: { effectiveFrom: true },
+            })
+          : null,
+      ]);
+
+      const nextFor: Record<string, Date | null> = {
+        shift: nextShift?.effectiveFrom ?? null,
+        attendance: nextLinkedAttendance?.effectiveFrom ?? nextShift?.effectiveFrom ?? null,
+        leave: nextLeave?.effectiveFrom ?? null,
+        calendar: nextCalendar?.effectiveFrom ?? null,
+        weeklyOff: nextWeeklyOff?.effectiveFrom ?? null,
+      };
+      const missingStarts = missing.map((key) => nextFor[key]);
+      if (missingStarts.every((date): date is Date => date instanceof Date)) {
+        // Start on the latest of the missing policies' first possible dates,
+        // then re-evaluate the whole bundle. Re-evaluation catches gaps and
+        // may advance again, but every attempt moves strictly forward.
+        const nextEffectiveFrom = new Date(Math.max(...missingStarts.map((date) => date!.getTime())));
+        if (nextEffectiveFrom.getTime() > effectiveFrom.getTime()) {
+          return this.attendanceDefaults(tx, nextEffectiveFrom, true);
+        }
+      }
+    }
+
+    const resolvedShift = this.exactlyOne(shifts.slice(0, 1), 'regular shift policy');
     if (!attendancePolicy) {
       throw new BadRequestException(
         'Attendance onboarding is unavailable: the active shift has no active attendance policy',
@@ -96,12 +345,63 @@ export class UsersService {
     }
 
     return {
-      shift,
-      leavePolicy: this.exactlyOne(leavePolicies, 'leave policy'),
-      calendar: this.exactlyOne(calendars, 'holiday calendar'),
-      weeklyOff: this.exactlyOne(weeklyOffPolicies, 'weekly-off policy'),
+      shift: resolvedShift,
+      leavePolicy: this.exactlyOne(leavePolicies.slice(0, 1), 'leave policy'),
+      calendar: this.exactlyOne(calendars.slice(0, 1), 'holiday calendar'),
+      weeklyOff: this.exactlyOne(weeklyOffPolicies.slice(0, 1), 'weekly-off policy'),
       assignedAttendanceLocationId,
+      configurationWarnings,
+      /** When the attendance profile starts: the joining date, or the first policy date if later. */
+      effectiveFrom,
     };
+  }
+
+  /**
+   * Account creation must not depend on attendance policy administration being
+   * complete. A valid bundle still creates the profile atomically; a missing,
+   * overlapping or otherwise unresolved bundle creates a visible setup issue
+   * instead. Unexpected database/runtime failures are not swallowed.
+   */
+  private async attendanceDefaultsForOnboarding(tx: Prisma.TransactionClient, effectiveFrom: Date) {
+    try {
+      const defaults = await this.attendanceDefaults(tx, effectiveFrom);
+      return {
+        defaults,
+        setupPending: defaults.configurationWarnings.length > 0,
+        reasonCodes: defaults.configurationWarnings,
+      } as const;
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+      return { defaults: null, setupPending: true, reasonCodes: ['POLICY_BUNDLE_UNAVAILABLE'] } as const;
+    }
+  }
+
+  private async recordAttendanceSetupPending(tx: Prisma.TransactionClient, userId: string, actorId?: string, reasonCodes: string[] = ['POLICY_BUNDLE_UNAVAILABLE']) {
+    const now = new Date();
+    await tx.userSetupIssue.upsert({
+      where: { dedupeKey: `user:${userId}:attendance-policy-setup` },
+      create: {
+        id: randomUUID(),
+        userId,
+        code: 'ATTENDANCE_POLICY_SETUP_PENDING',
+        domain: 'ATTENDANCE',
+        severity: 'WARNING',
+        remediationClass: 'ADMIN_FIXABLE_FRONTEND',
+        dedupeKey: `user:${userId}:attendance-policy-setup`,
+        details: { reasonCodes },
+      },
+      update: {
+        status: 'OPEN',
+        lastDetectedAt: now,
+        resolvedAt: null,
+        resolvedById: null,
+        details: { reasonCodes },
+      },
+    });
+
+    // Announced after commit by UserSetupIssuesService, through the
+    // notification service, so channel preferences apply (B9).
+    void actorId;
   }
 
   async findAll(query: { search?: string; departmentId?: string; roleId?: string; page?: number; limit?: number }, requester?: any) {
@@ -204,11 +504,12 @@ export class UsersService {
     },
     actorId?: string,
   ) {
-    const existing = await this.prisma.user.findUnique({ where: { email: data.email } });
-    if (existing) throw new ConflictException('Email already registered');
-
-    const role = await this.prisma.role.findUnique({ where: { id: data.roleId } });
-    if (!role) throw new BadRequestException('Selected role does not exist');
+    // Identity is validated in one place, in the same way for Create User,
+    // Reactivate and Rehire (B1). Values are never logged.
+    const personName = this.personName(data?.name);
+    const email = this.normalizedEmail(data?.email);
+    this.assertPassword(data?.password);
+    const departmentId = this.departmentInput(data?.departmentId);
 
     // Role authority and attendance applicability are separate decisions.
     // Every human account created through this administration workflow must be
@@ -216,35 +517,64 @@ export class UsersService {
     // An exemption must be an explicit attendance-profile decision; it must
     // never be inferred from the user's role.
     const joiningDate = this.joiningDate(data.joiningDate);
+    const scheduled = joiningDate.toISOString().slice(0, 10) > this.companyDate();
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
-    const { joiningDate: _inputJoiningDate, ...userInput } = data;
     const user = await this.prisma.$transaction(async (tx) => {
-      // Resolve all referenced authorities before inserting the user. A
-      // missing or ambiguous policy therefore leaves no partial account.
-      const defaults = await this.attendanceDefaults(tx, joiningDate);
+      await this.assertEmailAvailable(tx, email);
+      await this.assertRoleAndDepartment(tx, data.roleId, departmentId);
+      // Attendance setup is important but is not authority to refuse an
+      // employee account. Missing/ambiguous policy configuration becomes a
+      // setup issue; unrelated access remains available.
+      const onboarding = await this.attendanceDefaultsForOnboarding(tx, joiningDate);
       const created = await tx.user.create({
-        data: { ...userInput, joiningDate, password: hashedPassword },
+        data: {
+          name: personName,
+          roleId: data.roleId,
+          departmentId,
+          email,
+          joiningDate,
+          password: hashedPassword,
+          isActive: !scheduled,
+          employmentState: scheduled ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+          scheduledActivationOn: scheduled ? joiningDate : null,
+        },
         include: { role: true, department: true },
       });
-
-      await tx.employeeAttendanceProfile.create({
+      const allocated = await tx.$queryRaw<Array<{ employeeId: string }>>`
+        SELECT "apex_assign_employee_id"(${created.id}, NULL) AS "employeeId"
+      `;
+      await tx.employmentPeriod.create({
         data: {
+          id: randomUUID(),
           userId: created.id,
-          category: AttendanceCategory.REGULAR_EMPLOYEE,
-          attendanceRequired: true,
-          assignedShiftId: defaults.shift.id,
-          assignedLeavePolicyId: defaults.leavePolicy.id,
-          assignedHolidayCalendarId: defaults.calendar.id,
-          assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
-          assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
-          effectiveFrom: joiningDate,
-          effectiveTo: null,
-          updatedById: actorId ?? null,
+          startDate: joiningDate,
+          startReason: 'NEW_HIRE',
+          createdById: actorId ?? null,
         },
       });
-      return created;
-    });
+
+      if (onboarding.defaults) {
+        const defaults = onboarding.defaults;
+        await tx.employeeAttendanceProfile.create({
+          data: {
+            userId: created.id,
+            category: AttendanceCategory.REGULAR_EMPLOYEE,
+            attendanceRequired: true,
+            assignedShiftId: defaults.shift.id,
+            assignedLeavePolicyId: defaults.leavePolicy.id,
+            assignedHolidayCalendarId: defaults.calendar.id,
+            assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
+            assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
+            effectiveFrom: defaults.effectiveFrom,
+            effectiveTo: null,
+            updatedById: actorId ?? null,
+          },
+        });
+      }
+      if (onboarding.setupPending) await this.recordAttendanceSetupPending(tx, created.id, actorId, onboarding.reasonCodes);
+      return { ...created, employeeId: allocated[0]?.employeeId ?? created.employeeId ?? null };
+    }).catch((error) => this.translateCommitError(error, data.roleId, departmentId));
     this.eventLogger.log({
       actorId: actorId ?? user.id,
       entityType: 'User',
@@ -252,8 +582,323 @@ export class UsersService {
       action: OperationalAction.USER_CREATED,
       metadata: { name: user.name, email: user.email, roleId: user.roleId },
     }).catch(() => {});
+    // Setup gaps are warnings shown with the success, never a failure (B9).
+    const setupWarnings = await this.setupWarnings(user.id, ['DEPARTMENT_MISSING', 'HIERARCHY_MISSING']);
     const { password, ...result } = user;
-    return result;
+    return { ...result, setupWarnings };
+  }
+
+  /**
+   * Brings a DEACTIVATED person back (B6): the same user, the same employment
+   * period and joining date, with all history kept. Archived people come back
+   * through Rehire, which starts a new employment period; someone scheduled to
+   * join activates on their joining date. Sessions and reset codes issued
+   * before the reactivation stop working (sessionsRevokedAt).
+   */
+  async reactivate(userId: string, data: { roleId?: string; departmentId?: string | null } | undefined, actorId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, isActive: true, isSystemAccount: true, roleId: true, departmentId: true, employmentState: true, scheduledActivationOn: true, joiningDate: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.isSystemAccount) throw new ForbiddenException('This is a system account and cannot be reactivated.');
+    if (userId === actorId) throw new ForbiddenException('Cannot reactivate your own account');
+    if (user.isActive) throw new BadRequestException(`${user.name} is already active.`);
+    if (user.employmentState === 'SCHEDULED_TO_JOIN') {
+      throw new BadRequestException({
+        message: `${user.name} has not joined yet. The account activates on ${user.scheduledActivationOn?.toISOString().slice(0, 10) ?? 'their joining date'}.`,
+        code: 'USER_SCHEDULED_TO_JOIN',
+      });
+    }
+    if (await this.archivedAt(userId)) {
+      throw new BadRequestException({ message: `${user.name} is archived. Use Rehire to bring them back.`, code: 'USER_IS_ARCHIVED' });
+    }
+    const roleId = typeof data?.roleId === 'string' && data.roleId ? data.roleId : user.roleId;
+    const departmentId = data && 'departmentId' in data ? this.departmentInput(data.departmentId) : user.departmentId;
+    // Deactivated before their joining date: they go back to waiting for it,
+    // not straight in.
+    const joinsLater = !!user.joiningDate && user.joiningDate.toISOString().slice(0, 10) > this.companyDate();
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${userId} FOR UPDATE`;
+      const running = await (tx as any).userLifecycleOperation.count({ where: { userId, state: { in: ['RUNNING', 'VERIFIED_FOR_DELETE'] } } });
+      if (running > 0) throw new ConflictException('An archive, rehire or deletion is running for this user.');
+      const latest = await (tx as any).operationalEvent.findFirst({
+        where: { entityType: 'User', entityId: userId, action: { in: [...UsersService.ARCHIVE_ACTIONS, ...UsersService.REACTIVATE_ACTIONS] } },
+        orderBy: { timestamp: 'desc' },
+        select: { action: true },
+      });
+      if (latest && UsersService.ARCHIVE_ACTIONS.includes(latest.action)) {
+        throw new BadRequestException({ message: `${user.name} is archived. Use Rehire to bring them back.`, code: 'USER_IS_ARCHIVED' });
+      }
+      await this.assertRoleAndDepartment(tx, roleId, departmentId);
+      const row = await tx.user.update({
+        where: { id: userId },
+        data: {
+          isActive: !joinsLater,
+          employmentState: joinsLater ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+          scheduledActivationOn: joinsLater ? user.joiningDate : null,
+          roleId,
+          departmentId,
+          sessionsRevokedAt: new Date(),
+        },
+        include: { role: true, department: true },
+      });
+      await (tx as any).operationalEvent.create({
+        data: {
+          actorId,
+          entityType: 'User',
+          entityId: userId,
+          action: OperationalAction.USER_REACTIVATED,
+          fromState: 'DEACTIVATED',
+          toState: joinsLater ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+          metadata: {
+            reasonCode: 'USER_REACTIVATED',
+            counts: {},
+            eventSchemaVersion: 1,
+            previousRoleId: user.roleId,
+            previousDepartmentId: user.departmentId,
+            roleId,
+            departmentId,
+          },
+        },
+      });
+      return row;
+    }).catch((error) => this.translateCommitError(error, roleId, departmentId));
+
+    const setupWarnings = await this.setupWarnings(userId, ['DEPARTMENT_MISSING', 'HIERARCHY_MISSING']);
+    const { password, ...result } = updated as any;
+    return { ...result, setupWarnings };
+  }
+
+  /**
+   * Brings an archived or deactivated person back as an active user: the SAME
+   * account, so their earlier tickets, attendance, leave and audit trail stay
+   * attached to them.
+   *
+   * The new employment starts on the rehire date. Any attendance profile still
+   * open from before is closed the day before, and a new one opens on the
+   * rehire date from today's active policies -- exactly what create() assigns.
+   * The previous joining and last working dates are kept on the reactivation
+   * event, which also clears the archived state (lifecycle is the latest
+   * transition). All of it commits together or not at all.
+   */
+  async rehire(
+    userId: string,
+    data: { password: string; roleId: string; departmentId?: string | null; joiningDate?: string | Date; name?: string; email?: string },
+    actorId: string,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, isActive: true, isSystemAccount: true, roleId: true, departmentId: true, joiningDate: true, lastWorkingDate: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.isSystemAccount) throw new ForbiddenException('This is a system account and cannot be rehired.');
+    if (userId === actorId) throw new ForbiddenException('Cannot rehire your own account');
+    if (user.isActive) throw new BadRequestException(`${user.name} is already active.`);
+    // Rehire is for archived people only (B7). A deactivated person keeps
+    // their employment period and comes back through Reactivate.
+    if (!(await this.archivedAt(userId))) {
+      throw new BadRequestException({
+        message: `${user.name} is not archived. Use Reactivate to bring back a deactivated account.`,
+        code: 'USER_NOT_ARCHIVED',
+      });
+    }
+    // The email may stay or change, but identity is always normalized and
+    // checked case-insensitively in exactly the same way as Create User.
+    const email = this.normalizedEmail(data?.email ?? user.email);
+    this.assertPassword(data?.password);
+    const departmentId = this.departmentInput(data?.departmentId);
+    const joiningDate = this.joiningDate(data.joiningDate);
+    const scheduled = joiningDate.toISOString().slice(0, 10) > this.companyDate();
+    const name = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : undefined;
+    const hashedPassword = await bcrypt.hash(data.password, 10);
+
+    // One lifecycle operation per person at a time: a rehire cannot race an
+    // archive or a permanent deletion (partial unique index on in-flight ops).
+    const operationId = randomUUID();
+    try {
+      await (this.prisma as any).userLifecycleOperation.create({
+        data: { id: operationId, userId, kind: 'REHIRE', state: 'RUNNING', actorId, idempotencyKey: randomUUID() },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') throw new ConflictException('Another archive, rehire or deletion is already running for this user.');
+      throw err;
+    }
+
+    let rehired: any;
+    try {
+      rehired = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${userId} FOR UPDATE`;
+        const deleting = await (tx as any).userLifecycleOperation.count({
+          where: { userId, kind: 'PERMANENT_DELETE', state: { in: ['RUNNING', 'VERIFIED_FOR_DELETE'] } },
+        });
+        if (deleting > 0) throw new ConflictException('This user is being permanently deleted.');
+        await this.assertEmailAvailable(tx, email, userId);
+        await this.assertRoleAndDepartment(tx, data.roleId, departmentId);
+        const now = new Date();
+        // Undoing an archive with the original joining date: the attendance
+        // profile from before the archive is still open (archiving never closes
+        // it), so it simply carries on.
+        const openProfiles = await tx.employeeAttendanceProfile.findMany({
+          where: { userId, effectiveTo: null },
+          select: { id: true, effectiveFrom: true },
+          orderBy: { effectiveFrom: 'desc' },
+        });
+        const reused = openProfiles.find((p) => p.effectiveFrom >= joiningDate) ?? null;
+        // Otherwise a new profile starts on the rehire date, or when the
+        // attendance policies start if that is later.
+        const onboarding = reused
+          ? { defaults: null, setupPending: false, reasonCodes: [] as string[] }
+          : await this.attendanceDefaultsForOnboarding(tx, joiningDate);
+        const defaults = onboarding.defaults;
+        // Even when attendance setup is pending, the employment period may
+        // start. Close the previous profile at the new joining boundary, but
+        // do not invent policy assignments for the new period.
+        const profileStart = reused ? reused.effectiveFrom : (defaults?.effectiveFrom ?? joiningDate);
+        // Other profiles still in force from then on belong to the previous
+        // employment. One that STARTS on or after it cannot be closed before
+        // it began, so the rehire date must come later.
+        const carriedOver = (await tx.employeeAttendanceProfile.findMany({
+          where: { userId, OR: [{ effectiveTo: null }, { effectiveTo: { gte: profileStart } }] },
+          select: { id: true, effectiveFrom: true },
+        })).filter((p) => p.id !== reused?.id);
+        const blocking = carriedOver.find((p) => p.effectiveFrom >= profileStart);
+        if (blocking) {
+          throw new BadRequestException(
+            `The rehire date must be after ${blocking.effectiveFrom.toISOString().slice(0, 10)}, when their previous attendance profile started.`,
+          );
+        }
+        const dayBefore = new Date(profileStart.getTime() - 24 * 60 * 60 * 1000);
+        if (carriedOver.length > 0) {
+          await tx.employeeAttendanceProfile.updateMany({
+            where: { id: { in: carriedOver.map((p) => p.id) } },
+            data: { effectiveTo: dayBefore, updatedById: actorId },
+          });
+        }
+
+        const updated = await tx.user.update({
+          where: { id: userId },
+          data: {
+            isActive: !scheduled,
+            employmentState: scheduled ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+            scheduledActivationOn: scheduled ? joiningDate : null,
+            password: hashedPassword,
+            roleId: data.roleId,
+            departmentId,
+            joiningDate,
+            lastWorkingDate: null,
+            // Tokens issued before the rehire stop working.
+            sessionsRevokedAt: now,
+            ...(name ? { name } : {}),
+            email,
+          },
+          include: { role: true, department: true },
+        });
+        if (defaults) await tx.employeeAttendanceProfile.create({
+          data: {
+            userId,
+            category: AttendanceCategory.REGULAR_EMPLOYEE,
+            attendanceRequired: true,
+            assignedShiftId: defaults.shift.id,
+            assignedLeavePolicyId: defaults.leavePolicy.id,
+            assignedHolidayCalendarId: defaults.calendar.id,
+            assignedWeeklyOffPolicyId: defaults.weeklyOff.id,
+            assignedAttendanceLocationId: defaults.assignedAttendanceLocationId,
+            effectiveFrom: profileStart,
+            effectiveTo: null,
+            updatedById: actorId,
+          },
+        });
+        if (onboarding.setupPending) {
+          await this.recordAttendanceSetupPending(tx, userId, actorId, onboarding.reasonCodes);
+        }
+        const periodDayBefore = new Date(joiningDate.getTime() - 24 * 60 * 60 * 1000);
+        await tx.employmentPeriod.updateMany({
+          where: { userId, endDate: null },
+          data: { endDate: periodDayBefore, endReason: 'OTHER' },
+        });
+        await tx.employmentPeriod.create({
+          data: {
+            id: randomUUID(),
+            userId,
+            startDate: joiningDate,
+            startReason: 'REHIRE',
+            probationStatus: null,
+            createdById: actorId,
+          },
+        });
+
+        // The archive snapshot can no longer authorize a deletion: the person
+        // is back, and any later archive becomes a new version.
+        const usable = await (tx as any).userArchiveSnapshot.findFirst({
+          where: { userId, status: { in: ['VERIFIED', 'NO_HISTORY_VERIFIED'] } },
+          select: { id: true, version: true },
+        });
+        if (usable) {
+          await (tx as any).userArchiveSnapshot.update({
+            where: { id: usable.id },
+            data: { status: 'INVALIDATED_REHIRED', invalidatedAt: now, invalidationReason: 'USER_REHIRED' },
+          });
+          await (tx as any).operationalEvent.create({
+            data: {
+              actorId, entityType: 'User', entityId: userId, action: 'ARCHIVE_SNAPSHOT_INVALIDATED',
+              fromState: 'ARCHIVED', toState: 'ARCHIVED',
+              metadata: { operationId, snapshotVersion: usable.version, reasonCode: 'USER_REHIRED', counts: {}, eventSchemaVersion: 1 },
+            },
+          });
+        }
+
+        // Written in the transaction, not through the fire-and-forget logger:
+        // this event is what clears the archived state (readers accept both
+        // USER_REHIRED and the legacy USER_REACTIVATED).
+        await (tx as any).operationalEvent.create({
+          data: {
+            actorId,
+            entityType: 'User',
+            entityId: userId,
+            action: 'USER_REHIRED',
+            fromState: 'INACTIVE',
+            toState: scheduled ? 'SCHEDULED_TO_JOIN' : 'ACTIVE',
+            metadata: {
+              operationId,
+              snapshotVersion: usable?.version ?? null,
+              reasonCode: 'USER_REHIRED',
+              counts: { closedProfiles: carriedOver.length, reusedProfile: reused ? 1 : 0 },
+              eventSchemaVersion: 1,
+              rehire: true,
+              previousJoiningDate: user.joiningDate?.toISOString().slice(0, 10) ?? null,
+              previousLastWorkingDate: user.lastWorkingDate?.toISOString().slice(0, 10) ?? null,
+              previousRoleId: user.roleId,
+              previousDepartmentId: user.departmentId,
+              joiningDate: joiningDate.toISOString().slice(0, 10),
+              roleId: data.roleId,
+              departmentId,
+              closedProfiles: carriedOver.length,
+              reusedProfileId: reused?.id ?? null,
+              attendanceProfileStart: reused || defaults ? profileStart.toISOString().slice(0, 10) : null,
+              attendanceSetupPending: onboarding.setupPending,
+              scheduledActivationOn: scheduled ? joiningDate.toISOString().slice(0, 10) : null,
+            },
+          },
+        });
+        return updated;
+      }).catch((error) => this.translateCommitError(error, data.roleId, departmentId));
+      await (this.prisma as any).userLifecycleOperation.update({
+        where: { id: operationId },
+        data: { state: 'COMPLETED', result: { reasonCode: 'USER_REHIRED' } },
+      });
+    } catch (err) {
+      await (this.prisma as any).userLifecycleOperation.update({
+        where: { id: operationId },
+        data: { state: 'FAILED', result: { reasonCode: 'REHIRE_FAILED' } },
+      }).catch(() => undefined);
+      throw err;
+    }
+
+    const setupWarnings = await this.setupWarnings(userId, ['DEPARTMENT_MISSING', 'HIERARCHY_MISSING']);
+    const { password, ...result } = rehired;
+    return { ...result, setupWarnings };
   }
 
   /**
@@ -290,7 +935,8 @@ export class UsersService {
    * Reactivation cancels either, and the most recent transition is what counts.
    */
   static readonly ARCHIVE_ACTIONS = ['USER_ARCHIVED_AFTER_BACKUP', 'USER_ARCHIVED'];
-  static readonly REACTIVATE_ACTIONS = ['USER_REACTIVATED'];
+  /** Legacy and canonical names: latest-wins readers accept both. */
+  static readonly REACTIVATE_ACTIONS = ['USER_REACTIVATED', 'USER_REHIRED'];
 
   private static readonly PROFILE_FIELDS = [
     // Personal
@@ -339,9 +985,24 @@ export class UsersService {
     },
     actorId?: string,
   ) {
+    await this.assertNotSystemAccount(id);
     const clean: Record<string, unknown> = {};
     for (const field of UsersService.UPDATABLE_FIELDS) {
       if (data?.[field] !== undefined) clean[field] = data[field];
+    }
+    // An archived person comes back only through Rehire, which starts a new
+    // employment period and invalidates the archive snapshot. The plain
+    // reactivate toggle stays for ordinary deactivation.
+    if (clean.isActive === true && (await this.archivedAt(id))) {
+      throw new BadRequestException('This user is archived. Use Rehire to bring them back.');
+    }
+    // Reactivation revokes sessions and reset codes and re-checks role and
+    // department, so it is never a plain field edit (B6).
+    if (clean.isActive === true) {
+      const current = await this.prisma.user.findUnique({ where: { id }, select: { isActive: true } });
+      if (current?.isActive === false) {
+        throw new BadRequestException({ message: 'This user is deactivated. Use Reactivate to bring them back.', code: 'USE_REACTIVATE' });
+      }
     }
 
     // HR AUTHORITY MAY BE COMBINED WITH ANY ROLE EXCEPT SUPER ADMIN.
@@ -436,13 +1097,16 @@ export class UsersService {
   }
 
   async resetPassword(id: string, newPassword: string) {
+    await this.assertNotSystemAccount(id);
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await this.prisma.user.update({ where: { id }, data: { password: hashedPassword } });
+    // A password reset by an administrator signs the person out everywhere.
+    await this.prisma.user.update({ where: { id }, data: { password: hashedPassword, sessionsRevokedAt: new Date() } });
     return { message: 'Password reset successfully' };
   }
 
   async remove(id: string, actorId?: string) {
-    await this.prisma.user.update({ where: { id }, data: { isActive: false } });
+    await this.assertNotSystemAccount(id);
+    await this.prisma.user.update({ where: { id }, data: { isActive: false, employmentState: 'DEACTIVATED', scheduledActivationOn: null } });
     this.eventLogger.log({
       actorId: actorId ?? id,
       entityType: 'User',
@@ -710,6 +1374,7 @@ export class UsersService {
       throw new ForbiddenException('Only Admins or Super Admins can correct a user’s login email');
     }
 
+    await this.assertNotSystemAccount(targetUserId);
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
     if (!target) throw new NotFoundException('User not found');
 
@@ -902,153 +1567,19 @@ export class UsersService {
   }
 
   async savePreferences(userId: string, prefs: any): Promise<any> {
+    // Phase 1: `channels` is validated, never stored as sent.
+    if (prefs && typeof prefs === 'object' && 'channels' in prefs) {
+      const channels = sanitizeChannels(prefs.channels);
+      prefs = { ...prefs };
+      if (channels) prefs.channels = channels;
+      else delete prefs.channels;
+    }
     const saved = await this.prisma.appSetting.upsert({
       where: { key: `user-prefs-${userId}` },
       create: { key: `user-prefs-${userId}`, value: prefs, updatedBy: userId },
       update: { value: prefs, updatedBy: userId },
     });
     return saved.value;
-  }
-
-  async permanentDelete(userId: string, actorId: string): Promise<{ message: string }> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-    if (userId === actorId) throw new ForbiddenException('Cannot permanently delete your own account');
-    if (user.isActive) throw new BadRequestException('Deactivate user before permanent deletion');
-
-    const [
-      ticketsCreated,
-      ticketsAssigned,
-      ticketAssignees,
-      comments,
-      ticketHistory,
-      workSessions,
-      breakLogs,
-      attendanceEvents,
-      leaveRequests,
-      notifications,
-      activityLogs,
-      operationalEvents,
-      ticketTimeLogs,
-      managerAccess,
-      reviewCyclesAssignee,
-      reviewCyclesReviewer,
-      attachmentsUploaded,
-      changeRequestsBy,
-      changeRequestsTarget,
-      changeRequestsApproving,
-      workdayOverride,
-      dailyAttendance,
-      punchEvidence,
-      punchPhotos,
-      regularizations,
-      recoveriesEntered,
-      punchHandoffs,
-      monthClosesFinalized,
-      importsUploaded,
-      importsApproved,
-      importsApplied,
-      compOffCredits,
-      attendanceProfiles,
-    ] = await Promise.all([
-      this.prisma.ticket.count({ where: { createdById: userId } }),
-      this.prisma.ticket.count({ where: { assignedToId: userId } }),
-      this.prisma.ticketAssignee.count({ where: { userId } }),
-      this.prisma.comment.count({ where: { authorId: userId } }),
-      this.prisma.ticketHistory.count({ where: { changedById: userId } }),
-      this.prisma.workSession.count({ where: { userId } }),
-      this.prisma.breakLog.count({ where: { userId } }),
-      this.prisma.attendanceEvent.count({ where: { userId } }),
-      this.prisma.leaveRequest.count({ where: { userId } }),
-      this.prisma.notification.count({ where: { userId } }),
-      this.prisma.activityLog.count({ where: { userId } }),
-      (this.prisma as any).operationalEvent.count({ where: { actorId: userId } }),
-      this.prisma.ticketTimeLog.count({ where: { userId } }),
-      (this.prisma as any).managerDeptAccess.count({ where: { managerId: userId } }),
-      (this.prisma as any).reviewCycleLog.count({ where: { assigneeId: userId } }),
-      (this.prisma as any).reviewCycleLog.count({ where: { reviewerId: userId } }),
-      // Ticket attachments keep their uploader: never nulled, reassigned or
-      // deleted with the user (attachments.uploadedById is ON DELETE RESTRICT).
-      this.prisma.attachment.count({ where: { uploadedById: userId } }),
-      (this.prisma as any).employeeProfileChangeRequest.count({ where: { requestedById: userId } }),
-      (this.prisma as any).employeeProfileChangeRequest.count({ where: { targetUserId: userId } }),
-      (this.prisma as any).employeeProfileChangeRequest.count({ where: { currentApproverId: userId } }),
-      (this.prisma as any).userWorkdayPolicyOverride.count({ where: { userId } }),
-      // ── Attendance V1 ────────────────────────────────────────────────────
-      // Absent until now, which meant a user could be retired while holding
-      // the attendance history payroll is computed from. The modal counted
-      // AttendanceEvent and nothing else in this stack.
-      (this.prisma as any).dailyAttendance.count({ where: { userId } }),
-      (this.prisma as any).attendancePunchEvidence.count({ where: { userId } }),
-      (this.prisma as any).attendancePunchPhoto.count({ where: { userId } }),
-      (this.prisma as any).attendanceRegularization.count({ where: { userId } }),
-      (this.prisma as any).attendanceRegularization.count({ where: { createdById: userId } }),
-      (this.prisma as any).attendancePunchHandoff.count({ where: { userId } }),
-      (this.prisma as any).attendanceMonthClose.count({ where: { finalizedById: userId } }),
-      // Import batches hold the audit trail explaining attendance changes.
-      // Their FKs are RESTRICT, so without these counts a delete would fail
-      // with a raw constraint error instead of this list of what is in the way.
-      (this.prisma as any).attendanceImportBatch.count({ where: { uploadedById: userId } }),
-      (this.prisma as any).attendanceImportBatch.count({ where: { approvedById: userId } }),
-      (this.prisma as any).attendanceImportBatch.count({ where: { appliedById: userId } }),
-      (this.prisma as any).compOffCredit.count({ where: { employeeId: userId } }),
-      (this.prisma as any).employeeAttendanceProfile.count({ where: { userId } }),
-    ]);
-
-    const blockers: Record<string, number> = {};
-    if (ticketsCreated)          blockers['Tickets Created']             = ticketsCreated;
-    if (ticketsAssigned)         blockers['Tickets Assigned']            = ticketsAssigned;
-    if (ticketAssignees)         blockers['Ticket Assignees']            = ticketAssignees;
-    if (comments)                blockers['Comments']                    = comments;
-    if (ticketHistory)           blockers['Ticket History']              = ticketHistory;
-    if (workSessions)            blockers['Work Sessions']               = workSessions;
-    if (breakLogs)               blockers['Break Logs']                  = breakLogs;
-    if (attendanceEvents)        blockers['Attendance Events']           = attendanceEvents;
-    if (leaveRequests)           blockers['Leave Requests']              = leaveRequests;
-    if (notifications)           blockers['Notifications']               = notifications;
-    if (activityLogs)            blockers['Activity Logs']               = activityLogs;
-    if (operationalEvents)       blockers['Operational Events']          = operationalEvents;
-    if (ticketTimeLogs)          blockers['Ticket Time Logs']            = ticketTimeLogs;
-    if (managerAccess)           blockers['Manager Dept Access']         = managerAccess;
-    if (reviewCyclesAssignee)    blockers['Review Cycles (Assignee)']    = reviewCyclesAssignee;
-    if (reviewCyclesReviewer)    blockers['Review Cycles (Reviewer)']    = reviewCyclesReviewer;
-    if (attachmentsUploaded)     blockers['Ticket Attachments Uploaded'] = attachmentsUploaded;
-    if (changeRequestsBy)        blockers['Change Requests Created']     = changeRequestsBy;
-    if (changeRequestsTarget)    blockers['Change Requests (Target)']    = changeRequestsTarget;
-    if (changeRequestsApproving) blockers['Change Requests (Approver)']  = changeRequestsApproving;
-    if (workdayOverride)         blockers['Workday Policy Override']     = workdayOverride;
-    if (dailyAttendance)         blockers['Daily Attendance']            = dailyAttendance;
-    if (punchEvidence)           blockers['Punch Evidence']              = punchEvidence;
-    if (punchPhotos)             blockers['Punch Photos']                = punchPhotos;
-    if (regularizations)         blockers['Attendance Corrections']      = regularizations;
-    if (recoveriesEntered)       blockers['Corrections Entered For Others'] = recoveriesEntered;
-    if (punchHandoffs)           blockers['Phone Punch Handoffs']        = punchHandoffs;
-    if (monthClosesFinalized)    blockers['Payroll Months Finalized']    = monthClosesFinalized;
-    if (importsUploaded)         blockers['Attendance Imports Uploaded']  = importsUploaded;
-    if (importsApproved)         blockers['Attendance Imports Approved']  = importsApproved;
-    if (importsApplied)          blockers['Attendance Imports Applied']   = importsApplied;
-    if (compOffCredits)          blockers['Comp-Off Credits']            = compOffCredits;
-    if (attendanceProfiles)      blockers['Attendance Profiles']         = attendanceProfiles;
-
-    if (Object.keys(blockers).length > 0) {
-      throw new ConflictException({
-        statusCode: 409,
-        message: 'Cannot permanently delete user with linked records.',
-        blockers,
-      });
-    }
-
-    await this.prisma.user.delete({ where: { id: userId } });
-
-    this.eventLogger.log({
-      actorId,
-      entityType: 'User',
-      entityId: userId,
-      action: 'USER_PERMANENTLY_DELETED',
-      metadata: { name: user.name, email: user.email },
-    }).catch(() => {});
-
-    return { message: 'User permanently deleted' };
   }
 
   /**
@@ -1081,399 +1612,6 @@ export class UsersService {
 
     if (!latest) return null;
     return UsersService.ARCHIVE_ACTIONS.includes(latest.action) ? latest.timestamp : null;
-  }
-
-  /**
-   * Active responsibilities that must be handed over before an account is
-   * retired -- as distinct from historical references, which are preserved and
-   * never block anything.
-   *
-   * An employee's past attendance is a fact about last month. Four people
-   * reporting to them is a fact about next Monday, and archiving the account
-   * without moving them leaves the company with a hole in its hierarchy.
-   */
-  async activeResponsibilities(userId: string): Promise<Record<string, number>> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { employeeId: true },
-    });
-
-    const employeeId = user?.employeeId ?? null;
-    const [reports, teamMembers, openTickets, managedDepts, pendingManagerLeave, pendingHrLeave] =
-      await Promise.all([
-        employeeId
-          ? this.prisma.user.count({ where: { isActive: true, reportingManager: employeeId } })
-          : Promise.resolve(0),
-        employeeId
-          ? this.prisma.user.count({ where: { isActive: true, teamLeadName: employeeId } })
-          : Promise.resolve(0),
-        this.prisma.ticket.count({
-          where: { assignedToId: userId, status: { notIn: ['DONE', 'CLOSED'] as any } },
-        }),
-        (this.prisma as any).managerDeptAccess.count({ where: { managerId: userId } }),
-        (this.prisma as any).leaveRequest.count({
-          where: { managerApprovedById: userId, status: 'PENDING' as any },
-        }),
-        (this.prisma as any).leaveRequest.count({
-          where: { hrApprovedById: userId, status: 'PENDING' as any },
-        }),
-      ]);
-
-    const blocking: Record<string, number> = {};
-    if (reports) blocking['Direct reports'] = reports;
-    if (teamMembers) blocking['Team members led'] = teamMembers;
-    if (openTickets) blocking['Open tickets assigned'] = openTickets;
-    if (managedDepts) blocking['Departments managed'] = managedDepts;
-    if (pendingManagerLeave) blocking['Leave awaiting their approval'] = pendingManagerLeave;
-    if (pendingHrLeave) blocking['Leave awaiting their HR approval'] = pendingHrLeave;
-    return blocking;
-  }
-
-  async archiveAfterBackup(userId: string, actorId: string, confirmBackupDownloaded: boolean): Promise<{
-    message: string;
-    vaulted: boolean;
-    emailSentTo: number;
-    skippedRecipients: number;
-    /** Reported separately, because they can and do differ: a mail outage
-     *  leaves the archive complete and the notification unsent. */
-    archiveStatus: 'SUCCESS' | 'ALREADY_ARCHIVED';
-    notificationStatus: 'SENT' | 'FAILED';
-  }> {
-    // `confirmBackupDownloaded` NO LONGER AUTHORISES ANYTHING.
-    //
-    // It was the browser asserting that somebody had saved a file, and the
-    // server making an account unusable on the strength of it. A download
-    // cannot be verified by the server that offered it: the click could have
-    // been cancelled, the file discarded, the tab closed mid-transfer. The
-    // parameter is accepted for compatibility with the existing client and
-    // deliberately ignored -- proof now comes from reading the archive back
-    // out of the vault below.
-    void confirmBackupDownloaded;
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { role: true },
-    });
-    if (!user) throw new NotFoundException('User not found');
-    if (userId === actorId) throw new ForbiddenException('Cannot archive your own account');
-    if (user.isActive) throw new BadRequestException('Deactivate user before archival');
-
-    // ALREADY ARCHIVED IS A DETERMINISTIC ANSWER, NOT A SECOND ARCHIVAL.
-    // A double click, a browser retry or a second administrator must not
-    // produce another vault object, another email to senior staff, or another
-    // audit event claiming the act happened twice.
-    const already = await this.archivedAt(userId);
-    if (already) {
-      return {
-        message: `Already archived on ${already.toISOString()}. No changes made.`,
-        vaulted: true,
-        emailSentTo: 0,
-        skippedRecipients: 0,
-        archiveStatus: 'ALREADY_ARCHIVED',
-        // No second archive was generated, uploaded, or announced.
-        notificationStatus: 'SENT',
-      };
-    }
-
-    // ACTIVE RESPONSIBILITIES BLOCK; HISTORY NEVER DOES.
-    // Checked before the archive is generated, so a blocked attempt costs
-    // nothing and writes nothing.
-    const blocking = await this.activeResponsibilities(userId);
-    if (Object.keys(blocking).length > 0) {
-      throw new BadRequestException({
-        message:
-          'This user still owns active work. Reassign it before archiving; their history will be kept either way.',
-        activeResponsibilities: blocking,
-      });
-    }
-
-
-    // ── Step 2: Generate backup BEFORE anonymising ────────────────────────────
-    const { buffer, filename } = await this.generateBackup(userId, actorId);
-
-    // ── Step 3: Store in the R2 vault and VERIFY it landed ────────────────────
-    //
-    // Fail-closed. Every failure below this line -- vault unconfigured, upload
-    // refused, object absent afterwards, size mismatch -- throws before the
-    // account is touched, so the user simply remains active. Previously this
-    // wrote to OneDrive, whose vault has an unresolved 404, and archival could
-    // proceed on a boolean from the browser.
-    //
-    // The key carries a timestamp, so a retry writes a NEW object and no
-    // archive is ever overwritten.
-    const now = new Date();
-    const safeEmail = (user.email ?? 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
-    const objectKey =
-      `user-archive/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/` +
-      `${userId}/${now.toISOString().replace(/[:.]/g, '-')}-${safeEmail}.xlsx`;
-
-    const vaultResult = await this.backupVaultService.archiveToVault(objectKey, buffer);
-
-    this.eventLogger.log({
-      actorId,
-      entityType: 'User',
-      entityId: userId,
-      action: 'USER_BACKUP_VAULTED' as any,
-      metadata: {
-        filename,
-        provider: vaultResult.provider,
-        bucket: vaultResult.bucket,
-        objectKey: vaultResult.objectKey,
-        sizeBytes: vaultResult.sizeBytes,
-        sha256: vaultResult.sha256,
-        verifiedAt: vaultResult.verifiedAt,
-      },
-    }).catch(() => {});
-
-
-
-    // ── Step 5: Retire the login. Do NOT rewrite the person. ──────────────────
-    //
-    // ARCHIVAL AND ERASURE ARE DIFFERENT OPERATIONS. This used to overwrite the
-    // name with "Archived User <id>", the email with a placeholder, and null
-    // the phone, addresses, salary and bank details -- so a 2026 attendance
-    // report read back three years later would attribute the day to an
-    // anonymous id rather than to the person who worked it. A leave approval
-    // would no longer say who approved it. An audit trail without identity is
-    // barely an audit trail.
-    //
-    // Only `isActive` changes. Authentication already fails on it -- the JWT
-    // strategy re-reads the user on every request -- so destroying the identity
-    // was never what prevented login.
-    //
-    // Erasure remains a separate future operation with its own retention
-    // checks and approval, and must never be a side effect of somebody leaving
-    // the company or of a duplicate account being retired.
-    // ONE TRANSACTION. The audit event IS the archived marker now, so the
-    // deactivation and the event must commit together or not at all.
-    //
-    // Before this they could not: the event was written through
-    // eventLogger.log(), which is fire-and-forget AND swallows its own errors.
-    // Any failure there left an account deactivated with no archive marker --
-    // indistinguishable from an ordinary deactivation, invisible to the
-    // idempotency check, and a retry would have produced a second vault object
-    // and a second round of notifications.
-    //
-    // Written straight to operationalEvent rather than through the logger,
-    // because a logger designed never to fail cannot carry state that must.
-    //
-    // R2 stays outside, deliberately: an object store and Postgres cannot share
-    // a transaction, and the ordering is chosen so the survivable failure is
-    // the harmless one -- a verified backup with no archival, which is simply
-    // retried.
-    await this.prisma.$transaction(async (tx) => {
-      // Re-checked INSIDE the transaction: a concurrent request may have
-      // archived between the earlier check and here.
-      const latest = await (tx as any).operationalEvent.findFirst({
-        where: {
-          entityType: 'User',
-          entityId: userId,
-          action: { in: [...UsersService.ARCHIVE_ACTIONS, ...UsersService.REACTIVATE_ACTIONS] },
-        },
-        // Same latest-wins rule as archivedAt(): an account archived, then
-        // reactivated, may be archived again.
-        orderBy: { timestamp: 'desc' },
-        select: { action: true },
-      });
-      const already = latest && UsersService.ARCHIVE_ACTIONS.includes(latest.action);
-      if (already) {
-        throw new BadRequestException('This account was archived by another request.');
-      }
-
-      await tx.user.update({ where: { id: userId }, data: { isActive: false } });
-
-      await (tx as any).operationalEvent.create({
-        data: {
-          actorId,
-          entityType: 'User',
-          entityId: userId,
-          action: 'USER_ARCHIVED_AFTER_BACKUP',
-          fromState: 'ACTIVE',
-          toState: 'ARCHIVED',
-          metadata: {
-            targetName: user.name,
-            targetEmail: user.email,
-            targetRole: (user as any).role?.name ?? null,
-            provider: vaultResult.provider,
-            bucket: vaultResult.bucket,
-            objectKey: vaultResult.objectKey,
-            sha256: vaultResult.sha256,
-            sizeBytes: vaultResult.sizeBytes,
-            verifiedAt: vaultResult.verifiedAt,
-          },
-        },
-      });
-    });
-
-    // ── Step 6: Notify. THE ARCHIVE IS ALREADY DONE. ─────────────────────────
-    //
-    // Everything below this line is a side effect. The transaction has
-    // committed, the marker exists, and the account is retired -- so a mail
-    // provider outage must not undo any of it, and must not report failure for
-    // work that succeeded.
-    //
-    // This used to run BEFORE the commit and threw when every recipient
-    // failed, which made an employee's retirement depend on Resend being up.
-    // The audit event proves the retirement happened; email only tells people
-    // it did.
-    let notificationStatus: 'SENT' | 'FAILED' = 'FAILED';
-    let deliveryResult: { sent: string[]; skipped: string[] } = { sent: [], skipped: [] };
-    try {
-      const recipients = await this.resolveArchiveRecipients(userId, user);
-      deliveryResult = await this.emailService.sendArchiveBackup(
-        recipients,
-        user.name,
-        filename,
-        buffer,
-      );
-      if (deliveryResult.sent.length > 0) notificationStatus = 'SENT';
-    } catch (err: any) {
-      console.error(`[UsersService] Archive notification failed for ${userId}:`, err?.message ?? err);
-    }
-
-    if (notificationStatus === 'FAILED') {
-      // Recorded so the gap is visible and can be chased, without pretending
-      // the archive itself failed. No provider internals reach the client.
-      this.eventLogger.log({
-        actorId,
-        entityType: 'User',
-        entityId: userId,
-        action: 'USER_ARCHIVE_NOTIFICATION_FAILED' as any,
-        metadata: {
-          targetEmail: user.email,
-          objectKey: vaultResult.objectKey,
-          skippedRecipients: deliveryResult.skipped.length,
-        },
-      }).catch(() => {});
-    }
-
-    // ── Step 7: Audit logs ────────────────────────────────────────────────────
-    await this.logSensitiveAccess(actorId, 'USER_ARCHIVED', userId, {
-      originalName: user.name,
-      originalEmail: user.email,
-      // The vault coordinates, so a later investigation can find the archive
-      // from the audit trail alone rather than by guessing at a filename.
-      backupVaultedTo: `${vaultResult.provider}:${vaultResult.bucket}/${vaultResult.objectKey}`,
-      backupSha256: vaultResult.sha256,
-      backupSizeBytes: vaultResult.sizeBytes,
-      backupVerifiedAt: vaultResult.verifiedAt,
-      backupDeliveredTo: deliveryResult.sent,
-    });
-
-// The archive event is written inside the transaction above, where a
-    // failure can still undo the deactivation. Logging it again here would
-    // record the act twice.
-
-    const sentCount = deliveryResult.sent.length;
-    return {
-      // Says what happened, including when only half of it did. Reporting an
-      // unsent email as an archive failure would send somebody to re-run work
-      // that already succeeded.
-      message:
-        notificationStatus === 'SENT'
-          ? `User archived. Verified backup stored in the vault and sent to ${sentCount} ` +
-            `recipient${sentCount !== 1 ? 's' : ''}. The account can no longer sign in; their ` +
-            'name, history and records are unchanged.'
-          : 'User archived. The verified backup is stored in the vault and their name, history ' +
-            'and records are unchanged. The notification email could not be sent.',
-      vaulted: true,
-      emailSentTo: sentCount,
-      skippedRecipients: deliveryResult.skipped.length,
-      archiveStatus: 'SUCCESS',
-      notificationStatus,
-    };
-  }
-
-  private async resolveArchiveRecipients(userId: string, user: any): Promise<string[]> {
-    const roleName: string = (user.role as any)?.name ?? '';
-    const isValid = (e: string) =>
-      !!e &&
-      !e.includes('@apex.local') &&
-      !e.startsWith('archived-') &&
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-
-    let candidates: string[] = [];
-
-    if (['EMPLOYEE', 'INTERN', 'TEAM_LEAD'].includes(roleName)) {
-      // Managers with dept access for this user's department
-      if (user.departmentId) {
-        const access = await (this.prisma as any).managerDeptAccess.findMany({
-          where: { departmentId: user.departmentId },
-          select: { managerId: true },
-        });
-        const managerIds: string[] = access.map((a: any) => a.managerId as string);
-        if (managerIds.length > 0) {
-          const managers = await this.prisma.user.findMany({
-            where: { id: { in: managerIds }, isActive: true },
-            select: { email: true },
-          });
-          candidates.push(...managers.map((m) => m.email));
-        }
-      }
-
-      // EMPLOYEE / INTERN: also notify active Team Leads in the same department
-      if (['EMPLOYEE', 'INTERN'].includes(roleName) && user.departmentId) {
-        const tls = await this.prisma.user.findMany({
-          where: {
-            departmentId: user.departmentId,
-            isActive: true,
-            role: { name: 'TEAM_LEAD' },
-            id: { not: userId },
-          },
-          select: { email: true },
-        });
-        candidates.push(...tls.map((tl) => tl.email));
-      }
-
-      // Fallback: admins / super admins when no dept-level recipient found
-      if (candidates.filter(isValid).length === 0) {
-        const admins = await this.prisma.user.findMany({
-          where: { isActive: true, role: { name: { in: ['ADMIN', 'SUPER_ADMIN'] } } },
-          select: { email: true },
-        });
-        candidates.push(...admins.map((a) => a.email));
-      }
-    } else if (roleName === 'MANAGER') {
-      const admins = await this.prisma.user.findMany({
-        where: { isActive: true, role: { name: { in: ['ADMIN', 'SUPER_ADMIN'] } } },
-        select: { email: true },
-      });
-      candidates.push(...admins.map((a) => a.email));
-    } else if (roleName === 'ADMIN') {
-      const superAdmins = await this.prisma.user.findMany({
-        where: { isActive: true, role: { name: 'SUPER_ADMIN' } },
-        select: { email: true },
-      });
-      candidates.push(...superAdmins.map((sa) => sa.email));
-    } else if (roleName === 'SUPER_ADMIN') {
-      const others = await this.prisma.user.findMany({
-        where: { isActive: true, role: { name: 'SUPER_ADMIN' }, id: { not: userId } },
-        select: { email: true },
-      });
-      if (others.length === 0) {
-        throw new ForbiddenException(
-          'Cannot archive the only Super Admin. Add another Super Admin with a valid email before archiving this account.',
-        );
-      }
-      candidates.push(...others.map((sa) => sa.email));
-    } else {
-      // Unknown role — default to admins / super admins
-      const admins = await this.prisma.user.findMany({
-        where: { isActive: true, role: { name: { in: ['ADMIN', 'SUPER_ADMIN'] } } },
-        select: { email: true },
-      });
-      candidates.push(...admins.map((a) => a.email));
-    }
-
-    const recipients = [...new Set(candidates.filter(isValid))];
-
-    if (recipients.length === 0) {
-      throw new BadRequestException(
-        'No valid backup recipient found. Add a valid manager or admin email before archiving this user.',
-      );
-    }
-
-    return recipients;
   }
 
   async generateBackup(userId: string, actorId: string): Promise<{ buffer: Buffer; filename: string }> {

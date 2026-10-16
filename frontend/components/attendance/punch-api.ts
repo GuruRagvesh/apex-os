@@ -16,6 +16,7 @@ export interface SubmitPunchInput {
   latitude: number;
   longitude: number;
   accuracyMeters?: number | null;
+  altitudeMeters?: number | null;
   clientCapturedAt?: string | null;
   photoAssetId: string;
 
@@ -60,6 +61,10 @@ export interface OwnPunchEvidence {
   latitude: number | null;
   longitude: number | null;
   accuracyMeters: number | null;
+  altitudeMeters: number | null;
+  altitudeStatus: string | null;
+  accuracyStatus: string | null;
+  policyContextStatus: string | null;
   distanceFromLocationMeters: number | null;
   geofenceRadiusMeters: number | null;
   accuracyThresholdMeters: number | null;
@@ -72,8 +77,10 @@ export interface OwnPunchEvidence {
 }
 
 /** The authenticated employee's own punches, newest first. */
-export async function getMyPunchEvidence(limit = 90): Promise<OwnPunchEvidence[]> {
-  return r(api.get('/attendance/punch-evidence/me', { params: { limit } }));
+export async function getMyPunchEvidence(limit = 90, date?: string): Promise<OwnPunchEvidence[]> {
+  const rows = await r<OwnPunchEvidence[]>(api.get('/attendance/punch-evidence/me', { params: { limit, ...(date ? { date } : {}) } }));
+  if (!Array.isArray(rows)) throw new Error('Punch evidence response unavailable.');
+  return rows;
 }
 
 /** Whether Attendance V2 punching is switched on for this deployment. */

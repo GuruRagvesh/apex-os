@@ -12,8 +12,10 @@ describe('management leave entitlements', () => {
         findFirst: jest.fn().mockResolvedValue({
           assignedLeavePolicy: {
             totalPaidLeaves: 14,
-            casualLeaveAllocation: 10,
-            emergencyLeaveAllocation: 4,
+            // Deliberately stale values: the approved company-wide typed
+            // entitlements must win over an older assigned profile.
+            casualLeaveAllocation: 6,
+            emergencyLeaveAllocation: 6,
           },
         }),
       },
@@ -41,10 +43,34 @@ describe('management leave entitlements', () => {
     return { service: new LeaveBalanceService(prisma, settings, tva, workingDays), prisma };
   };
 
-  it('keeps Casual 10 and Emergency 4 as separate FY authorities', async () => {
+  it('keeps Casual 10 and Emergency 4 as separate FY authorities even when an assigned policy is stale', async () => {
     const { service } = rig();
     expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.CASUAL)).toBe(10);
     expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.EMERGENCY)).toBe(4);
+  });
+
+  it('gives interns one Casual paid day in the current month and no Emergency pool', async () => {
+    const { service, prisma } = rig();
+    prisma.user.findUnique.mockResolvedValue({ role: { name: 'INTERN' } });
+
+    const casual = await service.getLeaveBalance(
+      'intern-1',
+      2026,
+      LeaveType.CASUAL,
+      new Date('2026-10-12T06:30:00.000Z'),
+    );
+    const emergency = await service.getLeaveBalance(
+      'intern-1',
+      2026,
+      LeaveType.EMERGENCY,
+      new Date('2026-10-12T06:30:00.000Z'),
+    );
+
+    expect(casual.allocation).toBe(1);
+    expect(emergency.allocation).toBe(0);
+    const range = prisma.leaveRequest.findMany.mock.calls[0][0].where.startDate;
+    expect(range.gte.toISOString().slice(0, 10)).toBe('2026-09-30');
+    expect(range.lte.toISOString().slice(0, 10)).toBe('2026-10-31');
   });
 
   it('uses TVA financial-year bounds for management balances', async () => {

@@ -85,3 +85,25 @@ api.interceptors.response.use(
 // Typed wrappers — axios interceptor returns response.data directly.
 // Callers alias this to `r` so their call sites stay unchanged.
 export const unwrap = <T = any>(p: any): Promise<T> => p as unknown as Promise<T>;
+
+/**
+ * React Query retry policy for read-only application data.
+ *
+ * Local development can take more than a minute to compile the API. The web
+ * app is usually ready first, so its initial reads used to become permanent
+ * error cards until the user refreshed the page. Retry only failures that can
+ * recover by themselves; authentication, permission, validation and ordinary
+ * not-found responses must still fail immediately.
+ */
+export function shouldRetryTransientQuery(failureCount: number, error: any): boolean {
+  if (failureCount >= 20) return false;
+
+  const status = Number(error?.status ?? error?.response?.status);
+  if (!Number.isFinite(status) || status <= 0) return true; // network/offline/timeout
+
+  return [408, 425, 429, 500, 502, 503, 504].includes(status);
+}
+
+export function transientQueryRetryDelay(attemptIndex: number): number {
+  return Math.min(1_000 * 2 ** attemptIndex, 5_000);
+}
