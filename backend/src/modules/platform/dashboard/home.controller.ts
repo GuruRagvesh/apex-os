@@ -4,6 +4,7 @@ import { DashboardService } from './dashboard.service';
 import { HomeInsightsService } from './home-insights.service';
 import { HomeExperienceService } from './home-experience.service';
 import { HomeCarouselService } from './home-carousel.service';
+import { TeamInsightsService } from './team-insights.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 
@@ -17,6 +18,7 @@ export class HomeController {
     private homeInsights: HomeInsightsService,
     private homeExperience: HomeExperienceService,
     private homeCarousel: HomeCarouselService,
+    private teamInsights: TeamInsightsService,
   ) {}
 
   @Get('summary')
@@ -48,6 +50,22 @@ export class HomeController {
   @Get('carousel')
   getCarousel(@CurrentUser() user: any) {
     return this.homeCarousel.getCarousel(user);
+  }
+
+  @Get('team-insights')
+  getTeamInsights(
+    @CurrentUser() user: any,
+    @Query('departmentId') departmentId?: string,
+    @Query('personId') personId?: string,
+    @Query('month') month?: string,
+    @Query('week') week?: string,
+  ) {
+    return this.teamInsights.getInsights(user, { departmentId, personId, month, week });
+  }
+
+  @Get('personal-highlights')
+  getPersonalHighlights(@CurrentUser() user: any, @Query('month') month?: string) {
+    return this.teamInsights.getPersonalHighlights(user, month);
   }
 
   @Put('announcements')

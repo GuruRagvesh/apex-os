@@ -171,7 +171,7 @@ export class HomeExperienceService {
     return this.getWorkspace(userId);
   }
 
-  /** One scoped read model for the shared eight-section Home layout. */
+  /** One scoped read model for the shared Home layout. */
   async getExperience(user: any) {
     const role = this.access.roleName(user);
     const isLeader = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
@@ -198,11 +198,7 @@ export class HomeExperienceService {
       this.prisma.ticket.findMany({ where: this.andWhere(scope, { status: TicketStatus.REVIEW }), include: { assignees: { select: { userId: true } } }, orderBy: { updatedAt: 'desc' } }),
       this.prisma.project.findMany({
         where: this.andWhere(projectWhere, { status: 'ACTIVE' }),
-        select: {
-          id: true, projectId: true, name: true, endDate: true, updatedAt: true,
-          members: { select: { userId: true, role: true, user: { select: { name: true } } } },
-          tickets: { include: { assignees: { select: { userId: true } } } },
-        },
+        select: { id: true, name: true, endDate: true },
         orderBy: { updatedAt: 'desc' }, take: 20,
       }),
       this.prisma.project.count({ where: this.andWhere(projectWhere, { status: 'ACTIVE' }) }),
@@ -279,21 +275,10 @@ export class HomeExperienceService {
       ...projects.filter((project) => project.endDate && project.endDate >= now && project.endDate <= weekAhead).map((project) => ({ id: project.id, type: 'Project target date', title: project.name, date: project.endDate, url: `/projects/${project.id}` })),
     ].sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime()).slice(0, 5);
 
-    const [team, projectHours, personalSummary] = await Promise.all([
+    const [team, personalSummary] = await Promise.all([
       this.getTeamHierarchy(user),
-      projects.length && isLeader
-        ? this.prisma.ticketTimeLog.findMany({
-            where: { countsAsWork: true, durationSeconds: { not: null }, ticket: { projectId: { in: projects.map((project) => project.id) } } },
-            select: { userId: true, durationSeconds: true, ticket: { select: { projectId: true } } },
-          })
-        : Promise.resolve([]),
       this.getPersonalSummary(user.id),
     ]);
-    const hoursByProjectAndUser = new Map<string, number>();
-    for (const log of projectHours) {
-      const key = `${log.ticket.projectId}:${log.userId}`;
-      hoursByProjectAndUser.set(key, (hoursByProjectAndUser.get(key) ?? 0) + (log.durationSeconds ?? 0));
-    }
 
     return {
       scope: isContributor ? 'Personal' : role === 'TEAM_LEAD' ? 'Team' : role === 'MANAGER' ? 'Department' : 'Company',
@@ -313,33 +298,6 @@ export class HomeExperienceService {
       })),
       personalSummary,
       team,
-      projects: projects.map((project) => {
-        const tickets = project.tickets;
-        const done = tickets.filter((ticket) => ticket.status === TicketStatus.DONE || ticket.status === TicketStatus.CLOSED).length;
-        const active = tickets.filter((ticket) => !TERMINAL_TICKET_STATUSES.includes(ticket.status)).length;
-        const overdue = tickets.filter(isOverdue).length;
-        const blocked = tickets.filter((ticket) => ticket.isBlocked).length;
-        return {
-          id: project.id, code: project.projectId, name: project.name, endDate: project.endDate,
-          lead: project.members.find((member) => member.role === 'OWNER' || member.role === 'LEAD')?.user.name ?? null,
-          progress: tickets.length ? Math.round((done / tickets.length) * 100) : 0,
-          total: tickets.length, active, done, overdue, blocked,
-          inProgress: tickets.filter((ticket) => ticket.status === TicketStatus.IN_PROGRESS).length,
-          review: tickets.filter((ticket) => ticket.status === TicketStatus.REVIEW).length,
-          todo: tickets.filter((ticket) => ticket.status === TicketStatus.OPEN).length,
-          peopleCount: project.members.length,
-          people: isLeader ? project.members.map((member) => {
-            const mine = tickets.filter((ticket) => ticket.assignedToId === member.userId || ticket.assignees.some((assignee) => assignee.userId === member.userId));
-            return {
-              id: member.userId, name: member.user.name,
-              active: mine.filter((ticket) => !TERMINAL_TICKET_STATUSES.includes(ticket.status)).length,
-              done: mine.filter((ticket) => ticket.status === TicketStatus.DONE || ticket.status === TicketStatus.CLOSED).length,
-              overdue: mine.filter(isOverdue).length,
-              hours: Math.round((hoursByProjectAndUser.get(`${project.id}:${member.userId}`) ?? 0) / 3600 * 10) / 10,
-            };
-          }) : [],
-        };
-      }),
       radar: {
         overdue: overdueTickets.length,
         dueSoon: dueSoon.length,

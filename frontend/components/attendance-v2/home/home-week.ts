@@ -177,13 +177,14 @@ export function attendanceStreak(today: string, byDate: Map<string, MyAttendance
 
 /** Whether anything happened on a day: ticket time, a finished ticket or a submission. */
 export function hasActivity(day: HomeProductivityDay | undefined): boolean {
-  return !!day && (day.ticketMinutes > 0 || day.ticketsDone > 0 || day.ticketsSubmitted > 0);
+  return !!day && (day.ticketMinutes > 0 || day.ticketsCreated > 0 || day.ticketsDone > 0 || day.ticketsSubmitted > 0);
 }
 
 export interface ProductivityWeek {
   activeDays: number;
   avgProductiveMinutes: number | null;
   totalProductiveMinutes: number;
+  ticketsCreated: number;
   ticketsDone: number;
   ticketsSubmitted: number;
 }
@@ -191,6 +192,7 @@ export interface ProductivityWeek {
 export function productivityWeek(from: string, to: string, byDate: Map<string, HomeProductivityDay>): ProductivityWeek {
   let activeDays = 0;
   let total = 0;
+  let created = 0;
   let done = 0;
   let submitted = 0;
   for (const date of datesBetween(from, to)) {
@@ -198,6 +200,7 @@ export function productivityWeek(from: string, to: string, byDate: Map<string, H
     if (!day) continue;
     if (hasActivity(day)) activeDays += 1;
     total += day.ticketMinutes;
+    created += day.ticketsCreated ?? 0;
     done += day.ticketsDone;
     submitted += day.ticketsSubmitted;
   }
@@ -205,6 +208,7 @@ export function productivityWeek(from: string, to: string, byDate: Map<string, H
     activeDays,
     avgProductiveMinutes: activeDays ? total / activeDays : null,
     totalProductiveMinutes: total,
+    ticketsCreated: created,
     ticketsDone: done,
     ticketsSubmitted: submitted,
   };
@@ -214,6 +218,7 @@ export interface ProductiveDays {
   averageMinutes: number;
   averageDone: number;
   aboveAverage: Set<string>;
+  belowAverage: Set<string>;
   top: string[];
 }
 
@@ -229,13 +234,14 @@ export function productiveDays(days: HomeProductivityDay[]): ProductiveDays {
   const averageMinutes = logged.reduce((sum, d) => sum + d.ticketMinutes, 0) / n;
   const active = days.filter(hasActivity);
   const averageDone = active.reduce((sum, d) => sum + d.ticketsDone, 0) / (active.length || 1);
-  const aboveAverage = new Set(logged.filter((d) => d.ticketMinutes > averageMinutes).map((d) => d.date));
+  const aboveAverage = new Set(logged.filter((d) => d.ticketMinutes >= averageMinutes).map((d) => d.date));
+  const belowAverage = new Set(days.filter((d) => hasActivity(d) && !aboveAverage.has(d.date)).map((d) => d.date));
   const top = [...logged]
     .sort((a, b) => b.ticketMinutes - a.ticketMinutes)
     .slice(0, 3)
     .filter((d) => aboveAverage.has(d.date))
     .map((d) => d.date);
-  return { averageMinutes, averageDone, aboveAverage, top };
+  return { averageMinutes, averageDone, aboveAverage, belowAverage, top };
 }
 
 // ── Formatting ──────────────────────────────────────────────────────────────

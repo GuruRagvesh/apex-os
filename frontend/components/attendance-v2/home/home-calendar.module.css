@@ -14,7 +14,7 @@
 
 .card {
   background: var(--surface-card);
-  border: 1px solid #cfe1f7;
+  border: 1px solid var(--section-border);
   border-radius: 22px;
   box-shadow: var(--shadow-card);
   min-width: 0;
@@ -22,7 +22,7 @@
 
 .calendar {
   padding: 18px 20px 16px;
-  border-color: #dbe5f3;
+  border-color: var(--section-border);
   border-radius: 16px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -37,10 +37,14 @@
   margin-bottom: 14px;
 }
 .title {
-  font-size: 18px;
+  display: inline-flex;
+  padding: 7px 11px;
+  border-radius: 8px;
+  background: var(--accent-text);
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.015em;
-  color: #172b50;
+  color: #fff;
   margin-right: auto;
 }
 
@@ -170,8 +174,12 @@ button.day:focus-visible { outline: 2px solid #0072ff; outline-offset: 2px; }
 .prodHours { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; color: var(--text-primary); }
 .prodMeta { font-size: 10px; font-weight: 600; color: var(--text-secondary); }
 .productive {
-  background: color-mix(in srgb, var(--color-success) 10%, var(--bg-secondary));
-  border-color: color-mix(in srgb, var(--color-success) 45%, transparent);
+  background: color-mix(in srgb, var(--color-success) 16%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--color-success) 58%, transparent);
+}
+.lessProductive {
+  background: color-mix(in srgb, var(--color-danger) 11%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--color-danger) 48%, transparent);
 }
 .topDay {
   background: color-mix(in srgb, var(--color-success) 18%, var(--bg-secondary));
@@ -218,20 +226,20 @@ button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
     radial-gradient(circle at 92% -20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 35%),
     var(--surface-card);
 }
-.leaveAnalysisHeader { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #e5eef9; }
+.leaveAnalysisHeader { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; }
 .leaveAnalysisIcon { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 13px; color: #1d4ed8; background: linear-gradient(145deg, #eff6ff, #dbeafe); border: 1px solid #bfdbfe; box-shadow: 0 7px 16px rgba(37, 99, 235, .12); }
-.leaveAnalysisHeader h2 { font-size: 16px; line-height: 1.2; font-weight: 800; letter-spacing: -.015em; color: var(--text-primary); text-transform: uppercase; }
+.leaveAnalysisHeader h2 { width: fit-content; padding: 7px 11px; border-radius: 8px; background: var(--accent-text); font-size: 16px; line-height: 1.2; font-weight: 700; letter-spacing: -.015em; color: #fff; }
 .leaveAnalysisHeader p { margin-top: 3px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
-.leavePeriod { margin-left: auto; padding: 8px 12px; border: 1px solid #d9e8f8; border-radius: 10px; background: #f8fbff; color: #315a8a; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.leavePeriod { margin-left: auto; padding: 8px 12px; border: 1px solid var(--accent-border); border-radius: 10px; background: var(--accent-subtle); color: var(--accent-text); font-size: 10px; font-weight: 800; white-space: nowrap; }
 .leaveAnalysisGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
 .leaveAnalysisGrid[data-single="true"] { grid-template-columns: minmax(0, 1fr); }
 .leaveAnalysisState { min-height: 190px; display: grid; place-items: center; border: 1px solid #d9e8f8; border-radius: 17px; background: #f8fbff; color: #6684a8; font-size: 11px; font-weight: 700; }
 .leaveAnalysisCard { min-width: 0; padding: 16px; border: 1px solid #d8e7f7; border-radius: 17px; background: linear-gradient(145deg, rgba(255,255,255,.98), #f7fbff); box-shadow: 0 9px 24px rgba(18, 61, 115, .07); }
 .leaveAnalysisCard[data-tone="amber"] { background: linear-gradient(145deg, rgba(255,255,255,.98), #fffbf3); }
-.leaveCardHeading { display: flex; align-items: center; gap: 10px; padding-bottom: 13px; border-bottom: 1px solid #e5eef9; }
+.leaveCardHeading { display: flex; align-items: center; gap: 10px; padding-bottom: 13px; border-bottom: 1px solid var(--border-primary); }
 .leaveTypeIcon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: #2563eb; background: #eaf3ff; border: 1px solid #c7ddfa; }
 [data-tone="amber"] .leaveTypeIcon { color: #c56a00; background: #fff5db; border-color: #f8d37a; }
-.leaveCardHeading h3 { font-size: 12px; line-height: 1.2; font-weight: 800; color: #153b6d; text-transform: uppercase; }
+.leaveCardHeading h3 { width: fit-content; padding: 6px 9px; border-radius: 7px; background: #334155; font-size: 12px; line-height: 1.2; font-weight: 700; color: #fff; }
 .leaveCardHeading p { margin-top: 3px; font-size: 9px; font-weight: 600; color: #6684a8; }
 .leaveCardBody { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(150px, .65fr); gap: 16px; align-items: stretch; margin-top: 14px; }
 .leaveFigures { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
@@ -268,11 +276,11 @@ button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
   overflow: hidden;
   padding: 16px;
   border-radius: 17px;
-  border-color: #dbe5f3;
+  border-color: var(--section-border);
   background: radial-gradient(circle at 100% 0, rgba(96,165,250,.13), transparent 42%), var(--surface-card);
 }
-.internLeaveHeader { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid #e5eef9; }
-.internLeaveHeader h2 { font-size: 14px; line-height: 1.2; font-weight: 700; color: #172b50; }
+.internLeaveHeader { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; }
+.internLeaveHeader h2 { width: fit-content; padding: 7px 11px; border-radius: 8px; background: var(--accent-text); font-size: 16px; line-height: 1.2; font-weight: 700; color: #fff; }
 .internLeaveBody { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 18px; align-items: center; padding-top: 14px; }
 .internLeaveChart { position: relative; width: 94px; height: 94px; display: grid; place-items: center; justify-self: center; border-radius: 50%; box-shadow: 0 10px 19px rgba(37,99,235,.17), inset 0 0 0 1px rgba(255,255,255,.8); }
 .internLeaveChart::after { content: ''; position: absolute; inset: 16px; border-radius: 50%; background: linear-gradient(145deg, #fff, #eef5fd); box-shadow: inset 0 2px 5px rgba(18,61,115,.1); }
@@ -324,6 +332,7 @@ button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
 .kpiValue { margin-top: 6px; font-size: 26px; font-weight: 800; letter-spacing: -0.03em; color: var(--text-primary); line-height: 1.1; }
 .kpiSub { margin-top: 4px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
 .kpiHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kpiHead .kpiLabel { width: fit-content; padding: 0; border-radius: 0; background: transparent; color: #334155; }
 .kpiIcon {
   width: 30px; height: 30px; border-radius: 10px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -340,17 +349,17 @@ button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
 /* One compact scorecard keeps personal attendance measures readable as a set. */
 .kpiScore {
   padding: 12px;
-  border-color: #dbe5f3;
+  border-color: var(--section-border);
   border-radius: 16px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   font-variant-numeric: tabular-nums;
 }
 .kpiScoreHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-.kpiScoreHead h2 { font-size: 15px; line-height: 1.05; font-weight: 700; letter-spacing: -.015em; color: #172b50; }
+.kpiScoreHead h2 { width: fit-content; padding: 7px 11px; border-radius: 8px; background: var(--accent-text); font-size: 16px; line-height: 1.2; font-weight: 700; letter-spacing: -.015em; color: #fff; }
 .kpiScoreHead p { margin-top: 4px; font-size: 10.5px; line-height: 1.15; font-weight: 500; color: #6b82a6; }
 .kpiScoreGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
-.kpiScoreMetric { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 9px; border: 1px solid #dce7f4; border-radius: 11px; background: linear-gradient(145deg, #fbfdff, #f5f8fc); }
+.kpiScoreMetric { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 9px; border: 1px solid var(--section-border-subtle); border-radius: 11px; background: linear-gradient(145deg, #fbfdff, #f5f8fc); }
 .kpiScoreMetricFull { grid-column: 1 / -1; }
 .kpiScoreMetricIcon { display: inline-flex; width: 25px; height: 25px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 8px; color: var(--accent); background: var(--accent-subtle); }
 .kpiScoreMetricCopy { min-width: 0; }
@@ -361,6 +370,15 @@ button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
 .summary { padding: 14px 16px; }
 .summary p { font-size: 13px; line-height: 1.45; color: var(--text-primary); font-weight: 600; }
 .summary small { display: block; margin-top: 6px; font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
+.ticketChart { padding: 14px 16px; }
+.ticketChartPlot { display: grid; gap: 11px; margin-top: 12px; }
+.ticketChartPlot > div { display: grid; grid-template-columns: 48px minmax(0, 1fr) 24px; align-items: center; gap: 8px; }
+.ticketChartPlot span { font-size: 10px; font-weight: 700; color: #475569; }
+.ticketChartPlot i { display: block; height: 9px; overflow: hidden; border-radius: 999px; background: #e8eef6; }
+.ticketChartPlot b { display: block; min-width: 3px; height: 100%; border-radius: inherit; background: #64748b; }
+.ticketChartPlot > div:last-child b { background: var(--color-success); }
+.ticketChartPlot strong { text-align: right; font-size: 12px; color: var(--text-primary); }
+.ticketChartCaption { display: block; margin-top: 12px; font-size: 10px; color: var(--text-secondary); }
 .badgeRow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .badge {
   display: inline-flex; align-items: center; gap: 5px;

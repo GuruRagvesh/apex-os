@@ -77,6 +77,16 @@ describe('HomeInsightsService', () => {
     expect(days[1].doneTickets[0].ticketId).toBe('TKT-1');
   });
 
+  it('buckets tickets added to the user workload for the created-versus-solved chart', async () => {
+    prisma.ticket.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      // 2026-10-06 20:00 UTC = 2026-10-07 01:30 IST
+      .mockResolvedValueOnce([{ createdAt: new Date('2026-10-06T20:00:00Z') }]);
+    const days = await make().getDailyProductivity(employee, '2026-10-06', '2026-10-07');
+    expect(days.map((d) => d.ticketsCreated)).toEqual([0, 1]);
+  });
+
   it('splits a time log that runs past company midnight', async () => {
     prisma.ticketTimeLog.findMany.mockResolvedValue([
       // 23:00 IST on the 6th to 01:00 IST on the 7th
