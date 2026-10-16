@@ -138,6 +138,7 @@ export default function MobilePunchPage({
           latitude: loc.sample.latitude,
           longitude: loc.sample.longitude,
           accuracyMeters: loc.sample.accuracyMeters,
+          altitudeMeters: loc.sample.altitudeMeters,
           photoAssetId,
           clientCapturedAt: loc.sample.capturedAt,
           // The server reads the shared key from the handoff it claims; this is

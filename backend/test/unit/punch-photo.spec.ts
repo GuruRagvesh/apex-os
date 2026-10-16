@@ -382,6 +382,7 @@ function punchRig(opts: { context?: any; photo?: any; existing?: any } = {}) {
         return Promise.resolve(row);
       }),
     },
+    punchEvidenceReview: { create: jest.fn().mockResolvedValue({ id: 'review-1' }) },
     attendancePunchPhoto: {
       findUnique: jest.fn().mockResolvedValue('photo' in opts ? opts.photo : FRESH_PHOTO),
     },
@@ -485,7 +486,6 @@ describe('Punch requires a live photo (PE-3)', () => {
   it.each([
     ['28. EXEMPT', 'EXEMPT'],
     ['29. NOT_EMPLOYED', 'NOT_EMPLOYED'],
-    ['30. BLOCKED', 'BLOCKED'],
   ])('%s is rejected BEFORE the photo is consumed', async (_l, applicability) => {
     const { service, prisma } = punchRig({
       context: { ...REQUIRED_CONTEXT, attendanceApplicability: applicability },
@@ -493,6 +493,16 @@ describe('Punch requires a live photo (PE-3)', () => {
     await expect(service.submit('emp-1', PUNCH)).rejects.toBeInstanceOf(PunchNotApplicableError);
     expect(prisma.attendancePunchPhoto.findUnique).not.toHaveBeenCalled();
     expect(prisma.attendancePunchEvidence.create).not.toHaveBeenCalled();
+  });
+
+  it('30. BLOCKED policy setup still requires and consumes a live photo', async () => {
+    const { service, prisma } = punchRig({
+      context: { ...REQUIRED_CONTEXT, attendanceApplicability: 'BLOCKED', blockingReasons: ['NO_PROFILE_FOR_DATE'] },
+    });
+    await expect(service.submit('emp-1', PUNCH)).resolves.toBeDefined();
+    expect(prisma.attendancePunchPhoto.findUnique).toHaveBeenCalled();
+    expect(prisma.attendancePunchEvidence.create).toHaveBeenCalled();
+    expect(prisma.punchEvidenceReview.create).toHaveBeenCalled();
   });
 
   describe('idempotency ordering', () => {

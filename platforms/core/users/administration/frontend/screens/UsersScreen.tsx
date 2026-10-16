@@ -19,6 +19,7 @@ import {
   Network,
   Plus,
   Search,
+  ShieldCheck,
   ShieldAlert,
   Trash2,
   UserCheck,
@@ -28,8 +29,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { ArchiveUserModal, PermanentDeleteModal, RehireUserModal } from './UserLifecycleModals';
-import { RemediationDialog, useRemediation } from '@apex/shared-remediation';
+import { ArchiveUserModal, PermanentDeleteModal, ReactivateUserModal, RehireUserModal, VerifiedArchiveModal, announceSetupWarnings, lifecycleSuccessText } from './UserLifecycleModals';
+import { RemediationDialog, useRemediation, withFormFixes } from '@apex/shared-remediation';
 import { createRemediationActionRunner } from '@apex/shared-remediation/api';
 
 const rolePresentation: Record<string, { label: string; badge: string }> = {
@@ -100,9 +101,17 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
-  // Set when the email belongs to an archived or deactivated account: the
-  // person comes back as the same account, so their history stays with them.
-  const [rehireCandidate, setRehireCandidate] = useState<{ id: string; name: string; archivedAt: string | null } | null>(null);
+  // What the email already belongs to (Phase 2). An archived person is
+  // rehired and a deactivated one reactivated -- the same account either way,
+  // so their history stays with them. An active one is simply shown.
+  const [emailOutcome, setEmailOutcome] = useState<
+    | { kind: 'ARCHIVED' | 'DEACTIVATED'; user: { id: string; name: string; archivedAt: string | null } }
+    | { kind: 'ACTIVE'; user: { id: string; name: string; scheduledActivationOn?: string | null } | null; message: string }
+    | { kind: 'SYSTEM'; message: string }
+    | null
+  >(null);
+  const rehireCandidate = emailOutcome?.kind === 'ARCHIVED' ? emailOutcome.user : null;
+  const [reactivateTarget, setReactivateTarget] = useState<any | null>(null);
   const [editUser, setEditUser] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ name: '', roleId: '', departmentId: '', isActive: true, isHR: false });
   const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
@@ -111,6 +120,7 @@ export default function UsersPage() {
   const [archiveTarget, setArchiveTarget] = useState<any | null>(null);
   const [rehireTarget, setRehireTarget] = useState<any | null>(null);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<any | null>(null);
+  const [verifiedArchiveTarget, setVerifiedArchiveTarget] = useState<any | null>(null);
 
   const { data: usersResponse, isLoading } = useQuery({
     queryKey: ['users', search],
@@ -147,7 +157,7 @@ export default function UsersPage() {
 
   const closeNew = () => {
     setShowNew(false);
-    setRehireCandidate(null);
+    setEmailOutcome(null);
     setForm({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
   };
 
@@ -159,19 +169,38 @@ export default function UsersPage() {
   const createMutation = useMutation({
     mutationFn: (data: any) => usersApi.create(data),
     onSuccess: (u: any) => {
-      toast.success(`User ${u.name} created!`);
+      toast.success(lifecycleSuccessText(u, 'created'), { duration: 6000 });
+      announceSetupWarnings(u);
       qc.invalidateQueries({ queryKey: ['users'] });
       closeNew();
     },
     onError: (err: any) => {
-      if (err?.code === 'EMAIL_BELONGS_TO_INACTIVE_USER' && err?.inactiveUser?.id) {
-        setRehireCandidate(err.inactiveUser);
+      if ((err?.code === 'EMAIL_BELONGS_TO_ARCHIVED_USER' || err?.code === 'EMAIL_BELONGS_TO_DEACTIVATED_USER') && err?.inactiveUser?.id) {
+        setEmailOutcome({ kind: err.code === 'EMAIL_BELONGS_TO_ARCHIVED_USER' ? 'ARCHIVED' : 'DEACTIVATED', user: err.inactiveUser });
+        return;
+      }
+      if (err?.code === 'EMAIL_BELONGS_TO_ACTIVE_USER') {
+        setEmailOutcome({ kind: 'ACTIVE', user: err?.existingUser ?? null, message: err?.message || 'This email is already in use.' });
+        return;
+      }
+      if (err?.code === 'EMAIL_RESERVED_FOR_SYSTEM_ACCOUNT') {
+        setEmailOutcome({ kind: 'SYSTEM', message: err?.message || 'This email cannot be used.' });
         return;
       }
       if (remediation.openFrom(err)) return;
       toast.error(err?.message || 'Failed to create user');
     },
   });
+
+  // Fixes the create form applies itself; every other value stays as typed.
+  const createRunAction = useMemo(() => withFormFixes(remediationRunner, {
+    CHOOSE_ANOTHER_ROLE: () => { setForm((f) => ({ ...f, roleId: '' })); void qc.invalidateQueries({ queryKey: ['roles'] }); setTimeout(() => document.getElementById('new-user-role')?.focus(), 60); },
+    CHOOSE_ANOTHER_DEPARTMENT: () => { setForm((f) => ({ ...f, departmentId: '' })); void qc.invalidateQueries({ queryKey: ['departments'] }); setTimeout(() => document.getElementById('new-user-department')?.focus(), 60); },
+    CONTINUE_WITHOUT_DEPARTMENT: () => {
+      setForm((f) => ({ ...f, departmentId: '' }));
+      createMutation.mutate({ ...form, departmentId: null });
+    },
+  }), [remediationRunner, qc, createMutation, form]);
 
   const rehireMutation = useMutation({
     mutationFn: (vars: { id: string; data: any }) => usersApi.rehire(vars.id, vars.data),
@@ -186,15 +215,6 @@ export default function UsersPage() {
     },
   });
 
-  const toggleActive = useMutation({
-    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => usersApi.update(id, { isActive }),
-    onSuccess: (_, vars) => {
-      if (vars.isActive) toast.success('User activated');
-      updateCachedUserActiveStatus(vars.id, vars.isActive);
-      void qc.invalidateQueries({ queryKey: ['users'] });
-    },
-    onError: () => toast.error('Failed to activate user'),
-  });
 
   const deactivateMutation = useMutation({
     mutationFn: (id: string) => usersApi.deactivate(id),
@@ -350,6 +370,7 @@ export default function UsersPage() {
             };
             const archived = isArchivedUser(u);
             const isActive = u.isActive !== false;
+            const scheduled = !isActive && u.employmentState === 'SCHEDULED_TO_JOIN';
             const canManageUser = isAdmin
               && u.id !== me?.id
               && !archived
@@ -406,8 +427,8 @@ export default function UsersPage() {
                       <span
                         className="absolute bottom-2 right-0 h-5 w-5 rounded-full border-[3px] border-white shadow-sm dark:border-slate-900"
                         style={{ backgroundColor: isActive ? 'var(--color-success)' : 'var(--color-danger)' }}
-                        title={isActive ? 'Active' : 'Inactive'}
-                        aria-label={isActive ? 'Active user' : 'Inactive user'}
+                        title={isActive ? 'Active' : scheduled ? 'Scheduled to join' : 'Inactive'}
+                        aria-label={isActive ? 'Active user' : scheduled ? 'Scheduled to join' : 'Inactive user'}
                       />
                     </div>
 
@@ -429,6 +450,11 @@ export default function UsersPage() {
                         {archived && (
                           <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-800 ring-1 ring-inset ring-amber-200">
                             ARCHIVED
+                          </span>
+                        )}
+                        {scheduled && (
+                          <span data-testid="scheduled-chip" className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800 ring-1 ring-inset ring-blue-200">
+                            Joins {String(u.scheduledActivationOn ?? u.joiningDate ?? '').slice(0, 10)}
                           </span>
                         )}
                       </div>
@@ -498,17 +524,16 @@ export default function UsersPage() {
                         </>
                       ) : (
                         <>
-                          <button
+                          {!scheduled && <button
                             type="button"
-                            onClick={() => toggleActive.mutate({ id: u.id, isActive: true })}
-                            disabled={toggleActive.isPending}
+                            onClick={() => setReactivateTarget(u)}
                             className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
                             style={{ background: 'linear-gradient(145deg, #4ade80, #16a34a)' }}
                             title="Reactivate user"
                             aria-label={`Reactivate ${u.name}`}
                           >
                             <UserCheck size={20} />
-                          </button>
+                          </button>}
                           <button
                             type="button"
                             onClick={() => setArchiveTarget(u)}
@@ -538,6 +563,16 @@ export default function UsersPage() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => setVerifiedArchiveTarget(u)}
+                        disabled={lifecycleBusy}
+                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+                        title={lifecycleBusy ? 'Another archive, rehire or deletion is running' : lifecycle?.verificationAvailable ? 'Verify or rebuild archive' : 'Prepare verified archive'}
+                        aria-label={lifecycle?.verificationAvailable ? `Verify or rebuild ${u.name} archive` : `Prepare ${u.name} verified archive`}
+                      >
+                        <ShieldCheck size={19} />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setPermanentDeleteTarget(u)}
                         disabled={!!deleteDisabledReason}
                         className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
@@ -553,7 +588,37 @@ export default function UsersPage() {
                   )}
                 </div>
 
-                <div className="relative my-4 h-px flex-shrink-0" style={{ backgroundColor: 'var(--accent-border)' }} />
+                {archived && canManageArchived && lifecycle ? (
+                  <>
+                    {/* Cheap status only: the Delete modal runs the full, fresh preflight.
+                        One full-width line in the divider's space, so the card keeps its height. */}
+                    <div className="relative my-1.5 h-px flex-shrink-0" style={{ backgroundColor: 'var(--accent-border)' }} />
+                    {(() => {
+                      const parts: Array<{ text: string; tone: string }> = [
+                        ...(lifecycle.operationInProgress ? [{ text: 'Operation running', tone: 'text-blue-700 dark:text-blue-300' }] : []),
+                        ...(lifecycle.holdStatus === 'REQUESTED' ? [{ text: 'Legal hold awaiting review', tone: 'text-red-700 dark:text-red-300' }] : []),
+                        ...(lifecycle.holdStatus === 'ACTIVE' || lifecycle.holdStatus === 'LEGACY_ACTIVE' ? [{ text: 'Legal hold active', tone: 'text-red-700 dark:text-red-300' }] : []),
+                        lifecycle.verificationAvailable
+                          ? { text: `Verified archive v${lifecycle.snapshotVersion ?? '?'}`, tone: 'text-emerald-700 dark:text-emerald-300' }
+                          : { text: 'No verified archive: prepare one', tone: 'text-slate-600 dark:text-slate-300' },
+                        ...(lifecycle.deletionKeysConfigured === false ? [{ text: 'Deletion keys not configured', tone: 'text-amber-800 dark:text-amber-300' }] : []),
+                      ];
+                      const all = parts.map((p) => p.text).join(' · ');
+                      return (
+                        <p className="relative mb-1.5 h-[15px] flex-shrink-0 truncate text-[11px] font-semibold leading-[15px]" data-testid="archive-readiness" title={all} aria-label={`Archive status: ${all}`}>
+                          {parts.map((p, i) => (
+                            <span key={p.text}>
+                              {i > 0 && <span aria-hidden="true" style={{ color: 'var(--text-tertiary)' }}> · </span>}
+                              <span className={p.tone}>{p.text}</span>
+                            </span>
+                          ))}
+                        </p>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <div className="relative my-4 h-px flex-shrink-0" style={{ backgroundColor: 'var(--accent-border)' }} />
+                )}
 
                 <div className="relative grid h-14 flex-shrink-0 grid-cols-3 gap-2">
                   {[
@@ -737,6 +802,13 @@ export default function UsersPage() {
           onDeleted={() => { setPermanentDeleteTarget(null); refreshAfterLifecycle(); }}
         />
       )}
+      {verifiedArchiveTarget && (
+        <VerifiedArchiveModal
+          user={verifiedArchiveTarget}
+          onClose={() => setVerifiedArchiveTarget(null)}
+          onPrepared={() => { setVerifiedArchiveTarget(null); refreshAfterLifecycle(); }}
+        />
+      )}
 
       {/* New User Modal */}
       {showNew && (
@@ -749,25 +821,25 @@ export default function UsersPage() {
                 <input type="text" value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} className="apex-input" placeholder="Rajesh Kumar" />
               </div>
               <div>
-                <label className="apex-label">Email *</label>
-                <input type="email" value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} className="apex-input" placeholder="rajesh@technoedge.com" />
+                <label className="apex-label" htmlFor="new-user-email">Email *</label>
+                <input id="new-user-email" type="email" value={form.email} onChange={(e) => { setEmailOutcome(null); setForm(f => ({ ...f, email: e.target.value })); }} className="apex-input" placeholder="rajesh@technoedge.com" />
               </div>
               <div>
                 <label className="apex-label">Password *</label>
-                <input type="password" value={form.password} onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))} className="apex-input" placeholder="Min 6 characters" />
+                <input type="password" minLength={8} maxLength={128} value={form.password} onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))} className="apex-input" placeholder="8–128 characters" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="apex-label">Role *</label>
-                  <select value={form.roleId} onChange={(e) => setForm(f => ({ ...f, roleId: e.target.value }))} className="apex-select w-full">
+                  <label className="apex-label" htmlFor="new-user-role">Role *</label>
+                  <select id="new-user-role" value={form.roleId} onChange={(e) => setForm(f => ({ ...f, roleId: e.target.value }))} className="apex-select w-full">
                     <option value="">Select role</option>
                     {Array.isArray(roles) && roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="apex-label">Department</label>
-                  <select value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value }))} className="apex-select w-full">
-                    <option value="">Select</option>
+                  <label className="apex-label" htmlFor="new-user-department">Department</label>
+                  <select id="new-user-department" value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value }))} className="apex-select w-full">
+                    <option value="">No department (assign later)</option>
                     {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </div>
@@ -776,6 +848,7 @@ export default function UsersPage() {
                 <label className="apex-label">Joining Date *</label>
                 <input
                   type="date"
+                  min="2020-12-01"
                   value={form.joiningDate}
                   onChange={(e) => setForm((f) => ({ ...f, joiningDate: e.target.value }))}
                   className="apex-input"
@@ -797,14 +870,47 @@ export default function UsersPage() {
                   >
                     {rehireMutation.isPending ? 'Rehiring...' : `Rehire ${rehireCandidate.name}`}
                   </button>
-                  <button onClick={() => setRehireCandidate(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2">Not now</button>
+                  <button onClick={() => setEmailOutcome(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2">Not now</button>
+                </div>
+              </div>
+            )}
+            {emailOutcome?.kind === 'DEACTIVATED' && (
+              <div className="mt-4 rounded-lg p-3 text-sm" data-testid="email-outcome-deactivated" role="status" style={{ border: '1px solid var(--border-secondary)', color: 'var(--text-primary)' }}>
+                <p className="font-semibold mb-1">This email belongs to {emailOutcome.user.name}, whose account is deactivated.</p>
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  Reactivate brings back the same account and employment, with their joining date, employee ID and history. A second account is never created for one person.
+                </p>
+                <div className="flex gap-3 mt-3">
+                  <button
+                    onClick={() => setReactivateTarget(userList.find((x: any) => x.id === emailOutcome.user.id) ?? { ...emailOutcome.user, roleId: form.roleId, departmentId: form.departmentId })}
+                    className="apex-btn apex-btn-primary flex-1 justify-center py-2"
+                  >
+                    {`Reactivate ${emailOutcome.user.name}`}
+                  </button>
+                  <button onClick={() => setEmailOutcome(null)} className="apex-btn apex-btn-secondary flex-1 justify-center py-2">Not now</button>
+                </div>
+              </div>
+            )}
+            {(emailOutcome?.kind === 'ACTIVE' || emailOutcome?.kind === 'SYSTEM') && (
+              <div className="mt-4 rounded-lg p-3 text-sm" data-testid="email-outcome-active" role="status" style={{ border: '1px solid var(--border-secondary)', color: 'var(--text-primary)' }}>
+                <p className="font-semibold mb-1">{emailOutcome.message}</p>
+                {emailOutcome.kind === 'ACTIVE' && emailOutcome.user?.scheduledActivationOn && (
+                  <p style={{ color: 'var(--text-secondary)' }}>They are scheduled to join on {emailOutcome.user.scheduledActivationOn}.</p>
+                )}
+                <div className="flex gap-3 mt-3">
+                  {emailOutcome.kind === 'ACTIVE' && emailOutcome.user?.id && (
+                    <button onClick={() => { const id = emailOutcome.user!.id; closeNew(); router.push(`/users/${encodeURIComponent(id)}`); }} className="apex-btn apex-btn-primary flex-1 justify-center py-2">
+                      {`View ${emailOutcome.user.name}`}
+                    </button>
+                  )}
+                  <button onClick={() => { setEmailOutcome(null); setTimeout(() => document.getElementById('new-user-email')?.focus(), 30); }} className="apex-btn apex-btn-secondary flex-1 justify-center py-2">Use a different email</button>
                 </div>
               </div>
             )}
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => form.name && form.email && form.password && form.roleId && form.joiningDate && createMutation.mutate({ ...form, departmentId: form.departmentId || null })}
-                disabled={createMutation.isPending || !form.name || !form.email || !form.password || !form.roleId || !form.joiningDate}
+                onClick={() => form.name && form.email && form.password.length >= 8 && form.password.length <= 128 && form.roleId && form.joiningDate && createMutation.mutate({ ...form, departmentId: form.departmentId || null })}
+                disabled={createMutation.isPending || !form.name || !form.email || form.password.length < 8 || form.password.length > 128 || !form.roleId || !form.joiningDate}
                 className="apex-btn apex-btn-primary flex-1 justify-center py-2.5 disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Creating...' : 'Create User'}
@@ -814,7 +920,21 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-      <RemediationDialog {...remediation.dialogProps} runAction={remediationRunner} />
+      {reactivateTarget && (
+        <ReactivateUserModal
+          user={reactivateTarget}
+          roles={Array.isArray(roles) ? roles : []}
+          departments={Array.isArray(departments) ? departments : []}
+          onClose={() => setReactivateTarget(null)}
+          onReactivated={(u: any) => {
+            setReactivateTarget(null);
+            updateCachedUserActiveStatus(u.id, !!u.isActive);
+            void qc.invalidateQueries({ queryKey: ['users'] });
+            if (emailOutcome?.kind === 'DEACTIVATED') closeNew();
+          }}
+        />
+      )}
+      <RemediationDialog {...remediation.dialogProps} runAction={createRunAction} />
     </div>
   );
 }

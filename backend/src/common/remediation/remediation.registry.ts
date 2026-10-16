@@ -34,6 +34,8 @@ export interface RegistryEntry {
   notificationRecipients: RecipientGroup[];
   /** The only `details` keys this code may carry. */
   detailKeys: string[];
+  /** Per-code button text, e.g. Safe Repair shown as "Rebuild Verified Archive". */
+  actionLabels?: Partial<Record<RemediationActionId, string>>;
 }
 
 const ADMINS: RecipientGroup[] = ['SUPER_ADMIN', 'ADMIN'];
@@ -46,6 +48,11 @@ export const ACTION_LABELS: Record<RemediationActionId, string> = {
   OPEN_USER_DIRECTORY: 'Open user directory',
   OPEN_LEAVE_POLICY_SETTINGS: 'Open leave policy settings',
   OPEN_NOTIFICATION_SETTINGS: 'Open notification settings',
+  OPEN_ARCHIVE_FOLDER: 'Open archive folder',
+  OPEN_DEPARTMENTS: 'Open departments',
+  CHOOSE_ANOTHER_ROLE: 'Choose another role',
+  CHOOSE_ANOTHER_DEPARTMENT: 'Choose another department',
+  CONTINUE_WITHOUT_DEPARTMENT: 'Continue without department',
 };
 
 export const REMEDIATION_REGISTRY: Record<string, RegistryEntry> = {
@@ -79,7 +86,7 @@ export const REMEDIATION_REGISTRY: Record<string, RegistryEntry> = {
       'Ask the archive account owner to remove the extra sharing from the archive folders.',
       'Then open Archive again and confirm.',
     ],
-    actions: ['RETRY_VERIFICATION', 'COPY_DIAGNOSTIC'],
+    actions: ['OPEN_ARCHIVE_FOLDER', 'RETRY_VERIFICATION', 'COPY_DIAGNOSTIC'],
     canSystemRepair: false,
     requiresManualExternalAction: true,
     requiresBackendOperations: false,
@@ -133,7 +140,8 @@ export const REMEDIATION_REGISTRY: Record<string, RegistryEntry> = {
     problem: 'This server is missing the keys that protect file references during permanent deletion.',
     whyItMatters: 'Without them the deleted user\'s original files could not be cleaned up safely, so deletion is refused.',
     correctionSteps: [
-      'Ask the system administrator to configure the lifecycle deletion keys for this environment.',
+      'Configure LIFECYCLE_HANDLE_ENCRYPTION_KEY and LIFECYCLE_HANDLE_HMAC_KEY on the backend as two different random 32-byte Base64 values.',
+      'Restart or redeploy the backend after saving the variables. Do not add these keys to the frontend or database.',
       'Then retry verification.',
     ],
     actions: ['RETRY_VERIFICATION', 'COPY_DIAGNOSTIC'],
@@ -142,26 +150,85 @@ export const REMEDIATION_REGISTRY: Record<string, RegistryEntry> = {
     requiresBackendOperations: true,
     retryEndpoint: 'PERMANENT_DELETE_PREFLIGHT',
     notificationRecipients: ADMINS,
-    detailKeys: ['otherBlockers'],
+    detailKeys: ['keyConfigurationIssues', 'otherBlockers'],
   },
   RETENTION_POLICY_NOT_CONFIGURED: {
-    remediationClass: 'BACKEND_OPERATIONS',
+    remediationClass: 'WARNING_NON_BLOCKING',
+    severity: 'WARNING',
+    blockingScope: 'NONE',
+    title: 'No retention rule is configured',
+    problem: 'No approved record-retention rule is configured for this user\'s attendance, leave or payroll records.',
+    whyItMatters: 'This is a configuration warning and does not block deletion: a complete verified archive keeps the records, and no approved rule requires the live copies to remain.',
+    correctionSteps: [
+      'If the company requires live records to be kept for a period, ask an administrator to approve that retention rule.',
+      'Otherwise no action is needed.',
+    ],
+    actions: ['COPY_DIAGNOSTIC'],
+    canSystemRepair: false,
+    requiresManualExternalAction: false,
+    requiresBackendOperations: false,
+    retryEndpoint: 'PERMANENT_DELETE_PREFLIGHT',
+    notificationRecipients: [],
+    detailKeys: ['retentionCategories'],
+  },
+  RETENTION_PERIOD_ACTIVE: {
+    remediationClass: 'SECURITY_OR_LEGAL_BLOCK',
     severity: 'BLOCKING',
     blockingScope: 'USER',
-    title: 'Records must still be retained',
-    problem: 'This user has records that are protected by record retention, and no approved retention period releases them yet.',
-    whyItMatters: 'Protected attendance, leave and payroll records are kept until an approved retention period has passed.',
+    title: 'Approved retention period has not elapsed',
+    problem: 'An approved retention rule requires this user\'s live records to remain until the retention period has passed.',
+    whyItMatters: 'Records covered by an approved retention rule cannot be removed early, even with a verified archive.',
     correctionSteps: [
-      'Ask the system administrator to confirm the approved retention periods.',
-      'Retry verification after the retention period has passed.',
+      'Wait until the eligibility date shown here.',
+      'Then retry verification.',
     ],
     actions: ['RETRY_VERIFICATION', 'COPY_DIAGNOSTIC'],
     canSystemRepair: false,
     requiresManualExternalAction: false,
-    requiresBackendOperations: true,
+    requiresBackendOperations: false,
     retryEndpoint: 'PERMANENT_DELETE_PREFLIGHT',
     notificationRecipients: ADMINS,
-    detailKeys: ['retentionResult', 'otherBlockers'],
+    detailKeys: ['retentionCategories', 'eligibleOn', 'otherBlockers'],
+  },
+  ARCHIVE_SNAPSHOT_MISSING: {
+    remediationClass: 'SYSTEM_REPAIRABLE',
+    severity: 'BLOCKING',
+    blockingScope: 'USER',
+    title: 'No verified archive exists yet',
+    problem: 'This user was archived before verified archive snapshots existed, so there is no verified archive to check.',
+    whyItMatters: 'Permanent Delete only proceeds after a complete archive has been written and read back. The user stays archived; nothing is reopened.',
+    correctionSteps: [
+      'Use Prepare Verified Archive. Apex OS scans the current records and files, uploads them to the private archive and verifies every byte.',
+      'Then retry verification.',
+    ],
+    actions: ['SAFE_REPAIR', 'COPY_DIAGNOSTIC'],
+    actionLabels: { SAFE_REPAIR: 'Prepare Verified Archive' },
+    canSystemRepair: true,
+    requiresManualExternalAction: false,
+    requiresBackendOperations: false,
+    retryEndpoint: 'VERIFIED_ARCHIVE_PREPARE',
+    notificationRecipients: ADMINS,
+    detailKeys: ['otherBlockers'],
+  },
+  ARCHIVE_SNAPSHOT_STALE: {
+    remediationClass: 'SYSTEM_REPAIRABLE',
+    severity: 'BLOCKING',
+    blockingScope: 'USER',
+    title: 'The verified archive is out of date',
+    problem: 'This user\'s records or files no longer match the verified archive, or the stored archive is missing or damaged.',
+    whyItMatters: 'Deleting now could lose records that are not in the archive. The existing archive stays in place until a replacement is verified.',
+    correctionSteps: [
+      'Use Rebuild Verified Archive. Apex OS writes a new archive version and verifies it before replacing the old one.',
+      'Then retry verification.',
+    ],
+    actions: ['SAFE_REPAIR', 'COPY_DIAGNOSTIC'],
+    actionLabels: { SAFE_REPAIR: 'Rebuild Verified Archive' },
+    canSystemRepair: true,
+    requiresManualExternalAction: false,
+    requiresBackendOperations: false,
+    retryEndpoint: 'VERIFIED_ARCHIVE_PREPARE',
+    notificationRecipients: ADMINS,
+    detailKeys: ['otherBlockers'],
   },
   OPERATION_IN_PROGRESS: {
     remediationClass: 'WARNING_NON_BLOCKING',
@@ -195,6 +262,41 @@ export const REMEDIATION_REGISTRY: Record<string, RegistryEntry> = {
     notificationRecipients: ADMINS,
     detailKeys: ['pendingItems'],
   },
+  // Create User / Reactivate / Rehire (Phase 2, B8). The form stays open with
+  // every value; only the stale selection is cleared.
+  ROLE_NOT_FOUND_OR_REMOVED: {
+    remediationClass: 'ADMIN_FIXABLE_FRONTEND',
+    severity: 'BLOCKING',
+    blockingScope: 'OPERATION',
+    title: 'The selected role is no longer available',
+    problem: 'The role chosen in this form was removed after the form was opened.',
+    whyItMatters: 'Every account needs a role to decide what it can do. Nothing was saved, and the other values in the form are kept.',
+    correctionSteps: ['Choose another role from the refreshed list.', 'Submit the form again.'],
+    actions: ['CHOOSE_ANOTHER_ROLE', 'COPY_DIAGNOSTIC'],
+    canSystemRepair: false,
+    requiresManualExternalAction: false,
+    requiresBackendOperations: false,
+    notificationRecipients: [],
+    detailKeys: ['field'],
+  },
+  DEPARTMENT_NOT_FOUND_OR_REMOVED: {
+    remediationClass: 'ADMIN_FIXABLE_FRONTEND',
+    severity: 'BLOCKING',
+    blockingScope: 'OPERATION',
+    title: 'The selected department is no longer available',
+    problem: 'The department chosen in this form was removed after the form was opened.',
+    whyItMatters: 'A department is optional. Nothing was saved, and the other values in the form are kept.',
+    correctionSteps: [
+      'Choose another department, or continue without one and assign it later.',
+      'To add a department first, open Departments, then submit the form again.',
+    ],
+    actions: ['CHOOSE_ANOTHER_DEPARTMENT', 'CONTINUE_WITHOUT_DEPARTMENT', 'OPEN_DEPARTMENTS', 'COPY_DIAGNOSTIC'],
+    canSystemRepair: false,
+    requiresManualExternalAction: false,
+    requiresBackendOperations: false,
+    notificationRecipients: [],
+    detailKeys: ['field'],
+  },
 };
 
 /** Precedence when several delete blockers coexist (erratum E2). Lower runs first. */
@@ -202,7 +304,10 @@ export const DELETE_BLOCKER_PRECEDENCE: string[] = [
   'LEGAL_HOLD_ACTIVE',
   'LEGAL_HOLD_REQUESTED',
   'LIFECYCLE_KEYS_MISSING',
-  'RETENTION_POLICY_NOT_CONFIGURED',
+  'RETENTION_PERIOD_ACTIVE',
+  'ARCHIVE_PRIVACY_FAILED',
+  'ARCHIVE_SNAPSHOT_MISSING',
+  'ARCHIVE_SNAPSHOT_STALE',
 ];
 
 /** Classes that may never offer Safe Repair, whatever their flags say. */
@@ -225,6 +330,6 @@ export function validateRegistry(registry: Record<string, RegistryEntry> = REMED
   return problems;
 }
 
-export function actionsFor(ids: RemediationActionId[], previewCount?: number): RemediationAction[] {
-  return ids.map((id) => ({ id, kind: ACTION_KIND[id], label: ACTION_LABELS[id], ...(id === 'SAFE_REPAIR' && previewCount !== undefined ? { previewCount } : {}) }));
+export function actionsFor(ids: RemediationActionId[], previewCount?: number, labels: Partial<Record<RemediationActionId, string>> = {}): RemediationAction[] {
+  return ids.map((id) => ({ id, kind: ACTION_KIND[id], label: labels[id] ?? ACTION_LABELS[id], ...(id === 'SAFE_REPAIR' && previewCount !== undefined ? { previewCount } : {}) }));
 }

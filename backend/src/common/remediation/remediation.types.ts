@@ -36,6 +36,7 @@ export const ALLOWED_RETRY_ENDPOINTS = [
   'LIFECYCLE_ARCHIVE_CLEANUP_RETRY',
   'ARCHIVE_PREFLIGHT',
   'PERMANENT_DELETE_PREFLIGHT',
+  'VERIFIED_ARCHIVE_PREPARE',
 ] as const;
 export type AllowedRetryEndpoint = (typeof ALLOWED_RETRY_ENDPOINTS)[number];
 
@@ -44,6 +45,12 @@ export const RETRY_ENDPOINT_ROUTES: Record<AllowedRetryEndpoint, { method: 'GET'
   LIFECYCLE_ARCHIVE_CLEANUP_RETRY: { method: 'POST', path: 'user-lifecycle/operations/:operationId/archive-cleanup-retry' },
   ARCHIVE_PREFLIGHT: { method: 'GET', path: 'user-lifecycle/:userId/archive/preflight' },
   PERMANENT_DELETE_PREFLIGHT: { method: 'GET', path: 'user-lifecycle/:userId/permanent-delete/preflight' },
+  VERIFIED_ARCHIVE_PREPARE: { method: 'POST', path: 'user-lifecycle/:userId/verified-archive' },
+};
+
+/** Server routes behind actions that are not retries (resolved at click time). */
+export const ACTION_ENDPOINT_ROUTES: Partial<Record<RemediationActionId, { method: 'GET' | 'POST'; path: string }>> = {
+  OPEN_ARCHIVE_FOLDER: { method: 'GET', path: 'user-lifecycle/:userId/archive-folder' },
 };
 
 /**
@@ -58,10 +65,15 @@ export const REMEDIATION_ACTION_IDS = [
   'OPEN_USER_DIRECTORY',
   'OPEN_LEAVE_POLICY_SETTINGS',
   'OPEN_NOTIFICATION_SETTINGS',
+  'OPEN_ARCHIVE_FOLDER',
+  'OPEN_DEPARTMENTS',
+  'CHOOSE_ANOTHER_ROLE',
+  'CHOOSE_ANOTHER_DEPARTMENT',
+  'CONTINUE_WITHOUT_DEPARTMENT',
 ] as const;
 export type RemediationActionId = (typeof REMEDIATION_ACTION_IDS)[number];
 
-export type RemediationActionKind = 'NAVIGATE' | 'RETRY_VERIFICATION' | 'SAFE_REPAIR' | 'OPEN_CONFIGURATION' | 'COPY_DIAGNOSTIC';
+export type RemediationActionKind = 'NAVIGATE' | 'RETRY_VERIFICATION' | 'SAFE_REPAIR' | 'OPEN_CONFIGURATION' | 'COPY_DIAGNOSTIC' | 'OPEN_ARCHIVE_FOLDER' | 'FORM_FIX';
 
 export const ACTION_KIND: Record<RemediationActionId, RemediationActionKind> = {
   RETRY_VERIFICATION: 'RETRY_VERIFICATION',
@@ -71,6 +83,12 @@ export const ACTION_KIND: Record<RemediationActionId, RemediationActionKind> = {
   OPEN_USER_DIRECTORY: 'NAVIGATE',
   OPEN_LEAVE_POLICY_SETTINGS: 'OPEN_CONFIGURATION',
   OPEN_NOTIFICATION_SETTINGS: 'OPEN_CONFIGURATION',
+  OPEN_ARCHIVE_FOLDER: 'OPEN_ARCHIVE_FOLDER',
+  OPEN_DEPARTMENTS: 'NAVIGATE',
+  // Handled by the form that raised the error; the form keeps every value.
+  CHOOSE_ANOTHER_ROLE: 'FORM_FIX',
+  CHOOSE_ANOTHER_DEPARTMENT: 'FORM_FIX',
+  CONTINUE_WITHOUT_DEPARTMENT: 'FORM_FIX',
 };
 
 export interface RemediationAction {

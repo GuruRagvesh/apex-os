@@ -56,6 +56,23 @@ export const getNotificationPreferences = (): Promise<Record<string, any>> => r(
 export const updateNotificationPreferences = (prefs: Record<string, any>): Promise<Record<string, any>> =>
   r(api.patch('/users/me/preferences', prefs));
 
+export const prepareVerifiedArchive = (userId: string, idempotencyKey: string): Promise<LifecycleOperationView> =>
+  r(api.post(`/user-lifecycle/${enc(userId)}/verified-archive`, { idempotencyKey }));
+
+export const getArchiveFolder = (userId: string): Promise<{ url: string }> =>
+  r(api.get(`/user-lifecycle/${enc(userId)}/archive-folder`));
+
+function randomKey(): string {
+  const c: any = (globalThis as any).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  const b = new Uint8Array(16);
+  c?.getRandomValues ? c.getRandomValues(b) : b.forEach((_, i) => { b[i] = Math.floor(Math.random() * 256); });
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 export const listUserSetupIssues = (userId: string): Promise<{ userId: string; issues: any[] }> =>
   r(api.get(`/users/${enc(userId)}/setup-issues`));
 
@@ -92,6 +109,14 @@ const RETRY: Record<AllowedRetryEndpoint, (current: RemediationResult) => Promis
     if (current.code === 'ARCHIVE_PRIVACY_FAILED') return stillPending(current);
     return resolved(current);
   },
+  VERIFIED_ARCHIVE_PREPARE: async (current) => {
+    if (!current.affectedUserId) throw new Error('NO_USER');
+    await prepareVerifiedArchive(current.affectedUserId, randomKey());
+    // The repair is proven only by a fresh deletion check.
+    const p = await permanentDeletePreflight(current.affectedUserId);
+    if (p?.remediation) return p.remediation as RemediationResult;
+    return p?.allowed ? resolved(current) : stillPending(current);
+  },
   PERMANENT_DELETE_PREFLIGHT: async (current) => {
     if (!current.affectedUserId) throw new Error('NO_USER');
     const p = await permanentDeletePreflight(current.affectedUserId);
@@ -106,6 +131,12 @@ const RETRY: Record<AllowedRetryEndpoint, (current: RemediationResult) => Promis
  */
 export function createRemediationActionRunner() {
   return async (action: RemediationAction, current: RemediationResult): Promise<RemediationResult | void> => {
+    if (action.kind === 'OPEN_ARCHIVE_FOLDER') {
+      if (!current.affectedUserId) return;
+      const { url } = await getArchiveFolder(current.affectedUserId);
+      if (/^https:\/\/drive\.google\.com\//.test(url)) window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (action.kind !== 'RETRY_VERIFICATION' && action.kind !== 'SAFE_REPAIR') return;
     if (!current.retryEndpoint || !RETRY[current.retryEndpoint]) return;
     return RETRY[current.retryEndpoint](current);

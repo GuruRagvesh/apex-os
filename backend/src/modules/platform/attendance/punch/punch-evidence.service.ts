@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { AttendancePunchEvidence } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { SettingsService } from '../../settings/settings.service';
@@ -106,6 +107,9 @@ export class PunchEvidenceService {
         throw new PunchValidationError('accuracyMeters must be a finite number greater than 0');
       }
     }
+    if (num(input.altitudeMeters) && !Number.isFinite(Number(input.altitudeMeters))) {
+      throw new PunchValidationError('altitudeMeters must be a finite number when provided');
+    }
     if (num(input.clientCapturedAt)) {
       const t = new Date(input.clientCapturedAt as any);
       if (Number.isNaN(t.getTime())) {
@@ -142,6 +146,7 @@ export class PunchEvidenceService {
       sameNullable(existing.latitude, input.latitude) &&
       sameNullable(existing.longitude, input.longitude) &&
       sameNullable(existing.accuracyMeters, input.accuracyMeters)
+      && sameNullable(existing.altitudeMeters, input.altitudeMeters)
     );
   }
 
@@ -238,11 +243,13 @@ export class PunchEvidenceService {
     const serverOccurredAt = receivedAt;
     const businessDate = this.tva.companyDateOnly(serverOccurredAt);
 
-    // Context gate. A punch is only accepted when the foundation can say
-    // exactly which rules apply -- so a configuration gap surfaces as a clear
-    // error instead of quietly producing evidence nobody can interpret.
+    // Missing policy/profile context is not authority to discard raw employee
+    // evidence. It is stored as POLICY_SETUP_PENDING and is never used to make
+    // an attendance/payroll conclusion until HR resolves the setup. EXEMPT and
+    // NOT_EMPLOYED remain genuine refusals.
     const context = await this.dailyContext.resolveDailyContext(userId, serverOccurredAt);
-    if (context.attendanceApplicability !== 'REQUIRED') {
+    const policySetupPending = context.attendanceApplicability === 'BLOCKED';
+    if (context.attendanceApplicability !== 'REQUIRED' && !policySetupPending) {
       throw new PunchNotApplicableError(
         context.attendanceApplicability,
         context.blockingReasons,
@@ -253,7 +260,7 @@ export class PunchEvidenceService {
     // should be unreachable -- but if it ever were reached, treating a null
     // policy as geoFenceEnabled === false would silently downgrade an office
     // punch to NOT_ENFORCED. Fail loudly instead.
-    if (!context.attendancePolicy) {
+    if (!policySetupPending && !context.attendancePolicy) {
       throw new PunchContextInvariantError();
     }
 
@@ -281,7 +288,7 @@ export class PunchEvidenceService {
     // geoFenceEnabled governs ENFORCEMENT, never capture. GPS is mandatory
     // either way and is always stored; the policy decides only whether that
     // reading is checked against an approved location.
-    const geoFenceEnabled = context.attendancePolicy?.geoFenceEnabled === true;
+    const geoFenceEnabled = !policySetupPending && context.attendancePolicy?.geoFenceEnabled === true;
 
     let location: { id: string; latitude: number; longitude: number; radiusMeters: number; minimumAccuracyMeters: number } | null = null;
     let decision = {
@@ -395,6 +402,10 @@ export class PunchEvidenceService {
           latitude: input.latitude ?? null,
           longitude: input.longitude ?? null,
           accuracyMeters: input.accuracyMeters ?? null,
+          altitudeMeters: input.altitudeMeters ?? null,
+          altitudeStatus: input.altitudeMeters === null || input.altitudeMeters === undefined ? 'UNAVAILABLE' : 'AVAILABLE',
+          accuracyStatus: input.accuracyMeters === null || input.accuracyMeters === undefined ? 'UNAVAILABLE' : 'AVAILABLE',
+          policyContextStatus: policySetupPending ? 'POLICY_SETUP_PENDING' : 'RESOLVED',
           // Server-decided, never accepted from the client, and final at the
           // moment of insert.
           locationVerification: decision.verdict as any,
@@ -421,6 +432,16 @@ export class PunchEvidenceService {
           idempotencyKey: input.idempotencyKey,
         },
       });
+
+      const reviewReasons = [
+        policySetupPending ? 'POLICY_SETUP_PENDING' : null,
+        input.accuracyMeters === null || input.accuracyMeters === undefined ? 'ACCURACY_UNAVAILABLE' : null,
+      ].filter((reason): reason is string => reason !== null);
+      if (reviewReasons.length > 0) {
+        await tx.punchEvidenceReview.create({
+          data: { id: randomUUID(), evidenceId: row.id, reasonCodes: reviewReasons },
+        });
+      }
 
       return { evidence: row, workdayAfter: after };
       // Headroom for the ticket-timer resume/pause that now runs inside this
@@ -531,6 +552,10 @@ export function toOwnEvidenceView(
     latitude: row.latitude,
     longitude: row.longitude,
     accuracyMeters: row.accuracyMeters,
+    altitudeMeters: row.altitudeMeters,
+    altitudeStatus: row.altitudeStatus,
+    accuracyStatus: row.accuracyStatus,
+    policyContextStatus: row.policyContextStatus,
     distanceFromLocationMeters: row.distanceFromLocationMeters,
     geofenceRadiusMeters: row.geofenceRadiusMeters,
     accuracyThresholdMeters: row.accuracyThresholdMeters,

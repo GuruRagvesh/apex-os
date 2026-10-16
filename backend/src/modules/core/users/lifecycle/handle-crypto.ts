@@ -27,11 +27,26 @@ function decodeKey(value: string | undefined): Buffer | null {
   return buf.length === 32 ? buf : null;
 }
 
-/** The two keys, or null when either is missing or not 32 bytes. Never logs a key. */
+/** Client-safe configuration diagnostics: variable names/codes only, never values. */
+export function handleKeyConfigurationIssues(env: NodeJS.ProcessEnv): string[] {
+  const encryptionKey = decodeKey(env.LIFECYCLE_HANDLE_ENCRYPTION_KEY);
+  const hmacKey = decodeKey(env.LIFECYCLE_HANDLE_HMAC_KEY);
+  const issues: string[] = [];
+  if (!encryptionKey) issues.push('LIFECYCLE_HANDLE_ENCRYPTION_KEY');
+  if (!hmacKey) issues.push('LIFECYCLE_HANDLE_HMAC_KEY');
+  if (encryptionKey && hmacKey && encryptionKey.equals(hmacKey)) issues.push('LIFECYCLE_HANDLE_KEYS_MUST_DIFFER');
+  return issues;
+}
+
+/**
+ * The two independent keys, or null when either is missing, malformed or the
+ * same value. Encryption and correlation must not share key material. Never
+ * logs a key.
+ */
 export function readHandleKeys(env: NodeJS.ProcessEnv): HandleKeys | null {
   const encryptionKey = decodeKey(env.LIFECYCLE_HANDLE_ENCRYPTION_KEY);
   const hmacKey = decodeKey(env.LIFECYCLE_HANDLE_HMAC_KEY);
-  if (!encryptionKey || !hmacKey) return null;
+  if (handleKeyConfigurationIssues(env).length > 0 || !encryptionKey || !hmacKey) return null;
   return { encryptionKey, hmacKey };
 }
 

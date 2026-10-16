@@ -301,6 +301,16 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
         </p>
         {item.accuracyMeters !== null ? (
           <p>GPS accuracy ±{Math.round(item.accuracyMeters)} m</p>
+        ) : (
+          <p className="text-amber-500">GPS accuracy unavailable — sent for HR review</p>
+        )}
+        {item.altitudeMeters !== null && item.altitudeMeters !== undefined ? (
+          <p>Altitude {Math.round(item.altitudeMeters)} m</p>
+        ) : (
+          <p>Altitude unavailable</p>
+        )}
+        {item.policyContextStatus === 'POLICY_SETUP_PENDING' ? (
+          <p className="text-amber-500">Attendance policy setup pending — raw punch recorded for review</p>
         ) : null}
         {item.distanceFromLocationMeters !== null ? (
           <p>{Math.round(item.distanceFromLocationMeters)} m from the registered location</p>

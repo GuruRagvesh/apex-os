@@ -146,6 +146,17 @@ export class UsersController {
     return this.usersService.rehire(id, body, actor?.id);
   }
 
+  /** Deactivated users only; archived users use Rehire (Phase 2, B6). */
+  @Post(':id/reactivate')
+  @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  reactivate(
+    @Param('id') id: string,
+    @Body() body: { roleId?: string; departmentId?: string | null } | undefined,
+    @CurrentUser() actor: any,
+  ) {
+    return this.usersService.reactivate(id, body ?? {}, actor?.id);
+  }
+
   @Put(':id/reset-password')
   @UseGuards(RolesGuard) @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   resetPassword(@Param('id') id: string, @Body() body: { newPassword: string }) {

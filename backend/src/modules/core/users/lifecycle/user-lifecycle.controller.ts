@@ -59,6 +59,23 @@ export class UserLifecycleController {
     return this.lifecycle.archive(userId, actor, { idempotencyKey: body?.idempotencyKey });
   }
 
+  /** Prepare or rebuild the immutable verified snapshot of an already archived user. */
+  @Get(':userId/verified-archive/preflight')
+  verifiedArchivePreflight(@Param('userId') userId: string, @CurrentUser() actor: any) {
+    return this.lifecycle.verifiedArchivePreflight(userId, actor);
+  }
+
+  @Post(':userId/verified-archive')
+  verifiedArchive(@Param('userId') userId: string, @Body() body: { idempotencyKey?: string }, @CurrentUser() actor: any) {
+    return this.lifecycle.prepareVerifiedArchive(userId, actor, { idempotencyKey: body?.idempotencyKey });
+  }
+
+  /** The archive folder for an admin, resolved at click time (never inside a remediation payload). */
+  @Get(':userId/archive-folder')
+  archiveFolder(@Param('userId') userId: string, @CurrentUser() actor: any) {
+    return this.lifecycle.archiveFolder(userId, actor);
+  }
+
   @Get(':userId/permanent-delete/preflight')
   deletePreflight(@Param('userId') userId: string, @CurrentUser() actor: any) {
     return this.lifecycle.deletePreflight(userId, actor);

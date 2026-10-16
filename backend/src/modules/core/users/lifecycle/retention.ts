@@ -1,11 +1,13 @@
 /**
  * The retention / legal-hold gate for permanent deletion.
  *
- * Default deny. No retention period exists in code: a category is released
- * only by an ACTIVE, approved rule with a positive number of months, and only
- * once that many months have passed since the person's newest protected
- * record. With no rule, the answer is POLICY_NOT_CONFIGURED and deletion is
- * blocked. Nothing here writes rules or holds, and no caller can override it.
+ * An explicit ACTIVE, approved rule with a positive number of months is
+ * enforced until that many months have passed since the person's newest
+ * protected record. Missing configuration is reported as
+ * POLICY_NOT_CONFIGURED, but is not itself a legal/retention instruction and
+ * therefore does not block deletion once the verified archive and hold gates
+ * pass. Nothing here writes rules or holds, and no caller can override an
+ * applicable approved period or a legal hold.
  */
 
 import { HANDLERS, RetentionCategory } from './dependency-matrix';
@@ -30,7 +32,7 @@ export interface RetentionEvaluation {
   classificationVersion: string;
   result: RetentionResult;
   /** Per category: why it is held or released. Codes only. */
-  categories: Record<string, { rows: number; reason: ReasonCode | 'RELEASED' }>;
+  categories: Record<string, { rows: number; reason: ReasonCode | 'RELEASED'; eligibleOn?: string }>;
   allowsDeletion: boolean;
 }
 
@@ -63,12 +65,12 @@ export function evaluateRetention(input: RetentionInput): RetentionEvaluation {
     const usable = !!rule && rule.active && !!rule.approvedAt && Number.isInteger(rule.retentionMonths) && (rule.retentionMonths as number) > 0;
     if (!usable) {
       categories[category] = { rows: dates.length, reason: REASON.POLICY_NOT_CONFIGURED };
-      anyHeld = true;
       continue;
     }
     const newest = dates.reduce((a, b) => (b > a ? b : a));
-    if (addMonths(newest, rule!.retentionMonths as number) > input.now) {
-      categories[category] = { rows: dates.length, reason: REASON.PERIOD_NOT_ELAPSED };
+    const eligibleOn = addMonths(newest, rule!.retentionMonths as number);
+    if (eligibleOn > input.now) {
+      categories[category] = { rows: dates.length, reason: REASON.PERIOD_NOT_ELAPSED, eligibleOn: eligibleOn.toISOString().slice(0, 10) };
       anyHeld = true;
     } else {
       categories[category] = { rows: dates.length, reason: 'RELEASED' };

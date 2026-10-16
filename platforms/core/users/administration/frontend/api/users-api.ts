@@ -43,6 +43,7 @@ export const usersApi = {
   getOne: (id: string) => r(api.get(`/users/${id}`)),
   create: (data: any) => r(api.post('/users', data)),
   rehire: (id: string, data: any) => r(api.post(`/users/${id}/rehire`, data)),
+  reactivate: (id: string, data: { roleId?: string; departmentId?: string | null } = {}) => r(api.post(`/users/${id}/reactivate`, data)),
   update: (id: string, data: any) => r(api.put(`/users/${id}`, data)),
   resetPassword: (id: string, newPassword: string) => r(api.put(`/users/${id}/reset-password`, { newPassword })),
   deactivate: (id: string) => r(api.delete(`/users/${id}`)),
@@ -90,6 +91,8 @@ export const usersApi = {
   // idempotency key and, for deletion, the typed confirmation.
   archivePreflight: (id: string) => r(api.get(`/user-lifecycle/${id}/archive/preflight`)),
   archive: (id: string, idempotencyKey: string) => r(api.post(`/user-lifecycle/${id}/archive`, { idempotencyKey })),
+  verifiedArchivePreflight: (id: string) => r(api.get(`/user-lifecycle/${id}/verified-archive/preflight`)),
+  prepareVerifiedArchive: (id: string, idempotencyKey: string) => r(api.post(`/user-lifecycle/${id}/verified-archive`, { idempotencyKey })),
   archivedStatus: (ids: string[]) => r(api.get('/user-lifecycle/archived-status', { params: { ids: ids.join(',') } })),
   permanentDeletePreflight: (id: string) => r(api.get(`/user-lifecycle/${id}/permanent-delete/preflight`)),
   permanentDelete: (id: string, data: { idempotencyKey: string; confirmation: string }) =>

@@ -5,7 +5,9 @@ import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { RequestMethod } from '@nestjs/common';
 import {
   ACTION_KIND,
+  ACTION_ENDPOINT_ROUTES,
   ALLOWED_RETRY_ENDPOINTS,
+  DELETE_BLOCKER_PRECEDENCE,
   DENIED_KEYS,
   REMEDIATION_ACTION_IDS,
   REMEDIATION_CLASSES,
@@ -73,7 +75,12 @@ describe('remediation registry', () => {
       [REASON.LEGAL_HOLD_ACTIVE]: ['LEGAL_HOLD_ACTIVE', 'SECURITY_OR_LEGAL_BLOCK', 'USER'],
       [REASON.LEGAL_HOLD_REQUESTED]: ['LEGAL_HOLD_REQUESTED', 'SECURITY_OR_LEGAL_BLOCK', 'USER'],
       [REASON.HANDLE_KEYS_MISSING]: ['LIFECYCLE_KEYS_MISSING', 'BACKEND_OPERATIONS', 'SUBSYSTEM'],
-      [REASON.RETENTION_BLOCKED]: ['RETENTION_POLICY_NOT_CONFIGURED', 'BACKEND_OPERATIONS', 'USER'],
+      // Phase 2: only an approved, unelapsed period blocks; missing configuration is a warning.
+      [REASON.RETENTION_BLOCKED]: ['RETENTION_PERIOD_ACTIVE', 'SECURITY_OR_LEGAL_BLOCK', 'USER'],
+      [REASON.SNAPSHOT_MISSING]: ['ARCHIVE_SNAPSHOT_MISSING', 'SYSTEM_REPAIRABLE', 'USER'],
+      [REASON.SNAPSHOT_STALE]: ['ARCHIVE_SNAPSHOT_STALE', 'SYSTEM_REPAIRABLE', 'USER'],
+      [REASON.NO_HISTORY_NO_LONGER_EMPTY]: ['ARCHIVE_SNAPSHOT_STALE', 'SYSTEM_REPAIRABLE', 'USER'],
+      [REASON.ARCHIVE_MISSING_OR_CHANGED]: ['ARCHIVE_SNAPSHOT_STALE', 'SYSTEM_REPAIRABLE', 'USER'],
       [REASON.OPERATION_IN_PROGRESS]: ['OPERATION_IN_PROGRESS', 'WARNING_NON_BLOCKING', 'OPERATION'],
       [REASON.CLEANUP_FAILED]: ['CLEANUP_PENDING', 'SYSTEM_REPAIRABLE', 'OPERATION'],
     };
@@ -87,7 +94,41 @@ describe('remediation registry', () => {
   it('offers Safe Repair only for the system-repairable cleanup', () => {
     for (const code of Object.keys(REMEDIATION_REGISTRY)) {
       const has = buildRemediation(code).actions.some((a) => a.id === 'SAFE_REPAIR');
-      expect([code, has]).toEqual([code, code === 'CLEANUP_PENDING']);
+      // The backend can perform these itself: retry file cleanup, or write and
+      // verify a new archive version. Drive sharing and secrets never qualify.
+      expect([code, has]).toEqual([code, ['CLEANUP_PENDING', 'ARCHIVE_SNAPSHOT_MISSING', 'ARCHIVE_SNAPSHOT_STALE'].includes(code)]);
+    }
+  });
+
+  it('labels the archive repair as Prepare / Rebuild Verified Archive, never as a generic repair', () => {
+    expect(buildRemediation('ARCHIVE_SNAPSHOT_MISSING').actions.find((a) => a.id === 'SAFE_REPAIR')?.label).toBe('Prepare Verified Archive');
+    expect(buildRemediation('ARCHIVE_SNAPSHOT_STALE').actions.find((a) => a.id === 'SAFE_REPAIR')?.label).toBe('Rebuild Verified Archive');
+    expect(buildRemediation('ARCHIVE_SNAPSHOT_STALE').retryEndpoint).toBe('VERIFIED_ARCHIVE_PREPARE');
+  });
+
+  it('a Drive sharing problem offers Open Archive Folder and Retry, and no Safe Repair', () => {
+    const ids = buildRemediation('ARCHIVE_PRIVACY_FAILED', { affectedUserId: 'u1' }).actions.map((a) => a.id);
+    expect(ids).toEqual(['OPEN_ARCHIVE_FOLDER', 'RETRY_VERIFICATION', 'COPY_DIAGNOSTIC']);
+    expect(ids).not.toContain('SAFE_REPAIR');
+  });
+
+  it('missing retention configuration is a non-blocking warning; an approved period is a blocker', () => {
+    expect(buildRemediation('RETENTION_POLICY_NOT_CONFIGURED')).toEqual(expect.objectContaining({ remediationClass: 'WARNING_NON_BLOCKING', severity: 'WARNING', blockingScope: 'NONE' }));
+    expect(buildRemediation('RETENTION_PERIOD_ACTIVE', { details: { retentionCategories: ['ATTENDANCE'], eligibleOn: '2027-01-31' } })).toEqual(expect.objectContaining({ severity: 'BLOCKING', details: { retentionCategories: ['ATTENDANCE'], eligibleOn: '2027-01-31' } }));
+  });
+
+  it('keeps hold above keys above retention above archive repair', () => {
+    const at = (c: string) => DELETE_BLOCKER_PRECEDENCE.indexOf(c);
+    expect(at('LEGAL_HOLD_REQUESTED')).toBeLessThan(at('LIFECYCLE_KEYS_MISSING'));
+    expect(at('LIFECYCLE_KEYS_MISSING')).toBeLessThan(at('RETENTION_PERIOD_ACTIVE'));
+    expect(at('RETENTION_PERIOD_ACTIVE')).toBeLessThan(at('ARCHIVE_SNAPSHOT_STALE'));
+    expect(DELETE_BLOCKER_PRECEDENCE).not.toContain('RETENTION_POLICY_NOT_CONFIGURED');
+  });
+
+  it('every action backed by a server route resolves to a decorated controller route', () => {
+    const routes = routesOf(UserLifecycleController);
+    for (const [id, want] of Object.entries(ACTION_ENDPOINT_ROUTES)) {
+      expect([id, routes.some((r) => r.method === want!.method && r.path === want!.path)]).toEqual([id, true]);
     }
   });
 });
@@ -232,5 +273,35 @@ describe('the shared-remediation root barrel stays transport-free', () => {
       const src = readFileSync(f, 'utf8');
       expect([f, /from ['"](axios|@apex\/shared-auth)/.test(src)]).toEqual([f, false]);
     }
+  });
+});
+
+describe('Phase 2: role or department removed while a form was open (B8)', () => {
+  it('offers only fixes the form can apply, never Safe Repair or role creation', () => {
+    const role = buildRemediation('ROLE_NOT_FOUND_OR_REMOVED', { details: { field: 'roleId' } });
+    expect(role.actions.map((a) => [a.id, a.kind])).toEqual([['CHOOSE_ANOTHER_ROLE', 'FORM_FIX'], ['COPY_DIAGNOSTIC', 'COPY_DIAGNOSTIC']]);
+    const dept = buildRemediation('DEPARTMENT_NOT_FOUND_OR_REMOVED', { details: { field: 'departmentId' } });
+    expect(dept.actions.map((a) => a.id)).toEqual(['CHOOSE_ANOTHER_DEPARTMENT', 'CONTINUE_WITHOUT_DEPARTMENT', 'OPEN_DEPARTMENTS', 'COPY_DIAGNOSTIC']);
+    for (const r of [role, dept]) {
+      expect(r.actions.map((a) => a.id)).not.toContain('SAFE_REPAIR');
+      expect(r).toEqual(expect.objectContaining({ remediationClass: 'ADMIN_FIXABLE_FRONTEND', blockingScope: 'OPERATION', details: expect.any(Object) }));
+    }
+  });
+
+  it('the frontend shows the new actions, opens Departments in a new tab and routes FORM_FIX to the form', async () => {
+    const dept = buildRemediation('DEPARTMENT_NOT_FOUND_OR_REMOVED', { details: { field: 'departmentId' } }) as any;
+    expect(contract.visibleActions(dept).map((a: any) => a.id)).toEqual(['CHOOSE_ANOTHER_DEPARTMENT', 'CONTINUE_WITHOUT_DEPARTMENT', 'OPEN_DEPARTMENTS', 'COPY_DIAGNOSTIC']);
+    expect(contract.NAVIGATE_ROUTES.OPEN_DEPARTMENTS?.(dept)).toBe('/departments');
+    expect(contract.NEW_TAB_NAVIGATION).toContain('OPEN_DEPARTMENTS');
+    expect(contract.displayableDetails(dept)).toEqual([['field', 'departmentId']]);
+
+    const fixed: string[] = [];
+    const runner = jest.fn(async () => undefined);
+    const run = contract.withFormFixes(runner, { CONTINUE_WITHOUT_DEPARTMENT: () => { fixed.push('continue'); } });
+    await run(dept.actions.find((a: any) => a.id === 'CONTINUE_WITHOUT_DEPARTMENT'), dept);
+    expect(fixed).toEqual(['continue']);
+    expect(runner).not.toHaveBeenCalled();
+    await run(dept.actions.find((a: any) => a.id === 'COPY_DIAGNOSTIC'), dept);
+    expect(runner).toHaveBeenCalledTimes(1);
   });
 });

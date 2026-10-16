@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { AlertOctagon, AlertTriangle, Copy, Info, RefreshCw, Wrench, X } from 'lucide-react';
 import {
   NAVIGATE_ROUTES,
+  NEW_TAB_NAVIGATION,
   RemediationAction,
   RemediationResult,
   SETTINGS_ROUTES,
@@ -54,6 +55,10 @@ const DETAIL_LABELS: Record<string, string> = {
   holdStatus: 'Hold status',
   retentionResult: 'Retention result',
   pendingItems: 'Files still pending',
+  retentionCategories: 'Records covered',
+  eligibleOn: 'Eligible for deletion on',
+  field: 'Field to change',
+  keyConfigurationIssues: 'Backend configuration needed',
 };
 
 const CODE_LABELS: Record<string, string> = {
@@ -65,6 +70,18 @@ const CODE_LABELS: Record<string, string> = {
   ACTIVE: 'Active',
   REQUESTED: 'Awaiting hold review',
   LEGACY_ACTIVE: 'Active (recorded before hold states)',
+  LIFECYCLE_HANDLE_ENCRYPTION_KEY: 'LIFECYCLE_HANDLE_ENCRYPTION_KEY is missing or invalid',
+  LIFECYCLE_HANDLE_HMAC_KEY: 'LIFECYCLE_HANDLE_HMAC_KEY is missing or invalid',
+  LIFECYCLE_HANDLE_KEYS_MUST_DIFFER: 'The encryption and HMAC keys must be different',
+  ATTENDANCE: 'Attendance records',
+  LEAVE: 'Leave records',
+  PAYROLL: 'Closed payroll months',
+  RETENTION_PERIOD_ACTIVE: 'Approved retention period',
+  ARCHIVE_PRIVACY_FAILED: 'Archive sharing problem',
+  ARCHIVE_SNAPSHOT_MISSING: 'No verified archive',
+  ARCHIVE_SNAPSHOT_STALE: 'Archive out of date',
+  roleId: 'Role',
+  departmentId: 'Department',
 };
 
 function detailText(value: unknown): string {
@@ -123,9 +140,24 @@ export function RemediationDialog({ result, open, onClose, runAction, onResult, 
   const onAction = async (action: RemediationAction) => {
     if (action.kind === 'NAVIGATE') {
       const path = NAVIGATE_ROUTES[action.id]?.(r);
+      if (path && NEW_TAB_NAVIGATION.includes(action.id)) {
+        window.open(path, '_blank', 'noopener,noreferrer');
+        return;
+      }
       if (path) {
         onClose();
         router.push(path);
+      }
+      return;
+    }
+    if (action.kind === 'FORM_FIX') {
+      // The form that raised the error applies the fix (clear a stale choice,
+      // or resubmit without a department); nothing it holds is lost.
+      onClose();
+      try {
+        await runAction?.(action, r);
+      } catch {
+        /* the form reports its own errors */
       }
       return;
     }
@@ -149,6 +181,16 @@ export function RemediationDialog({ result, open, onClose, runAction, onResult, 
     }
     if (action.kind === 'SAFE_REPAIR') {
       setConfirming(action);
+      return;
+    }
+    if (action.kind === 'OPEN_ARCHIVE_FOLDER') {
+      // The runner asks the server for the folder link and opens it; the
+      // dialog stays open so the person can retry verification afterwards.
+      try {
+        await runAction?.(action, r);
+      } catch {
+        setActionError('The archive folder could not be opened.');
+      }
       return;
     }
     await run(action);
