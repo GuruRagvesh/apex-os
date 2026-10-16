@@ -62,7 +62,6 @@ Number ${g.number}${g.blocksMigration ? '  << held by ' + g.distinctUsers + ' di
 }
 
 main().catch((err) => {
-  console.error(String(err?.message ?? err).replace(/postgres(ql)?:\/\/[^\s'"`]+/gi, '<url>').split('
-')[0]);
+  console.error(String(err?.message ?? err).replace(/postgres(ql)?:\/\/[^\s'"`]+/gi, '<url>').split('\n')[0]);
   process.exit(1);
 });
