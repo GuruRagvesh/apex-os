@@ -126,7 +126,7 @@ describe('admin:drive:verify', () => {
     const vault = new FakeDriveVault();
     const checks = await verifyDriveVault(vault, config);
     expect(checks.every((c) => c.ok)).toBe(true);
-    expect(checks.map((c) => c.step)).toEqual(['oauth', 'account', 'quota', 'folders', 'folders-private', 'upload', 'download', 'private', 'delete', 'folders-private-after']);
+    expect(checks.map((c) => c.step)).toEqual(['oauth', 'account', 'quota', 'root-private', 'folders', 'folders-private', 'upload', 'download', 'private', 'delete', 'folders-private-after']);
     expect(vault.storedFiles()).toHaveLength(0);
   });
 

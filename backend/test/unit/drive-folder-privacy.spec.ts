@@ -84,7 +84,7 @@ describe('health check', () => {
     const vault = new FakeDriveVault({ account: ACCOUNT });
     const checks = await verifyDriveVault(vault, config);
     expect(checks.every((c) => c.ok)).toBe(true);
-    expect(checks.map((c) => c.step)).toEqual(['oauth', 'account', 'quota', 'folders', 'folders-private', 'upload', 'download', 'private', 'delete', 'folders-private-after']);
+    expect(checks.map((c) => c.step)).toEqual(['oauth', 'account', 'quota', 'root-private', 'folders', 'folders-private', 'upload', 'download', 'private', 'delete', 'folders-private-after']);
     expect(vault.folderAt('staging', 'healthcheck')).toBeDefined();
     expect(vault.folderAt('staging', 'deleted-users')).toBeUndefined();
     expect(vault.storedFiles()).toHaveLength(0);
@@ -103,7 +103,8 @@ describe('health check', () => {
     await vault.ensureFolder('staging', ['healthcheck']);
     vault.addPermission(vault.folderAt('staging', 'healthcheck')!, { type: 'anyone', role: 'reader' });
     const checks = await verifyDriveVault(vault, config);
-    expect(checks.find((c) => !c.ok)?.step).toBe('folders-private');
+    // Each folder is verified as it is reached, before anything is uploaded into it.
+    expect(checks.find((c) => !c.ok)?.step).toBe('folders');
     expect(vault.removed).toEqual([]);
     expect(vault.storedFiles()).toHaveLength(0);
   });

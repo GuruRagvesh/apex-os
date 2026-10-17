@@ -27,6 +27,7 @@ export const ALLOWED_RETRY_ENDPOINTS = [
   'ARCHIVE_PREFLIGHT',
   'PERMANENT_DELETE_PREFLIGHT',
   'VERIFIED_ARCHIVE_PREPARE',
+  'ARCHIVE_STORAGE_VERIFY',
 ] as const;
 export type AllowedRetryEndpoint = (typeof ALLOWED_RETRY_ENDPOINTS)[number];
 
@@ -145,6 +146,7 @@ export const DISPLAYABLE_DETAIL_KEYS: Record<string, string[]> = {
   LIFECYCLE_KEYS_MISSING: ['keyConfigurationIssues', 'otherBlockers'],
   RETENTION_POLICY_NOT_CONFIGURED: ['retentionCategories'],
   RETENTION_PERIOD_ACTIVE: ['retentionCategories', 'eligibleOn', 'otherBlockers'],
+  ARCHIVE_PRIVACY_FAILED: ['folderPath', 'privacyIssue'],
   ARCHIVE_SNAPSHOT_MISSING: ['otherBlockers'],
   ARCHIVE_SNAPSHOT_STALE: ['otherBlockers'],
   OPERATION_IN_PROGRESS: ['otherBlockers'],

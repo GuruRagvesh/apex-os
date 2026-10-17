@@ -30,7 +30,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { TicketsService } from '../../../operations/tickets/tickets.service';
 import { WorkdayService } from '../../../platform/workday/workday.service';
 import { createDriveVault, DRIVE_ROOT_NAME, DriveRefused, isArchiveAccount, readDriveConfig, type ArchiveVault, type DriveConfig } from '../../../platform/backup-vault/drive-vault';
-import { FolderNotPrivate, verifyFolderChain } from '../../../platform/backup-vault/drive-folder-privacy';
+import { ensureVerifiedFolderChain, FolderNotPrivate, inspectArchiveStorage, MISSING_FOLDER_ISSUES, verifyArchiveRoot, verifyFolderChain } from '../../../platform/backup-vault/drive-folder-privacy';
 import { DELETED_ACCOUNT, ensureDeletedAccount } from './system-account';
 import { HANDLERS, JSON_SCRUB_COLUMNS, MatrixContext, NARRATIVE_TEXT_COLUMNS, SCRUBBED, DELETED_USER_NAME, delegateName, handlerWhere, scrubJson, Subject } from './dependency-matrix';
 import { removeTemplateAssignee } from './template-assignees';
@@ -334,7 +334,9 @@ export class UserLifecycleService {
 
   /** The client-safe view of an operation: codes and counts only. */
   operationView(op: any) {
-    return { operationId: op.id, kind: op.kind, state: op.state, result: op.result ?? null, remediation: op.remediation ?? null };
+    // pendingFolderId is a Drive id kept server-side for the cleanup retry; it never leaves the server.
+    const { pendingFolderId: _driveId, ...result } = (op.result ?? {}) as Record<string, unknown>;
+    return { operationId: op.id, kind: op.kind, state: op.state, result: op.result ? result : null, remediation: op.remediation ?? null };
   }
 
   /** The append-only remediation history of one operation (Admin / Super Admin). */
@@ -650,15 +652,18 @@ export class UserLifecycleService {
       return this.operationView(await this.prisma.userLifecycleOperation.findUniqueOrThrow({ where: { id: op.id } }));
     } catch (err: any) {
       const code: ReasonCode = err instanceof LifecycleRefusal ? err.code : err instanceof FolderNotPrivate ? REASON.ARCHIVE_PRIVACY_FAILED : REASON.ARCHIVE_DB_FAILED;
+      const privacy = err instanceof FolderNotPrivate ? err.safeDetails() : undefined;
       const cleanupFailed = await this.discardPendingArchive(drive);
       await this.finishOperation(op.id, cleanupFailed ? OPERATION_STATE.ARCHIVE_CLEANUP_PENDING : OPERATION_STATE.FAILED, {
         reasonCode: code,
+        ...(privacy ?? {}),
         ...(cleanupFailed ? { pendingFolderId: drive.folderId } : {}),
       });
-      if (!(err instanceof LifecycleRefusal) && !(err instanceof FolderNotPrivate)) {
+      if (privacy) this.logger.warn(`Verified archive operation ${op.id} blocked: ${privacy.privacyIssue} at ${privacy.folderPath}`);
+      else if (!(err instanceof LifecycleRefusal)) {
         this.logger.error(`Verified archive operation ${op.id} failed: ${String(err?.message ?? err).split('\n')[0].slice(0, 200)}`);
       }
-      const remediation = this.remediationFor(code, { userId, operationId: op.id, retryEndpoint: cleanupFailed ? 'LIFECYCLE_ARCHIVE_CLEANUP_RETRY' : undefined });
+      const remediation = this.remediationFor(code, { userId, operationId: op.id, details: privacy, retryEndpoint: cleanupFailed ? 'LIFECYCLE_ARCHIVE_CLEANUP_RETRY' : undefined });
       if (remediation) await recordLifecycleAttempt(this.prisma, { operationId: op.id, subjectUserId: userId, phase: 'FAILURE', outcome: 'BLOCKED', actorId: actor.id, remediation });
       throw this.toHttp(err, code, undefined, remediation);
     }
@@ -854,16 +859,19 @@ export class UserLifecycleService {
       return this.operationView(await this.prisma.userLifecycleOperation.findUniqueOrThrow({ where: { id: op.id } }));
     } catch (err: any) {
       const code: ReasonCode = err instanceof LifecycleRefusal ? err.code : err instanceof FolderNotPrivate ? REASON.ARCHIVE_PRIVACY_FAILED : REASON.ARCHIVE_DB_FAILED;
+      const privacy = err instanceof FolderNotPrivate ? err.safeDetails() : undefined;
       const cleanupFailed = await this.discardPendingArchive(drive);
       await this.finishOperation(
         op.id,
         cleanupFailed ? OPERATION_STATE.ARCHIVE_CLEANUP_PENDING : OPERATION_STATE.FAILED,
-        { reasonCode: code, ...(cleanupFailed ? { pendingFolderId: drive.folderId } : {}) },
+        { reasonCode: code, ...(privacy ?? {}), ...(cleanupFailed ? { pendingFolderId: drive.folderId } : {}) },
       );
-      if (!(err instanceof LifecycleRefusal) && !(err instanceof FolderNotPrivate)) {
+      // Only the category and the path inside the archive tree are logged: never a Drive id or who it is shared with.
+      if (privacy) this.logger.warn(`Archive operation ${op.id} blocked: ${privacy.privacyIssue} at ${privacy.folderPath}`);
+      else if (!(err instanceof LifecycleRefusal)) {
         this.logger.error(`Archive operation ${op.id} failed: ${String(err?.message ?? err).split('\n')[0].slice(0, 200)}`);
       }
-      const remediation = this.remediationFor(code, { userId, operationId: op.id, retryEndpoint: cleanupFailed ? 'LIFECYCLE_ARCHIVE_CLEANUP_RETRY' : undefined });
+      const remediation = this.remediationFor(code, { userId, operationId: op.id, details: privacy, retryEndpoint: cleanupFailed ? 'LIFECYCLE_ARCHIVE_CLEANUP_RETRY' : undefined });
       if (remediation) await recordLifecycleAttempt(this.prisma, { operationId: op.id, subjectUserId: userId, phase: 'FAILURE', outcome: 'BLOCKED', actorId: actor.id, remediation });
       throw this.toHttp(err, code, undefined, remediation);
     }
@@ -932,6 +940,57 @@ export class UserLifecycleService {
     return this.operationView(await this.prisma.userLifecycleOperation.findUniqueOrThrow({ where: { id: op.id } }));
   }
 
+  /**
+   * Retry Verification for ARCHIVE_PRIVACY_FAILED: a read-only check of the
+   * archive account, the root and the existing part of
+   * <environment>/archived-users/<year>. It never archives, deactivates or
+   * otherwise changes the user, never creates a folder and never removes
+   * sharing. Ready storage does not archive anything: the person confirms
+   * Archive again, and Archive repeats every check itself.
+   */
+  async verifyArchiveStorage(userId: string, actor: Actor, input: { operationId?: string } = {}): Promise<{ ready: boolean; remediation: RemediationResult }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    this.assertTarget(user, actor);
+    const op = typeof input?.operationId === 'string'
+      ? await this.prisma.userLifecycleOperation.findUnique({ where: { id: input.operationId } })
+      : null;
+    const operationId = op && op.userId === userId && op.kind === OPERATION_KIND.ARCHIVE ? op.id : undefined;
+    const environment = this.environment();
+    const year = String(this.ports.now().getUTCFullYear());
+
+    let remediation: RemediationResult;
+    let ready = false;
+    try {
+      const vault = this.archiveVault(environment);
+      const who = await vault.account();
+      if (!isArchiveAccount(who.email, vault.identity().account)) {
+        throw new LifecycleRefusal(REASON.ARCHIVE_VAULT_NOT_READY, 'Google Drive is signed in as a different account from the configured archive account.');
+      }
+      await inspectArchiveStorage(vault, environment, ['archived-users', year]);
+      ready = true;
+      remediation = buildRemediation('ARCHIVE_STORAGE_READY', { affectedUserId: userId, operationId, now: this.ports.now() });
+    } catch (err: any) {
+      if (err instanceof FolderNotPrivate) {
+        remediation = this.remediationFor(REASON.ARCHIVE_PRIVACY_FAILED, { userId, operationId, details: err.safeDetails(), retryEndpoint: 'ARCHIVE_STORAGE_VERIFY' })!;
+      } else if (err instanceof LifecycleRefusal || err instanceof DriveRefused) {
+        remediation = this.remediationFor(REASON.ARCHIVE_VAULT_NOT_READY, { userId, operationId })!;
+      } else {
+        throw err;
+      }
+    }
+    if (operationId) {
+      await recordLifecycleAttempt(this.prisma, {
+        operationId,
+        subjectUserId: userId,
+        phase: 'VERIFICATION',
+        outcome: ready ? 'PASSED' : 'BLOCKED',
+        actorId: actor.id,
+        remediation,
+      });
+    }
+    return { ready, remediation };
+  }
+
   private archiveVault(environment: string): ArchiveVault {
     if (environment !== 'staging' && environment !== 'production') {
       throw new LifecycleRefusal(REASON.ARCHIVE_VAULT_NOT_READY, 'User archives are stored in Google Drive only from staging or production.');
@@ -968,8 +1027,11 @@ export class UserLifecycleService {
       throw new LifecycleRefusal(REASON.ARCHIVE_VAULT_NOT_READY, 'Google Drive is signed in as a different account from the configured archive account.');
     }
     const year = String(meta.now.getUTCFullYear());
-    await verifyFolderChain(vault, meta.environment, []);
-    const yearId = await vault.ensureFolder(meta.environment, ['archived-users', year]);
+    // The root alone first: a new environment has no <environment> folder yet,
+    // and that is not a privacy failure. Nothing is created under a root that
+    // fails, and every folder is verified before anything is created inside it.
+    await verifyArchiveRoot(vault, meta.environment);
+    const yearId = await ensureVerifiedFolderChain(vault, meta.environment, ['archived-users', year]);
     await verifyFolderChain(vault, meta.environment, ['archived-users', year]);
     if ((await vault.findChildFolders(yearId, meta.archiveRef)).length > 0) {
       throw new LifecycleRefusal(REASON.ARCHIVE_VERIFY_FAILED, 'An archive folder with this reference already exists.');
@@ -978,6 +1040,7 @@ export class UserLifecycleService {
     drive.folderId = folderId;
     await vault.setAppProperties(folderId, { apexArchiveKind: 'archived-user', apexArchiveRef: meta.archiveRef, apexArchiveState: 'pending' });
     const filesFolderId = await vault.ensureFolder(meta.environment, ['archived-users', year, meta.archiveRef, 'files']);
+    await verifyFolderChain(vault, meta.environment, ['archived-users', year, meta.archiveRef, 'files']);
     const folderPath = `${DRIVE_ROOT_NAME}/${meta.environment}/archived-users/${year}/${meta.archiveRef}`;
 
     const store = this.ports.makeFileStore();
@@ -995,7 +1058,9 @@ export class UserLifecycleService {
         const info = await vault.stat(up.fileId);
         if (!info || info.trashed || !info.parents.includes(folder) || info.driveId) throw new LifecycleRefusal(REASON.ARCHIVE_VERIFY_FAILED, 'An archived file is not where it was written.');
         if (info.size !== bytes.length) throw new LifecycleRefusal(REASON.ARCHIVE_VERIFY_FAILED, 'An archived file has the wrong size.');
-        if (!(await vault.isPrivate(up.fileId))) throw new LifecycleRefusal(REASON.ARCHIVE_PRIVACY_FAILED, 'An archived file is shared beyond the archive account.');
+        if (!(await vault.isPrivate(up.fileId))) {
+          throw new FolderNotPrivate(folder === folderId ? folderPath : `${folderPath}/files`, 'a file uploaded to it is shared beyond the archive account', 'UPLOADED_FILE_NOT_PRIVATE');
+        }
         const back = join(dir, 'readback.bin');
         await vault.download(up.fileId, back);
         if (createHash('sha256').update(readFileSync(back)).digest('hex') !== sha) throw new LifecycleRefusal(REASON.ARCHIVE_VERIFY_FAILED, 'An archived file did not read back identically.');
@@ -1230,7 +1295,9 @@ export class UserLifecycleService {
         out.cleanupObjects = plan.length;
       } catch (err: any) {
         // A sharing problem is fixed by the archive owner in Drive, not by a rebuild.
-        if (err instanceof FolderNotPrivate || (err instanceof LifecycleRefusal && /shared beyond/i.test(err.message))) refuse(REASON.ARCHIVE_PRIVACY_FAILED, 'The archive is shared beyond the archive account.');
+        // A folder that no longer exists is a missing archive (rebuild), not a sharing problem.
+        if (err instanceof FolderNotPrivate && MISSING_FOLDER_ISSUES.includes(err.privacyIssue)) refuse(REASON.ARCHIVE_MISSING_OR_CHANGED, 'The existing archive is missing or has changed.');
+        else if (err instanceof FolderNotPrivate || (err instanceof LifecycleRefusal && /shared beyond/i.test(err.message))) refuse(REASON.ARCHIVE_PRIVACY_FAILED, 'The archive is shared beyond the archive account.');
         else if (err instanceof LifecycleRefusal) refuse(REASON.ARCHIVE_MISSING_OR_CHANGED, err.message);
         else refuse(REASON.ARCHIVE_MISSING_OR_CHANGED, 'The existing archive could not be verified.');
       }
@@ -1465,10 +1532,10 @@ export class UserLifecycleService {
 
   private toHttp(err: any, code: ReasonCode, message = 'The operation could not be completed. Nothing was changed.', remediation: RemediationResult | null = null) {
     if (remediation && (err instanceof LifecycleRefusal || err instanceof FolderNotPrivate)) {
-      return new RemediationException(remediation, 409, err.message, { reasonCode: code, ...(err instanceof LifecycleRefusal ? { details: err.details } : {}) });
+      return new RemediationException(remediation, 409, err.message, { reasonCode: code, details: err instanceof LifecycleRefusal ? err.details : err.safeDetails() });
     }
     if (err instanceof LifecycleRefusal) return new ConflictException({ code: err.code, message: err.message, details: err.details });
-    if (err instanceof FolderNotPrivate) return new ConflictException({ code: REASON.ARCHIVE_PRIVACY_FAILED, message: err.message });
+    if (err instanceof FolderNotPrivate) return new ConflictException({ code: REASON.ARCHIVE_PRIVACY_FAILED, message: err.message, details: err.safeDetails() });
     if (err?.getStatus) return err;
     return new ServiceUnavailableException({ code, message });
   }

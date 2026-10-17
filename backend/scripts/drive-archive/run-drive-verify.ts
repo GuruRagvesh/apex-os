@@ -8,7 +8,9 @@
  *
  *   1. OAuth works with the configured refresh token.
  *   2. The signed-in account is exactly GOOGLE_DRIVE_ARCHIVE_ACCOUNT.
- *   3. The configured archive root exists and was created by this tool.
+ *   3. The configured archive root exists, was created by this tool, and is
+ *      private (owner only, My Drive) -- checked on its own, before any child
+ *      folder is created, so a first run in a new environment works.
  *   4. The environment folder is labelled for THIS environment, so a staging
  *      run can never write into the production folder (or the reverse).
  *   4a. Every folder in Apex OS Secure Archives/<environment>/healthcheck is
@@ -34,7 +36,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { assertArchiveAccount, createDriveVault, isArchiveAccount, readDriveConfig, type ArchiveVault, type DriveConfig } from '../../src/modules/platform/backup-vault/drive-vault';
-import { verifyFolderChain } from '../../src/modules/platform/backup-vault/drive-folder-privacy';
+import { ensureVerifiedFolderChain, verifyArchiveRoot, verifyFolderChain } from '../../src/modules/platform/backup-vault/drive-folder-privacy';
 
 export const MIN_FREE_BYTES = 100 * 1024 * 1024;
 
@@ -67,13 +69,23 @@ export async function verifyDriveVault(vault: ArchiveVault, config: DriveConfig)
   }
   pass('quota', account.freeBytes === null ? 'Storage is unlimited.' : `${Math.floor(account.freeBytes / 1024 / 1024)} MiB free.`);
 
+  // The root on its own first: a new environment has no <environment> folder
+  // yet, and nothing is ever created under a root that is not private.
+  try {
+    await verifyArchiveRoot(vault, config.environment);
+  } catch (err: any) {
+    return failAndStop('root-private', String(err?.message ?? err));
+  }
+  pass('root-private', 'Apex OS Secure Archives is owner-only, in My Drive, and labelled as the archive root.');
+
+  // Only <environment>/healthcheck is ever created here: never an archive user folder, never a permission change.
   let folderId: string;
   try {
-    folderId = await vault.ensureFolder(config.environment, ['healthcheck']);
+    folderId = await ensureVerifiedFolderChain(vault, config.environment, ['healthcheck']);
   } catch (err: any) {
     return failAndStop('folders', String(err?.message ?? err));
   }
-  pass('folders', `Archive root and the ${config.environment} folder exist and are labelled for ${config.environment}.`);
+  pass('folders', `The ${config.environment} and healthcheck folders exist, each verified before use, and are labelled for ${config.environment}.`);
   try {
     await verifyFolderChain(vault, config.environment, ['healthcheck']);
   } catch (err: any) {

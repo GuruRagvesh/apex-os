@@ -647,7 +647,7 @@ export default function CreateTicketsPage() {
             style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
             {importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Import from Excel
           </button>
-          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onFilePicked} />
+          <input ref={fileInputRef} id="ticket-import-file" name="ticketImportFile" aria-label="Import tickets from an Excel file" type="file" accept=".xlsx,.xls" className="hidden" onChange={onFilePicked} />
         </div>
       </div>
 
@@ -688,6 +688,8 @@ export default function CreateTicketsPage() {
           const rowSubtypes = subtypesFor(row.departmentId, row.taskTypeId);
           const rowUsers = usersFor(row.departmentId);
           const rowRoutingUsers = row.type !== 'TASK' ? routingOptionsFor(row.type, row.targetDepartmentId) : [];
+          // Unique per row: every control gets an id, a name and a label pointing at it.
+          const fid = (field: string) => `${row.key}-${field}`;
           return (
             <div key={row.key} className="apex-card p-5" style={row.errors.length ? { borderColor: 'var(--color-danger)', borderWidth: 1 } : undefined}>
               {/* Row header */}
@@ -729,52 +731,52 @@ export default function CreateTicketsPage() {
               {/* Title + Description */}
               <div className="space-y-3">
                 <div>
-                  <label className={labelCls}>{labelFor(row.type, 'title')} *</label>
-                  <input type="text" value={row.title} onChange={(e) => setRowField(row.key, 'title', e.target.value)} className={inputCls}
+                  <label className={labelCls} htmlFor={fid('title')}>{labelFor(row.type, 'title')} *</label>
+                  <input id={fid('title')} name={fid('title')} type="text" value={row.title} onChange={(e) => setRowField(row.key, 'title', e.target.value)} className={inputCls}
                     placeholder="Short summary…" />
                 </div>
                 <div>
-                  <label className={labelCls}>Description</label>
-                  <textarea value={row.description} onChange={(e) => setRowField(row.key, 'description', e.target.value)} className={`${inputCls} resize-none`} rows={2} placeholder="More detail (optional)…" />
+                  <label className={labelCls} htmlFor={fid('description')}>Description</label>
+                  <textarea id={fid('description')} name={fid('description')} value={row.description} onChange={(e) => setRowField(row.key, 'description', e.target.value)} className={`${inputCls} resize-none`} rows={2} placeholder="More detail (optional)…" />
                 </div>
 
                 {/* Department / Task Type / Subtype */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
-                    <label className={labelCls}>Department *</label>
+                    <label className={labelCls} htmlFor={fid('department')}>Department *</label>
                     {lockDept ? (
-                      <input readOnly value={deptName(row.departmentId) || 'Your department'} className="apex-input cursor-not-allowed"
+                      <input id={fid('department')} name={fid('department')} readOnly value={deptName(row.departmentId) || 'Your department'} className="apex-input cursor-not-allowed"
                         style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }} />
                     ) : (
-                      <select value={row.departmentId} onChange={(e) => changeRowDepartment(row.key, e.target.value)} className={inputCls}>
+                      <select id={fid('department')} name={fid('department')} value={row.departmentId} onChange={(e) => changeRowDepartment(row.key, e.target.value)} className={inputCls}>
                         <option value="">Select…</option>
                         {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                       </select>
                     )}
                   </div>
                   <div>
-                    <label className={labelCls}>{labelFor(row.type, 'taskType')} *</label>
-                    <select value={row.taskTypeId} onChange={(e) => changeRowTaskType(row.key, e.target.value)} className={inputCls} disabled={!row.departmentId}>
+                    <label className={labelCls} htmlFor={fid('task-type')}>{labelFor(row.type, 'taskType')} *</label>
+                    <select id={fid('task-type')} name={fid('task-type')} value={row.taskTypeId} onChange={(e) => changeRowTaskType(row.key, e.target.value)} className={inputCls} disabled={!row.departmentId}>
                       <option value="">{row.departmentId ? 'Select…' : 'Pick department first'}</option>
                       {rowTaskTypes.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className={labelCls}>Subtype</label>
+                    <label className={labelCls} htmlFor={fid('subtype')}>Subtype</label>
                     {row.taskTypeId && rowSubtypes.length > 0 ? (
                       <>
-                        <select value={row.taskSubtypeId} onChange={(e) => setRowField(row.key, 'taskSubtypeId', e.target.value)} className={inputCls}>
+                        <select id={fid('subtype')} name={fid('subtype')} value={row.taskSubtypeId} onChange={(e) => setRowField(row.key, 'taskSubtypeId', e.target.value)} className={inputCls}>
                           <option value="">None</option>
                           {rowSubtypes.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
                           <option value="__custom__">Custom…</option>
                         </select>
                         {row.taskSubtypeId === '__custom__' && (
-                          <input type="text" value={row.customSubtype} onChange={(e) => setRowField(row.key, 'customSubtype', e.target.value)}
+                          <input id={fid('custom-subtype')} name={fid('custom-subtype')} aria-label="Custom subtype" type="text" value={row.customSubtype} onChange={(e) => setRowField(row.key, 'customSubtype', e.target.value)}
                             className={`${inputCls} mt-2`} placeholder="Describe the subtype…" maxLength={80} />
                         )}
                       </>
                     ) : (
-                      <input readOnly value="—" className="apex-input cursor-not-allowed" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }} />
+                      <input id={fid('subtype')} name={fid('subtype')} readOnly value="—" className="apex-input cursor-not-allowed" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }} />
                     )}
                   </div>
                 </div>
@@ -788,8 +790,8 @@ export default function CreateTicketsPage() {
                     replacing the TASK assignee dropdown. */}
                 {row.type !== 'TASK' && (
                   <div>
-                    <label className={labelCls}>{row.type === 'QUERY' ? 'Target Department' : 'Help From Department'} *</label>
-                    <select value={row.targetDepartmentId}
+                    <label className={labelCls} htmlFor={fid('target-department')}>{row.type === 'QUERY' ? 'Target Department' : 'Help From Department'} *</label>
+                    <select id={fid('target-department')} name={fid('target-department')} value={row.targetDepartmentId}
                       onChange={(e) => changeRowTargetDepartment(row.key, e.target.value)}
                       className={inputCls}>
                       <option value="">Select…</option>
@@ -801,7 +803,7 @@ export default function CreateTicketsPage() {
                 {/* Assignee + Priority */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className={labelCls}>{labelFor(row.type, 'assignee')} {!isSelfLockedRow(row) && '*'}</label>
+                    <label className={labelCls} htmlFor={isSelfLockedRow(row) ? undefined : fid('assignees')}>{labelFor(row.type, 'assignee')} {!isSelfLockedRow(row) && '*'}</label>
                     {isSelfLockedRow(row) ? (
                       <div className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm"
                         style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
@@ -809,6 +811,9 @@ export default function CreateTicketsPage() {
                       </div>
                     ) : (
                       <MultiSelect
+                        id={fid('assignees')}
+                        name={fid('assignees')}
+                        label={labelFor(row.type, 'assignee')}
                         options={(row.type === 'TASK' ? rowUsers : rowRoutingUsers).map((u: any) => ({
                           value: u.id,
                           label: u.name,
@@ -829,13 +834,13 @@ export default function CreateTicketsPage() {
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Priority *</label>
+                      <label htmlFor={fid('priority')} className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Priority *</label>
                       <button type="button" onClick={() => suggestPriority(row.key)} disabled={row.aiBusy || !row.title.trim()}
                         className="flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed">
                         {row.aiBusy ? <><Loader2 size={11} className="animate-spin" /> …</> : <><Sparkles size={11} /> Suggest</>}
                       </button>
                     </div>
-                    <select value={row.priority} onChange={(e) => setRowField(row.key, 'priority', e.target.value)} className={cn(inputCls, 'font-medium', PRIORITY_COLORS[row.priority])}>
+                    <select id={fid('priority')} name={fid('priority')} value={row.priority} onChange={(e) => setRowField(row.key, 'priority', e.target.value)} className={cn(inputCls, 'font-medium', PRIORITY_COLORS[row.priority])}>
                       {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
                     </select>
                     {row.aiReason && <p className="mt-1 text-xs flex items-start gap-1" style={{ color: 'var(--text-tertiary)' }}><Sparkles size={10} className="text-indigo-400 mt-0.5" /> {row.aiReason}</p>}
@@ -844,8 +849,10 @@ export default function CreateTicketsPage() {
 
                 {row.type === 'TASK' && ['content', 'content sales'].includes(deptName(row.departmentId).trim().toLowerCase()) && (
                   <div>
-                    <label className={labelCls}>Minutes of output per day (optional)</label>
+                    <label className={labelCls} htmlFor={fid('output-minutes')}>Minutes of output per day (optional)</label>
                     <input
+                      id={fid('output-minutes')}
+                      name={fid('output-minutes')}
                       type="number"
                       min={1}
                       max={1440}
@@ -862,39 +869,39 @@ export default function CreateTicketsPage() {
                 {/* Start date/time + Due date/time */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
-                    <label className={labelCls}>Start Date</label>
-                    <input type="date" value={row.startDate} onChange={(e) => setRowField(row.key, 'startDate', e.target.value)} className={inputCls} min={companyPlanningNow().date} />
+                    <label className={labelCls} htmlFor={fid('start-date')}>Start Date</label>
+                    <input id={fid('start-date')} name={fid('start-date')} type="date" value={row.startDate} onChange={(e) => setRowField(row.key, 'startDate', e.target.value)} className={inputCls} min={companyPlanningNow().date} />
                   </div>
                   <div>
-                    <label className={labelCls}>Start Time</label>
-                    <input type="time" value={row.startTime} onChange={(e) => setRowField(row.key, 'startTime', e.target.value)} className={inputCls} disabled={!row.startDate} />
+                    <label className={labelCls} htmlFor={fid('start-time')}>Start Time</label>
+                    <input id={fid('start-time')} name={fid('start-time')} type="time" value={row.startTime} onChange={(e) => setRowField(row.key, 'startTime', e.target.value)} className={inputCls} disabled={!row.startDate} />
                   </div>
                   <div>
-                    <label className={labelCls}>{labelFor(row.type, 'due')} *</label>
-                    <input type="date" value={row.dueDate} onChange={(e) => setRowField(row.key, 'dueDate', e.target.value)} className={inputCls} min={row.startDate || companyPlanningNow().date} />
+                    <label className={labelCls} htmlFor={fid('due-date')}>{labelFor(row.type, 'due')} *</label>
+                    <input id={fid('due-date')} name={fid('due-date')} type="date" value={row.dueDate} onChange={(e) => setRowField(row.key, 'dueDate', e.target.value)} className={inputCls} min={row.startDate || companyPlanningNow().date} />
                   </div>
                   <div>
-                    <label className={labelCls}>Due Time</label>
-                    <input type="time" value={row.dueTime} onChange={(e) => setRowField(row.key, 'dueTime', e.target.value)} className={inputCls} />
+                    <label className={labelCls} htmlFor={fid('due-time')}>Due Time</label>
+                    <input id={fid('due-time')} name={fid('due-time')} type="time" value={row.dueTime} onChange={(e) => setRowField(row.key, 'dueTime', e.target.value)} className={inputCls} />
                   </div>
                 </div>
 
                 {/* Estimated Time + Project */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className={labelCls}>{labelFor(row.type, 'estimate')}</label>
+                    <label className={labelCls} htmlFor={fid('estimated-hours')}>{labelFor(row.type, 'estimate')}</label>
                     <div className="flex items-center gap-1">
-                      <input type="number" min="0" max="99" value={row.estHours} onChange={(e) => setRowField(row.key, 'estHours', e.target.value)} className={inputCls} placeholder="0" />
+                      <input id={fid('estimated-hours')} name={fid('estimated-hours')} aria-label={`${labelFor(row.type, 'estimate')} hours`} type="number" min="0" max="99" value={row.estHours} onChange={(e) => setRowField(row.key, 'estHours', e.target.value)} className={inputCls} placeholder="0" />
                       <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>h</span>
-                      <select value={row.estMinutes} onChange={(e) => setRowField(row.key, 'estMinutes', e.target.value)} className={inputCls}>
+                      <select id={fid('estimated-minutes')} name={fid('estimated-minutes')} aria-label={`${labelFor(row.type, 'estimate')} minutes`} value={row.estMinutes} onChange={(e) => setRowField(row.key, 'estMinutes', e.target.value)} className={inputCls}>
                         {EST_MINUTE_STEPS.map((m) => <option key={m} value={m === 0 ? '' : String(m)}>{m}</option>)}
                       </select>
                       <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>m</span>
                     </div>
                   </div>
                   <div>
-                    <label className={labelCls}>Project</label>
-                    <select value={row.projectId} onChange={(e) => setRowField(row.key, 'projectId', e.target.value)} className={inputCls}>
+                    <label className={labelCls} htmlFor={fid('project')}>Project</label>
+                    <select id={fid('project')} name={fid('project')} value={row.projectId} onChange={(e) => setRowField(row.key, 'projectId', e.target.value)} className={inputCls}>
                       <option value="">No project</option>
                       {projectList.map((p: any) => <option key={p.id} value={p.id}>{p.projectId} — {p.name}</option>)}
                     </select>
@@ -913,17 +920,17 @@ export default function CreateTicketsPage() {
                       {/* Start Date/Time live in the basic fields above; this is the optional
                           end of the scheduled window. */}
                       <div>
-                        <label className={labelCls}>Scheduled End</label>
-                        <input type="datetime-local" value={row.scheduledEndAt} onChange={(e) => setRowField(row.key, 'scheduledEndAt', e.target.value)} className={inputCls} min={`${companyPlanningNow().date}T${companyPlanningNow().time}`} />
+                        <label className={labelCls} htmlFor={fid('scheduled-end')}>Scheduled End</label>
+                        <input id={fid('scheduled-end')} name={fid('scheduled-end')} type="datetime-local" value={row.scheduledEndAt} onChange={(e) => setRowField(row.key, 'scheduledEndAt', e.target.value)} className={inputCls} min={`${companyPlanningNow().date}T${companyPlanningNow().time}`} />
                       </div>
                       <div>
-                        <label className={labelCls}>Notes</label>
-                        <input type="text" value={row.notes} onChange={(e) => setRowField(row.key, 'notes', e.target.value)} className={inputCls} placeholder="Internal note (optional)…" />
+                        <label className={labelCls} htmlFor={fid('notes')}>Notes</label>
+                        <input id={fid('notes')} name={fid('notes')} type="text" value={row.notes} onChange={(e) => setRowField(row.key, 'notes', e.target.value)} className={inputCls} placeholder="Internal note (optional)…" />
                       </div>
                       {/* Reminder schedule — the existing recurrence the scheduler already runs. */}
                       <div>
                         <label className={labelCls} htmlFor={`${row.key}-recurrence`}>Reminder schedule</label>
-                        <select id={`${row.key}-recurrence`} value={row.recurrence.mode}
+                        <select id={`${row.key}-recurrence`} name={`${row.key}-recurrence`} value={row.recurrence.mode}
                           onChange={(e) => setRowField(row.key, 'recurrence', { ...row.recurrence, mode: e.target.value })}
                           className={inputCls}>
                           {RECURRENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -932,7 +939,7 @@ export default function CreateTicketsPage() {
                       {row.recurrence.mode === 'custom_time' ? (
                         <div>
                           <label className={labelCls} htmlFor={`${row.key}-remind-at`}>Remind at</label>
-                          <input id={`${row.key}-remind-at`} type="datetime-local" value={row.recurrence.oneTimeAt}
+                          <input id={`${row.key}-remind-at`} name={`${row.key}-remind-at`} type="datetime-local" value={row.recurrence.oneTimeAt}
                             onChange={(e) => setRowField(row.key, 'recurrence', { ...row.recurrence, oneTimeAt: e.target.value })}
                             className={inputCls} min={`${companyPlanningNow().date}T${companyPlanningNow().time}`} />
                         </div>
@@ -940,7 +947,7 @@ export default function CreateTicketsPage() {
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <label className={labelCls} htmlFor={`${row.key}-remind-until`}>Remind until</label>
-                            <select id={`${row.key}-remind-until`} value={row.recurrence.endPreset}
+                            <select id={`${row.key}-remind-until`} name={`${row.key}-remind-until`} value={row.recurrence.endPreset}
                               onChange={(e) => setRowField(row.key, 'recurrence', { ...row.recurrence, endPreset: e.target.value })}
                               className={inputCls}>
                               {RECURRENCE_END_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
@@ -949,7 +956,7 @@ export default function CreateTicketsPage() {
                           {row.recurrence.endPreset === 'custom' && (
                             <div>
                               <label className={labelCls} htmlFor={`${row.key}-remind-end`}>End date</label>
-                              <input id={`${row.key}-remind-end`} type="date" value={row.recurrence.endDate}
+                              <input id={`${row.key}-remind-end`} name={`${row.key}-remind-end`} type="date" value={row.recurrence.endDate}
                                 onChange={(e) => setRowField(row.key, 'recurrence', { ...row.recurrence, endDate: e.target.value })}
                                 className={inputCls} min={companyPlanningNow().date} />
                             </div>
