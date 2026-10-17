@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../../shared/guards/roles.guard';
@@ -52,6 +52,13 @@ export class UserLifecycleController {
   @Get(':userId/archive/preflight')
   archivePreflight(@Param('userId') userId: string, @CurrentUser() actor: any) {
     return this.lifecycle.archivePreflight(userId, actor);
+  }
+
+  /** Retry Verification for an archive privacy failure: read-only Drive check, never archives. */
+  @Post(':userId/archive/storage-verification')
+  @HttpCode(200)
+  archiveStorageVerification(@Param('userId') userId: string, @Body() body: { operationId?: string }, @CurrentUser() actor: any) {
+    return this.lifecycle.verifyArchiveStorage(userId, actor, { operationId: body?.operationId });
   }
 
   @Post(':userId/archive')
