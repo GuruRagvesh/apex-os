@@ -89,6 +89,20 @@ export class FakeDriveVault implements ArchiveVault {
   setLabel(id: string, key: string, value: string) {
     this.files.get(id)!.info.appProperties[key] = value;
   }
+  /** A folder created behind the tool's back (for example a duplicate made by hand). */
+  addFolder(parentId: string, name: string, appProperties: Record<string, string>) {
+    const id = `folder-${++this.seq}`;
+    this.files.set(id, {
+      info: { fileId: id, name, size: null, mimeType: FOLDER, trashed: false, parents: [parentId], appProperties, driveId: null },
+      bytes: Buffer.alloc(0),
+      perms: [this.owner()],
+    });
+    return id;
+  }
+  /** Every permission list, for "nothing was changed" assertions. */
+  permissionSnapshot() {
+    return JSON.stringify([...this.files.entries()].map(([id, f]) => [id, f.perms]));
+  }
 
   async account() {
     return { email: this.account_, freeBytes: this.opts.freeBytes === undefined ? 10 * 1024 ** 3 : this.opts.freeBytes };

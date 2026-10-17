@@ -139,14 +139,31 @@ export interface DrivePermission {
  * acceptable list is exactly one entry: the archive account, as owner.
  */
 export function permissionProblem(perms: DrivePermission[], account: string): string | null {
-  if (perms.some((p) => p.type === 'anyone')) return 'it is shared publicly or with anyone who has the link';
-  if (perms.some((p) => p.type === 'domain')) return 'it is shared with a whole domain';
-  if (perms.some((p) => p.type === 'group')) return 'it is shared with a group';
+  const issue = permissionIssue(perms, account);
+  return issue ? PERMISSION_ISSUE_TEXT[issue] : null;
+}
+
+/** The sharing categories a permission list can fail with. None of them names the other party. */
+export type PermissionIssue = 'PUBLIC_LINK' | 'DOMAIN_SHARE' | 'GROUP_SHARE' | 'WRONG_OWNER' | 'EXTRA_USER';
+
+const PERMISSION_ISSUE_TEXT: Record<PermissionIssue, string> = {
+  PUBLIC_LINK: 'it is shared publicly or with anyone who has the link',
+  DOMAIN_SHARE: 'it is shared with a whole domain',
+  GROUP_SHARE: 'it is shared with a group',
+  WRONG_OWNER: 'it is not owned by the archive account',
+  EXTRA_USER: 'it is shared with another user',
+};
+
+/** permissionProblem as a category, or null when the list is owner-only. */
+export function permissionIssue(perms: DrivePermission[], account: string): PermissionIssue | null {
+  if (perms.some((p) => p.type === 'anyone')) return 'PUBLIC_LINK';
+  if (perms.some((p) => p.type === 'domain')) return 'DOMAIN_SHARE';
+  if (perms.some((p) => p.type === 'group')) return 'GROUP_SHARE';
   const owners = perms.filter((p) => p.role === 'owner');
   if (owners.length !== 1 || !isArchiveAccount(owners[0].emailAddress, account) || owners[0].type !== 'user') {
-    return 'it is not owned by the archive account';
+    return 'WRONG_OWNER';
   }
-  if (perms.length !== 1) return 'it is shared with another user';
+  if (perms.length !== 1) return 'EXTRA_USER';
   return null;
 }
 

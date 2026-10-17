@@ -36,7 +36,129 @@ export interface RegistryEntry {
   detailKeys: string[];
   /** Per-code button text, e.g. Safe Repair shown as "Rebuild Verified Archive". */
   actionLabels?: Partial<Record<RemediationActionId, string>>;
+  /**
+   * Copy chosen by one of the code's own detail values (for example the exact
+   * archive privacy category), so the dialog names the real cause and its fix.
+   * Only the text varies; class, flags and actions stay the entry's.
+   */
+  variants?: { detailKey: string; byValue: Record<string, RegistryVariant> };
 }
+
+export interface RegistryVariant {
+  title?: string;
+  problem: string;
+  correctionSteps: string[];
+}
+
+/** The copy for `details`, or the entry's own when no variant matches. */
+export function variantFor(e: RegistryEntry, details?: Record<string, unknown>): RegistryVariant | null {
+  if (!e.variants || !details) return null;
+  const value = details[e.variants.detailKey];
+  return typeof value === 'string' ? e.variants.byValue[value] ?? null : null;
+}
+
+const REMOVE_EXTRA_ACCESS = [
+  'Open the archive folder named below in Google Drive and select Manage access.',
+  'Remove the extra access, keeping only the configured archive account as owner.',
+  'Then retry verification. When storage is ready, confirm Archive again.',
+];
+
+const BACKEND_FOLDER_FIX = [
+  'Ask backend operations to correct the archive folder configuration named below. Do not guess between duplicate folders and do not relabel folders by hand.',
+  'Then retry verification. When storage is ready, confirm Archive again.',
+];
+
+/** ARCHIVE_PRIVACY_FAILED copy per privacyIssue (drive-folder-privacy PRIVACY_ISSUES). */
+export const ARCHIVE_PRIVACY_VARIANTS: Record<string, RegistryVariant> = {
+  ROOT_MISSING_OR_INVALID: {
+    title: 'Archive root folder is not available',
+    problem: 'The configured archive root folder does not exist, is trashed, or is not a folder, so the archive was not created.',
+    correctionSteps: [
+      'Ask backend operations to check GOOGLE_DRIVE_ARCHIVE_ROOT_FOLDER_ID for this environment and run the archive storage verification.',
+      'Then retry verification. When storage is ready, confirm Archive again.',
+    ],
+  },
+  ENVIRONMENT_FOLDER_MISSING: {
+    title: 'Archive folder not initialized',
+    problem: 'The archive folder for this environment has not been initialized, so the archive was not created.',
+    correctionSteps: [
+      'Ask an administrator to run the archive storage verification for this environment (admin:drive:verify).',
+      'Then retry verification. When storage is ready, confirm Archive again.',
+    ],
+  },
+  FOLDER_MISSING: {
+    title: 'Archive folder is missing',
+    problem: 'An archive folder this operation needs does not exist.',
+    correctionSteps: [
+      'Ask an administrator to run the archive storage verification for this environment (admin:drive:verify).',
+      'Then retry verification.',
+    ],
+  },
+  DUPLICATE_FOLDER: {
+    title: 'Duplicate archive folder',
+    problem: 'There is more than one archive folder with the same name at the location named below, so Apex OS will not choose between them.',
+    correctionSteps: BACKEND_FOLDER_FIX,
+  },
+  WRONG_LABEL: {
+    title: 'Archive folder has the wrong label',
+    problem: 'An archive folder is not labelled for this environment, so Apex OS will not write into it.',
+    correctionSteps: BACKEND_FOLDER_FIX,
+  },
+  TRASHED_OR_NOT_FOLDER: {
+    title: 'Archive folder is trashed or invalid',
+    problem: 'An archive folder is in the Drive trash or is not a folder.',
+    correctionSteps: [
+      'Ask the archive account owner to restore the folder from the Google Drive trash, or ask backend operations to correct the archive configuration.',
+      'Then retry verification.',
+    ],
+  },
+  SHARED_DRIVE: {
+    title: 'Archive folder is in a Shared Drive',
+    problem: 'This archive folder is in a Shared Drive. Archives may only be stored in a private My Drive folder owned by the archive account.',
+    correctionSteps: [
+      'Ask backend operations to configure a private My Drive folder owned by the archive account.',
+      'Then retry verification.',
+    ],
+  },
+  PUBLIC_LINK: {
+    title: 'Archive folder is shared by link',
+    problem: 'The archive folder named below is shared publicly or with anyone who has the link, so the archive was not created.',
+    correctionSteps: REMOVE_EXTRA_ACCESS,
+  },
+  DOMAIN_SHARE: {
+    title: 'Archive folder is shared with a domain',
+    problem: 'The archive folder named below is shared with a whole domain, so the archive was not created.',
+    correctionSteps: REMOVE_EXTRA_ACCESS,
+  },
+  GROUP_SHARE: {
+    title: 'Archive folder is shared with a group',
+    problem: 'The archive folder named below is shared with a group, so the archive was not created.',
+    correctionSteps: REMOVE_EXTRA_ACCESS,
+  },
+  EXTRA_USER: {
+    title: 'Archive folder is shared with another user',
+    problem: 'The archive folder named below is shared with someone other than the archive account, so the archive was not created.',
+    correctionSteps: REMOVE_EXTRA_ACCESS,
+  },
+  WRONG_OWNER: {
+    title: 'Archive folder has the wrong owner',
+    problem: 'The archive folder named below is not owned by the configured archive account.',
+    correctionSteps: [
+      'Do not transfer ownership or remove access automatically.',
+      'Ask the archive administrator to configure a root folder created and owned by the archive account.',
+      'Then retry verification.',
+    ],
+  },
+  UPLOADED_FILE_NOT_PRIVATE: {
+    title: 'Archived file was not private',
+    problem: 'A file uploaded to the archive folder named below was shared beyond the archive account, so the archive was not created and the unfinished upload was removed.',
+    correctionSteps: [
+      'Ask the archive account owner to check the folder named below, and any Google Workspace policy, for sharing that applies to new files.',
+      'Remove that sharing, keeping only the archive account as owner.',
+      'Then retry verification. When storage is ready, confirm Archive again.',
+    ],
+  },
+};
 
 const ADMINS: RecipientGroup[] = ['SUPER_ADMIN', 'ADMIN'];
 
@@ -80,7 +202,7 @@ export const REMEDIATION_REGISTRY: Record<string, RegistryEntry> = {
     severity: 'BLOCKING',
     blockingScope: 'OPERATION',
     title: 'Archive privacy check failed',
-    problem: 'Part of the archive location is shared beyond the archive account, so the archive was not created.',
+    problem: 'An archive folder failed the privacy check, so the archive was not created.',
     whyItMatters: 'Archived records must be private to the archive account. Nothing about this user was changed.',
     correctionSteps: [
       'Ask the archive account owner to remove the extra sharing from the archive folders.',
@@ -90,8 +212,26 @@ export const REMEDIATION_REGISTRY: Record<string, RegistryEntry> = {
     canSystemRepair: false,
     requiresManualExternalAction: true,
     requiresBackendOperations: false,
-    retryEndpoint: 'ARCHIVE_PREFLIGHT',
+    // Read-only root and folder-chain check; never archives the user.
+    retryEndpoint: 'ARCHIVE_STORAGE_VERIFY',
     notificationRecipients: ADMINS,
+    // A path inside the archive tree and a fixed category: never a Drive id or a sharing identity.
+    detailKeys: ['folderPath', 'privacyIssue'],
+    variants: { detailKey: 'privacyIssue', byValue: ARCHIVE_PRIVACY_VARIANTS },
+  },
+  ARCHIVE_STORAGE_READY: {
+    remediationClass: 'WARNING_NON_BLOCKING',
+    severity: 'INFO',
+    blockingScope: 'NONE',
+    title: 'Archive storage is ready',
+    problem: 'Archive storage is ready. Close this message and confirm Archive again.',
+    whyItMatters: 'This check only read the archive folders. Nothing was archived and nothing about this user changed; Archive repeats every check when you confirm it.',
+    correctionSteps: ['Close this message.', 'Confirm Archive again.'],
+    actions: ['COPY_DIAGNOSTIC'],
+    canSystemRepair: false,
+    requiresManualExternalAction: false,
+    requiresBackendOperations: false,
+    notificationRecipients: [],
     detailKeys: [],
   },
   LEGAL_HOLD_ACTIVE: {

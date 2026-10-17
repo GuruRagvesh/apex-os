@@ -59,6 +59,8 @@ const DETAIL_LABELS: Record<string, string> = {
   eligibleOn: 'Eligible for deletion on',
   field: 'Field to change',
   keyConfigurationIssues: 'Backend configuration needed',
+  folderPath: 'Archive folder',
+  privacyIssue: 'Problem found',
 };
 
 const CODE_LABELS: Record<string, string> = {
@@ -80,6 +82,19 @@ const CODE_LABELS: Record<string, string> = {
   ARCHIVE_PRIVACY_FAILED: 'Archive sharing problem',
   ARCHIVE_SNAPSHOT_MISSING: 'No verified archive',
   ARCHIVE_SNAPSHOT_STALE: 'Archive out of date',
+  ROOT_MISSING_OR_INVALID: 'Archive root missing or invalid',
+  ENVIRONMENT_FOLDER_MISSING: 'Environment folder not initialized',
+  FOLDER_MISSING: 'Folder missing',
+  DUPLICATE_FOLDER: 'Duplicate folder',
+  WRONG_LABEL: 'Wrong folder label',
+  TRASHED_OR_NOT_FOLDER: 'Trashed or not a folder',
+  SHARED_DRIVE: 'In a Shared Drive',
+  PUBLIC_LINK: 'Shared publicly or by link',
+  DOMAIN_SHARE: 'Shared with a domain',
+  GROUP_SHARE: 'Shared with a group',
+  EXTRA_USER: 'Shared with another user',
+  WRONG_OWNER: 'Not owned by the archive account',
+  UPLOADED_FILE_NOT_PRIVATE: 'Uploaded file not private',
   roleId: 'Role',
   departmentId: 'Department',
 };
