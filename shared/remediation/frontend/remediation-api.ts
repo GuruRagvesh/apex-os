@@ -45,6 +45,10 @@ export const retryArchiveCleanup = (operationId: string): Promise<LifecycleOpera
 export const archivePreflight = (userId: string): Promise<any> =>
   r(api.get(`/user-lifecycle/${enc(userId)}/archive/preflight`));
 
+/** Read-only archive storage check (Retry Verification for ARCHIVE_PRIVACY_FAILED). Never archives the user. */
+export const verifyArchiveStorage = (userId: string, operationId?: string): Promise<{ ready: boolean; remediation: RemediationResult }> =>
+  r(api.post(`/user-lifecycle/${enc(userId)}/archive/storage-verification`, operationId ? { operationId } : {}));
+
 export const permanentDeletePreflight = (userId: string): Promise<any> =>
   r(api.get(`/user-lifecycle/${enc(userId)}/permanent-delete/preflight`));
 
@@ -108,6 +112,13 @@ const RETRY: Record<AllowedRetryEndpoint, (current: RemediationResult) => Promis
     // failure can only be re-checked by confirming the archive again.
     if (current.code === 'ARCHIVE_PRIVACY_FAILED') return stillPending(current);
     return resolved(current);
+  },
+  ARCHIVE_STORAGE_VERIFY: async (current) => {
+    if (!current.affectedUserId) throw new Error('NO_USER');
+    // Either a fresh privacy failure with its exact category, or "storage is
+    // ready, confirm Archive again". Never a claim that the archive succeeded.
+    const v = await verifyArchiveStorage(current.affectedUserId, current.operationId);
+    return v.remediation;
   },
   VERIFIED_ARCHIVE_PREPARE: async (current) => {
     if (!current.affectedUserId) throw new Error('NO_USER');

@@ -37,6 +37,7 @@ export const ALLOWED_RETRY_ENDPOINTS = [
   'ARCHIVE_PREFLIGHT',
   'PERMANENT_DELETE_PREFLIGHT',
   'VERIFIED_ARCHIVE_PREPARE',
+  'ARCHIVE_STORAGE_VERIFY',
 ] as const;
 export type AllowedRetryEndpoint = (typeof ALLOWED_RETRY_ENDPOINTS)[number];
 
@@ -46,6 +47,7 @@ export const RETRY_ENDPOINT_ROUTES: Record<AllowedRetryEndpoint, { method: 'GET'
   ARCHIVE_PREFLIGHT: { method: 'GET', path: 'user-lifecycle/:userId/archive/preflight' },
   PERMANENT_DELETE_PREFLIGHT: { method: 'GET', path: 'user-lifecycle/:userId/permanent-delete/preflight' },
   VERIFIED_ARCHIVE_PREPARE: { method: 'POST', path: 'user-lifecycle/:userId/verified-archive' },
+  ARCHIVE_STORAGE_VERIFY: { method: 'POST', path: 'user-lifecycle/:userId/archive/storage-verification' },
 };
 
 /** Server routes behind actions that are not retries (resolved at click time). */

@@ -23,7 +23,7 @@ import {
   RemediationResult,
   RemediationStatus,
 } from './remediation.types';
-import { DELETE_BLOCKER_PRECEDENCE, REMEDIATION_REGISTRY, actionsFor, safeRepairAllowed } from './remediation.registry';
+import { DELETE_BLOCKER_PRECEDENCE, REMEDIATION_REGISTRY, actionsFor, safeRepairAllowed, variantFor } from './remediation.registry';
 
 export const DENIED_KEYS: readonly string[] = [
   'password', 'passwordHash', 'newPassword', 'currentPassword', 'token', 'accessToken', 'refreshToken', 'idToken',
@@ -123,9 +123,12 @@ export interface BuildOptions {
 export function buildRemediation(code: string, opts: BuildOptions = {}): RemediationResult {
   const e = REMEDIATION_REGISTRY[code];
   if (!e) throw new Error(`REMEDIATION_CODE_NOT_REGISTERED:${code}`);
+  const { variants: _variants, ...entry } = e;
+  const variant = variantFor(e, opts.details);
   return sanitizeRemediation({
     code,
-    ...e,
+    ...entry,
+    ...(variant ?? {}),
     actions: actionsFor(e.actions, opts.previewCount, e.actionLabels),
     status: opts.status ?? 'OPEN',
     lastCheckedAt: (opts.now ?? new Date()).toISOString(),
