@@ -63,6 +63,12 @@ export class HomeController {
     return this.teamInsights.getInsights(user, { departmentId, personId, month, week });
   }
 
+  /** Small hierarchy/filter payload used before the expensive insight canvas. */
+  @Get('team-scope')
+  getTeamScope(@CurrentUser() user: any) {
+    return this.homeExperience.getTeamScope(user);
+  }
+
   @Get('personal-highlights')
   getPersonalHighlights(@CurrentUser() user: any, @Query('month') month?: string) {
     return this.teamInsights.getPersonalHighlights(user, month);

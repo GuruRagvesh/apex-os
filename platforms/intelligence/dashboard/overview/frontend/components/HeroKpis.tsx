@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { CalendarClock, ClipboardCheck, FileClock, FolderKanban, Ticket, Timer, type LucideIcon } from 'lucide-react';
 import { dashboardApi, type HomeKpiScope } from '../api';
-import { pollWhileHealthy } from '@apex/shared-auth';
 
 function Tile({
   label, value, sub, icon: Icon, onClick, children,
@@ -44,8 +43,9 @@ export function HeroKpis({ isLead, userId, role = '' }: { isLead: boolean; userI
   const { data, isError } = useQuery({
     queryKey: ['home-kpis'],
     queryFn: () => dashboardApi.getHomeKpis(),
-    staleTime: 30_000,
-    refetchInterval: pollWhileHealthy(60_000),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   });
   const selected: HomeKpiScope | undefined = data?.mine;
   const show = (n: number | null | undefined) => (isError ? '–' : n ?? '…');

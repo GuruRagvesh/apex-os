@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { DailyAttendanceEvaluationState, DailyAttendanceStatus } from '@prisma/client';
+import { DailyAttendanceEvaluationState, DailyAttendanceStatus, TicketStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
@@ -48,7 +48,12 @@ export class HomeCarouselService {
 
   async getCarousel(user: any) {
     const now = this.tva.now();
-    const visible = (await this.announcements()).filter((item) =>
+    const [announcements, spotlight, recognition] = await Promise.all([
+      this.announcements(),
+      this.getPunctualitySpotlight(user),
+      this.getRecognition(user, now),
+    ]);
+    const visible = announcements.filter((item) =>
       item.active && this.visibleTo(item, user) &&
       new Date(item.startsAt) <= now && (!item.endsAt || new Date(item.endsAt) >= now),
     ).sort((a, b) => Number(b.priority === 'IMPORTANT') - Number(a.priority === 'IMPORTANT') ||
@@ -57,8 +62,33 @@ export class HomeCarouselService {
     return {
       announcement: visible.find((item) => item.priority !== 'CRITICAL') ?? null,
       criticalAnnouncements: visible.filter((item) => item.priority === 'CRITICAL'),
-      spotlight: await this.getPunctualitySpotlight(user),
+      spotlight,
+      recognition,
     };
+  }
+
+  private async getRecognition(user: any, now: Date) {
+    const scope = await this.ticketAccess.buildTicketWhereForUser({}, user);
+    const tickets = await this.prisma.ticket.findMany({
+      where: {
+        AND: [
+          scope,
+          { status: { in: [TicketStatus.DONE, TicketStatus.CLOSED] } },
+          { resolvedAt: { gte: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000) } },
+        ],
+      },
+      select: { id: true, ticketId: true, title: true, resolvedAt: true, assignedTo: { select: { name: true } } },
+      orderBy: { resolvedAt: 'desc' },
+      take: 5,
+    });
+    return tickets.map((ticket) => ({
+      id: ticket.id,
+      person: ticket.assignedTo?.name ?? 'Team member',
+      title: ticket.title,
+      ticketId: ticket.ticketId,
+      date: ticket.resolvedAt,
+      url: `/tickets/${ticket.id}`,
+    }));
   }
 
   /** The current company week, Monday through the last completed business day. */

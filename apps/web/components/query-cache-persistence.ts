@@ -22,7 +22,7 @@ import { dehydrate, hydrate, type QueryClient } from '@tanstack/react-query';
 
 export const QUERY_CACHE_KEY_PREFIX = 'apex-query-cache:';
 /** Bump when cached shapes change incompatibly; older entries are then ignored. */
-export const QUERY_CACHE_VERSION = 1;
+export const QUERY_CACHE_VERSION = 3;
 /** Cached data older than a day is never shown. */
 export const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** localStorage is ~5 MB per origin; never let the cache crowd out the token. */

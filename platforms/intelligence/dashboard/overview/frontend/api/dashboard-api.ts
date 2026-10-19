@@ -39,6 +39,7 @@ export const dashboardApi = {
   getHomeSummary: () => r(api.get('/home/summary')),
   getHomeKpis: (): Promise<HomeKpis> => r(api.get('/home/kpis')),
   getHomeExperience: () => r(api.get('/home/experience')),
+  getHomeTeamScope: () => r(api.get('/home/team-scope')),
   getTeamInsights: (params: { departmentId?: string; personId?: string; month: string; week: string }) =>
     r(api.get('/home/team-insights', { params })),
   getPersonalHighlights: (month?: string) => r(api.get('/home/personal-highlights', { params: { month } })),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BriefcaseBusiness, Coffee, PanelRightOpen, UsersRound, X } from 'lucide-react';
 import { BreakModal } from '@/components/workday/BreakModal';
@@ -8,7 +8,9 @@ import { MeetingStartModal } from '@/components/workday/MeetingStartModal';
 import { showMeetingOverlay, useHiddenMeetingId } from '@/components/workday/meeting-overlay-store';
 import { workdayApi } from '@/lib/api';
 import { ModalPortal } from '../components/ModalPortal';
+import { dashboardApi } from '../api';
 import { WorkspaceSection } from './WorkspaceSection';
+import type { HomeWorkspace } from './home-types';
 
 type PauseType = 'break' | 'meeting' | null;
 
@@ -43,12 +45,22 @@ export function HeroQuickActions({ userId }: { userId: string }) {
     if (meetingLive) { showMeetingOverlay(); return; }
     setPauseType('meeting');
   };
+  const prefetchWorkspace = useCallback(() => queryClient.prefetchQuery({
+    queryKey: ['home-workspace', userId],
+    queryFn: () => dashboardApi.getHomeWorkspace() as Promise<HomeWorkspace>,
+    staleTime: 5 * 60_000,
+  }), [queryClient, userId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void prefetchWorkspace(); }, 1_200);
+    return () => window.clearTimeout(timer);
+  }, [prefetchWorkspace]);
 
   return <>
     <div className="apex-hero-quick-actions" aria-label="Quick workday actions">
       <button type="button" onClick={() => setPauseType('break')} disabled={!canStartPause} title={canStartPause ? 'Start a tracked break' : 'Start work to take a tracked break'} className="apex-hero-quick-action apex-hero-quick-action-break"><Coffee size={18} aria-hidden="true" />Break</button>
       <button type="button" onClick={onMeetingButton} disabled={!canStartPause && !meetingLive} title={meetingLive ? 'Meeting in progress. Click to return to it' : canStartPause ? 'Start a tracked meeting' : 'Start work to begin a meeting'} className={`apex-hero-quick-action apex-hero-quick-action-meeting${meetingLive ? ' apex-hero-quick-action-meeting-live' : ''}`} aria-live="polite"><UsersRound size={18} aria-hidden="true" />{meetingLive ? 'In meeting' : 'Meeting'}</button>
-      <button type="button" onClick={() => setWorkspaceOpen(true)} className="apex-hero-quick-action apex-hero-quick-action-primary" aria-haspopup="dialog" aria-expanded={workspaceOpen}><PanelRightOpen size={18} aria-hidden="true" />Quick access</button>
+      <button type="button" onPointerEnter={() => { void prefetchWorkspace(); }} onFocus={() => { void prefetchWorkspace(); }} onClick={() => { void prefetchWorkspace(); setWorkspaceOpen(true); }} className="apex-hero-quick-action apex-hero-quick-action-primary" aria-haspopup="dialog" aria-expanded={workspaceOpen}><PanelRightOpen size={18} aria-hidden="true" />Quick access</button>
     </div>
 
     {pauseType === 'break' && <BreakModal onClose={closePause} onBreakStarted={onPauseStarted} />}
