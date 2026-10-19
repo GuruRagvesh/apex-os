@@ -15,6 +15,7 @@ import {
   presentStatus,
   reasonText,
 } from './attendance-status';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 /**
  * Today, at the top of My Attendance.
@@ -138,7 +139,7 @@ export function AttendanceToday() {
   const { data: workday } = useQuery({
     queryKey: ['workday-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
-    refetchInterval: 60_000,
+    refetchInterval: pollWhileHealthy(60_000),
     retry: false,
   });
 

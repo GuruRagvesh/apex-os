@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Coffee, LogIn, Timer } from 'lucide-react';
 import { workdayApi } from '@/lib/api';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 function hm(minutes: number): string {
   const whole = Math.max(0, Math.floor(minutes));
@@ -29,7 +30,7 @@ export function WorkdayStatusBox() {
   const { data, dataUpdatedAt, isLoading, isError } = useQuery({
     queryKey: ['workday-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
-    refetchInterval: 60000,
+    refetchInterval: pollWhileHealthy(60000),
     staleTime: 0,
   });
   const [, tick] = useState(0);

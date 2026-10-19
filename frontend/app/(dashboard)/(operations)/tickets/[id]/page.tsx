@@ -34,6 +34,7 @@ import {
   Lightbulb, UserCheck, Hourglass, Download, Eye, Users, Edit2, Ban, Unlock, Star, UserMinus, Lock,
 } from 'lucide-react';
 import Link from 'next/link';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 
@@ -735,7 +736,7 @@ export default function TicketDetailPage() {
     // The work timer is paused/resumed by the assignee's own workday (break, end
     // day, punch), which no mutation on this page sees. Poll so the ledger-backed
     // timer state stays current.
-    refetchInterval: 30_000,
+    refetchInterval: pollWhileHealthy(30_000),
     refetchOnWindowFocus: true,
   });
 
