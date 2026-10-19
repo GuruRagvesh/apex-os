@@ -22,6 +22,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning data-theme="technoedge-light" data-accent="royal-blue">
       <head>
+        {/* Modern companion to Next's appleWebApp metadata; avoids Chromium's deprecation warning. */}
+        <meta name="mobile-web-app-capable" content="yes" />
         {/* Anti-flash: read stored theme before first paint */}
         <script
           dangerouslySetInnerHTML={{

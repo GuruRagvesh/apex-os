@@ -33,8 +33,9 @@ export function PersonalHighlightsSection() {
   const query = useQuery({
     queryKey: ['home-personal-highlights', month],
     queryFn: () => dashboardApi.getPersonalHighlights(month) as Promise<PersonalHighlightPayload>,
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   });
   if (query.isLoading) return <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500">Calculating your monthly achievements…</div>;
   if (query.isError || !query.data) return <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">Personal achievements could not be calculated from the current records.</div>;

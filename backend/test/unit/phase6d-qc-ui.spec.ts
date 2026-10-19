@@ -180,8 +180,10 @@ describe('boundaries', () => {
   it('Sonali 10: My Team is byte-for-byte what it was when Phase 6D started', () => {
     // SHA-256 of the page (line endings normalised) at main 139134f. Phase 6D
     // must not touch it; a later, deliberate My Team change updates this hash.
+    // Updated once since: the team-status poll now backs off while it fails
+    // (pollWhileHealthy, Tickets 500 / polling repair).
     const page = read('frontend/app/(dashboard)/(operations)/team/page.tsx');
-    expect(createHash('sha256').update(page).digest('hex')).toBe('06714428fb268d19a4cfb108731f869b51f44caef68847f1571f3733890e3509');
+    expect(createHash('sha256').update(page).digest('hex')).toBe('ddad24fd0fe89b921488f1ea23496e65cfb357a996fcdf426277c4f51218e0bc');
   });
 
   it('department responses read users through the safe select, never a full-row include', () => {

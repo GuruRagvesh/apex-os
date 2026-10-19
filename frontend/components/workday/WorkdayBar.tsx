@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
+import { shouldRetryTransientQuery, transientQueryRetryDelay, pollWhileHealthy } from '@apex/shared-auth';
 import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { AlertTriangle, Coffee, LogIn, Timer, UsersRound } from 'lucide-react';
@@ -74,7 +74,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
   const { data: todayData, dataUpdatedAt, refetch } = useQuery({
     queryKey: ['workday-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
-    refetchInterval: 60000,
+    refetchInterval: pollWhileHealthy(60000),
     refetchOnMount: true,
     refetchOnWindowFocus: true,
     staleTime: 0,

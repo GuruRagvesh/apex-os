@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap as r } from '@apex/shared-auth';
+import { api, unwrap as r, pollWhileHealthy } from '@apex/shared-auth';
 import { ACTIVE_TIMER_QUERY_KEY, formatElapsed, type ActiveTimer } from '../../shared/review-workspace';
 
 // Inline styles, not Tailwind classes: Tailwind does not scan platforms/.
@@ -24,7 +24,7 @@ export function useActiveTimer() {
     queryFn: () => r(api.get('/tickets/active-timer')) as Promise<ActiveTimer>,
     // Breaks, idle and the end of the day stop timers without any action on
     // this page; poll so the banner never claims a review that has stopped.
-    refetchInterval: 30_000,
+    refetchInterval: pollWhileHealthy(30_000),
     refetchOnWindowFocus: true,
     staleTime: 10_000,
   });

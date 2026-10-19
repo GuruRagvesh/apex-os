@@ -70,8 +70,9 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
       month,
       week,
     }) as Promise<TeamInsightPayload>,
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   });
   const insight = insightQuery.data;
   useEffect(() => {

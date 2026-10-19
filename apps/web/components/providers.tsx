@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@apex/core-identity';
-import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
+import { MUTATION_DEFAULTS, READ_QUERY_DEFAULTS } from '@apex/shared-auth';
 import { createUserChangeTracker, tokenStorageAction } from './session-boundary';
 import { clearSavedQueryCaches, MAX_AGE_MS, persistQueryCache } from './query-cache-persistence';
 
@@ -58,14 +58,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => {
     return new QueryClient({
       defaultOptions: {
+        // Shared with the request-count tests, so they measure this exact policy.
         queries: {
-          staleTime: 1000 * 30,
+          ...READ_QUERY_DEFAULTS,
           // Kept for the whole day so it can be saved and shown on the next load.
           gcTime: MAX_AGE_MS,
-          retry: shouldRetryTransientQuery,
-          retryDelay: transientQueryRetryDelay,
-          refetchOnReconnect: true,
         },
+        mutations: MUTATION_DEFAULTS,
       },
     });
   });

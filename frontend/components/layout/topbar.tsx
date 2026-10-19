@@ -14,6 +14,7 @@ import { CommandPalette } from '@apex/apps-web/components/command-palette';
 import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
 import { downloadScreenshot } from '@apex/shared-utilities/download-screenshot';
 import toast from 'react-hot-toast';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 // /hrms and /sales-crm are standalone workspace pages (frontend/app/(workspaces)) —
 // they no longer render inside the dashboard shell, so TopBar never mounts for them.
@@ -59,13 +60,13 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications-count'],
     queryFn: () => notificationsApi.getUnreadCount() as Promise<{ count: number }>,
-    refetchInterval: 15000,
+    refetchInterval: pollWhileHealthy(15000),
   });
 
   const { data: workdayData } = useQuery({
     queryKey: ['workday-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
-    refetchInterval: 60000,
+    refetchInterval: pollWhileHealthy(60000),
     staleTime: 30000,
     enabled: !!user,
   });
@@ -75,7 +76,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.getAll() as Promise<any>,
     staleTime: 30000,
-    refetchInterval: 60000,
+    refetchInterval: pollWhileHealthy(60000),
   });
   // Backend may return array directly OR { notifications: [...], total }
   const notifications: any[] = Array.isArray(notifRaw)
