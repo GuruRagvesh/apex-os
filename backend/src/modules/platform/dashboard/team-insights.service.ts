@@ -219,13 +219,13 @@ export class TeamInsightsService {
       }),
       this.prisma.meeting.findMany({
         where: {
-          status: 'COMPLETED', startedAt: { lt: range.end }, endedAt: { gt: range.start },
+          status: 'COMPLETED', approvalStatus: { in: ['APPROVED', 'NOT_REQUIRED'] }, startedAt: { lt: range.end }, endedAt: { gt: range.start },
           ...(overall ? { visibility: 'SHARED' } : {}),
-          participants: { some: { userId: { in: userIds } } },
+          participants: { some: { userId: { in: userIds }, status: { in: ['ACCEPTED', 'LEFT'] } } },
         },
         select: {
           id: true, visibility: true, startedAt: true, endedAt: true,
-          participants: { where: { userId: { in: userIds } }, select: { userId: true } },
+          participants: { where: { userId: { in: userIds }, status: { in: ['ACCEPTED', 'LEFT'] } }, select: { userId: true, joinedAt: true, leftAt: true } },
         },
       }),
     ]);
@@ -259,7 +259,8 @@ export class TeamInsightsService {
       meetingCount += 1;
       for (const participant of meeting.participants) {
         if (!participant.userId) continue;
-        meetingByUser.set(participant.userId, [...(meetingByUser.get(participant.userId) ?? []), interval]);
+        const own = clippedInterval(participant.joinedAt ?? meeting.startedAt, participant.leftAt ?? meeting.endedAt, range, now);
+        if (own) meetingByUser.set(participant.userId, [...(meetingByUser.get(participant.userId) ?? []), own]);
       }
     }
     let ticketMinutes = 0;
@@ -441,8 +442,8 @@ export class TeamInsightsService {
         select: { userId: true, startedAt: true, endedAt: true },
       }),
       this.prisma.meeting.findMany({
-        where: { status: 'COMPLETED', startedAt: { lt: range.end }, endedAt: { gt: range.start }, participants: { some: { userId: { in: userIds } } } },
-        select: { startedAt: true, endedAt: true, participants: { where: { userId: { in: userIds } }, select: { userId: true } } },
+        where: { status: 'COMPLETED', approvalStatus: { in: ['APPROVED', 'NOT_REQUIRED'] }, startedAt: { lt: range.end }, endedAt: { gt: range.start }, participants: { some: { userId: { in: userIds }, status: { in: ['ACCEPTED', 'LEFT'] } } } },
+        select: { startedAt: true, endedAt: true, participants: { where: { userId: { in: userIds }, status: { in: ['ACCEPTED', 'LEFT'] } }, select: { userId: true, joinedAt: true, leftAt: true } } },
       }),
       this.prisma.dailyAttendance.findMany({
         where: { userId: { in: userIds }, date: { gte: range.start, lt: range.end } },
@@ -487,7 +488,8 @@ export class TeamInsightsService {
       const interval = clippedInterval(meeting.startedAt, meeting.endedAt, range, now);
       if (!interval) continue;
       for (const participant of meeting.participants) if (participant.userId) {
-        productiveByUser.set(participant.userId, [...(productiveByUser.get(participant.userId) ?? []), interval]);
+        const own = clippedInterval(participant.joinedAt ?? meeting.startedAt, participant.leftAt ?? meeting.endedAt, range, now);
+        if (own) productiveByUser.set(participant.userId, [...(productiveByUser.get(participant.userId) ?? []), own]);
       }
     }
     for (const userId of userIds) {

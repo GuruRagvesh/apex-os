@@ -137,7 +137,7 @@ describe('Sonali 6: user cards keep the approved responsive directory layout', (
 
   it('uses equal fixed-height cards in a responsive 1 / 2 / 3-column grid', () => {
     expect(users).toContain('grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3');
-    expect(card).toContain('flex h-[330px] min-w-0 flex-col');
+    expect(card).toContain('flex h-[288px] min-w-0 flex-col');
     expect(card).toContain('grid h-14 flex-shrink-0 grid-cols-3 gap-2');
   });
 
@@ -157,7 +157,15 @@ describe('Sonali 6: user cards keep the approved responsive directory layout', (
     expect(card).toContain('title="Download user backup (.xlsx)"');
     expect(card).toContain('title="Deactivate user"');
     expect(card).toContain('title="Reactivate user"');
-    // Archived cards: Rehire and Permanently delete; the delete title says why it is disabled.
+    // Active: Edit/Download/Deactivate; inactive: Reactivate/Archive; archived:
+    // Rehire/Verified archive/Permanent delete. Every action stays compact.
+    expect(card.match(/flex h-9 w-9 items-center justify-center/g)).toHaveLength(8);
+    expect(card).not.toContain('flex h-11 w-11 items-center justify-center');
+    // Archive is offered only after deactivation; active users cannot enter the
+    // archive flow directly. Archived cards instead offer Rehire and Permanently delete.
+    expect(card).toContain('const canArchiveUser = canManageUser && !isActive;');
+    expect(card.match(/title="Archive user"/g)).toHaveLength(1);
+    expect(card).toContain('{canArchiveUser && (');
     expect(card).toContain('title="Archive user"');
     expect(card).toContain("title={lifecycleBusy ? 'Another archive, rehire or deletion is running' : 'Rehire user'}");
     expect(card).toContain("title={deleteDisabledReason ?? 'Permanently delete user'}");

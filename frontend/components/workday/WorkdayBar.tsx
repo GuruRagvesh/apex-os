@@ -7,7 +7,8 @@ import { workdayApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { AlertTriangle, Coffee, LogIn, Timer, UsersRound } from 'lucide-react';
 import { BreakModal } from './BreakModal';
-import { MeetingModal } from './MeetingModal';
+import { MeetingStartModal } from './MeetingStartModal';
+import { showMeetingOverlay } from './meeting-overlay-store';
 import { EndDayModal } from './EndDayModal';
 import { AutoCloseConsentModal } from './AutoCloseConsentModal';
 import { PunchModal } from '../attendance/PunchModal';
@@ -38,12 +39,21 @@ function formatMinutes(minutes: number) {
  */
 export function WorkdayBar({ hero = false }: { hero?: boolean }) {
   const [showBreakModal, setShowBreakModal] = useState(false);
-  const [meetingToClassify, setMeetingToClassify] = useState<any | null>(null);
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [showEndModal, setShowEndModal] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [breakElapsed, setBreakElapsed] = useState(0);
   const [loading, setLoading] = useState<string | null>(null);
-  const [consentDismissed, setConsentDismissed] = useState(false);
+  // The end-of-day reminder comes back every 10 minutes after it is dismissed.
+  const [consentDismissedAt, setConsentDismissedAt] = useState<number | null>(null);
+  const [, setReminderTick] = useState(0);
+  useEffect(() => {
+    if (consentDismissedAt === null) return;
+    const timer = setInterval(() => setReminderTick((n) => n + 1), 30_000);
+    return () => clearInterval(timer);
+  }, [consentDismissedAt]);
+  const consentDismissed = consentDismissedAt !== null && Date.now() - consentDismissedAt < 10 * 60_000;
+  const setConsentDismissed = (dismissed: boolean) => setConsentDismissedAt(dismissed ? Date.now() : null);
   // PE-4: when Attendance V2 punching is off this stays null forever and every
   // control below behaves exactly as it does today.
   const [punchType, setPunchType] = useState<'PUNCH_IN' | 'PUNCH_OUT' | null>(null);
@@ -82,10 +92,6 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
   const needsAutoCloseConsent = (todayData as any)?.needsAutoCloseConsent ?? false;
   const autoCloseTime = (todayData as any)?.autoCloseTime ?? null;
   const openBreak = breakLogs.find((row: any) => !row.endAt) ?? null;
-  // Meeting classification is intentionally event-driven. Do not restore an
-  // old unclassified meeting on page load: this dialog belongs only to the
-  // exact moment the user resumes from an active meeting break.
-  const closeMeetingModal = () => setMeetingToClassify(null);
 
   // Live elapsed time (WORKING) and live break timer (ON_BREAK)
   useEffect(() => {
@@ -199,12 +205,16 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
   const handleEndBreak = async () => {
     setLoading('endBreak');
     try {
+      if (openBreak?.breakType === 'MEETING' && openBreak?.meetingId) {
+        await workdayApi.leaveMeetingV2(openBreak.meetingId);
+        showMeetingOverlay();
+        toast.success('Meeting recorded. Work resumed.');
+        await refetch();
+        return;
+      }
       const result = await workdayApi.endBreak() as any;
       if (openBreak?.breakType === 'MEETING') {
-        if (!result?.breakLog?.meetingId) {
-          setMeetingToClassify(result.breakLog);
-        }
-        toast.success(result?.breakLog?.meetingId ? 'Meeting ended' : 'Meeting timer stopped');
+        toast.success('Meeting ended');
       } else {
         toast.success(`Break ended — ${result?.durationMinutes ?? 0} min`);
       }
@@ -216,19 +226,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
     finally { setLoading(null); }
   };
 
-  const handleStartMeeting = async () => {
-    setLoading('meeting');
-    try {
-      await workdayApi.startMeeting();
-      toast.success('Meeting timer started');
-      refetch();
-    } catch (err: any) {
-      toast.error(err?.message || 'Meeting could not be started');
-      refetch();
-    } finally {
-      setLoading(null);
-    }
-  };
+  const handleStartMeeting = () => setShowMeetingModal(true);
 
   // PE-4: rendered by whichever branch owns the button that opened it. Null
   // whenever Attendance V2 punching is off, so the legacy layout is identical.
@@ -481,7 +479,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
             onClose={() => { setConsentDismissed(true); refetch(); }}
           />
         )}
-        {meetingToClassify && <MeetingModal breakLog={meetingToClassify} onClose={closeMeetingModal} onChanged={() => refetch()} />}
+        {showMeetingModal && <MeetingStartModal onClose={() => setShowMeetingModal(false)} onStarted={() => { setShowMeetingModal(false); refetch(); }} />}
       </>
     );
   }
@@ -512,7 +510,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
             onBreakStarted={() => { setShowBreakModal(false); refetch(); }}
           />
         )}
-        {meetingToClassify && <MeetingModal breakLog={meetingToClassify} onClose={closeMeetingModal} onChanged={() => refetch()} />}
+        {showMeetingModal && <MeetingStartModal onClose={() => setShowMeetingModal(false)} onStarted={() => { setShowMeetingModal(false); refetch(); }} />}
         {showEndModal && (
           <EndDayModal
             session={session}
@@ -563,7 +561,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
           onBreakStarted={() => { setShowBreakModal(false); refetch(); }}
         />
       )}
-      {meetingToClassify && <MeetingModal breakLog={meetingToClassify} onClose={closeMeetingModal} onChanged={() => refetch()} />}
+      {showMeetingModal && <MeetingStartModal onClose={() => setShowMeetingModal(false)} onStarted={() => { setShowMeetingModal(false); refetch(); }} />}
       {showEndModal && (
         <EndDayModal
           session={session}

@@ -107,6 +107,16 @@ export const workdayApi = {
   lookupMeeting: (code: string) => r(api.get(`/workday/meetings/lookup/${encodeURIComponent(code)}`)),
   startMeeting: () => r(api.post('/workday/meetings/start', {})),
   classifyMeeting: (data: any) => r(api.post('/workday/meetings/classify', data)),
+  // Meeting v2: plan → start → invite → join or decline → leave → approve.
+  getMeetingV2Options: () => r(api.get('/workday/meetings/v2/options')),
+  startMeetingV2: (data: any) => r(api.post('/workday/meetings/v2/start', data)),
+  getActiveMeetingV2: () => r(api.get('/workday/meetings/v2/active')),
+  getMeetingInvites: () => r(api.get('/workday/meetings/v2/invites')),
+  respondToMeetingInvite: (id: string, accept: boolean) => r(api.post(`/workday/meetings/v2/${id}/respond`, { accept })),
+  leaveMeetingV2: (id: string) => r(api.post(`/workday/meetings/v2/${id}/leave`, {})),
+  cancelMeetingV2: (id: string) => r(api.post(`/workday/meetings/v2/${id}/cancel`, {})),
+  getMeetingApprovals: () => r(api.get('/workday/meetings/v2/approvals')),
+  decideMeeting: (id: string, approve: boolean) => r(api.post(`/workday/meetings/v2/${id}/decide`, { approve })),
 };
 
 // Sales CRM — Leads: moved in Phase 2C to the Sales CRM shared component,

@@ -16,8 +16,105 @@
 }
 
 .layer[data-kind='meeting'] {
-  --pause-accent: #60a5fa;
-  --pause-accent-soft: rgba(96, 165, 250, 0.2);
+  --pause-accent: #22c55e;
+  --pause-accent-soft: rgba(34, 197, 94, 0.22);
+}
+
+/* Meeting: the word glows green and pulses so the state is unmistakable. */
+.meetingWord {
+  color: #4ade80;
+  animation: meetingGlow 1.6s ease-in-out infinite;
+}
+
+.agenda {
+  margin: 0.9rem 0 0;
+  max-width: 36rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.people {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.people li {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.25rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.people li[data-status='INVITED'],
+.people li[data-status='REJECTED'],
+.people li[data-status='LEFT'] { opacity: 0.55; }
+
+.meetingActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1.6rem;
+}
+
+.backButton,
+.meetingResume {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 999px;
+  padding: 0.8rem 1.25rem;
+  font-size: 0.88rem;
+  font-weight: 800;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.backButton {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.meetingResume {
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  background: #fff;
+  color: #102448;
+  box-shadow: 0 1rem 2.75rem rgba(1, 8, 22, 0.3);
+}
+
+.backButton:hover,
+.meetingResume:hover:not(:disabled) { transform: translateY(-2px); }
+
+.backButton:focus-visible,
+.meetingResume:focus-visible,
+.cancelMeeting:focus-visible {
+  outline: 3px solid var(--pause-accent);
+  outline-offset: 3px;
+}
+
+.meetingResume:disabled { cursor: wait; opacity: 0.68; }
+
+.cancelMeeting {
+  margin-top: 1rem;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.78rem;
+  text-decoration: underline;
+}
+
+@keyframes meetingGlow {
+  0%, 100% { opacity: 1; text-shadow: 0 0.55rem 2.5rem rgba(0, 0, 0, 0.28); }
+  50% { opacity: 0.72; text-shadow: 0 0 1.6rem rgba(74, 222, 128, 0.85); }
 }
 
 .layer::before,
@@ -146,4 +243,5 @@
   .layer::before,
   .layer::after { animation: none; }
   .word :global(.split-char) { will-change: auto; }
+  .meetingWord { animation: none; }
 }
