@@ -14,16 +14,27 @@ const TERMINAL_TICKET_STATUSES: TicketStatus[] = [
   TicketStatus.CLOSED,
 ];
 
-const WORKSPACE_ESSENTIALS_LIMIT = 5;
-const WORKSPACE_NOTES_LIMIT = 3;
+const WORKSPACE_ESSENTIALS_LIMIT = 1;
+const WORKSPACE_NOTES_LIMIT = 6;
 
 type WorkspaceEssential = { id: string; label: string; url: string };
+type WorkspaceNote = { id: string; title: string; content: string; createdAt: string | null; updatedAt: string | null };
 
 function defaultEssentials(): WorkspaceEssential[] {
   return Array.from({ length: WORKSPACE_ESSENTIALS_LIMIT }, (_, index) => ({
     id: `essential-${index + 1}`,
     label: `Essential ${index + 1}`,
     url: '',
+  }));
+}
+
+function defaultNotes(): WorkspaceNote[] {
+  return Array.from({ length: WORKSPACE_NOTES_LIMIT }, (_, index) => ({
+    id: `note-${index + 1}`,
+    title: `Note ${index + 1}`,
+    content: '',
+    createdAt: null,
+    updatedAt: null,
   }));
 }
 
@@ -58,28 +69,52 @@ export class HomeExperienceService {
         };
       });
     }
-    // Existing users have the former Mail/Teams/Drive object. Preserve those
-    // values and give them two additional editable slots without a migration.
+    // Existing users can have the former Mail/Teams/Drive object. Preserve the
+    // first configured value without requiring a data migration.
     if (raw && typeof raw === 'object') {
       const legacy = raw as Record<string, unknown>;
-      const names = ['Mail', 'Teams', 'Drive'];
-      const keys = ['mail', 'teams', 'drive'];
-      return defaults.map((fallback, index) => index < keys.length
-        ? { ...fallback, label: names[index], url: typeof legacy[keys[index]] === 'string' ? legacy[keys[index]] as string : '' }
-        : fallback);
+      const firstConfigured = [
+        { label: 'Mail', value: legacy.mail },
+        { label: 'Teams', value: legacy.teams },
+        { label: 'Drive', value: legacy.drive },
+      ].find((item) => typeof item.value === 'string' && item.value.length > 0);
+      return firstConfigured
+        ? [{ ...defaults[0], label: firstConfigured.label, url: firstConfigured.value as string }]
+        : defaults;
     }
     return defaults;
   }
 
-  private workspaceNotes(raw: string | null | undefined): string[] {
-    if (!raw) return Array.from({ length: WORKSPACE_NOTES_LIMIT }, () => '');
+  private workspaceNotes(raw: string | null | undefined, legacyUpdatedAt?: Date | null): WorkspaceNote[] {
+    const defaults = defaultNotes();
+    if (!raw) return defaults;
+    const legacyTimestamp = legacyUpdatedAt?.toISOString() ?? null;
     try {
       const parsed = JSON.parse(raw);
+      if (parsed?.version === 2 && Array.isArray(parsed.items)) {
+        return defaults.map((fallback, index) => {
+          const item = parsed.items[index];
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return fallback;
+          const value = item as Record<string, unknown>;
+          return {
+            id: typeof value.id === 'string' ? value.id : fallback.id,
+            title: typeof value.title === 'string' && value.title.trim() ? value.title.trim() : fallback.title,
+            content: typeof value.content === 'string' ? value.content : '',
+            createdAt: typeof value.createdAt === 'string' ? value.createdAt : null,
+            updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : null,
+          };
+        });
+      }
       if (parsed?.version === 1 && Array.isArray(parsed.items)) {
-        return Array.from({ length: WORKSPACE_NOTES_LIMIT }, (_, index) => typeof parsed.items[index] === 'string' ? parsed.items[index] : '');
+        return defaults.map((fallback, index) => {
+          const content = typeof parsed.items[index] === 'string' ? parsed.items[index] : '';
+          return content ? { ...fallback, content, createdAt: legacyTimestamp, updatedAt: legacyTimestamp } : fallback;
+        });
       }
     } catch { /* Legacy plain-text note; it belongs in Note 1. */ }
-    return [raw, '', ''];
+    return defaults.map((fallback, index) => index === 0
+      ? { ...fallback, content: raw, createdAt: legacyTimestamp, updatedAt: legacyTimestamp }
+      : fallback);
   }
 
   async getWorkspace(userId: string) {
@@ -87,9 +122,12 @@ export class HomeExperienceService {
     const today = this.tva.companyToday();
     const checklist = Array.isArray(row?.checklist) ? row.checklist as any[] : [];
     return {
-      notes: this.workspaceNotes(row?.notes),
+      notes: this.workspaceNotes(row?.notes, row?.updatedAt),
       checklist: checklist.map((item) => ({
-        id: item.id, text: item.text, done: item.completedOn === today,
+        id: item.id,
+        text: item.text,
+        done: item.completedOn === today,
+        priority: ['HIGH', 'MEDIUM', 'LOW'].includes(item.priority) ? item.priority : 'MEDIUM',
       })),
       essentials: this.workspaceEssentials(row?.shortcuts),
       updatedAt: row?.updatedAt ?? null,
@@ -109,11 +147,31 @@ export class HomeExperienceService {
     if ('notes' in body) {
       if (typeof body.notes === 'string') {
         if (body.notes.length > 5000) throw new BadRequestException('Notes must be 5000 characters or fewer');
-        data.notes = body.notes;
-      } else if (!Array.isArray(body.notes) || body.notes.length > WORKSPACE_NOTES_LIMIT || body.notes.some((note) => typeof note !== 'string' || note.length > 1600)) {
-        throw new BadRequestException('Workspace can contain up to three notes of 1600 characters each');
+        const now = new Date().toISOString();
+        data.notes = JSON.stringify({ version: 2, items: [{ id: 'note-1', title: 'Note 1', content: body.notes, createdAt: now, updatedAt: now }] });
+      } else if (!Array.isArray(body.notes) || body.notes.length > WORKSPACE_NOTES_LIMIT) {
+        throw new BadRequestException('Workspace can contain up to six notes');
+      } else if (body.notes.every((note) => typeof note === 'string')) {
+        const now = new Date().toISOString();
+        data.notes = JSON.stringify({ version: 2, items: body.notes.map((content: string, index: number) => {
+          if (content.length > 1600) throw new BadRequestException('Each note must be 1600 characters or fewer');
+          return { id: `note-${index + 1}`, title: `Note ${index + 1}`, content, createdAt: content ? now : null, updatedAt: content ? now : null };
+        }) });
       } else {
-        data.notes = JSON.stringify({ version: 1, items: body.notes });
+        const ids = new Set<string>();
+        const items = body.notes.map((note: any, index: number) => {
+          const validTimestamp = (value: unknown) => value === null || (typeof value === 'string' && !Number.isNaN(Date.parse(value)));
+          if (!note || typeof note !== 'object' || Array.isArray(note) ||
+            typeof note.id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(note.id) || ids.has(note.id) ||
+            typeof note.title !== 'string' || !note.title.trim() || note.title.trim().length > 80 ||
+            typeof note.content !== 'string' || note.content.length > 1600 ||
+            !validTimestamp(note.createdAt) || !validTimestamp(note.updatedAt)) {
+            throw new BadRequestException(`Note ${index + 1} is invalid`);
+          }
+          ids.add(note.id);
+          return { id: note.id, title: note.title.trim(), content: note.content, createdAt: note.createdAt, updatedAt: note.updatedAt };
+        });
+        data.notes = JSON.stringify({ version: 2, items });
       }
     }
     if ('checklist' in body) {
@@ -122,19 +180,20 @@ export class HomeExperienceService {
       }
       const ids = new Set<string>();
       data.checklist = body.checklist.map((entry: any) => {
+        const priority = entry?.priority ?? 'MEDIUM';
         if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
             typeof entry.id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(entry.id) ||
             typeof entry.text !== 'string' || !entry.text.trim() || entry.text.length > 160 ||
-            typeof entry.done !== 'boolean' || ids.has(entry.id)) {
+            typeof entry.done !== 'boolean' || !['HIGH', 'MEDIUM', 'LOW'].includes(priority) || ids.has(entry.id)) {
           throw new BadRequestException('Checklist contains an invalid task');
         }
         ids.add(entry.id);
-        return { id: entry.id, text: entry.text.trim(), completedOn: entry.done ? this.tva.companyToday() : null };
+        return { id: entry.id, text: entry.text.trim(), priority, completedOn: entry.done ? this.tva.companyToday() : null };
       });
     }
     if ('essentials' in body) {
       if (!Array.isArray(body.essentials) || body.essentials.length !== WORKSPACE_ESSENTIALS_LIMIT) {
-        throw new BadRequestException('Workspace must contain exactly five essentials');
+        throw new BadRequestException('Workspace must contain exactly one essential');
       }
       const ids = new Set<string>();
       const essentials = body.essentials.map((item: any, index) => {
@@ -394,6 +453,10 @@ export class HomeExperienceService {
    * - Admin/Super Admin: every department, its assigned Manager(s), Team Leads
    *   and contributors.
    */
+  getTeamScope(user: any) {
+    return this.getTeamHierarchy(user);
+  }
+
   private async getTeamHierarchy(user: any) {
     const role = this.access.roleName(user);
     const detailed = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);

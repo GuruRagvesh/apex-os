@@ -15,7 +15,7 @@ import { HomeSkeleton } from '../components/HomeSkeleton';
 import { HeroKpis } from '../components/HeroKpis';
 import { motion } from 'motion/react';
 import { AlertTriangle } from 'lucide-react';
-import type { HomeExperience } from './home-types';
+import type { HomeTeamScope } from './home-types';
 import { SmartAnnouncementsCarousel, type HomeCarouselData } from '../components/SmartAnnouncementsCarousel';
 import { HeroQuickActions } from './HeroQuickActions';
 import { TeamInsightsSection } from './TeamInsightsSection';
@@ -124,24 +124,27 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
     queryFn: async () => {
       return await dashboardApi.getHomeSummary();
     },
-    refetchInterval: 60000,
-    staleTime: 30000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   });
 
-  const { data: experience, isPending: experienceLoading, isError: experienceError, refetch: retryExperience } = useQuery({
-    queryKey: ['home-experience', user?.id],
-    queryFn: () => dashboardApi.getHomeExperience() as Promise<HomeExperience>,
-    enabled: !!user?.id,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
+  const { data: teamScope, isPending: teamScopeLoading, isError: teamScopeError, refetch: retryTeamScope } = useQuery({
+    queryKey: ['home-team-scope', user?.id],
+    queryFn: () => dashboardApi.getHomeTeamScope() as Promise<HomeTeamScope>,
+    enabled: !!user?.id && isLeadOrAbove,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   });
 
   const { data: carousel, isPending: carouselLoading, isError: carouselError, refetch: retryCarousel } = useQuery({
     queryKey: ['home-carousel', user?.id],
     queryFn: () => dashboardApi.getHomeCarousel() as Promise<HomeCarouselData>,
     enabled: !!user?.id,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   });
 
   if (isLoading) return <HomeSkeleton />;
@@ -221,11 +224,11 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
 
       {/* Shared Home sections use the same role-scoped read model for all roles. */}
       {(!isContributor || Boolean(carousel?.announcement) || Boolean(carousel?.criticalAnnouncements.length)) && <div className="mb-3">
-        <SmartAnnouncementsCarousel data={carousel} recognition={isContributor ? [] : experience?.recognition}
+        <SmartAnnouncementsCarousel data={carousel} recognition={isContributor ? [] : carousel?.recognition}
           announcementsOnly={isContributor} loading={carouselLoading && !!user} error={carouselError} onRetry={() => retryCarousel()} />
       </div>}
-      {experienceLoading && user && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading home insights…</div>}
-      {experienceError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Home insights could not be loaded. <button type="button" onClick={() => retryExperience()} className="underline">Retry</button></div>}
+      {teamScopeLoading && isLeadOrAbove && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading team filters…</div>}
+      {teamScopeError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Team filters could not be loaded. <button type="button" onClick={() => retryTeamScope()} className="underline">Retry</button></div>}
 
       {/* ── MY CALENDAR: attendance / productivity ── */}
       {personalPanel && (
@@ -241,7 +244,7 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
       {user?.id && isContributor && <div className="mt-6"><PersonalHighlightsSection /></div>}
 
       {user?.id && isLeadOrAbove && <div className="mt-6 space-y-5">
-        {experience && <TeamInsightsSection team={experience.team} />}
+        {teamScope && <TeamInsightsSection team={teamScope} />}
         {(role === 'TEAM_LEAD' || role === 'MANAGER') && <PersonalHighlightsSection />}
       </div>}
     </div>

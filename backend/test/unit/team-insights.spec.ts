@@ -18,15 +18,15 @@ function prismaDouble() {
   return {
     team: { findMany: jest.fn(async () => []) },
     managerDeptAccess: { findMany: jest.fn(async () => []) },
-    user: { findMany: jest.fn(async () => []), findUnique: jest.fn() },
-    workSession: { findMany: jest.fn(async () => []), findFirst: jest.fn() },
-    breakLog: { findMany: jest.fn(async () => []) },
-    ticketTimeLog: { findMany: jest.fn(async () => []) },
-    meeting: { findMany: jest.fn(async () => []) },
-    ticket: { findMany: jest.fn(async () => []) },
-    reviewCycleLog: { findMany: jest.fn(async () => []) },
-    dailyAttendance: { findMany: jest.fn(async () => []) },
-    project: { findMany: jest.fn(async () => []) },
+    user: { findMany: jest.fn(async () => []), findUnique: jest.fn(), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    workSession: { findMany: jest.fn(async () => []), findFirst: jest.fn(), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    breakLog: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    ticketTimeLog: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    meeting: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    ticket: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    reviewCycleLog: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    dailyAttendance: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    project: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
   } as any;
 }
 
@@ -278,5 +278,30 @@ describe('TeamInsightsService analytics rules', () => {
     const service = new TeamInsightsService(prismaDouble(), access, timing, tva);
     await expect(service.getPersonalHighlights({ id: 'admin1', role: { name: 'ADMIN' } }, '2026-10')).rejects.toThrow('not available for this role');
     await expect(service.getPersonalHighlights({ id: 'super1', role: { name: 'SUPER_ADMIN' } }, '2026-10')).rejects.toThrow('not available for this role');
+  });
+
+  it('shares identical in-flight insight calculations and reuses the completed result', async () => {
+    const service = new TeamInsightsService(prismaDouble(), access, timing, tva);
+    const answer = { target: 'OVERALL', scope: { people: 3 } };
+    const calculate = jest.spyOn(service as any, 'calculateInsights').mockResolvedValue(answer);
+    const viewer = { id: 'admin1', role: { name: 'ADMIN' } };
+    const query = { personId: 'overall', month: '2026-10', week: 'all' };
+
+    const [first, second] = await Promise.all([
+      service.getInsights(viewer, query),
+      service.getInsights(viewer, query),
+    ]);
+    const third = await service.getInsights(viewer, query);
+
+    expect(first).toBe(answer);
+    expect(second).toBe(answer);
+    expect(third).toBe(answer);
+    expect(calculate).toHaveBeenCalledTimes(1);
+
+    const cached = [...(service as any).insightCache.values()][0];
+    cached.expiresAt = 0;
+    const afterFreshnessCheck = await service.getInsights(viewer, query);
+    expect(afterFreshnessCheck).toBe(answer);
+    expect(calculate).toHaveBeenCalledTimes(1);
   });
 });

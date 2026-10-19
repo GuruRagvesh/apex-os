@@ -25,6 +25,7 @@ export type HomeCarouselData = {
     basis: 'FINALIZED_ATTENDANCE';
     leaders: { id: string; name: string; onTime: number; eligible: number; rate: number }[];
   };
+  recognition: TeamAchievement[];
 };
 
 export type TeamAchievement = { id: string; person: string; title: string; ticketId: string; date: string; url: string };
@@ -36,6 +37,7 @@ export const SMART_CAROUSEL_SAMPLE: { data: HomeCarouselData; recognition: TeamA
     criticalAnnouncements: [],
     spotlight: { weekStart: '2026-10-12', basis: 'FINALIZED_ATTENDANCE',
       leaders: [{ id: 'sample-person', name: 'Sample Employee', onTime: 4, eligible: 4, rate: 100 }] },
+    recognition: [],
   },
   recognition: [{ id: 'sample-ticket', person: 'Sample Employee', title: 'Completed project milestone',
     ticketId: 'TKT-SAMPLE', date: '2026-10-12T00:00:00.000Z', url: '/tickets/sample-ticket' }],

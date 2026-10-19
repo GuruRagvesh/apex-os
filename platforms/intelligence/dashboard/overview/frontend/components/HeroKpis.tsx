@@ -43,8 +43,9 @@ export function HeroKpis({ isLead, userId, role = '' }: { isLead: boolean; userI
   const { data, isError } = useQuery({
     queryKey: ['home-kpis'],
     queryFn: () => dashboardApi.getHomeKpis(),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   });
   const selected: HomeKpiScope | undefined = data?.mine;
   const show = (n: number | null | undefined) => (isError ? '–' : n ?? '…');

@@ -9,6 +9,7 @@ const LEADER_ROLES = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const PERSONAL_INSIGHT_ROLES = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER'];
 const ACTIVE_TICKET_STATUSES: TicketStatus[] = [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.REVIEW];
 const DATE_RE = /^\d{4}-\d{2}$/;
+const INSIGHT_CACHE_TTL_MS = 5_000;
 
 type Range = { from: string; to: string; start: Date; end: Date; days: number };
 type Interval = { start: number; end: number };
@@ -103,6 +104,9 @@ export function netSessionMinutes(session: Interval, breaks: Interval[]) {
 
 @Injectable()
 export class TeamInsightsService {
+  private readonly insightCache = new Map<string, { expiresAt: number; revision: string; value: unknown }>();
+  private readonly insightInFlight = new Map<string, Promise<unknown>>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessPolicyService,
@@ -128,6 +132,30 @@ export class TeamInsightsService {
       value += 1;
     }
     return weeks;
+  }
+
+  /**
+   * A cheap global change token for every table used by Team Insights. Once a
+   * cached answer is a few seconds old, refresh checks these MAX timestamps.
+   * If they are unchanged, the verified answer is reused and none of the
+   * expensive analytics queries run again.
+   */
+  private async dataRevision() {
+    const revisions = await Promise.all([
+      this.prisma.user.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.project.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.ticket.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.workSession.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.breakLog.aggregate({ _count: { _all: true }, _max: { createdAt: true, endAt: true } }),
+      this.prisma.ticketTimeLog.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.reviewCycleLog.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.meeting.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+      this.prisma.dailyAttendance.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+    ]);
+    return JSON.stringify(revisions.map((entry) => [
+      entry._count._all,
+      ...Object.values(entry._max).map((value) => value instanceof Date ? value.getTime() : value),
+    ]));
   }
 
   private resolveRange(month?: string, week?: string): { range: Range; weeks: ReturnType<TeamInsightsService['monthWeeks']>; mode: 'MONTH' | 'WEEK' } {
@@ -588,6 +616,44 @@ export class TeamInsightsService {
   }
 
   async getInsights(viewer: any, query: { departmentId?: string; personId?: string; month?: string; week?: string }) {
+    const cacheKey = JSON.stringify([
+      viewer.id,
+      query.departmentId ?? 'all',
+      query.personId ?? 'overall',
+      query.month ?? this.tva.companyToday().slice(0, 7),
+      query.week ?? 'all',
+    ]);
+    const cached = this.insightCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const running = this.insightInFlight.get(cacheKey);
+    if (running) return running;
+
+    const calculation = (async () => {
+      const revision = await this.dataRevision();
+      const latest = this.insightCache.get(cacheKey);
+      if (latest?.revision === revision) {
+        latest.expiresAt = Date.now() + INSIGHT_CACHE_TTL_MS;
+        return latest.value;
+      }
+      const value = await this.calculateInsights(viewer, query);
+      this.insightCache.set(cacheKey, { expiresAt: Date.now() + INSIGHT_CACHE_TTL_MS, revision, value });
+      if (this.insightCache.size > 250) {
+        for (const [key, entry] of this.insightCache) {
+          if (entry.expiresAt <= Date.now()) this.insightCache.delete(key);
+        }
+        if (this.insightCache.size > 250) {
+          const oldestKey = this.insightCache.keys().next().value;
+          if (oldestKey) this.insightCache.delete(oldestKey);
+        }
+      }
+      return value;
+    })()
+      .finally(() => this.insightInFlight.delete(cacheKey));
+    this.insightInFlight.set(cacheKey, calculation);
+    return calculation;
+  }
+
+  private async calculateInsights(viewer: any, query: { departmentId?: string; personId?: string; month?: string; week?: string }) {
     const { range, weeks, mode } = this.resolveRange(query.month, query.week);
     const scope = await this.allowedScope(viewer, query.departmentId);
     const personId = query.personId && query.personId !== 'overall' ? query.personId : null;
