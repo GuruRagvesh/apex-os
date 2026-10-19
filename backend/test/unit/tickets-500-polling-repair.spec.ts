@@ -1,6 +1,7 @@
 import { BadRequestException, HttpStatus, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { QueryClient } from '@tanstack/react-query';
 import { Priority, TicketCategory, TicketStatus } from '@prisma/client';
+import { TICKET_LIST_MAX_LIMIT, TicketsService } from '../../src/modules/operations/tickets/tickets.service';
 import {
   POLL_BACKOFF_MAX_MS,
   POLL_BACKOFF_START_MS,
@@ -300,5 +301,50 @@ describe('request id', () => {
       expect(adapter.reply).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ statusCode: 503 }), 503);
       expect(logged).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('ticket list page size', () => {
+  // The real findAll and exportCsv over a fake table of 522 tickets. CI caught
+  // the first version of the 200 cap silently truncating the CSV export,
+  // which pages at 500: its first page came back with 200 rows and the loop
+  // took that as the last page.
+  function serviceOver(count: number) {
+    const rows = Array.from({ length: count }, (_, i) => ({
+      id: `t${i}`, ticketId: `TKT-${i}`, title: `T ${i}`,
+      createdAt: new Date('2026-10-05T03:00:00Z'), updatedAt: new Date('2026-10-05T03:00:00Z'),
+    }));
+    const service = Object.create(TicketsService.prototype) as any;
+    service.prisma = {
+      ticket: {
+        findMany: jest.fn(async (args: any) => rows.slice(args.skip, args.skip + args.take)),
+        count: jest.fn(async () => rows.length),
+      },
+    };
+    service.ticketAccess = { buildTicketWhereForUser: jest.fn(async () => ({})) };
+    service.addSlaMany = async (t: any[]) => t;
+    service.ticketLedger = { getEmployeeWorkSecondsMany: jest.fn(async () => new Map()) };
+    service.tva = { companyBusinessDate: (d: Date) => d.toISOString().slice(0, 10) };
+    return service;
+  }
+
+  it('GET /tickets: page >= 1 and limit between 1 and 200', async () => {
+    const service = serviceOver(522);
+    const take = async (q: any) => (await service.findAll(q, { id: 'u' })).limit;
+    expect(await take({ limit: 100000 })).toBe(TICKET_LIST_MAX_LIMIT);
+    expect(await take({ limit: 25 })).toBe(25);
+    expect(await take({ limit: 0 })).toBe(20);
+    expect(await take({ limit: -5 })).toBe(1);
+    const first = await service.findAll({ page: -3, limit: 25 }, { id: 'u' });
+    expect(first.page).toBe(1);
+    expect(service.prisma.ticket.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 0, take: 25 }));
+  });
+
+  it('the CSV export still includes every ticket past 200 (and past one 500 page)', async () => {
+    const service = serviceOver(522);
+    const csv: string = await service.exportCsv({}, { id: 'u' });
+    expect(csv.split('\n')).toHaveLength(1 + 522);
+    expect(service.prisma.ticket.findMany).toHaveBeenCalledTimes(2);
+    expect(service.prisma.ticket.findMany.mock.calls.map((c: any[]) => c[0].take)).toEqual([500, 500]);
   });
 });

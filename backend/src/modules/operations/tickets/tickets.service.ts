@@ -90,6 +90,9 @@ export const TICKET_TYPE_LOCKED = {
   message: "A ticket's type cannot be changed after it is created.",
 } as const;
 
+/** The largest page GET /tickets returns (the most any screen asks for). */
+export const TICKET_LIST_MAX_LIMIT = 200;
+
 /**
  * Ticket lists show the most recently changed ticket first. updatedAt moves
  * only when the ticket row itself is written (a real change); timers, review
@@ -696,13 +699,15 @@ export class TicketsService {
     dateTo?: string;
     page?: number;
     limit?: number;
-  }, user?: any, opts?: { orderBy?: Prisma.TicketOrderByWithRelationInput[] }) {
+  }, user?: any, opts?: { orderBy?: Prisma.TicketOrderByWithRelationInput[]; maxLimit?: number }) {
     const orderBy = opts?.orderBy ?? TICKET_LIST_ORDER;
     // A negative page made a negative skip, which Prisma rejects (500), and an
     // unbounded limit let one request load every ticket. 200 is the largest
-    // page any screen asks for (Analytics, Calendar).
+    // page any screen asks for (Analytics, Calendar). Server-side callers that
+    // page through everything (the CSV export, 500 a page) pass their own cap.
+    const maxLimit = opts?.maxLimit ?? TICKET_LIST_MAX_LIMIT;
     const page = Math.max(1, Math.floor(Number(query.page)) || 1);
-    const limit = Math.min(200, Math.max(1, Math.floor(Number(query.limit)) || 20));
+    const limit = Math.min(maxLimit, Math.max(1, Math.floor(Number(query.limit)) || 20));
     const skip = (page - 1) * limit;
     const where = await this.ticketAccess.buildTicketWhereForUser(query, user);
 
@@ -3330,7 +3335,11 @@ export class TicketsService {
     const tickets: any[] = [];
     const seen = new Set<string>();
     for (let page = 1; ; page++) {
-      const batch = await this.findAll({ ...query, limit: EXPORT_PAGE_SIZE, page }, user, { orderBy: exportOrder });
+      const batch = await this.findAll(
+        { ...query, limit: EXPORT_PAGE_SIZE, page },
+        user,
+        { orderBy: exportOrder, maxLimit: EXPORT_PAGE_SIZE },
+      );
       for (const t of batch.tickets) {
         if (seen.has(t.id)) continue;
         seen.add(t.id);
