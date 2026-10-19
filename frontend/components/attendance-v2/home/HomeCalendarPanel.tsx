@@ -5,14 +5,15 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
+import { workdayApi } from '@/lib/api';
 import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, CalendarCheck, CalendarDays, ChevronDown,
-  ChevronLeft, ChevronRight, Flame, Gauge, LogIn, LogOut, Minus, PencilLine, Star, Ticket, Timer, X,
+  ChevronLeft, ChevronRight, Flame, Gauge, GitFork, LogIn, LogOut, Minus, PencilLine, Star, Ticket, Timer, UserRound, UsersRound, X,
 } from 'lucide-react';
 import { getMyAttendanceV2, type MyAttendanceDayV2 } from '../my-attendance-v2-api';
 import { getMyPunchEvidence, type OwnPunchEvidence } from '../../attendance/punch-api';
-import { getMyLeaveBalance, type PersonalLeaveType } from '../../attendance/leave-balance-api';
+import { getMyLeaveBalance, getUserLeaveBalance, type PersonalLeaveType } from '../../attendance/leave-balance-api';
 import { monthLabel, presentDay, formatTime } from '../status-presentation';
 import { CorrectionDialog } from '../CorrectionDialog';
 import { getHomePersonalHighlights, getHomeProductivity, type HomeProductivityDay } from './home-insights-api';
@@ -25,6 +26,7 @@ import {
 import s from './home-calendar.module.css';
 
 type Mode = 'attendance' | 'productivity';
+type AttendanceScope = 'personal' | 'team';
 
 const ATTENDANCE_LEGEND = [
   { label: 'Present', color: '#18B86B' },
@@ -70,7 +72,10 @@ export function HomeCalendarPanel() {
   const normalizedRole = String(role).toUpperCase();
   const isIntern = normalizedRole === 'INTERN';
   const hasPersonalHighlights = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER'].includes(normalizedRole);
+  const canViewTeamAttendance = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(normalizedRole);
   const [mode, setMode] = useState<Mode>('attendance');
+  const [attendanceScope, setAttendanceScope] = useState<AttendanceScope>('personal');
+  const [showAttendanceMap, setShowAttendanceMap] = useState(false);
   const [attendanceFilter, setAttendanceFilter] = useState<string | null>(null);
   const [month, setMonth] = useState(() => monthOf(today));
   const [popup, setPopup] = useState<{ date: string; anchor: HTMLElement } | null>(null);
@@ -153,19 +158,35 @@ export function HomeCalendarPanel() {
   const openDay = (date: string, anchor: HTMLElement) => setPopup({ date, anchor });
 
   return (
-    <section className={s.panel} aria-label="My calendar">
-      <div className={`${s.card} ${s.calendar}`}>
+    <section className={s.panel} aria-label="Attendance">
+      <div className={`${s.card} ${s.calendar} ${attendanceScope === 'team' ? s.teamCalendar : ''}`}>
         <header className={s.header}>
-          <h2 className={s.title}>My {mode === 'attendance' ? 'Attendance' : 'Productivity'}</h2>
-          <div className={s.toggle} role="group" aria-label="Calendar view">
+          {mode === 'attendance' && canViewTeamAttendance ? (
+            <div className={s.titleBranchWrap}>
+              <button type="button" className={s.title} onClick={() => setShowAttendanceMap((open) => !open)} aria-haspopup="menu" aria-expanded={showAttendanceMap}>
+                Attendance <GitFork size={14} aria-hidden="true" />
+              </button>
+              {showAttendanceMap && (
+                <AttendanceBranchMap
+                  selected={attendanceScope}
+                  onSelect={(scope) => { setAttendanceScope(scope); setMode('attendance'); setPopup(null); setShowAttendanceMap(false); }}
+                  onClose={() => setShowAttendanceMap(false)}
+                />
+              )}
+            </div>
+          ) : (
+            <h2 className={s.title}>{mode === 'attendance' ? 'Attendance' : 'Productivity'}</h2>
+          )}
+          {attendanceScope === 'team' && <h3 className={s.teamViewTitle}>My Team</h3>}
+          {attendanceScope === 'personal' && <div className={s.toggle} role="group" aria-label="Calendar view">
             <button type="button" aria-pressed={mode === 'attendance'} onClick={() => { setMode('attendance'); setPopup(null); }}>
               <CalendarCheck size={14} aria-hidden="true" /> Attendance
             </button>
             <button type="button" aria-pressed={mode === 'productivity'} onClick={() => { setMode('productivity'); setPopup(null); }}>
               <Gauge size={14} aria-hidden="true" /> Productivity
             </button>
-          </div>
-          <div className={s.monthControls}>
+          </div>}
+          {attendanceScope === 'personal' && <div className={s.monthControls}>
             <button type="button" onClick={() => { setMonth(shiftMonth(month, -1)); setPopup(null); }} aria-label="Previous month"><ChevronLeft size={16} /></button>
             <label className={s.monthPicker}>
               <CalendarDays size={14} aria-hidden="true" />
@@ -180,10 +201,13 @@ export function HomeCalendarPanel() {
               />
             </label>
             <button type="button" onClick={() => { setMonth(shiftMonth(month, 1)); setPopup(null); }} disabled={!canGoNext} aria-label="Next month"><ChevronRight size={16} /></button>
-          </div>
+          </div>}
+          {attendanceScope === 'team' && <span className={s.liveIndicator}><i />Updates every 15 seconds</span>}
         </header>
 
-        <div className={mode === 'attendance' ? s.attendanceCalendarLayout : undefined}>
+        {attendanceScope === 'team' ? (
+          <TeamAttendanceTable />
+        ) : <div className={mode === 'attendance' ? s.attendanceCalendarLayout : undefined}>
           {mode === 'attendance' && (
             <aside className={s.attendanceLegend} aria-label="Attendance colour guide">
               <span className={s.legendTitle}>Day colours</span>
@@ -221,9 +245,9 @@ export function HomeCalendarPanel() {
               />
             )}
           </div>
-        </div>
+        </div>}
 
-        {mode === 'productivity' && (
+        {attendanceScope === 'personal' && mode === 'productivity' && (
           <div className={s.legend} aria-label="Productivity legend">
             <>
               <span><i style={{ background: 'color-mix(in srgb, var(--color-success) 36%, transparent)' }} />Productive day</span>
@@ -234,11 +258,11 @@ export function HomeCalendarPanel() {
         )}
       </div>
 
-      {mode === 'attendance'
+      {attendanceScope === 'personal' && (mode === 'attendance'
         ? <AttendanceSide today={today} week={week} byDate={attendanceByDate} isIntern={isIntern} averageBreakMinutes={personalHighlights.data?.averageBreakMinutes ?? null} showAverageBreak={hasPersonalHighlights} />
-        : <ProductivitySide week={week} byDate={productivityByDate} loading={weekProductivity.isLoading} failed={weekProductivity.isError} month={{ start: monthStart, end: monthTo, label: monthLabel(y, m), days: monthProductivity.data, loading: monthProductivity.isLoading, failed: monthProductivity.isError, future: monthStart > today }} />}
+        : <ProductivitySide week={week} byDate={productivityByDate} loading={weekProductivity.isLoading} failed={weekProductivity.isError} month={{ start: monthStart, end: monthTo, label: monthLabel(y, m), days: monthProductivity.data, loading: monthProductivity.isLoading, failed: monthProductivity.isError, future: monthStart > today }} />)}
 
-      {mode === 'attendance' && !isIntern && <LeaveBalanceAnalysis />}
+      {attendanceScope === 'personal' && mode === 'attendance' && !isIntern && <LeaveBalanceAnalysis />}
 
       {popup && (
         <DayPopup
@@ -255,6 +279,140 @@ export function HomeCalendarPanel() {
         />
       )}
       {correctionDate && correctionAllowed && <CorrectionDialog date={correctionDate} onClose={() => setCorrectionDate(null)} />}
+    </section>
+  );
+}
+
+type TeamMember = {
+  id: string;
+  name: string;
+  avatar?: string | null;
+  photoUrl?: string | null;
+  role?: { name?: string } | string | null;
+  department?: { name?: string } | null;
+  workStatus?: string | null;
+  todaySession?: { status?: string; logoutAt?: string | null; breakLogs?: Array<{ breakType?: string; endAt?: string | null }> } | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  hasOpenSession?: boolean;
+  onLeaveToday?: boolean;
+  leaveType?: string | null;
+};
+
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || '—';
+}
+
+function liveStatus(member: TeamMember): { label: string; tone: string } {
+  if (member.onLeaveToday) return { label: member.leaveType ? `On leave · ${member.leaveType.toLowerCase()}` : 'On leave', tone: 'leave' };
+  const openBreak = member.todaySession?.breakLogs?.find((item) => !item.endAt);
+  if (openBreak?.breakType === 'MEETING') return { label: 'In meeting', tone: 'meeting' };
+  if (openBreak) return { label: 'On break', tone: 'break' };
+  if (member.hasOpenSession && member.workStatus === 'IDLE') return { label: 'Idle', tone: 'idle' };
+  if (member.hasOpenSession) return { label: 'Working', tone: 'working' };
+  if (member.endTime || member.todaySession?.logoutAt) return { label: 'Day completed', tone: 'complete' };
+  return { label: 'Not started', tone: 'offline' };
+}
+
+function TeamAttendanceTable() {
+  const pageSize = 10;
+  const [page, setPage] = useState(0);
+  const team = useQuery({
+    queryKey: ['workday-team', 'home-attendance'],
+    queryFn: () => workdayApi.getTeam() as Promise<TeamMember[]>,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
+  });
+  const members = team.data ?? [];
+  const pageCount = Math.max(1, Math.ceil(members.length / pageSize));
+  const pageStart = page * pageSize;
+  const visibleMembers = members.slice(pageStart, pageStart + pageSize);
+
+  useEffect(() => {
+    if (page >= pageCount) setPage(pageCount - 1);
+  }, [page, pageCount]);
+
+  const balances = useQueries({
+    queries: visibleMembers.map((member) => ({
+      queryKey: ['leave-balance', member.id],
+      queryFn: () => getUserLeaveBalance(member.id),
+      staleTime: 60_000,
+      retry: shouldRetryTransientQuery,
+      retryDelay: transientQueryRetryDelay,
+    })),
+  });
+
+  if (team.isLoading) return <div className={s.teamState}>Loading today’s team attendance…</div>;
+  if (team.isError) return <div className={s.teamState}>Team attendance could not be loaded. Refresh to try again.</div>;
+  if (!members.length) return <div className={s.teamState}>No active team members are assigned to you.</div>;
+
+  return (
+    <div className={s.teamTableWrap}>
+      <div className={s.teamTableViewport}>
+        <div className={s.teamTable} role="table" aria-label="Today’s team attendance">
+          <div className={s.teamTableHeader} role="row">
+            <span role="columnheader">Name</span><span role="columnheader">Punch in</span><span role="columnheader">Punch out</span><span role="columnheader">Status</span><span role="columnheader">Leave balance</span>
+          </div>
+          {visibleMembers.map((member, index) => {
+            const status = liveStatus(member);
+            const balance = balances[index]?.data;
+            const role = typeof member.role === 'string' ? member.role : member.role?.name;
+            const photo = member.photoUrl || member.avatar;
+            return (
+              <div key={member.id} className={s.teamTableRow} role="row">
+                <div className={s.teamPerson} role="cell">
+                  <span className={s.teamAvatar}>{photo ? <img src={photo} alt="" /> : initials(member.name)}</span>
+                  <span><strong>{member.name}</strong><small>{[role?.replace('_', ' '), member.department?.name].filter(Boolean).join(' · ')}</small></span>
+                </div>
+                <span className={s.teamTime} role="cell"><LogIn size={15} />{formatTime(member.startTime ?? null)}</span>
+                <span className={s.teamTime} role="cell"><LogOut size={15} />{formatTime(member.endTime ?? member.todaySession?.logoutAt ?? null)}</span>
+                <span role="cell"><i className={s.teamStatus} data-tone={status.tone}>{status.label}</i></span>
+                <span className={s.teamLeave} role="cell">
+                  {balance ? <><strong>{balance.balance}</strong><small> left · {balance.approved} used / {balance.allocation} allocated</small></> : balances[index]?.isError ? <small>Unavailable</small> : <small>Loading…</small>}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <nav className={s.teamPagination} aria-label="Team attendance pages">
+        <span>Showing {pageStart + 1}–{Math.min(pageStart + pageSize, members.length)} of {members.length}</span>
+        <div>
+          <button type="button" onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0} aria-label="Previous 10 team members"><ChevronLeft size={15} />Previous</button>
+          <span>Page {page + 1} of {pageCount}</span>
+          <button type="button" onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={page >= pageCount - 1} aria-label="Next 10 team members">Next<ChevronRight size={15} /></button>
+        </div>
+      </nav>
+      </div>
+  );
+}
+
+function AttendanceBranchMap({ selected, onSelect, onClose }: { selected: AttendanceScope; onSelect: (scope: AttendanceScope) => void; onClose: () => void }) {
+  const mapRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const closeOnKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const closeOutside = (event: MouseEvent) => {
+      if (mapRef.current && !mapRef.current.contains(event.target as Node)) onClose();
+    };
+    window.addEventListener('keydown', closeOnKey);
+    window.addEventListener('mousedown', closeOutside);
+    return () => {
+      window.removeEventListener('keydown', closeOnKey);
+      window.removeEventListener('mousedown', closeOutside);
+    };
+  }, [onClose]);
+
+  return (
+    <section ref={mapRef} className={s.branchMap} role="menu" aria-label="Attendance views">
+      <div className={s.branchRoot}><CalendarCheck size={15} />Attendance</div>
+      <div className={s.branchStem} aria-hidden="true" />
+      <div className={s.branchChoices}>
+        <button type="button" role="menuitemradio" aria-checked={selected === 'personal'} data-selected={selected === 'personal'} onClick={() => onSelect('personal')}><UserRound size={18} /><span><strong>My Attendance</strong><small>Your calendar and punches</small></span></button>
+        <button type="button" role="menuitemradio" aria-checked={selected === 'team'} data-selected={selected === 'team'} onClick={() => onSelect('team')}><UsersRound size={18} /><span><strong>My Team</strong><small>Today’s live team status</small></span></button>
+      </div>
     </section>
   );
 }

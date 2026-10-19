@@ -371,7 +371,12 @@ export class WorkdayService {
     };
     // Session close, ticket-timer pause and the user's LOGGED_OUT status commit
     // together; the closure audit follows once they have.
+    const openMeetingIds = session.breakLogs
+      .filter((b: any) => !b.endAt && b.breakType === 'MEETING' && b.meetingId)
+      .map((b: any) => b.meetingId as string);
     const result = await this.finalizeWorkSessionWithPresence(session.id, options, 'LOGGED_OUT');
+    // End Day during a meeting: the meeting is recorded up to now and ends for this person.
+    await this.leaveMeetingsOnEndDay(userId, openMeetingIds, now);
 
     return {
       session: result.session,
@@ -596,6 +601,39 @@ export class WorkdayService {
     }, WORKDAY_TIMER_TRANSACTION);
     const result = await this.afterWorkSessionFinalized(txResult, options);
     return { ...result, didClose: txResult.didClose, userId: txResult.userId };
+  }
+
+  /** Marks the person as having left their running meetings; a meeting with nobody left in it is completed. */
+  private async leaveMeetingsOnEndDay(userId: string, meetingIds: string[], now: Date) {
+    for (const meetingId of meetingIds) {
+      await this.prisma.meetingParticipant.updateMany({ where: { meetingId, userId }, data: { status: 'LEFT', leftAt: now } });
+      const stillIn = await this.prisma.breakLog.count({ where: { meetingId, breakType: 'MEETING', endAt: null } });
+      if (stillIn === 0) {
+        const completed = await this.prisma.meeting.updateMany({ where: { id: meetingId, status: 'IN_PROGRESS' }, data: { status: 'COMPLETED', endedAt: now } });
+        await this.prisma.meetingParticipant.updateMany({ where: { meetingId, status: 'INVITED' }, data: { status: 'REJECTED', respondedAt: now } });
+        if (completed.count > 0) {
+          const meeting = await this.prisma.meeting.findUnique({
+            where: { id: meetingId },
+            select: { topic: true, organizerNameSnapshot: true, approverIds: true, approvalStatus: true },
+          });
+          if (meeting?.approvalStatus === 'PENDING') {
+            await Promise.all(meeting.approverIds.map((approverId) => this.notificationEventService.sendNotification(
+              approverId,
+              'reviewPending',
+              {
+                title: 'Meeting waiting for your approval',
+                message: `${meeting.organizerNameSnapshot}'s meeting "${meeting.topic}" has ended. Approve or reject it in Apex.`,
+                type: NotificationType.INFO,
+                link: '/dashboard',
+                entityId: meetingId,
+                entityType: 'Meeting',
+                dedupeKey: `meeting-approval:${meetingId}:${approverId}`,
+              },
+            ).catch(() => undefined)));
+          }
+        }
+      }
+    }
   }
 
   async startBreak(userId: string, dto: { breakType: string; estimatedMinutes?: number }) {
@@ -992,14 +1030,16 @@ export class WorkdayService {
       breakLogs: s.breakLogs.filter((b: any) => b.breakType !== 'MEETING'),
     }));
     const rt = calculateWorkdayRuntime(sessionsForRuntime as any, now);
+    // A cancelled meeting is recorded as plain working time, never as meeting time.
+    const countedMeeting = (breakLog: any) => breakLog.breakType === 'MEETING' && breakLog.source !== 'MEETING_CANCELLED';
     const meetingMinutes = sessions.reduce((total, currentSession) => total + currentSession.breakLogs
-      .filter((breakLog: any) => breakLog.breakType === 'MEETING')
+      .filter(countedMeeting)
       .reduce((sessionTotal: number, breakLog: any) => {
         const endAt = breakLog.endAt ?? now;
         return sessionTotal + Math.max(0, breakLog.durationMinutes ?? Math.floor((endAt.getTime() - breakLog.startAt.getTime()) / 60000));
       }, 0), 0);
     const meetingCount = sessions.reduce((total, currentSession) => total + currentSession.breakLogs
-      .filter((breakLog: any) => breakLog.breakType === 'MEETING').length, 0);
+      .filter(countedMeeting).length, 0);
 
     const remainingBreakMinutes = Math.max(0, DAILY_BREAK_ALLOWANCE_MINUTES - rt.totalBreakMinutes);
     const exceededBreakMinutes = Math.max(0, rt.totalBreakMinutes - DAILY_BREAK_ALLOWANCE_MINUTES);
@@ -1011,7 +1051,9 @@ export class WorkdayService {
     // later, once there's genuinely no activity signal for the grace window.
     let needsAutoCloseConsent = false;
     let autoCloseTime: string | null = null;
-    if (session && ['WORKING', 'ON_BREAK'].includes(session.status)) {
+    // Auto-close is frozen while the person is in a meeting: no prompt until it ends.
+    const inMeeting = Boolean(session?.breakLogs?.some((b: any) => !b.endAt && b.breakType === 'MEETING'));
+    if (session && ['WORKING', 'ON_BREAK'].includes(session.status) && !inMeeting) {
       const policySetting = await this.prisma.appSetting.findUnique({ where: { key: 'workday_policy' } });
       const policy = (policySetting?.value as any) ?? null;
       if (policy?.autoClose === true) {
@@ -1066,10 +1108,26 @@ export class WorkdayService {
       const access = await this.prisma.managerDeptAccess.findMany({
         where: { managerId: requestingUser.id },
       });
-      const deptIds = access.map((a) => a.departmentId);
-      if (requestingUser.departmentId) deptIds.push(requestingUser.departmentId);
+      // Team Leads own their home department. Managers use their explicit
+      // department assignments; their profile department is only a fallback
+      // for legacy managers without assignment rows (for example, a manager
+      // based in Company / Operations must not inherit that whole department).
+      const deptIds = roleName === 'TEAM_LEAD'
+        ? (requestingUser.departmentId ? [requestingUser.departmentId] : [])
+        : access.map((a) => a.departmentId);
+      if (roleName === 'MANAGER' && deptIds.length === 0 && requestingUser.departmentId) deptIds.push(requestingUser.departmentId);
       if (deptIds.length === 0) return [];
       userFilter.departmentId = { in: [...new Set(deptIds)] };
+    }
+
+    // This endpoint represents people below the viewer in the operational
+    // hierarchy, not peers or seniors who merely share a department.
+    if (roleName === 'TEAM_LEAD') {
+      userFilter.role = { name: { in: ['EMPLOYEE', 'INTERN'] } };
+    } else if (roleName === 'MANAGER') {
+      userFilter.role = { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } };
+    } else if (isAdminLevel || isHR) {
+      userFilter.role = { name: { in: ['MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } };
     }
 
     const globalPolicySetting = await this.prisma.appSetting.findUnique({ where: { key: 'workday_policy' } });

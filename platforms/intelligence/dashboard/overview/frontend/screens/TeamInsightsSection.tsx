@@ -30,8 +30,10 @@ function statusLabel(status?: string) {
   return ({ WORKING: 'Working now', ON_BREAK: 'On break', IN_MEETING: 'In a meeting', ON_LEAVE: 'On leave', IDLE: 'Paused', LOGGED_OUT: 'Day ended', OFFLINE: 'Not started' } as Record<string, string>)[status ?? ''] ?? 'Not started';
 }
 
-function MetricTile({ label, value, note, danger = false }: { label: string; value: string | number; note?: string; danger?: boolean }) {
-  return <div className={`rounded-xl border px-3 py-3 ${danger ? 'border-rose-300 bg-rose-50/70 dark:border-rose-700 dark:bg-rose-950/20' : 'apex-section-border-subtle bg-white dark:bg-slate-900'}`}>
+function MetricTile({ label, value, note, danger = false, strongBorder = false }: { label: string; value: string | number; note?: string; danger?: boolean; strongBorder?: boolean }) {
+  const surface = danger ? 'bg-rose-50/70 dark:bg-rose-950/20' : 'bg-white dark:bg-slate-900';
+  const border = strongBorder ? 'border-black dark:border-slate-300' : danger ? 'border-rose-300 dark:border-rose-700' : 'apex-section-border-subtle';
+  return <div className={`rounded-xl border px-3 py-3 ${surface} ${border}`}>
     <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">{label}</p>
     <p className={`mt-1 text-xl font-bold ${danger ? 'text-rose-600 dark:text-rose-300' : 'text-slate-900 dark:text-white'}`}>{value}</p>
     {note && <p className="mt-0.5 text-[10px] leading-4 text-slate-500 dark:text-slate-400">{note}</p>}
@@ -89,7 +91,7 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
       <select
         value={departmentId}
         onChange={(event) => { setDepartmentId(event.target.value); setPersonId('overall'); }}
-        className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        className="h-9 w-full appearance-none rounded-lg border border-blue-900 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 dark:border-blue-400 dark:bg-slate-900 dark:text-slate-200"
         aria-label="Filter team insights by department"
       >
         <option value="all">{team.hierarchyRole === 'MANAGER' ? 'All assigned departments' : 'All departments'}</option>
@@ -102,7 +104,7 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
       <select
         value={personId}
         onChange={(event) => setPersonId(event.target.value)}
-        className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        className="h-9 w-full appearance-none rounded-lg border border-blue-900 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 dark:border-blue-400 dark:bg-slate-900 dark:text-slate-200"
         aria-label="Filter team insights by person"
       >
         <option value="overall">{overallLabel}</option>
@@ -112,11 +114,11 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
     <label className="relative flex min-w-[145px] flex-none items-center">
       <CalendarDays size={14} className="pointer-events-none absolute left-3 text-slate-500" aria-hidden />
       <span className="sr-only">Month</span>
-      <input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setWeek('all'); }} className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" />
+      <input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setWeek('all'); }} className="h-9 w-full rounded-lg border border-blue-900 bg-white pl-9 pr-2 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 dark:border-blue-400 dark:bg-slate-900 dark:text-slate-200" />
     </label>
     <label className="relative flex min-w-[175px] flex-none items-center">
       <span className="sr-only">Week</span>
-      <select value={week} onChange={(event) => setWeek(event.target.value)} className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+      <select value={week} onChange={(event) => setWeek(event.target.value)} className="h-9 w-full rounded-lg border border-blue-900 bg-white px-3 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 dark:border-blue-400 dark:bg-slate-900 dark:text-slate-200">
         <option value="all">Whole month</option>
         {(insight?.period.weeks ?? []).map((item) => <option key={item.value} value={item.value}>{item.label} · {weekDateRange(item.from, item.to)}</option>)}
       </select>
@@ -156,10 +158,10 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
         <article className="apex-section-border rounded-2xl border bg-white p-3 dark:bg-slate-900">
           <div className="mb-3 flex items-start justify-between gap-3"><div><h3 className="w-fit rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white shadow-sm">Workday</h3><p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Averages across {insight.workday.daysWorked} worked person-day{insight.workday.daysWorked === 1 ? '' : 's'}</p></div><Activity size={17} className="mt-2 text-slate-600" /></div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            <MetricTile label="Working hours" value={minutesLabel(insight.workday.averages.workingMinutes)} note="Punch in to punch out − breaks" />
-            <MetricTile label="Productive hours" value={minutesLabel(insight.workday.averages.productiveMinutes)} note="Tickets + meetings" />
-            <MetricTile label="Break time" value={minutesLabel(insight.workday.averages.breakMinutes)} note="Non-meeting breaks" />
-            <MetricTile label="Meetings" value={insight.workday.averages.meetingCount == null ? '—' : `${insight.workday.averages.meetingCount} / day`} note={`${minutesLabel(insight.workday.averages.meetingMinutes)} per day`} />
+            <MetricTile label="Working hours" value={minutesLabel(insight.workday.averages.workingMinutes)} note="Punch in to punch out − breaks" strongBorder />
+            <MetricTile label="Productive hours" value={minutesLabel(insight.workday.averages.productiveMinutes)} note="Tickets + meetings" strongBorder />
+            <MetricTile label="Break time" value={minutesLabel(insight.workday.averages.breakMinutes)} note="Non-meeting breaks" strongBorder />
+            <MetricTile label="Meetings" value={insight.workday.averages.meetingCount == null ? '—' : `${insight.workday.averages.meetingCount} / day`} note={`${minutesLabel(insight.workday.averages.meetingMinutes)} per day`} strongBorder />
           </div>
           <div className="mt-3 flex h-7 overflow-hidden rounded-full bg-slate-100 text-[9px] font-semibold dark:bg-slate-800" aria-label="Working-time composition">
             <div className="grid min-w-fit place-items-center bg-gradient-to-r from-blue-600 to-violet-500 px-2 text-white" style={{ width: `${productiveShareMinutes / workdayTotal * 100}%` }} title={`Productive time ${minutesLabel(insight.workday.productiveMinutes)}`}>Productive {minutesLabel(insight.workday.productiveMinutes)}</div>
@@ -178,13 +180,13 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
         <article className="apex-section-border rounded-2xl border bg-white p-3 dark:bg-slate-900">
           <div className="mb-3 flex items-start justify-between gap-3"><h3 className="w-fit rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white shadow-sm">Tickets</h3><TicketCheck size={17} className="mt-2 text-slate-600" /></div>
           <div className={`grid grid-cols-2 gap-2 sm:grid-cols-4 ${insight.attendance ? 'xl:grid-cols-4' : 'xl:grid-cols-7'}`}>
-            <MetricTile label="Active" value={insight.tickets.active} />
-            <MetricTile label="In progress" value={insight.tickets.inProgress} />
-            <MetricTile label="Under review" value={insight.tickets.underReview} note="During this period" />
-            <MetricTile label="Sent for review" value={insight.tickets.sentForReview} note="Distinct tickets" />
-            <MetricTile label="Execution overdue" value={insight.tickets.executionOverdue} note="Not submitted on time" danger={insight.tickets.executionOverdue > 0} />
-            <MetricTile label="Review overdue" value={insight.tickets.reviewOverdue} note="Reviewer SLA elapsed" danger={insight.tickets.reviewOverdue > 0} />
-            <div title={`${insight.tickets.reworkAttempts} total rework attempt${insight.tickets.reworkAttempts === 1 ? '' : 's'}`}><MetricTile label="Reworked" value={insight.tickets.reworkTickets} note={`${insight.tickets.reworkAttempts} attempt${insight.tickets.reworkAttempts === 1 ? '' : 's'}`} danger={insight.tickets.reworkTickets > 0} /></div>
+            <MetricTile label="Active" value={insight.tickets.active} strongBorder />
+            <MetricTile label="In progress" value={insight.tickets.inProgress} strongBorder />
+            <MetricTile label="Under review" value={insight.tickets.underReview} note="During this period" strongBorder />
+            <MetricTile label="Sent for review" value={insight.tickets.sentForReview} note="Distinct tickets" strongBorder />
+            <MetricTile label="Execution overdue" value={insight.tickets.executionOverdue} note="Not submitted on time" danger={insight.tickets.executionOverdue > 0} strongBorder />
+            <MetricTile label="Review overdue" value={insight.tickets.reviewOverdue} note="Reviewer SLA elapsed" danger={insight.tickets.reviewOverdue > 0} strongBorder />
+            <div title={`${insight.tickets.reworkAttempts} total rework attempt${insight.tickets.reworkAttempts === 1 ? '' : 's'}`}><MetricTile label="Reworked" value={insight.tickets.reworkTickets} note={`${insight.tickets.reworkAttempts} attempt${insight.tickets.reworkAttempts === 1 ? '' : 's'}`} danger={insight.tickets.reworkTickets > 0} strongBorder /></div>
           </div>
         </article>
 

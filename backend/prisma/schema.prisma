@@ -130,6 +130,7 @@ model User {
   meetingsOrganized         Meeting[]                      @relation("MeetingOrganizer")
   meetingsAsCounterparty    Meeting[]                      @relation("MeetingCounterparty")
   meetingParticipations     MeetingParticipant[]
+  meetingApprovalResponses MeetingApprovalResponse[]
 
   // ── Lifecycle foundation (Phase 1) ─────────────────────────────────────────
   /// Null on legacy rows: derived at read time (deriveEmploymentState).
@@ -761,6 +762,16 @@ model Meeting {
   organizerNameSnapshot    String
   counterpartyId           String
   counterpartyNameSnapshot String
+  purpose                  String?
+  clientName               String?
+  guestNames               String?
+  isDepartmental           Boolean              @default(false)
+  /// Users who must approve this meeting. Kept for fast routing and legacy reads.
+  approverIds              String[]             @default([])
+  /// NOT_REQUIRED | PENDING | APPROVED | REJECTED
+  approvalStatus           String               @default("NOT_REQUIRED")
+  decidedById              String?
+  decidedAt                DateTime?
   meetingCode              String?              @unique
   visibility               String               @default("PERSONAL")
   createdByRole            String?
@@ -776,6 +787,7 @@ model Meeting {
   counterparty             User                 @relation("MeetingCounterparty", fields: [counterpartyId], references: [id])
   department               Department?          @relation(fields: [departmentId], references: [id])
   participants             MeetingParticipant[]
+  approvalResponses        MeetingApprovalResponse[]
   breakLogs                BreakLog[]
 
   @@index([organizerId, createdAt])
@@ -783,7 +795,28 @@ model Meeting {
   @@index([status, scheduledStartAt])
   @@index([departmentId])
   @@index([meetingCode, visibility])
+  @@index([approvalStatus])
   @@map("meetings")
+}
+
+/// One independent validation response per required meeting approver. Names
+/// are snapshotted so meeting history stays readable after a user leaves.
+model MeetingApprovalResponse {
+  id                   String    @id @default(cuid())
+  meetingId            String
+  approverId           String?
+  approverNameSnapshot String
+  /// PENDING | APPROVED | REJECTED
+  status               String    @default("PENDING")
+  decidedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  meeting              Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  approver             User?     @relation(fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@unique([meetingId, approverId])
+  @@index([approverId, status])
+  @@index([meetingId, status])
+  @@map("meeting_approval_responses")
 }
 
 model MeetingParticipant {
@@ -791,12 +824,18 @@ model MeetingParticipant {
   meetingId           String
   userId              String?
   displayNameSnapshot String
+  /// INVITED | ACCEPTED | REJECTED | LEFT. Old rows default to ACCEPTED.
+  status              String    @default("ACCEPTED")
+  respondedAt         DateTime?
+  joinedAt            DateTime?
+  leftAt              DateTime?
   createdAt           DateTime @default(now())
   meeting             Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([meetingId, userId])
   @@index([userId, meetingId])
+  @@index([userId, status])
   @@map("meeting_participants")
 }
 

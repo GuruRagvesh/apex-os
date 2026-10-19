@@ -11,6 +11,7 @@ import { useTicketCreationGate } from '@apex/operations-tickets-lifecycle/compon
 import { ActiveReviewBanner } from '@apex/operations-tickets-lifecycle/components/active-review-banner';
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
 import { WorkPauseGuard } from '@/components/workday/WorkPauseGuard';
+import { MeetingInviteCenter } from '@/components/workday/MeetingInviteCenter';
 import { syncStoredOwner } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
@@ -165,6 +166,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Device push opt-in. Reminder timing and delivery are owned by the backend. */}
       <DesktopNotificationManager />
       <WorkPauseGuard />
+      <MeetingInviteCenter />
     </div>
   );
 }

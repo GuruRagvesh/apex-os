@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { animate, splitText, stagger } from 'animejs';
-import { Coffee, Play, UsersRound } from 'lucide-react';
+import { ArrowLeft, Coffee, Play, UsersRound } from 'lucide-react';
 import { ModalPortal } from '@/components/ui/ModalPortal';
 import styles from './WorkPauseOverlay.module.css';
 
@@ -12,6 +12,12 @@ type WorkPauseOverlayProps = {
   plannedMinutes?: number | null;
   resuming: boolean;
   onResume: () => void;
+  /** Meeting only: hide this layer while the meeting keeps running. */
+  onBackToApex?: () => void;
+  /** Meeting only (organizer): the meeting never happened, record nothing. */
+  onCancelMeeting?: () => void;
+  meetingAgenda?: string | null;
+  meetingPeople?: { name: string; status: string }[];
 };
 
 function elapsedLabel(minutes: number) {
@@ -21,7 +27,7 @@ function elapsedLabel(minutes: number) {
   return hours ? `${hours}h ${remainder}m elapsed` : `${remainder} min elapsed`;
 }
 
-export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resuming, onResume }: WorkPauseOverlayProps) {
+export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resuming, onResume, onBackToApex, onCancelMeeting, meetingAgenda, meetingPeople }: WorkPauseOverlayProps) {
   const layerRef = useRef<HTMLElement | null>(null);
   const wordRef = useRef<HTMLHeadingElement | null>(null);
   const isMeeting = kind === 'meeting';
@@ -85,7 +91,7 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
           <span className={styles.icon} aria-hidden="true">
             {isMeeting ? <UsersRound size={25} /> : <Coffee size={25} />}
           </span>
-          <h2 ref={wordRef} id="work-pause-title" className={styles.word}>
+          <h2 ref={wordRef} id="work-pause-title" className={`${styles.word} ${isMeeting ? styles.meetingWord : ''}`}>
             {isMeeting ? 'MEETING' : 'BREAK'}
           </h2>
           <p id="work-pause-status" className={styles.status}>
@@ -95,12 +101,41 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
             {elapsedLabel(elapsedMinutes)}
             {!isMeeting && plannedMinutes ? ` · ${plannedMinutes} min planned` : ''}
           </p>
+          {isMeeting && meetingAgenda && <p className={styles.agenda}>{meetingAgenda}</p>}
+          {isMeeting && meetingPeople && meetingPeople.length > 0 && (
+            <ul className={styles.people} aria-label="Attendees">
+              {meetingPeople.map((person) => (
+                <li key={person.name} data-status={person.status}>{person.name}{person.status === 'INVITED' ? ' · invited' : person.status === 'REJECTED' ? ' · declined' : person.status === 'LEFT' ? ' · left' : ''}</li>
+              ))}
+            </ul>
+          )}
+          {isMeeting && (
+            <div className={styles.meetingActions}>
+              {onBackToApex && (
+                <button type="button" className={styles.backButton} onClick={onBackToApex}>
+                  <ArrowLeft size={17} aria-hidden="true" />
+                  Back to Apex
+                </button>
+              )}
+              <button type="button" className={styles.meetingResume} onClick={onResume} disabled={resuming} autoFocus>
+                <Play size={17} fill="currentColor" aria-hidden="true" />
+                {resuming ? 'Resuming…' : 'Resume Work'}
+              </button>
+            </div>
+          )}
+          {isMeeting && onCancelMeeting && (
+            <button type="button" className={styles.cancelMeeting} onClick={onCancelMeeting} disabled={resuming}>
+              Cancel meeting (it didn't happen)
+            </button>
+          )}
         </div>
 
-        <button type="button" className={styles.resume} onClick={onResume} disabled={resuming} autoFocus>
-          <Play size={17} fill="currentColor" aria-hidden="true" />
-          {resuming ? 'Resuming…' : 'Resume Work'}
-        </button>
+        {!isMeeting && (
+          <button type="button" className={styles.resume} onClick={onResume} disabled={resuming} autoFocus>
+            <Play size={17} fill="currentColor" aria-hidden="true" />
+            {resuming ? 'Resuming…' : 'Resume Work'}
+          </button>
+        )}
       </section>
     </ModalPortal>
   );

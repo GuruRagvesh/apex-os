@@ -558,6 +558,21 @@ code, pre, .mono, .font-mono, [data-mono] {
 .apex-hero-quick-action-break:disabled:hover { background: #168763; border-color: rgba(167, 243, 208, 0.52); box-shadow: none; }
 .apex-hero-quick-action-meeting { background: #d98a00; border-color: #f8c55b; color: #ffffff; }
 .apex-hero-quick-action-meeting:hover { background: #bb7300; border-color: #ffd780; box-shadow: 0 7px 18px rgba(120, 69, 0, 0.24); }
+/* A meeting is still running after "Back to Apex": red, blinking, with rings, so it can't be missed. */
+.apex-hero-quick-action-meeting-live { position: relative; background: #dc2626; border-color: #fca5a5; animation: apex-meeting-live-blink 1.4s ease-in-out infinite; }
+.apex-hero-quick-action-meeting-live:hover { background: #b91c1c; border-color: #fecaca; }
+.apex-hero-quick-action-meeting-live::before,
+.apex-hero-quick-action-meeting-live::after { content: ''; position: absolute; inset: -4px; border: 2px solid rgba(248, 113, 113, 0.85); border-radius: 16px; pointer-events: none; animation: apex-meeting-live-ring 1.8s ease-out infinite; }
+.apex-hero-quick-action-meeting-live::after { animation-delay: 0.9s; }
+@keyframes apex-meeting-live-blink { 50% { filter: brightness(1.22); } }
+@keyframes apex-meeting-live-ring { from { opacity: 0.9; transform: scale(1); } to { opacity: 0; transform: scale(1.32); } }
+/* Meeting invite: flickers so a collaborator notices it straight away. */
+.apex-meeting-invite-card { animation: apex-meeting-invite-flicker 1.2s ease-in-out infinite; }
+@keyframes apex-meeting-invite-flicker { 0%, 100% { box-shadow: 0 30px 80px rgba(2, 6, 23, 0.45), 0 0 0 0 rgba(37, 99, 235, 0.62); } 50% { box-shadow: 0 30px 80px rgba(2, 6, 23, 0.45), 0 0 0 10px rgba(37, 99, 235, 0); } }
+.apex-meeting-invite-dot { animation: apex-meeting-live-blink 0.9s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .apex-hero-quick-action-meeting-live, .apex-hero-quick-action-meeting-live::before, .apex-hero-quick-action-meeting-live::after, .apex-meeting-invite-card, .apex-meeting-invite-dot { animation: none; }
+}
 .apex-hero-quick-action-primary { background: rgba(255, 255, 255, 0.88); color: #113c69; border-color: rgba(255, 255, 255, 0.74); box-shadow: 0 4px 12px rgba(7, 31, 57, 0.18); }
 .apex-hero-quick-action-primary:hover { background: #fff; }
 .apex-workspace-drawer-layer { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: flex-start; justify-content: flex-end; padding: 16px; }
