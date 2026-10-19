@@ -1,5 +1,5 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { TicketStatus } from '@prisma/client';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Priority, TicketCategory, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROLES } from '../../shared/constants/roles';
 import { AccessPolicyService } from './access-policy.service';
@@ -18,20 +18,77 @@ export const APPROVAL_DECISION_REQUIRED = {
 } as const;
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+// yyyy-MM-dd, optionally followed by THH:mm[:ss[.SSS]] and Z or ±HH:mm.
+const ISO_DATE_OR_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-](\d{2}):?(\d{2}))?)?$/;
+
+/**
+ * A filter date in ISO form, or undefined. `new Date()` alone accepts
+ * impossible dates and rolls them over (2026-02-31 becomes 2026-03-03) and
+ * guesses at other formats, so the calendar parts are checked first.
+ */
+export function parseFilterDate(value: string): Date | undefined {
+  const m = ISO_DATE_OR_TIMESTAMP.exec(value);
+  if (!m) return undefined;
+  const [, y, mo, d, h = '0', mi = '0', s = '0', , tzH = '0', tzM = '0'] = m;
+  const day = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (day.getUTCFullYear() !== Number(y) || day.getUTCMonth() !== Number(mo) - 1 || day.getUTCDate() !== Number(d)) {
+    return undefined;
+  }
+  if (Number(h) > 23 || Number(mi) > 59 || Number(s) > 59 || Number(tzH) > 14 || Number(tzM) > 59) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
 
 /**
  * One end of the "Created from / to" filter. A date-only value is a whole
  * company-timezone day, inclusive at both ends (from 00:00:00.000 to
  * 23:59:59.999 company time); a full timestamp is used as given. A value that
- * is not a date is ignored rather than reaching the database.
+ * is not a real date is ignored rather than reaching the database.
  */
 export function createdFilterBound(value: unknown, edge: 'start' | 'end'): Date | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;
   const v = value.trim();
-  const date = DATE_ONLY.test(v)
+  if (!parseFilterDate(v)) return undefined;
+  return DATE_ONLY.test(v)
     ? fromZonedTime(`${v}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}`, COMPANY_CRON_TIMEZONE)
-    : new Date(v);
-  return Number.isNaN(date.getTime()) ? undefined : date;
+    : parseFilterDate(v);
+}
+
+/**
+ * One enum filter from the query string. Empty or 'ALL' means no filter. Any
+ * other value must be a member of the enum (case-insensitive). An unknown
+ * value, or the parameter given twice, is the caller's mistake and answers
+ * 400 instead of reaching Prisma, which throws and answers 500.
+ */
+export function ticketEnumFilter<T extends string>(
+  name: string,
+  value: unknown,
+  allowed: Record<string, T>,
+): T | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') throw new BadRequestException(`Invalid ${name} filter: give a single value.`);
+  const v = value.trim().toUpperCase();
+  if (!v || v === 'ALL') return undefined;
+  const members = Object.values(allowed);
+  if (!members.includes(v as T)) {
+    throw new BadRequestException(`Invalid ${name} filter "${value}". Use one of: ${members.join(', ')}.`);
+  }
+  return v as T;
+}
+
+/**
+ * A due-date bound from the query string, parsed as before (yyyy-MM-dd is
+ * UTC midnight). A value that is not a real ISO date or timestamp, such as
+ * 2026-02-31 or "tomorrow", answers 400.
+ */
+export function ticketDueBound(name: string, value: unknown): Date | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const date = typeof value === 'string' ? parseFilterDate(value.trim()) : undefined;
+  if (!date) {
+    throw new BadRequestException(`Invalid ${name} filter: expected a real date (yyyy-MM-dd) or ISO timestamp.`);
+  }
+  return date;
 }
 
 @Injectable()
@@ -419,9 +476,12 @@ export class TicketAccessService {
         { description: { contains: filters.search, mode: 'insensitive' } },
       ];
     }
-    if (filters.status && filters.status !== 'ALL') where.status = filters.status;
-    if (filters.category) where.category = filters.category;
-    if (filters.priority) where.priority = filters.priority;
+    const status = ticketEnumFilter('status', filters.status, TicketStatus);
+    if (status) where.status = status;
+    const category = ticketEnumFilter('category', filters.category, TicketCategory);
+    if (category) where.category = category;
+    const priority = ticketEnumFilter('priority', filters.priority, Priority);
+    if (priority) where.priority = priority;
     const deptId = await this.resolveDeptFilter(filters.departmentId || filters.department);
     if (deptId) where.departmentId = deptId;
     if (filters.projectId) where.projectId = filters.projectId;
@@ -435,10 +495,12 @@ export class TicketAccessService {
       if (createdFrom) where.createdAt.gte = createdFrom;
       if (createdTo) where.createdAt.lte = createdTo;
     }
-    if (filters.dueBefore || filters.dueAfter) {
+    const dueBefore = ticketDueBound('dueBefore', filters.dueBefore);
+    const dueAfter = ticketDueBound('dueAfter', filters.dueAfter);
+    if (dueBefore || dueAfter) {
       where.dueDate = {};
-      if (filters.dueBefore) where.dueDate.lte = new Date(filters.dueBefore);
-      if (filters.dueAfter) where.dueDate.gte = new Date(filters.dueAfter);
+      if (dueBefore) where.dueDate.lte = dueBefore;
+      if (dueAfter) where.dueDate.gte = dueAfter;
     }
     return where;
   }

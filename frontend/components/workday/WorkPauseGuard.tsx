@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { workdayApi } from '@/lib/api';
 import { WorkPauseOverlay } from './WorkPauseOverlay';
 import { hideMeetingOverlay, showMeetingOverlay, useHiddenMeetingId } from './meeting-overlay-store';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 /**
  * Locks every authenticated workspace route while the current user is paused.
@@ -23,7 +24,7 @@ export function WorkPauseGuard() {
   const { data, refetch } = useQuery({
     queryKey: ['workday-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
-    refetchInterval: 60_000,
+    refetchInterval: pollWhileHealthy(60_000),
     staleTime: 0,
   });
 
@@ -37,7 +38,7 @@ export function WorkPauseGuard() {
     queryKey: ['meeting-v2-active', meetingId],
     queryFn: () => workdayApi.getActiveMeetingV2() as Promise<any>,
     enabled: Boolean(meetingId),
-    refetchInterval: 20_000,
+    refetchInterval: pollWhileHealthy(20_000),
   });
 
   useEffect(() => {

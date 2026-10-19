@@ -12,6 +12,7 @@ import {
   Mail, Clock, ChevronDown, ChevronRight, Loader2, AlertTriangle,
 } from 'lucide-react';
 import { formatInTimeZone } from 'date-fns-tz';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const ROLE_COLORS: Record<string, string> = {
@@ -587,7 +588,7 @@ function LiveStatusView() {
   const { data: teamStatus = [], isLoading: teamLoading } = useQuery({
     queryKey: ['workday-team'],
     queryFn: () => workdayApi.getTeam() as Promise<any[]>,
-    refetchInterval: 30000,
+    refetchInterval: pollWhileHealthy(30000),
   });
 
   const members = Array.isArray(teamStatus) ? teamStatus : [];

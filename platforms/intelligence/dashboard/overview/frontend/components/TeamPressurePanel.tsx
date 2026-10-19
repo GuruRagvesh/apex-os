@@ -5,6 +5,7 @@ import { workdayApi } from '@/lib/api';
 import { dashboardApi } from '../api';
 import { useRouter } from 'next/navigation';
 import { ArrowUpRight, Users } from 'lucide-react';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 // ── Workday status dot colour ─────────────────────────────────────────────────
 const STATUS_DOT: Record<string, string> = {
@@ -34,7 +35,7 @@ export function TeamPressurePanel() {
     queryKey: ['workload'],
     queryFn: () => dashboardApi.getWorkload() as Promise<any[]>,
     staleTime: 60000,
-    refetchInterval: 120000,
+    refetchInterval: pollWhileHealthy(120000),
   });
 
   // Team workday status — existing endpoint, RBAC-scoped server-side
@@ -42,7 +43,7 @@ export function TeamPressurePanel() {
     queryKey: ['workday-team'],
     queryFn: () => workdayApi.getTeam() as Promise<any[]>,
     staleTime: 30000,
-    refetchInterval: 60000,
+    refetchInterval: pollWhileHealthy(60000),
   });
 
   const workload = Array.isArray(workloadRaw) ? workloadRaw : [];

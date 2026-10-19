@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
+import { onSocketReconnect } from '@apex/shared-auth';
 
 const SOCKET_URL =
   (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/api\/?$/, '');
@@ -16,6 +18,7 @@ export function useSocket(events: SocketEvents = {}) {
   // Keep a stable ref to the latest callbacks so we don't re-subscribe on every render
   const eventsRef = useRef<SocketEvents>(events);
   eventsRef.current = events;
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
@@ -42,11 +45,17 @@ export function useSocket(events: SocketEvents = {}) {
       console.debug('[Socket] connection error:', err.message);
     });
 
+    // The backend is reachable again: retry, once, the reads on screen that had
+    // failed (their polling is backed off). Every useSocket() on the page
+    // reports to one shared coordinator, so staggered reconnects of the
+    // page's sockets start a single refetch, not one each.
+    socket.io.on('reconnect', () => { void onSocketReconnect(queryClient); });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, []); // intentionally empty — token won't change without a page reload
+  }, [queryClient]); // the token won't change without a page reload
 
   return socketRef.current;
 }

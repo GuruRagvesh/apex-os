@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { Check, ClipboardCheck, UsersRound, X } from 'lucide-react';
 import { workdayApi } from '@/lib/api';
 import { ModalPortal } from '../ui/ModalPortal';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 const MEETING_ACCENT = '#2563EB';
 const TYPE_LABEL: Record<string, string> = { ONE_ON_ONE: 'One-on-one', INTERNAL: 'Internal', EXTERNAL: 'External', CUSTOM: 'Custom' };
@@ -37,13 +38,13 @@ export function MeetingInviteCenter() {
   const { data: invites = [] } = useQuery<any[]>({
     queryKey: ['meeting-v2-invites'],
     queryFn: () => workdayApi.getMeetingInvites() as Promise<any[]>,
-    refetchInterval: 15_000,
+    refetchInterval: pollWhileHealthy(15_000),
     refetchOnWindowFocus: true,
   });
   const { data: approvals = [] } = useQuery<any[]>({
     queryKey: ['meeting-v2-approvals'],
     queryFn: () => workdayApi.getMeetingApprovals() as Promise<any[]>,
-    refetchInterval: 60_000,
+    refetchInterval: pollWhileHealthy(60_000),
     refetchOnWindowFocus: true,
   });
 
