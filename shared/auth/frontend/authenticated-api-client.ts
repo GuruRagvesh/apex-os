@@ -72,15 +72,28 @@ api.interceptors.response.use(
     }
     const data = error.response?.data;
     const status = error.response?.status;
+    // The header, or the 503 body's retryAfterSeconds if a proxy hid the header.
+    const retryAfterMs = parseRetryAfterMs(error.response?.headers?.['retry-after'])
+      ?? parseRetryAfterMs(data?.retryAfterSeconds != null ? String(data.retryAfterSeconds) : undefined);
     if (error.response?.status === 403) {
-      return Promise.reject({ ...data, status, message: data?.message || 'You do not have permission to perform this action.' });
+      return Promise.reject({ ...data, status, retryAfterMs, message: data?.message || 'You do not have permission to perform this action.' });
     }
     if (Array.isArray(data?.message)) {
-      return Promise.reject({ ...data, status, message: data.message.join(', ') });
+      return Promise.reject({ ...data, status, retryAfterMs, message: data.message.join(', ') });
     }
-    return Promise.reject(data ? { ...data, status } : error);
+    return Promise.reject(data ? { ...data, status, retryAfterMs } : Object.assign(error, { retryAfterMs }));
   },
 );
+
+/** Convert an HTTP Retry-After value (seconds or date) into a bounded delay. */
+export function parseRetryAfterMs(value: unknown, now = Date.now()): number | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const text = value.trim();
+  const seconds = /^\d+$/.test(text) ? Number(text) : NaN;
+  const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(text) - now;
+  if (!Number.isFinite(delay) || delay <= 0) return undefined;
+  return Math.min(delay, 2 * 60_000);
+}
 
 // Typed wrappers — axios interceptor returns response.data directly.
 // Callers alias this to `r` so their call sites stay unchanged.
@@ -116,7 +129,12 @@ export function isTransientFailure(error: any): boolean {
   return [408, 425, 429, 500, 502, 503, 504].includes(status);
 }
 
-/** 2 s, 4 s, 8 s (capped at 10 s), each with up to 1 s of jitter so tabs do not retry in lockstep. */
-export function transientQueryRetryDelay(attemptIndex: number): number {
-  return Math.min(2_000 * 2 ** attemptIndex, 10_000) + Math.floor(Math.random() * 1_000);
+/**
+ * 2 s, 4 s, 8 s (capped at 10 s), with jitter. A controlled 503 can ask the
+ * browser to wait longer so retries do not hit Postgres while it is recovering.
+ */
+export function transientQueryRetryDelay(attemptIndex: number, error?: any): number {
+  const normal = Math.min(2_000 * 2 ** attemptIndex, 10_000) + Math.floor(Math.random() * 1_000);
+  const requested = Number(error?.retryAfterMs);
+  return Number.isFinite(requested) && requested > 0 ? Math.max(normal, Math.min(requested, 2 * 60_000)) : normal;
 }

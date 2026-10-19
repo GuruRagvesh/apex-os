@@ -41,7 +41,9 @@ async function bootstrap() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: [REQUEST_ID_HEADER],
+    // The web app is on another origin; without this the browser hides
+    // Retry-After from it and a database-outage 503 is retried too soon.
+    exposedHeaders: [REQUEST_ID_HEADER, 'Retry-After'],
   });
 
   // ── Validation ────────────────────────────────────────────────────────────

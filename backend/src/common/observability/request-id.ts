@@ -21,8 +21,21 @@ const MAX_PATH = 200;
 const MAX_QUERY_KEYS = 20;
 const MAX_ERROR_TEXT = 300;
 const MAX_STACK_FRAMES = 10;
+export const DATABASE_RETRY_AFTER_SECONDS = 15;
 // Prisma meta fields that hold schema names only, never row data.
 const SAFE_META_KEYS = ['code', 'column', 'field_name', 'modelName', 'table', 'target', 'constraint'];
+const DATABASE_UNAVAILABLE_CODES = new Set(['P1001', 'P1002', 'P1017', 'P2024', 'P2037']);
+const DATABASE_UNAVAILABLE_MESSAGES = [
+  'database system is in recovery mode',
+  'server has closed the connection',
+  'error opening a tls connection',
+  'connection reset by peer',
+  "can't reach database server",
+  'timed out fetching a new connection from the connection pool',
+  'too many database connections',
+  'terminating connection due to administrator command',
+  'connection terminated unexpectedly',
+];
 
 export function resolveRequestId(incoming: unknown): string {
   const value = Array.isArray(incoming) ? incoming[0] : incoming;
@@ -113,6 +126,25 @@ export function statusOf(exception: unknown): number {
 }
 
 /**
+ * Only connectivity, recovery and connection-pool failures are temporary
+ * database outages. Query/schema errors such as P2022 stay 500 because
+ * retrying those cannot help and must not be disguised as infrastructure.
+ */
+export function isDatabaseUnavailable(exception: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: any = exception;
+  for (let depth = 0; current != null && depth < 5 && !seen.has(current); depth++) {
+    seen.add(current);
+    const code = typeof current?.code === 'string' ? current.code.toUpperCase() : '';
+    if (DATABASE_UNAVAILABLE_CODES.has(code)) return true;
+    const message = String(current?.message ?? current).toLowerCase();
+    if (DATABASE_UNAVAILABLE_MESSAGES.some((part) => message.includes(part))) return true;
+    current = current?.cause;
+  }
+  return false;
+}
+
+/**
  * Global HTTP exception filter. Client errors (4xx) are answered exactly as
  * before. Server errors are logged with the request id; an unexpected error
  * (anything that is not an HttpException) answers the same generic 500 body
@@ -128,7 +160,8 @@ export class RequestIdExceptionFilter extends BaseExceptionFilter {
     const http = host.switchToHttp();
     const req = http.getRequest();
     const res = http.getResponse();
-    const status = statusOf(exception);
+    const databaseUnavailable = isDatabaseUnavailable(exception);
+    const status = databaseUnavailable ? HttpStatus.SERVICE_UNAVAILABLE : statusOf(exception);
 
     // An HttpException's body is the application's own; Nest writes it and logs nothing.
     if (exception instanceof HttpException && status < 500) return super.catch(exception, host);
@@ -141,6 +174,19 @@ export class RequestIdExceptionFilter extends BaseExceptionFilter {
         `[req ${requestId}] ${method} ${logUrl(String(req?.originalUrl ?? req?.url ?? ''))} -> ${status} user=${userId} ${describeError(exception)}`,
         safeStack(exception),
       );
+    }
+
+    if (databaseUnavailable) {
+      if (res.headersSent) return void res.end?.();
+      res.setHeader?.('Retry-After', String(DATABASE_RETRY_AFTER_SECONDS));
+      if (!res.getHeader?.(REQUEST_ID_HEADER)) res.setHeader?.(REQUEST_ID_HEADER, requestId);
+      return void res.status(HttpStatus.SERVICE_UNAVAILABLE).json({
+        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+        code: 'DATABASE_UNAVAILABLE',
+        message: 'The service is temporarily unavailable while the database recovers. Please retry shortly.',
+        retryAfterSeconds: DATABASE_RETRY_AFTER_SECONDS,
+        requestId,
+      });
     }
 
     if (exception instanceof HttpException) return super.catch(exception, host);
