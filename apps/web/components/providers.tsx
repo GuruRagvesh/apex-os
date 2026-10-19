@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@apex/core-identity';
 import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 import { createUserChangeTracker, tokenStorageAction } from './session-boundary';
+import { clearSavedQueryCaches, MAX_AGE_MS, persistQueryCache } from './query-cache-persistence';
 
 // Keeps cached data and other tabs in step with who is signed in. It never
 // writes or renames the token, and it never touches the workday: signing out
@@ -15,10 +16,19 @@ function SessionBoundary({ queryClient }: { queryClient: QueryClient }) {
   const hasHydrated = useAuthStore((s) => s.hasHydrated);
   const changed = useRef(createUserChangeTracker());
 
-  // Logout, login, or a different person: drop every cached query.
+  // Logout, login, or a different person: drop every cached query, in memory and saved.
   useEffect(() => {
     if (!hasHydrated) return;
-    if (changed.current(userId)) queryClient.clear();
+    if (changed.current(userId)) {
+      queryClient.clear();
+      clearSavedQueryCaches(window.localStorage);
+    }
+  }, [hasHydrated, userId, queryClient]);
+
+  // While someone is signed in, keep their loaded data for the next page load.
+  useEffect(() => {
+    if (!hasHydrated || !userId) return;
+    return persistQueryCache(queryClient, window.localStorage, userId);
   }, [hasHydrated, userId, queryClient]);
 
   // Another tab signed out, or signed in (possibly as someone else).
@@ -28,6 +38,7 @@ function SessionBoundary({ queryClient }: { queryClient: QueryClient }) {
       const action = tokenStorageAction(event, useAuthStore.getState().token);
       if (action === 'sign-out') {
         queryClient.clear();
+        clearSavedQueryCaches(window.localStorage);
         useAuthStore.getState().logout();
       } else if (action === 'reload') {
         window.location.reload();
@@ -41,19 +52,23 @@ function SessionBoundary({ queryClient }: { queryClient: QueryClient }) {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 1000 * 30,
-            retry: shouldRetryTransientQuery,
-            retryDelay: transientQueryRetryDelay,
-            refetchOnReconnect: true,
-          },
+  // The saved cache is restored by SessionBoundary's effect, which runs
+  // before the page's own queries mount (it renders first), and after React
+  // hydration, so server and client first renders stay identical.
+  const [queryClient] = useState(() => {
+    return new QueryClient({
+      defaultOptions: {
+        queries: {
+          staleTime: 1000 * 30,
+          // Kept for the whole day so it can be saved and shown on the next load.
+          gcTime: MAX_AGE_MS,
+          retry: shouldRetryTransientQuery,
+          retryDelay: transientQueryRetryDelay,
+          refetchOnReconnect: true,
         },
-      }),
-  );
+      },
+    });
+  });
 
   return (
     <QueryClientProvider client={queryClient}>

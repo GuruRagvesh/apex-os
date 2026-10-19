@@ -94,9 +94,17 @@ export const unwrap = <T = any>(p: any): Promise<T> => p as unknown as Promise<T
  * error cards until the user refreshed the page. Retry only failures that can
  * recover by themselves; authentication, permission, validation and ordinary
  * not-found responses must still fail immediately.
+ *
+ * At most MAX_TRANSIENT_RETRIES retries, spaced out with jitter. Every open
+ * page carries many queries, so an aggressive policy (it was 20 retries at
+ * most 5 s apart) multiplies the load on a backend that is already slow or
+ * restarting, and keeps it from recovering. A query that still fails shows
+ * its error with a Retry, and react-query refetches it on reconnect/focus.
  */
+export const MAX_TRANSIENT_RETRIES = 3;
+
 export function shouldRetryTransientQuery(failureCount: number, error: any): boolean {
-  if (failureCount >= 20) return false;
+  if (failureCount >= MAX_TRANSIENT_RETRIES) return false;
 
   const status = Number(error?.status ?? error?.response?.status);
   if (!Number.isFinite(status) || status <= 0) return true; // network/offline/timeout
@@ -104,6 +112,7 @@ export function shouldRetryTransientQuery(failureCount: number, error: any): boo
   return [408, 425, 429, 500, 502, 503, 504].includes(status);
 }
 
+/** 2 s, 4 s, 8 s (capped at 10 s), each with up to 1 s of jitter so tabs do not retry in lockstep. */
 export function transientQueryRetryDelay(attemptIndex: number): number {
-  return Math.min(1_000 * 2 ** attemptIndex, 5_000);
+  return Math.min(2_000 * 2 ** attemptIndex, 10_000) + Math.floor(Math.random() * 1_000);
 }

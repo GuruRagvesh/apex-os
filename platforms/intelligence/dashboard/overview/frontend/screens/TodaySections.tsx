@@ -1,20 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarCheck2, ClipboardCheck, FolderKanban, Ticket, Zap } from 'lucide-react';
-import { WorkdayBar } from '@/components/workday/WorkdayBar';
+import { CalendarCheck2, ClipboardCheck, FolderKanban, Ticket } from 'lucide-react';
 import type { HomeExperience } from './home-types';
-import { SectionFrame } from './home-ui';
-
-export function SmartHeader({ name, role, scope }: { name: string; role: string; scope: string }) {
-  const title = role.toLowerCase().replace(/_/g, ' ');
-  return (
-    <SectionFrame icon={Zap} title="Your workspace today" subtitle="Personalized status and priorities" aside={<span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium capitalize text-blue-700 dark:bg-blue-950 dark:text-blue-300">{title} · {scope} scope</span>}>
-      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">Welcome back, {name}. Your workday controls and current priorities are here.</p>
-      <WorkdayBar />
-    </SectionFrame>
-  );
-}
 
 export function HomeKpis({ experience }: { experience: HomeExperience }) {
   const { kpis } = experience;
