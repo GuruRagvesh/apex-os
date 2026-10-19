@@ -4,6 +4,9 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PunchPhotoStorage } from '../attendance/punch/punch-photo.storage';
 
+/** How long the health probe waits for the database before answering anyway. */
+const DB_PROBE_TIMEOUT_MS = 3_000;
+
 @ApiTags('Health')
 @SkipThrottle()   // Health checks are called by uptime monitors — exempt from rate limiting
 @Controller('health')
@@ -18,10 +21,20 @@ export class HealthController {
   async check() {
     let database: 'connected' | 'error' = 'connected';
 
+    // Bounded: when every pooled connection is busy, an unbounded SELECT 1
+    // waits for the pool, Render's health probe times out, and Render
+    // restarts a process that was alive -- dropping every request in flight.
+    // The process answering at all is what proves it is live.
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.prisma.$queryRaw`SELECT 1`;
+      await Promise.race([
+        this.prisma.$queryRaw`SELECT 1`,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), DB_PROBE_TIMEOUT_MS); }),
+      ]);
     } catch {
       database = 'error';
+    } finally {
+      if (timer) clearTimeout(timer);
     }
 
     // Readiness, NOT liveness. Attendance photo storage being unconfigured
