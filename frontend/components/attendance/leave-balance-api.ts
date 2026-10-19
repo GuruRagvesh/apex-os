@@ -41,6 +41,11 @@ export async function getMyLeaveBalance(type: PersonalLeaveType): Promise<LeaveB
   return r(api.get('/leave/balance', { params: { type } }));
 }
 
+/** A senior viewer's policy-authorized balance lookup for one team member. */
+export async function getUserLeaveBalance(userId: string): Promise<LeaveBalance> {
+  return r(api.get(`/leave/balance/${encodeURIComponent(userId)}`));
+}
+
 export async function getMyCompOffCredits(): Promise<CompOffCredit[]> {
   const rows = await r<CompOffCredit[]>(api.get('/leave/comp-off/me'));
   if (!Array.isArray(rows)) throw new Error('Comp Off balance unavailable.');

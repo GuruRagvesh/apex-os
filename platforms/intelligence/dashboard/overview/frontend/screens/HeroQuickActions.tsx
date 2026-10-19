@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BriefcaseBusiness, Coffee, PanelRightOpen, UsersRound, X } from 'lucide-react';
-import toast from 'react-hot-toast';
 import { BreakModal } from '@/components/workday/BreakModal';
+import { MeetingStartModal } from '@/components/workday/MeetingStartModal';
+import { showMeetingOverlay, useHiddenMeetingId } from '@/components/workday/meeting-overlay-store';
 import { workdayApi } from '@/lib/api';
 import { ModalPortal } from '../components/ModalPortal';
 import { WorkspaceSection } from './WorkspaceSection';
 
-type PauseType = 'break' | null;
+type PauseType = 'break' | 'meeting' | null;
 
 export function HeroQuickActions({ userId }: { userId: string }) {
   const queryClient = useQueryClient();
@@ -20,7 +21,7 @@ export function HeroQuickActions({ userId }: { userId: string }) {
   });
   const [pauseType, setPauseType] = useState<PauseType>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [meetingStarting, setMeetingStarting] = useState(false);
+  const hiddenMeetingId = useHiddenMeetingId();
 
   useEffect(() => {
     if (!workspaceOpen) return;
@@ -31,31 +32,27 @@ export function HeroQuickActions({ userId }: { userId: string }) {
 
   const closePause = () => setPauseType(null);
   const canStartPause = (workday as any)?.session?.status === 'WORKING';
+  const openBreak = (workday as any)?.session?.breakLogs?.find((entry: any) => !entry.endAt) ?? null;
+  // "Back to Apex" was chosen: the meeting is still running, so the button turns red and pulses.
+  const meetingLive = Boolean(openBreak?.meetingId) && openBreak?.breakType === 'MEETING' && hiddenMeetingId === openBreak.meetingId;
   const onPauseStarted = () => {
     closePause();
     queryClient.invalidateQueries({ queryKey: ['workday-today'] });
   };
-  const startMeeting = async () => {
-    setMeetingStarting(true);
-    try {
-      await workdayApi.startMeeting();
-      toast.success('Meeting timer started');
-      await queryClient.invalidateQueries({ queryKey: ['workday-today'] });
-    } catch (error: any) {
-      toast.error(error?.message || 'Meeting could not be started');
-    } finally {
-      setMeetingStarting(false);
-    }
+  const onMeetingButton = () => {
+    if (meetingLive) { showMeetingOverlay(); return; }
+    setPauseType('meeting');
   };
 
   return <>
     <div className="apex-hero-quick-actions" aria-label="Quick workday actions">
       <button type="button" onClick={() => setPauseType('break')} disabled={!canStartPause} title={canStartPause ? 'Start a tracked break' : 'Start work to take a tracked break'} className="apex-hero-quick-action apex-hero-quick-action-break"><Coffee size={18} aria-hidden="true" />Break</button>
-      <button type="button" onClick={startMeeting} disabled={!canStartPause || meetingStarting} title={canStartPause ? 'Start a tracked meeting' : 'Start work to begin a meeting'} className="apex-hero-quick-action apex-hero-quick-action-meeting"><UsersRound size={18} aria-hidden="true" />{meetingStarting ? 'Starting…' : 'Meeting'}</button>
+      <button type="button" onClick={onMeetingButton} disabled={!canStartPause && !meetingLive} title={meetingLive ? 'Meeting in progress. Click to return to it' : canStartPause ? 'Start a tracked meeting' : 'Start work to begin a meeting'} className={`apex-hero-quick-action apex-hero-quick-action-meeting${meetingLive ? ' apex-hero-quick-action-meeting-live' : ''}`} aria-live="polite"><UsersRound size={18} aria-hidden="true" />{meetingLive ? 'In meeting' : 'Meeting'}</button>
       <button type="button" onClick={() => setWorkspaceOpen(true)} className="apex-hero-quick-action apex-hero-quick-action-primary" aria-haspopup="dialog" aria-expanded={workspaceOpen}><PanelRightOpen size={18} aria-hidden="true" />Quick access</button>
     </div>
 
     {pauseType === 'break' && <BreakModal onClose={closePause} onBreakStarted={onPauseStarted} />}
+    {pauseType === 'meeting' && <MeetingStartModal onClose={closePause} onStarted={onPauseStarted} />}
 
     {workspaceOpen && <ModalPortal>
       <div className="apex-workspace-drawer-layer" role="presentation">

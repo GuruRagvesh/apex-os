@@ -34,6 +34,7 @@ import { ensureVerifiedFolderChain, FolderNotPrivate, inspectArchiveStorage, MIS
 import { DELETED_ACCOUNT, ensureDeletedAccount } from './system-account';
 import { HANDLERS, JSON_SCRUB_COLUMNS, MatrixContext, NARRATIVE_TEXT_COLUMNS, SCRUBBED, DELETED_USER_NAME, delegateName, handlerWhere, scrubJson, Subject } from './dependency-matrix';
 import { removeTemplateAssignee } from './template-assignees';
+import { removeMeetingApprover } from './meeting-approvers';
 import { canonical, classifyNoHistory, collectInventory, dataFingerprint, Inventory } from './dependency-inventory';
 import { archiveFileName, collectFileObjects, FileObject, FileStore, markShared } from './archive-files';
 import { ArchivedFileEntry, buildArchiveWorkbook, readFilesSheet } from './archive-workbook';
@@ -1393,6 +1394,7 @@ export class UserLifecycleService {
           if (n > 0) counts[h.key] = n;
         }
         counts['TEMPLATE_ASSIGNEES_REMOVED'] = await removeTemplateAssignee(tx, subject.id);
+        counts['MEETING_APPROVERS_REMOVED'] = await removeMeetingApprover(tx, subject.id);
         counts['JSON_SCRUBBED'] = await this.scrubJsonColumns(tx, subject);
         counts['NARRATIVE_MENTIONS_RETAINED'] = await this.countNarrativeMentions(tx, subject);
         counts['TICKET_HISTORY_SCRUBBED'] = (await tx.ticketHistory.updateMany({ where: { oldValue: subject.id }, data: { oldValue: SCRUBBED } })).count

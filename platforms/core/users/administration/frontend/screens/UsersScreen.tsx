@@ -375,6 +375,10 @@ export default function UsersPage() {
               && u.id !== me?.id
               && !archived
               && (me?.role?.name === 'SUPER_ADMIN' || roleName !== 'SUPER_ADMIN');
+            // Archiving is the next lifecycle step after deactivation. Active
+            // accounts must be deactivated before the destructive archive flow
+            // is offered in the directory.
+            const canArchiveUser = canManageUser && !isActive;
             const canManageArchived = isAdmin
               && u.id !== me?.id
               && archived
@@ -392,7 +396,7 @@ export default function UsersPage() {
               <article
                 key={u.id}
                 className={cn(
-                  'apex-section-border group relative flex h-[330px] min-w-0 flex-col overflow-hidden rounded-[26px] border p-4 transition-all duration-300',
+                  'apex-section-border group relative flex h-[288px] min-w-0 flex-col overflow-hidden rounded-[26px] border p-4 transition-all duration-300',
                   'hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(37,99,235,0.16)]',
                   !isActive && 'saturate-[0.75]',
                 )}
@@ -403,7 +407,7 @@ export default function UsersPage() {
               >
                 <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-blue-400/10 blur-3xl" />
 
-                <div className="relative flex min-h-[148px] items-start gap-3">
+                <div className="relative flex min-h-[124px] items-start gap-3">
                   <div className="flex min-w-0 flex-1 items-start gap-3">
                     <div className="relative flex-shrink-0">
                       <div className="flex h-[90px] w-[90px] items-center justify-center rounded-full border border-blue-200 bg-blue-50/80 p-1 shadow-[0_8px_24px_rgba(37,99,235,0.16)] dark:border-slate-200/80 dark:bg-slate-700/70">
@@ -462,7 +466,7 @@ export default function UsersPage() {
                   </div>
 
                   {canManageUser && (
-                    <div className="relative z-10 flex h-[148px] flex-shrink-0 flex-col gap-2 border-l pl-3" style={{ borderColor: 'var(--accent-border)' }}>
+                    <div className="relative z-10 flex h-[124px] flex-shrink-0 flex-col gap-2 border-l pl-3" style={{ borderColor: 'var(--accent-border)' }}>
                       {isActive ? (
                         <>
                           <button
@@ -471,12 +475,12 @@ export default function UsersPage() {
                               setEditUser(u);
                               setEditForm({ name: u.name, roleId: u.role?.id ?? '', departmentId: u.departmentId ?? '', isActive, isHR: !!u.isHR });
                             }}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
                             style={{ background: 'linear-gradient(145deg, #fbbf24, #f59e0b)' }}
                             title="Edit user"
                             aria-label={`Edit ${u.name}`}
                           >
-                            <Edit2 size={20} />
+                            <Edit2 size={16} />
                           </button>
                           <button
                             type="button"
@@ -494,32 +498,23 @@ export default function UsersPage() {
                               }
                             }}
                             disabled={downloadingId === u.id}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
                             style={{ background: 'linear-gradient(145deg, #4ade80, #16a34a)' }}
                             title="Download user backup (.xlsx)"
                             aria-label={`Download ${u.name} backup`}
                           >
-                            {downloadingId === u.id ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />}
+                            {downloadingId === u.id ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                           </button>
                           <button
                             type="button"
                             onClick={() => setDeactivateTarget(u)}
                             disabled={deactivateMutation.isPending}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
                             style={{ background: 'linear-gradient(145deg, #fb7185, #ef4444)' }}
                             title="Deactivate user"
                             aria-label={`Deactivate ${u.name}`}
                           >
-                            <UserX size={20} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setArchiveTarget(u)}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-amber-700 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
-                            title="Archive user"
-                            aria-label={`Archive ${u.name}`}
-                          >
-                            <Archive size={19} />
+                            <UserX size={16} />
                           </button>
                         </>
                       ) : (
@@ -527,59 +522,61 @@ export default function UsersPage() {
                           {!scheduled && <button
                             type="button"
                             onClick={() => setReactivateTarget(u)}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
                             style={{ background: 'linear-gradient(145deg, #4ade80, #16a34a)' }}
                             title="Reactivate user"
                             aria-label={`Reactivate ${u.name}`}
                           >
-                            <UserCheck size={20} />
+                            <UserCheck size={16} />
                           </button>}
-                          <button
-                            type="button"
-                            onClick={() => setArchiveTarget(u)}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-amber-700 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
-                            title="Archive user"
-                            aria-label={`Archive ${u.name}`}
-                          >
-                            <Archive size={19} />
-                          </button>
+                          {canArchiveUser && (
+                            <button
+                              type="button"
+                              onClick={() => setArchiveTarget(u)}
+                              className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-amber-700 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                              title="Archive user"
+                              aria-label={`Archive ${u.name}`}
+                            >
+                              <Archive size={16} />
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
                   )}
 
                   {canManageArchived && (
-                    <div className="relative z-10 flex h-[148px] flex-shrink-0 flex-col gap-2 border-l pl-3" style={{ borderColor: 'var(--accent-border)' }}>
+                    <div className="relative z-10 flex h-[124px] flex-shrink-0 flex-col gap-2 border-l pl-3" style={{ borderColor: 'var(--accent-border)' }}>
                       <button
                         type="button"
                         onClick={() => setRehireTarget(u)}
                         disabled={lifecycleBusy}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
                         style={{ background: 'linear-gradient(145deg, #4ade80, #16a34a)' }}
                         title={lifecycleBusy ? 'Another archive, rehire or deletion is running' : 'Rehire user'}
                         aria-label={`Rehire ${u.name}`}
                       >
-                        <UserPlus size={20} />
+                        <UserPlus size={16} />
                       </button>
                       <button
                         type="button"
                         onClick={() => setVerifiedArchiveTarget(u)}
                         disabled={lifecycleBusy}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
                         title={lifecycleBusy ? 'Another archive, rehire or deletion is running' : lifecycle?.verificationAvailable ? 'Verify or rebuild archive' : 'Prepare verified archive'}
                         aria-label={lifecycle?.verificationAvailable ? `Verify or rebuild ${u.name} archive` : `Prepare ${u.name} verified archive`}
                       >
-                        <ShieldCheck size={19} />
+                        <ShieldCheck size={16} />
                       </button>
                       <button
                         type="button"
                         onClick={() => setPermanentDeleteTarget(u)}
                         disabled={!!deleteDisabledReason}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-lg disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
                         title={deleteDisabledReason ?? 'Permanently delete user'}
                         aria-label={deleteDisabledReason ? `Permanently delete ${u.name} (${deleteDisabledReason})` : `Permanently delete ${u.name}`}
                       >
-                        <Trash2 size={19} />
+                        <Trash2 size={16} />
                       </button>
                       {!lifecycle?.verificationAvailable && (
                         <span className="sr-only">Backup verification unavailable</span>
@@ -617,7 +614,7 @@ export default function UsersPage() {
                     })()}
                   </>
                 ) : (
-                  <div className="relative my-4 h-px flex-shrink-0" style={{ backgroundColor: 'var(--accent-border)' }} />
+                  <div className="relative my-2.5 h-px flex-shrink-0" style={{ backgroundColor: 'var(--accent-border)' }} />
                 )}
 
                 <div className="relative grid h-14 flex-shrink-0 grid-cols-3 gap-2">
@@ -649,7 +646,7 @@ export default function UsersPage() {
                 <button
                   type="button"
                   onClick={() => router.push(`/users/${u.id}/profile`)}
-                  className="relative mt-4 flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(30,64,175,0.3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  className="relative mt-2.5 flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(30,64,175,0.3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                   style={{ background: 'linear-gradient(135deg, #2563eb, #1e3a8a)' }}
                 >
                   <ExternalLink size={17} />

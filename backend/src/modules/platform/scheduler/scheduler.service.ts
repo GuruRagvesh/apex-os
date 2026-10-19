@@ -253,6 +253,9 @@ export class SchedulerService {
       let closedCount = 0;
       let policyStopCount = 0;
       for (const session of openSessions) {
+        // Never auto-close a workday while its owner is in a running meeting,
+        // even past midnight. The normal rules apply again once it ends.
+        if (session.breakLogs.some((b: any) => !b.endAt && b.breakType === 'MEETING')) continue;
         const sessionAnchor = session.loginAt || session.createdAt;
         const sessionCompanyDateStr = formatInTimeZone(sessionAnchor, timezone, 'yyyy-MM-dd');
 
