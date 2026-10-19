@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@apex/core-identity';
 import Link from 'next/link';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ export default function AnalyticsScreen() {
   const { data: overview, isPending: overviewLoading, isError: overviewError, refetch: refetchOverview } = useQuery({
     queryKey: ['dashboard-overview'],
     queryFn: () => dashboardApi.getOverview() as Promise<any>,
-    refetchInterval: 60000,
+    refetchInterval: pollWhileHealthy(60000),
     enabled: canAccess && tab === 'overview',
   });
   const { data: workload } = useQuery({

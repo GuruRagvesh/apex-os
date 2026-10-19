@@ -20,6 +20,7 @@ import { SmartAnnouncementsCarousel, type HomeCarouselData } from '../components
 import { HeroQuickActions } from './HeroQuickActions';
 import { TeamInsightsSection } from './TeamInsightsSection';
 import { PersonalHighlightsSection } from './PersonalHighlightsSection';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 type HeroDaypart = 'morning' | 'afternoon' | 'evening' | 'night';
 
@@ -124,7 +125,7 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
     queryFn: async () => {
       return await dashboardApi.getHomeSummary();
     },
-    refetchInterval: 60000,
+    refetchInterval: pollWhileHealthy(60000),
     staleTime: 30000,
   });
 
@@ -132,7 +133,7 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
     queryKey: ['home-experience', user?.id],
     queryFn: () => dashboardApi.getHomeExperience() as Promise<HomeExperience>,
     enabled: !!user?.id,
-    refetchInterval: 60_000,
+    refetchInterval: pollWhileHealthy(60_000),
     staleTime: 30_000,
   });
 
@@ -140,7 +141,7 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
     queryKey: ['home-carousel', user?.id],
     queryFn: () => dashboardApi.getHomeCarousel() as Promise<HomeCarouselData>,
     enabled: !!user?.id,
-    refetchInterval: 60_000,
+    refetchInterval: pollWhileHealthy(60_000),
     staleTime: 30_000,
   });
 

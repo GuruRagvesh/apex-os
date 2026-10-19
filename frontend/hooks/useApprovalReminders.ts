@@ -8,6 +8,7 @@ import { useAuthStore } from '@apex/core-identity';
 import { useDesktopNotifications } from './useDesktopNotifications';
 import { formatCompanyDate } from '@/lib/company-date';
 import { pruneReminderKeys, reminderKey } from '@/lib/approval-reminder-keys';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 const POLL_INTERVAL_MS = 60_000;
 const RENOTIFY_MINUTES = 45; // within the spec's suggested 30-60 minute band
@@ -58,7 +59,7 @@ export function useApprovalReminders() {
   const { data: pendingApprovals } = useQuery({
     queryKey: ['approval-reminders-pending-approvals'],
     queryFn: () => ticketsApi.getPendingApprovals() as Promise<any[]>,
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: pollWhileHealthy(POLL_INTERVAL_MS),
     enabled: Boolean(user?.id),
     staleTime: 30_000,
   });
@@ -66,7 +67,7 @@ export function useApprovalReminders() {
   const { data: unreadNotifications } = useQuery({
     queryKey: ['approval-reminders-unread-notifications'],
     queryFn: () => notificationsApi.getAll(true) as Promise<any[]>,
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: pollWhileHealthy(POLL_INTERVAL_MS),
     enabled: Boolean(user?.id),
     staleTime: 30_000,
   });

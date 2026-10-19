@@ -46,6 +46,7 @@ import {
 } from '../components/use-ticket-nav-state';
 import type { KanbanNav, Scroll } from '../../shared/ticket-nav-state';
 import toast from 'react-hot-toast';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 export const KANBAN_COLUMNS = [
   { key: 'OPEN',        label: 'Open',        color: 'bg-amber-50/60 border-amber-200/80 dark:bg-amber-950/20 dark:border-amber-900/70',       accentColor: '#F59E0B' },
@@ -364,7 +365,7 @@ export default function KanbanScreen() {
       ...(departmentId ? { departmentId } : {}),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
     }) as Promise<KanbanData>,
-    refetchInterval: 30000,
+    refetchInterval: pollWhileHealthy(30000),
     refetchOnWindowFocus: true,
   });
 

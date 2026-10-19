@@ -44,6 +44,7 @@ import {
   type RowFilter,
   type Tone,
 } from './import-presentation';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 /**
  * Attendance Data Control workspace.
@@ -102,7 +103,7 @@ export function ImportWorkspace() {
     enabled: !!batchId,
     // A batch that is mid-apply is doing work on the server; ask again until
     // it stops. No fabricated percentage -- just "still going".
-    refetchInterval: (q) => (isBatchBusy((q.state.data as ImportBatch)?.status ?? '') ? 2000 : false),
+    refetchInterval: pollWhileHealthy((q) => (isBatchBusy((q.state.data as ImportBatch)?.status ?? '') ? 2000 : false)),
   });
 
   const serverFilter = serverClassificationFilter(filter);

@@ -105,7 +105,11 @@ export const MAX_TRANSIENT_RETRIES = 3;
 
 export function shouldRetryTransientQuery(failureCount: number, error: any): boolean {
   if (failureCount >= MAX_TRANSIENT_RETRIES) return false;
+  return isTransientFailure(error);
+}
 
+/** A failure that can recover by itself: no answer at all, a timeout, rate limiting, or a 5xx. */
+export function isTransientFailure(error: any): boolean {
   const status = Number(error?.status ?? error?.response?.status);
   if (!Number.isFinite(status) || status <= 0) return true; // network/offline/timeout
 

@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useDesktopNotifications } from './useDesktopNotifications';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 // Confirmed company default policy (workday.service.ts getTeam() fallback when no
 // AppSetting override exists): employee startTime/endTime is 09:30/18:30. No
@@ -60,7 +61,7 @@ export function useWorkdayReminders() {
   const { data: today } = useQuery({
     queryKey: ['workday-reminders-today'],
     queryFn: () => workdayApi.getToday() as Promise<any>,
-    refetchInterval: CHECK_INTERVAL_MS,
+    refetchInterval: pollWhileHealthy(CHECK_INTERVAL_MS),
     enabled: Boolean(user?.id),
     staleTime: 30_000,
   });

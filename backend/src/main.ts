@@ -1,5 +1,5 @@
 import './instrument';
-import { NestFactory } from '@nestjs/core';
+import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
@@ -7,10 +7,17 @@ import * as compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { resolveCorsOrigins } from './shared/config/cors-origins';
+import { REQUEST_ID_HEADER, RequestIdExceptionFilter, requestIdMiddleware } from './common/observability/request-id';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const isProd = process.env.NODE_ENV === 'production';
+
+  // ── Request id ────────────────────────────────────────────────────────────
+  // First, so every response (errors included) carries X-Request-Id and every
+  // logged 5xx can be matched to the request the browser saw.
+  app.use(requestIdMiddleware);
+  app.useGlobalFilters(new RequestIdExceptionFilter(app.get(HttpAdapterHost).httpAdapter));
 
   // ── Security ──────────────────────────────────────────────────────────────
   app.use(helmet({
@@ -34,6 +41,7 @@ async function bootstrap() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: [REQUEST_ID_HEADER],
   });
 
   // ── Validation ────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import { workdayApi } from '@/lib/api';
-import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
+import { shouldRetryTransientQuery, transientQueryRetryDelay, pollWhileHealthy } from '@apex/shared-auth';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, CalendarCheck, CalendarDays, ChevronDown,
   ChevronLeft, ChevronRight, Flame, Gauge, GitFork, LogIn, LogOut, Minus, PencilLine, Star, Ticket, Timer, UserRound, UsersRound, X,
@@ -320,7 +320,7 @@ function TeamAttendanceTable() {
   const team = useQuery({
     queryKey: ['workday-team', 'home-attendance'],
     queryFn: () => workdayApi.getTeam() as Promise<TeamMember[]>,
-    refetchInterval: 15_000,
+    refetchInterval: pollWhileHealthy(15_000),
     staleTime: 10_000,
     retry: shouldRetryTransientQuery,
     retryDelay: transientQueryRetryDelay,

@@ -27,6 +27,7 @@ import {
   useThrottledScroll,
   useTicketNavState,
 } from '@apex/operations-tickets-lifecycle/components/use-ticket-nav-state';
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 /** This page's task-creation approval queue; not the user change-request queue. */
@@ -125,7 +126,7 @@ export default function TicketsPage() {
     queryFn: () => ticketsApi.getAll({ ...filters, ...extraFilters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
     // Time Left follows each assignee's work timer, which their own break / end
     // day / punch pauses and resumes without touching this page. Poll like Kanban.
-    refetchInterval: 30_000,
+    refetchInterval: pollWhileHealthy(30_000),
     refetchOnWindowFocus: true,
   });
 
@@ -143,7 +144,7 @@ export default function TicketsPage() {
     queryKey: TICKET_PENDING_APPROVALS_KEY,
     queryFn: () => ticketsApi.getPendingApprovals() as Promise<any[]>,
     enabled: !!currentUser?.id,
-    refetchInterval: 60_000,
+    refetchInterval: pollWhileHealthy(60_000),
     refetchOnWindowFocus: true,
   });
 

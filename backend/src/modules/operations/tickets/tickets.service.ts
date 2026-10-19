@@ -698,8 +698,11 @@ export class TicketsService {
     limit?: number;
   }, user?: any, opts?: { orderBy?: Prisma.TicketOrderByWithRelationInput[] }) {
     const orderBy = opts?.orderBy ?? TICKET_LIST_ORDER;
-    const page = Number(query.page) || 1;
-    const limit = Number(query.limit) || 20;
+    // A negative page made a negative skip, which Prisma rejects (500), and an
+    // unbounded limit let one request load every ticket. 200 is the largest
+    // page any screen asks for (Analytics, Calendar).
+    const page = Math.max(1, Math.floor(Number(query.page)) || 1);
+    const limit = Math.min(200, Math.max(1, Math.floor(Number(query.limit)) || 20));
     const skip = (page - 1) * limit;
     const where = await this.ticketAccess.buildTicketWhereForUser(query, user);
 
