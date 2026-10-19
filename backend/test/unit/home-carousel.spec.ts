@@ -5,12 +5,16 @@ const prisma: any = {
   appSetting: { findUnique: jest.fn(), upsert: jest.fn() },
   dailyAttendance: { findMany: jest.fn() },
   department: { count: jest.fn() },
+  ticket: { findMany: jest.fn() },
 };
 const access: any = {
   isAdmin: jest.fn((user) => user.role.name === 'ADMIN'),
   roleName: jest.fn((user) => user.role.name),
 };
-const ticketAccess: any = { visibleUserIdsForWorkload: jest.fn() };
+const ticketAccess: any = {
+  visibleUserIdsForWorkload: jest.fn(),
+  buildTicketWhereForUser: jest.fn(),
+};
 const tva: any = { now: () => new Date('2026-10-15T05:00:00Z'), companyToday: () => '2026-10-15' };
 const make = () => new HomeCarouselService(prisma, access, ticketAccess, tva);
 const employee = { id: 'u1', role: { name: 'EMPLOYEE' }, departmentId: 'd1' };
@@ -25,7 +29,9 @@ describe('HomeCarouselService', () => {
     jest.clearAllMocks();
     prisma.appSetting.findUnique.mockResolvedValue({ value: [] });
     prisma.dailyAttendance.findMany.mockResolvedValue([]);
+    prisma.ticket.findMany.mockResolvedValue([]);
     ticketAccess.visibleUserIdsForWorkload.mockResolvedValue(['u1']);
+    ticketAccess.buildTicketWhereForUser.mockResolvedValue({ assignedToId: 'u1' });
   });
 
   it('returns only role and department targeted notices for the signed-in user', async () => {
