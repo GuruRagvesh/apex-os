@@ -40,7 +40,7 @@ function MetricTile({ label, value, note, danger = false, strongBorder = false }
   </div>;
 }
 
-export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) {
+export function TeamInsightsSection({ team, highlightSla = true, compact = false }: { team: HomeExperience['team']; highlightSla?: boolean; compact?: boolean }) {
   const [departmentId, setDepartmentId] = useState('all');
   const [personId, setPersonId] = useState('overall');
   const [month, setMonth] = useState(currentMonth);
@@ -137,7 +137,7 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
   return <SectionFrame icon={Users} title="Team Insights" aside={filters}>
     {insightQuery.isLoading && <div className="grid min-h-[280px] place-items-center rounded-xl border border-slate-200 text-sm text-slate-500 dark:border-slate-700">Calculating live insights…</div>}
     {insightQuery.isError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300"><span>These insights could not be calculated from the current database.</span><button type="button" onClick={() => insightQuery.refetch()} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700">Try again</button></div>}
-    {insight && <div className="space-y-3" aria-label="Selected person insight canvas" data-department-id={departmentId} data-person-id={personId}>
+    {insight && <div className={compact ? 'space-y-2' : 'space-y-3'} aria-label="Selected person insight canvas" data-department-id={departmentId} data-person-id={personId}>
       <div className="grid gap-3 lg:grid-cols-[1fr_210px]">
         <article className="apex-section-border flex min-h-[132px] flex-wrap items-center gap-4 rounded-2xl border bg-white p-4 dark:bg-slate-900">
           <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-700 text-lg font-bold text-white shadow-sm" style={insight.identity?.photoUrl ? { backgroundImage: `url(${insight.identity.photoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}>{insight.identity?.photoUrl ? '' : insight.identity?.initials ?? <Users size={24} />}</div>
@@ -185,8 +185,8 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
             <MetricTile label="In progress" value={insight.tickets.inProgress} strongBorder />
             <MetricTile label="Under review" value={insight.tickets.underReview} note="During this period" strongBorder />
             <MetricTile label="Sent for review" value={insight.tickets.sentForReview} note="Distinct tickets" strongBorder />
-            <MetricTile label="Execution overdue" value={insight.tickets.executionOverdue} note="Not submitted on time" danger={insight.tickets.executionOverdue > 0} strongBorder />
-            <MetricTile label="Review overdue" value={insight.tickets.reviewOverdue} note="Reviewer SLA elapsed" danger={insight.tickets.reviewOverdue > 0} strongBorder />
+            <MetricTile label="Execution overdue" value={insight.tickets.executionOverdue} note="Not submitted on time" danger={highlightSla && insight.tickets.executionOverdue > 0} strongBorder />
+            <MetricTile label="Review overdue" value={insight.tickets.reviewOverdue} note="Reviewer SLA elapsed" danger={highlightSla && insight.tickets.reviewOverdue > 0} strongBorder />
             <div title={`${insight.tickets.reworkAttempts} total rework attempt${insight.tickets.reworkAttempts === 1 ? '' : 's'}`}><MetricTile label="Reworked" value={insight.tickets.reworkTickets} note={`${insight.tickets.reworkAttempts} attempt${insight.tickets.reworkAttempts === 1 ? '' : 's'}`} danger={insight.tickets.reworkTickets > 0} strongBorder /></div>
           </div>
         </article>

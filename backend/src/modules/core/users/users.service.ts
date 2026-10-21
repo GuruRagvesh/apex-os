@@ -1073,7 +1073,16 @@ export class UsersService {
     return result;
   }
 
-  async uploadPhoto(userId: string, file: Express.Multer.File): Promise<{ photoUrl: string }> {
+  async uploadPhoto(userId: string, file?: Express.Multer.File): Promise<{ photoUrl: string }> {
+    if (!file?.buffer?.length || file.size > 2 * 1024 * 1024 || file.buffer.length > 2 * 1024 * 1024) {
+      throw new BadRequestException('Profile photo must be at most 2 MB');
+    }
+    const bytes = file.buffer;
+    const isJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isPng = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    if (!((file.mimetype === 'image/jpeg' && isJpeg) || (file.mimetype === 'image/png' && isPng))) {
+      throw new BadRequestException('Use a valid JPG or PNG profile photo');
+    }
     const photoUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     await this.prisma.user.update({ where: { id: userId }, data: { photoUrl } });
     this.eventLogger.log({
@@ -1244,14 +1253,16 @@ export class UsersService {
     if (isManagerOfDept) {
       const { password, ctcAnnual, basicSalary, accountNumber, panNumber, aadhaarNumber, uanNumber,
         bankName, ifscCode, accountHolderName, salaryStructure, pfApplicable, esicApplicable,
-        professionalTax, taxRegime, hrNotes, ...rest } = target as any;
+        professionalTax, taxRegime, hrNotes, legalName, personalEmail, phone, dateOfBirth, gender,
+        bloodGroup, currentAddress, permanentAddress, emergencyName, emergencyPhone, emergencyRelation,
+        ...rest } = target as any;
       return rest;
     }
 
     if (isTeamLead) {
       return {
         id: target.id, name: target.name, email: target.email, avatar: target.avatar,
-        phone: (target as any).phone, designation: (target as any).designation, department: (target as any).department,
+        designation: (target as any).designation, department: (target as any).department,
         role: target.role, workMode: (target as any).workMode, shiftTiming: (target as any).shiftTiming,
         employmentType: (target as any).employmentType, joiningDate: (target as any).joiningDate,
       };
@@ -1282,9 +1293,23 @@ export class UsersService {
       'accountNumber','ifscCode','accountHolderName','paymentMode','panNumber',
       'aadhaarNumber','uanNumber','pfApplicable','esicApplicable','professionalTax','taxRegime'];
 
-    const PERSONAL_EDITABLE_BY_SELF = ['name','phone','currentAddress','permanentAddress',
-      'emergencyName','emergencyPhone','emergencyRelation','userLocation','bloodGroup',
-      'gender','dateOfBirth'];
+    const OFFICIAL_PERSONAL_FIELDS = ['legalName', 'phone', 'personalEmail', 'currentAddress', 'permanentAddress',
+      'emergencyName', 'emergencyPhone', 'emergencyRelation', 'bloodGroup', 'gender', 'dateOfBirth'];
+
+    const changedOfficialPersonalFields = OFFICIAL_PERSONAL_FIELDS.filter((field) => {
+      if (!(field in (dto ?? {}))) return false;
+      const incoming = dto[field] === '' || dto[field] === undefined ? null : dto[field];
+      const current = (target as any)[field] ?? null;
+      if (field === 'dateOfBirth') {
+        const incomingDate = incoming ? new Date(incoming).toISOString().slice(0, 10) : null;
+        const currentDate = current ? new Date(current).toISOString().slice(0, 10) : null;
+        return incomingDate !== currentDate;
+      }
+      return String(incoming ?? '') !== String(current ?? '');
+    });
+    if (changedOfficialPersonalFields.length > 0) {
+      throw new BadRequestException('Official personal details must be changed through a personal information request');
+    }
 
     let data: any = {};
 
@@ -1345,8 +1370,10 @@ export class UsersService {
         await this.logSensitiveAccess(requesterId, 'EDIT_PAYROLL_DATA', targetUserId, { fieldsChanged: payrollChanged });
       }
     } else if (isOwnProfile) {
-      for (const key of PERSONAL_EDITABLE_BY_SELF) {
-        if (key in dto) data[key] = dto[key];
+      // Personalization is handled by PATCH /users/me. Official identity,
+      // contact, address and emergency data require the audited HR workflow.
+      for (const field of ['name', 'bio', 'avatar', 'photoUrl']) {
+        if (field in dto) data[field] = dto[field];
       }
     } else {
       throw new ForbiddenException('Not authorized to edit this profile');
@@ -1430,7 +1457,20 @@ export class UsersService {
     };
   }
 
-  async uploadDocument(requesterId: string, targetUserId: string, file: Express.Multer.File, documentType: string) {
+  async uploadDocument(requesterId: string, targetUserId: string, file: Express.Multer.File | undefined, documentType: string) {
+    if (!file?.buffer?.length || file.size > 5 * 1024 * 1024 || file.buffer.length > 5 * 1024 * 1024) {
+      throw new BadRequestException('Document must be no larger than 5 MB');
+    }
+    const bytes = file.buffer;
+    const isJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isPng = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const isPdf = bytes.length >= 4 && bytes.subarray(0, 4).toString('ascii') === '%PDF';
+    if (!((file.mimetype === 'image/jpeg' && isJpeg) || (file.mimetype === 'image/png' && isPng) || (file.mimetype === 'application/pdf' && isPdf))) {
+      throw new BadRequestException('Use a valid PDF, JPG or PNG document');
+    }
+    if (typeof documentType !== 'string' || !documentType.trim() || documentType.length > 100) {
+      throw new BadRequestException('Document type is required');
+    }
     const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId }, include: { role: true, department: true } });
     if (!target) throw new NotFoundException('User not found');
@@ -1567,6 +1607,9 @@ export class UsersService {
   }
 
   async savePreferences(userId: string, prefs: any): Promise<any> {
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) {
+      throw new BadRequestException('Preferences must be an object');
+    }
     // Phase 1: `channels` is validated, never stored as sent.
     if (prefs && typeof prefs === 'object' && 'channels' in prefs) {
       const channels = sanitizeChannels(prefs.channels);
@@ -1574,12 +1617,40 @@ export class UsersService {
       if (channels) prefs.channels = channels;
       else delete prefs.channels;
     }
-    const saved = await this.prisma.appSetting.upsert({
-      where: { key: `user-prefs-${userId}` },
-      create: { key: `user-prefs-${userId}`, value: prefs, updatedBy: userId },
-      update: { value: prefs, updatedBy: userId },
-    });
-    return saved.value;
+    if ('teamSettings' in prefs) {
+      const team = prefs.teamSettings;
+      if (!team || typeof team !== 'object' || Array.isArray(team) ||
+        typeof team.showTeamOverview !== 'boolean' ||
+        typeof team.highlightApproachingSla !== 'boolean' ||
+        !['comfortable', 'compact'].includes(team.dashboardDensity)) {
+        throw new BadRequestException('Invalid team display preferences');
+      }
+      prefs = { ...prefs, teamSettings: {
+        showTeamOverview: team.showTeamOverview,
+        highlightApproachingSla: team.highlightApproachingSla,
+        dashboardDensity: team.dashboardDensity,
+      } };
+    }
+    // Independent settings screens must not erase each other's keys. Serializable
+    // read/merge/write also prevents two simultaneous saves from losing a group.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const key = `user-prefs-${userId}`;
+          const current = await tx.appSetting.findUnique({ where: { key } });
+          const merged = { ...((current?.value as object) ?? {}), ...prefs };
+          const saved = await tx.appSetting.upsert({
+            where: { key },
+            create: { key, value: merged, updatedBy: userId },
+            update: { value: merged, updatedBy: userId },
+          });
+          return saved.value;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error: any) {
+        if (attempt === 2 || !['P2034', 'P2002'].includes(error?.code)) throw error;
+      }
+    }
+    throw new ConflictException('Could not save preferences; please retry');
   }
 
   /**

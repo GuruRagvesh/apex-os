@@ -24,6 +24,9 @@ model User {
   currentStatus             String                         @default("OFFLINE")
   lastActiveAt              DateTime?
   phone                     String?
+  /// Official legal identity. `name` remains the employee-controlled display name.
+  legalName                 String?
+  personalEmail             String?
   dateOfBirth               DateTime?
   gender                    String?
   bloodGroup                String?
@@ -1089,6 +1092,10 @@ model EmployeeProfileChangeRequest {
   managerDecision   String?
   adminDecision     String?
   rejectionReason   String?
+  supportingDocumentIds String[]  @default([])
+  employeeConfirmedAt    DateTime?
+  employeeDeclinedAt     DateTime?
+  employeeDeclineReason  String?
   approvedAt        DateTime?
   rejectedAt        DateTime?
   cancelledAt       DateTime?

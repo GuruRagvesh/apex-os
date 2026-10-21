@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 
@@ -87,26 +87,49 @@ export class SettingsService {
   async getCompanyWithTheme(): Promise<any> {
     const company = await this.get('company');
     const themeRaw = await this.prisma.appSetting.findFirst({ where: { key: 'theme_defaults' } });
-    const parsed = themeRaw?.value ? JSON.parse(themeRaw.value as string) : {};
+    const parsed = this.parseThemeDefaults(themeRaw?.value);
     return {
       ...company,
-      defaultTheme: parsed.theme || 'technoedge-light',
-      defaultAccent: parsed.accent || 'royal-blue',
+      defaultTheme: parsed.theme === 'john-wick-dark' ? 'john-wick-dark' : 'technoedge-light',
+      defaultAccent: ['royal-blue', 'emerald', 'violet', 'gold', 'crimson', 'slate'].includes(parsed.accent) ? parsed.accent : 'royal-blue',
     };
   }
 
-  async upsertThemeDefaults(theme?: string, accent?: string): Promise<void> {
+  private parseThemeDefaults(value: unknown): Record<string, any> {
+    if (!value) return {};
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); } catch { return {}; }
+    }
+    return typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
+  }
+
+  async upsertThemeDefaults(theme?: string, accent?: string, updatedBy?: string): Promise<void> {
+    if (theme !== undefined && !['technoedge-light', 'john-wick-dark'].includes(theme)) {
+      throw new BadRequestException('Unsupported company theme');
+    }
+    if (accent !== undefined && !['royal-blue', 'emerald', 'violet', 'gold', 'crimson', 'slate'].includes(accent)) {
+      throw new BadRequestException('Unsupported company accent');
+    }
     const current = await this.prisma.appSetting.findFirst({ where: { key: 'theme_defaults' } });
-    const currentVal = current?.value ? JSON.parse(current.value as string) : {};
+    const currentVal = this.parseThemeDefaults(current?.value);
     const newVal = {
       theme: theme || currentVal.theme || 'technoedge-light',
       accent: accent || currentVal.accent || 'royal-blue',
     };
     await this.prisma.appSetting.upsert({
       where: { key: 'theme_defaults' },
-      update: { value: JSON.stringify(newVal) },
-      create: { key: 'theme_defaults', value: JSON.stringify(newVal) },
+      update: { value: JSON.stringify(newVal), updatedBy },
+      create: { key: 'theme_defaults', value: JSON.stringify(newVal), updatedBy },
     });
+    if (updatedBy) {
+      this.eventLogger.log({
+        actorId: updatedBy,
+        entityType: 'Setting',
+        entityId: 'theme_defaults',
+        action: OperationalAction.SETTINGS_UPDATED,
+        metadata: { key: 'theme_defaults' },
+      }).catch(() => {});
+    }
   }
 
   async getSlaHours(): Promise<Record<string, number>> {
@@ -117,6 +140,20 @@ export class SettingsService {
   async getReviewSlaHours(): Promise<Record<string, number>> {
     const stored = await this.get('review_sla');
     return { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48, ...stored };
+  }
+
+  async getActiveLeavePolicies() {
+    const authority = await this.get('attendance_v2');
+    const policies = await this.prisma.leavePolicy.findMany({
+      where: { status: 'ACTIVE' },
+      select: {
+        id: true, name: true, policyKey: true, version: true, status: true,
+        financialYear: true, effectiveFrom: true, effectiveTo: true,
+        totalPaidLeaves: true, casualLeaveAllocation: true, emergencyLeaveAllocation: true,
+      },
+      orderBy: [{ policyKey: 'asc' }, { version: 'desc' }],
+    });
+    return { leaveAuthorityEnabled: authority?.leaveAuthorityEnabled === true, policies };
   }
 
   async getLeaveQuotas(): Promise<Record<string, number>> {

@@ -4,3 +4,5 @@
 // component-internal and deliberately not re-exported.
 
 export { default as DashboardScreen } from './screens/DashboardScreen';
+export { DEFAULT_TEAM_PREFERENCES, readTeamPreferences } from '../team-preferences';
+export type { TeamPreferences } from '../team-preferences';

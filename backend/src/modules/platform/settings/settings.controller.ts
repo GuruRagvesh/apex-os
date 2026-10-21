@@ -28,16 +28,50 @@ export class SettingsController {
   @UseGuards(RolesGuard)
   @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   async updateCompany(@Body() body: any, @Request() req: any) {
-    const { defaultTheme, defaultAccent, ...rest } = body;
-    if (defaultTheme || defaultAccent) {
-      await this.settings.upsertThemeDefaults(defaultTheme, defaultAccent);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Company settings must be an object');
     }
-    return this.settings.set('company', rest, req.user?.sub);
+    const { defaultTheme, defaultAccent, ...rest } = body;
+    const allowedFields = ['companyName', 'tagline', 'contactEmail', 'timezone', 'branding', 'workingDays'];
+    if (Object.keys(rest).some((field) => !allowedFields.includes(field))) {
+      throw new BadRequestException('Unknown company setting');
+    }
+    for (const [field, value] of Object.entries(rest)) {
+      if (typeof value !== 'string' || value.length > 200) {
+        throw new BadRequestException(`${field} must be text of at most 200 characters`);
+      }
+    }
+    if (rest.companyName !== undefined && !rest.companyName.trim()) {
+      throw new BadRequestException('Company name is required');
+    }
+    if (rest.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rest.contactEmail)) {
+      throw new BadRequestException('Invalid contact email');
+    }
+    if (rest.timezone) {
+      try { new Intl.DateTimeFormat('en-US', { timeZone: rest.timezone }); }
+      catch { throw new BadRequestException('Invalid company timezone'); }
+    }
+    if (defaultTheme !== undefined || defaultAccent !== undefined) {
+      await this.settings.upsertThemeDefaults(defaultTheme, defaultAccent, req.user?.sub);
+    }
+    // A theme-only save must never replace company information with {}.
+    if (Object.keys(rest).length > 0) {
+      const current = await this.settings.get('company');
+      await this.settings.set('company', { ...current, ...rest }, req.user?.sub);
+    }
+    return this.settings.getCompanyWithTheme();
   }
 
   @Get('leave-policy')
   getLeavePolicy() {
     return this.settings.get('leave_policy');
+  }
+
+  @Get('leave-policy/versions')
+  @UseGuards(RolesGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  getLeavePolicyVersions() {
+    return this.settings.getActiveLeavePolicies();
   }
 
   @Patch('leave-policy')

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
+import { useTheme } from '@apex/shared-utilities/use-theme';
+import { settingsApi } from '@/lib/api';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/topbar';
 import { ColdStartBanner } from '@apex/apps-web/components/cold-start-banner';
@@ -20,6 +22,7 @@ import {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user, hasHydrated } = useAuthStore();
+  const { setCompanyDefaults } = useTheme();
   const router = useRouter();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -35,6 +38,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (hasHydrated && !isAuthenticated) router.replace('/login');
   }, [hasHydrated, isAuthenticated, router]);
+
+  useEffect(() => {
+    if (!hasHydrated || !isAuthenticated) return;
+    settingsApi.getCompany().then((company: any) => {
+      const theme = company?.defaultTheme === 'john-wick-dark' ? 'john-wick-dark' : 'technoedge-light';
+      const accent = ['royal-blue', 'emerald', 'violet', 'gold', 'crimson', 'slate'].includes(company?.defaultAccent)
+        ? company.defaultAccent : 'royal-blue';
+      setCompanyDefaults(theme, accent);
+    }).catch(() => { /* A saved device preference still works offline. */ });
+  }, [hasHydrated, isAuthenticated, setCompanyDefaults]);
 
   // Saved page state (filters, scroll, New Ticket draft) belongs to one user:
   // keep only the signed-in user's fresh entries; with nobody signed in, none.

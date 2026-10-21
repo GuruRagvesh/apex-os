@@ -25,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Anti-flash: read stored theme before first paint */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('apex-theme')||localStorage.getItem('apex-company-theme')||'technoedge-light';var a=localStorage.getItem('apex-accent')||localStorage.getItem('apex-company-accent')||'royal-blue';document.documentElement.setAttribute('data-theme',t);document.documentElement.setAttribute('data-accent',a);}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('apex-theme')||localStorage.getItem('apex-company-theme')||'technoedge-light';var a=localStorage.getItem('apex-accent')||localStorage.getItem('apex-company-accent')||'royal-blue';document.documentElement.setAttribute('data-theme',t==='john-wick-dark'?t:'technoedge-light');document.documentElement.setAttribute('data-accent',a);var f=localStorage.getItem('apex-font-size');if(f==='small'||f==='medium'||f==='large')document.documentElement.setAttribute('data-font-size',f);document.documentElement.setAttribute('data-compact',localStorage.getItem('apex-compact')==='true'?'true':'false');}catch(e){}})();`,
           }}
         />
       </head>

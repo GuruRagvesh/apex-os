@@ -147,7 +147,7 @@ describe('Sonali 6: user cards keep the approved responsive directory layout', (
     expect(card).toContain('{getInitials(u.name)}');
     expect(card).toContain('className="apex-user-initials text-2xl font-bold tracking-wide"');
     expect(css).toMatch(/\.apex-user-initials \{ color: #2563eb; \}/);
-    expect(css).toMatch(/html\[data-theme="john-wick-dark"\] \.apex-user-initials,[\s\S]*color: #ffffff !important;/);
+    expect(css).toMatch(/html\[data-theme="john-wick-dark"\] \.apex-user-initials \{ color: #ffffff !important; \}/);
   });
 
   it('renders only the actions allowed by the server-backed activation status', () => {
