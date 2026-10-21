@@ -81,7 +81,6 @@ const MANAGER_NAV   = [
 const ADMIN_NAV     = [
   { href: '/users',       label: 'Users & Roles',  icon: Users     },
   { href: '/departments', label: 'Departments',     icon: Building2 },
-  { href: '/settings/workspace', label: 'Workspace Settings', icon: Settings },
 ];
 
 const SETTINGS_NAV  = [{ href: '/settings', label: 'Settings',      icon: Settings  }];
