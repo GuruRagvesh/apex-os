@@ -102,19 +102,19 @@ export function PersonalInformationSection({ userId }: { userId: string }) {
     onError: (error: any) => toast.error(error?.message ?? 'Decline failed'),
   });
 
-  if (profile.isLoading || requests.isLoading) return <section className="apex-card p-6 text-sm" role="status">Loading official personal details…</section>;
-  if (profile.isError || requests.isError) return <section className="apex-card p-6 text-sm" role="alert">Official personal details could not be loaded. <button className="underline" onClick={() => { profile.refetch(); requests.refetch(); }}>Retry</button></section>;
+  if (profile.isLoading || requests.isLoading) return <section className="apex-card p-6 text-sm" role="status">Loading personal information…</section>;
+  if (profile.isError || requests.isError) return <section className="apex-card p-6 text-sm" role="alert">Personal information could not be loaded. <button className="underline" onClick={() => { profile.refetch(); requests.refetch(); }}>Retry</button></section>;
   const person = profile.data ?? {};
 
   return (
-    <section className="apex-card space-y-5 p-6" aria-labelledby="official-personal-details-title">
+    <section className="apex-card space-y-5 p-6" aria-labelledby="personal-information-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 id="official-personal-details-title" className="font-semibold" style={{ color: 'var(--text-primary)' }}>Official personal details</h3>
-          <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>These values require complete HR approval. Submitted requests cannot be edited or withdrawn.</p>
+          <h3 id="personal-information-title" className="font-semibold" style={{ color: 'var(--text-primary)' }}>Personal information</h3>
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Keep your information current. Changes to official records require HR approval and cannot be edited or withdrawn after submission.</p>
         </div>
         <button type="button" className="apex-btn-primary px-4 py-2 text-sm disabled:opacity-50" disabled={Boolean(pending)} onClick={() => setEditing(true)}>
-          {pending ? 'Request pending' : 'Request changes'}
+          {pending ? 'Request pending' : 'Request an update'}
         </button>
       </div>
 

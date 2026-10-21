@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { settingsApi, taskTypesApi } from '@/lib/api';
@@ -13,7 +11,7 @@ import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
 import toast from 'react-hot-toast';
 import {
   User, Shield, Palette, Building2,
-  CalendarDays, Eye, EyeOff, Lock, Tags, Bell, UsersRound, Search, Clock3, ClipboardCheck,
+  CalendarDays, Eye, EyeOff, Lock, Tags, Bell, UsersRound, Search, Clock3, ClipboardCheck, Contact,
 } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
 import { useTheme, type ThemeId, type AccentId } from '@apex/shared-utilities/use-theme';
@@ -87,6 +85,24 @@ function SaveBtn({ loading, label = 'Save Changes' }: { loading: boolean; label?
   );
 }
 
+function ReferenceHeading({ title, description }: { title: string; description: string }) {
+  return <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+      <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h2>
+      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{description}</p>
+    </div>
+    <span className="w-fit rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: 'var(--accent-border)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}>Reference only</span>
+  </div>;
+}
+
+function ReferenceValue({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
+  return <div className="rounded-xl border p-4" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-secondary)' }}>
+    <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>{label}</p>
+    <p className="mt-1 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{value}</p>
+    {hint && <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{hint}</p>}
+  </div>;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION: Profile
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,38 +152,16 @@ function ProfileSection({ user }: { user: any }) {
   };
 
   return (
-    <div className="space-y-5">
     <form onSubmit={handleSave}>
       <div className={cardCls}>
-        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Profile Information</h3>
-        <div className="flex items-center gap-6">
-          <UserAvatar name={name} avatar={color} photoUrl={(user as any)?.photoUrl} size="lg" />
-          <div>
-            <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Avatar colour</p>
-            <div className="flex gap-2">
-              {AVATAR_COLORS.map((c) => (
-                <button key={c} type="button" onClick={() => setColor(c)}
-                  className="w-7 h-7 rounded-full border-2 transition-all hover:scale-110"
-                  style={{ background: c, borderColor: color === c ? '#1e40af' : 'transparent' }}
-                />
-              ))}
-            </div>
-          </div>
+        <div>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Profile</h2>
+          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Manage how your name and profile appear across APEX OS.</p>
         </div>
-
-        {/* Profile Photo Upload */}
-        <div className="mt-4">
-          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-            Profile Photo
-          </label>
-          <div className="flex items-center gap-4">
-            <UserAvatar
-              name={name}
-              avatar={color}
-              photoUrl={(user as any)?.photoUrl}
-              size="lg"
-            />
-            <div>
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+          <UserAvatar name={name} avatar={color} photoUrl={(user as any)?.photoUrl} size="lg" />
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
               <label
                 className="cursor-pointer inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg border transition-colors"
                 style={{
@@ -190,7 +184,18 @@ function ProfileSection({ user }: { user: any }) {
                   Remove
                 </button>
               )}
-              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>JPG, PNG up to 2MB</p>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>JPG or PNG, up to 2 MB.</p>
+            <div>
+              <p className="mb-2 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Avatar colour</p>
+              <div className="flex gap-2">
+                {AVATAR_COLORS.map((c) => (
+                  <button key={c} type="button" onClick={() => setColor(c)} aria-label={`Use ${c} as avatar colour`}
+                    className="h-7 w-7 rounded-full border-2 transition-transform hover:scale-110"
+                    style={{ background: c, borderColor: color === c ? 'var(--text-primary)' : 'transparent' }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -228,8 +233,6 @@ function ProfileSection({ user }: { user: any }) {
         <SaveBtn loading={saving} />
       </div>
     </form>
-    {user?.id && <PersonalInformationSection userId={user.id} />}
-    </div>
   );
 }
 
@@ -548,7 +551,7 @@ function CompanySection() {
   const save = useMutation({
     mutationFn: (data: any) => settingsApi.updateCompany(data),
     onSuccess: () => {
-      toast.success('Company settings saved');
+      toast.success('Organization profile saved');
       qc.invalidateQueries({ queryKey: ['settings', 'company'] });
     },
     onError: (err: any) => toast.error(err?.message || 'Failed to save'),
@@ -559,18 +562,21 @@ function CompanySection() {
     save.mutate(form);
   };
 
-  if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading company settings…</p>;
-  if (isError) return <div className="apex-card p-5 text-sm" role="alert">Company settings could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>;
+  if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading organization profile…</p>;
+  if (isError) return <div className="apex-card p-5 text-sm" role="alert">Organization profile could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>;
 
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className={cardCls}>
-        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Company Information</h3>
-        <div><label className={labelCls}>Company Name</label><input className={inputCls} value={form.companyName} onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))} /></div>
+        <div>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Organization profile</h2>
+          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Manage the identity and regional defaults used across APEX OS.</p>
+        </div>
+        <div><label className={labelCls}>Organization name</label><input className={inputCls} value={form.companyName} onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))} /></div>
         <div><label className={labelCls}>Tagline</label><input className={inputCls} value={form.tagline} onChange={(e) => setForm((f) => ({ ...f, tagline: e.target.value }))} placeholder="e.g. AI-powered workplace operations" /></div>
         <div><label className={labelCls}>Contact Email</label><input type="email" className={inputCls} value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} placeholder="hr@company.com" /></div>
         <div>
-          <label className={labelCls}>Company Timezone</label>
+          <label className={labelCls}>Organization timezone</label>
           <select
             className={inputCls}
             value={form.timezone || 'Asia/Kolkata'}
@@ -584,7 +590,7 @@ function CompanySection() {
           </select>
         </div>
         <div>
-          <label className={labelCls}>Company Branding</label>
+          <label className={labelCls}>Brand label</label>
           <input
             className={inputCls}
             value={form.branding || 'Royal Blue'}
@@ -637,6 +643,45 @@ function LeavePolicySection({ canEdit = true }: { canEdit?: boolean }) {
 
   if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading leave settings…</p>;
   if (isError) return <div className="apex-card p-5 text-sm" role="alert">Leave settings could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>;
+
+  if (!canEdit) return <div className="space-y-5">
+    <section className={cardCls}>
+      <ReferenceHeading title="Leave policy" description="Review the leave rules currently used by your organization. Policy publishing remains controlled by the leave administration workflow." />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ReferenceValue label="Policy authority" value={versions?.leaveAuthorityEnabled ? 'Versioned policy enabled' : 'Legacy allocation'} hint={versions?.leaveAuthorityEnabled ? 'Effective-dated policy rules are authoritative.' : 'Legacy role quotas remain in effect.'} />
+        <ReferenceValue label="Working week" value={workingDays} hint="Schedule used for the legacy leave allocation." />
+      </div>
+    </section>
+    <section className={cardCls}>
+      <div>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Current policy versions</h3>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Effective dates and annual entitlements for published policies.</p>
+      </div>
+      {versionsError ? <p className="text-sm" role="alert">Policy versions could not be loaded.</p> : (versions?.policies ?? []).length === 0
+        ? <p className="rounded-xl border p-4 text-sm" style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}>No active versioned leave policy is configured.</p>
+        : <div className="space-y-3">{versions.policies.map((policy: any) => <div key={policy.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{policy.name}</p>
+              <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Version {policy.version} · {policy.financialYear}</span>
+            </div>
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Effective {new Date(policy.effectiveFrom).toLocaleDateString('en-IN')}{policy.effectiveTo ? ` to ${new Date(policy.effectiveTo).toLocaleDateString('en-IN')}` : ' with no end date'}</p>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+              <ReferenceValue label="Total paid" value={`${policy.totalPaidLeaves} days`} />
+              <ReferenceValue label="Casual" value={`${policy.casualLeaveAllocation} days`} />
+              <ReferenceValue label="Emergency" value={`${policy.emergencyLeaveAllocation} days`} />
+            </div>
+          </div>)}</div>}
+    </section>
+    {!versions?.leaveAuthorityEnabled && <section className={cardCls}>
+      <div>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Legacy annual entitlement</h3>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Role-based allocations shown while the legacy policy remains authoritative.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {(Object.entries(quotas) as [keyof typeof quotas, number][]).map(([role, days]) => <ReferenceValue key={role} label={role.replace('_', ' ')} value={`${days} days`} />)}
+      </div>
+    </section>}
+  </div>;
 
   return (
     <form onSubmit={handleSave} className="space-y-5">
@@ -731,6 +776,30 @@ function SlaSection({ canEdit = true }: { canEdit?: boolean }) {
   if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading SLA settings…</p>;
   if (isError) return <div className="apex-card p-5 text-sm" role="alert">SLA settings could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>;
 
+  if (!canEdit) return <div className="space-y-5">
+    <section className={cardCls}>
+      <ReferenceHeading title="Service levels" description="Review the response and decision targets applied to tickets. Changes require a versioned policy with an effective date and impact review." />
+    </section>
+    <section className={cardCls}>
+      <div>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Ticket response targets</h3>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Maximum elapsed time before active work is treated as overdue.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {(Object.entries(sla) as [keyof typeof sla, number][]).map(([priority, hours]) => <ReferenceValue key={priority} label={priority} value={`${hours} hours`} />)}
+      </div>
+    </section>
+    <section className={cardCls}>
+      <div>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Review decision targets</h3>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Maximum time for an assigned reviewer to approve or reject submitted work.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {(Object.entries(reviewSla) as [keyof typeof reviewSla, number][]).map(([priority, hours]) => <ReferenceValue key={priority} label={priority} value={`${hours} hours`} />)}
+      </div>
+    </section>
+  </div>;
+
   return (
     <form onSubmit={handleSave} className="space-y-4">
       {!canEdit && <p className="apex-card p-4 text-sm" role="status" style={{ color: 'var(--text-secondary)' }}>These are the current SLA hours. Publishing a new policy needs an effective date, impact check and historical-ticket safeguards; edits are not enabled yet.</p>}
@@ -818,6 +887,37 @@ function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
 
   if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading workday settings…</p>;
   if (isError) return <div className="apex-card p-5 text-sm" role="alert">Workday settings could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>;
+
+  if (!canEdit) return <div className="space-y-5">
+    <section className={cardCls}>
+      <ReferenceHeading title="Work schedule" description="Review the standard attendance schedule by role. Publishing changes requires an effective date and checks against closed attendance and payroll periods." />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ReferenceValue label="Timezone" value={form.timezone} />
+        <ReferenceValue label="Minimum workday" value={`${form.minimumWorkdayMinutes} minutes`} />
+        <ReferenceValue label="Automatic close" value={form.autoClose ? `Enabled at ${form.autoCloseTime}` : 'Disabled'} />
+      </div>
+    </section>
+    <section className={cardCls}>
+      <div>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Role schedules</h3>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Expected workday windows used for attendance insights and exceptions.</p>
+      </div>
+      <div className="divide-y rounded-xl border" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div className="grid gap-2 p-4 sm:grid-cols-[1.2fr_1fr] sm:items-center">
+          <div><p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Employees and interns</p><p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Standard fixed schedule</p></div>
+          <p className="text-sm sm:text-right" style={{ color: 'var(--text-secondary)' }}>{form.employeeTiming?.start ?? '—'}–{form.employeeTiming?.end ?? '—'}</p>
+        </div>
+        <div className="grid gap-2 p-4 sm:grid-cols-[1.2fr_1fr] sm:items-center">
+          <div><p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Team leads</p><p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Flexible entry and exit windows</p></div>
+          <p className="text-sm sm:text-right" style={{ color: 'var(--text-secondary)' }}>Entry {form.tlTiming?.entryStart ?? '—'}–{form.tlTiming?.entryEnd ?? '—'} · Exit {form.tlTiming?.exitStart ?? '—'}–{form.tlTiming?.exitEnd ?? '—'}</p>
+        </div>
+        <div className="grid gap-2 p-4 sm:grid-cols-[1.2fr_1fr] sm:items-center">
+          <div><p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Managers and administrators</p><p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Leadership schedule</p></div>
+          <p className="text-sm sm:text-right" style={{ color: 'var(--text-secondary)' }}>{form.managerTiming?.flexible ? 'Flexible timing' : 'Fixed timing'}</p>
+        </div>
+      </div>
+    </section>
+  </div>;
 
   return (
     <form onSubmit={handleSave} className="space-y-4">
@@ -966,7 +1066,7 @@ function TaskTypesSettings() {
       setNewTypeName('');
       setAddTypeModal(false);
       refetch();
-      toast.success('Task type added');
+      toast.success('Ticket type added');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to add type');
     }
@@ -986,11 +1086,11 @@ function TaskTypesSettings() {
   };
 
   const handleDeleteType = async (id: string) => {
-    if (!confirm('Delete this task type and all its subtypes?')) return;
+    if (!confirm('Delete this ticket type and all its subtypes?')) return;
     try {
       await taskTypesApi.deleteType(id);
       refetch();
-      toast.success('Task type deleted');
+      toast.success('Ticket type deleted');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to delete type');
     }
@@ -1012,21 +1112,21 @@ function TaskTypesSettings() {
       else await taskTypesApi.updateSubtype(editing.typeId!, editing.id, { name: editing.name.trim() });
       setEditing(null);
       refetch();
-      toast.success('Task classification updated');
+      toast.success('Ticket classification updated');
     } catch (error: any) { toast.error(error?.message || 'Could not update task classification'); }
   };
 
-  if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading task types…</p>;
-  if (isError) return <div className="apex-card p-5 text-sm" role="alert">Task types could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>;
+  if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading ticket types…</p>;
+  if (isError) return <div className="apex-card p-5 text-sm" role="alert">Ticket types could not be loaded. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>;
 
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Task Types</h2>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Ticket types</h2>
         <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-          Task types help organise work by department. They appear in the ticket creation form based on the selected department.
+          Define the categories used to classify tickets by department. They appear in the ticket creation form for the selected department.
         </p>
-        <input className="apex-input mt-4 w-full max-w-md" value={taxonomySearch} onChange={(event) => setTaxonomySearch(event.target.value)} placeholder="Search task types or subtypes" aria-label="Search task types and subtypes" />
+        <input className="apex-input mt-4 w-full max-w-md" value={taxonomySearch} onChange={(event) => setTaxonomySearch(event.target.value)} placeholder="Search ticket types or subtypes" aria-label="Search ticket types and subtypes" />
       </div>
       <div className="flex flex-col gap-6 md:flex-row">
         {/* Department list sidebar */}
@@ -1071,7 +1171,7 @@ function TaskTypesSettings() {
           </div>
 
           {deptTypes.length === 0 ? (
-            <p className="text-sm py-4" style={{ color: 'var(--text-tertiary)' }}>No task types yet.</p>
+            <p className="text-sm py-4" style={{ color: 'var(--text-tertiary)' }}>No ticket types yet.</p>
           ) : (
             <div className="space-y-3">
               {deptTypes.map((type: any) => (
@@ -1079,7 +1179,7 @@ function TaskTypesSettings() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       {editing?.kind === 'type' && editing.id === type.id
-                        ? <input className="apex-input max-w-48 text-sm" value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditing(null); }} aria-label="Edit task type name" />
+                        ? <input className="apex-input max-w-48 text-sm" value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditing(null); }} aria-label="Edit ticket type name" />
                         : <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{type.name}</span>}
                       <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{type.subtypes?.length ?? 0} subtypes</span>
                     </div>
@@ -1153,7 +1253,7 @@ function TaskTypesSettings() {
           {addTypeModal && (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
               <div className="apex-card p-6 w-96 shadow-xl">
-                <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Add Task Type</h3>
+                <h3 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Add ticket type</h3>
                 <input
                   autoFocus
                   type="text"
@@ -1397,8 +1497,8 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
       {/* Admin: Company Defaults */}
       {mode === 'company' && isAdmin && (
         <div className="border-t pt-6" style={{ borderColor: 'var(--border-subtle)' }}>
-          <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Company Default Theme</h3>
-          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>All new users start with these settings. Existing users keep their personal choice.</p>
+          <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Organization theme</h3>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Set the starting theme for new accounts. Existing people keep their personal choice.</p>
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
             {THEMES.filter(t => t.active).map((t) => (
@@ -1435,7 +1535,7 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
               try {
                 await settingsApi.updateCompany({ defaultTheme: companyTheme, defaultAccent: companyAccent });
                 setCompanyDefaults(companyTheme, companyAccent);
-                toast.success('Company theme defaults saved');
+                toast.success('Organization theme saved');
               } catch (err: any) {
                 toast.error(err?.message || 'Failed to save company defaults');
               } finally {
@@ -1445,7 +1545,7 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
             className="px-4 py-2 text-sm font-medium text-white rounded-xl disabled:opacity-50"
             style={{ backgroundColor: 'var(--accent)' }}
           >
-            {savingDefaults ? 'Saving…' : 'Save Company Defaults'}
+            {savingDefaults ? 'Saving…' : 'Save organization theme'}
           </button>
         </div>
       )}
@@ -1457,96 +1557,116 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
 // ROOT — left sidebar layout
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
-  | 'profile' | 'appearance' | 'notifications' | 'security' | 'team'
+  | 'profile' | 'personal-info' | 'appearance' | 'notifications' | 'security' | 'team'
   | 'company' | 'leave' | 'workday' | 'sla' | 'task-types';
 
-export function SettingsCenter({ area = 'personal' }: { area?: 'personal' | 'workspace' }) {
-  const { user, hasHydrated } = useAuthStore();
-  const router = useRouter();
+type SettingsNavItem = { id: SectionId; label: string; icon: React.ReactNode; keywords: string };
+type SettingsNavGroup = { label: string; items: SettingsNavItem[] };
+
+export function SettingsCenter() {
+  const { user } = useAuthStore();
   const roleName    = (user?.role as any)?.name ?? user?.role ?? '';
   const isAdmin     = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const isLead = ['MANAGER', 'TEAM_LEAD', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
-  const [active, setActive] = useState<SectionId>(area === 'workspace' ? 'company' : 'profile');
+  const [active, setActive] = useState<SectionId>('profile');
   const [search, setSearch] = useState('');
-  const personalItems: { id: SectionId; label: string; icon: React.ReactNode; keywords: string }[] = [
-    { id: 'profile', label: 'My Profile', icon: <User size={16} />, keywords: 'photo avatar display name email bio department' },
+  const accountItems: SettingsNavItem[] = [
+    { id: 'profile', label: 'Profile', icon: <User size={16} />, keywords: 'photo avatar display name email bio department' },
+    { id: 'personal-info', label: 'Personal information', icon: <Contact size={16} />, keywords: 'legal name date of birth gender blood group mobile address emergency contact hr request' },
     { id: 'appearance', label: 'Appearance', icon: <Palette size={16} />, keywords: 'theme accent font compact welcome screen' },
     { id: 'notifications', label: 'Notifications', icon: <Bell size={16} />, keywords: 'popup push ticket leave quiet hours' },
-    { id: 'security', label: 'Security & Sessions', icon: <Shield size={16} />, keywords: 'password sign in account session' },
-    ...(isLead ? [{ id: 'team' as SectionId, label: 'Team & Leadership', icon: <UsersRound size={16} />, keywords: 'dashboard projects availability leave reports digest' }] : []),
+    { id: 'security', label: 'Security', icon: <Shield size={16} />, keywords: 'password sign in account session' },
   ];
-  const workspaceItems: { id: SectionId; label: string; icon: React.ReactNode; keywords: string }[] = [
-    { id: 'company', label: 'Company & Branding', icon: <Building2 size={16} />, keywords: 'company name email timezone branding theme accent' },
-    { id: 'leave', label: 'Leave Policies', icon: <CalendarDays size={16} />, keywords: 'entitlement quota policy effective date casual emergency' },
-    { id: 'workday', label: 'Workday & Attendance', icon: <Clock3 size={16} />, keywords: 'working days minutes timing auto close shifts' },
-    { id: 'sla', label: 'SLA Policies', icon: <ClipboardCheck size={16} />, keywords: 'execution response reviewer decision urgent high medium low' },
-    { id: 'task-types', label: 'Task Types', icon: <Tags size={16} />, keywords: 'department category subtype tags ticket' },
+  const teamItems: SettingsNavItem[] = isLead ? [
+    { id: 'team', label: 'Team preferences', icon: <UsersRound size={16} />, keywords: 'dashboard team overview service targets density' },
+  ] : [];
+  const organizationItems: SettingsNavItem[] = isAdmin ? [
+    { id: 'company', label: 'Organization profile', icon: <Building2 size={16} />, keywords: 'company organization name email timezone branding theme accent' },
+    { id: 'leave', label: 'Leave policy', icon: <CalendarDays size={16} />, keywords: 'entitlement quota policy effective date casual emergency' },
+    { id: 'workday', label: 'Work schedule', icon: <Clock3 size={16} />, keywords: 'attendance working days minutes timing auto close shifts' },
+    { id: 'task-types', label: 'Ticket types', icon: <Tags size={16} />, keywords: 'task department category subtype tags ticket taxonomy' },
+    { id: 'sla', label: 'Service levels', icon: <ClipboardCheck size={16} />, keywords: 'sla execution response reviewer decision urgent high medium low' },
+  ] : [];
+  const groups: SettingsNavGroup[] = [
+    { label: 'My account', items: accountItems },
+    ...(teamItems.length ? [{ label: 'Team', items: teamItems }] : []),
+    ...(organizationItems.length ? [{ label: 'Organization', items: organizationItems }] : []),
   ];
-  const items = area === 'workspace' ? workspaceItems : personalItems;
-  const visibleItems = items.filter((item) => `${item.label} ${item.keywords}`.toLowerCase().includes(search.toLowerCase().trim()));
+  const normalizedSearch = search.toLowerCase().trim();
+  const visibleGroups = groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => `${item.label} ${item.keywords}`.toLowerCase().includes(normalizedSearch)),
+    }))
+    .filter((group) => group.items.length > 0);
+  const hasVisibleItems = visibleGroups.some((group) => group.items.length > 0);
 
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get('tab') ?? '';
-    // Keep old deep links usable when the admin policies move to their own area.
-    if (area === 'personal' && isAdmin && ['company', 'policies', 'leave-policy', 'sla', 'task-types'].includes(raw)) {
-      const mapped = raw === 'leave-policy' || raw === 'policies' ? 'leave' : raw;
-      router.replace(`/settings/workspace?tab=${mapped}`);
-      return;
-    }
-    const resolved = (raw === 'preferences' ? 'notifications' : raw) as SectionId;
-    const allowed = (area === 'workspace' ? workspaceItems : personalItems).map((item) => item.id);
-    setActive(allowed.includes(resolved) ? resolved : area === 'workspace' ? 'company' : 'profile');
+    const mapped = raw === 'leave-policy' || raw === 'policies' ? 'leave' : raw;
+    const resolved = (mapped === 'preferences' ? 'notifications' : mapped) as SectionId;
+    const allowedItems = [...accountItems, ...teamItems, ...organizationItems];
+    const allowed = allowedItems.map((item) => item.id);
+    setActive(allowed.includes(resolved) ? resolved : 'profile');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roleName, area]);
-
-  if (area === 'workspace' && (!hasHydrated || !isAdmin)) {
-    return <div className="apex-card p-6" role="alert">
-      <h1 className="text-lg font-semibold">Workspace Administration</h1>
-      <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>Only administrators can access company settings.</p>
-      <Link href="/settings" className="mt-4 inline-block text-sm" style={{ color: 'var(--accent)' }}>Back to my settings</Link>
-    </div>;
-  }
+  }, [roleName]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="mx-auto w-full max-w-[1600px] space-y-5 px-4 sm:px-6">
       <header>
         <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--accent)' }}>APEX OS</p>
-        <h1 className="text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>{area === 'workspace' ? 'Workspace Administration' : 'Settings Center'}</h1>
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{area === 'workspace' ? 'Manage company-wide configuration and taxonomy.' : 'Personalize your account and authorized team views.'}</p>
+        <h1 className="text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>Settings</h1>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Manage your account, preferences and authorized organization settings.</p>
       </header>
       <div className="flex flex-col gap-5 lg:flex-row lg:gap-7">
-        <nav aria-label={area === 'workspace' ? 'Workspace settings' : 'Personal settings'} className="apex-card h-fit w-full space-y-1 p-3 lg:sticky lg:top-6 lg:w-60 lg:flex-shrink-0">
-          <label className="relative mb-3 block">
-            <Search size={15} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
-            <input className="apex-input w-full pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a setting" aria-label="Search settings" />
-          </label>
-          <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>{area === 'workspace' ? 'Workspace administration' : 'My settings'}</p>
-          {visibleItems.map((item) => <button key={item.id} type="button" onClick={() => {
-            setActive(item.id);
-            window.history.replaceState(null, '', `${area === 'workspace' ? '/settings/workspace' : '/settings'}?tab=${item.id}`);
-          }} aria-current={active === item.id ? 'page' : undefined}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors"
-            style={{ backgroundColor: active === item.id ? 'var(--accent-subtle)' : 'transparent', color: active === item.id ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: active === item.id ? 600 : 400 }}>
-            {item.icon}<span>{item.label}</span>
-          </button>)}
-          {visibleItems.length === 0 && <p className="px-3 py-3 text-xs" style={{ color: 'var(--text-tertiary)' }}>No authorized settings match.</p>}
-          <div className="border-t pt-3" style={{ borderColor: 'var(--border-subtle)' }}>
-            {area === 'workspace'
-              ? <Link href="/settings" className="block rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--accent)' }}>← My settings</Link>
-              : isAdmin && <Link href="/settings/workspace" className="block rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--accent)' }}>Workspace administration →</Link>}
+        <nav aria-label="Settings" className="apex-card h-fit w-full space-y-1 p-3 lg:sticky lg:top-6 lg:w-60 lg:flex-shrink-0">
+          <div className="mb-3" role="search">
+            <label htmlFor="settings-filter" className="sr-only">Filter settings</label>
+            <div className="relative rounded-xl transition-shadow focus-within:ring-2 focus-within:ring-[var(--accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--surface-card)]">
+              <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+              <input
+                id="settings-filter"
+                className="apex-input h-11 w-full rounded-xl py-2 pl-10 pr-10 text-sm"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search settings…"
+              />
+              {search && <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
+                style={{ color: 'var(--text-secondary)' }}
+                aria-label="Clear settings search"
+              >×</button>}
+            </div>
           </div>
+          {visibleGroups.map((group, groupIndex) => <div key={group.label} className={cn(groupIndex > 0 && 'mt-3 border-t pt-3')} style={{ borderColor: 'var(--border-subtle)' }}>
+            <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>{group.label}</p>
+            <div className="space-y-1">
+              {group.items.map((item) => <button key={item.id} type="button" onClick={() => {
+                setActive(item.id);
+                window.history.replaceState(null, '', `/settings?tab=${item.id}`);
+              }} aria-current={active === item.id ? 'page' : undefined}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors"
+                style={{ backgroundColor: active === item.id ? 'var(--accent-subtle)' : 'transparent', color: active === item.id ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: active === item.id ? 600 : 400 }}>
+                {item.icon}<span>{item.label}</span>
+              </button>)}
+            </div>
+          </div>)}
+          {!hasVisibleItems && <p className="px-3 py-3 text-xs" style={{ color: 'var(--text-tertiary)' }}>No settings match your search.</p>}
         </nav>
         <main className="min-w-0 flex-1" id="settings-content">
-          {active === 'profile' && area === 'personal' && <ProfileSection user={user} />}
-          {active === 'appearance' && area === 'personal' && <AppearanceSettings mode="personal" />}
-          {active === 'notifications' && area === 'personal' && <NotificationsSection isManager={isLead} />}
-          {active === 'security' && area === 'personal' && <SecuritySection user={user} />}
-          {active === 'team' && area === 'personal' && isLead && <TeamLeadershipSection />}
-          {active === 'company' && area === 'workspace' && <div className="space-y-7"><CompanySection /><AppearanceSettings mode="company" /></div>}
-          {active === 'leave' && area === 'workspace' && <LeavePolicySection canEdit={false} />}
-          {active === 'workday' && area === 'workspace' && <WorkdayPolicySection canEdit={false} />}
-          {active === 'sla' && area === 'workspace' && <SlaSection canEdit={false} />}
-          {active === 'task-types' && area === 'workspace' && <TaskTypesSettings />}
+          {active === 'profile' && <ProfileSection user={user} />}
+          {active === 'personal-info' && user?.id && <PersonalInformationSection userId={user.id} />}
+          {active === 'appearance' && <AppearanceSettings mode="personal" />}
+          {active === 'notifications' && <NotificationsSection isManager={isLead} />}
+          {active === 'security' && <SecuritySection user={user} />}
+          {active === 'team' && isLead && <TeamLeadershipSection />}
+          {active === 'company' && isAdmin && <div className="space-y-7"><CompanySection /><AppearanceSettings mode="company" /></div>}
+          {active === 'leave' && isAdmin && <LeavePolicySection canEdit={false} />}
+          {active === 'workday' && isAdmin && <WorkdayPolicySection canEdit={false} />}
+          {active === 'sla' && isAdmin && <SlaSection canEdit={false} />}
+          {active === 'task-types' && isAdmin && <TaskTypesSettings />}
         </main>
       </div>
     </div>

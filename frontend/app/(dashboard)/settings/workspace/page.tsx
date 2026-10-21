@@ -1,5 +1,6 @@
-import { SettingsCenter } from '@/components/settings/SettingsCenter';
+import { redirect } from 'next/navigation';
 
-export default function WorkspaceSettingsPage() {
-  return <SettingsCenter area="workspace" />;
+export default function WorkspaceSettingsPage({ searchParams }: { searchParams?: { tab?: string } }) {
+  const tab = searchParams?.tab ?? 'company';
+  redirect(`/settings?tab=${encodeURIComponent(tab)}`);
 }
