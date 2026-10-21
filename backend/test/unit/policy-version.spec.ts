@@ -303,7 +303,8 @@ describe('PolicyVersionService (BL-4)', () => {
       await service.activate('ATTENDANCE_POLICY', 'pol-v2', ADMIN);
       const lookup = delegate.findFirst.mock.calls[0][0].where;
       expect(lookup.policyKey).toBe('attendance:default');
-      expect(lookup.status).toBe('ACTIVE');
+      // Phase 3: an earlier SCHEDULED version can also be the predecessor.
+      expect(lookup.status).toEqual({ in: ['ACTIVE', 'SCHEDULED'] });
       expect(lookup.NOT).toEqual({ id: 'pol-v2' });
     });
 
@@ -449,7 +450,8 @@ describe('PolicyVersionService (BL-4)', () => {
       const { service, delegate } = build();
       await service.resolvePolicyOn('ATTENDANCE_POLICY', '2026-06-15');
       const where = delegate.findFirst.mock.calls[0][0].where;
-      expect(where.status).toEqual({ in: ['ACTIVE', 'SUPERSEDED'] });
+      // Phase 3: a SCHEDULED version governs from its own effective date.
+      expect(where.status).toEqual({ in: ['ACTIVE', 'SUPERSEDED', 'SCHEDULED'] });
     });
 
     it('a DRAFT or APPROVED version never applies to a real date', async () => {

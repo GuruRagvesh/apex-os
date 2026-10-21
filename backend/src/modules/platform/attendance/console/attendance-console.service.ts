@@ -10,8 +10,9 @@ import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import { LeaveBalanceService } from '../../../operations/leave/leave-balance.service';
 import { formatInTimeZone } from 'date-fns-tz';
 import { ROLES } from '../../../../shared/constants/roles';
-import { registerCsv, registerFileName, type RegisterResult } from './register-report';
+import { deviceFileName, devicesCsv, registerCsv, registerFileName, type RegisterResult } from './register-report';
 import { buildRegisterWorkbook } from './register-workbook';
+import { deviceLabel, deviceView } from '../punch/device-evidence';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -274,7 +275,7 @@ export class AttendanceConsoleService {
         where: this.scopeWhere(scope, { date: dateOnly }),
       }),
       this.prisma.attendanceRegularization.count({
-        where: this.scopeWhere(scope, { status: { in: ['PENDING', 'MANAGER_APPROVED'] } }),
+        where: this.scopeWhere(scope, { status: { in: ['PENDING', 'STALE_REVIEW_REQUIRED', 'MANAGER_APPROVED'] } }),
       }),
     ]);
 
@@ -527,6 +528,9 @@ export class AttendanceConsoleService {
         photoVerification: e.photoVerification,
         photoCaptured: e.photoVerification === 'CAPTURED',
         accuracyMeters: e.accuracyMeters,
+        // Device evidence is for HR and Admin only, and only as a label and a
+        // short code -- never the stored id or the browser metadata.
+        ...(scope.isHr ? { device: deviceView(e) } : {}),
       })),
       workSessions: sessions.map((s) => ({
         id: s.id,
@@ -596,7 +600,7 @@ export class AttendanceConsoleService {
         include: { user: { select: { id: true, name: true, email: true } } },
       }),
       this.prisma.attendanceRegularization.findMany({
-        where: this.scopeWhere(scope, { status: { in: ['PENDING', 'MANAGER_APPROVED'] } }),
+        where: this.scopeWhere(scope, { status: { in: ['PENDING', 'STALE_REVIEW_REQUIRED', 'MANAGER_APPROVED'] } }),
         orderBy: { createdAt: 'asc' },
         take: limit,
         include: { user: { select: { id: true, name: true, email: true } } },
@@ -865,6 +869,80 @@ export class AttendanceConsoleService {
       // none of them recomputes a figure. Three implementations of the same
       // formula is three chances for HR to be handed three different answers.
       employees: rows,
+      // Phase 3: HR/Admin only. Managers never receive device evidence.
+      ...(scope.isHr ? { devices: await this.registerDevices(employees, from, to) } : {}),
+    };
+  }
+
+  /**
+   * Which devices recorded each employee's punches in the period (Phase 3).
+   *
+   * Grouped from the evidence rows themselves; one line per employee, device
+   * and capture channel. Labels only -- the stored id never leaves the server.
+   */
+  private async registerDevices(
+    employees: Array<{ id: string; name: string; employeeId: string | null }>,
+    from: string,
+    to: string,
+  ) {
+    if (employees.length === 0) return [];
+    const evidence = await this.prisma.attendancePunchEvidence.findMany({
+      where: {
+        userId: { in: employees.map((e) => e.id) },
+        businessDate: {
+          gte: new Date(`${from}T00:00:00.000Z`),
+          lte: new Date(`${to}T00:00:00.000Z`),
+        },
+      },
+      select: {
+        userId: true,
+        businessDate: true,
+        deviceId: true,
+        deviceType: true,
+        captureChannel: true,
+        deviceMetadata: true,
+      },
+      orderBy: [{ userId: 'asc' }, { businessDate: 'asc' }],
+    });
+    const byId = new Map(employees.map((e) => [e.id, e]));
+    const groups = new Map<string, any>();
+    for (const e of evidence) {
+      const label = deviceLabel(e);
+      const channel = e.captureChannel ?? 'NOT_RECORDED';
+      const key = `${e.userId}|${label}|${channel}`;
+      const date = this.tva.companyBusinessDate(e.businessDate);
+      const g = groups.get(key);
+      if (g) {
+        g.punches += 1;
+        g.lastBusinessDate = date;
+      } else {
+        const person = byId.get(e.userId);
+        groups.set(key, {
+          name: person?.name ?? '',
+          employeeId: person?.employeeId ?? null,
+          deviceLabel: label,
+          captureChannel: channel,
+          punches: 1,
+          firstBusinessDate: date,
+          lastBusinessDate: date,
+        });
+      }
+    }
+    return [...groups.values()].sort((a, b) =>
+      a.name.localeCompare(b.name) || a.deviceLabel.localeCompare(b.deviceLabel),
+    );
+  }
+
+  /** The device sheet as its own CSV. HR/Admin only. */
+  async exportDevices(actor: any, filters: { from?: string; to?: string; departmentId?: string }) {
+    if (!this.accessPolicy.isHrOrAdmin(actor)) {
+      throw new ForbiddenException('Only HR and administrators can export device evidence');
+    }
+    const result = (await this.monthlyRegister(actor, filters)) as unknown as RegisterResult;
+    return {
+      buffer: Buffer.from(devicesCsv(result.devices ?? []), 'utf8'),
+      filename: deviceFileName(result.month),
+      contentType: 'text/csv; charset=utf-8',
     };
   }
 

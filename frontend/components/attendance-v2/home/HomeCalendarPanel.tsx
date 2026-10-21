@@ -262,7 +262,7 @@ export function HomeCalendarPanel() {
         ? <AttendanceSide today={today} week={week} byDate={attendanceByDate} isIntern={isIntern} averageBreakMinutes={personalHighlights.data?.averageBreakMinutes ?? null} showAverageBreak={hasPersonalHighlights} />
         : <ProductivitySide week={week} byDate={productivityByDate} loading={weekProductivity.isLoading} failed={weekProductivity.isError} month={{ start: monthStart, end: monthTo, label: monthLabel(y, m), days: monthProductivity.data, loading: monthProductivity.isLoading, failed: monthProductivity.isError, future: monthStart > today }} />)}
 
-      {attendanceScope === 'personal' && mode === 'attendance' && !isIntern && <LeaveBalanceAnalysis />}
+      {attendanceScope === 'personal' && mode === 'attendance' && <LeaveBalanceAnalysis />}
 
       {popup && (
         <DayPopup
@@ -610,20 +610,21 @@ function LeaveBalanceAnalysis({ compactIntern = false }: { compactIntern?: boole
     retryDelay: transientQueryRetryDelay,
     refetchOnMount: 'always',
   });
-  const emergency = useQuery({
-    queryKey: ['my-leave-balance', 'EMERGENCY', 'role-policy-v2'],
-    queryFn: () => getMyLeaveBalance('EMERGENCY' as PersonalLeaveType),
-    enabled: !isIntern,
+  // Phase 3: 10 Casual + 4 Sick from the versioned policy, for interns too.
+  const sick = useQuery({
+    queryKey: ['my-leave-balance', 'SICK', 'role-policy-v2'],
+    queryFn: () => getMyLeaveBalance('SICK' as PersonalLeaveType),
     staleTime: 300_000,
     retry: shouldRetryTransientQuery,
     retryDelay: transientQueryRetryDelay,
     refetchOnMount: 'always',
   });
-  if (isIntern) return <InternPaidLeaveAnalysis query={casual} compact={compactIntern} />;
+  void isIntern;
+  void compactIntern;
 
   const entries = [
     { key: 'casual', label: 'Casual Leave', query: casual, tone: 'blue' as const },
-    { key: 'emergency', label: 'Emergency Leave', query: emergency, tone: 'amber' as const },
+    { key: 'sick', label: 'Sick Leave', query: sick, tone: 'amber' as const },
   ];
 
   return (
@@ -639,45 +640,12 @@ function LeaveBalanceAnalysis({ compactIntern = false }: { compactIntern?: boole
         {entries.map((entry) => {
           if (entry.query.isLoading) return <div key={entry.key} className={s.leaveAnalysisState}>Loading {entry.label.toLowerCase()}…</div>;
           if (entry.query.isError || !entry.query.data) return <div key={entry.key} className={s.leaveAnalysisState}>{entry.label} balance is unavailable.</div>;
-          return <LeaveAnalysisCard key={entry.key} label={entry.label} tone={entry.tone} balance={entry.query.data} />;
+          const data = entry.query.data;
+          // Phase 3: no applicable leave policy yet. Said plainly; never an invented number.
+          if (data.allocation === null || data.balance === null) return <div key={entry.key} className={s.leaveAnalysisState}>{entry.label}: leave setup is pending with HR.</div>;
+          return <LeaveAnalysisCard key={entry.key} label={entry.label} tone={entry.tone} balance={{ ...data, allocation: data.allocation, balance: data.balance }} />;
         })}
       </div>
-    </section>
-  );
-}
-
-function InternPaidLeaveAnalysis({ query, compact = false }: { query: {
-  data?: { allocation: number; approved: number; pending: number; balance: number };
-  isLoading: boolean;
-  isError: boolean;
-}; compact?: boolean }) {
-  const balance = query.data;
-  const allocated = Math.max(0, balance?.allocation ?? 1);
-  const used = Math.max(0, balance?.approved ?? 0);
-  const pending = Math.max(0, balance?.pending ?? 0);
-  const remaining = Math.max(0, balance?.balance ?? allocated - used);
-  const usedPercent = allocated ? Math.min(100, (used / allocated) * 100) : 0;
-  const pendingPercent = allocated ? Math.min(100 - usedPercent, (pending / allocated) * 100) : 0;
-  const chart = `conic-gradient(#2563EB 0 ${usedPercent}%, #60A5FA ${usedPercent}% ${usedPercent + pendingPercent}%, #DCE9F8 ${usedPercent + pendingPercent}% 100%)`;
-
-  return (
-    <section className={`${s.card} ${s.internLeaveAnalysis} ${compact ? s.internLeaveSide : ''}`} aria-label="Monthly paid leave balance">
-      <header className={s.internLeaveHeader}>
-        <span className={s.leaveAnalysisIcon} aria-hidden="true"><CalendarCheck size={18} /></span>
-        <div><h2>Paid Leave Balance</h2></div>
-      </header>
-      {query.isLoading ? <div className={s.internLeaveState}>Loading paid leave…</div>
-        : query.isError || !balance ? <div className={s.internLeaveState}>Paid leave balance is unavailable.</div>
-        : <div className={s.internLeaveBody}>
-          <div className={s.internLeaveChart} style={{ background: chart }} role="img" aria-label={`${used} days used out of ${allocated} allocated`}>
-            <div><strong>{remaining}</strong><span>left</span></div>
-          </div>
-          <div className={s.internLeaveStats}>
-            <div><span>Allocated</span><strong>{allocated} day</strong></div>
-            <div><span>Used</span><strong>{used} day{used === 1 ? '' : 's'}</strong></div>
-            <div><span>Pending</span><strong>{pending} day{pending === 1 ? '' : 's'}</strong></div>
-          </div>
-        </div>}
     </section>
   );
 }
@@ -738,7 +706,6 @@ function AttendanceSide({ today, week, byDate, isIntern, averageBreakMinutes, sh
   return (
     <aside className={s.side} aria-label={`${weekName(week)} attendance`}>
       <AttendanceKpiScore current={current} streak={streak} averageBreakMinutes={averageBreakMinutes} showAverageBreak={showAverageBreak} />
-      {isIntern && <LeaveBalanceAnalysis compactIntern />}
     </aside>
   );
 }

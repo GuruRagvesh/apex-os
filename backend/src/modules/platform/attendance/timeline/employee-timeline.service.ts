@@ -1,3 +1,4 @@
+import { POLICY_BASELINE_DATE } from '../policy/policy-continuity';
 import { Injectable } from '@nestjs/common';
 import { AttendanceCategory, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -292,7 +293,9 @@ export class EmployeeTimelineService {
     hrReviewerId?: string | null;
     updatedById?: string | null;
   }) {
-    const from = this.toDateOnly(this.toBusinessDate(input.effectiveFrom));
+    // Phase 3: no profile begins before the company policy baseline.
+    const requestedFrom = this.toBusinessDate(input.effectiveFrom);
+    const from = this.toDateOnly(requestedFrom < POLICY_BASELINE_DATE ? POLICY_BASELINE_DATE : requestedFrom);
     const to = input.effectiveTo
       ? this.toDateOnly(this.toBusinessDate(input.effectiveTo))
       : null;

@@ -263,6 +263,8 @@ function consoleRig(users: any[], stored: any[] = []) {
     user: { findUnique: jest.fn(), findMany: jest.fn((args: any) => { userFinds.push(args); return Promise.resolve(users); }), count: jest.fn().mockResolvedValue(users.length) },
     dailyAttendance: { findMany: jest.fn().mockResolvedValue(stored) },
     attendanceRegularization: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]) },
+    // Phase 3: the HR register also lists punch devices.
+    attendancePunchEvidence: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const calendar: any = { classifyMonth: jest.fn().mockResolvedValue({ days: [{ businessDate: '2026-08-03', isWorkingDay: true }, { businessDate: '2026-08-04', isWorkingDay: true }], workingDays: 2, sources: { weeklyOffPolicy: 'ASSIGNED' } }) };
   const service = new AttendanceConsoleService(

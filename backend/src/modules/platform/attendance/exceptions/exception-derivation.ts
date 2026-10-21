@@ -326,7 +326,7 @@ function openAction(category: ExceptionCategory): ResolvingAction {
 function inFlight(regularizations: RegularizationFacts[]) {
   const map = new Map<string, RegularizationFacts>();
   for (const r of regularizations) {
-    if (r.status !== 'PENDING' && r.status !== 'MANAGER_APPROVED') continue;
+    if (r.status !== 'PENDING' && r.status !== 'MANAGER_APPROVED' && r.status !== 'STALE_REVIEW_REQUIRED') continue;
     const k = dayKey(r.userId, r.businessDate);
     const existing = map.get(k);
     // Furthest along wins: if a day somehow has two, the one already with HR is
@@ -356,7 +356,8 @@ function actionFor(reg: RegularizationFacts, category: ExceptionCategory): Resol
   }
   return {
     kind: reg.entrySource === 'MANUAL_RECOVERY' ? 'MANUAL_RECOVERY' : 'MANAGER_DECISION',
-    label: "The employee's reporting manager approves or rejects it first.",
+    // Phase 3: any one eligible reviewer decides finally.
+    label: "The employee's Team Lead, reporting Manager, HR or an administrator approves or rejects it.",
     regularizationId: reg.id,
   };
 }

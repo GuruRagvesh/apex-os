@@ -96,8 +96,9 @@ describe('own punch evidence view', () => {
   });
 
   it('exposes exactly the agreed field set, and nothing added by accident', () => {
-    // A new column on the model must not reach the employee just because it
-    // was added; this fails until somebody decides about it deliberately.
+    // Device evidence was deliberately approved for the employee-facing view,
+    // but only as a safe label/type/channel. The raw UUID is represented by a
+    // short non-reversible code and never exposed here.
     expect(Object.keys(toOwnEvidenceView(row())).sort()).toEqual(
       [
         'accuracyMeters',
@@ -106,7 +107,11 @@ describe('own punch evidence view', () => {
         'altitudeMeters',
         'altitudeStatus',
         'businessDate',
+        'captureChannel',
         'clientCapturedAt',
+        'deviceCode',
+        'deviceLabel',
+        'deviceType',
         'distanceFromLocationMeters',
         'geofenceRadiusMeters',
         'id',

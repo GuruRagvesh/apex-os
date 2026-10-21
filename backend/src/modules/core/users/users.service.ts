@@ -11,6 +11,12 @@ import { randomUUID } from 'crypto';
 import { sanitizeChannels } from '../../operations/notifications/notification-channels';
 import { RemediationException, buildRemediation } from '../../../common/remediation';
 import { SetupIssueCode, UserSetupIssuesService } from './user-setup-issues.service';
+import {
+  GOVERNING_POLICY_STATUSES,
+  POLICY_BASELINE_DATE,
+  resolveContinuousPolicy,
+} from '../../platform/attendance/policy/policy-continuity';
+import { closeProfilesAt, reopenProfileFrom } from '../../platform/attendance/timeline/profile-continuity';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
 // Only this document type is allowed to update the user's avatar/photo.
@@ -218,123 +224,71 @@ export class UsersService {
 
   private async attendanceDefaults(
     tx: Prisma.TransactionClient,
-    effectiveFrom: Date,
-    laterStartAllowed = true,
+    joiningDate: Date,
   ): Promise<any> {
-    // A version that has been superseded is still authoritative inside its
-    // closed historical window. This is the same rule the attendance readers
-    // use and prevents a future-dated activation from disabling Add User until
-    // the new version starts.
-    const governingVersion = {
-      status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] },
+    // Phase 3 policy continuity. The profile starts on the joining date, never
+    // before the company baseline, and every family resolves by the same rule
+    // the attendance readers use: the version covering the date (the latest
+    // one when versions overlap), else the predecessor across a gap, else the
+    // earliest version as the baseline. Only a family with no version at all
+    // is missing. A future (SCHEDULED) version never governs before its date.
+    const joining = joiningDate.toISOString().slice(0, 10);
+    const startDate = joining < POLICY_BASELINE_DATE ? POLICY_BASELINE_DATE : joining;
+    const effectiveFrom = new Date(`${startDate}T00:00:00.000Z`);
+    const usable = { status: { in: [...GOVERNING_POLICY_STATUSES] } };
+    const window = {
       effectiveFrom: { lte: effectiveFrom },
       OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
     };
-    const activeWindow = {
-      isActive: true,
-      effectiveFrom: { lte: effectiveFrom },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
+    const newestFirst = [{ effectiveFrom: 'desc' as const }, { id: 'desc' as const }];
+
+    const configurationWarnings: string[] = [];
+    const asCandidate = (r: any) => ({
+      id: r.id,
+      version: r.version ?? null,
+      effectiveFrom: r.effectiveFrom ? new Date(r.effectiveFrom).toISOString().slice(0, 10) : POLICY_BASELINE_DATE,
+      effectiveTo: r.effectiveTo ? new Date(r.effectiveTo).toISOString().slice(0, 10) : null,
+      row: r,
+    });
+    const resolveFamily = async (label: string, delegate: any, base: Record<string, unknown>) => {
+      const covering = await delegate.findMany({ where: { ...base, ...window }, orderBy: newestFirst, take: 2 });
+      if (covering.length > 1) configurationWarnings.push(`${label}_OVERLAP`);
+      if (covering.length > 0) return covering[0];
+      // Nothing covers the joining date: continue across a gap or apply the
+      // baseline, and say so. Never a refusal on its own.
+      const all = await delegate.findMany({ where: base });
+      const resolution = resolveContinuousPolicy((all ?? []).map(asCandidate), startDate);
+      if (resolution.health && resolution.health !== 'NO_POLICY') configurationWarnings.push(`${label}_${resolution.health}`);
+      return (resolution.policy as any)?.row ?? null;
     };
 
-    const [shifts, leavePolicies, calendars, weeklyOffPolicies] = await Promise.all([
-      tx.shiftPolicy.findMany({
-        where: { ...governingVersion, category: AttendanceCategory.REGULAR_EMPLOYEE },
-        orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }],
-        take: 2,
-      }),
-      tx.leavePolicy.findMany({ where: governingVersion, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
-      tx.holidayCalendar.findMany({ where: governingVersion, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
-      tx.weeklyOffPolicy.findMany({ where: activeWindow, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
-    ]);
+    const shift = await resolveFamily('SHIFT_POLICY', tx.shiftPolicy, { ...usable, category: AttendanceCategory.REGULAR_EMPLOYEE });
+    const leavePolicy = await resolveFamily('LEAVE_POLICY', tx.leavePolicy, usable);
+    const calendar = await resolveFamily('HOLIDAY_CALENDAR', tx.holidayCalendar, usable);
+    // isActive is the only approval signal an unversioned weekly-off row has.
+    const weeklyOff = await resolveFamily('WEEKLY_OFF_POLICY', tx.weeklyOffPolicy, { isActive: true });
 
-    // Overlap is a setup warning, not authority to block employment. The
-    // latest effective-from approved version wins; id is a stable tie-breaker.
-    const configurationWarnings = [
-      shifts.length > 1 ? 'SHIFT_POLICY_OVERLAP' : null,
-      leavePolicies.length > 1 ? 'LEAVE_POLICY_OVERLAP' : null,
-      calendars.length > 1 ? 'HOLIDAY_CALENDAR_OVERLAP' : null,
-      weeklyOffPolicies.length > 1 ? 'WEEKLY_OFF_POLICY_OVERLAP' : null,
-    ].filter((value): value is string => value !== null);
-
-    const shift = shifts[0] ?? null;
-    const attendancePolicy = shift
-      ? await tx.attendancePolicy.findFirst({
-          where: { id: shift.attendancePolicyId, ...governingVersion },
-        })
+    let attendancePolicy: any = shift
+      ? await tx.attendancePolicy.findFirst({ where: { id: shift.attendancePolicyId, ...usable, ...window } })
       : null;
-
-    const missing = [
-      shifts.length === 0 ? 'shift' : null,
-      attendancePolicy === null ? 'attendance' : null,
-      leavePolicies.length === 0 ? 'leave' : null,
-      calendars.length === 0 ? 'calendar' : null,
-      weeklyOffPolicies.length === 0 ? 'weeklyOff' : null,
-    ].filter((value): value is string => value !== null);
-
-    if (missing.length > 0 && laterStartAllowed) {
-      const usableVersion = { status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] } };
-      const future = { gt: effectiveFrom };
-      const [nextShift, nextLeave, nextCalendar, nextWeeklyOff, nextLinkedAttendance] = await Promise.all([
-        missing.includes('shift') || missing.includes('attendance')
-          ? tx.shiftPolicy.findFirst({
-              where: { ...usableVersion, category: AttendanceCategory.REGULAR_EMPLOYEE, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-        missing.includes('leave')
-          ? tx.leavePolicy.findFirst({
-              where: { ...usableVersion, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-        missing.includes('calendar')
-          ? tx.holidayCalendar.findFirst({
-              where: { ...usableVersion, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-        missing.includes('weeklyOff')
-          ? tx.weeklyOffPolicy.findFirst({
-              where: { isActive: true, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-        missing.includes('attendance') && shift
-          ? tx.attendancePolicy.findFirst({
-              where: { id: shift.attendancePolicyId, ...usableVersion, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-      ]);
-
-      const nextFor: Record<string, Date | null> = {
-        shift: nextShift?.effectiveFrom ?? null,
-        attendance: nextLinkedAttendance?.effectiveFrom ?? nextShift?.effectiveFrom ?? null,
-        leave: nextLeave?.effectiveFrom ?? null,
-        calendar: nextCalendar?.effectiveFrom ?? null,
-        weeklyOff: nextWeeklyOff?.effectiveFrom ?? null,
-      };
-      const missingStarts = missing.map((key) => nextFor[key]);
-      if (missingStarts.every((date): date is Date => date instanceof Date)) {
-        // Start on the latest of the missing policies' first possible dates,
-        // then re-evaluate the whole bundle. Re-evaluation catches gaps and
-        // may advance again, but every attempt moves strictly forward.
-        const nextEffectiveFrom = new Date(Math.max(...missingStarts.map((date) => date!.getTime())));
-        if (nextEffectiveFrom.getTime() > effectiveFrom.getTime()) {
-          return this.attendanceDefaults(tx, nextEffectiveFrom, true);
-        }
+    if (shift && !attendancePolicy && typeof (tx.attendancePolicy as any).findUnique === 'function') {
+      // The shift's attendance policy series, by continuity.
+      const series = await tx.attendancePolicy.findUnique({ where: { id: shift.attendancePolicyId }, select: { policyKey: true } });
+      if (series) {
+        attendancePolicy = await resolveFamily('ATTENDANCE_POLICY', tx.attendancePolicy, { ...usable, policyKey: series.policyKey });
       }
     }
 
-    const resolvedShift = this.exactlyOne(shifts.slice(0, 1), 'regular shift policy');
-    if (!attendancePolicy) {
+    const missing = [
+      shift ? null : 'regular shift policy',
+      attendancePolicy || !shift ? null : 'attendance policy for the shift',
+      leavePolicy ? null : 'leave policy',
+      calendar ? null : 'holiday calendar',
+      weeklyOff ? null : 'weekly-off policy',
+    ].filter((value): value is string => value !== null);
+    if (missing.length > 0) {
       throw new BadRequestException(
-        'Attendance onboarding is unavailable: the active shift has no active attendance policy',
+        `Attendance onboarding is unavailable: no applicable ${missing.join(', ')} is configured`,
       );
     }
 
@@ -345,13 +299,13 @@ export class UsersService {
     }
 
     return {
-      shift: resolvedShift,
-      leavePolicy: this.exactlyOne(leavePolicies.slice(0, 1), 'leave policy'),
-      calendar: this.exactlyOne(calendars.slice(0, 1), 'holiday calendar'),
-      weeklyOff: this.exactlyOne(weeklyOffPolicies.slice(0, 1), 'weekly-off policy'),
+      shift,
+      leavePolicy,
+      calendar,
+      weeklyOff,
       assignedAttendanceLocationId,
       configurationWarnings,
-      /** When the attendance profile starts: the joining date, or the first policy date if later. */
+      /** When the attendance profile starts: the joining date, never before the baseline. */
       effectiveFrom,
     };
   }
@@ -644,6 +598,17 @@ export class UsersService {
         },
         include: { role: true, department: true },
       });
+      // Phase 3: a new attendance profile from the return date, continuing the
+      // last one's assignments. Nothing covers the days they were inactive.
+      if (!joinsLater) {
+        const today = this.companyDate();
+        const reopened = await reopenProfileFrom(tx, userId, today, actorId);
+        const covered = reopened ?? (await tx.employeeAttendanceProfile.findFirst({
+          where: { userId, effectiveFrom: { lte: new Date(`${today}T00:00:00.000Z`) }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date(`${today}T00:00:00.000Z`) } }] },
+          select: { id: true },
+        }));
+        if (!covered) await this.recordAttendanceSetupPending(tx, userId, actorId, ['PROFILE_MISSING_ON_REACTIVATION']);
+      }
       await (tx as any).operationalEvent.create({
         data: {
           actorId,
@@ -1115,7 +1080,12 @@ export class UsersService {
 
   async remove(id: string, actorId?: string) {
     await this.assertNotSystemAccount(id);
-    await this.prisma.user.update({ where: { id }, data: { isActive: false, employmentState: 'DEACTIVATED', scheduledActivationOn: null } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id }, data: { isActive: false, employmentState: 'DEACTIVATED', scheduledActivationOn: null } });
+      // Phase 3: the attendance profile ends today, so no profile covers the
+      // inactive gap and no absence can be generated for it.
+      await closeProfilesAt(tx, id, this.companyDate(), actorId ?? null);
+    });
     this.eventLogger.log({
       actorId: actorId ?? id,
       entityType: 'User',

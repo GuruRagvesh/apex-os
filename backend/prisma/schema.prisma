@@ -568,6 +568,8 @@ model LeaveRequest {
   setupStatus             PolicyContextStatus?
   routingSnapshotId       String?
   routingSnapshot         RoutingSnapshot?     @relation(fields: [routingSnapshotId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  /// Phase 3: append-only evidence files (Emergency Leave), never replaced.
+  evidence                LeaveEvidence[]
 
   @@index([userId])
   @@index([status])
@@ -1473,6 +1475,14 @@ model AttendancePunchEvidence {
   policyContextStatus PolicyContextStatus?
   review              PunchEvidenceReview?
 
+  // Phase 3 device evidence, written at INSERT only. Null on historical rows.
+  // deviceId is the opaque Apex Device ID a browser installation generated for
+  // itself (CHECK: lowercase UUID). It is evidence metadata, never identity or
+  // authorization. captureChannel is decided by the server from the route.
+  deviceId       String?
+  deviceType     DeviceType?
+  captureChannel CaptureChannel?
+
   user               User                  @relation(fields: [userId], references: [id])
   workSession        WorkSession?          @relation(fields: [workSessionId], references: [id])
   attendanceLocation AttendanceLocation?   @relation(fields: [attendanceLocationId], references: [id])
@@ -1482,6 +1492,9 @@ model AttendancePunchEvidence {
   @@index([userId, businessDate])
   @@index([businessDate])
   @@index([type])
+  @@index([deviceId])
+  @@index([deviceType, businessDate])
+  @@index([captureChannel, businessDate])
   @@map("attendance_punch_evidence")
 }
 
@@ -1546,10 +1559,14 @@ model LeavePolicy {
   /// Separate management-confirmed authorities. totalPaidLeaves remains for
   /// historical/legacy leave types; new CASUAL/EMERGENCY funding never pools.
   casualLeaveAllocation            Int                         @default(10)
+  /// DEPRECATED (Phase 3). Emergency is a submission mode funded from Casual or
+  /// Sick, not a third paid bucket. Kept for history; no reader may use it.
   emergencyLeaveAllocation         Int                         @default(4)
-  /// The approved Sick entitlement. Unread until Phase 3 switches every
-  /// entitlement reader at once; nothing outside this schema may reference it.
+  /// The approved Sick entitlement (Phase 3 authority): 10 Casual + 4 Sick.
   sickLeaveAllocation              Int                         @default(4)
+  /// A STANDARD request submitted later than this many days before its start
+  /// is saved as a late submission for review. Never a penalty.
+  standardLeaveMinimumNoticeDays   Int                         @default(1)
   /// Explicit approved half-day attendance expectations.
   firstHalfInEarliest              String                      @default("09:30")
   firstHalfInLatest                String                      @default("10:30")
@@ -1727,6 +1744,29 @@ model AttendanceRegularization {
   originalPunchIn  DateTime?
   originalPunchOut DateTime?
 
+  // ── Phase 3 single-decision workflow ─────────────────────────────────────
+  /// null on every legacy row; 1 on every Phase 3 decision (CHECK in SQL
+  /// requires all decision fields together when 1).
+  decisionProtocolVersion  Int?
+  decidedById              String?
+  /// Role snapshot at decision time (TEAM_LEAD, MANAGER, HR, ADMIN, SUPER_ADMIN, UNKNOWN_LEGACY).
+  decidedByRole            String?
+  /// Why the decider was eligible (EMPLOYEE_TL, REPORTING_MANAGER, HR, ADMIN, SUPER_ADMIN, LEGACY_STAGE_APPROVAL).
+  decidedVia               String?
+  decision                 CorrectionDecision?
+  decidedAt                DateTime?
+  decisionReason           String?
+  /// Official-day fingerprint the reviewer approved against. A held approval
+  /// is never applied later without comparing the then-current day to this
+  /// value and obtaining an explicit refreshed confirmation when it changed.
+  decisionFingerprint      String?
+  applicationStatus        CorrectionApplicationStatus?
+  applicationFailureReason String?
+  appliedAt                DateTime?
+  /// When a decision attempt found the day changed (STALE_REVIEW_REQUIRED).
+  staleDetectedAt          DateTime?
+  staleFingerprint         String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1736,6 +1776,8 @@ model AttendanceRegularization {
   @@index([status])
   @@index([status, date])
   @@index([entrySource, date])
+  @@index([status, userId, createdAt])
+  @@index([decidedById])
   @@map("attendance_regularizations")
 }
 
@@ -2075,9 +2117,28 @@ enum RegularizationRequestType {
 
 enum RegularizationStatus {
   PENDING
+  /// Legacy two-stage state. Never written for new requests after Phase 3.
   MANAGER_APPROVED
+  /// Legacy two-stage final approval. Still honoured as history.
   HR_APPROVED
   REJECTED
+  /// Phase 3: final approval by any one eligible reviewer.
+  APPROVED
+  /// Phase 3: still unresolved; the day changed after the request was raised.
+  STALE_REVIEW_REQUIRED
+}
+
+/// Phase 3: the single final decision on a correction.
+enum CorrectionDecision {
+  APPROVE
+  REJECT
+}
+
+/// Phase 3: whether an approved correction reached the official day.
+enum CorrectionApplicationStatus {
+  APPLIED
+  REVIEW_REQUIRED
+  NOT_REQUIRED
 }
 
 enum BusinessDayOverrideType {
@@ -2254,6 +2315,10 @@ enum PolicyStatus {
   APPROVED
   ACTIVE
   SUPERSEDED
+  /// Phase 3: approved and activated with a FUTURE effectiveFrom. It governs
+  /// from that company date by date-based resolution alone (no job needed);
+  /// the daily settle only tidies the status label to ACTIVE.
+  SCHEDULED
 }
 
 // What a policy version says to do about a situation whose business rule
@@ -3240,4 +3305,97 @@ model LifecycleRemediationAttempt {
   @@index([subjectUserId, serverAt], map: "lifecycle_remediation_attempts_subject_idx")
   @@index([lifecycleOperationId], map: "lifecycle_remediation_attempts_lifecycle_idx")
   @@map("lifecycle_remediation_attempts")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3: attendance and leave continuity. Migration 20261021090000.
+// The deviceId format CHECK and the decision-row guard trigger live in SQL.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Browser-reported form factor, corroborated server-side. A browser cannot
+/// tell a laptop from a desktop, so the two are one value.
+enum DeviceType {
+  MOBILE
+  TABLET
+  LAPTOP_DESKTOP
+  UNKNOWN
+}
+
+/// How the punch reached the server. Decided from the route, never the body.
+enum CaptureChannel {
+  CURRENT_DEVICE
+  PHONE_HANDOFF
+}
+
+/// HR's record that an employee DID report an absence (phone, message or
+/// email) without filing leave. A reported day is never counted by the
+/// three-day unreported-absence rule.
+model AbsenceReport {
+  id           String   @id
+  userId       String
+  businessDate DateTime @db.Date
+  /// EMAIL, PHONE, MESSAGE or OTHER (CHECK in SQL).
+  channel      String
+  note         String
+  recordedById String
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, businessDate])
+  @@index([businessDate])
+  @@map("absence_reports")
+}
+
+/// One day the three-day unreported-absence rule classified as LWP.
+///
+/// APPLIED: the DailyAttendance row was set to LWP. SKIPPED_SETTLED: the day was
+/// finalized, manually corrected or payroll-closed, so nothing was changed and
+/// HR sees the decision instead. CORRECTED: authorized HR reversed it with a
+/// reason. Never deleted; only the correction columns may change (trigger).
+model UnreportedAbsenceDecision {
+  id                  String    @id
+  userId              String
+  businessDate        DateTime  @db.Date
+  /// The first scheduled working day of the unreported run.
+  runStartDate        DateTime  @db.Date
+  runLength           Int
+  /// APPLIED, SKIPPED_SETTLED or CORRECTED (CHECK in SQL).
+  outcome             String
+  /// The DailyAttendance values before APPLIED, kept for rollback.
+  previousStatus      String?
+  previousLwpDeducted Float?
+  previousRevision    Int?
+  correctedById       String?
+  correctedAt         DateTime?
+  correctionReason    String?
+  createdAt           DateTime  @default(now())
+
+  @@unique([userId, businessDate])
+  @@index([outcome])
+  @@index([businessDate])
+  @@map("unreported_absence_decisions")
+}
+
+/// Phase 3: one evidence file submitted for a leave request (Emergency Leave
+/// evidence). Append-only by trigger: a file is never replaced or edited; a
+/// correction is another row. The bytes live in private storage; this row
+/// records exactly what was submitted, by whom and when.
+model LeaveEvidence {
+  id             String       @id
+  leaveRequestId String
+  /// The leave owner, for the row-scoped Permanent Delete exception.
+  userId         String
+  uploadedById   String
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  sha256         String
+  /// Opaque private storage reference. Never returned to clients.
+  storageKey     String
+  note           String?
+  createdAt      DateTime     @default(now())
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([leaveRequestId, sha256])
+  @@index([userId])
+  @@map("leave_evidence")
 }

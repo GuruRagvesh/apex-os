@@ -46,6 +46,13 @@ export const ATTENDANCE_V2_DEFAULTS = {
    * stored. Still never touches payroll either way.
    */
   officialWriteEnabled: false,
+  /**
+   * Phase 3 expand-and-enable. When on, attendance corrections are decided by
+   * ONE eligible reviewer through PATCH /attendance/regularization/:id/decision
+   * and the legacy manager/HR stage routes refuse. Off: the legacy routes keep
+   * working, while the scoped queues already show every unresolved request.
+   */
+  correctionDecisionEnabled: false,
 };
 
 /**
@@ -79,6 +86,18 @@ export interface SubmitPunchEvidenceInput {
    */
   handoffId?: string | null;
   handoffToken?: string | null;
+
+  /**
+   * Phase 3 device evidence. All optional: a browser that cannot supply them
+   * still punches, and is recorded as an UNKNOWN device for HR review. There is
+   * deliberately no captureChannel here -- the server decides it from the route.
+   */
+  device?: {
+    deviceId?: string | null;
+    deviceTypeHint?: string | null;
+    clientHintMobile?: boolean | null;
+    clientHintPlatform?: string | null;
+  } | null;
 }
 
 /**

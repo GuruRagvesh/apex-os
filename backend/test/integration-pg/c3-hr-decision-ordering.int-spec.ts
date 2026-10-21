@@ -114,6 +114,14 @@ describe('which HR decision governs a day', () => {
       status: 'REJECTED',
       hrDecisionAt: SEP01, // newer than the approval below
       requestedPunchOut: new Date(`${DATE}T16:00:00.000Z`),
+      decisionProtocolVersion: 1,
+      decision: 'REJECT',
+      decidedById: seed.actors.admin.id,
+      decidedByRole: 'ADMIN',
+      decidedVia: 'ADMIN',
+      decidedAt: SEP01,
+      decisionReason: 'Ordering fixture rejection',
+      applicationStatus: 'NOT_REQUIRED',
     });
     await mkCorrection({
       status: 'HR_APPROVED',

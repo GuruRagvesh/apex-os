@@ -14,10 +14,14 @@ import { api, unwrap as r } from '@apex/shared-auth';
 
 /** What GET /leave/balance returns for one leave type. */
 export interface LeaveBalance {
-  allocation: number;
+  /** Null while no leave policy applies (setup pending): never an invented number. */
+  allocation: number | null;
   approved: number;
   pending: number;
-  balance: number;
+  balance: number | null;
+  bucket?: 'CASUAL' | 'SICK' | null;
+  setupStatus?: 'RESOLVED' | 'POLICY_SETUP_PENDING';
+  unmeasuredRequests?: number;
 }
 
 export interface CompOffCredit {
@@ -28,13 +32,17 @@ export interface CompOffCredit {
   status: string;
 }
 
-/** The leave types an employee sees on their own attendance page. */
-export const PERSONAL_LEAVE_TYPES = ['CASUAL', 'EMERGENCY'] as const;
+/**
+ * The two paid-leave buckets an employee sees (Phase 3): 10 Casual + 4 Sick.
+ * Emergency is a way of SUBMITTING leave, funded from one of these, never a
+ * third balance -- so no screen can add up to 18 paid days.
+ */
+export const PERSONAL_LEAVE_TYPES = ['CASUAL', 'SICK'] as const;
 export type PersonalLeaveType = (typeof PERSONAL_LEAVE_TYPES)[number];
 
 export const LEAVE_TYPE_LABEL: Record<PersonalLeaveType, string> = {
   CASUAL: 'Casual Leave',
-  EMERGENCY: 'Emergency Leave',
+  SICK: 'Sick Leave',
 };
 
 export async function getMyLeaveBalance(type: PersonalLeaveType): Promise<LeaveBalance> {

@@ -44,6 +44,13 @@ import { evaluateRetention, protectedRowDate, RetentionEvaluation } from './rete
 import { activeHoldWhere, HoldStatusView, strongestHold } from '../../../../common/lifecycle-domain';
 import { AllowedRetryEndpoint, RemediationException, RemediationResult, buildRemediation, pickByPrecedence } from '../../../../common/remediation';
 import { listLifecycleAttempts, recordLifecycleAttempt } from './remediation-attempts';
+import { closeProfilesAt } from '../../../platform/attendance/timeline/profile-continuity';
+import { COMPANY_CRON_TIMEZONE } from '../../../../common/constants/company-time.constants';
+
+/** Company calendar date of an instant (yyyy-MM-dd). */
+function companyDateOf(at: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: COMPANY_CRON_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
 import {
   ARCHIVE_EVENT_NAMES,
   ARCHIVE_SCHEMA_VERSION,
@@ -800,6 +807,9 @@ export class UserLifecycleService {
         const closureCounts = { ...ticketResult.counts, sessionsEnded: plan.sessions.length, leaveCancelled: plan.leave.length };
         await this.writeEvent(tx, { actorId: actor.id, entityType: 'User', entityId: userId, action: LIFECYCLE_EVENT.ACTIVE_WORK_CLOSED_FOR_ARCHIVE, fromState, toState: fromState, reasonCode: REASON.USER_ARCHIVED, operationId: op.id, counts: closureCounts });
         await tx.user.update({ where: { id: userId }, data: { isActive: false, currentStatus: 'LOGGED_OUT', sessionsRevokedAt: now } });
+        // Phase 3: the attendance profile ends on the archive date, so no
+        // profile covers the archived gap. A rehire opens a new one.
+        await closeProfilesAt(tx, userId, companyDateOf(now), actor.id);
 
         // What permanent delete will compare against: the data after the closures.
         const settled = dataFingerprint(await collectInventory(tx, userId, ctx));

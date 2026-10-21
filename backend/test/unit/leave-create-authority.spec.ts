@@ -45,7 +45,10 @@ function rig(opts: { validate?: jest.Mock } = {}) {
       }),
     },
     user: { findMany: jest.fn().mockResolvedValue([]) },
+    // Phase 3: the request and its routing snapshot commit together.
+    leaveEvidence: { count: jest.fn().mockResolvedValue(0) },
   };
+  prisma.$transaction = jest.fn((fn: any) => fn(prisma));
 
   const service = new LeaveService(
     prisma,
@@ -54,10 +57,17 @@ function rig(opts: { validate?: jest.Mock } = {}) {
     { get: jest.fn() } as any,
     { log: jest.fn().mockResolvedValue(undefined) } as any,
     {} as any,
-    { validateLeaveRequest: opts.validate ?? jest.fn().mockResolvedValue(undefined) } as any,
+    {
+      validateLeaveRequest: opts.validate ?? jest.fn().mockResolvedValue({ duration: 2, balance: 4, insufficient: false }),
+      resolveLeavePolicy: jest.fn().mockResolvedValue({ standardLeaveMinimumNoticeDays: 1 }),
+      assertNoOverlap: jest.fn().mockResolvedValue(undefined),
+    } as any,
     {} as any,
     {} as any,
-    { now: () => new Date('2026-09-24T09:00:00.000Z') } as any,
+    {
+      now: () => new Date('2026-09-24T09:00:00.000Z'),
+      companyBusinessDate: (d: Date) => new Date(d).toISOString().slice(0, 10),
+    } as any,
     {} as any,
     {} as any,
   );
@@ -66,8 +76,11 @@ function rig(opts: { validate?: jest.Mock } = {}) {
 }
 
 /** A legitimate request: intent only, nothing authoritative. */
+// Phase 3: Emergency is a submission mode funded from Casual or Sick.
 const legitimate = () => ({
-  type: 'EMERGENCY',
+  type: 'SICK',
+  submissionMode: 'EMERGENCY',
+  fundingBucket: 'SICK',
   startDate: '2026-09-28',
   endDate: '2026-09-29',
   reason: 'Family medical emergency, travelling to Coimbatore.',
@@ -128,7 +141,8 @@ describe('an employee cannot grant their own leave', () => {
       EMPLOYEE,
     );
     const data = dataOf();
-    expect(data.approvalStage).toBeUndefined();
+    // The server states the initial stage itself; a client value never reaches it.
+    expect(data.approvalStage).toBe('MANAGER_REVIEW');
     expect(data.managerApprovedById).toBeUndefined();
     expect(data.managerApprovedAt).toBeUndefined();
     expect(data.hrApprovedById).toBeUndefined();
@@ -200,9 +214,14 @@ describe('an employee cannot grant their own leave', () => {
     const data = dataOf();
     expect(data.somethingNobodyHasThoughtOf).toBeUndefined();
     expect(data.compOffCredits).toBeUndefined();
+    // Phase 3 adds server-decided workflow facts (stage, submission mode,
+    // funding bucket, lateness, setup status, Emergency deadlines). None of
+    // them comes from the client; the bucket is validated to CASUAL/SICK.
     expect(Object.keys(data).sort()).toEqual([
-      'endDate', 'halfDaySession', 'halfDayType', 'isHalfDay',
-      'reason', 'startDate', 'status', 'type', 'userId',
+      'approvalStage', 'endDate', 'evidenceDueOn', 'fundingBucket',
+      'halfDaySession', 'halfDayType', 'isHalfDay', 'isLateSubmission',
+      'provisionallyApprovedAt', 'reason', 'reviewDueOn', 'setupStatus',
+      'startDate', 'status', 'submissionMode', 'type', 'userId',
     ]);
   });
 });
@@ -213,7 +232,10 @@ describe('a legitimate request is unaffected', () => {
     const { service, dataOf } = rig();
     await service.create(legitimate(), EMPLOYEE);
     const data = dataOf();
-    expect(data.type).toBe('EMERGENCY');
+    // Phase 3: the Emergency submission is funded from the bucket it named.
+    expect(data.type).toBe('SICK');
+    expect(data.submissionMode).toBe('EMERGENCY');
+    expect(data.fundingBucket).toBe('SICK');
     expect(data.reason).toBe('Family medical emergency, travelling to Coimbatore.');
     expect(data.userId).toBe(EMPLOYEE);
     expect(data.status).toBe('PENDING');
@@ -251,7 +273,7 @@ describe('a legitimate request is unaffected', () => {
     // Validating the forged owner's balance instead of the caller's would let
     // somebody spend an entitlement that is not theirs.
     expect(validate).toHaveBeenCalledWith(
-      EMPLOYEE, expect.any(Date), expect.any(Date), false, 'EMERGENCY',
+      EMPLOYEE, expect.any(Date), expect.any(Date), false, 'SICK', 'SICK',
     );
   });
 

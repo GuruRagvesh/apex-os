@@ -75,4 +75,20 @@ export class CreateLeaveRequestDto {
   @IsOptional()
   @IsIn(Object.values(HalfDaySession))
   halfDayType?: HalfDaySession;
+
+  /**
+   * Phase 3. EMERGENCY allows same-day submission and protects the day at once
+   * while TL/Manager review is pending. It is a submission mode, not a paid
+   * bucket: an emergency request must say which bucket funds it.
+   */
+  @ApiProperty({ required: false, enum: ['STANDARD', 'EMERGENCY'] })
+  @IsOptional()
+  @IsIn(['STANDARD', 'EMERGENCY'])
+  submissionMode?: 'STANDARD' | 'EMERGENCY';
+
+  /** Phase 3. Required for EMERGENCY: CASUAL or SICK. */
+  @ApiProperty({ required: false, enum: ['CASUAL', 'SICK'] })
+  @IsOptional()
+  @IsIn(['CASUAL', 'SICK'])
+  fundingBucket?: 'CASUAL' | 'SICK';
 }

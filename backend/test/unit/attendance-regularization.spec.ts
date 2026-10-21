@@ -390,12 +390,14 @@ describe('AR-1 corrections change interpretation, never evidence', () => {
     expect(raw.breakUpdates).toEqual([]);
   });
 
-  it('15. only an HR-approved correction is ever consulted', async () => {
+  it('15. only a final approval that reached the day is ever consulted', async () => {
     const { service, prisma } = evaluatorRig(missingPunchOut);
     await service.evaluate('emp-1', DATE);
 
+    // Legacy HR_APPROVED, or a Phase 3 APPROVED correction that was APPLIED.
+    // Pending, stale, rejected and REVIEW_REQUIRED approvals never govern.
     const where = prisma.attendanceRegularization.findMany.mock.calls[0][0].where;
-    expect(where.status).toBe('HR_APPROVED');
+    expect(where.OR).toEqual([{ status: 'HR_APPROVED' }, { status: 'APPROVED', applicationStatus: 'APPLIED' }]);
   });
 
   it('15b. an undecided correction cannot displace a decided one', async () => {
@@ -835,15 +837,22 @@ describe('AR-1 correction lifecycle', () => {
     // Supporting screenshots expose a read-only GET; they never edit raw punch evidence.
     expect(Reflect.getMetadata('method', RegularizationController.prototype.screenshot)).toBe(0);
     const surface = Object.getOwnPropertyNames(RegularizationController.prototype).sort();
+    // Phase 3 adds the single decision, its held-application retry and the
+    // queue counts. None of them writes punch evidence either; apply() and
+    // decide() revise the official day only through the protected path.
     expect(surface).toEqual([
+      'apply',
       'constructor',
       'create',
+      'decide',
       'findOne',
+      'held',
       'hrApprove',
       'listMine',
       'managerApprove',
       'manualRecovery',
       'pending',
+      'pendingCounts',
       'reject',
       'rethrow',
       'screenshot',
