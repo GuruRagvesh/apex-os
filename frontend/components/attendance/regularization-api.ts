@@ -16,6 +16,15 @@ export type RegularizationRequestType =
   /** Review-only: status / worked-hours / other concerns. Approval never rewrites the official day. */
   | 'OTHER';
 
+export type AttendanceCorrectionConcern =
+  | 'MISSING_PUNCH_IN'
+  | 'MISSING_PUNCH_OUT'
+  | 'WRONG_PUNCH_IN'
+  | 'WRONG_PUNCH_OUT'
+  | 'INCORRECT_ATTENDANCE_STATUS'
+  | 'INCORRECT_WORKED_HOURS'
+  | 'OTHER';
+
 export type RegularizationStatus =
   | 'PENDING'
   | 'MANAGER_APPROVED'
@@ -40,7 +49,8 @@ export interface Regularization {
 
 export interface CreateRegularizationBody {
   businessDate: string;
-  requestType: RegularizationRequestType;
+  requestType?: RegularizationRequestType;
+  concern?: AttendanceCorrectionConcern;
   reason: string;
   requestedPunchIn?: string | null;
   requestedPunchOut?: string | null;

@@ -5,23 +5,28 @@ import { DailyAttendanceEvaluatorService } from '../evaluation/daily-attendance-
 import {
   HISTORICAL_RECOVERY_REASON,
   financialYearV2,
+  summarizeAttendanceDays,
+  type AttendanceSummaryV2,
   type FinancialYearV2,
   mapDay,
   mapRecoveredDay,
   mapToday,
   type StoredRecoveredDay,
+  type MyAttendanceDayDetailV2,
   type MyAttendanceDayV2,
   type MyAttendanceMonthV2,
   type MyAttendanceTodayV2,
+  type MyAttendanceWorkSessionV2,
 } from './my-attendance-v2.contract';
 
 /**
  * My Attendance V2 read service.
  *
  * READ-ONLY by construction. It calls the existing evaluator, which already
- * evaluates without persisting, and adds two WorkSession facts the V2 contract
- * needs and the evaluator result does not carry: whether any contributing
- * session was auto-closed, and whether a session exists for the day at all.
+ * evaluates without persisting, and adds stored WorkSession facts the V2
+ * contract needs and the evaluator result does not carry. Month reads only add
+ * whether a session exists or was auto-closed; the single-day detail read also
+ * exposes its recorded session, break, ticket, meeting and note context.
  *
  * It does NOT:
  *   - write anything
@@ -62,8 +67,36 @@ export class MyAttendanceV2Service {
     const fy = this.tva.financialYear(new Date(`${month}-01T12:00:00.000Z`));
     return {
       today,
-      month: { year, month: monthNumber, days },
+      month: { year, month: monthNumber, days, summary: summarizeAttendanceDays(days) },
       financialYear: financialYearV2(fy.startYear, this.tva.financialYearStartMonth()),
+    };
+  }
+
+  /** The authenticated employee's recorded attendance for one backend-defined financial year. */
+  async financialYear(
+    userId: string,
+    label: string,
+  ): Promise<{ financialYear: FinancialYearV2; months: MyAttendanceMonthV2[]; summary: AttendanceSummaryV2 }> {
+    const bounds = this.tva.financialYearBounds(label);
+    const financialYear = financialYearV2(
+      bounds.financialYear.startYear,
+      this.tva.financialYearStartMonth(),
+    );
+    const companyToday = this.tva.companyToday();
+    const months: MyAttendanceMonthV2[] = [];
+
+    // Keep evaluation bounded and sequential. Each month already batches its
+    // stored-session and recovered-row reads, and future dates are never evaluated.
+    for (const key of financialYear.months) {
+      const [year, month] = key.split('-').map(Number);
+      const days = await this.monthDays(userId, key, companyToday);
+      months.push({ year, month, days, summary: summarizeAttendanceDays(days) });
+    }
+
+    return {
+      financialYear,
+      months,
+      summary: summarizeAttendanceDays(months.flatMap((value) => value.days)),
     };
   }
 
@@ -85,31 +118,124 @@ export class MyAttendanceV2Service {
     });
   }
 
-  async day(userId: string, date: string): Promise<MyAttendanceDayV2> {
+  async day(userId: string, date: string): Promise<MyAttendanceDayDetailV2> {
     const companyToday = this.tva.companyToday();
 
     // A future date is answered without evaluating anything: Document 1 §4 says
     // no row exists, and asking the evaluator would be asking it to judge a day
     // that has not happened.
     if (date > companyToday) {
-      return mapDay({ result: null, date, companyToday });
+      return { ...mapDay({ result: null, date, companyToday }), workSessions: [] };
     }
+
+    const workSessions = await this.sessionDetails(userId, date);
 
     // A recovered historical day is shown as stored: the live evaluator has no
     // policy or profile for those dates and would answer NOT_EMPLOYED.
     const recovered = (await this.recoveredDays(userId, date, date)).get(date);
-    if (recovered) return mapRecoveredDay(recovered, companyToday);
+    if (recovered) return { ...mapRecoveredDay(recovered, companyToday), workSessions };
 
     const result = await this.evaluator.evaluate(userId, date);
     const sessions = await this.sessionFacts(userId, date, date);
 
-    return mapDay({
-      result,
-      date,
-      companyToday,
-      anySessionAutoClosed: sessions.autoClosed.has(date),
-      hasWorkEvidence: sessions.present.has(date),
+    return {
+      ...mapDay({
+        result,
+        date,
+        companyToday,
+        anySessionAutoClosed: sessions.autoClosed.has(date),
+        hasWorkEvidence: sessions.present.has(date),
+      }),
+      workSessions,
+    };
+  }
+
+  /**
+   * Stored session details for one employee and business date.
+   *
+   * No duration is calculated here. Work and break durations come from the
+   * corresponding stored totals, while a missing value remains null. “For
+   * what” is limited to linked ticket work, session notes, or meeting purpose.
+   */
+  private async sessionDetails(userId: string, date: string): Promise<MyAttendanceWorkSessionV2[]> {
+    const rows = await this.prisma.workSession.findMany({
+      where: { userId, date: new Date(`${date}T00:00:00.000Z`) },
+      orderBy: [{ startWorkAt: 'asc' }, { loginAt: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        loginAt: true,
+        startWorkAt: true,
+        logoutAt: true,
+        status: true,
+        totalWorkMinutes: true,
+        autoClosed: true,
+        autoClosedAt: true,
+        closureReason: true,
+        breakLogs: {
+          orderBy: { startAt: 'asc' },
+          select: {
+            id: true,
+            breakType: true,
+            startAt: true,
+            endAt: true,
+            durationMinutes: true,
+            note: true,
+            reason: true,
+            meeting: { select: { topic: true, purpose: true, clientName: true } },
+          },
+        },
+        ticketTimeLogs: {
+          where: { countsAsWork: true },
+          orderBy: { startedAt: 'asc' },
+          select: {
+            id: true,
+            startedAt: true,
+            endedAt: true,
+            durationSeconds: true,
+            ticket: { select: { ticketId: true, title: true } },
+          },
+        },
+        workdayNotes: {
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, content: true, createdAt: true },
+        },
+      },
     });
+
+    return rows.map((row) => ({
+      id: row.id,
+      startedAt: (row.startWorkAt ?? row.loginAt)?.toISOString() ?? null,
+      endedAt: row.logoutAt?.toISOString() ?? null,
+      workedMinutes: Number.isFinite(row.totalWorkMinutes) ? row.totalWorkMinutes : null,
+      status: row.status,
+      autoClosed: row.autoClosed,
+      autoClosedAt: row.autoClosedAt?.toISOString() ?? null,
+      closureReason: row.closureReason ?? null,
+      breaks: row.breakLogs.map((entry) => ({
+        id: entry.id,
+        type: entry.breakType,
+        startedAt: entry.startAt.toISOString(),
+        endedAt: entry.endAt?.toISOString() ?? null,
+        durationMinutes: entry.durationMinutes ?? null,
+        note: entry.note ?? entry.reason ?? null,
+        purpose: entry.meeting
+          ? [entry.meeting.topic, entry.meeting.purpose, entry.meeting.clientName].filter(Boolean).join(' · ') || null
+          : null,
+      })),
+      workItems: row.ticketTimeLogs.map((entry) => ({
+        id: entry.id,
+        ticketId: entry.ticket.ticketId,
+        title: entry.ticket.title,
+        startedAt: entry.startedAt.toISOString(),
+        endedAt: entry.endedAt?.toISOString() ?? null,
+        durationSeconds: entry.durationSeconds ?? null,
+      })),
+      notes: row.workdayNotes.map((entry) => ({
+        id: entry.id,
+        content: entry.content,
+        createdAt: entry.createdAt.toISOString(),
+      })),
+    }));
   }
 
   /**

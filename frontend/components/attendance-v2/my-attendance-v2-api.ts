@@ -91,6 +91,51 @@ export interface MyAttendanceDayV2 {
   unmappedSourceFlags: string[];
 
   unavailable: UnavailableField[];
+  dataSource: 'APEX_OS' | 'HISTORICAL_RECORD' | null;
+  correctionAllowed: boolean;
+}
+
+export interface MyAttendanceSessionBreakV2 {
+  id: string;
+  type: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationMinutes: number | null;
+  note: string | null;
+  purpose: string | null;
+}
+
+export interface MyAttendanceSessionWorkItemV2 {
+  id: string;
+  ticketId: string;
+  title: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number | null;
+}
+
+export interface MyAttendanceSessionNoteV2 {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface MyAttendanceWorkSessionV2 {
+  id: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  workedMinutes: number | null;
+  status: string;
+  autoClosed: boolean;
+  autoClosedAt: string | null;
+  closureReason: string | null;
+  breaks: MyAttendanceSessionBreakV2[];
+  workItems: MyAttendanceSessionWorkItemV2[];
+  notes: MyAttendanceSessionNoteV2[];
+}
+
+export interface MyAttendanceDayDetailV2 extends MyAttendanceDayV2 {
+  workSessions: MyAttendanceWorkSessionV2[];
 }
 
 export interface MyAttendanceTodayV2 extends MyAttendanceDayV2 {
@@ -109,28 +154,50 @@ export interface MyAttendanceTodayV2 extends MyAttendanceDayV2 {
   banner: { tone: BannerTone; title: string; detail: string } | null;
 }
 
-/** The company financial year the requested month belongs to, as defined by the backend (April to March). */
+export interface MyAttendanceOverviewV2 {
+  today: MyAttendanceTodayV2;
+  month: { year: number; month: number; days: MyAttendanceDayV2[]; summary: AttendanceSummaryV2 };
+  /** Optional only while a mixed staging rollout may still serve the older backend. */
+  financialYear?: FinancialYearV2;
+}
+
+export interface AttendanceSummaryV2 {
+  recordedDays: number;
+  finalizedDays: number;
+  present: number;
+  late: number;
+  halfDay: number;
+  leave: number;
+  lwp: number;
+  absent: number;
+  holiday: number;
+  weeklyOff: number;
+  needsReview: number;
+  attendancePercentage: number | null;
+}
+
 export interface FinancialYearV2 {
   label: string;
   startYear: number;
   endYear: number;
-  /** 1-12; 4 means the year starts in April. */
   startMonth: number;
-  /** The twelve yyyy-MM months of the year, in order. */
   months: string[];
 }
 
-export interface MyAttendanceOverviewV2 {
-  today: MyAttendanceTodayV2;
-  month: { year: number; month: number; days: MyAttendanceDayV2[] };
-  /** Absent when the backend predates the financial-year overview; the yearly view is then not offered. */
-  financialYear?: FinancialYearV2;
+export interface MyAttendanceFiscalYearV2 {
+  financialYear: FinancialYearV2;
+  months: Array<{ year: number; month: number; days: MyAttendanceDayV2[]; summary: AttendanceSummaryV2 }>;
+  summary: AttendanceSummaryV2;
 }
 
-export async function getMyAttendanceV2(month: string): Promise<MyAttendanceOverviewV2> {
-  return r(api.get('/attendance/me/v2', { params: { month } }));
+export async function getMyAttendanceV2(month?: string): Promise<MyAttendanceOverviewV2> {
+  return r(api.get('/attendance/me/v2', { params: month ? { month } : undefined }));
 }
 
-export async function getMyAttendanceDayV2(date: string): Promise<MyAttendanceDayV2> {
+export async function getMyAttendanceDayV2(date: string): Promise<MyAttendanceDayDetailV2> {
   return r(api.get(`/attendance/me/v2/${date}`));
+}
+
+export async function getMyAttendanceFiscalYear(year: string): Promise<MyAttendanceFiscalYearV2> {
+  return r(api.get('/attendance/me/v2/fiscal-year', { params: { year } }));
 }

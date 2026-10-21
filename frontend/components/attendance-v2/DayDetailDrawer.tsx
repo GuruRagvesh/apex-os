@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Camera, MapPin, Clock3, BarChart3, FileText, ImageIcon, Activity, ShieldCheck, Gift, Plane } from 'lucide-react';
+import { Camera, MapPin, Clock3, BarChart3, FileText, ImageIcon, Activity, ShieldCheck, Gift, Plane, ChevronDown, type LucideIcon } from 'lucide-react';
 import { V2DrawerShell } from './V2DrawerShell';
 import { presentLocation } from '../attendance/location-presentation';
 import { getMyRegularizations, stageLabel } from '../attendance/regularization-api';
@@ -14,7 +14,7 @@ import {
   getMyAttendanceActivity,
   type AttendanceActivityEntry,
 } from '../attendance/activity-api';
-import { getMyAttendanceDayV2, type MyAttendanceDayV2 } from './my-attendance-v2-api';
+import { getMyAttendanceDayV2, type MyAttendanceDayV2, type MyAttendanceWorkSessionV2 } from './my-attendance-v2-api';
 import {
   UNKNOWN_FIGURE,
   exceptionCopy,
@@ -46,7 +46,6 @@ export function DayDetailDrawer({
   open,
   onClose,
   seed,
-  correctable = false,
   onRequestCorrection,
 }: {
   date: string | null;
@@ -54,9 +53,7 @@ export function DayDetailDrawer({
   onClose: () => void;
   /** The month row, shown immediately while the detail request is in flight. */
   seed?: MyAttendanceDayV2;
-  /** Whether a correction may be requested for this date (decided by the page from the backend's flags). */
-  correctable?: boolean;
-  onRequestCorrection?: (date: string) => void;
+  onRequestCorrection: (date: string) => void;
 }) {
   const requests = useQuery({
     queryKey: ['my-regularizations'],
@@ -64,10 +61,11 @@ export function DayDetailDrawer({
     enabled: open,
     retry: false,
   });
-  const pending = requests.data?.find(request => request.date.slice(0, 10) === date && (request.status === 'PENDING' || request.status === 'MANAGER_APPROVED'));
-  const decided = requests.data
-    ?.filter(request => request.date.slice(0, 10) === date && (request.status === 'HR_APPROVED' || request.status === 'REJECTED'))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const requestsForDay = requests.data
+    ?.filter(request => request.date.slice(0, 10) === date)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const pending = requestsForDay?.find(request => request.status === 'PENDING' || request.status === 'MANAGER_APPROVED');
+  const latestRequest = requestsForDay?.[0];
   const detail = useQuery({
     queryKey: ['my-attendance-v2-day', date],
     queryFn: () => getMyAttendanceDayV2(date as string),
@@ -113,22 +111,52 @@ export function DayDetailDrawer({
         {day ? (
           <>
             <Badges day={day} />
-            {pending ? <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-xs">Correction {stageLabel(pending.status).toLowerCase()}</p>
-              : decided ? <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">Latest correction request: {stageLabel(decided.status).toLowerCase()}</p> : null}
-            {correctable && !pending && onRequestCorrection ? <button type="button" className={s.outline} onClick={() => onRequestCorrection(date)}>Request correction</button> : null}
             <DaySummary day={day} />
-            <StatusInsight day={day} />
-            <Evidence
-              items={dayEvidence}
-              loading={evidence.isLoading}
-              failed={evidence.isError}
-            />
-            <WorkdayActivity
-              entries={activity.data ?? []}
-              loading={activity.isLoading}
-              failed={activity.isError}
-            />
-            <PolicyAndEvaluation day={day} />
+            <DrawerDisclosure title="Evidence" icon={ImageIcon} count={evidence.isLoading ? undefined : dayEvidence.length}>
+              <Evidence
+                items={dayEvidence}
+                loading={evidence.isLoading}
+                failed={evidence.isError}
+              />
+            </DrawerDisclosure>
+            <DrawerDisclosure
+              title="Workday Activity"
+              icon={Activity}
+              count={detail.data ? (detail.data.workSessions ?? []).length : undefined}
+              defaultOpen
+            >
+              <WorkdayActivity
+                sessions={detail.data?.workSessions ?? []}
+                entries={activity.data ?? []}
+                loading={activity.isLoading}
+                failed={activity.isError}
+              />
+            </DrawerDisclosure>
+            <DrawerDisclosure title="Policy & Evaluation" icon={ShieldCheck}>
+              <PolicyAndEvaluation day={day} request={latestRequest} />
+            </DrawerDisclosure>
+
+            {(latestRequest || day.correctionAllowed) ? (
+              <div className={s.drawerActionBar}>
+                <div className="min-w-0">
+                  {latestRequest ? (
+                    <p role="status" className="apex-text text-xs font-semibold">
+                      {pending ? 'Correction' : 'Latest request'} {stageLabel(latestRequest.status).toLowerCase()}
+                    </p>
+                  ) : (
+                    <p className="apex-text text-xs font-semibold">Something looks wrong?</p>
+                  )}
+                  <p className="apex-text-muted mt-0.5 text-[11px]">
+                    {pending
+                      ? 'Your submitted correction is already in review.'
+                      : 'Attendance changes are submitted for review; the recorded day is not edited directly.'}
+                  </p>
+                </div>
+                {day.correctionAllowed && !pending ? (
+                  <button type="button" className={s.outline} onClick={() => onRequestCorrection(date)}>Request correction</button>
+                ) : null}
+              </div>
+            ) : null}
           </>
         ) : detail.isLoading ? (
           <p className="apex-text-muted text-sm">Loading this day…</p>
@@ -159,6 +187,7 @@ function Badges({ day }: { day: MyAttendanceDayV2 }) {
               : 'Calculated'}
         </span>
       ) : null}
+      {day.dataSource === 'HISTORICAL_RECORD' && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700">Historical record</span>}
       {day.modifiers.map((m) => {
         const tone = modifierTone(m);
         return (
@@ -198,10 +227,8 @@ export function DaySummary({ day }: { day: MyAttendanceDayV2 }) {
           value={requiredUnavailable ? 'Not available' : formatMinutesOrUnknown(day.requiredMinutes)}
         />
         <Row label="Worked" value={isUnavailable(day, 'workedMinutes') ? UNKNOWN_FIGURE : formatMinutesOrUnknown(day.workedMinutes)} />
-        <div className={s.pairedFacts}>
-          <Row label="Break" value={isUnavailable(day, 'breakMinutes') ? UNKNOWN_FIGURE : formatMinutesOrUnknown(day.breakMinutes)} />
-          <Row label="Sessions" value={UNKNOWN_FIGURE} />
-        </div>
+        <Row label="Break" value={isUnavailable(day, 'breakMinutes') ? 'Not recorded' : formatMinutesOrUnknown(day.breakMinutes)} />
+        <Row label="Late" value={isUnavailable(day, 'lateMinutes') ? 'Not assessed' : day.lateMinutes === null ? UNKNOWN_FIGURE : day.lateMinutes > 0 ? formatMinutesOrUnknown(day.lateMinutes) : 'No'} />
       </dl>
 
       {presenceUnavailable || requiredUnavailable ? (
@@ -209,31 +236,18 @@ export function DaySummary({ day }: { day: MyAttendanceDayV2 }) {
           Some presence information is unavailable or does not apply to this day.
         </p>
       ) : null}
-    </section>
-  );
-}
-
-function StatusInsight({ day }: { day: MyAttendanceDayV2 }) {
-  if (!day.explanation && day.exceptions.length === 0) return null;
-
-  return (
-    <section className={s.insight}>
-      <SectionTitle>Status Insight</SectionTitle>
-      {day.explanation ? <p className="apex-text text-xs font-semibold">{day.explanation}</p> : null}
-      <p className="apex-text-muted mt-1 text-xs">Attendance presence and effective worked time are separate measures. Presence is evaluated against the presence requirement.</p>
-
       {day.exceptions.length > 0 ? (
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-3 space-y-2" aria-label="Attendance issues">
           {day.exceptions.map((code) => {
             const copy = exceptionCopy(code);
             return (
               <li
                 key={code}
-                className="rounded-lg border border-apex-border p-3"
-                style={{ background: copy.actionable ? '#FEF3C7' : '#F4F4F5' }}
+                className="rounded-lg border p-3 text-xs"
+                style={{ background: copy.actionable ? '#FFFBEB' : '#F8FAFC', borderColor: copy.actionable ? '#F59E0B' : '#CBD5E1' }}
               >
-                <p className="apex-text text-sm font-semibold">{copy.title}</p>
-                <p className="apex-text-muted mt-0.5 text-sm">{copy.detail}</p>
+                <p className="apex-text font-semibold">{copy.title}</p>
+                <p className="apex-text-muted mt-0.5">{copy.detail}</p>
               </li>
             );
           })}
@@ -261,8 +275,7 @@ function Evidence({
   failed: boolean;
 }) {
   return (
-    <section>
-      <SectionTitle>Evidence</SectionTitle>
+    <div>
       {failed ? (
         <Unavailable>Your punch evidence could not be loaded.</Unavailable>
       ) : loading ? (
@@ -276,7 +289,7 @@ function Evidence({
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -344,59 +357,136 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
 /**
  * Workday Activity.
  *
- * What this section CAN show is the self-scoped attendance activity feed —
- * corrections requested, approved, rejected, and official revisions. What it
- * cannot yet show is the WorkSession timeline the approved design asks for
- * (start, break, resume, end, auto-close marker), because the only endpoints
- * carrying session rows are /workday/today, which covers today alone, and
- * /workday/history/:userId, which takes a user id and so is not self-scoped by
- * construction. Inventing a timeline from punch evidence would be a second
- * interpretation of the day, so the gap is stated instead.
+ * Session rows come from the self-scoped day-detail response. Times, durations,
+ * ticket work, notes and breaks are all stored facts; missing values are named
+ * instead of reconstructed from punch evidence.
  */
 function WorkdayActivity({
+  sessions,
   entries,
   loading,
   failed,
 }: {
+  sessions: MyAttendanceWorkSessionV2[];
   entries: AttendanceActivityEntry[];
   loading: boolean;
   failed: boolean;
 }) {
   return (
-    <section>
-      <SectionTitle>Workday Activity</SectionTitle>
-      {failed ? (
-        <Unavailable>This day&apos;s activity could not be loaded.</Unavailable>
-      ) : loading ? (
-        <p className="apex-text-muted text-sm">Loading activity…</p>
-      ) : entries.length === 0 ? (
-        <p className="apex-text-muted text-xs">No corrections or revisions recorded.</p>
+    <div className={s.workdayActivity}>
+      {sessions.length === 0 ? (
+        <p className="apex-text-muted text-sm">No work sessions were recorded for this day.</p>
       ) : (
-        <ol className={s.timeline}>
-          {entries.map((entry) => (
-            <li key={entry.id} className="border-l-2 border-apex-border pl-3">
-              <p className="apex-text text-sm font-semibold">{entry.label}</p>
-              <p className="apex-text-muted text-xs">
-                {formatTime(entry.at)} · {actorLabel(entry)}
-              </p>
-              {entry.reason ? (
-                <p className="apex-text-muted mt-0.5 text-xs italic">{entry.reason}</p>
-              ) : null}
-            </li>
+        <ol className={s.sessionList} aria-label="Recorded work sessions">
+          {sessions.map((session, index) => (
+            <SessionCard key={session.id} session={session} index={index} />
           ))}
         </ol>
       )}
-      <p className="apex-text-muted mt-2 text-xs">
-        Work-session start, break and end details are unavailable for this date.
-      </p>
-    </section>
+
+      <div className={s.activityChanges}>
+        <p className="apex-text text-xs font-semibold">Attendance changes</p>
+        {failed ? (
+          <p className="apex-text-muted text-xs">Correction and revision activity could not be loaded.</p>
+        ) : loading ? (
+          <p className="apex-text-muted text-xs">Loading changes…</p>
+        ) : entries.length === 0 ? (
+          <p className="apex-text-muted text-xs">No corrections or revisions recorded.</p>
+        ) : (
+          <ol className={s.timeline}>
+            {entries.map((entry) => (
+              <li key={entry.id}>
+                <p className="apex-text text-sm font-semibold">{entry.label}</p>
+                <p className="apex-text-muted text-xs">{formatTime(entry.at)} · {actorLabel(entry)}</p>
+                {entry.reason ? <p className="apex-text-muted mt-0.5 text-xs italic">{entry.reason}</p> : null}
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
   );
 }
 
-function PolicyAndEvaluation({ day }: { day: MyAttendanceDayV2 }) {
+function SessionCard({ session, index }: { session: MyAttendanceWorkSessionV2; index: number }) {
+  const sessionEnd = session.endedAt
+    ? formatTime(session.endedAt)
+    : session.autoClosedAt
+      ? `Auto-closed ${formatTime(session.autoClosedAt)}`
+      : session.status === 'COMPLETED' || session.status === 'LOGGED_OUT'
+        ? 'End not recorded'
+        : 'In progress';
+
   return (
-    <section>
-      <SectionTitle>Policy &amp; Evaluation</SectionTitle>
+    <li className={s.sessionCard}>
+      <div className={s.sessionHeader}>
+        <div>
+          <p className="apex-text text-sm font-semibold">Session {index + 1}</p>
+          <p className={s.sessionTime}>
+            <Clock3 aria-hidden="true" />
+            <span>{session.startedAt ? formatTime(session.startedAt) : 'Start not recorded'}</span>
+            <span aria-hidden="true">→</span>
+            <span>{sessionEnd}</span>
+            <span aria-hidden="true">·</span>
+            <span>{session.workedMinutes === null ? 'Duration not recorded' : `${formatMinutesOrUnknown(session.workedMinutes)} worked`}</span>
+          </p>
+        </div>
+        <span className={session.autoClosed ? s.sessionAutoClosed : s.sessionStatus}>
+          {session.autoClosed ? 'Auto-closed' : session.endedAt ? 'Completed' : 'Open'}
+        </span>
+      </div>
+
+      <div className={s.sessionDetailRows}>
+        <div>
+          <span className={s.sessionDetailLabel}>Work</span>
+        {session.workItems.length > 0 ? (
+          <ul className={s.workItemList}>
+            {session.workItems.map((item) => (
+              <li key={item.id}>
+                <span className={s.workItemTitle}>{item.ticketId} · {item.title}</span>
+                <span>{formatTime(item.startedAt)} → {item.endedAt ? formatTime(item.endedAt) : 'In progress'}</span>
+              </li>
+            ))}
+          </ul>
+        ) : session.notes.length === 0 ? (
+          <p className="apex-text-muted text-xs">Purpose not recorded.</p>
+        ) : null}
+        {session.notes.map((note) => (
+          <p key={note.id} className={s.sessionNote}>{note.content}</p>
+        ))}
+        </div>
+
+      {session.breaks.length > 0 ? (
+        <div>
+          <span className={s.sessionDetailLabel}>{session.breaks.length === 1 ? 'Break' : 'Breaks'}</span>
+          <ul>
+            {session.breaks.map((entry) => (
+              <li key={entry.id}>
+                <span className={s.breakType}>{humanizeCode(entry.type)}</span>
+                <span>{formatTime(entry.startedAt)} → {entry.endedAt ? formatTime(entry.endedAt) : 'In progress'}</span>
+                <span>{entry.durationMinutes === null ? 'Duration not recorded' : `${formatMinutesOrUnknown(entry.durationMinutes)} break`}</span>
+                {entry.purpose || entry.note ? <span className={s.breakReason}>{entry.purpose ?? entry.note}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      </div>
+
+      {session.autoClosed && session.closureReason ? (
+        <p className={s.autoCloseReason}>Auto-close reason: {humanizeCode(session.closureReason)}</p>
+      ) : null}
+    </li>
+  );
+}
+
+function humanizeCode(value: string) {
+  return value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function PolicyAndEvaluation({ day, request }: { day: MyAttendanceDayV2; request?: Awaited<ReturnType<typeof getMyRegularizations>>[number] }) {
+  return (
+    <div>
       <dl className={s.policyGrid}>
         <Row label="Final status" value={day.isInProgress ? 'Pending' : day.evaluationState === 'FINALIZED' ? presentOutcome(day.outcome).label : 'Not finalized'} />
         <Row
@@ -405,16 +495,46 @@ function PolicyAndEvaluation({ day }: { day: MyAttendanceDayV2 }) {
         />
         <Row
           label="Regularization"
-          value={day.modifiers.includes('REGULARIZED') ? 'Applied' : 'None applied'}
+          value={request ? stageLabel(request.status) : day.modifiers.includes('REGULARIZED') ? 'Applied' : 'None applied'}
         />
-        <Row label="Deficiency" value={UNKNOWN_FIGURE} />
       </dl>
-    </section>
+      {request && <div className="mt-3 rounded-lg border border-apex-border p-3 text-xs"><p className="font-semibold">Submitted request</p><p className="mt-1">{request.reason}</p><p className="apex-text-muted mt-1">{stageLabel(request.status)} · submitted {new Date(request.createdAt).toLocaleDateString()}</p></div>}
+    </div>
+  );
+}
+
+function DrawerDisclosure({
+  title,
+  icon: Icon,
+  count,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  icon: LucideIcon;
+  count?: number;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className={s.drawerDisclosure} open={defaultOpen || undefined}>
+      <summary>
+        <span className={s.disclosureTitle}>
+          <Icon aria-hidden="true" />
+          {title}
+        </span>
+        <span className={s.disclosureMeta}>
+          {count !== undefined ? <span>{count}</span> : null}
+          <ChevronDown aria-hidden="true" />
+        </span>
+      </summary>
+      <div className={s.disclosureBody}>{children}</div>
+    </details>
   );
 }
 
 
-const SECTION_ICONS = { 'Day Summary': BarChart3, 'Status Insight': FileText, 'Evidence': ImageIcon, 'Workday Activity': Activity, 'Policy & Evaluation': ShieldCheck, 'Upcoming Holidays': Gift, 'Leave Balance': Plane };
+const SECTION_ICONS = { 'Day Summary': BarChart3, 'Evidence': ImageIcon, 'Workday Activity': Activity, 'Policy & Evaluation': ShieldCheck, 'Upcoming Holidays': Gift, 'Leave Balance': Plane };
 function SectionTitle({ children }: { children: React.ReactNode }) {
   const Icon = SECTION_ICONS[String(children) as keyof typeof SECTION_ICONS] ?? FileText;
   return <h3 className={s.sectionTitle}><Icon aria-hidden="true" />{children}</h3>;
