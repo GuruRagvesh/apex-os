@@ -532,12 +532,12 @@ function CompanySection() {
     queryKey: ['settings', 'company'],
     queryFn: () => settingsApi.getCompany() as Promise<any>,
   });
-  const [form, setForm] = useState({ 
-    companyName: 'TechnoEdge Learning Services', 
-    tagline: '', 
-    contactEmail: '', 
-    timezone: 'Asia/Kolkata', 
-    branding: 'Royal Blue' 
+  const [form, setForm] = useState({
+    companyName: 'TechnoEdge Learning Services',
+    tagline: '',
+    contactEmail: '',
+    timezone: 'Asia/Kolkata',
+    branding: 'Royal Blue'
   });
 
   // Sync from API once loaded
@@ -571,9 +571,9 @@ function CompanySection() {
         <div><label className={labelCls}>Contact Email</label><input type="email" className={inputCls} value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} placeholder="hr@company.com" /></div>
         <div>
           <label className={labelCls}>Company Timezone</label>
-          <select 
-            className={inputCls} 
-            value={form.timezone || 'Asia/Kolkata'} 
+          <select
+            className={inputCls}
+            value={form.timezone || 'Asia/Kolkata'}
             onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
           >
             <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
@@ -585,11 +585,11 @@ function CompanySection() {
         </div>
         <div>
           <label className={labelCls}>Company Branding</label>
-          <input 
-            className={inputCls} 
-            value={form.branding || 'Royal Blue'} 
-            onChange={(e) => setForm((f) => ({ ...f, branding: e.target.value }))} 
-            placeholder="e.g. Royal Blue, Emerald Green" 
+          <input
+            className={inputCls}
+            value={form.branding || 'Royal Blue'}
+            onChange={(e) => setForm((f) => ({ ...f, branding: e.target.value }))}
+            placeholder="e.g. Royal Blue, Emerald Green"
           />
         </div>
         <SaveBtn loading={save.isPending} />
@@ -781,7 +781,7 @@ function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
     queryKey: ['settings', 'workday-policy'],
     queryFn: () => settingsApi.getWorkdayPolicy() as Promise<any>,
   });
-  
+
   const [form, setForm] = useState({
     timezone: 'Asia/Kolkata',
     minimumWorkdayMinutes: 540,
@@ -813,7 +813,7 @@ function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
   };
 
   const update = (key: keyof typeof form, val: any) => setForm((f) => ({ ...f, [key]: val }));
-  const updateNested = (parent: 'employeeTiming' | 'tlTiming', key: string, val: any) => 
+  const updateNested = (parent: 'employeeTiming' | 'tlTiming', key: string, val: any) =>
     setForm((f) => ({ ...f, [parent]: { ...(f[parent] as any), [key]: val } }));
 
   if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading workday settings…</p>;
@@ -827,7 +827,7 @@ function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
         {!canEdit && (
           <p className="text-xs mb-2" style={{ color: 'var(--text-tertiary)' }}>Read-only — contact your admin to change workday policies.</p>
         )}
-        
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Company Timezone</label>
