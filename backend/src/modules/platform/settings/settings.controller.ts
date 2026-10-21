@@ -63,6 +63,8 @@ export class SettingsController {
   }
 
   @Get('leave-policy')
+  @UseGuards(RolesGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   getLeavePolicy() {
     return this.settings.get('leave_policy');
   }
@@ -77,11 +79,13 @@ export class SettingsController {
   @Patch('leave-policy')
   @UseGuards(RolesGuard)
   @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  updateLeavePolicy(@Body() body: any, @Request() req: any) {
-    return this.settings.set('leave_policy', body, req.user?.sub);
+  updateLeavePolicy() {
+    throw new BadRequestException('Direct leave-policy updates are disabled until effective dates, impact preview and historical safeguards are available.');
   }
 
   @Get('sla')
+  @UseGuards(RolesGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   async getSla() {
     const [executionSla, reviewSla] = await Promise.all([
       this.settings.getSlaHours(),
@@ -93,15 +97,13 @@ export class SettingsController {
   @Patch('sla')
   @UseGuards(RolesGuard)
   @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  async updateSla(@Body() body: any, @Request() req: any) {
-    const { reviewSla, ...executionSla } = body;
-    const ops: Promise<any>[] = [this.settings.set('sla', executionSla, req.user?.sub)];
-    if (reviewSla) ops.push(this.settings.set('review_sla', reviewSla, req.user?.sub));
-    await Promise.all(ops);
-    return this.getSla();
+  updateSla() {
+    throw new BadRequestException('Direct SLA updates are disabled until effective dates, impact preview and historical safeguards are available.');
   }
 
   @Get('workday-policy')
+  @UseGuards(RolesGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
   getWorkdayPolicy() {
     return this.settings.getWorkdayPolicy();
   }
@@ -109,8 +111,8 @@ export class SettingsController {
   @Patch('workday-policy')
   @UseGuards(RolesGuard)
   @Roles(ROLES.ADMIN, ROLES.SUPER_ADMIN)
-  updateWorkdayPolicy(@Body() body: any, @Request() req: any) {
-    return this.settings.updateWorkdayPolicy(body, req.user?.sub);
+  updateWorkdayPolicy() {
+    throw new BadRequestException('Direct workday-policy updates are disabled until effective dates, impact preview and historical safeguards are available.');
   }
 
   @Get('smtp')

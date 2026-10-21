@@ -58,4 +58,11 @@ describe('Settings Center safety', () => {
     await expect(service.deleteType('type-1')).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.taskType.delete).not.toHaveBeenCalled();
   });
+
+  it('keeps policy writes disabled until policy-version safeguards exist', () => {
+    const controller = new SettingsController({} as any, {} as any);
+    expect(() => controller.updateLeavePolicy()).toThrow(BadRequestException);
+    expect(() => controller.updateSla()).toThrow(BadRequestException);
+    expect(() => controller.updateWorkdayPolicy()).toThrow(BadRequestException);
+  });
 });
