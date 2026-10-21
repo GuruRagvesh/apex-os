@@ -57,4 +57,3 @@ describe('Phase 3 connected frontend contract', () => {
     expect(leave).not.toContain("value=\"EMERGENCY\"");
   });
 });
-

@@ -72,4 +72,3 @@ describe('Phase 3 attendance and leave database contracts (PostgreSQL)', () => {
     await expect(h.prisma.$executeRaw`UPDATE leave_evidence SET "fileName" = 'changed.pdf' WHERE id = ${evidenceId}`).rejects.toThrow(/append-only/i);
   });
 });
-

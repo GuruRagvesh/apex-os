@@ -645,11 +645,11 @@ function LeavePolicySection({ canEdit = true }: { canEdit?: boolean }) {
         <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Effective-dated policy versions</h3>
         {versionsError ? <p className="text-sm" role="alert">Policy versions could not be loaded.</p> : <>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Attendance leave authority: <strong>{versions?.leaveAuthorityEnabled ? 'Enabled' : 'Disabled — legacy allocation applies'}</strong></p>
-          {(versions?.policies ?? []).length === 0 ? <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No active versioned leave policy is configured.</p> :
+          {(versions?.policies ?? []).length === 0 ? <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No versioned leave policy governs today.</p> :
             <div className="space-y-2">{versions.policies.map((policy: any) => <div key={policy.id} className="rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border-primary)' }}>
               <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{policy.name} · v{policy.version} · {policy.financialYear}</p>
               <p style={{ color: 'var(--text-secondary)' }}>Effective {new Date(policy.effectiveFrom).toLocaleDateString('en-IN')}{policy.effectiveTo ? ` to ${new Date(policy.effectiveTo).toLocaleDateString('en-IN')}` : ''}</p>
-              <p style={{ color: 'var(--text-secondary)' }}>Total {policy.totalPaidLeaves} · Casual {policy.casualLeaveAllocation} · Emergency {policy.emergencyLeaveAllocation}</p>
+              <p style={{ color: 'var(--text-secondary)' }}>Total {policy.totalPaidLeaves} · Casual {policy.casualLeaveAllocation} · Sick {policy.sickLeaveAllocation}</p>
             </div>)}</div>}
         </>}
       </div>

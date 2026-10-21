@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
+import {
+  GOVERNING_POLICY_STATUSES,
+  POLICY_BASELINE_DATE,
+  resolveContinuousPolicy,
+} from '../attendance/policy/policy-continuity';
 
 // ── Default values ────────────────────────────────────────────────────────────
 const DEFAULTS: Record<string, any> = {
@@ -46,6 +51,11 @@ const DEFAULTS: Record<string, any> = {
     autoCloseTime: '23:59',
   }
 };
+
+/** Today as a company business date (yyyy-MM-dd). */
+function companyBusinessDate(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: process.env.COMPANY_TIMEZONE || 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
 
 @Injectable()
 export class SettingsService {
@@ -142,17 +152,33 @@ export class SettingsService {
     return { URGENT: 2, HIGH: 4, MEDIUM: 24, LOW: 48, ...stored };
   }
 
+  /**
+   * The leave policy version that governs today in each series, resolved by
+   * the Phase 3 continuity rule (a SCHEDULED version governs from its own date
+   * even before the settle job runs; a gap continues the previous version).
+   * Emergency is a submission mode, not a pool, so the buckets are Casual and Sick.
+   */
   async getActiveLeavePolicies() {
     const authority = await this.get('attendance_v2');
-    const policies = await this.prisma.leavePolicy.findMany({
-      where: { status: 'ACTIVE' },
+    const rows = await this.prisma.leavePolicy.findMany({
+      where: { status: { in: [...GOVERNING_POLICY_STATUSES] } },
       select: {
         id: true, name: true, policyKey: true, version: true, status: true,
         financialYear: true, effectiveFrom: true, effectiveTo: true,
-        totalPaidLeaves: true, casualLeaveAllocation: true, emergencyLeaveAllocation: true,
+        totalPaidLeaves: true, casualLeaveAllocation: true, sickLeaveAllocation: true,
       },
       orderBy: [{ policyKey: 'asc' }, { version: 'desc' }],
     });
+    const today = companyBusinessDate();
+    const ymd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+    const series = new Map<string, typeof rows>();
+    for (const row of rows) series.set(row.policyKey, [...(series.get(row.policyKey) ?? []), row]);
+    const policies = [...series.values()]
+      .map((versions) => resolveContinuousPolicy(
+        versions.map((row) => ({ id: row.id, version: row.version, effectiveFrom: ymd(row.effectiveFrom) ?? POLICY_BASELINE_DATE, effectiveTo: ymd(row.effectiveTo), row })),
+        today,
+      ).policy?.row)
+      .filter((row): row is (typeof rows)[number] => !!row);
     return { leaveAuthorityEnabled: authority?.leaveAuthorityEnabled === true, policies };
   }
 

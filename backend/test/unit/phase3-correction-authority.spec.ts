@@ -57,4 +57,3 @@ describe('Phase 3 correction authority', () => {
     await expect(authority.eligibility({ id: 'other', departmentId: 'dept-b', isActive: true, role: { name: 'MANAGER', level: 2 } }, 'employee')).resolves.toBeNull();
   });
 });
-

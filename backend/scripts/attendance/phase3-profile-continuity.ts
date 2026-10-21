@@ -69,4 +69,3 @@ async function main() {
   } finally { await prisma.$disconnect(); }
 }
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : 'Profile continuity failed'); process.exit(1); });
-
