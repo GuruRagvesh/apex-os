@@ -1,6 +1,8 @@
 import * as ExcelJS from 'exceljs';
 import {
+  DEVICE_COLUMNS,
   REGISTER_COLUMNS,
+  captureChannelLabel,
   monthLabel,
   type RegisterResult,
 } from './register-report';
@@ -85,6 +87,33 @@ export function buildRegisterWorkbook(
   // The heading block plus the column header stay in view while HR scrolls
   // through thirty-odd employees.
   sheet.views = [{ state: 'frozen', ySplit: 5 }];
+
+  // Phase 3: device evidence for HR/Admin, on its own sheet so the register's
+  // seven columns stay exactly as HR forwards them.
+  if (result.devices) {
+    const devices = wb.addWorksheet('Punch Devices');
+    devices.addRow([`Punch devices: ${monthLabel(result.month)}`]);
+    devices.getRow(1).font = { bold: true, size: 13 };
+    devices.addRow([]);
+    const head = devices.addRow(DEVICE_COLUMNS.map((c) => c.header));
+    head.font = { bold: true };
+    head.fill = HEADER_FILL;
+    [28, 14, 44, 20, 10, 14, 14].forEach((w, i) => {
+      devices.getColumn(i + 1).width = w;
+    });
+    for (const d of result.devices) {
+      devices.addRow([
+        d.name ?? '',
+        d.employeeId ?? '',
+        d.deviceLabel,
+        captureChannelLabel(d.captureChannel),
+        d.punches,
+        d.firstBusinessDate,
+        d.lastBusinessDate,
+      ]);
+    }
+    devices.views = [{ state: 'frozen', ySplit: 3 }];
+  }
 
   return wb;
 }

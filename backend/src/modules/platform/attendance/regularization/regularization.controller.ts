@@ -26,6 +26,7 @@ import {
   StaleCorrectionError,
   type ManualRecoveryInput,
 } from './regularization.service';
+import { CorrectionDecisionService } from './correction-decision.service';
 
 /**
  * Attendance correction API (AR-1).
@@ -40,7 +41,10 @@ import {
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class RegularizationController {
-  constructor(private readonly regularization: RegularizationService) {}
+  constructor(
+    private readonly regularization: RegularizationService,
+    private readonly decisions: CorrectionDecisionService,
+  ) {}
 
   private rethrow(err: unknown): never {
     if (err instanceof RegularizationDisabledError) {
@@ -72,10 +76,61 @@ export class RegularizationController {
     );
   }
 
-  /** Requests awaiting your decision: your reports', or HR's final queue. */
+  /**
+   * Unresolved requests (Phase 3). scope=team: your valid TL/Manager hierarchy.
+   * scope=company: every unresolved request, HR/Admin/Super Admin only. Both
+   * filter in the database before paging.
+   */
   @Get('pending')
-  async pending(@CurrentUser() user: any, @Query('limit') limit?: string) {
-    return this.regularization.pendingFor(user, limit ? Number(limit) : undefined);
+  async pending(
+    @CurrentUser() user: any,
+    @Query('limit') limit?: string,
+    @Query('scope') scope?: string,
+    @Query('page') page?: string,
+  ) {
+    if (scope !== undefined && scope !== 'team' && scope !== 'company') {
+      throw new BadRequestException('scope must be team or company');
+    }
+    return this.regularization.pendingFor(user, limit ? Number(limit) : undefined, scope, page ? Number(page) : undefined);
+  }
+
+  /** Badge counts for the team and company queues. */
+  @Get('pending/counts')
+  async pendingCounts(@CurrentUser() user: any) {
+    return this.decisions.counts(user?.id ?? user?.sub);
+  }
+
+  @Get('held')
+  async held(@CurrentUser() user: any) {
+    return this.decisions.held(user?.id ?? user?.sub);
+  }
+
+  /** The single final decision by any one eligible reviewer (Phase 3). */
+  @Patch(':id/decision')
+  async decide(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { decision?: string; reason?: string; reviewedFingerprint?: string | null; confirmCreatorDecision?: boolean },
+  ) {
+    try {
+      return await this.decisions.decide(user?.id ?? user?.sub, id, body ?? {});
+    } catch (err) {
+      this.rethrow(err);
+    }
+  }
+
+  /** Applies an approval held at REVIEW_REQUIRED after the day/month reopens. */
+  @Post(':id/apply')
+  async apply(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { reviewedFingerprint?: string | null },
+  ) {
+    try {
+      return await this.decisions.applyHeld(user?.id ?? user?.sub, id, body ?? {});
+    } catch (err) {
+      this.rethrow(err);
+    }
   }
 
   @Get(':id')

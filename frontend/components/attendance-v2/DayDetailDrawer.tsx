@@ -64,9 +64,9 @@ export function DayDetailDrawer({
     enabled: open,
     retry: false,
   });
-  const pending = requests.data?.find(request => request.date.slice(0, 10) === date && (request.status === 'PENDING' || request.status === 'MANAGER_APPROVED'));
+  const pending = requests.data?.find(request => request.date.slice(0, 10) === date && (request.status === 'PENDING' || request.status === 'STALE_REVIEW_REQUIRED' || request.status === 'MANAGER_APPROVED'));
   const decided = requests.data
-    ?.filter(request => request.date.slice(0, 10) === date && (request.status === 'HR_APPROVED' || request.status === 'REJECTED'))
+    ?.filter(request => request.date.slice(0, 10) === date && (request.status === 'APPROVED' || request.status === 'HR_APPROVED' || request.status === 'REJECTED'))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   const detail = useQuery({
     queryKey: ['my-attendance-v2-day', date],
@@ -113,8 +113,8 @@ export function DayDetailDrawer({
         {day ? (
           <>
             <Badges day={day} />
-            {pending ? <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-xs">Correction {stageLabel(pending.status).toLowerCase()}</p>
-              : decided ? <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">Latest correction request: {stageLabel(decided.status).toLowerCase()}</p> : null}
+            {pending ? <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-xs">Correction {stageLabel(pending.status, pending.applicationStatus).toLowerCase()}</p>
+              : decided ? <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">Latest correction request: {stageLabel(decided.status, decided.applicationStatus).toLowerCase()}{decided.decidedBy?.name ? ` by ${decided.decidedBy.name}${decided.decidedByRole ? ` (${decided.decidedByRole.replaceAll('_', ' ')})` : ''}` : ''}{decided.decisionReason ? ` · ${decided.decisionReason}` : ''}</p> : null}
             {correctable && !pending && onRequestCorrection ? <button type="button" className={s.outline} onClick={() => onRequestCorrection(date)}>Request correction</button> : null}
             <DaySummary day={day} />
             <StatusInsight day={day} />
@@ -311,6 +311,13 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
         )}
         {item.policyContextStatus === 'POLICY_SETUP_PENDING' ? (
           <p className="text-amber-500">Attendance policy setup pending — raw punch recorded for review</p>
+        ) : null}
+        <p>
+          Device: {item.deviceLabel || 'Not recorded'}
+          {item.captureChannel === 'PHONE_HANDOFF' ? ' · Phone handoff' : item.captureChannel === 'CURRENT_DEVICE' ? ' · This device' : ''}
+        </p>
+        {item.deviceType === 'UNKNOWN' ? (
+          <p className="text-amber-500">Device ID unavailable — kept for HR review; punch remains recorded</p>
         ) : null}
         {item.distanceFromLocationMeters !== null ? (
           <p>{Math.round(item.distanceFromLocationMeters)} m from the registered location</p>

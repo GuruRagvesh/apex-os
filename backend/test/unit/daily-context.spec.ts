@@ -391,7 +391,8 @@ describe('DailyContextService (BL-5)', () => {
       await service.resolveDailyContext('emp-1', '2026-06-15');
       const where = prisma.shiftPolicy.findFirst.mock.calls[0][0].where;
       expect(where.effectiveFrom.lte.toISOString()).toBe('2026-06-15T18:29:59.999Z');
-      expect(where.status).toEqual({ in: ['ACTIVE', 'SUPERSEDED'] });
+      // Phase 3: a SCHEDULED version governs from its own effective date.
+      expect(where.status).toEqual({ in: ['ACTIVE', 'SUPERSEDED', 'SCHEDULED'] });
     });
   });
 

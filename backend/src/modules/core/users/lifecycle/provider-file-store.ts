@@ -65,7 +65,7 @@ export function createProviderFileStore(env: NodeJS.ProcessEnv, fetchImpl: any =
       }
       if (file.provider === 'local-private') {
         const [, name] = file.ref.split(':');
-        if (!/^[0-9a-f-]+\.(?:jpg|png|webp)$/.test(name ?? '')) throw new ProviderFileStoreError('PROVIDER_REFUSED');
+        if (!/^[0-9a-f-]+\.(?:jpg|png|webp|pdf)$/.test(name ?? '')) throw new ProviderFileStoreError('PROVIDER_REFUSED');
         try {
           return { bytes: await readFile(resolve(localDir, name)), mimeType: file.mimeType };
         } catch {
@@ -92,7 +92,7 @@ export function createProviderFileStore(env: NodeJS.ProcessEnv, fetchImpl: any =
       }
       if (provider === 'local-private') {
         const [, name] = ref.split(':');
-        if (!/^[0-9a-f-]+\.(?:jpg|png|webp)$/.test(name ?? '')) throw new ProviderFileStoreError('PROVIDER_REFUSED');
+        if (!/^[0-9a-f-]+\.(?:jpg|png|webp|pdf)$/.test(name ?? '')) throw new ProviderFileStoreError('PROVIDER_REFUSED');
         try {
           await unlink(resolve(localDir, name));
           return 'DELETED';

@@ -14,7 +14,9 @@ import { useSearchParams } from 'next/navigation';
 import { RemediationDialog, displayLeaveSetupStatus, useRemediation } from '@apex/shared-remediation';
 import { createRemediationActionRunner } from '@apex/shared-remediation/api';
 
-const LEAVE_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'ANNUAL', 'SICK', 'UNPAID', 'OTHER'];
+// Phase 3 new requests use the two approved paid buckets. Emergency is a
+// submission mode funded from either one, not a third entitlement bucket.
+const LEAVE_TYPES = ['CASUAL', 'SICK', 'COMP_OFF', 'UNPAID'];
 
 /**
  * Types whose entitlement is NOT the generic leave balance shown above the form.
@@ -27,7 +29,7 @@ const LEAVE_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'ANNUAL', 'SICK', 'UNPAI
  * per-type balance either way; this only decides whether the button is
  * pre-emptively disabled.
  */
-const SEPARATELY_FUNDED_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'UNPAID'];
+const SEPARATELY_FUNDED_TYPES = ['CASUAL', 'SICK', 'EMERGENCY', 'COMP_OFF', 'UNPAID'];
 
 export default function LeavePage() {
   const { user } = useAuthStore();
@@ -62,7 +64,7 @@ export default function LeavePage() {
       setTab('all');
     }
   }, [queryString]);
-  const [form, setForm] = useState({ type: 'CASUAL', startDate: '', endDate: '', reason: '' });
+  const [form, setForm] = useState({ type: 'CASUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD' as 'STANDARD' | 'EMERGENCY', fundingBucket: 'CASUAL' as 'CASUAL' | 'SICK' });
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [balances, setBalances] = useState<Record<string, any>>({});
@@ -173,7 +175,7 @@ export default function LeavePage() {
       qc.invalidateQueries({ queryKey: ['leave-stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
       setShowNew(false);
-      setForm({ type: 'CASUAL', startDate: '', endDate: '', reason: '' });
+      setForm({ type: 'CASUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD', fundingBucket: 'CASUAL' });
     },
     onError: (err: any) => {
       if (remediation.openFrom(err)) return;
@@ -209,6 +211,18 @@ export default function LeavePage() {
       if (remediation.openFrom(err)) return;
       setRejectingId(null);
       toast.error(err?.message || 'You do not have permission to perform this action.');
+    },
+  });
+
+  const evidenceMutation = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => leaveApi.submitEvidence(id, file),
+    onSuccess: () => {
+      toast.success('Emergency Leave evidence uploaded');
+      qc.invalidateQueries({ queryKey: ['leave'] });
+    },
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'Evidence could not be uploaded. The leave request is unchanged.');
     },
   });
 
@@ -386,6 +400,9 @@ export default function LeavePage() {
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-xs font-semibold text-indigo-650 bg-indigo-50 dark:bg-indigo-950/30 dark:text-indigo-400 px-2 py-0.5 rounded">{leave.type}</span>
+                        {leave.submissionMode === 'EMERGENCY' && <span className="text-xs font-semibold rounded bg-red-50 px-2 py-0.5 text-red-700 dark:bg-red-900/20 dark:text-red-300">Emergency · {leave.fundingBucket ?? leave.type}</span>}
+                        {leave.isLateSubmission === true && <span className="text-xs font-semibold rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">Late submission · review required</span>}
+                        {leave.setupStatus === 'POLICY_SETUP_PENDING' && <span className="text-xs font-semibold rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">Policy setup pending</span>}
                         <span style={{ color: 'var(--border-primary)' }}>·</span>
                         <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{formatDate(leave.startDate)} – {formatDate(leave.endDate)}</span>
                         {leave.user?.department && (
@@ -435,11 +452,35 @@ export default function LeavePage() {
                           <p><span className="text-slate-500 font-medium">Duration:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{duration === null ? 'Unavailable — calendar setup required' : `${duration} working days`}{duration !== null && leave.isHalfDay && ` (Half-day: ${leave.halfDayType || 'First Half'})`}</span></p>
                           <p><span className="text-slate-500 font-medium">Reason:</span> <span className="text-slate-800 dark:text-gray-200">{leave.reason}</span></p>
                           <p data-testid="leave-setup-status" data-setup-status={leave.setupStatus ?? 'LEGACY_UNASSESSED'}><span className="text-slate-500 font-medium">Policy check:</span> <span className="text-slate-800 dark:text-gray-200">{displayLeaveSetupStatus(leave.setupStatus).label}</span></p>
+                          {leave.workflow?.currentApprover && leave.status === 'PENDING' && (
+                            <p data-testid="leave-current-approver"><span className="text-slate-500 font-medium">Current approver:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.workflow.currentApprover.name}</span></p>
+                          )}
+                          {leave.workflow?.fallbackReason && (
+                            <p data-testid="leave-fallback-reason"><span className="text-slate-500 font-medium">Routing:</span> <span className="text-slate-800 dark:text-gray-200">{leave.workflow.fallbackReason}</span></p>
+                          )}
+                          {leave.workflow?.reviewStatus === 'LATE_SUBMISSION_REVIEW_REQUIRED' && (
+                            <p><span className="text-slate-500 font-medium">Review:</span> <span className="text-slate-800 dark:text-gray-200">Late submission. Your approver reviews it; no salary deduction or extra workdays apply.</span></p>
+                          )}
+                          {leave.setupStatus === 'POLICY_SETUP_PENDING' && (
+                            <p><span className="text-slate-500 font-medium">Status:</span> <span className="text-slate-800 dark:text-gray-200">Received. Awaiting leave setup by HR/Admin; nothing is deducted until it is settled.</span></p>
+                          )}
+                          {leave.submissionMode === 'EMERGENCY' && leave.reviewDueOn && leave.status === 'PENDING' && (
+                            <p data-testid="leave-review-due"><span className="text-slate-500 font-medium">Review due:</span> <span className="text-slate-800 dark:text-gray-200">{formatDate(leave.reviewDueOn)}</span></p>
+                          )}
+                          {leave.submissionMode === 'EMERGENCY' && <p><span className="text-slate-500 font-medium">Emergency evidence:</span> <span className="text-slate-800 dark:text-gray-200">{leave.evidenceSubmittedAt ? `Submitted ${formatDate(leave.evidenceSubmittedAt)}` : `Due ${leave.evidenceDueOn ? formatDate(leave.evidenceDueOn) : 'after submission'}`}</span></p>}
                           {leave.status !== 'PENDING' && (
                             <p><span className="text-slate-500 font-medium">Processed by:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.approvedBy || leave.rejectedBy || 'System'}</span></p>
                           )}
                         </div>
                       </div>
+
+                      {leave.submissionMode === 'EMERGENCY' && leave.userId === user?.id && !leave.evidenceSubmittedAt && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-800 dark:bg-amber-900/20">
+                          <label htmlFor={`leave-evidence-${leave.id}`} className="font-semibold text-amber-800 dark:text-amber-300">Upload Emergency Leave evidence</label>
+                          <p className="mt-1 text-amber-700 dark:text-amber-400">PDF, JPG, PNG or WebP, up to 10 MB. Your leave remains protected while review is pending.</p>
+                          <input id={`leave-evidence-${leave.id}`} name="leaveEvidence" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={evidenceMutation.isPending} onChange={(e) => { const file = e.target.files?.[0]; if (file) evidenceMutation.mutate({ id: leave.id, file }); }} className="mt-2 block w-full text-xs" />
+                        </div>
+                      )}
 
                       {/* Leave Balance Section */}
                       <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
@@ -539,6 +580,12 @@ export default function LeavePage() {
                   {LEAVE_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
                 </select>
 
+                <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--border-secondary)] p-3">
+                  <input type="checkbox" name="emergencySubmission" checked={form.submissionMode === 'EMERGENCY'} onChange={(e) => setForm((f) => ({ ...f, submissionMode: e.target.checked ? 'EMERGENCY' : 'STANDARD', type: e.target.checked && !['CASUAL', 'SICK'].includes(f.type) ? 'CASUAL' : f.type, fundingBucket: ['CASUAL', 'SICK'].includes(f.type) ? f.type as 'CASUAL' | 'SICK' : f.fundingBucket }))} className="mt-0.5 rounded" />
+                  <span><strong className="block text-sm" style={{ color: 'var(--text-primary)' }}>Emergency submission</strong><span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Same-day submission is allowed and provisionally protected. TL/Manager approval and HR visibility are still recorded.</span></span>
+                </label>
+                {form.submissionMode === 'EMERGENCY' && <div className="mt-3"><label htmlFor="leave-funding-bucket" className="apex-label">Paid leave bucket</label><select id="leave-funding-bucket" name="fundingBucket" value={form.fundingBucket} onChange={(e) => setForm((f) => ({ ...f, fundingBucket: e.target.value as 'CASUAL' | 'SICK', type: e.target.value }))} className="apex-select w-full"><option value="CASUAL">Casual leave (10 days)</option><option value="SICK">Sick leave (4 days)</option></select></div>}
+
                 {form.type === 'COMP_OFF' && (
                   <div
                     className={cn(
@@ -633,7 +680,7 @@ export default function LeavePage() {
             <div className="mt-3 px-3 py-2 rounded-lg flex items-start gap-2 text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
               <Info size={11} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 1 }} />
               <span style={{ color: 'var(--text-secondary)' }}>
-                After submitting, your request goes to <strong>Pending</strong> status. Your manager or team lead will approve or reject it. You'll receive a notification when a decision is made. Pending requests count towards your tracked balance.
+                {form.submissionMode === 'EMERGENCY' ? <>Emergency Leave is provisionally protected immediately, but your Team Lead or Manager must still decide it and HR can review the evidence.</> : <>The request is routed automatically to your assigned Team Lead, department Team Lead, Manager, another active Manager, or Admin fallback. A late submission is recorded for review without an automatic salary deduction.</>}
               </span>
             </div>
 

@@ -42,7 +42,7 @@ import { assertCorrectionImportMode, correctionEntrySource } from './import-mode
  */
 
 /** Statuses that mean a correction is still unsettled. */
-const OPEN_CORRECTION_STATUSES = ['PENDING', 'MANAGER_APPROVED'] as const;
+const OPEN_CORRECTION_STATUSES = ['PENDING', 'STALE_REVIEW_REQUIRED', 'MANAGER_APPROVED'] as const;
 
 /**
  * Applicable rows per transaction.

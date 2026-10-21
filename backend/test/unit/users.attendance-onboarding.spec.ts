@@ -245,11 +245,15 @@ describe('UsersService attendance onboarding', () => {
     expect(tx.userSetupIssue.upsert).toHaveBeenCalled();
   });
 
-  it('keeps a joining date before the policies start; the attendance profile starts with the policies', async () => {
+  // Phase 3: the earliest profile begins on the joining date (never before
+  // 1 Dec 2020). A version that starts later is applied as the baseline from
+  // the joining date and recorded as MISSING_BASELINE setup work for Admin --
+  // the profile no longer waits for the policy to start.
+  it('starts the profile on the joining date and records a missing baseline when the policy starts later', async () => {
     const { service, tx } = fixture('INTERN');
     const shifts = await tx.shiftPolicy.findMany();
-    tx.shiftPolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce(shifts);
-    tx.shiftPolicy.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-09-15T00:00:00.000Z') });
+    const later = shifts.map((r: any) => ({ ...r, effectiveFrom: new Date('2026-09-15T00:00:00.000Z'), effectiveTo: null }));
+    tx.shiftPolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce(later);
 
     await expect(
       service.create({
@@ -262,49 +266,44 @@ describe('UsersService attendance onboarding', () => {
     ).resolves.toBeDefined();
 
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ joiningDate: new Date('2026-08-24T00:00:00.000Z') }) }));
-    expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({ data: expect.objectContaining({ effectiveFrom: new Date('2026-09-15T00:00:00.000Z') }) });
-    expect(tx.shiftPolicy.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ effectiveFrom: { gt: new Date('2026-08-24T00:00:00.000Z') } }),
-      orderBy: { effectiveFrom: 'asc' },
+    expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({ data: expect.objectContaining({ assignedShiftId: 'shift-1', effectiveFrom: new Date('2026-08-24T00:00:00.000Z') }) });
+    expect(tx.userSetupIssue.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({ details: { reasonCodes: ['SHIFT_POLICY_MISSING_BASELINE'] } }),
     }));
   });
 
-  it('advances to a later holiday calendar even when the shift already covers the joining date', async () => {
+  it('continues the previous holiday calendar across a gap instead of moving the profile start', async () => {
     const { service, tx } = fixture('INTERN');
-    const calendar = { id: 'calendar-1' };
-    tx.holidayCalendar.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([calendar]);
-    tx.holidayCalendar.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-08-27T00:00:00.000Z') });
+    const earlier = { id: 'calendar-0', version: 1, effectiveFrom: new Date('2026-04-01T00:00:00.000Z'), effectiveTo: new Date('2026-08-20T00:00:00.000Z') };
+    const next = { id: 'calendar-1', version: 2, effectiveFrom: new Date('2026-08-27T00:00:00.000Z'), effectiveTo: null };
+    tx.holidayCalendar.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([earlier, next]);
 
-    await expect(
-      service.create({
-        name: 'Sherin Shaji',
-        email: 'sherin@example.test',
-        password: 'password1',
-        roleId: 'role-intern',
-        departmentId: 'department-1',
-        joiningDate: '2026-08-24',
-      }),
-    ).resolves.toBeDefined();
+    await service.create({
+      name: 'Sherin Shaji',
+      email: 'sherin@example.test',
+      password: 'password1',
+      roleId: 'role-intern',
+      departmentId: 'department-1',
+      joiningDate: '2026-08-24',
+    });
 
-    expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ joiningDate: new Date('2026-08-24T00:00:00.000Z') }),
-    }));
     expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        assignedHolidayCalendarId: 'calendar-1',
-        effectiveFrom: new Date('2026-08-27T00:00:00.000Z'),
+        assignedHolidayCalendarId: 'calendar-0',
+        effectiveFrom: new Date('2026-08-24T00:00:00.000Z'),
       }),
     });
+    expect(tx.userSetupIssue.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({ details: { reasonCodes: ['HOLIDAY_CALENDAR_GAP'] } }),
+    }));
   });
 
-  it('waits for the complete leave, holiday and weekly-off bundle', async () => {
+  it('a later-starting leave, holiday and weekly-off bundle still starts on the joining date', async () => {
     const { service, tx } = fixture('TEAM_LEAD');
-    tx.leavePolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'leave-1' }]);
-    tx.leavePolicy.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-08-25T00:00:00.000Z') });
-    tx.holidayCalendar.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'calendar-1' }]);
-    tx.holidayCalendar.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-08-27T00:00:00.000Z') });
-    tx.weeklyOffPolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'weekly-1' }]);
-    tx.weeklyOffPolicy.findFirst.mockResolvedValue({ effectiveFrom: new Date('2026-08-26T00:00:00.000Z') });
+    const from = (d: string) => ({ effectiveFrom: new Date(`${d}T00:00:00.000Z`), effectiveTo: null });
+    tx.leavePolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'leave-1', ...from('2026-08-25') }]);
+    tx.holidayCalendar.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'calendar-1', ...from('2026-08-27') }]);
+    tx.weeklyOffPolicy.findMany.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'weekly-1', ...from('2026-08-26') }]);
 
     await service.create({
       name: 'New Team Lead',
@@ -315,7 +314,7 @@ describe('UsersService attendance onboarding', () => {
     });
 
     expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ effectiveFrom: new Date('2026-08-27T00:00:00.000Z') }),
+      data: expect.objectContaining({ effectiveFrom: new Date('2026-08-24T00:00:00.000Z') }),
     });
   });
 
@@ -330,7 +329,8 @@ describe('UsersService attendance onboarding', () => {
       joiningDate: '2026-09-01',
     });
 
-    const expectedStatus = { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] };
+    // Phase 3: SCHEDULED versions are governing candidates too (by date).
+    const expectedStatus = { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED, 'SCHEDULED'] };
     expect(tx.shiftPolicy.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ status: expectedStatus }),
     }));

@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { Optional, BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { PolicyVersionService } from '../../platform/attendance/policy/policy-version.service';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TVAService } from '../../../common/services/tva.service';
@@ -57,6 +58,7 @@ export class CompOffService {
     private readonly timeline: EmployeeTimelineService,
     private readonly accessPolicy: AccessPolicyService,
     private readonly eventLogger: EventLoggerService,
+    @Optional() private readonly policies?: PolicyVersionService,
   ) {}
 
   /**
@@ -102,10 +104,10 @@ export class CompOffService {
   private async expiryDaysFor(employeeId: string, businessDate: string): Promise<number> {
     const profile = await this.timeline.findProfileOn(employeeId, businessDate);
     if (!profile?.assignedLeavePolicyId) return 30;
-    const policy = await this.prisma.leavePolicy.findUnique({
-      where: { id: profile.assignedLeavePolicyId },
-      select: { compOffExpiryDays: true },
-    });
+    // Phase 3: the version of the assigned series governing that date.
+    const policy = this.policies
+      ? await this.policies.resolvePolicyOn('LEAVE_POLICY', businessDate, { id: profile.assignedLeavePolicyId })
+      : null;
     return policy?.compOffExpiryDays ?? 30;
   }
 

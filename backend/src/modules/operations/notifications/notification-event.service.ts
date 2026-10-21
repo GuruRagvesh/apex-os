@@ -23,6 +23,9 @@ const NOTIF_DEFAULTS = {
   leaveApproved:  true,
   leaveRejected:  true,
   teamLeaveApply: true,
+  // Phase 3: attendance corrections (new request / resolved).
+  attendanceCorrection: true,
+  attendanceCorrectionDecided: true,
   inApp:          true,
   quietFrom:      '22:00',
   quietTo:        '08:00',

@@ -13,7 +13,7 @@ export function AttendanceAccountOverview() {
       {holidays.isError ? <p role="alert">Holiday calendar unavailable. <button onClick={() => holidays.refetch()}>Try again</button></p> : holidays.isPending ? <p>Loading holidays…</p> : upcoming.length ? <ul>{upcoming.map(day => <li key={day.id}><strong>{day.name}</strong><span>{new Date(day.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}</span></li>)}</ul> : <p>No upcoming holidays on the calendar.</p>}
     </section>
     <section className={s.leave}><h2><Plane size={20} />Leave Usage &amp; Allocation Analysis</h2><p>Your current allocation and recorded leave requests.</p>
-      <div className={s.leaveGrid}><LeavePanel type="CASUAL" /><LeavePanel type="EMERGENCY" /></div>
+      <div className={s.leaveGrid}><LeavePanel type="CASUAL" /><LeavePanel type="SICK" /></div>
       <p>Comp Off credits: <strong>{credits.isError ? 'Unavailable' : credits.isPending ? 'Loading…' : credits.data?.length ?? '—'}</strong></p>
     </section>
   </section>;

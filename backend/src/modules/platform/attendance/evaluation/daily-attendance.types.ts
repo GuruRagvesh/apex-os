@@ -32,7 +32,15 @@ export type LeaveDayKind =
    */
   | 'PARTIALLY_FUNDED'
   /** More than one approved leave covers the date. A human must settle it. */
-  | 'AMBIGUOUS';
+  | 'AMBIGUOUS'
+  /**
+   * Phase 3: a same-day Emergency Leave still awaiting TL/Manager review. The
+   * day is protected as leave (never absent), deducts nothing yet, and stays
+   * in review until the request is decided.
+   */
+  | 'PROVISIONAL_EMERGENCY'
+  /** Phase 3: approved while leave setup was pending; funding not settled yet. */
+  | 'SETTLEMENT_PENDING';
 
 export interface LeaveDayFacts {
   hasApprovedLeave: boolean;
@@ -83,7 +91,11 @@ export type AttendanceExceptionFlag =
   | 'HALF_DAY_EARLY_PUNCH_OUT'
   // AR-1. Informational, NOT a reason to review: an approved correction is a
   // decision that has already been made, not an open question.
-  | 'CORRECTED_BY_REGULARIZATION';
+  | 'CORRECTED_BY_REGULARIZATION'
+  // Phase 3
+  | 'EMERGENCY_LEAVE_PROVISIONAL'
+  | 'UNREPORTED_ABSENCE_3_DAYS'
+  | 'LEAVE_SETTLEMENT_PENDING';
 
 /**
  * Flags that explain a result without demanding a human look at it again.
@@ -111,6 +123,10 @@ export type AttendanceCalculationReason =
   | 'POLICY_DECISION_DEFERRED'
   | 'CORRECTED_WORKDAY'
   | 'AMBIGUOUS_LEAVE'
+  // Phase 3
+  | 'PROVISIONAL_EMERGENCY_LEAVE'
+  | 'UNREPORTED_ABSENCE_LWP'
+  | 'APPROVED_LEAVE_SETTLEMENT_PENDING'
   // Stored by the historical recovery import; the evaluator itself never produces it.
   | 'HISTORICAL_RECOVERY_IMPORT'
   // Non-classifications: attendance simply does not apply.

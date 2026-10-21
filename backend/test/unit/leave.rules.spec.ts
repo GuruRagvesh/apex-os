@@ -36,7 +36,10 @@ const mockPrisma = {
   },
   managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },
   notification: { create: jest.fn() },
-};
+  // Phase 3: a request and its routing snapshot commit in one transaction.
+  leaveEvidence: { count: jest.fn().mockResolvedValue(0) },
+  $transaction: jest.fn((fn: any) => fn(mockPrisma)),
+} as any;
 const mockSettings = {
   getLeaveQuotas: jest.fn().mockResolvedValue({ EMPLOYEE: 12, TEAM_LEAD: 12, MANAGER: 15, INTERN: 6 }),
   get: jest.fn().mockResolvedValue({ workingDays: 'Mon–Sat' }),
@@ -53,6 +56,9 @@ const mockLogger  = { log: jest.fn().mockResolvedValue(undefined) };
 const mockLeaveBalance = {
   validateLeaveRequest: jest.fn().mockResolvedValue(undefined),
   getLeaveBalance: jest.fn().mockResolvedValue({ allocation: 12, approved: 0, pending: 0, balance: 12 }),
+  // Phase 3: the late-submission rule reads the versioned notice period.
+  resolveLeavePolicy: jest.fn().mockResolvedValue({ standardLeaveMinimumNoticeDays: 1 }),
+  assertNoOverlap: jest.fn().mockResolvedValue(undefined),
 };
 
 // Fixture: a pending leave request owned by EMPLOYEE user
@@ -77,7 +83,7 @@ describe('LeaveService — approval rules', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        { provide: TVAService, useValue: { now: () => new Date(), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
+        { provide: TVAService, useValue: { now: () => new Date(), companyBusinessDate: (d: Date) => new Date(d).toISOString().slice(0, 10), companyTimezone: () => 'Asia/Kolkata', companyNow: () => new Date(), companyDayStart: () => new Date(), formatZoned: () => 'mock', companyDayEnd: () => new Date(), elapsedSeconds: () => 0 } },
         LeaveService,
         AccessPolicyService,
         LeaveAccessService,
@@ -178,7 +184,7 @@ describe('LeaveService — approval rules', () => {
       }),
     }));
     expect(mockLeaveBalance.validateLeaveRequest).toHaveBeenCalledWith(
-      'emp1', expect.any(Date), expect.any(Date), true, 'CASUAL',
+      'emp1', expect.any(Date), expect.any(Date), true, 'CASUAL', 'CASUAL',
     );
   });
 

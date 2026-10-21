@@ -9,6 +9,9 @@ import { CompanyDateService } from '../../src/common/services/company-date.servi
 import { LeaveWorkingDayService } from '../../src/modules/operations/leave/leave-working-day.service';
 import { ConfigService } from '@nestjs/config';
 import { formatInTimeZone } from 'date-fns-tz';
+import { PolicyVersionService } from '../../src/modules/platform/attendance/policy/policy-version.service';
+import { EmployeeTimelineService } from '../../src/modules/platform/attendance/timeline/employee-timeline.service';
+import { LeavePolicyUnresolvedError } from '../../src/modules/operations/leave/leave-balance.service';
 
 const mockPrisma = {
   user: {
@@ -25,6 +28,9 @@ const mockPrisma = {
     findFirst: jest.fn().mockResolvedValue(null),
   },
 };
+
+const POLICY = { id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4 };
+const mockPolicies = { resolvePolicyOn: jest.fn().mockResolvedValue(POLICY) };
 
 const mockSettings = {
   getLeaveQuotas: jest.fn().mockResolvedValue({ EMPLOYEE: 12, TEAM_LEAD: 12, MANAGER: 15, INTERN: 6 }),
@@ -48,6 +54,10 @@ describe('LeaveBalanceService', () => {
           useValue: new TVAService({ get: () => undefined } as unknown as ConfigService),
         },
         LeaveBalanceService,
+        // Phase 3: the versioned LeavePolicy (10 Casual + 4 Sick) is the only
+        // entitlement authority, resolved through policy continuity.
+        { provide: PolicyVersionService, useValue: mockPolicies },
+        { provide: EmployeeTimelineService, useValue: { findProfileOn: jest.fn().mockResolvedValue({ assignedLeavePolicyId: 'lp-1' }) } },
         {
           // LH-1 added this dependency. It is given a REAL TVAService so the
           // company-date arithmetic under test actually runs; the outer
@@ -73,23 +83,20 @@ describe('LeaveBalanceService', () => {
     service = module.get<LeaveBalanceService>(LeaveBalanceService);
   });
 
-  describe('getYearlyAllocation', () => {
-    it('returns role-based quota', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user1',
-        role: { name: 'EMPLOYEE' },
-      });
-      const allocation = await service.getYearlyAllocation('user1');
-      expect(allocation).toBe(12);
+  describe('getYearlyAllocation (Phase 3)', () => {
+    it('returns 10 Casual + 4 Sick from the versioned policy, whatever the role', async () => {
+      for (const role of ['EMPLOYEE', 'CONTRACTOR', 'INTERN']) {
+        mockPrisma.user.findUnique.mockResolvedValue({ id: 'user1', role: { name: role } });
+        expect(await service.getYearlyAllocation('user1')).toBe(14);
+        expect(await service.getYearlyAllocation('user1', 2026, 'CASUAL' as any)).toBe(10);
+        expect(await service.getYearlyAllocation('user1', 2026, 'SICK' as any)).toBe(4);
+      }
+      expect(mockSettings.getLeaveQuotas).not.toHaveBeenCalled();
     });
 
-    it('returns the 14-day annual default if role quota is not configured', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user1',
-        role: { name: 'CONTRACTOR' },
-      });
-      const allocation = await service.getYearlyAllocation('user1');
-      expect(allocation).toBe(14);
+    it('refuses to invent a number when no policy applies', async () => {
+      mockPolicies.resolvePolicyOn.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+      await expect(service.getYearlyAllocation('user1')).rejects.toBeInstanceOf(LeavePolicyUnresolvedError);
     });
   });
 
@@ -148,6 +155,7 @@ describe('LeaveBalanceService', () => {
       mockPrisma.leaveRequest.findMany.mockResolvedValue([
         {
           id: 'leave1',
+          type: 'CASUAL',
           status: LeaveStatus.APPROVED,
           startDate: new Date('2026-03-02T00:00:00.000Z'), // Mon
           endDate: new Date('2026-03-04T00:00:00.000Z'),   // Wed (3 days)
@@ -155,6 +163,7 @@ describe('LeaveBalanceService', () => {
         },
         {
           id: 'leave2',
+          type: 'SICK',
           status: LeaveStatus.PENDING,
           startDate: new Date('2026-04-01T00:00:00.000Z'),
           endDate: new Date('2026-04-01T00:00:00.000Z'),
@@ -163,10 +172,10 @@ describe('LeaveBalanceService', () => {
       ]);
 
       const balance = await service.getLeaveBalance('user1');
-      expect(balance.allocation).toBe(12);
+      expect(balance.allocation).toBe(14);
       expect(balance.approved).toBe(3);
       expect(balance.pending).toBe(0.5);
-      expect(balance.balance).toBe(9); // 12 - 3 = 9
+      expect(balance.balance).toBe(11); // 14 - 3 = 11
     });
   });
 
@@ -179,34 +188,17 @@ describe('LeaveBalanceService', () => {
       ).rejects.toThrow('overlapping');
     });
 
-    it('throws ForbiddenException when balance is insufficient', async () => {
+    it('flags, but never refuses, a request the balance cannot fund (Phase 3)', async () => {
       mockPrisma.leaveRequest.count.mockResolvedValue(0);
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user1',
-        role: { name: 'INTERN' }, // Allocation: 6
-      });
-      // User has already taken 5.5 days of leave
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'user1', role: { name: 'INTERN' } });
+      // 3.5 Sick days already taken against a 4-day Sick allocation.
       mockPrisma.leaveRequest.findMany.mockResolvedValue([
-        {
-          id: 'leave1',
-          status: LeaveStatus.APPROVED,
-          startDate: new Date('2026-03-02T00:00:00.000Z'),
-          endDate: new Date('2026-03-06T00:00:00.000Z'), // 5 days
-          isHalfDay: false,
-        },
-        {
-          id: 'leave2',
-          status: LeaveStatus.APPROVED,
-          startDate: new Date('2026-04-01T00:00:00.000Z'),
-          endDate: new Date('2026-04-01T00:00:00.000Z'), // 0.5 days
-          isHalfDay: true,
-        },
+        { id: 'leave1', type: 'SICK', status: LeaveStatus.APPROVED, paidDays: 3.5, startDate: new Date('2026-05-04T00:00:00.000Z'), endDate: new Date('2026-05-07T00:00:00.000Z'), isHalfDay: false },
       ]);
 
-      // Requesting 2 more days (should throw since remaining is 0.5)
       await expect(
-        service.validateLeaveRequest('user1', new Date('2026-05-11'), new Date('2026-05-12')),
-      ).rejects.toThrow('Insufficient leave balance');
+        service.validateLeaveRequest('user1', new Date('2026-05-11'), new Date('2026-05-12'), false, 'SICK' as any),
+      ).resolves.toMatchObject({ insufficient: true, balance: 0.5 });
     });
   });
 });
@@ -340,14 +332,14 @@ describe('LeaveBalanceService — the balance window', () => {
 
       const spy = jest
         .spyOn(service, 'getLeaveBalance')
-        .mockResolvedValue({ allocation: 12, approved: 0, pending: 0, balance: 12 });
+        .mockResolvedValue({ allocation: 12, approved: 0, pending: 0, balance: 12, bucket: null, setupStatus: 'RESOLVED', unmeasuredRequests: 0 });
       mockPrisma.leaveRequest.count.mockResolvedValue(0);
       mockPrisma.leaveRequest.findMany.mockResolvedValue([]);
       // Duration is a separate decision with its own flag branch and its own
       // tests. Stubbed so this test proves one thing: which year is asked for.
       const duration = jest.spyOn(service, 'calculateLeaveDuration').mockResolvedValue(1);
 
-      await service.validateLeaveRequest('u1', new Date('2027-02-15'), new Date('2027-02-16'));
+      await service.validateLeaveRequest('u1', new Date('2027-02-15'), new Date('2027-02-16'), false, 'CASUAL' as any);
 
       const [, yearArg] = spy.mock.calls.at(-1)!;
       expect(yearArg).toBe(2026);
