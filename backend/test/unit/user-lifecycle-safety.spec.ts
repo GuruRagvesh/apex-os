@@ -75,7 +75,6 @@ describe('the profile save writes columns, not whatever it was handed', () => {
 
     await service.updateProfile('req-1', 'u-1', {
       designation: 'Admin',
-      phone: '9999999999',
       // The relation objects that caused the 500.
       role: { id: 'r-1', name: 'INTERN', level: 5 },
       department: { id: 'd-1', name: 'HR' },
@@ -85,7 +84,7 @@ describe('the profile save writes columns, not whatever it was handed', () => {
       updatedAt: '2020-01-01T00:00:00.000Z',
     } as any);
 
-    expect(updates[0]).toEqual({ designation: 'Admin', phone: '9999999999' });
+    expect(updates[0]).toEqual({ designation: 'Admin' });
     for (const forbidden of ['role', 'department', 'id', 'createdAt', 'updatedAt']) {
       expect(updates[0]).not.toHaveProperty(forbidden);
     }
@@ -97,27 +96,29 @@ describe('the profile save writes columns, not whatever it was handed', () => {
     const { service, updates } = profileService();
 
     await service.updateProfile('req-1', 'u-1', {
-      phone: '1',
+      designation: 'Support specialist',
       roleId: 'role-admin',
       isHR: true,
       isActive: false,
     } as any);
 
-    expect(updates[0]).toEqual({ phone: '1' });
+    expect(updates[0]).toEqual({ designation: 'Support specialist' });
   });
 
   it('cannot change the login email through a profile save', async () => {
     const { service, updates } = profileService();
-    await service.updateProfile('req-1', 'u-1', { phone: '1', email: 'new@x.com' } as any);
+    await service.updateProfile('req-1', 'u-1', { bio: 'Profile bio', email: 'new@x.com' } as any);
 
     expect(updates[0]).not.toHaveProperty('email');
+    expect(updates[0]).toEqual({ bio: 'Profile bio' });
   });
 
   it('cannot set a password or its hash', async () => {
     const { service, updates } = profileService();
-    await service.updateProfile('req-1', 'u-1', { phone: '1', password: 'x' } as any);
+    await service.updateProfile('req-1', 'u-1', { bio: 'Profile bio', password: 'x' } as any);
 
     expect(updates[0]).not.toHaveProperty('password');
+    expect(updates[0]).toEqual({ bio: 'Profile bio' });
   });
 
   it('refuses a user reporting to themselves', async () => {

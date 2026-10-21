@@ -309,6 +309,7 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'TicketTimeLog.ownerType': 'An enum label.',
   'TicketTimeLog.pauseReason': 'An enum label.',
   'EmployeeProfileChangeRequest.managerDecision': 'A decision label.',
+  'EmployeeProfileChangeRequest.employeeDeclineReason': 'A narrative reason, not a person reference.',
   'AttendancePunchEvidence.employeeProfileId': 'Points at an attendance profile.',
   'DailyAttendance.employeeProfileId': 'Points at an attendance profile.',
   'AttendanceRegularization.actorRoleAtEntry': 'A role label.',

@@ -7,10 +7,7 @@ import {
   CompOffSourceNotQualifyingError,
 } from './comp-off.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../shared/guards/roles.guard';
-import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
-import { ROLES } from '../../../shared/constants/roles';
 import { LeaveType } from '@prisma/client';
 import { CreateLeaveRequestDto } from './dto/create-leave-request.dto';
 
@@ -63,15 +60,14 @@ export class LeaveController {
   }
 
   @Patch(':id/approve')
-  @UseGuards(RolesGuard)
-  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
+  // LeaveAccessService hydrates the actor and enforces both the hierarchy and
+  // isHR functional authority. A role-only guard would reject HR staff whose
+  // base role is Employee or Intern before that scoped check can run.
   approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.approve(id, user.id, user);
   }
 
   @Patch(':id/reject')
-  @UseGuards(RolesGuard)
-  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   reject(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.reject(id, user.id, user);
   }
