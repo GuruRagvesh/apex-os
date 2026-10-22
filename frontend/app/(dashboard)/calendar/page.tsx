@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import { CalendarScreen } from '@apex/workforce-calendar';
 
 export default function CalendarPage() {
-  redirect('/dashboard');
+  return <CalendarScreen />;
 }

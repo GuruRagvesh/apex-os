@@ -18,7 +18,7 @@
 // instance would silently drop it, and a second registration would run the 401
 // redirect twice. Import `api` from here; never re-create it.
 //
-// Must not import: platforms/**, apps/**, frontend feature code, or any store.
+// Must not import platform or app modules, frontend feature code, or any store.
 
 import axios from 'axios';
 

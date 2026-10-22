@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { DailyAttendanceEvaluatorService } from '../evaluation/daily-attendance-evaluator.service';
+import { BusinessCalendarService } from '../calendar/business-calendar.service';
+import { EmployeeTimelineService } from '../timeline/employee-timeline.service';
 import {
   HISTORICAL_RECOVERY_REASON,
   financialYearV2,
@@ -46,6 +48,8 @@ export class MyAttendanceV2Service {
     private readonly prisma: PrismaService,
     private readonly tva: TVAService,
     private readonly evaluator: DailyAttendanceEvaluatorService,
+    @Optional() private readonly calendar?: BusinessCalendarService,
+    @Optional() private readonly timeline?: EmployeeTimelineService,
   ) {}
 
   /** Today plus the requested month — one round trip for the page. */
@@ -102,8 +106,11 @@ export class MyAttendanceV2Service {
 
   async today(userId: string, companyToday?: string): Promise<MyAttendanceTodayV2> {
     const date = companyToday ?? this.tva.companyToday();
-    const result = await this.evaluator.evaluate(userId, date);
-    const sessions = await this.sessionFacts(userId, date, date);
+    const [result, sessions, calendar] = await Promise.all([
+      this.evaluator.evaluate(userId, date),
+      this.sessionFacts(userId, date, date),
+      this.calendarDay(userId, date),
+    ]);
 
     return mapToday({
       result,
@@ -111,6 +118,7 @@ export class MyAttendanceV2Service {
       companyToday: date,
       anySessionAutoClosed: sessions.autoClosed.has(date),
       hasWorkEvidence: sessions.present.has(date),
+      calendar,
       // An open day has nothing settled to correct yet, so the action is not
       // offered. Whether the request would be ACCEPTED remains the
       // regularization route's decision; this is only whether to show it.
@@ -125,7 +133,7 @@ export class MyAttendanceV2Service {
     // no row exists, and asking the evaluator would be asking it to judge a day
     // that has not happened.
     if (date > companyToday) {
-      return { ...mapDay({ result: null, date, companyToday }), workSessions: [] };
+      return { ...mapDay({ result: null, date, companyToday, calendar: await this.calendarDay(userId, date) }), workSessions: [] };
     }
 
     const workSessions = await this.sessionDetails(userId, date);
@@ -135,8 +143,11 @@ export class MyAttendanceV2Service {
     const recovered = (await this.recoveredDays(userId, date, date)).get(date);
     if (recovered) return { ...mapRecoveredDay(recovered, companyToday), workSessions };
 
-    const result = await this.evaluator.evaluate(userId, date);
-    const sessions = await this.sessionFacts(userId, date, date);
+    const [result, sessions, calendar] = await Promise.all([
+      this.evaluator.evaluate(userId, date),
+      this.sessionFacts(userId, date, date),
+      this.calendarDay(userId, date),
+    ]);
 
     return {
       ...mapDay({
@@ -145,6 +156,7 @@ export class MyAttendanceV2Service {
         companyToday,
         anySessionAutoClosed: sessions.autoClosed.has(date),
         hasWorkEvidence: sessions.present.has(date),
+        calendar,
       }),
       workSessions,
     };
@@ -285,11 +297,21 @@ export class MyAttendanceV2Service {
 
     const sessions = await this.sessionFacts(userId, dates[0], dates[dates.length - 1]);
     const recovered = await this.recoveredDays(userId, dates[0], dates[dates.length - 1]);
+    const [year, monthNumber] = month.split('-').map(Number);
+    const profile = await this.timeline?.findProfileOn(userId, dates[0]);
+    const calendarMonth = this.calendar
+      ? await this.calendar.classifyMonth(year, monthNumber, {
+          holidayCalendarId: profile?.assignedHolidayCalendarId ?? null,
+          weeklyOffPolicyId: profile?.assignedWeeklyOffPolicyId ?? null,
+          strict: true,
+        })
+      : null;
+    const calendarByDate = new Map((calendarMonth?.days ?? []).map((day) => [day.businessDate, this.toCalendarDay(day)]));
 
     const days: MyAttendanceDayV2[] = [];
     for (const date of dates) {
       if (date > companyToday) {
-        days.push(mapDay({ result: null, date, companyToday }));
+        days.push(mapDay({ result: null, date, companyToday, calendar: calendarByDate.get(date) ?? null }));
         continue;
       }
       const stored = recovered.get(date);
@@ -309,10 +331,39 @@ export class MyAttendanceV2Service {
           companyToday,
           anySessionAutoClosed: sessions.autoClosed.has(date),
           hasWorkEvidence: sessions.present.has(date),
+          calendar: calendarByDate.get(date) ?? null,
         }),
       );
     }
     return days;
+  }
+
+  private toCalendarDay(day: { isWorkingDay: boolean; reason: string; holidayName: string | null }) {
+    return {
+      isWorkingDay: day.isWorkingDay,
+      status: (day.reason === 'HOLIDAY' || day.reason === 'COMPANY_CLOSURE'
+        ? 'HOLIDAY'
+        : day.isWorkingDay ? 'WORKING' : 'WEEKLY_OFF') as 'WORKING' | 'WEEKLY_OFF' | 'HOLIDAY',
+      reason: day.reason,
+      holidayName: day.holidayName,
+    };
+  }
+
+  private async calendarDay(userId: string, date: string) {
+    if (!this.calendar || !this.timeline) return null;
+    const profile = await this.timeline.findProfileOn(userId, date);
+    const facts = await this.calendar.resolveBusinessDay(date, {
+      holidayCalendarId: profile?.assignedHolidayCalendarId ?? null,
+      weeklyOffPolicyId: profile?.assignedWeeklyOffPolicyId ?? null,
+      strict: true,
+    });
+    return this.toCalendarDay({
+      isWorkingDay: facts.expectedCompanyWorkingDay,
+      reason: facts.holiday.isHoliday
+        ? 'HOLIDAY'
+        : facts.weeklyOff.reasons[0] ?? (facts.expectedCompanyWorkingDay ? 'WORKING' : 'COMPANY_CLOSURE'),
+      holidayName: facts.holiday.name,
+    });
   }
 
   /**

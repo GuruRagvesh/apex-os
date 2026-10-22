@@ -7,9 +7,11 @@ import { HomeCarouselService } from './home-carousel.service';
 import { DashboardController } from './dashboard.controller';
 import { HomeController } from './home.controller';
 import { LeaveModule } from '../../operations/leave/leave.module';
+import { NotificationsModule } from '../../operations/notifications/notifications.module';
+import { BusinessCalendarModule } from '../attendance/calendar/business-calendar.module';
 
 @Module({
-  imports: [LeaveModule],
+  imports: [LeaveModule, NotificationsModule, BusinessCalendarModule],
   providers: [DashboardService, HomeInsightsService, HomeExperienceService, HomeCarouselService, TeamInsightsService],
   controllers: [DashboardController, HomeController],
 })

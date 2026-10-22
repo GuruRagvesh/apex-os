@@ -14,6 +14,7 @@ import { ActiveReviewBanner } from '@apex/operations-tickets-lifecycle/component
 import { DesktopNotificationManager } from '@/components/notifications/DesktopNotificationManager';
 import { WorkPauseGuard } from '@/components/workday/WorkPauseGuard';
 import { MeetingInviteCenter } from '@/components/workday/MeetingInviteCenter';
+import { AnnouncementOverlayGuard } from '@/components/announcements/AnnouncementOverlayGuard';
 import { syncStoredOwner } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
@@ -180,6 +181,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <DesktopNotificationManager />
       <WorkPauseGuard />
       <MeetingInviteCenter />
+      <AnnouncementOverlayGuard />
     </div>
   );
 }

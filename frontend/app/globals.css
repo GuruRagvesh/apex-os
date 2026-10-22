@@ -10,6 +10,19 @@
 
 /* Quick Access drawer action rail. Inspired by the compact expanding icon bar
    in the supplied reference, while using Apex OS colours and focus behavior. */
+.apex-workspace-actions-box {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.apex-workspace-actions-title {
+  margin: 0 0 0.45rem 0.2rem;
+  color: #1e293b;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 .apex-workspace-action-strip {
   display: flex;
   align-items: center;
@@ -79,6 +92,10 @@
 .dark .apex-workspace-action-strip {
   border-color: #334155;
   background: rgba(15, 23, 42, 0.88);
+}
+
+.dark .apex-workspace-actions-title {
+  color: #e2e8f0;
 }
 
 .dark .apex-workspace-action {

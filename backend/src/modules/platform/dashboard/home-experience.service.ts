@@ -14,7 +14,7 @@ const TERMINAL_TICKET_STATUSES: TicketStatus[] = [
   TicketStatus.CLOSED,
 ];
 
-const WORKSPACE_ESSENTIALS_LIMIT = 1;
+const WORKSPACE_ESSENTIALS_LIMIT = 5;
 const WORKSPACE_NOTES_LIMIT = 6;
 
 type WorkspaceEssential = { id: string; label: string; url: string };
@@ -193,7 +193,7 @@ export class HomeExperienceService {
     }
     if ('essentials' in body) {
       if (!Array.isArray(body.essentials) || body.essentials.length !== WORKSPACE_ESSENTIALS_LIMIT) {
-        throw new BadRequestException('Workspace must contain exactly one essential');
+        throw new BadRequestException('Workspace must contain exactly five essentials');
       }
       const ids = new Set<string>();
       const essentials = body.essentials.map((item: any, index) => {

@@ -1,0 +1,14 @@
+.distribution { margin-top: 19px; padding: 0 0 17px; border-bottom: 1px solid #eaf0f8; }
+.distribution > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.distribution h3 { font-size: 19px; font-weight: 650; }
+.distribution > div:first-child > span { color: #496080; font-size: 14px; line-height: 1.55; }
+.dayStrip { display: grid; grid-template-columns: repeat(31, minmax(0, 1fr)); gap: 5px; margin: 13px 0 10px; }
+.dayStrip button { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 5px; border-radius: 5px; color: #31577e; font-size: 12px; font-weight: 600; }
+.dayStrip i { width: 100%; height: 24px; border-radius: 4px; background: var(--day-color); opacity: .8; box-shadow: inset 0 0 0 1px rgba(1, 38, 106, .05); transition: transform .18s ease, opacity .18s ease, box-shadow .18s ease; }
+.dayStrip button:hover:not(:disabled) i, .dayStrip button:focus-visible i { opacity: 1; transform: translateY(-2px); box-shadow: 0 6px 11px rgba(1, 38, 106, .12); }
+.dayStrip button:disabled { cursor: default; }
+
+@container (max-width: 780px) {
+  .dayStrip { grid-template-columns: repeat(31, minmax(12px, 1fr)); overflow: auto; padding-bottom: 5px; }
+  .distribution > div:first-child { flex-direction: column; align-items: flex-start; gap: 5px; }
+}

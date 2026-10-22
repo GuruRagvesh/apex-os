@@ -233,6 +233,18 @@ function unmappedFlags(flags: readonly AttendanceExceptionFlag[]): string[] {
 export interface MyAttendanceDayV2 {
   date: string;
 
+  /**
+   * Calendar policy for the date, independent of attendance evaluation.
+   * This is what lets a future Sunday or published holiday be shown without
+   * pretending that a future attendance outcome has already been decided.
+   */
+  calendar?: {
+    isWorkingDay: boolean;
+    status: 'WORKING' | 'WEEKLY_OFF' | 'HOLIDAY';
+    reason: string;
+    holidayName: string | null;
+  } | null;
+
   /** Null when no official evaluation exists for the date (Document 1 §4). */
   outcome: AttendanceOutcome | null;
   modifiers: AttendanceModifier[];
@@ -416,6 +428,8 @@ export interface MapDayInput {
   anySessionAutoClosed?: boolean;
   /** True when work evidence exists on a holiday or weekly off. */
   hasWorkEvidence?: boolean;
+  /** Published company-calendar classification; never an attendance verdict. */
+  calendar?: MyAttendanceDayV2['calendar'];
 }
 
 /**
@@ -444,9 +458,12 @@ export function mapDay(input: MapDayInput): MyAttendanceDayV2 {
   // Document 1 §4: no result means no canonical outcome. It must never read as
   // Present, Absent or anything else — least of all on a date in the future.
   if (isFuture) {
-    return emptyDay(date, { isToday: false, isFuture: true }, [
-      { field: 'outcome', reason: UNAVAILABLE_REASONS.FUTURE_DATE },
-    ]);
+    return {
+      ...emptyDay(date, { isToday: false, isFuture: true }, [
+        { field: 'outcome', reason: UNAVAILABLE_REASONS.FUTURE_DATE },
+      ]),
+      calendar: input.calendar ?? null,
+    };
   }
   if (!result || !result.official || result.status === null) {
     return {
@@ -458,6 +475,7 @@ export function mapDay(input: MapDayInput): MyAttendanceDayV2 {
       sourceStatus: result?.status ?? null,
       sourceFlags: result ? [...result.exceptionFlags] : [],
       evaluationState: result?.evaluationState ?? null,
+      calendar: input.calendar ?? null,
     };
   }
 
@@ -501,6 +519,7 @@ export function mapDay(input: MapDayInput): MyAttendanceDayV2 {
 
   return {
     date,
+    calendar: input.calendar ?? null,
     outcome,
     modifiers: [...modifiers],
     exceptions: [...exceptions],

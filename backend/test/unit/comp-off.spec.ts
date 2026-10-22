@@ -9,10 +9,8 @@ import {
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-// Comp off is the one entitlement management deliberately left half-specified:
-// they named the days that EARN it but never the work required to earn one. So
-// every test here is really the same assertion in different clothes — nothing
-// creates a credit except a human, and nothing spends one except an exact match.
+// Management-approved earning rules: 9+ effective hours on a fixed off-day, or
+// 12+ effective hours on three consecutive company working days.
 
 const tvaOf = () => new TVAService({ get: () => undefined } as unknown as ConfigService);
 
@@ -23,6 +21,7 @@ const HOLIDAY_FACTS = {
 const WORKING_FACTS = {
   weeklyOff: { isWeeklyOff: false, reasons: [], policyId: 'week-1' },
   holiday: { isHoliday: false, holidayId: null, calendarId: 'cal-1', name: null, optional: false },
+  expectedCompanyWorkingDay: true,
 };
 const SUNDAY_FACTS = {
   weeklyOff: { isWeeklyOff: true, reasons: ['SUNDAY'], policyId: 'week-1' },
@@ -36,6 +35,8 @@ interface RigOptions {
   credits?: Array<{ id: string; expiresAt: string; earnedAt?: string }>;
   createThrows?: any;
   expiryDays?: number;
+  workedMinutesByDate?: Record<string, number>;
+  existingCredit?: { id: string } | null;
 }
 
 function rig(opts: RigOptions = {}) {
@@ -80,6 +81,16 @@ function rig(opts: RigOptions = {}) {
         return Promise.resolve(row);
       }),
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(opts.existingCredit ?? null),
+    },
+    workSession: {
+      findMany: jest.fn(({ where }: any) => Promise.resolve(
+        (where.date.in as Date[]).flatMap((date) => {
+          const key = date.toISOString().slice(0, 10);
+          const minutes = opts.workedMinutesByDate?.[key];
+          return minutes === undefined ? [] : [{ date, totalWorkMinutes: minutes }];
+        }),
+      )),
     },
     leavePolicy: {
       findUnique: jest.fn().mockResolvedValue({ compOffExpiryDays: opts.expiryDays ?? 30 }),
@@ -126,15 +137,44 @@ describe('Comp off source qualification', () => {
     expect(service.expiresOn('2026-11-08', 30).toISOString().slice(0, 10)).toBe('2026-12-08');
   });
 
-  it('contains no automatic WorkSession-to-credit creation path', () => {
-    const source = readFileSync(
-      resolve(__dirname, '../../src/modules/operations/leave/comp-off.service.ts'),
-      'utf8',
-    );
-    // Management never defined how much work earns a credit, so there must be
-    // no arithmetic here that quietly decides it.
-    expect(source).not.toMatch(/totalWorkMinutes/);
-    expect(source).not.toMatch(/workSession\.(findMany|findFirst)/);
+  it('records the approved 9-hour and 12-hour thresholds explicitly', () => {
+    const source = readFileSync(resolve(__dirname, '../../src/modules/operations/leave/comp-off.service.ts'), 'utf8');
+    expect(source).toContain('9 * 60');
+    expect(source).toContain('12 * 60');
+  });
+});
+
+describe('Comp off automatic earning', () => {
+  it('does not grant an off-day credit below 9 effective hours', async () => {
+    const { service, created } = rig({ facts: SUNDAY_FACTS, workedMinutesByDate: { '2026-11-08': 539 } });
+    await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-1');
+    expect(created).toHaveLength(0);
+  });
+
+  it('grants one off-day credit at exactly 9 effective hours', async () => {
+    const { service, created } = rig({ facts: SUNDAY_FACTS, workedMinutesByDate: { '2026-11-08': 540 } });
+    await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-1');
+    expect(created).toHaveLength(1);
+    expect(created[0].earnedFromWorkSessionId).toBe('ws-1');
+  });
+
+  it('grants after three consecutive company working days at exactly 12 hours', async () => {
+    const { service, created } = rig({
+      facts: WORKING_FACTS,
+      workedMinutesByDate: { '2026-11-09': 720, '2026-11-10': 720, '2026-11-11': 720 },
+    });
+    await service.evaluateCompletedWorkday('emp-1', '2026-11-11', 'ws-3');
+    expect(created).toHaveLength(1);
+  });
+
+  it('does not issue an overlapping streak credit when a prior day already paid the block', async () => {
+    const { service, created } = rig({
+      facts: WORKING_FACTS,
+      existingCredit: { id: 'prior-streak-credit' },
+      workedMinutesByDate: { '2026-11-10': 720, '2026-11-11': 720, '2026-11-12': 720 },
+    });
+    await service.evaluateCompletedWorkday('emp-1', '2026-11-12', 'ws-4');
+    expect(created).toHaveLength(0);
   });
 });
 
@@ -183,17 +223,17 @@ describe('Comp off manual grant', () => {
     expect(credit.expiresAt.toISOString().slice(0, 10)).toBe('2026-12-08');
   });
 
-  it('never inspects how long anybody worked', async () => {
+  it('does not apply automatic duration rules to an audited manual grant', async () => {
     const { service, prisma } = rig({ isHr: true });
     await service.grantManual(HR, {
       ...input,
       earnedFromWorkSessionId: 'ws-1',
     });
 
-    // A source session may be REFERENCED for traceability, but its duration is
-    // never read — there is no approved threshold to compare it against.
+    // A source session may be REFERENCED for traceability; the manual exception
+    // itself does not run the automatic earning calculation.
     expect(prisma.compOffCredit.create.mock.calls[0][0].data.earnedFromWorkSessionId).toBe('ws-1');
-    expect((prisma as any).workSession).toBeUndefined();
+    expect(prisma.workSession.findMany).not.toHaveBeenCalled();
   });
 
   it('cannot grant the same employee two credits for one source date', async () => {
