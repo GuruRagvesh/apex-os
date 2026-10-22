@@ -58,8 +58,8 @@ export function TodaySummaryCard({
           <Metric label="Break time" value={isUnavailable(today, 'breakMinutes') ? 'Not recorded' : formatMinutesOrUnknown(today.breakMinutes)} />
           <Metric label="Breaks" value={breakCount === null ? '—' : String(breakCount)} />
           <Metric label="Sessions" value={sessionCount === null ? '—' : String(sessionCount)} />
-          <Metric label="Required" value={isUnavailable(today, 'requiredMinutes') ? '—' : formatMinutesOrUnknown(today.requiredMinutes)} />
-          <Metric label="Remaining" value={isUnavailable(today, 'presenceRemainingMinutes') ? '—' : formatMinutesOrUnknown(today.presenceRemainingMinutes)} />
+          <Metric label="Required presence" value={isUnavailable(today, 'requiredMinutes') ? '—' : formatMinutesOrUnknown(today.requiredMinutes)} />
+          <Metric label="Presence remaining" value={isUnavailable(today, 'presenceRemainingMinutes') ? '—' : formatMinutesOrUnknown(today.presenceRemainingMinutes)} />
         </dl>
       </div>
 
