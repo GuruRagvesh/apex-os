@@ -38,6 +38,9 @@ export const usersApi = {
   getMe: () => r(api.get('/users/me')),
   getMyTeam: () => r(api.get('/users/my-team')),
   updateMe: (data: any) => r(api.patch('/users/me', data)),
+  getAvailability: () => r(api.get('/users/me/availability')),
+  setAvailability: (status: string, durationMinutes: number | null) =>
+    r(api.patch('/users/me/availability', { status, durationMinutes })),
   getPreferences: () => r(api.get('/users/me/preferences')),
   updatePreferences: (data: any) => r(api.patch('/users/me/preferences', data)),
   getOne: (id: string) => r(api.get(`/users/${id}`)),

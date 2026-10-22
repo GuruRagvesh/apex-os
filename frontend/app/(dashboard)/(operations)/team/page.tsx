@@ -24,23 +24,42 @@ const ROLE_COLORS: Record<string, string> = {
   INTERN:      'bg-teal-100 text-teal-700',
 };
 
-function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
+function Avatar({ name, size = 'md', photoUrl, color }: { name: string; size?: 'sm' | 'md' | 'lg'; photoUrl?: string; color?: string }) {
   const initials = (name ?? '?').split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
   const cls = { sm: 'w-8 h-8 text-xs', md: 'w-10 h-10 text-sm', lg: 'w-12 h-12 text-base' }[size];
+  if (photoUrl) return <img src={photoUrl} alt={`${name} profile photo`} className={cn('rounded-full object-cover flex-shrink-0', cls)} />;
   return (
     <div
       className={cn('rounded-full flex items-center justify-center font-semibold text-white flex-shrink-0', cls)}
-      style={{ background: 'linear-gradient(135deg,#1e40af 0%,#4f46e5 100%)' }}
+      style={{ background: color || 'linear-gradient(135deg,#1e40af 0%,#4f46e5 100%)' }}
     >
       {initials}
     </div>
   );
 }
 
+function AvailabilityBadge({ user }: { user: any }) {
+  const status = user.effectiveAvailabilityStatus ?? (user.currentStatus === 'WORKING' ? 'AVAILABLE'
+    : user.currentStatus === 'ON_BREAK' ? 'BE_RIGHT_BACK'
+    : user.currentStatus === 'IDLE' ? 'AWAY' : 'OFFLINE');
+  const details: Record<string, { label: string; color: string }> = {
+    AVAILABLE: { label: 'Available', color: '#16a34a' },
+    BUSY: { label: 'Busy', color: '#dc2626' },
+    DO_NOT_DISTURB: { label: 'Do not disturb', color: '#dc2626' },
+    BE_RIGHT_BACK: { label: 'Be right back', color: '#eab308' },
+    AWAY: { label: 'Appear away', color: '#eab308' },
+    OFFLINE: { label: 'Offline', color: '#64748b' },
+  };
+  const value = details[status] ?? details.OFFLINE;
+  return <span className="inline-flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }} title="Collaboration availability, separate from attendance">
+    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: value.color }} />{value.label}
+  </span>;
+}
+
 function WorkloadDots({ count }: { count: number }) {
   const level = count === 0 ? 'free' : count <= 2 ? 'light' : count <= 5 ? 'medium' : 'heavy';
   const colors = { free: 'bg-green-400', light: 'bg-yellow-400', medium: 'bg-orange-400', heavy: 'bg-red-400' };
-  const labels = { free: 'Available', light: 'Light load', medium: 'Medium load', heavy: 'High load' };
+  const labels = { free: 'No open tickets', light: 'Light load', medium: 'Medium load', heavy: 'High load' };
   return (
     <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
       <span className={cn('w-2 h-2 rounded-full', colors[level])} />
@@ -53,7 +72,7 @@ function WorkloadDots({ count }: { count: number }) {
 function TeamMemberCard({ user }: { user: any }) {
   return (
     <div className="apex-card p-4 flex items-start gap-4 hover:shadow-sm transition-all">
-      <Avatar name={user.name} size="lg" />
+      <Avatar name={user.name} photoUrl={user.photoUrl} color={user.avatar} size="lg" />
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -68,6 +87,7 @@ function TeamMemberCard({ user }: { user: any }) {
           <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
             <Building2 size={11} /> {user.department?.name ?? 'No dept'}
           </span>
+          <AvailabilityBadge user={user} />
           <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
             <Ticket size={11} /> {user._count?.assignedTickets ?? user.ticketCount ?? 0} open tickets
           </span>
@@ -84,7 +104,7 @@ function DirectoryCard({ user, isRequested, isLoading: loading, onRequest }: {
 }) {
   return (
     <div className="apex-card p-4 flex items-center gap-3 hover:shadow-sm transition-all">
-      <Avatar name={user.name} size="md" />
+      <Avatar name={user.name} photoUrl={user.photoUrl} color={user.avatar} size="md" />
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate text-sm" style={{ color: 'var(--text-primary)' }}>{user.name}</p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -94,6 +114,7 @@ function DirectoryCard({ user, isRequested, isLoading: loading, onRequest }: {
           <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{user.department?.name}</span>
         </div>
         <div className="flex items-center gap-3 mt-1.5">
+          <AvailabilityBadge user={user} />
           <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-tertiary)' }}><Ticket size={10} /> {user._count?.assignedTickets ?? 0} open</span>
           <WorkloadDots count={user._count?.assignedTickets ?? 0} />
         </div>
@@ -143,7 +164,7 @@ function DeptSection({ name, members }: { name: string; members: any[] }) {
               onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
             >
-              <Avatar name={m.name} size="sm" />
+              <Avatar name={m.name} photoUrl={m.photoUrl} color={m.avatar} size="sm" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{m.name}</p>
                 <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{m.email}</p>
@@ -154,6 +175,7 @@ function DeptSection({ name, members }: { name: string; members: any[] }) {
               <span className="flex items-center gap-1 text-xs flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
                 <Ticket size={10} /> {m._count?.assignedTickets ?? 0}
               </span>
+              <AvailabilityBadge user={m} />
               <WorkloadDots count={m._count?.assignedTickets ?? 0} />
             </div>
           ))}
@@ -173,6 +195,7 @@ function SuperAdminCompanyView({ me }: { me: any }) {
   const { data: usersData, isLoading } = useQuery({
     queryKey: ['all-users-team'],
     queryFn: () => usersApi.getAll({ limit: 100 }) as Promise<any>,
+    refetchInterval: pollWhileHealthy(60_000),
   });
 
   const allUsers: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
@@ -248,6 +271,7 @@ function ManagerTeamView({ me }: { me: any }) {
   const { data: myTeamRaw, isLoading } = useQuery({
     queryKey: ['my-team-manager'],
     queryFn: () => usersApi.getMyTeam() as Promise<any[]>,
+    refetchInterval: pollWhileHealthy(60_000),
   });
 
   const allMembers: any[] = Array.isArray(myTeamRaw) ? myTeamRaw : [];
@@ -346,6 +370,7 @@ function MyTeamView({ me }: { me: any }) {
   const { data: directory = [], isLoading } = useQuery({
     queryKey: ['team-directory'],
     queryFn: () => teamApi.getDirectory() as Promise<any[]>,
+    refetchInterval: pollWhileHealthy(60_000),
   });
 
   const myDeptName = me?.department?.name ?? '';

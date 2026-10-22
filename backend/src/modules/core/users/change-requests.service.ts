@@ -152,7 +152,7 @@ export class ChangeRequestsService {
       title: 'Confirm a personal information correction',
       message: `${requester.name} proposed corrections to your official personal information.`,
       type: NotificationType.INFO,
-      link: '/settings?tab=profile',
+      link: '/settings?tab=personal-info',
       entityId: request.id,
       entityType: 'EmployeeProfileChangeRequest',
     }).catch(() => {});
@@ -238,7 +238,7 @@ export class ChangeRequestsService {
         title: 'Personal information correction needs your confirmation',
         message: 'Review the HR-proposed correction in Personal Details.',
         type: NotificationType.INFO,
-        link: '/settings?tab=profile',
+        link: '/settings?tab=personal-info',
         entityId: request.id,
         entityType: 'EmployeeProfileChangeRequest',
         dedupeKey: `personal-information-confirmation:${request.id}:${reminderNumber}`,
@@ -663,7 +663,7 @@ export class ChangeRequestsService {
       action: OperationalAction.PERSONAL_INFORMATION_CHANGE_APPROVED, metadata: { note } }).catch(() => {});
     await this.notificationService.sendNotification(request.targetUserId, 'profileChangeResult', {
       title: 'Personal information request approved', message: 'Your approved official details are now updated.',
-      type: NotificationType.INFO, link: '/settings?tab=profile', entityId: request.id,
+      type: NotificationType.INFO, link: '/settings?tab=personal-info', entityId: request.id,
       entityType: 'EmployeeProfileChangeRequest',
     }).catch(() => {});
     return result;
@@ -687,7 +687,7 @@ export class ChangeRequestsService {
       action: OperationalAction.PERSONAL_INFORMATION_CHANGE_REJECTED, metadata: { reason } }).catch(() => {});
     await this.notificationService.sendNotification(request.targetUserId, 'profileChangeResult', {
       title: 'Personal information request rejected', message: reason, type: NotificationType.INFO,
-      link: '/settings?tab=profile', entityId: request.id, entityType: 'EmployeeProfileChangeRequest',
+      link: '/settings?tab=personal-info', entityId: request.id, entityType: 'EmployeeProfileChangeRequest',
     }).catch(() => {});
     return updated;
   }

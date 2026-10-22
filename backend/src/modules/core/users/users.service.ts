@@ -447,6 +447,45 @@ export class UsersService {
     return this.accessPolicy.safeUser(user);
   }
 
+  // Collaboration presence is a user preference. It never writes to
+  // currentStatus or WorkSession, which remain attendance-owned.
+  async getAvailability(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { availabilityStatus: true, availabilityExpiresAt: true, currentStatus: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const activeOverride = user.availabilityStatus !== 'AUTO' &&
+      (!user.availabilityExpiresAt || user.availabilityExpiresAt.getTime() > Date.now());
+    const workdayStatus = user.currentStatus;
+    const automaticStatus = workdayStatus === 'WORKING' ? 'AVAILABLE'
+      : workdayStatus === 'ON_BREAK' ? 'BE_RIGHT_BACK'
+      : workdayStatus === 'IDLE' ? 'AWAY'
+      : 'APPEAR_OFFLINE';
+    return {
+      selectedStatus: activeOverride ? user.availabilityStatus : 'AUTO',
+      effectiveStatus: activeOverride ? user.availabilityStatus : automaticStatus,
+      expiresAt: activeOverride ? user.availabilityExpiresAt : null,
+      workdayStatus,
+    };
+  }
+
+  async setAvailability(userId: string, status: string, durationMinutes?: number | null) {
+    const allowed = ['AUTO', 'AVAILABLE', 'BUSY', 'DO_NOT_DISTURB', 'BE_RIGHT_BACK', 'AWAY', 'APPEAR_OFFLINE'];
+    if (!allowed.includes(status)) throw new BadRequestException('Invalid availability status');
+    if (durationMinutes !== undefined && durationMinutes !== null &&
+      (![60, 240, 480].includes(durationMinutes))) {
+      throw new BadRequestException('Invalid availability duration');
+    }
+    const expiresAt = status !== 'AUTO' && durationMinutes
+      ? new Date(Date.now() + durationMinutes * 60_000) : null;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { availabilityStatus: status, availabilityExpiresAt: expiresAt },
+    });
+    return this.getAvailability(userId);
+  }
+
   async create(
     data: {
       name: string;

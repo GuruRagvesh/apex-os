@@ -162,6 +162,19 @@ export class AccessPolicyService {
     if (!user) return user;
     const sanitized = { ...user };
     for (const field of SENSITIVE_USER_FIELDS) delete sanitized[field];
+    // Directory consumers receive only the effective display state, never the
+    // private override or expiry (especially for "Appear offline").
+    if ('availabilityStatus' in sanitized) {
+      const manual = sanitized.availabilityStatus !== 'AUTO' &&
+        (!sanitized.availabilityExpiresAt || new Date(sanitized.availabilityExpiresAt).getTime() > Date.now());
+      const automatic = sanitized.currentStatus === 'WORKING' ? 'AVAILABLE'
+        : sanitized.currentStatus === 'ON_BREAK' ? 'BE_RIGHT_BACK'
+        : sanitized.currentStatus === 'IDLE' ? 'AWAY' : 'OFFLINE';
+      const effective = manual ? sanitized.availabilityStatus : automatic;
+      sanitized.effectiveAvailabilityStatus = effective === 'APPEAR_OFFLINE' ? 'OFFLINE' : effective;
+      delete sanitized.availabilityStatus;
+      delete sanitized.availabilityExpiresAt;
+    }
     return sanitized;
   }
 

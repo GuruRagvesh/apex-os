@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import NextImage from 'next/image';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { settingsApi, taskTypesApi } from '@/lib/api';
@@ -12,12 +13,14 @@ import toast from 'react-hot-toast';
 import {
   User, Shield, Palette, Building2,
   CalendarDays, Eye, EyeOff, Lock, Tags, Bell, UsersRound, Search, Clock3, ClipboardCheck, Contact,
+  ExternalLink, Globe2, IndianRupee, Mail, MapPin,
 } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
 import { useTheme, type ThemeId, type AccentId } from '@apex/shared-utilities/use-theme';
 import { enablePushNotifications } from '@/lib/push-notifications';
 import { TeamLeadershipSection } from './TeamLeadershipSection';
 import { PersonalInformationSection } from './PersonalInformationSection';
+import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
 const inputCls  = 'apex-input';
@@ -25,19 +28,6 @@ const labelCls  = 'apex-label';
 const cardCls   = 'apex-card p-6 space-y-4';
 
 const AVATAR_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#14b8a6'];
-
-const ROLE_BADGE: Record<string, string> = {
-  SUPER_ADMIN: 'bg-purple-100 text-purple-700',
-  ADMIN:       'bg-red-100 text-red-700',
-  MANAGER:     'bg-orange-100 text-orange-700',
-  TEAM_LEAD:   'bg-blue-100 text-blue-700',
-  EMPLOYEE:    'bg-green-100 text-green-700',
-  INTERN:      'bg-teal-100 text-teal-700',
-};
-
-function getInitials(name: string) {
-  return (name ?? '').split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
-}
 
 // ── Toggle ────────────────────────────────────────────────────────────────────
 function Toggle({ checked, onChange, disabled = false }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -111,10 +101,32 @@ function ProfileSection({ user }: { user: any }) {
   const [bio, setBio]     = useState(user?.bio ?? '');
   const [color, setColor] = useState(user?.avatar ?? AVATAR_COLORS[0]);
   const [saving, setSaving] = useState(false);
+  const [photoSaving, setPhotoSaving] = useState(false);
+  const [crop, setCrop] = useState<{ file: File; url: string } | null>(null);
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropX, setCropX] = useState(50);
+  const [cropY, setCropY] = useState(50);
   const updateUser = useAuthStore((s) => s.updateUser);
 
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   const deptName = (user?.department as any)?.name ?? '';
+  const title = typeof user?.designation === 'string' && user.designation.trim()
+    ? user.designation.trim() : roleName.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+
+  useEffect(() => {
+    setName(user?.name ?? '');
+    setBio(user?.bio ?? '');
+    setColor(user?.avatar ?? AVATAR_COLORS[0]);
+  }, [user?.id, user?.name, user?.bio, user?.avatar]);
+
+  useEffect(() => () => { if (crop) URL.revokeObjectURL(crop.url); }, [crop]);
+
+  useEffect(() => {
+    if (!crop) return;
+    const onEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setCrop(null); };
+    document.addEventListener('keydown', onEscape);
+    return () => document.removeEventListener('keydown', onEscape);
+  }, [crop]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,16 +143,45 @@ function ProfileSection({ user }: { user: any }) {
     }
   };
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!['image/jpeg', 'image/png'].includes(file.type)) { toast.error('Use a JPG or PNG photo'); return; }
     if (file.size > 2 * 1024 * 1024) { toast.error('Max 2MB'); return; }
+    setCrop({ file, url: URL.createObjectURL(file) });
+    setCropZoom(1); setCropX(50); setCropY(50);
+    e.target.value = '';
+  };
+
+  const saveCroppedPhoto = async () => {
+    if (!crop) return;
+    setPhotoSaving(true);
     try {
-      const data = await (usersApi as any).uploadPhoto(file) as any;
+      const image = new Image();
+      image.src = crop.url;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = 512; canvas.height = 512;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Image editor unavailable');
+      const baseScale = Math.max(512 / image.naturalWidth, 512 / image.naturalHeight);
+      const baseWidth = image.naturalWidth * baseScale;
+      const baseHeight = image.naturalHeight * baseScale;
+      // object-position followed by a centered CSS zoom, matching the preview.
+      const width = baseWidth * cropZoom;
+      const height = baseHeight * cropZoom;
+      const left = 256 + ((512 - baseWidth) * cropX / 100 - 256) * cropZoom;
+      const top = 256 + ((512 - baseHeight) * cropY / 100 - 256) * cropZoom;
+      context.drawImage(image, left, top, width, height);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, crop.file.type, 0.9));
+      if (!blob) throw new Error('Could not prepare photo');
+      const file = new File([blob], crop.file.name, { type: crop.file.type });
+      const data = await usersApi.uploadPhoto(file) as any;
       useAuthStore.setState((s: any) => ({ user: { ...s.user, photoUrl: data.photoUrl } }));
+      setCrop(null);
       toast.success('Photo updated!');
     } catch { toast.error('Failed to upload photo'); }
+    finally { setPhotoSaving(false); }
   };
 
   const handleRemovePhoto = async () => {
@@ -153,85 +194,92 @@ function ProfileSection({ user }: { user: any }) {
 
   return (
     <form onSubmit={handleSave}>
-      <div className={cardCls}>
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Profile</h2>
-          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Manage how your name and profile appear across APEX OS.</p>
+      <div className="apex-card overflow-visible p-5 sm:p-7">
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Your profile</h2>
+          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Introduce yourself to your team and manage how you appear across APEX OS.</p>
         </div>
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-          <UserAvatar name={name} avatar={color} photoUrl={(user as any)?.photoUrl} size="lg" />
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <label
-                className="cursor-pointer inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg border transition-colors"
-                style={{
-                  borderColor: 'var(--border-primary)',
-                  backgroundColor: 'var(--surface-card)',
-                  color: 'var(--text-secondary)',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-card)')}
-              >
-                <input type="file" accept="image/jpeg,image/png" className="hidden" onChange={handlePhotoUpload} />
-                Upload Photo
-              </label>
-              {(user as any)?.photoUrl && (
-                <button
-                  type="button"
-                  onClick={handleRemovePhoto}
-                  className="ml-2 text-sm text-red-500 hover:text-red-700"
-                >
-                  Remove
-                </button>
-              )}
+        <div className="grid gap-6 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1fr)] xl:gap-8">
+          <section aria-label="Profile preview" className="min-w-0 overflow-visible rounded-2xl border" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--surface-card)' }}>
+            <div className="relative h-28 overflow-hidden rounded-t-2xl" style={{ background: `linear-gradient(125deg, ${color} 0%, #18345c 62%, #10182d 100%)` }}>
+              <div className="absolute -right-8 -top-12 h-40 w-40 rounded-full border border-white/20" />
+              <div className="absolute right-16 top-8 h-24 w-24 rounded-full border border-white/15" />
             </div>
-            <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>JPG or PNG, up to 2 MB.</p>
-            <div>
-              <p className="mb-2 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Avatar colour</p>
-              <div className="flex gap-2">
-                {AVATAR_COLORS.map((c) => (
-                  <button key={c} type="button" onClick={() => setColor(c)} aria-label={`Use ${c} as avatar colour`}
-                    className="h-7 w-7 rounded-full border-2 transition-transform hover:scale-110"
-                    style={{ background: c, borderColor: color === c ? 'var(--text-primary)' : 'transparent' }}
-                  />
-                ))}
+            <div className="relative px-5 pb-6">
+              <div className="-mt-10 mb-3 flex items-end justify-between gap-2">
+                <UserAvatar name={name} avatar={color} photoUrl={user?.photoUrl} size="lg" className="!h-20 !w-20 !text-2xl ring-4 ring-[var(--surface-card)]" />
+                <span className="pb-1 text-[11px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Live preview</span>
+              </div>
+              <h3 className="break-words text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{name.trim() || 'Your name'}</h3>
+              <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>{title || 'Team member'}{deptName ? ` · ${deptName}` : ''}</p>
+              <div className="mt-4"><AvailabilityControl align="left" /></div>
+              <div className="mt-5 border-t pt-4" style={{ borderColor: 'var(--border-subtle)' }}>
+                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>About</p>
+                <p className="mt-2 min-h-10 whitespace-pre-wrap break-words text-sm" style={{ color: bio.trim() ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>{bio.trim() || 'Add a short introduction so teammates know what you work on.'}</p>
+              </div>
+              <div className="mt-4 border-t pt-4" style={{ borderColor: 'var(--border-subtle)' }}>
+                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Work email</p>
+                <p className="mt-1 break-all text-sm" style={{ color: 'var(--text-secondary)' }}>{user?.email ?? '—'}</p>
               </div>
             </div>
+          </section>
+
+          <section aria-label="Edit profile" className="min-w-0 space-y-6">
+            <div>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Profile photo</h3>
+              <p className="mb-3 mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>JPG or PNG, up to 2 MB. Your photo appears throughout APEX OS.</p>
+              <div className="flex items-center gap-4">
+                <UserAvatar name={name} avatar={color} photoUrl={user?.photoUrl} size="lg" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="cursor-pointer rounded-xl border px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--bg-tertiary)]" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}>
+                    <input type="file" accept="image/jpeg,image/png" className="sr-only" onChange={handlePhotoUpload} disabled={photoSaving} aria-label="Upload profile photo" />
+                    {photoSaving ? 'Uploading…' : 'Change photo'}
+                  </label>
+                  {user?.photoUrl && <button type="button" onClick={handleRemovePhoto} className="px-2 py-2 text-sm" style={{ color: 'var(--color-danger)' }}>Remove</button>}
+                </div>
+              </div>
+              <p className="mb-2 mt-4 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Fallback avatar colour</p>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Fallback avatar colour">
+                {AVATAR_COLORS.map((c) => <button key={c} type="button" onClick={() => setColor(c)} aria-label={`Use ${c} as avatar colour`} aria-pressed={color === c}
+                  className="h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  style={{ background: c, borderColor: color === c ? 'var(--text-primary)' : 'transparent' }} />)}
+              </div>
+            </div>
+            <div>
+              <label htmlFor="profile-display-name" className={labelCls}>Display name</label>
+              <input id="profile-display-name" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} maxLength={100} required autoComplete="name" />
+              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>This is the name teammates see on tickets and messages.</p>
+            </div>
+            <div>
+              <label htmlFor="profile-bio" className={labelCls}>About me <span className="font-normal" style={{ color: 'var(--text-tertiary)' }}>({bio.length}/200)</span></label>
+              <textarea id="profile-bio" value={bio} onChange={(e) => setBio(e.target.value)} maxLength={200}
+                className={`${inputCls} resize-none`} rows={4} placeholder="What do you work on? What should teammates know?" />
+            </div>
+            <div className="rounded-xl border p-3 text-xs" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+              Your role, department and work email are managed by the organization. Official personal information is handled separately with HR approval.
+            </div>
+            <SaveBtn loading={saving} label="Save profile" />
+          </section>
+        </div>
+      </div>
+      {crop && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" role="presentation">
+        <div role="dialog" aria-modal="true" aria-labelledby="photo-crop-title" className="w-full max-w-sm rounded-2xl border p-5 shadow-2xl" style={{ backgroundColor: 'var(--surface-elevated)', borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}>
+          <h3 id="photo-crop-title" className="text-lg font-semibold">Adjust your photo</h3>
+          <p className="mb-4 mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Move and zoom the photo to choose what teammates see.</p>
+          <div className="mx-auto h-48 w-48 overflow-hidden rounded-full border-4" style={{ borderColor: 'var(--border-primary)' }}>
+            <img src={crop.url} alt="Profile photo crop preview" className="h-full w-full object-cover" style={{ objectPosition: `${cropX}% ${cropY}%`, transform: `scale(${cropZoom})` }} />
+          </div>
+          <div className="mt-5 space-y-3">
+            <label className="block text-xs">Zoom<input type="range" min="1" max="2.5" step="0.05" value={cropZoom} onChange={(event) => setCropZoom(Number(event.target.value))} className="mt-1 w-full" /></label>
+            <label className="block text-xs">Horizontal position<input type="range" min="0" max="100" value={cropX} onChange={(event) => setCropX(Number(event.target.value))} className="mt-1 w-full" /></label>
+            <label className="block text-xs">Vertical position<input type="range" min="0" max="100" value={cropY} onChange={(event) => setCropY(Number(event.target.value))} className="mt-1 w-full" /></label>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" disabled={photoSaving} onClick={() => setCrop(null)} className="rounded-lg border px-4 py-2 text-sm" style={{ borderColor: 'var(--border-primary)' }}>Cancel</button>
+            <button type="button" disabled={photoSaving} onClick={saveCroppedPhoto} className="apex-btn-primary px-4 py-2 text-sm">{photoSaving ? 'Saving…' : 'Save photo'}</button>
           </div>
         </div>
-
-        <div>
-          <label className={labelCls}>Display Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} required />
-        </div>
-
-        <div>
-          <label className={labelCls}>Email <Lock size={11} className="inline mb-0.5" style={{ color: 'var(--text-tertiary)' }} /></label>
-          <input className={`${inputCls} opacity-60 cursor-not-allowed`} value={user?.email ?? ''} readOnly />
-        </div>
-
-        <div className="flex gap-2 flex-wrap">
-          {roleName && <span className={cn('px-3 py-1 text-xs font-medium rounded-full', ROLE_BADGE[roleName] ?? 'bg-slate-100 text-slate-600')}>{roleName}</span>}
-          {deptName && (
-            <span
-              className="px-3 py-1 text-xs font-medium rounded-full"
-              style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)' }}
-            >
-              {deptName}
-            </span>
-          )}
-        </div>
-
-        <div>
-          <label className={labelCls}>
-            Bio <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>({bio.length}/200)</span>
-          </label>
-          <textarea value={bio} onChange={(e) => e.target.value.length <= 200 && setBio(e.target.value)}
-            className={`${inputCls} resize-none`} rows={3} placeholder="Tell your team a little about yourself…" />
-        </div>
-
-        <SaveBtn loading={saving} />
-      </div>
+      </div>}
     </form>
   );
 }
@@ -537,15 +585,29 @@ function CompanySection() {
   });
   const [form, setForm] = useState({
     companyName: 'TechnoEdge Learning Services',
-    tagline: '',
-    contactEmail: '',
+    logoUrl: '/brand/technoedge-logo.png',
+    contactEmail: 'hr@technoedgels.com',
+    website: 'https://www.technoedgels.com/',
+    country: 'India',
     timezone: 'Asia/Kolkata',
-    branding: 'Royal Blue'
+    currency: 'INR',
+    registeredOffice: 'Office No. B-2/201,\nUmang Premiere,\nG.No.677, 687(P), 6 Tal-Haveli,\nDist-Pune, Wagholi-412207,\nMaharashtra, India',
+    headOffice: 'Baner Biz Bay,\nOffice No. B-704, B-705 & B-706,\n7th Floor, Laxman Nagar,\nBaner, Pune - 411045,\nMaharashtra, India',
   });
 
   // Sync from API once loaded
   useEffect(() => {
-    if (remote) setForm((f) => ({ ...f, ...remote }));
+    if (remote) setForm((current) => ({
+      companyName: remote.companyName || current.companyName,
+      logoUrl: remote.logoUrl || current.logoUrl,
+      contactEmail: remote.contactEmail || current.contactEmail,
+      website: remote.website || current.website,
+      country: remote.country || current.country,
+      timezone: remote.timezone || current.timezone,
+      currency: remote.currency || current.currency,
+      registeredOffice: remote.registeredOffice || current.registeredOffice,
+      headOffice: remote.headOffice || current.headOffice,
+    }));
   }, [remote]);
 
   const save = useMutation({
@@ -559,7 +621,9 @@ function CompanySection() {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    save.mutate(form);
+    save.mutate(Object.fromEntries(
+      Object.entries(form).map(([key, value]) => [key, value.trim()]),
+    ));
   };
 
   if (isLoading) return <p className="apex-card p-5 text-sm" role="status">Loading organization profile…</p>;
@@ -570,35 +634,90 @@ function CompanySection() {
       <div className={cardCls}>
         <div>
           <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Organization profile</h2>
-          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Manage the identity and regional defaults used across APEX OS.</p>
+          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>The official identity, contact details and regional defaults used across APEX OS.</p>
         </div>
-        <div><label className={labelCls}>Organization name</label><input className={inputCls} value={form.companyName} onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))} /></div>
-        <div><label className={labelCls}>Tagline</label><input className={inputCls} value={form.tagline} onChange={(e) => setForm((f) => ({ ...f, tagline: e.target.value }))} placeholder="e.g. AI-powered workplace operations" /></div>
-        <div><label className={labelCls}>Contact Email</label><input type="email" className={inputCls} value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} placeholder="hr@company.com" /></div>
-        <div>
-          <label className={labelCls}>Organization timezone</label>
-          <select
-            className={inputCls}
-            value={form.timezone || 'Asia/Kolkata'}
-            onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
-          >
-            <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-            <option value="UTC">Coordinated Universal Time (UTC)</option>
-            <option value="America/New_York">America/New_York (EST/EDT)</option>
-            <option value="Europe/London">Europe/London (GMT/BST)</option>
-            <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
-          </select>
+
+        <section
+          className="overflow-hidden rounded-2xl border"
+          style={{ borderColor: '#2666C4', backgroundColor: 'var(--bg-secondary)' }}
+          aria-label="Organization identity preview"
+        >
+          <div className="h-2" style={{ background: 'linear-gradient(90deg, #01266A, #2666C4, #73C2FB)' }} />
+          <div className="grid gap-5 p-5 sm:grid-cols-[112px_minmax(0,1fr)] sm:items-center">
+            <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl border bg-white p-3 shadow-sm" style={{ borderColor: '#D8E9FF' }}>
+              <NextImage src={form.logoUrl} alt="TechnoEdge organization logo" width={96} height={96} className="h-full w-full object-contain" priority />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: '#2666C4' }}>Organization identity</p>
+              <h3 className="mt-1 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{form.companyName}</h3>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><MapPin size={13} />{form.country}</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><IndianRupee size={13} />{form.currency}</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><Clock3 size={13} />{form.timezone === 'Asia/Kolkata' ? 'IST' : form.timezone}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4" aria-labelledby="organization-contact-heading">
+          <div>
+            <h3 id="organization-contact-heading" className="font-semibold" style={{ color: 'var(--text-primary)' }}>Organization details</h3>
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Information shown on official communication and company records.</p>
+          </div>
+          <div><label className={labelCls}>Organization name</label><input required autoComplete="organization" className={inputCls} value={form.companyName} onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))} /></div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div><label className={labelCls}><Mail size={14} />Contact email</label><input required type="email" autoComplete="email" className={inputCls} value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} /></div>
+            <div><label className={labelCls}><Globe2 size={14} />Website</label><input required type="url" autoComplete="url" className={inputCls} value={form.website} onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))} /></div>
+          </div>
+          <a href={form.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--accent)' }}>
+            Visit organization website <ExternalLink size={14} aria-hidden="true" />
+          </a>
+        </section>
+
+        <section className="space-y-4 border-t pt-5" style={{ borderColor: 'var(--border-subtle)' }} aria-labelledby="regional-defaults-heading">
+          <div>
+            <h3 id="regional-defaults-heading" className="font-semibold" style={{ color: 'var(--text-primary)' }}>Regional defaults</h3>
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Used for dates, work schedules and financial values.</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div><label className={labelCls}>Country</label><input required autoComplete="country-name" className={inputCls} value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))} /></div>
+            <div>
+              <label className={labelCls}>Timezone</label>
+              <select className={inputCls} value={form.timezone} onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}>
+                <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                <option value="UTC">Coordinated Universal Time (UTC)</option>
+                <option value="America/New_York">America/New_York (EST/EDT)</option>
+                <option value="Europe/London">Europe/London (GMT/BST)</option>
+                <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Currency</label>
+              <select className={inputCls} value={form.currency} onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}>
+                <option value="INR">Indian Rupee (INR ₹)</option>
+                <option value="USD">US Dollar (USD $)</option>
+                <option value="GBP">Pound Sterling (GBP £)</option>
+                <option value="EUR">Euro (EUR €)</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4 border-t pt-5" style={{ borderColor: 'var(--border-subtle)' }} aria-labelledby="office-locations-heading">
+          <div>
+            <h3 id="office-locations-heading" className="font-semibold" style={{ color: 'var(--text-primary)' }}>Office locations</h3>
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Official addresses used for statutory records and correspondence.</p>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div><label className={labelCls}>Registered office</label><textarea required rows={6} className={inputCls} value={form.registeredOffice} onChange={(e) => setForm((f) => ({ ...f, registeredOffice: e.target.value }))} /></div>
+            <div><label className={labelCls}>Head office</label><textarea required rows={6} className={inputCls} value={form.headOffice} onChange={(e) => setForm((f) => ({ ...f, headOffice: e.target.value }))} /></div>
+          </div>
+        </section>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-5" style={{ borderColor: 'var(--border-subtle)' }}>
+          <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Changes apply to organization-wide records.</p>
+          <SaveBtn loading={save.isPending} label="Save organization profile" />
         </div>
-        <div>
-          <label className={labelCls}>Brand label</label>
-          <input
-            className={inputCls}
-            value={form.branding || 'Royal Blue'}
-            onChange={(e) => setForm((f) => ({ ...f, branding: e.target.value }))}
-            placeholder="e.g. Royal Blue, Emerald Green"
-          />
-        </div>
-        <SaveBtn loading={save.isPending} />
       </div>
     </form>
   );

@@ -49,6 +49,21 @@ describe('SettingsService - FP-19A Workday Auto-Close Custom Time', () => {
     expect(policy.autoCloseTime).toBe('23:59'); // Injected from default
   });
 
+  it('merges the essential organization defaults into legacy company settings', async () => {
+    prisma.appSetting.findUnique.mockResolvedValue({
+      key: 'company',
+      value: { companyName: 'TechnoEdge Learning Services', contactEmail: '' },
+    });
+    const company = await service.get('company');
+    expect(company).toMatchObject({
+      contactEmail: 'hr@technoedgels.com',
+      website: 'https://www.technoedgels.com/',
+      country: 'India',
+      currency: 'INR',
+      logoUrl: '/brand/technoedge-logo.png',
+    });
+  });
+
   it('3. updateWorkdayPolicy persists autoCloseTime', async () => {
     prisma.appSetting.upsert.mockResolvedValue({
       value: { autoClose: true, autoCloseTime: '22:00' },

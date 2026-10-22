@@ -51,6 +51,19 @@ export class UsersController {
     return this.usersService.update(user.id, data);
   }
 
+  @Get('me/availability')
+  getAvailability(@CurrentUser() user: any) {
+    return this.usersService.getAvailability(user.id ?? user.sub);
+  }
+
+  @Patch('me/availability')
+  setAvailability(
+    @CurrentUser() user: any,
+    @Body() body: { status?: string; durationMinutes?: number | null },
+  ) {
+    return this.usersService.setAvailability(user.id ?? user.sub, body?.status ?? '', body?.durationMinutes);
+  }
+
   @Post('me/photo')
   @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 2 * 1024 * 1024 } }))
   async uploadPhoto(
