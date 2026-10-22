@@ -6,7 +6,7 @@ import { AlertTriangle, Building2, CalendarDays, CheckCircle2, Clock3, Coffee, E
 import { dashboardApi } from '../api/dashboard-api';
 import type { HomeExperience, TeamInsightPayload } from './home-types';
 import { SectionFrame } from './home-ui';
-import attendanceInsightsStyles from '@/components/attendance-v2/insights.module.css';
+import attendanceInsightsStyles from './TeamInsightsSection.module.css';
 
 const EMPTY_DEPARTMENTS: HomeExperience['team']['departments'] = [];
 type AnalysisMode = 'monthly' | 'daily';

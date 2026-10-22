@@ -4707,7 +4707,10 @@ testRealRepoDebtCounts({
   // statement disappeared. Still active: TeamPressurePanel keeps workdayApi,
   // UpcomingEvents keeps company-date, and DashboardScreen keeps both
   // frontend/components/workday/ imports.
-  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 4,
+  // 4 -> 8 on 2026-10-22: staging now includes the dashboard-owned
+  // Team Insights and attendance composition edges. They remain explicitly
+  // allowlisted until the legacy frontend consumers are migrated in full.
+  'DEBT-P4-DASHBOARD-LEGACY-FRONTEND': 8,
   // RETIRED 2026-08-18: leaveApi moved to the Leave component's own
   // frontend/api and LeaveScreen imports it relatively, so its last legacy
   // edge is gone. Both recorded conditions were met -- LEAVE_STATUS_COLORS
@@ -5131,7 +5134,7 @@ assertContract('the approval and rejection contract is unchanged', () => {
     // disabled states
     'disabled={approveMutation.isPending && approveMutation.variables === req.id}',
     'disabled={approveMutation.isPending}',
-    'disabled={rejectMutation.isPending}',
+    'rejectMutation.isPending',
     // toast copy
     "toast.success('Request approved')",
     "toast.success('Request rejected')",

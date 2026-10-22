@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, ChevronDown, History, Palmtree } from 'lucide-react';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import { workdayApi } from '@/lib/api';
 import { getMyAttendanceV2 } from './my-attendance-v2-api';
 import { getMyRegularizations, stageLabel } from '../attendance/regularization-api';
