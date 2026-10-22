@@ -1,51 +1,28 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { CreateTicketLink } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
-import { usePathname, useRouter } from 'next/navigation';
-import { Menu, Bell, Plus, CheckCheck, RefreshCw, Search, Loader2, User, Palette, SlidersHorizontal, Camera, LogOut, ChevronDown } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Menu, Bell, CheckCheck, Search, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi, workdayApi } from '@/lib/api';
 import { formatRelativeTime } from '@apex/shared-utilities';
 import { useSocket } from '@/hooks/useSocket';
 import { CommandPalette } from '@apex/apps-web/components/command-palette';
-import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
-import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
-import { downloadScreenshot } from '@apex/shared-utilities/download-screenshot';
 import toast from 'react-hot-toast';
 import { pollWhileHealthy } from '@apex/shared-auth';
 
 // /hrms and /sales-crm are standalone workspace pages (frontend/app/(workspaces)) —
 // they no longer render inside the dashboard shell, so TopBar never mounts for them.
 export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => void; menuOpen?: boolean } = {}) {
-  const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const [showNotifs,      setShowNotifs]      = useState(false);
   const [paletteOpen,     setPaletteOpen]     = useState(false);
   const [showWorkdayMenu, setShowWorkdayMenu] = useState(false);
-  const [showUserMenu,    setShowUserMenu]    = useState(false);
-  const [screenshotLoading, setScreenshotLoading] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
-
-  // Close user menu on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setShowUserMenu(false);
-      }
-    };
-    if (showUserMenu) document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showUserMenu]);
-
-  // Defensive: role may be an object { name } or a plain string
-  const roleName     = (user?.role as any)?.name || (user?.role as any) || '';
-  const isSuperAdmin = roleName === 'SUPER_ADMIN';
-
   // Global keyboard shortcut: Ctrl+K / Cmd+K
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -117,34 +94,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
     },
   });
 
-  const showHomeIdentity = pathname === '/dashboard';
-  
-  const { logout } = useAuthStore();
-
-  const handleLogout = () => {
-    if (['WORKING', 'ON_BREAK', 'IDLE'].includes(workStatus)) {
-      const confirmLogout = window.confirm(
-        "Logout closes your app session, but does not end your workday. Use 'End Day' to close attendance.\n\nAre you sure you want to log out anyway?"
-      );
-      if (!confirmLogout) return;
-    }
-    logout();
-  };
-
-  const handleScreenshot = async () => {
-    setScreenshotLoading(true);
-    setShowUserMenu(false);
-    try {
-      const segments = pathname.split('/').filter(Boolean);
-      const page = segments[segments.length - 1] || 'dashboard';
-      await downloadScreenshot(page);
-      toast.success('Screenshot downloaded!');
-    } catch {
-      toast.error('Failed to capture screenshot');
-    } finally {
-      setScreenshotLoading(false);
-    }
-  };
+  const count = (unreadCount as any)?.count ?? 0;
 
   const workStatusColor =
     workStatus === 'WORKING' ? '#10B981' :
@@ -160,28 +110,20 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
     workStatus === 'ON_LEAVE' ? 'On Leave' :
     workStatus === 'LOGGED_OUT' ? 'Ended' : 'Offline';
 
-  const count = (unreadCount as any)?.count ?? 0;
-
   const desktopSearchTrigger = (
     <button
       onClick={() => setPaletteOpen(true)}
-      className="hidden sm:flex w-72 lg:w-96 items-center justify-between gap-2 text-xs px-3 py-2 rounded-xl transition-colors"
+      className="hidden sm:flex w-full max-w-xl items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs transition-colors"
       style={{
         backgroundColor: 'var(--bg-tertiary)',
         color: 'var(--text-secondary)',
-        border: '1px solid var(--text-primary)',
+        border: '1px solid var(--border-primary)',
       }}
     >
       <span className="flex items-center gap-2">
         <Search size={13} />
         <span>Search…</span>
       </span>
-      <kbd
-        className="hidden lg:inline font-mono text-[10px] px-1.5 py-0.5 rounded"
-        style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)', border: '1px solid var(--border-primary)' }}
-      >
-        Ctrl K
-      </kbd>
     </button>
   );
 
@@ -189,7 +131,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
     <>
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     <header
-      className="sticky top-0 z-30 h-14 px-3 sm:px-6 flex items-center gap-2 sm:gap-4 flex-shrink-0"
+      className="sticky top-0 z-30 flex h-16 flex-shrink-0 items-center gap-3 px-3 sm:px-6"
       style={{
         backgroundColor: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-subtle)',
@@ -212,17 +154,27 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         </button>
       )}
 
-      {/* The dashboard alone carries a contextual identity; non-home pages place the wide search field here. */}
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        {showHomeIdentity && (
-          <span className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-            Company Administrator
-          </span>
-        )}
-        {!showHomeIdentity && desktopSearchTrigger}
+      <Link
+        href="/dashboard"
+        className="flex flex-shrink-0 items-center gap-2.5 rounded-xl transition-opacity hover:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+        style={{ outlineColor: 'var(--accent)' }}
+        title="TechnoEdge Learning Services"
+        aria-label="Go to dashboard"
+      >
+        <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl">
+          <Image src="/brand/technoedge-logo.png" alt="TechnoEdge" width={56} height={56} className="h-full w-full object-contain" priority />
+        </span>
+        <span className="hidden min-w-0 max-w-[13rem] xl:block">
+          <span className="block truncate text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>TechnoEdge Learning Services</span>
+        </span>
+      </Link>
+
+      {/* The command bar keeps global search in the visual centre on every page. */}
+      <div className="flex min-w-0 flex-1 justify-center">
+        {desktopSearchTrigger}
       </div>
 
-      {/* Right: actions */}
+      {/* Right: immediate work actions. Personal account controls live in the sidebar. */}
       <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
         {/* Global search on phones (the labelled trigger below is hidden there) */}
         <button
@@ -233,56 +185,32 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         >
           <Search size={16} />
         </button>
-        {/* Keep the home layout compact; non-home pages render this control at the far left. */}
-        {showHomeIdentity && desktopSearchTrigger}
-
-        {/* New Ticket */}
-        <CreateTicketLink
-          className="flex items-center gap-1.5 text-xs font-semibold px-2.5 sm:px-4 py-2 rounded-xl text-white transition-colors"
-          style={{ backgroundColor: '#2563EB' }}
-          aria-label="New Ticket"
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1D4ED8')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2563EB')}
-        >
-          <Plus size={14} />
-          <span className="hidden sm:inline">New Ticket</span>
-        </CreateTicketLink>
-
-        {/* Workday status dot */}
+        {/* Keep the compact workday state in the header; detailed attendance remains on Home. */}
         <div className="relative">
           <button
-            onClick={() => setShowWorkdayMenu((v) => !v)}
-            className="flex items-center gap-1.5 px-2 py-2 rounded-xl transition-colors"
+            onClick={() => setShowWorkdayMenu((value) => !value)}
+            className="flex items-center gap-1.5 rounded-xl px-2 py-2 transition-colors"
             style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            onMouseEnter={(event) => (event.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
+            onMouseLeave={(event) => (event.currentTarget.style.backgroundColor = 'transparent')}
             title="Workday status"
           >
-            <span
-              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-              style={{ backgroundColor: workStatusColor }}
-            />
-            <span className="hidden sm:inline text-xs" style={{ color: 'var(--text-primary)' }}>
-              {workStatusLabel}
-            </span>
+            <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: workStatusColor }} />
+            <span className="hidden text-xs sm:inline" style={{ color: 'var(--text-primary)' }}>{workStatusLabel}</span>
           </button>
 
           {showWorkdayMenu && (
             <div
-              className="absolute right-0 top-10 w-52 rounded-xl z-50 p-3"
-              style={{
-                backgroundColor: 'var(--surface-elevated)',
-                border: '1px solid var(--border-primary)',
-                boxShadow: 'var(--shadow-lg)',
-              }}
+              className="absolute right-0 top-10 z-50 w-52 rounded-xl p-3"
+              style={{ backgroundColor: 'var(--surface-elevated)', border: '1px solid var(--border-primary)', boxShadow: 'var(--shadow-lg)' }}
             >
-              <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-tertiary)' }}>Workday</p>
-              <p className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
+              <p className="mb-2 text-xs font-semibold" style={{ color: 'var(--text-tertiary)' }}>Workday</p>
+              <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                 {workStatusLabel === 'Offline' ? 'Not started' : workStatusLabel}
               </p>
               <button
                 onClick={() => { setShowWorkdayMenu(false); router.push('/dashboard'); }}
-                className="w-full text-xs text-center hover:underline"
+                className="w-full text-center text-xs hover:underline"
                 style={{ color: 'var(--accent)' }}
               >
                 Go to Home
@@ -405,115 +333,6 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
           )}
         </div>
 
-        {/* User avatar + profile dropdown */}
-        <div className="relative" ref={userMenuRef}>
-          <button
-            onClick={() => { setShowUserMenu((v) => !v); setShowNotifs(false); setShowWorkdayMenu(false); }}
-            className="flex items-center gap-2 px-2 py-1 rounded-xl transition-all"
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
-            <div className="hidden sm:block text-left">
-              <p className="text-sm font-semibold max-w-[100px] truncate leading-none" style={{ color: 'var(--text-primary)' }}>
-                {user?.name?.split(' ')[0]}
-              </p>
-              <p className="text-[10px] font-mono uppercase text-slate-400 mt-0.5 py-px truncate leading-[1.35]">
-                {roleName}
-              </p>
-            </div>
-            <ChevronDown size={12} style={{ color: 'var(--text-tertiary)' }} />
-          </button>
-
-          {showUserMenu && (
-            <div
-              className="absolute right-0 top-11 w-72 max-w-[calc(100vw-1rem)] z-50 rounded-xl"
-              style={{
-                backgroundColor: 'var(--surface-elevated)',
-                border: '1px solid var(--border-primary)',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-              }}
-            >
-              {/* User info header */}
-              <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                <div className="flex items-center gap-3">
-                  <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="lg" />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{user?.name}</p>
-                    <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--text-tertiary)' }}>{user?.email}</p>
-                  </div>
-                </div>
-                <div className="mt-3"><AvailabilityControl /></div>
-              </div>
-
-              {/* Menu items */}
-              <div className="p-1.5">
-                {[
-                  { icon: User, label: 'My Profile', href: '/settings?tab=profile' },
-                  { icon: Palette, label: 'Appearance', href: '/settings?tab=appearance' },
-                  { icon: SlidersHorizontal, label: 'Notifications', href: '/settings?tab=notifications' },
-                ].map(({ icon: Icon, label, href }) => (
-                  <button
-                    key={href}
-                    onClick={() => { router.push(href); setShowUserMenu(false); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left"
-                    style={{ color: 'var(--text-secondary)' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <Icon size={14} />
-                    {label}
-                  </button>
-                ))}
-                {isSuperAdmin && (
-                  <button
-                    onClick={() => { router.push('/select-mode'); setShowUserMenu(false); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left"
-                    style={{ color: 'var(--text-secondary)' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <RefreshCw size={14} />
-                    Switch Mode
-                  </button>
-                )}
-              </div>
-
-              <div className="p-1.5" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                <button
-                  onClick={handleScreenshot}
-                  disabled={screenshotLoading}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left disabled:opacity-50"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  {screenshotLoading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-                  {screenshotLoading ? 'Capturing…' : 'Download Screenshot'}
-                </button>
-              </div>
-
-              <div className="p-1.5" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                <button
-                  onClick={() => { setShowUserMenu(false); handleLogout(); }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-                    e.currentTarget.style.color = 'var(--color-danger)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = 'var(--text-secondary)';
-                  }}
-                >
-                  <LogOut size={14} />
-                  Logout
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
     </header>
     </>

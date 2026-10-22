@@ -12,14 +12,13 @@ import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
 import toast from 'react-hot-toast';
 import {
   User, Shield, Palette, Building2,
-  CalendarDays, Eye, EyeOff, Lock, Tags, Bell, UsersRound, Search, Clock3, ClipboardCheck, Contact,
+  CalendarDays, Eye, EyeOff, Lock, Tags, Bell, UsersRound, Clock3, ClipboardCheck,
   ExternalLink, Globe2, IndianRupee, Mail, MapPin,
 } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
 import { useTheme, type ThemeId, type AccentId } from '@apex/shared-utilities/use-theme';
 import { enablePushNotifications } from '@/lib/push-notifications';
 import { TeamLeadershipSection } from './TeamLeadershipSection';
-import { PersonalInformationSection } from './PersonalInformationSection';
 import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
@@ -1673,11 +1672,43 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POLICY CENTER — organization rules grouped into focused internal tabs
+// ─────────────────────────────────────────────────────────────────────────────
+type PolicyTab = 'leave' | 'workday' | 'task-types' | 'sla';
+
+function PolicyCenter() {
+  const [tab, setTab] = useState<PolicyTab>('leave');
+  const tabs: Array<{ id: PolicyTab; label: string; icon: React.ReactNode }> = [
+    { id: 'leave', label: 'Leave policy', icon: <CalendarDays size={16} /> },
+    { id: 'workday', label: 'Work schedule', icon: <Clock3 size={16} /> },
+    { id: 'task-types', label: 'Ticket types', icon: <Tags size={16} /> },
+    { id: 'sla', label: 'Service levels', icon: <ClipboardCheck size={16} /> },
+  ];
+
+  return <section className="space-y-5">
+    <header>
+      <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Policy</h2>
+      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Manage the organization rules that govern leave, working time, ticket setup, and service standards.</p>
+    </header>
+    <nav aria-label="Policy sections" className="flex gap-2 overflow-x-auto border-b pb-px" style={{ borderColor: 'var(--border-subtle)' }}>
+      {tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-current={tab === item.id ? 'page' : undefined}
+        className="inline-flex flex-none items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors"
+        style={{ borderColor: tab === item.id ? 'var(--accent)' : 'transparent', color: tab === item.id ? 'var(--accent)' : 'var(--text-secondary)' }}>
+        {item.icon}{item.label}
+      </button>)}
+    </nav>
+    {tab === 'leave' && <LeavePolicySection canEdit={false} />}
+    {tab === 'workday' && <WorkdayPolicySection canEdit={false} />}
+    {tab === 'task-types' && <TaskTypesSettings />}
+    {tab === 'sla' && <SlaSection canEdit={false} />}
+  </section>;
+}
+
 // ROOT — left sidebar layout
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
-  | 'profile' | 'personal-info' | 'appearance' | 'notifications' | 'security' | 'team'
-  | 'company' | 'leave' | 'workday' | 'sla' | 'task-types';
+  | 'profile' | 'appearance' | 'notifications' | 'security' | 'team'
+  | 'company' | 'policies';
 
 type SettingsNavItem = { id: SectionId; label: string; icon: React.ReactNode; keywords: string };
 type SettingsNavGroup = { label: string; items: SettingsNavItem[] };
@@ -1688,41 +1719,27 @@ export function SettingsCenter() {
   const isAdmin     = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const isLead = ['MANAGER', 'TEAM_LEAD', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const [active, setActive] = useState<SectionId>('profile');
-  const [search, setSearch] = useState('');
   const accountItems: SettingsNavItem[] = [
     { id: 'profile', label: 'Profile', icon: <User size={16} />, keywords: 'photo avatar display name email bio department' },
-    { id: 'personal-info', label: 'Personal information', icon: <Contact size={16} />, keywords: 'legal name date of birth gender blood group mobile address emergency contact hr request' },
-    { id: 'appearance', label: 'Appearance', icon: <Palette size={16} />, keywords: 'theme accent font compact welcome screen' },
+    { id: 'appearance', label: 'Display & theme', icon: <Palette size={16} />, keywords: 'display theme appearance accent colour color font compact welcome screen' },
     { id: 'notifications', label: 'Notifications', icon: <Bell size={16} />, keywords: 'popup push ticket leave quiet hours' },
     { id: 'security', label: 'Security', icon: <Shield size={16} />, keywords: 'password sign in account session' },
   ];
   const teamItems: SettingsNavItem[] = isLead ? [
-    { id: 'team', label: 'Team preferences', icon: <UsersRound size={16} />, keywords: 'dashboard team overview service targets density' },
+    { id: 'team', label: 'Team operations', icon: <UsersRound size={16} />, keywords: 'assignment approvals capacity escalation delivery rules' },
   ] : [];
   const organizationItems: SettingsNavItem[] = isAdmin ? [
     { id: 'company', label: 'Organization profile', icon: <Building2 size={16} />, keywords: 'company organization name email timezone branding theme accent' },
-    { id: 'leave', label: 'Leave policy', icon: <CalendarDays size={16} />, keywords: 'entitlement quota policy effective date casual emergency' },
-    { id: 'workday', label: 'Work schedule', icon: <Clock3 size={16} />, keywords: 'attendance working days minutes timing auto close shifts' },
-    { id: 'task-types', label: 'Ticket types', icon: <Tags size={16} />, keywords: 'task department category subtype tags ticket taxonomy' },
-    { id: 'sla', label: 'Service levels', icon: <ClipboardCheck size={16} />, keywords: 'sla execution response reviewer decision urgent high medium low' },
+    { id: 'policies', label: 'Policy', icon: <ClipboardCheck size={16} />, keywords: 'leave work schedule ticket types service levels SLA' },
   ] : [];
   const groups: SettingsNavGroup[] = [
     { label: 'My account', items: accountItems },
     ...(teamItems.length ? [{ label: 'Team', items: teamItems }] : []),
     ...(organizationItems.length ? [{ label: 'Organization', items: organizationItems }] : []),
   ];
-  const normalizedSearch = search.toLowerCase().trim();
-  const visibleGroups = groups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => `${item.label} ${item.keywords}`.toLowerCase().includes(normalizedSearch)),
-    }))
-    .filter((group) => group.items.length > 0);
-  const hasVisibleItems = visibleGroups.some((group) => group.items.length > 0);
-
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get('tab') ?? '';
-    const mapped = raw === 'leave-policy' || raw === 'policies' ? 'leave' : raw;
+    const mapped = ['leave-policy', 'leave', 'workday', 'task-types', 'sla', 'policies'].includes(raw) ? 'policies' : raw;
     const resolved = (mapped === 'preferences' ? 'notifications' : mapped) as SectionId;
     const allowedItems = [...accountItems, ...teamItems, ...organizationItems];
     const allowed = allowedItems.map((item) => item.id);
@@ -1739,27 +1756,7 @@ export function SettingsCenter() {
       </header>
       <div className="flex flex-col gap-5 lg:flex-row lg:gap-7">
         <nav aria-label="Settings" className="apex-card h-fit w-full space-y-1 p-3 lg:sticky lg:top-6 lg:w-60 lg:flex-shrink-0">
-          <div className="mb-3" role="search">
-            <label htmlFor="settings-filter" className="sr-only">Filter settings</label>
-            <div className="relative rounded-xl transition-shadow focus-within:ring-2 focus-within:ring-[var(--accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--surface-card)]">
-              <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
-              <input
-                id="settings-filter"
-                className="apex-input h-11 w-full rounded-xl py-2 pl-10 pr-10 text-sm"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search settings…"
-              />
-              {search && <button
-                type="button"
-                onClick={() => setSearch('')}
-                className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
-                style={{ color: 'var(--text-secondary)' }}
-                aria-label="Clear settings search"
-              >×</button>}
-            </div>
-          </div>
-          {visibleGroups.map((group, groupIndex) => <div key={group.label} className={cn(groupIndex > 0 && 'mt-3 border-t pt-3')} style={{ borderColor: 'var(--border-subtle)' }}>
+          {groups.map((group, groupIndex) => <div key={group.label} className={cn(groupIndex > 0 && 'mt-3 border-t pt-3')} style={{ borderColor: 'var(--border-subtle)' }}>
             <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>{group.label}</p>
             <div className="space-y-1">
               {group.items.map((item) => <button key={item.id} type="button" onClick={() => {
@@ -1772,20 +1769,15 @@ export function SettingsCenter() {
               </button>)}
             </div>
           </div>)}
-          {!hasVisibleItems && <p className="px-3 py-3 text-xs" style={{ color: 'var(--text-tertiary)' }}>No settings match your search.</p>}
         </nav>
         <main className="min-w-0 flex-1" id="settings-content">
           {active === 'profile' && <ProfileSection user={user} />}
-          {active === 'personal-info' && user?.id && <PersonalInformationSection userId={user.id} />}
           {active === 'appearance' && <AppearanceSettings mode="personal" />}
           {active === 'notifications' && <NotificationsSection isManager={isLead} />}
           {active === 'security' && <SecuritySection user={user} />}
           {active === 'team' && isLead && <TeamLeadershipSection />}
           {active === 'company' && isAdmin && <div className="space-y-7"><CompanySection /><AppearanceSettings mode="company" /></div>}
-          {active === 'leave' && isAdmin && <LeavePolicySection canEdit={false} />}
-          {active === 'workday' && isAdmin && <WorkdayPolicySection canEdit={false} />}
-          {active === 'sla' && isAdmin && <SlaSection canEdit={false} />}
-          {active === 'task-types' && isAdmin && <TaskTypesSettings />}
+          {active === 'policies' && isAdmin && <PolicyCenter />}
         </main>
       </div>
     </div>
