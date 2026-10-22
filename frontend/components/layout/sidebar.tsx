@@ -80,8 +80,12 @@ const MANAGER_NAV   = [
 ];
 const ADMIN_NAV     = [
   { href: '/users',       label: 'Users & Roles',  icon: Users     },
+  { href: '/users/transfers', label: 'Transfer review', icon: Users },
   { href: '/departments', label: 'Departments',     icon: Building2 },
 ];
+// Payroll close is HR / Admin work (isHR is a flag, not a role).
+const PAYROLL_NAV   = [{ href: '/attendance/payroll', label: 'Payroll', icon: CalendarCheck }];
+const CLEARANCE_NAV = [{ href: '/users/clearance', label: 'Exit clearance', icon: ClipboardCheck }];
 
 const SETTINGS_NAV  = [{ href: '/settings', label: 'Settings',      icon: Settings  }];
 const ACTIVITY_NAV  = [{ href: '/admin/activity', label: 'Activity Log', icon: Activity }];
@@ -502,6 +506,15 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
             {ADMIN_NAV.map((item) => <NavItem key={item.href} {...item} />)}
           </>
         )}
+
+        {/* Payroll and exit clearance — HR and admins; clearance owners reach theirs here too */}
+        {(isHR || isAdmin) && (
+          <>
+            <SectionLabel>HR</SectionLabel>
+            {PAYROLL_NAV.map((item) => <NavItem key={item.href} {...item} />)}
+          </>
+        )}
+        {(isHR || isAdmin || isTeamLead) && CLEARANCE_NAV.map((item) => <NavItem key={item.href} {...item} />)}
 
         {/* Activity Log — team leads and above */}
         {isTeamLead && !(isSuperAdmin && apexMode === 'team_lead') && (

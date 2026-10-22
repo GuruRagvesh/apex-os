@@ -46,8 +46,8 @@ export class PayrollReportController {
 
   @Post('finalize')
   @ApiOperation({ summary: 'HR accepts the month as the payroll input' })
-  async finalize(@CurrentUser() user: any, @Body() body: { month: string }) {
-    return this.reports.finalize(user, body?.month);
+  async finalize(@CurrentUser() user: any, @Body() body: { month: string; acknowledgeUnresolved?: { fingerprint?: string } }) {
+    return this.reports.finalize(user, body?.month, body?.acknowledgeUnresolved);
   }
 
   /** Explicit. Nothing sends because a calendar month ended. */

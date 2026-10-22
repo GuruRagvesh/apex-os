@@ -24,6 +24,9 @@ export const SETUP_ISSUE_CODES = {
   SCHEDULED_ACTIVATION_FAILED: 'SCHEDULED_ACTIVATION_FAILED',
   EMPLOYEE_ID_BACKFILL_FAILED: 'EMPLOYEE_ID_BACKFILL_FAILED',
   LEAVE_SETUP_PENDING: 'LEAVE_SETUP_PENDING',
+  // Phase 4: raised by the exit workflow; resolved by it, not by re-detection.
+  CLEARANCE_OWNER_MISSING: 'CLEARANCE_OWNER_MISSING',
+  WORKING_CALENDAR_FALLBACK: 'WORKING_CALENDAR_FALLBACK',
 } as const;
 export type SetupIssueCode = (typeof SETUP_ISSUE_CODES)[keyof typeof SETUP_ISSUE_CODES];
 
@@ -66,10 +69,22 @@ export const SETUP_ISSUE_SPECS: Record<SetupIssueCode, Spec> = {
     title: 'Leave setup pending',
     message: (n) => `${n} has a leave request saved as pending because their leave calendar or leave policy could not be resolved. Complete the setup; the request is settled automatically afterwards.`,
   },
+  CLEARANCE_OWNER_MISSING: {
+    domain: 'EXIT', severity: 'WARNING', remediationClass: 'ADMIN_FIXABLE_FRONTEND',
+    title: 'Clearance owner needed',
+    message: (n) => `An exit clearance item for ${n} has no Team Lead or Manager to own it. Assign an owner in the Exit tab; the item is not treated as done.`,
+  },
+  WORKING_CALENDAR_FALLBACK: {
+    domain: 'EXIT', severity: 'WARNING', remediationClass: 'ADMIN_FIXABLE_FRONTEND',
+    title: 'Standard working calendar used',
+    message: (n) => `No holiday calendar or weekly-off policy resolved for ${n}, so the standard weekday schedule was used for their F&F deadline and reminders.`,
+  },
 };
 
 /** Every code can be re-checked from current records. */
-const REDETECTABLE = new Set<string>(Object.values(SETUP_ISSUE_CODES));
+const REDETECTABLE = new Set<string>(
+  Object.values(SETUP_ISSUE_CODES).filter((c) => c !== 'CLEARANCE_OWNER_MISSING' && c !== 'WORKING_CALENDAR_FALLBACK'),
+);
 
 const FOLLOW_UP_DAYS = 15;
 type Client = PrismaService | Prisma.TransactionClient;

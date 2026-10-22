@@ -185,7 +185,7 @@ describe('ChangeRequestsService', () => {
   describe('approveChangeRequest', () => {
     it('TL approval moves request to Manager approval', async () => {
       const tl = { id: 'tlId' };
-      const request = { id: 'req1', targetUserId: 'user1', status: 'PENDING_TL_APPROVAL', currentApproverId: 'tlId', changes: [{ field: 'role', newValue: 'manager' }] };
+      const request = { id: 'req1', targetUserId: 'user1', status: 'PENDING_TL_APPROVAL', currentApproverId: 'tlId', changes: [{ field: 'teamLeadName', newValue: 'TE-9' }] };
       prisma.employeeProfileChangeRequest.findUnique.mockResolvedValue(request);
       accessPolicy.roleName.mockReturnValue('TEAM_LEAD');
       prisma.user.findUnique.mockImplementation((args) => {

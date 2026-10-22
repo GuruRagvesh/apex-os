@@ -40,7 +40,7 @@ import { archiveFileName, collectFileObjects, FileObject, FileStore, markShared 
 import { ArchivedFileEntry, buildArchiveWorkbook, readFilesSheet } from './archive-workbook';
 import { createProviderFileStore } from './provider-file-store';
 import { decryptHandle, encryptHandle, handleHmac, handleKeyConfigurationIssues, readHandleKeys } from './handle-crypto';
-import { evaluateRetention, protectedRowDate, RetentionEvaluation } from './retention';
+import { countOpenExitCases, evaluateRetention, protectedRowDate, retentionDefaultDeny, retentionRefusal, RetentionEvaluation } from './retention';
 import { activeHoldWhere, HoldStatusView, strongestHold } from '../../../../common/lifecycle-domain';
 import { AllowedRetryEndpoint, RemediationException, RemediationResult, buildRemediation, pickByPrecedence } from '../../../../common/remediation';
 import { listLifecycleAttempts, recordLifecycleAttempt } from './remediation-attempts';
@@ -238,6 +238,8 @@ export class UserLifecycleService {
       // Phase 1: an open TL/Manager assignment held by this person (as the assignee) is never ended automatically.
       db.hierarchyAssignment.count({ where: { assigneeUserId: userId, effectiveTo: null } }),
     ]);
+    // Phase 4 (D8): an exit still running, or cleared with F&F unreleased.
+    const openExit = await countOpenExitCases(db, userId);
     const out: Record<string, number> = {};
     const add = (k: string, n: number) => { if (n > 0) out[k] = n; };
     add('DIRECT_REPORTS', reports);
@@ -252,6 +254,7 @@ export class UserLifecycleService {
     add('ACTIVE_COLLEAGUE_ATTENDANCE_PROFILES', colleagueProfiles);
     add('TICKETS_AWAITING_APPROVAL', awaitingApproval);
     add('OPEN_REPORTING_LINES', openReportingLines);
+    add('OPEN_EXIT_CASE', openExit);
     return out;
   }
 
@@ -1180,11 +1183,12 @@ export class UserLifecycleService {
         dates.PAYROLL.push(new Date(Date.UTC(y, m, 0)));
       }
     }
-    const [rules, holds] = await Promise.all([
-      db.retentionRule.findMany({ select: { category: true, retentionMonths: true, active: true, approvedAt: true } }),
+    const [rules, holds, defaultDeny] = await Promise.all([
+      db.retentionRule.findMany({ select: { category: true, retentionMonths: true, active: true, approvedAt: true, status: true, noExpiry: true, policyReference: true } }),
       includeHolds ? db.userLegalHold.count({ where: { userId: inv.subject.id, ...activeHoldWhere() } }) : Promise.resolve(0),
+      retentionDefaultDeny(db),
     ]);
-    return evaluateRetention({ protectedDates: dates as any, rules, activeLegalHolds: holds, now });
+    return evaluateRetention({ protectedDates: dates as any, rules, activeLegalHolds: holds, now, defaultDeny });
   }
 
   /** Re-verifies the existing archive in Drive. Reads only; never uploads. Returns the cleanup plan. */
@@ -1261,6 +1265,7 @@ export class UserLifecycleService {
               ...(out.retention ? { retentionResult: out.retention.result } : {}),
               ...(reason.code === REASON.HANDLE_KEYS_MISSING ? { keyConfigurationIssues: handleKeyConfigurationIssues(this.ports.env()) } : {}),
               ...(reason.code === REASON.RETENTION_BLOCKED ? this.retentionDetails(out.retention, REASON.PERIOD_NOT_ELAPSED) : {}),
+              ...(reason.code === REASON.RETENTION_POLICY_REQUIRED ? this.retentionDetails(out.retention, REASON.RETENTION_POLICY_REQUIRED) : {}),
             },
             // Archive repair runs the rebuild; everything else re-runs this preflight.
             retryEndpoint: REMEDIATION_CODE_FOR_REASON[reason.code]?.startsWith('ARCHIVE_SNAPSHOT_') ? 'VERIFIED_ARCHIVE_PREPARE' : 'PERMANENT_DELETE_PREFLIGHT',
@@ -1298,7 +1303,9 @@ export class UserLifecycleService {
     else if (out.holdStatus) refuse(REASON.LEGAL_HOLD_ACTIVE, 'This user has an active legal hold.');
     if (!readHandleKeys(this.ports.env())) refuse(REASON.HANDLE_KEYS_MISSING, 'Permanent deletion is not configured on this server.');
     const retentionWithoutHolds = out.holdStatus ? await this.retentionFor(this.prisma, inv, now, false) : retention;
-    if (!retentionWithoutHolds.allowsDeletion) refuse(REASON.RETENTION_BLOCKED, 'Permanent deletion is blocked by a record-retention requirement.');
+    if (!retentionWithoutHolds.allowsDeletion) refuse(...retentionRefusal(retentionWithoutHolds));
+    // Phase 4 (D8, correction 7): an open exit case blocks deletion too.
+    if ((await countOpenExitCases(this.prisma, userId)) > 0) refuse(REASON.OPEN_EXIT_CASE, 'This user still has an open exit case (notice, clearance or unreleased F&F).');
     if (snapshot.status === SNAPSHOT_STATUS.VERIFIED && reasons.length === 0) {
       try {
         const plan = await this.verifyExistingArchive(snapshot, snapshot.files);
@@ -1371,7 +1378,8 @@ export class UserLifecycleService {
         if (hold) throw new LifecycleRefusal(REASON.LEGAL_HOLD_ACTIVE, 'This user has an active legal hold.');
         if (!readHandleKeys(this.ports.env())) throw new LifecycleRefusal(REASON.HANDLE_KEYS_MISSING, 'Permanent deletion is not configured on this server.');
         const retention = await this.retentionFor(tx, inv, now, false);
-        if (!retention.allowsDeletion) throw new LifecycleRefusal(REASON.RETENTION_BLOCKED, 'Permanent deletion is blocked by a record-retention requirement.');
+        if (!retention.allowsDeletion) throw new LifecycleRefusal(...retentionRefusal(retention));
+        if ((await countOpenExitCases(tx, userId)) > 0) throw new LifecycleRefusal(REASON.OPEN_EXIT_CASE, 'This user still has an open exit case (notice, clearance or unreleased F&F).');
         const work = await this.activeWork(tx, userId);
         if (Object.values(work.summary).some((n) => n > 0)) throw new LifecycleRefusal(REASON.NEW_ACTIVE_WORK, 'This user has active work again.');
 

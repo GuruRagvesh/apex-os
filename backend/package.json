@@ -42,6 +42,7 @@
     "phase3:attendance:reconcile": "ts-node scripts/attendance/phase3-attendance-reconcile.ts",
     "phase3:correction:preflight": "ts-node scripts/attendance/phase3-correction-preflight.ts",
     "phase3:correction:reconcile": "ts-node scripts/attendance/phase3-correction-reconcile.ts",
+    "phase4:retention:readiness": "ts-node --transpile-only scripts/phase4/retention-readiness.ts",
     "phase3:policy:baseline": "ts-node scripts/attendance/phase3-policy-baseline.ts",
     "phase3:profile:continuity": "ts-node scripts/attendance/phase3-profile-continuity.ts",
     "backfill:d2": "ts-node scripts/backfill-d2-foundation.ts",
