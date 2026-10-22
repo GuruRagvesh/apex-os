@@ -24,8 +24,14 @@ describe('Settings Center safety', () => {
       getCompanyWithTheme: jest.fn().mockResolvedValue({}),
     };
     const controller = new SettingsController(settings as any, {} as any);
-    await controller.updateCompany({ tagline: 'Better work' }, { user: { sub: 'admin-1' } });
-    expect(settings.set).toHaveBeenCalledWith('company', { companyName: 'TechnoEdge', timezone: 'Asia/Kolkata', tagline: 'Better work' }, 'admin-1');
+    await controller.updateCompany({ website: 'https://www.technoedgels.com/' }, { user: { sub: 'admin-1' } });
+    expect(settings.set).toHaveBeenCalledWith('company', { companyName: 'TechnoEdge', timezone: 'Asia/Kolkata', website: 'https://www.technoedgels.com/' }, 'admin-1');
+  });
+
+  it('rejects non-HTTPS organization websites', async () => {
+    const controller = new SettingsController({} as any, {} as any);
+    await expect(controller.updateCompany({ website: 'http://technoedgels.com' }, { user: { sub: 'admin-1' } }))
+      .rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects an unapproved company theme', async () => {

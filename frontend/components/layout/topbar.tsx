@@ -12,6 +12,7 @@ import { formatRelativeTime } from '@apex/shared-utilities';
 import { useSocket } from '@/hooks/useSocket';
 import { CommandPalette } from '@apex/apps-web/components/command-palette';
 import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
+import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
 import { downloadScreenshot } from '@apex/shared-utilities/download-screenshot';
 import toast from 'react-hot-toast';
 import { pollWhileHealthy } from '@apex/shared-auth';
@@ -426,7 +427,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
 
           {showUserMenu && (
             <div
-              className="absolute right-0 top-11 w-56 z-50 rounded-xl overflow-hidden"
+              className="absolute right-0 top-11 w-72 max-w-[calc(100vw-1rem)] z-50 rounded-xl"
               style={{
                 backgroundColor: 'var(--surface-elevated)',
                 border: '1px solid var(--border-primary)',
@@ -435,8 +436,14 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
             >
               {/* User info header */}
               <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user?.name}</p>
-                <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{user?.email}</p>
+                <div className="flex items-center gap-3">
+                  <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="lg" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{user?.name}</p>
+                    <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--text-tertiary)' }}>{user?.email}</p>
+                  </div>
+                </div>
+                <div className="mt-3"><AvailabilityControl /></div>
               </div>
 
               {/* Menu items */}

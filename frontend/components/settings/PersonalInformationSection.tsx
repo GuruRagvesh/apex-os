@@ -8,6 +8,7 @@ import { usersApi } from '@apex/core-users/api';
 import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 
 type FieldDefinition = { key: string; label: string; type?: 'date' | 'email' | 'tel' | 'select' | 'textarea'; options?: string[] };
+type InformationGroup = { title: string; description: string; fields: string[] };
 
 const FIELDS: FieldDefinition[] = [
   { key: 'legalName', label: 'Legal name' },
@@ -22,6 +23,35 @@ const FIELDS: FieldDefinition[] = [
   { key: 'emergencyRelation', label: 'Emergency contact relationship' },
   { key: 'emergencyPhone', label: 'Emergency contact phone', type: 'tel' },
 ];
+
+const INFORMATION_GROUPS: InformationGroup[] = [
+  {
+    title: 'Identity',
+    description: 'Details used to identify you in official company records.',
+    fields: ['legalName', 'dateOfBirth', 'gender', 'bloodGroup'],
+  },
+  {
+    title: 'Contact details',
+    description: 'Your private contact channels. Your work email is managed in Security.',
+    fields: ['phone', 'personalEmail'],
+  },
+  {
+    title: 'Addresses',
+    description: 'Your current and permanent residential addresses.',
+    fields: ['currentAddress', 'permanentAddress'],
+  },
+  {
+    title: 'Emergency contact',
+    description: 'Who Apex OS should contact if there is an emergency.',
+    fields: ['emergencyName', 'emergencyRelation', 'emergencyPhone'],
+  },
+];
+
+function fieldsFor(group: InformationGroup) {
+  return group.fields
+    .map((key) => FIELDS.find((field) => field.key === key))
+    .filter((field): field is FieldDefinition => Boolean(field));
+}
 
 const PENDING = new Set(['AWAITING_EMPLOYEE_CONFIRMATION', 'PENDING_HR_REVIEW']);
 const STATUS_LABELS: Record<string, string> = {
@@ -111,18 +141,26 @@ export function PersonalInformationSection({ userId }: { userId: string }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 id="personal-information-title" className="font-semibold" style={{ color: 'var(--text-primary)' }}>Personal information</h3>
-          <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Keep your information current. Changes to official records require HR approval and cannot be edited or withdrawn after submission.</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Keep your official details current. Every change is reviewed by HR; identity corrections require supporting evidence.</p>
         </div>
         <button type="button" className="apex-btn-primary px-4 py-2 text-sm disabled:opacity-50" disabled={Boolean(pending)} onClick={() => setEditing(true)}>
           {pending ? 'Request pending' : 'Request an update'}
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {FIELDS.map((field) => <div key={field.key} className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface-sunken)' }}>
-          <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>{field.label}</p>
-          <p className="mt-1 text-sm" style={{ color: 'var(--text-primary)' }}>{shownValue(person[field.key], field.key)}</p>
-        </div>)}
+      <div className="space-y-4">
+        {INFORMATION_GROUPS.map((group) => <section key={group.title} className="rounded-2xl border p-4 sm:p-5" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface-sunken)' }} aria-labelledby={`personal-information-${group.title.toLowerCase().replace(/[^a-z]+/g, '-')}`}>
+          <div className="mb-4">
+            <h4 id={`personal-information-${group.title.toLowerCase().replace(/[^a-z]+/g, '-')}`} className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{group.title}</h4>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{group.description}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {fieldsFor(group).map((field) => <div key={field.key} className={field.type === 'textarea' ? 'sm:col-span-2' : ''}>
+              <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>{field.label}</p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--text-primary)' }}>{shownValue(person[field.key], field.key)}</p>
+            </div>)}
+          </div>
+        </section>)}
       </div>
 
       {pending?.status === 'AWAITING_EMPLOYEE_CONFIRMATION' && <div className="rounded-xl border p-4" style={{ borderColor: 'var(--accent-border)', backgroundColor: 'var(--accent-subtle)' }}>
@@ -135,7 +173,11 @@ export function PersonalInformationSection({ userId }: { userId: string }) {
 
       {editing && <div className="rounded-2xl border p-4 sm:p-5" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--surface-elevated)' }}>
         <div className="mb-4 flex items-center justify-between"><div><h4 className="font-semibold">Propose corrections</h4><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Leave fields blank when they do not need correction.</p></div><button type="button" aria-label="Close request form" onClick={resetForm}><X size={18} /></button></div>
-        <div className="grid gap-4 sm:grid-cols-2">{FIELDS.map((field) => <label key={field.key} className={field.type === 'textarea' ? 'sm:col-span-2' : ''}><span className="apex-label">{field.label}</span>{field.type === 'select' ? <select className="apex-input" value={draft[field.key] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">No change</option>{field.options?.map((option) => <option key={option}>{option}</option>)}</select> : field.type === 'textarea' ? <textarea className="apex-input" rows={2} value={draft[field.key] ?? ''} placeholder={shownValue(person[field.key], field.key)} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} /> : <input className="apex-input" type={field.type ?? 'text'} value={draft[field.key] ?? ''} placeholder={shownValue(person[field.key], field.key)} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} />}</label>)}</div>
+        <div className="space-y-5">{INFORMATION_GROUPS.map((group) => <fieldset key={group.title} className="rounded-xl border p-4" style={{ borderColor: 'var(--border-subtle)' }}>
+          <legend className="px-1 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{group.title}</legend>
+          <p className="mb-3 text-xs" style={{ color: 'var(--text-secondary)' }}>{group.description}</p>
+          <div className="grid gap-4 sm:grid-cols-2">{fieldsFor(group).map((field) => <label key={field.key} className={field.type === 'textarea' ? 'sm:col-span-2' : ''}><span className="apex-label">{field.label}</span>{field.type === 'select' ? <select className="apex-input" value={draft[field.key] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">No change</option>{field.options?.map((option) => <option key={option}>{option}</option>)}</select> : field.type === 'textarea' ? <textarea className="apex-input" rows={2} value={draft[field.key] ?? ''} placeholder={shownValue(person[field.key], field.key)} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} /> : <input className="apex-input" type={field.type ?? 'text'} value={draft[field.key] ?? ''} placeholder={shownValue(person[field.key], field.key)} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} />}</label>)}</div>
+        </fieldset>)}</div>
         {changes.length > 0 && <div className="my-4 rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)' }}><p className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Before and after</p>{changes.map((change) => <div key={change.field} className="flex flex-wrap items-center gap-2 py-1 text-sm"><span className="w-36 font-medium">{FIELDS.find((field) => field.key === change.field)?.label}</span><span>{shownValue(person[change.field], change.field)}</span><ArrowRight size={14} /><strong>{shownValue(change.newValue, change.field)}</strong></div>)}</div>}
         <label><span className="apex-label">Reason for request</span><textarea className="apex-input" rows={3} maxLength={1000} required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
         <label className="mt-4 block"><span className="apex-label">Supporting documents {needsEvidence ? '(required)' : '(optional)'}</span><input type="file" multiple accept="application/pdf,image/jpeg,image/png" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} className="block w-full text-sm" /><span className="mt-1 block text-xs" style={{ color: 'var(--text-tertiary)' }}>PDF, JPG or PNG · 5 MB each</span></label>

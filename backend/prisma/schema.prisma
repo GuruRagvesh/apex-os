@@ -22,6 +22,9 @@ model User {
   photoUrl                  String?
   isHR                      Boolean                        @default(false)
   currentStatus             String                         @default("OFFLINE")
+  /// Collaboration availability, independent of attendance/workday status.
+  availabilityStatus        String                         @default("AUTO")
+  availabilityExpiresAt     DateTime?
   lastActiveAt              DateTime?
   phone                     String?
   /// Official legal identity. `name` remains the employee-controlled display name.

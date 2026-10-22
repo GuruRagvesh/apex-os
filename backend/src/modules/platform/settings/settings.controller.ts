@@ -32,20 +32,43 @@ export class SettingsController {
       throw new BadRequestException('Company settings must be an object');
     }
     const { defaultTheme, defaultAccent, ...rest } = body;
-    const allowedFields = ['companyName', 'tagline', 'contactEmail', 'timezone', 'branding', 'workingDays'];
+    const allowedFields = [
+      'companyName', 'logoUrl', 'contactEmail', 'website', 'country', 'timezone',
+      'currency', 'registeredOffice', 'headOffice', 'workingDays',
+    ];
     if (Object.keys(rest).some((field) => !allowedFields.includes(field))) {
       throw new BadRequestException('Unknown company setting');
     }
     for (const [field, value] of Object.entries(rest)) {
-      if (typeof value !== 'string' || value.length > 200) {
-        throw new BadRequestException(`${field} must be text of at most 200 characters`);
+      const limit = ['registeredOffice', 'headOffice'].includes(field) ? 500 : 200;
+      if (typeof value !== 'string' || value.length > limit) {
+        throw new BadRequestException(`${field} must be text of at most ${limit} characters`);
       }
     }
-    if (rest.companyName !== undefined && !rest.companyName.trim()) {
-      throw new BadRequestException('Company name is required');
+    const requiredFields = ['companyName', 'logoUrl', 'contactEmail', 'website', 'country', 'timezone', 'currency', 'registeredOffice', 'headOffice'];
+    for (const field of requiredFields) {
+      if (rest[field] !== undefined && !rest[field].trim()) {
+        throw new BadRequestException(`${field} is required`);
+      }
     }
     if (rest.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rest.contactEmail)) {
       throw new BadRequestException('Invalid contact email');
+    }
+    if (rest.website) {
+      try {
+        const website = new URL(rest.website);
+        if (website.protocol !== 'https:') throw new Error();
+      } catch {
+        throw new BadRequestException('Website must be a valid HTTPS URL');
+      }
+    }
+    if (rest.logoUrl && !rest.logoUrl.startsWith('/')) {
+      try {
+        const logoUrl = new URL(rest.logoUrl);
+        if (logoUrl.protocol !== 'https:') throw new Error();
+      } catch {
+        throw new BadRequestException('Logo must use a local path or valid HTTPS URL');
+      }
     }
     if (rest.timezone) {
       try { new Intl.DateTimeFormat('en-US', { timeZone: rest.timezone }); }
@@ -57,7 +80,8 @@ export class SettingsController {
     // A theme-only save must never replace company information with {}.
     if (Object.keys(rest).length > 0) {
       const current = await this.settings.get('company');
-      await this.settings.set('company', { ...current, ...rest }, req.user?.sub);
+      const normalized = Object.fromEntries(Object.entries(rest).map(([field, value]) => [field, (value as string).trim()]));
+      await this.settings.set('company', { ...current, ...normalized }, req.user?.sub);
     }
     return this.settings.getCompanyWithTheme();
   }

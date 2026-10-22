@@ -11,8 +11,14 @@ import {
 const DEFAULTS: Record<string, any> = {
   company: {
     companyName: 'TechnoEdge Learning Services',
-    tagline: '',
-    contactEmail: '',
+    logoUrl: '/brand/technoedge-logo.png',
+    contactEmail: 'hr@technoedgels.com',
+    website: 'https://www.technoedgels.com/',
+    country: 'India',
+    timezone: 'Asia/Kolkata',
+    currency: 'INR',
+    registeredOffice: 'Office No. B-2/201,\nUmang Premiere,\nG.No.677, 687(P), 6 Tal-Haveli,\nDist-Pune, Wagholi-412207,\nMaharashtra, India',
+    headOffice: 'Baner Biz Bay,\nOffice No. B-704, B-705 & B-706,\n7th Floor, Laxman Nagar,\nBaner, Pune - 411045,\nMaharashtra, India',
     workingDays: 'Mon-Sat',
   },
   leave_policy: {
@@ -68,8 +74,16 @@ export class SettingsService {
     const row = await this.prisma.appSetting.findUnique({ where: { key } });
     if (!row) return DEFAULTS[key] ?? {};
     
-    if (key === 'workday_policy') {
-      return { ...DEFAULTS[key], ...(row.value as any) };
+    if (key === 'workday_policy' || key === 'company') {
+      const merged = { ...DEFAULTS[key], ...(row.value as any) };
+      if (key === 'company') {
+        for (const [field, defaultValue] of Object.entries(DEFAULTS.company)) {
+          if (typeof defaultValue === 'string' && (!merged[field] || !String(merged[field]).trim())) {
+            merged[field] = defaultValue;
+          }
+        }
+      }
+      return merged;
     }
     return row.value as any;
   }
