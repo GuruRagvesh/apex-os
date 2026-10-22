@@ -17,6 +17,9 @@ import {
   resolveContinuousPolicy,
 } from '../../platform/attendance/policy/policy-continuity';
 import { closeProfilesAt, reopenProfileFrom } from '../../platform/attendance/timeline/profile-continuity';
+import { deactivateUser } from './employment-continuity';
+import { TransitionCapabilitiesService } from './transitions/capabilities.service';
+import { EventsGateway } from '../../platform/gateway/events.gateway';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
 // Only this document type is allowed to update the user's avatar/photo.
@@ -35,6 +38,8 @@ export class UsersService {
     private emailService: EmailService,
     private backupVaultService: BackupVaultService,
     @Optional() private setupIssues?: UserSetupIssuesService,
+    @Optional() private capabilities?: TransitionCapabilitiesService,
+    @Optional() private gateway?: EventsGateway,
   ) {}
 
   /**
@@ -1009,6 +1014,31 @@ export class UsersService {
       }
     }
 
+    // Phase 4: a primary department or base role change is a TRANSFER, with an
+    // impact preview, effective dating and rerouting -- never a field edit --
+    // once the transfer workflow is enabled. Until then the legacy edit stays,
+    // so departments can still be corrected during the rollout window.
+    if (clean.departmentId !== undefined || clean.roleId !== undefined) {
+      const current = await this.prisma.user.findUnique({ where: { id }, select: { departmentId: true, roleId: true } });
+      const deptChanged = clean.departmentId !== undefined && (clean.departmentId || null) !== (current?.departmentId ?? null);
+      const roleChanged = clean.roleId !== undefined && clean.roleId !== current?.roleId;
+      if ((deptChanged || roleChanged) && this.capabilities && (await this.capabilities.isEnabled('transfer'))) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'USE_TRANSFER_WORKFLOW',
+          message: 'Change the department or role with Transfer, which previews the impact first. Other changes in this form were not saved.',
+        });
+      }
+    }
+
+    // Administrative deactivation goes through the one lifecycle-safe helper
+    // (D11): profile closed, sessions revoked, handoffs cancelled, audit in the
+    // same transaction. The EmploymentPeriod stays open (Reactivate continues it).
+    if (clean.isActive === false) {
+      const { isActive: _ignored, ...rest } = clean;
+      return this.remove(id, actorId, rest);
+    }
+
     // HR AUTHORITY MAY BE COMBINED WITH ANY ROLE EXCEPT SUPER ADMIN.
     //
     // ADMIN + isHR is the HR ADMIN: ordinary Admin powers plus the HR set. That
@@ -1117,20 +1147,18 @@ export class UsersService {
     return { message: 'Password reset successfully' };
   }
 
-  async remove(id: string, actorId?: string) {
+  async remove(id: string, actorId?: string, otherFields: Record<string, unknown> = {}) {
     await this.assertNotSystemAccount(id);
+    const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id }, data: { isActive: false, employmentState: 'DEACTIVATED', scheduledActivationOn: null } });
-      // Phase 3: the attendance profile ends today, so no profile covers the
+      await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${id} FOR UPDATE`;
+      // Plain edits sent alongside isActive:false (PUT) are saved first.
+      if (Object.keys(otherFields).length > 0) await tx.user.update({ where: { id }, data: otherFields as any });
+      // Phase 3/4: the attendance profile ends today, so no profile covers the
       // inactive gap and no absence can be generated for it.
-      await closeProfilesAt(tx, id, this.companyDate(), actorId ?? null);
+      await deactivateUser(tx, { userId: id, reason: 'DEACTIVATION', lastDay: this.companyDate(), actorId: actorId ?? null, now, source: 'USERS_API' });
     });
-    this.eventLogger.log({
-      actorId: actorId ?? id,
-      entityType: 'User',
-      entityId: id,
-      action: OperationalAction.USER_DEACTIVATED,
-    }).catch(() => {});
+    this.gateway?.disconnectUser?.(id);
     return { message: 'User deactivated' };
   }
 

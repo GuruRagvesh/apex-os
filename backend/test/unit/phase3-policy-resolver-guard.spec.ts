@@ -24,6 +24,7 @@ const ALLOWED = new Map<string, string>([
   ['modules/platform/attendance/calendar/business-calendar.controller.ts', "a year's calendar, through the resolver"],
   ['modules/core/users/users.service.ts', 'onboarding bundle, through the resolver'],
   ['modules/platform/attendance/recovery/recovery-read.service.ts', 'maps historical references by id; resolves nothing'],
+  ['modules/core/users/transitions/fnf/working-calendar.ts', 'F&F working calendar: the profile calendar and weekly-off policy in force on the last working day, by id'],
   ['modules/platform/settings/settings.service.ts', "Settings Center's governing leave version per series, through the resolver"],
 ]);
 

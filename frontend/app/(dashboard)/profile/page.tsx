@@ -7,6 +7,7 @@
 // route keeps the slice untouched and adds no migration debt.
 import ProfileScreen from '@apex/core-users-profiles/screens/ProfileScreen';
 import { AttendanceLeaveSummary } from '@/components/attendance/AttendanceLeaveSummary';
+import Link from 'next/link';
 
 export default function ProfilePage() {
   return (
@@ -14,6 +15,9 @@ export default function ProfilePage() {
       <ProfileScreen />
       <div className="mt-4">
         <AttendanceLeaveSummary />
+      </div>
+      <div className="mt-4">
+        <Link href="/profile/resignation" className="text-sm underline">My resignation and clearance</Link>
       </div>
     </>
   );

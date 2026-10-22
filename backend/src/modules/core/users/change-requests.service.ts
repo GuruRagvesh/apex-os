@@ -15,6 +15,33 @@ const PERSONAL_INFORMATION_FIELDS = new Set([
 ]);
 const PERSONAL_INFORMATION_PENDING = ['AWAITING_EMPLOYEE_CONFIRMATION', 'PENDING_HR_REVIEW'];
 const PERSONAL_INFORMATION_DOCUMENT_FIELDS = new Set(['legalName', 'dateOfBirth']);
+/**
+ * The only fields an approved hierarchy change request may write (Phase 4,
+ * correction 12). Department and role move through the Transfer workflow;
+ * HR authority, activation, employment state, lifecycle dates, identifiers and
+ * credentials are never written by a change request.
+ */
+export const HIERARCHY_REQUEST_FIELDS: ReadonlySet<string> = new Set(['designation', 'teamLeadName', 'reportingManager']);
+
+export function disallowedChangeFields(changes: unknown): string[] {
+  const list = Array.isArray(changes) ? changes : [];
+  const bad = list
+    .map((c: any) => (c && typeof c.field === 'string' ? c.field : '(missing)'))
+    .filter((f: string) => !HIERARCHY_REQUEST_FIELDS.has(f));
+  return [...new Set(bad)];
+}
+
+function assertAllowedChangeFields(changes: unknown): void {
+  const bad = disallowedChangeFields(changes);
+  if (bad.length > 0) {
+    throw new BadRequestException({
+      statusCode: 400,
+      code: 'CHANGE_REQUEST_FIELD_NOT_ALLOWED',
+      message: 'This request asks to change a field that cannot be changed by request. Department and role changes are made by an Admin with Transfer. Nothing was applied.',
+      fields: bad,
+    });
+  }
+}
 
 @Injectable()
 export class ChangeRequestsService {
@@ -301,6 +328,7 @@ export class ChangeRequestsService {
   }
 
   async createChangeRequest(targetUserId: string, dto: { requestType: string; changes: any[]; reason?: string }, requester: any) {
+    assertAllowedChangeFields(dto?.changes);
     if (targetUserId !== requester.id) {
       // In this pack, employees request for themselves. TLs can request for employees.
       const requesterRole = this.accessPolicy.roleName(requester);
@@ -458,6 +486,10 @@ export class ChangeRequestsService {
       return this.approvePersonalInformationRequest(req, requester, note);
     }
 
+    // A request raised before the allow-list existed is refused here, before
+    // its status moves, so nothing is applied and it can be rejected instead.
+    assertAllowedChangeFields(req.changes);
+
     const roleName = this.accessPolicy.roleName(requester);
     
     if (req.currentApproverId && req.currentApproverId !== requester.id && !['ADMIN', 'SUPER_ADMIN'].includes(roleName)) {
@@ -614,6 +646,7 @@ export class ChangeRequestsService {
   }
 
   private async applyApprovedChanges(request: any) {
+    assertAllowedChangeFields(request.changes);
     const changes = request.changes as any[];
     const updateData: any = {};
     for (const ch of changes) {

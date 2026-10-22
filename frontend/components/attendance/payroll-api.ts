@@ -49,6 +49,33 @@ export interface PayrollPreview {
   reportDataFingerprint: string;
   /** Size of the actual workbook. This one is about the file. */
   reportByteSize: number;
+  /** Phase 4. */
+  reportRuleVersion?: string | null;
+  unresolvedSetup?: UnresolvedSetup | null;
+  employmentRecordReview?: Array<{ userId: string; name: string; employeeId: string | null; reasonCode: string; attendanceDays: number }>;
+  unresolvedAckRequired?: boolean;
+}
+
+/**
+ * Approved leave days saved while leave setup (policy, calendar or balance) was
+ * missing. They were NOT counted as paid or unpaid; nothing is invented.
+ */
+export interface UnresolvedSetup {
+  employees: number;
+  settlements: number;
+  excludedDayUnits: number;
+  statement: string;
+  fingerprint: string;
+  items: Array<{
+    userId: string;
+    name: string;
+    employeeId: string | null;
+    reasonCode: string;
+    leaveRequestIds: string[];
+    dates: string[];
+    excludedDayUnits: number;
+    missingSetup: Array<'POLICY' | 'CALENDAR' | 'BALANCE'>;
+  }>;
 }
 
 export interface MonthClose {
@@ -76,8 +103,13 @@ export async function getMonthClose(month: string): Promise<MonthClose | null> {
   return r(api.get(`/attendance/payroll/status/${month}`));
 }
 
-export async function finalizeMonth(month: string): Promise<MonthClose> {
-  return r(api.post('/attendance/payroll/finalize', { month }));
+export async function finalizeMonth(month: string, acknowledgeUnresolvedFingerprint?: string): Promise<MonthClose> {
+  return r(
+    api.post('/attendance/payroll/finalize', {
+      month,
+      ...(acknowledgeUnresolvedFingerprint ? { acknowledgeUnresolved: { fingerprint: acknowledgeUnresolvedFingerprint } } : {}),
+    }),
+  );
 }
 
 export async function sendToFinance(month: string): Promise<MonthClose> {

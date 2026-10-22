@@ -8,11 +8,13 @@ import { EmailModule } from '../../platform/email/email.module';
 import { BackupVaultModule } from '../../platform/backup-vault/backup-vault.module';
 import { ScheduledUserActivationService } from './scheduled-user-activation.service';
 import { UserSetupIssuesService } from './user-setup-issues.service';
+import { GatewayModule } from '../../platform/gateway/gateway.module';
+import { TransitionCapabilitiesService } from './transitions/capabilities.service';
 
 @Module({
-  imports: [forwardRef(() => NotificationsModule), EmailModule, BackupVaultModule],
-  providers: [UsersService, ChangeRequestsService, ScheduledUserActivationService, UserSetupIssuesService],
+  imports: [forwardRef(() => NotificationsModule), EmailModule, BackupVaultModule, GatewayModule],
+  providers: [UsersService, ChangeRequestsService, ScheduledUserActivationService, UserSetupIssuesService, TransitionCapabilitiesService],
   controllers: [UsersController, ChangeRequestsController],
-  exports: [UsersService, ChangeRequestsService, ScheduledUserActivationService, UserSetupIssuesService],
+  exports: [UsersService, ChangeRequestsService, ScheduledUserActivationService, UserSetupIssuesService, TransitionCapabilitiesService],
 })
 export class UsersModule {}

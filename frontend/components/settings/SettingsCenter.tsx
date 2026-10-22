@@ -20,6 +20,7 @@ import { useTheme, type ThemeId, type AccentId } from '@apex/shared-utilities/us
 import { enablePushNotifications } from '@/lib/push-notifications';
 import { TeamLeadershipSection } from './TeamLeadershipSection';
 import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
+import { ComplianceSettings } from '@/components/transitions/ComplianceSettings';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
 const inputCls  = 'apex-input';
@@ -1708,7 +1709,7 @@ function PolicyCenter() {
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
   | 'profile' | 'appearance' | 'notifications' | 'security' | 'team'
-  | 'company' | 'policies';
+  | 'company' | 'policies' | 'compliance';
 
 type SettingsNavItem = { id: SectionId; label: string; icon: React.ReactNode; keywords: string };
 type SettingsNavGroup = { label: string; items: SettingsNavItem[] };
@@ -1731,6 +1732,7 @@ export function SettingsCenter() {
   const organizationItems: SettingsNavItem[] = isAdmin ? [
     { id: 'company', label: 'Organization profile', icon: <Building2 size={16} />, keywords: 'company organization name email timezone branding theme accent' },
     { id: 'policies', label: 'Policy', icon: <ClipboardCheck size={16} />, keywords: 'leave work schedule ticket types service levels SLA' },
+    { id: 'compliance', label: 'Compliance', icon: <Shield size={16} />, keywords: 'retention record legal hold delete rollout switch transfer resignation payroll acknowledgement' },
   ] : [];
   const groups: SettingsNavGroup[] = [
     { label: 'My account', items: accountItems },
@@ -1778,6 +1780,7 @@ export function SettingsCenter() {
           {active === 'team' && isLead && <TeamLeadershipSection />}
           {active === 'company' && isAdmin && <div className="space-y-7"><CompanySection /><AppearanceSettings mode="company" /></div>}
           {active === 'policies' && isAdmin && <PolicyCenter />}
+          {active === 'compliance' && isAdmin && <ComplianceSettings me={user ? { id: user.id } : undefined} isSuperAdmin={roleName === 'SUPER_ADMIN'} />}
         </main>
       </div>
     </div>
