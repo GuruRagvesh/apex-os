@@ -66,9 +66,9 @@ export function AttendanceCalendarSection({
     staleTime: 300_000,
     retry: false,
   });
-  const emergencyBalance = useQuery({
-    queryKey: ['my-leave-balance', 'EMERGENCY'],
-    queryFn: () => getMyLeaveBalance('EMERGENCY'),
+  const sickBalance = useQuery({
+    queryKey: ['my-leave-balance', 'SICK'],
+    queryFn: () => getMyLeaveBalance('SICK'),
     staleTime: 300_000,
     retry: false,
   });
@@ -106,10 +106,10 @@ export function AttendanceCalendarSection({
           unavailable={casualBalance.isError}
         />
         <LeaveBalanceKpi
-          label="Emergency"
-          value={emergencyBalance.data?.balance}
-          loading={emergencyBalance.isPending}
-          unavailable={emergencyBalance.isError}
+          label="Sick"
+          value={sickBalance.data?.balance}
+          loading={sickBalance.isPending}
+          unavailable={sickBalance.isError}
         />
         <LeaveBalanceKpi
           label="Comp off"

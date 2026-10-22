@@ -2,10 +2,14 @@ import { validateScreenshots, SCREENSHOT_METADATA, type ScreenshotUpload } from 
 import { formatInTimeZone } from 'date-fns-tz';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { CorrectionAuthorityService } from './correction-authority.service';
+import { CorrectionDecisionService, UNRESOLVED_STATUSES } from './correction-decision.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { EventLoggerService, OperationalAction } from '../../../../common/services/event-logger.service';
@@ -115,7 +119,19 @@ export class RegularizationService {
     private readonly accessPolicy: AccessPolicyService,
     private readonly settings: SettingsService,
     private readonly evaluator: DailyAttendanceEvaluatorService,
+    @Optional() private readonly authority?: CorrectionAuthorityService,
+    @Optional() private readonly decisions?: CorrectionDecisionService,
   ) {}
+
+  /** Phase 3: once the single-decision workflow is on, the stage routes refuse. */
+  private async assertLegacyStageRoutesAllowed() {
+    if (this.decisions && (await this.decisions.enabled())) {
+      throw new ConflictException({
+        code: 'USE_DECISION_ENDPOINT',
+        message: 'Attendance corrections are now decided once, by any eligible reviewer. Use the Approve or Reject decision.',
+      });
+    }
+  }
 
   /** Feature flag, defaulting OFF like every other Attendance V2 capability. */
   private async enabled(): Promise<boolean> {
@@ -163,7 +179,7 @@ export class RegularizationService {
     // One open request per day. A second one would give two approvers two
     // different answers for the same date.
     const open = await this.prisma.attendanceRegularization.findFirst({
-      where: { userId, date, status: { in: ['PENDING', 'MANAGER_APPROVED'] } },
+      where: { userId, date, status: { in: [...UNRESOLVED_STATUSES] } },
     });
     if (open) {
       throw new ForbiddenException('A correction for this date is already under review');
@@ -201,7 +217,14 @@ export class RegularizationService {
         ...(screenshots.length ? { screenshots: { create: screenshots } } : {}),
       },
       include: { screenshots: { select: SCREENSHOT_METADATA } },
+    }).catch((error: any) => {
+      // The database is the authority on "one unresolved request per day":
+      // two simultaneous submissions cannot both pass the check above.
+      if (error?.code === 'P2002') throw new ForbiddenException('A correction for this date is already under review');
+      throw error;
     });
+    // Eligible reviewers are told at once (Phase 3); preferences decide channels.
+    this.decisions?.notifyCreated(created).catch(() => undefined);
 
     this.eventLogger.log({
       actorId: userId,
@@ -217,11 +240,20 @@ export class RegularizationService {
 
   /** The authenticated employee's own correction requests. */
   async listMine(userId: string, limit = 50) {
-    return this.prisma.attendanceRegularization.findMany({
+    const rows = await this.prisma.attendanceRegularization.findMany({
       where: { userId },
       include: { screenshots: { select: SCREENSHOT_METADATA } },
       orderBy: { createdAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 200),
+    });
+    const actorIds = [...new Set(rows.flatMap((row) => [row.decidedById, row.hrApproverId, row.managerApproverId]).filter((id): id is string => !!id))];
+    const actors = actorIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(actors.map((actor) => [actor.id, actor]));
+    return rows.map((row) => {
+      const actorId = row.decidedById ?? row.hrApproverId ?? row.managerApproverId;
+      return { ...row, decidedBy: actorId ? byId.get(actorId) ?? { id: actorId, name: 'Deleted account' } : null };
     });
   }
 
@@ -231,8 +263,14 @@ export class RegularizationService {
     if (!row) throw new NotFoundException('Correction request not found');
 
     if (row.userId === actor?.id) return row;
-    if (this.accessPolicy.isHrOrAdmin(actor)) return row;
-    if (await this.hierarchy.isApproverFor(actor?.id, row.userId)) return row;
+    if (this.authority) {
+      // Phase 3: the same eligibility that decides also governs who may read.
+      const loaded = await this.authority.loadActor(actor?.id);
+      if (await this.authority.eligibility(loaded, row.userId)) return row;
+    } else {
+      if (this.accessPolicy.isHrOrAdmin(actor)) return row;
+      if (await this.hierarchy.isApproverFor(actor?.id, row.userId)) return row;
+    }
 
     // Same response as a genuine miss: revealing that someone else's request
     // exists is itself a small leak.
@@ -257,7 +295,15 @@ export class RegularizationService {
    * Scoped, never global: a manager sees only their own reports' requests, and
    * HR sees the requests that have cleared manager review.
    */
-  async pendingFor(actor: any, limit = 100) {
+  async pendingFor(actor: any, limit = 100, scope?: string, page?: number) {
+    // Phase 3: scoped queues filtered in PostgreSQL before paging. The old
+    // shape (HR saw only MANAGER_APPROVED; others filtered a global page in
+    // memory) hid new requests and is no longer reachable when the scoped
+    // service is present.
+    if (this.decisions) {
+      const resolved = scope === 'company' ? 'company' : 'team';
+      return this.decisions.queue(actor?.id ?? actor?.sub, resolved, page, limit);
+    }
     const take = Math.min(Math.max(limit, 1), 200);
 
     if (this.accessPolicy.isHrOrAdmin(actor)) {
@@ -356,7 +402,7 @@ export class RegularizationService {
     const date = this.tva.companyDateOnly(new Date(`${input.businessDate}T00:00:00.000Z`));
 
     const open = await this.prisma.attendanceRegularization.findFirst({
-      where: { userId: input.userId, date, status: { in: ['PENDING', 'MANAGER_APPROVED'] } },
+      where: { userId: input.userId, date, status: { in: [...UNRESOLVED_STATUSES] } },
     });
     if (open) {
       throw new ForbiddenException(
@@ -418,13 +464,14 @@ export class RegularizationService {
           employeeInformedAt: new Date(input.employeeInformedAt),
         }) as any),
 
-        // The creator's own operational judgment, recorded as such. HR approval
-        // is still required and is still the only thing that rewrites
-        // attendance.
-        status: 'MANAGER_APPROVED',
-        managerApproverId: actorId,
-        managerDecisionAt: this.tva.now(),
+        // Phase 3: creating a recovery never approves it. It is an unresolved
+        // request like any other; the creation and the later decision are
+        // separate audit events (an HR/Admin creator must confirm separately).
+        status: 'PENDING',
       },
+    }).catch((error: any) => {
+      if (error?.code === 'P2002') throw new ForbiddenException('A correction for this date is already under review. Resolve it before recording another.');
+      throw error;
     });
 
     this.eventLogger.log({
@@ -456,6 +503,7 @@ export class RegularizationService {
   /** Stage one: the employee's actual reporting authority. */
   async approveAsManager(actor: any, id: string) {
     if (!(await this.enabled())) throw new RegularizationDisabledError();
+    await this.assertLegacyStageRoutesAllowed();
 
     const row = await this.prisma.attendanceRegularization.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Correction request not found');
@@ -514,6 +562,7 @@ export class RegularizationService {
    */
   async approveAsHr(actor: any, id: string) {
     if (!(await this.enabled())) throw new RegularizationDisabledError();
+    await this.assertLegacyStageRoutesAllowed();
     if (!this.accessPolicy.isHrOrAdmin(actor)) {
       throw new ForbiddenException('Only HR can give final approval for an attendance correction');
     }
@@ -620,15 +669,26 @@ export class RegularizationService {
    */
   async reject(actor: any, id: string, reason?: string) {
     if (!(await this.enabled())) throw new RegularizationDisabledError();
+    await this.assertLegacyStageRoutesAllowed();
 
     const trimmed = (reason ?? '').trim();
     if (trimmed.length === 0) {
       throw new BadRequestException('A reason is required when rejecting a correction request');
     }
 
+    // Once the additive Phase 3 code is deployed, even the compatibility
+    // route writes through the generic v1 decision writer. This preserves the
+    // old URL while preventing a newly-created legacy REJECTED row.
+    if (this.decisions) {
+      return this.decisions.decideCompatibility(actor.id, id, {
+        decision: 'REJECT',
+        reason: trimmed,
+      });
+    }
+
     const row = await this.prisma.attendanceRegularization.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Correction request not found');
-    if (row.status === 'HR_APPROVED' || row.status === 'REJECTED') {
+    if (row.status === 'HR_APPROVED' || row.status === 'REJECTED' || row.status === 'APPROVED') {
       throw new ForbiddenException('This request has already been decided');
     }
 

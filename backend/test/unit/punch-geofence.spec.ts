@@ -105,6 +105,7 @@ function build(
   const created: any[] = [];
   const prisma: any = {
     $transaction: jest.fn((fn: any) => fn(prisma)),
+    punchEvidenceReview: { create: jest.fn().mockResolvedValue({ id: 'review-1' }) },
     attendancePunchEvidence: {
       findUnique: jest.fn().mockResolvedValue(opts.existing ?? null),
       findMany: jest.fn().mockResolvedValue([]),

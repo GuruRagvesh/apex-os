@@ -64,7 +64,11 @@ export function DayDetailDrawer({
   const requestsForDay = requests.data
     ?.filter(request => request.date.slice(0, 10) === date)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const pending = requestsForDay?.find(request => request.status === 'PENDING' || request.status === 'MANAGER_APPROVED');
+  const pending = requestsForDay?.find(request =>
+    request.status === 'PENDING'
+    || request.status === 'STALE_REVIEW_REQUIRED'
+    || request.status === 'MANAGER_APPROVED'
+  );
   const latestRequest = requestsForDay?.[0];
   const detail = useQuery({
     queryKey: ['my-attendance-v2-day', date],
@@ -141,7 +145,7 @@ export function DayDetailDrawer({
                 <div className="min-w-0">
                   {latestRequest ? (
                     <p role="status" className="apex-text text-xs font-semibold">
-                      {pending ? 'Correction' : 'Latest request'} {stageLabel(latestRequest.status).toLowerCase()}
+                      {pending ? 'Correction' : 'Latest request'} {stageLabel(latestRequest.status, latestRequest.applicationStatus).toLowerCase()}
                     </p>
                   ) : (
                     <p className="apex-text text-xs font-semibold">Something looks wrong?</p>
@@ -325,6 +329,13 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
         {item.policyContextStatus === 'POLICY_SETUP_PENDING' ? (
           <p className="text-amber-500">Attendance policy setup pending — raw punch recorded for review</p>
         ) : null}
+        <p>
+          Device: {item.deviceLabel || 'Not recorded'}
+          {item.captureChannel === 'PHONE_HANDOFF' ? ' · Phone handoff' : item.captureChannel === 'CURRENT_DEVICE' ? ' · This device' : ''}
+        </p>
+        {item.deviceType === 'UNKNOWN' ? (
+          <p className="text-amber-500">Device ID unavailable — kept for HR review; punch remains recorded</p>
+        ) : null}
         {item.distanceFromLocationMeters !== null ? (
           <p>{Math.round(item.distanceFromLocationMeters)} m from the registered location</p>
         ) : null}
@@ -495,10 +506,10 @@ function PolicyAndEvaluation({ day, request }: { day: MyAttendanceDayV2; request
         />
         <Row
           label="Regularization"
-          value={request ? stageLabel(request.status) : day.modifiers.includes('REGULARIZED') ? 'Applied' : 'None applied'}
+          value={request ? stageLabel(request.status, request.applicationStatus) : day.modifiers.includes('REGULARIZED') ? 'Applied' : 'None applied'}
         />
       </dl>
-      {request && <div className="mt-3 rounded-lg border border-apex-border p-3 text-xs"><p className="font-semibold">Submitted request</p><p className="mt-1">{request.reason}</p><p className="apex-text-muted mt-1">{stageLabel(request.status)} · submitted {new Date(request.createdAt).toLocaleDateString()}</p></div>}
+      {request && <div className="mt-3 rounded-lg border border-apex-border p-3 text-xs"><p className="font-semibold">Submitted request</p><p className="mt-1">{request.reason}</p><p className="apex-text-muted mt-1">{stageLabel(request.status, request.applicationStatus)} · submitted {new Date(request.createdAt).toLocaleDateString()}</p>{request.decidedBy?.name ? <p className="apex-text-muted mt-1">Decided by {request.decidedBy.name}{request.decidedByRole ? ` (${request.decidedByRole.replaceAll('_', ' ')})` : ''}</p> : null}{request.decisionReason ? <p className="apex-text-muted mt-1">{request.decisionReason}</p> : null}</div>}
     </div>
   );
 }

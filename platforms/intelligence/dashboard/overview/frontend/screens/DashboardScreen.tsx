@@ -9,6 +9,8 @@ import {
 } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
+import { usersApi } from '@apex/core-users/api';
+import { readTeamPreferences } from '../../team-preferences';
 import { dashboardApi } from '../api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { HomeSkeleton } from '../components/HomeSkeleton';
@@ -91,6 +93,12 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
   const [heroTimeOverride, setHeroTimeOverride]   = useState<HeroDaypart | null>(null);
   const heroRef = useRef<HTMLElement | null>(null);
   const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
+  const { data: storedPreferences } = useQuery({
+    queryKey: ['team-display-preferences', user?.id],
+    queryFn: () => usersApi.getPreferences() as Promise<any>,
+    enabled: isLeadOrAbove && Boolean(user?.id),
+  });
+  const teamPreferences = readTeamPreferences(storedPreferences?.teamSettings);
 
   // Local preview helper: ?heroTime=morning|afternoon|evening|night (ignored in production).
   useEffect(() => {
@@ -243,8 +251,8 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
 
       {user?.id && isContributor && <div className="mt-6"><PersonalHighlightsSection /></div>}
 
-      {user?.id && isLeadOrAbove && <div className="mt-6 space-y-5">
-        {teamScope && <TeamInsightsSection team={teamScope} />}
+      {user?.id && isLeadOrAbove && <div className={`mt-6 ${teamPreferences.dashboardDensity === 'compact' ? 'space-y-3' : 'space-y-5'}`}>
+        {teamScope && teamPreferences.showTeamOverview && <TeamInsightsSection team={teamScope} highlightSla={teamPreferences.highlightApproachingSla} compact={teamPreferences.dashboardDensity === 'compact'} />}
         {(role === 'TEAM_LEAD' || role === 'MANAGER') && <PersonalHighlightsSection />}
       </div>}
     </div>

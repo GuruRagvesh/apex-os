@@ -47,6 +47,10 @@ function fixture(over: { user?: any; profiles?: any[]; archivedAt?: Date | null;
       findMany: jest.fn(async ({ where }: any = {}) => (where?.effectiveTo === null ? profiles.filter((p: any) => !p.effectiveTo) : profiles)),
       updateMany: jest.fn().mockResolvedValue({ count: profiles.length }),
       create: jest.fn().mockResolvedValue({ id: 'profile-new' }),
+      // Phase 3 reopen-on-return: nothing covers the return date, the most
+      // recent earlier profile is the one continued.
+      findFirst: jest.fn(async ({ where }: any = {}) =>
+        where?.effectiveFrom?.lt ? [...profiles].sort((x: any, y: any) => +y.effectiveFrom - +x.effectiveFrom)[0] ?? null : null),
     },
     operationalEvent: { create: jest.fn().mockResolvedValue({}) },
     $queryRaw: jest.fn().mockResolvedValue([]),
@@ -236,19 +240,18 @@ describe('rehiring an inactive person', () => {
     expect(event.metadata).toEqual(expect.objectContaining({ reusedProfileId: 'profile-current', attendanceProfileStart: '2026-09-15', closedProfiles: 0 }));
   });
 
-  it('a joining date before the attendance policies start keeps the date; the new profile starts with the policies', async () => {
+  // Phase 3: the new profile begins on the return date. A policy that starts
+  // later is applied as the baseline and recorded as setup work, never by
+  // moving the profile start (which would leave the returned person uncovered).
+  it('a return date before the attendance policies start keeps the date and starts the profile on it', async () => {
     const { service, tx } = fixture({ profiles: [] });
-    const shift = { id: 'shift-1', attendancePolicyId: 'ap-1', category: AttendanceCategory.REGULAR_EMPLOYEE, status: PolicyStatus.ACTIVE };
+    const shift = { id: 'shift-1', attendancePolicyId: 'ap-1', category: AttendanceCategory.REGULAR_EMPLOYEE, status: PolicyStatus.ACTIVE, effectiveFrom: D('2026-09-15'), effectiveTo: null };
     tx.shiftPolicy.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([shift]);
-    (tx.shiftPolicy as any).findFirst = jest.fn().mockResolvedValue({ effectiveFrom: D('2026-09-15') });
 
     const result = await service.rehire('shruti', REHIRE, 'admin-1');
 
     expect(result.joiningDate).toEqual(D('2026-08-24'));
-    expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({ data: expect.objectContaining({ assignedShiftId: 'shift-1', effectiveFrom: D('2026-09-15') }) });
-    // Only one step forward, from the policy's own start.
-    expect(tx.shiftPolicy.findMany).toHaveBeenCalledTimes(2);
-    expect(tx.shiftPolicy.findMany.mock.calls[1][0].where.effectiveFrom).toEqual({ lte: D('2026-09-15') });
+    expect(tx.employeeAttendanceProfile.create).toHaveBeenCalledWith({ data: expect.objectContaining({ assignedShiftId: 'shift-1', effectiveFrom: D('2026-08-24') }) });
   });
 
   it('rehire succeeds and opens a setup issue when attendance policies are unavailable', async () => {

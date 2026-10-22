@@ -118,6 +118,13 @@ export const HANDLERS: Handler[] = [
   { key: 'CompOffCredit.employeeId', model: 'CompOffCredit', field: 'employeeId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'LEAVE', sheet: 'Comp-Off Credits', note: 'Own credits.' },
   { key: 'BreakLog.userId', model: 'BreakLog', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Break Logs', note: 'Own breaks.' },
   { key: 'WorkSession.userId', model: 'WorkSession', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Work Sessions', note: 'After evidence and notes.' },
+  // Phase 3: Emergency Leave evidence files, append-only (row-scoped trigger
+  // exception), before their leave request. Bytes archived like documents.
+  { key: 'LeaveEvidence.userId', model: 'LeaveEvidence', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: true, retention: 'LEAVE', sheet: 'Leave Evidence', appendOnly: true, note: 'Append-only evidence files; bytes archived; original removed by cleanup.' },
+  { key: 'LeaveEvidence.uploadedById', model: 'LeaveEvidence', field: 'uploadedById', fk: false, holds: 'id', action: 'DEL', where: (u) => ({ uploadedById: u.id, userId: u.id }), history: true, retention: 'LEAVE', sheet: 'Leave Evidence', appendOnly: true, note: 'Only the leave owner uploads evidence, so these are the same rows as LeaveEvidence.userId.' },
+  // Phase 3: three-day unreported-absence decisions and recorded absence reports.
+  { key: 'UnreportedAbsenceDecision.userId', model: 'UnreportedAbsenceDecision', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Attendance Absence Decisions', appendOnly: true, note: 'Audit history; deleted only under the row-scoped trigger exception.' },
+  { key: 'AbsenceReport.userId', model: 'AbsenceReport', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Attendance Absence Reports', note: 'Reports that the person informed HR of an absence.' },
   { key: 'LeaveRequest.userId', model: 'LeaveRequest', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'LEAVE', sheet: 'Leave Requests', note: 'Pending leave was cancelled at archive.' },
   { key: 'UserWorkdayPolicyOverride.userId', model: 'UserWorkdayPolicyOverride', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Workday Override', note: 'Own override.' },
   { key: 'EmployeeAttendanceProfile.userId', model: 'EmployeeAttendanceProfile', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Attendance Profiles', note: 'Configuration, not an attendance record: not retention-protected. The initial profile is setup-only.' },
@@ -262,6 +269,11 @@ export const HANDLERS: Handler[] = [
   })),
   { key: 'HierarchyAssignment.createdById', model: 'HierarchyAssignment', field: 'createdById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Reporting Lines', note: 'Assignments the person recorded.' },
   { key: 'PolicyHealthIssue.resolvedById', model: 'PolicyHealthIssue', field: 'resolvedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Issue kept.' },
+  // Phase 3 actor references on records about OTHER people. Their CHECKs
+  // require an actor, so they move to the deleted-account principal.
+  { key: 'AttendanceRegularization.decidedById', model: 'AttendanceRegularization', field: 'decidedById', fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Attendance Corrections', note: 'Final decisions on others\x27 corrections stay; the decider becomes the deleted-account principal.' },
+  { key: 'UnreportedAbsenceDecision.correctedById', model: 'UnreportedAbsenceDecision', field: 'correctedById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ userId: { not: u.id } }), history: true, sheet: 'Attendance Absence Decisions', note: 'HR corrections of others\x27 LWP decisions stay.' },
+  { key: 'AbsenceReport.recordedById', model: 'AbsenceReport', field: 'recordedById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ userId: { not: u.id } }), history: true, sheet: 'Attendance Absence Reports', note: 'Reports HR recorded for others stay.' },
   { key: 'PunchEvidenceReview.reviewedById', model: 'PunchEvidenceReview', field: 'reviewedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Punch Evidence', note: 'Reviews of others\' evidence; the person\'s own reviews cascade with their evidence.' },
   ...(['createdById', 'withdrawnById'] as const).map((field): Handler => ({
     key: `ExitCase.${field}`, model: 'ExitCase', field, fk: false, holds: 'id', action: 'NULL', scope: others, history: true, sheet: 'Exit and F&F', note: 'Exit cases the person handled for others.',
@@ -309,6 +321,7 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'TicketTimeLog.ownerType': 'An enum label.',
   'TicketTimeLog.pauseReason': 'An enum label.',
   'EmployeeProfileChangeRequest.managerDecision': 'A decision label.',
+  'EmployeeProfileChangeRequest.employeeDeclineReason': 'A narrative reason, not a person reference.',
   'AttendancePunchEvidence.employeeProfileId': 'Points at an attendance profile.',
   'DailyAttendance.employeeProfileId': 'Points at an attendance profile.',
   'AttendanceRegularization.actorRoleAtEntry': 'A role label.',

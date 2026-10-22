@@ -10,7 +10,8 @@ import { departmentsApi } from '@apex/core-organization-departments/api';
 import { projectsApi } from '@apex/operations-projects/api';
 import { useAuthStore } from '@apex/core-identity';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Sparkles, Loader2, Clock, Plus, Copy, Trash2, Download, Upload, X } from 'lucide-react';
+import { ArrowLeft, Sparkles, Loader2, Clock, Plus, Copy, Trash2, Download, Upload, X, Settings2 } from 'lucide-react';
+import { TicketDefaultsPanel, DEFAULT_TICKET_DEFAULTS, readTicketDefaults, type TicketDefaults } from '@/components/settings/TicketDefaultsPanel';
 import { formatRole } from '@apex/operations-tickets-lifecycle/shared/ticket-vocabulary';
 import { cn } from '@apex/shared-utilities';
 import { MultiSelect } from '@apex/shared-ui/components/multi-select';
@@ -124,6 +125,8 @@ export default function CreateTicketsPage() {
   const myDeptId = user?.department?.id ?? '';
   const lockDept = isTL || isEmployee;     // department fixed to own dept
   const lockAssignee = isEmployee;          // always self-assigned — TASK only, see isSelfLockedRow
+  const [ticketDefaults, setTicketDefaults] = useState<TicketDefaults>(DEFAULT_TICKET_DEFAULTS);
+  const [showTicketDefaults, setShowTicketDefaults] = useState(false);
   // Employee/Intern self-assign applies to TASK rows only — QUERY/HELP are requests
   // directed at someone else (often in another department), so a row's type decides
   // whether the self-lock actually applies, not just the creator's role.
@@ -137,9 +140,9 @@ export default function CreateTicketsPage() {
     taskTypeId: '',
     taskSubtypeId: '',
     customSubtype: '',
-    assigneeIds: lockAssignee && user?.id ? [user.id] : [],
+    assigneeIds: (lockAssignee || (ticketDefaults.autoAssign && lockDept && myDeptId)) && user?.id ? [user.id] : [],
     targetDepartmentId: '',
-    priority: 'MEDIUM',
+    priority: ticketDefaults.defaultPriority,
     outputTargetMinutes: '',
     // Planning default: now, in company time. Editable and clearable; it starts
     // no timer and never sets actualStartAt (the ticket is created OPEN).
@@ -156,6 +159,19 @@ export default function CreateTicketsPage() {
 
   const [rows, setRows] = useState<TicketRow[]>([makeRow()]);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let mounted = true;
+    usersApi.getPreferences().then((raw: any) => {
+      if (!mounted) return;
+      const defaults = readTicketDefaults(raw);
+      setTicketDefaults(defaults);
+      setRows((current) => current.map((row) => row.title || row.description || row.notes || row.priority !== 'MEDIUM' || (row.assigneeIds.length > 0 && !(lockAssignee && row.assigneeIds.length === 1 && row.assigneeIds[0] === user.id))
+        ? row : { ...row, priority: defaults.defaultPriority, assigneeIds: (lockAssignee || (defaults.autoAssign && lockDept && myDeptId)) ? [user.id] : [] }));
+    }).catch(() => { /* Keep safe defaults if the preference service is unavailable. */ });
+    return () => { mounted = false; };
+  }, [user?.id, lockAssignee, lockDept, myDeptId]);
 
   // ── Unsaved draft (this tab, 30 minutes) ───────────────────────────────────
   // Only the non-text fields survive navigation and refresh: type, priority,
@@ -327,7 +343,7 @@ export default function CreateTicketsPage() {
       outputTargetMinutes: '',
       // Requesting-department change only clears the TASK assignee list (dept-scoped);
       // QUERY/HELP recipients are chosen from the separate Target Department, unaffected.
-      assigneeIds: row.type === 'TASK' ? (lockAssignee ? row.assigneeIds : []) : row.assigneeIds,
+      assigneeIds: row.type === 'TASK' ? (lockAssignee || (ticketDefaults.autoAssign && value === myDeptId && user?.id) ? [user!.id] : []) : row.assigneeIds,
       errors: [],
     } : row)));
 
@@ -341,7 +357,7 @@ export default function CreateTicketsPage() {
       type,
       targetDepartmentId: '',
       outputTargetMinutes: type === 'TASK' ? row.outputTargetMinutes : '',
-      assigneeIds: (isEmployee && type === 'TASK' && user?.id) ? [user.id] : [],
+      assigneeIds: ((isEmployee || (ticketDefaults.autoAssign && row.departmentId === myDeptId)) && type === 'TASK' && user?.id) ? [user.id] : [],
       errors: [],
     } : row)));
 
@@ -632,6 +648,7 @@ export default function CreateTicketsPage() {
           <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Create Tickets</h2>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <button type="button" onClick={() => setShowTicketDefaults((value) => !value)} className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }} aria-expanded={showTicketDefaults}><Settings2 size={14} /> My ticket defaults</button>
           <button type="button" onClick={() => defaultTicketsRef.current?.openCreate()}
             className="apex-btn-primary flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-colors">
             <Plus size={13} /> Create Default Tickets
@@ -650,6 +667,8 @@ export default function CreateTicketsPage() {
           <input ref={fileInputRef} id="ticket-import-file" name="ticketImportFile" aria-label="Import tickets from an Excel file" type="file" accept=".xlsx,.xls" className="hidden" onChange={onFilePicked} />
         </div>
       </div>
+
+      {showTicketDefaults && <TicketDefaultsPanel value={ticketDefaults} onSaved={setTicketDefaults} onClose={() => setShowTicketDefaults(false)} />}
 
       {!canCreate && creationGate.reason && (
         <div role="status" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-3"

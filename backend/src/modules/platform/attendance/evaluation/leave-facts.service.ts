@@ -57,6 +57,37 @@ export class LeaveFactsService {
     });
 
     if (covering.length === 0) {
+      // Phase 3: a same-day Emergency Leave protects the day as soon as it is
+      // submitted, while it waits for TL/Manager review. Provisional, never
+      // deducted, and only for requests that recorded the provisional approval.
+      const [candidate] = await this.prisma.leaveRequest.findMany({
+        where: {
+          userId,
+          status: LeaveStatus.PENDING,
+          submissionMode: 'EMERGENCY',
+          provisionallyApprovedAt: { not: null },
+          startDate: { lte: dayEnd },
+          endDate: { gte: dayStart },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 1,
+      });
+      const provisional =
+        candidate?.status === LeaveStatus.PENDING &&
+        candidate.submissionMode === 'EMERGENCY' &&
+        candidate.provisionallyApprovedAt
+          ? candidate
+          : null;
+      if (provisional) {
+        return {
+          hasApprovedLeave: true,
+          kind: 'PROVISIONAL_EMERGENCY',
+          leaveRequestId: provisional.id,
+          leaveType: provisional.type,
+          halfDaySession: provisional.halfDaySession ?? null,
+          halfDayType: provisional.halfDayType ?? null,
+        };
+      }
       return { hasApprovedLeave: false, kind: 'NONE', leaveRequestId: null };
     }
 
@@ -74,6 +105,20 @@ export class LeaveFactsService {
       (leave.halfDayType === 'FIRST_HALF' || leave.halfDayType === 'SECOND_HALF'
         ? leave.halfDayType
         : null);
+
+    // Phase 3: approved while leave setup was pending. The day is protected as
+    // leave, but its funding is not settled yet, so nothing is deducted and
+    // payroll treats it as unresolved until the settlement is recorded.
+    if (!leave.fundingOutcome && (leave as any).setupStatus === 'POLICY_SETUP_PENDING') {
+      return {
+        hasApprovedLeave: true,
+        kind: 'SETTLEMENT_PENDING',
+        leaveRequestId: leave.id,
+        leaveType: leave.type,
+        halfDaySession,
+        halfDayType: leave.halfDayType ?? null,
+      };
+    }
 
     // LH-2: an explicit settlement, when one was recorded, is the authority.
     // It says how the company actually funded the leave, which is exactly the

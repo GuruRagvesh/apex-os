@@ -64,9 +64,9 @@ export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
     staleTime: 5 * 60_000,
     retry: false,
   });
-  const emergency = useQuery({
-    queryKey: ['my-leave-balance', 'EMERGENCY'],
-    queryFn: () => getMyLeaveBalance('EMERGENCY' as PersonalLeaveType),
+  const sick = useQuery({
+    queryKey: ['my-leave-balance', 'SICK'],
+    queryFn: () => getMyLeaveBalance('SICK' as PersonalLeaveType),
     staleTime: 5 * 60_000,
     retry: false,
   });
@@ -79,7 +79,7 @@ export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
 
   const byType: Record<PersonalLeaveType, typeof casual> = {
     CASUAL: casual,
-    EMERGENCY: emergency,
+    SICK: sick,
   };
 
   const credits = compOff.data ?? [];
@@ -97,7 +97,7 @@ export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
               label={LEAVE_TYPE_LABEL[type]}
               // `balance` is the authority; allocation minus what is taken or
               // awaiting a decision is already applied server-side.
-              available={q.data ? q.data.balance : null}
+              available={q.data && typeof q.data.balance === 'number' ? q.data.balance : null}
               used={q.data?.approved}
               pending={q.data?.pending}
             />

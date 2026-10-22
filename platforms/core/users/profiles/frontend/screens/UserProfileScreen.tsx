@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { analyticsApi } from '@apex/intelligence-analytics/api';
 import { usersApi } from '@apex/core-users/api';
+import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 import { rolesApi } from '@apex/core-organization-roles/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import toast from 'react-hot-toast';
@@ -241,6 +242,39 @@ export default function UserProfileScreen() {
     onError: (e: any) => toast.error(e?.message || 'Update failed'),
   });
 
+  const [personalChangeReason, setPersonalChangeReason] = useState('');
+  const [personalChangeFiles, setPersonalChangeFiles] = useState<File[]>([]);
+  const personalRequestMutation = useMutation({
+    mutationFn: async () => {
+      const fields = ['legalName', 'dateOfBirth', 'gender', 'bloodGroup', 'phone', 'personalEmail',
+        'currentAddress', 'permanentAddress', 'emergencyName', 'emergencyPhone', 'emergencyRelation'];
+      const comparable = (field: string, value: any) => {
+        if (value === null || value === undefined || value === '') return null;
+        return field === 'dateOfBirth' ? new Date(value).toISOString().slice(0, 10) : String(value).trim();
+      };
+      const changes = fields.filter((field) => comparable(field, formData[field]) !== comparable(field, profile?.[field]))
+        .map((field) => ({ field, newValue: comparable(field, formData[field]) }));
+      if (!changes.length) throw new Error('No official personal details changed');
+      if (!personalChangeReason.trim()) throw new Error('A reason is required');
+      const needsEvidence = changes.some((change) => ['legalName', 'dateOfBirth'].includes(change.field));
+      if (needsEvidence && personalChangeFiles.length === 0) throw new Error('Attach evidence for legal-name or date-of-birth corrections');
+      const supportingDocumentIds: string[] = [];
+      for (const file of personalChangeFiles) {
+        if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+          throw new Error('Evidence must be PDF, JPG or PNG and no larger than 5 MB');
+        }
+        const uploaded = await usersApi.uploadDocument(userId, file, 'Personal Information Change Evidence') as any;
+        if (uploaded?.document?.id) supportingDocumentIds.push(uploaded.document.id);
+      }
+      return changeRequestsApi.createPersonalInformation(userId, { changes, reason: personalChangeReason.trim(), supportingDocumentIds });
+    },
+    onSuccess: () => {
+      toast.success(isOwnProfile ? 'Request submitted for HR review' : 'Correction sent for employee confirmation');
+      setEditMode(false); setPersonalChangeReason(''); setPersonalChangeFiles([]);
+    },
+    onError: (error: any) => toast.error(error?.message ?? 'Correction request failed'),
+  });
+
   // Admin Correction — separate from the Personal Details form above. Email there is
   // read-only; this is the deliberate, audited path for fixing a login email/user id.
   const [correctionEmail, setCorrectionEmail] = useState('');
@@ -268,7 +302,7 @@ export default function UserProfileScreen() {
     setEditMode((v) => !v);
   };
 
-  const handleSave = () => updateMutation.mutate(formData);
+  const handleSave = () => activeTab === 'personal' ? personalRequestMutation.mutate() : updateMutation.mutate(formData);
 
   const handleDocumentUpload = async (docType: string, file: File) => {
     if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB'); return; }
@@ -469,9 +503,9 @@ export default function UserProfileScreen() {
                   <div className="flex items-center gap-2">
                     {editMode ? (
                       <>
-                        <button onClick={handleSave} disabled={updateMutation.isPending}
+                        <button onClick={handleSave} disabled={personalRequestMutation.isPending}
                           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl disabled:opacity-50">
-                          {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+                          {personalRequestMutation.isPending ? 'Submitting…' : (isOwnProfile ? 'Submit for HR Review' : 'Send for Employee Confirmation')}
                         </button>
                         <button onClick={() => setEditMode(false)}
                           className={`px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>
@@ -481,7 +515,7 @@ export default function UserProfileScreen() {
                     ) : (
                       <button onClick={handleEditToggle}
                         className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>
-                        <Edit2 size={14} /> Edit
+                        <Edit2 size={14} /> {isOwnProfile ? 'Request Changes' : 'Initiate Correction'}
                       </button>
                     )}
                   </div>
@@ -489,9 +523,10 @@ export default function UserProfileScreen() {
               </div>
               <div className={sectionCls}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <Field label="Full Name *" field="name" />
-                  <Field label="Email *" field="email" readOnly />
+                  <Field label="Legal Name" field="legalName" />
+                  <Field label="Official Login Email" field="email" readOnly />
                   <Field label="Phone" field="phone" type="tel" />
+                  <Field label="Personal Email" field="personalEmail" type="email" />
                   <Field label="Date of Birth" field="dateOfBirth" type="date" />
                   <SelectField label="Gender" field="gender" options={['Male','Female','Non-binary','Prefer not to say']} />
                   <SelectField label="Blood Group" field="bloodGroup" options={['A+','A-','B+','B-','O+','O-','AB+','AB-']} />
@@ -516,9 +551,19 @@ export default function UserProfileScreen() {
                   <Field label="Emergency Contact Name" field="emergencyName" />
                   <Field label="Emergency Contact Number" field="emergencyPhone" type="tel" />
                   <Field label="Relationship" field="emergencyRelation" />
-                  <Field label="Location" field="userLocation" />
+                  <Field label="Location" field="userLocation" readOnly />
                 </div>
               </div>
+
+              {editMode && <div className={`${sectionCls} mt-5`}>
+                <label className={labelCls}>Reason for correction *</label>
+                <textarea value={personalChangeReason} onChange={(event) => setPersonalChangeReason(event.target.value)} maxLength={1000}
+                  className={`${inputCls} min-h-[80px] resize-none`} placeholder="Explain why the official information needs correction" />
+                <label className={`${labelCls} mt-4`}>Supporting documents</label>
+                <input type="file" multiple accept="application/pdf,image/jpeg,image/png" onChange={(event) => setPersonalChangeFiles(Array.from(event.target.files ?? []))}
+                  className="block w-full text-sm text-[var(--text-secondary)]" />
+                <p className="mt-1 text-xs text-[var(--text-tertiary)]">Required for legal-name or date-of-birth corrections · PDF, JPG or PNG · 5 MB each</p>
+              </div>}
 
               {/* Admin Correction — ADMIN/SUPER_ADMIN only (canSeeAccess, not canEditAll,
                   since HR must not get this). Separate from the form above: the Email

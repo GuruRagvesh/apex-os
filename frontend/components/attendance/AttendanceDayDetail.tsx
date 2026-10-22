@@ -249,6 +249,10 @@ export function AttendanceDayDetail({
                     </span>
                   </div>
                   <LocationLine evidence={e} />
+                  <p className="apex-text-muted mt-1 text-xs">
+                    Device: {e.deviceLabel || 'Not recorded'}
+                    {e.captureChannel === 'PHONE_HANDOFF' ? ' · Phone handoff' : e.captureChannel === 'CURRENT_DEVICE' ? ' · This device' : ''}
+                  </p>
                   {/* Keyed to the EVIDENCE record, so a photo uploaded for a
                       punch that was then refused can never be presented as
                       official attendance evidence — it has no evidence row. */}
@@ -317,7 +321,7 @@ export function AttendanceDayDetail({
           {correction ? (
             <div className="rounded-lg border border-[var(--border-secondary)] p-2.5">
               <p className="apex-text text-xs font-semibold">
-                Correction requested · {stageLabel(correction.status)}
+                Correction requested · {stageLabel(correction.status, correction.applicationStatus)}
               </p>
               {correction.reason && (
                 <p className="apex-text-muted mt-0.5 text-xs">{correction.reason}</p>

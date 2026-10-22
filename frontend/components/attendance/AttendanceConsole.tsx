@@ -7,6 +7,7 @@ import { useAuthStore } from '@apex/core-identity';
 import { canApprove, canPrepare } from './import-presentation';
 import { DataHealthBadge } from './DataHealthPanel';
 import { ManualRecoveryForm } from './ManualRecoveryForm';
+import { PunchReviewQueue } from './PunchReviewQueue';
 import {
   downloadRegister,
   finalizeDay,
@@ -304,6 +305,14 @@ export function AttendanceConsole() {
           actorIsHr={access.isHr}
           onClose={() => setRecovering(null)}
         />
+      )}
+
+      {tab === 'roster' && access.isHr && (
+        <details className="apex-card">
+          <summary className="apex-text cursor-pointer text-sm font-semibold">Punch Evidence Review</summary>
+          <p className="apex-text-muted mt-1 text-xs">Review punches whose device, GPS accuracy or policy context could not be identified. The punch remains recorded while it is reviewed.</p>
+          <div className="mt-3"><PunchReviewQueue /></div>
+        </details>
       )}
 
       {tab === 'roster' && roster && (

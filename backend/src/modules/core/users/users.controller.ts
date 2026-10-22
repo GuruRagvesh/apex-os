@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, Request, Res } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors, UploadedFile, Request, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -30,18 +30,32 @@ export class UsersController {
   updateMe(@CurrentUser() user: any, @Body() body: any) {
     // Only allow safe fields to prevent unknown-field Prisma errors
     const data: any = {};
-    if (body.name     !== undefined) data.name     = body.name;
-    if (body.avatar   !== undefined) data.avatar   = body.avatar;
-    if (body.photoUrl !== undefined) data.photoUrl = body.photoUrl;
-    if (body.bio      !== undefined) data.bio      = body.bio;
+    if (body?.name !== undefined) {
+      if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 100) {
+        throw new BadRequestException('Display name must be 1 to 100 characters');
+      }
+      data.name = body.name.trim();
+    }
+    if (body?.avatar !== undefined) {
+      if (typeof body.avatar !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(body.avatar)) {
+        throw new BadRequestException('Invalid avatar colour');
+      }
+      data.avatar = body.avatar;
+    }
+    if (body?.bio !== undefined) {
+      if (typeof body.bio !== 'string' || body.bio.length > 200) {
+        throw new BadRequestException('Bio must be at most 200 characters');
+      }
+      data.bio = body.bio;
+    }
     return this.usersService.update(user.id, data);
   }
 
   @Post('me/photo')
-  @UseInterceptors(FileInterceptor('photo'))
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 2 * 1024 * 1024 } }))
   async uploadPhoto(
     @CurrentUser() user: any,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
     return this.usersService.uploadPhoto(user.id, file);
   }
@@ -195,11 +209,11 @@ export class UsersController {
   }
 
   @Post(':id/documents')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
   uploadDocument(
     @Param('id') id: string,
     @Request() req: any,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File | undefined,
     @Body('documentType') documentType: string,
   ) {
     return this.usersService.uploadDocument(req.user.id ?? req.user.sub, id, file, documentType);

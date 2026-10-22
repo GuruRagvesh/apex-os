@@ -10,6 +10,7 @@ import { ArrowRight, CheckCircle, XCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const REQUEST_TYPES = [
+  { label: 'Personal Information', value: 'PERSONAL_INFORMATION' },
   { label: 'Designation', value: 'DESIGNATION_CHANGE' },
   { label: 'Department', value: 'DEPARTMENT_CHANGE' },
   { label: 'Team Lead', value: 'TEAM_LEAD_CHANGE' },
@@ -20,6 +21,17 @@ const REQUEST_TYPES = [
 ];
 
 const MULTI_FIELDS = [
+  { label: 'Legal name', value: 'legalName' },
+  { label: 'Date of birth', value: 'dateOfBirth' },
+  { label: 'Gender', value: 'gender' },
+  { label: 'Blood group', value: 'bloodGroup' },
+  { label: 'Mobile number', value: 'phone' },
+  { label: 'Personal email', value: 'personalEmail' },
+  { label: 'Current address', value: 'currentAddress' },
+  { label: 'Permanent address', value: 'permanentAddress' },
+  { label: 'Emergency contact name', value: 'emergencyName' },
+  { label: 'Emergency contact relationship', value: 'emergencyRelation' },
+  { label: 'Emergency contact phone', value: 'emergencyPhone' },
   { label: 'Designation', value: 'designation' },
   { label: 'Department', value: 'departmentId' },
   { label: 'Team Lead', value: 'teamLeadName' },
@@ -27,6 +39,20 @@ const MULTI_FIELDS = [
   { label: 'Role', value: 'roleId' },
   { label: 'Department Manager', value: 'primaryManager' },
 ];
+
+function EvidenceLinks({ request }: { request: any }) {
+  const ids = request.supportingDocumentIds ?? [];
+  const documents = useQuery({
+    queryKey: ['change-request-evidence', request.id],
+    queryFn: () => usersApi.getDocuments(request.targetUserId) as Promise<any[]>,
+    enabled: request.requestType === 'PERSONAL_INFORMATION' && ids.length > 0,
+  });
+  if (!ids.length) return null;
+  if (documents.isLoading) return <p className="mt-2 text-xs text-slate-500">Loading supporting documents…</p>;
+  if (documents.isError) return <p className="mt-2 text-xs text-red-600">Supporting documents could not be loaded.</p>;
+  const evidence = (documents.data ?? []).filter((document: any) => ids.includes(document.id));
+  return <div className="mt-3"><p className="text-xs font-semibold text-slate-600">Supporting documents</p><div className="mt-1 flex flex-wrap gap-2">{evidence.map((document: any) => <a key={document.id} href={document.fileUrl} target="_blank" rel="noreferrer" className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-indigo-700">{document.fileName}</a>)}</div></div>;
+}
 
 
 export default function ApprovalsScreen() {
@@ -125,6 +151,7 @@ export default function ApprovalsScreen() {
                       <span className="font-medium">Reason: </span>{req.reason}
                     </div>
                   )}
+                  <EvidenceLinks request={req} />
                 </div>
 
                 <div className="flex gap-2">
@@ -140,7 +167,7 @@ export default function ApprovalsScreen() {
                       <button
                         className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 disabled:opacity-50 transition-colors shadow-sm"
                         onClick={() => {
-                          setSelectedReq(req.id);
+                          setSelectedReq(req);
                           setIsRejectModalOpen(true);
                         }}
                         disabled={approveMutation.isPending}
@@ -171,7 +198,7 @@ export default function ApprovalsScreen() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-bold mb-4">Reject Change Request</h3>
             <div className="py-2">
-              <label className="text-sm font-medium mb-2 block">Reason for Rejection (Optional)</label>
+              <label className="text-sm font-medium mb-2 block">Reason for Rejection {selectedReq?.requestType === 'PERSONAL_INFORMATION' ? '(Required)' : '(Optional)'}</label>
               <input
                 className="w-full border border-slate-300 rounded p-2 text-sm"
                 value={reason}
@@ -183,8 +210,8 @@ export default function ApprovalsScreen() {
               <button className="px-4 py-2 border border-slate-300 rounded hover:bg-slate-50" onClick={() => setIsRejectModalOpen(false)}>Cancel</button>
               <button
                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                onClick={() => rejectMutation.mutate({ id: selectedReq, reason })}
-                disabled={rejectMutation.isPending}
+                onClick={() => rejectMutation.mutate({ id: selectedReq.id, reason })}
+                disabled={rejectMutation.isPending || (selectedReq?.requestType === 'PERSONAL_INFORMATION' && !reason.trim())}
               >
                 Confirm Rejection
               </button>

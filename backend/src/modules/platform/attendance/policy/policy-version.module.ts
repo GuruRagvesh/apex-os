@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PolicyVersionService } from './policy-version.service';
+import { PolicyLifecycleScheduler } from './policy-lifecycle.scheduler';
 
 /**
  * Versioned policy lifecycle (Attendance Base Layer, BL-4).
@@ -10,7 +11,7 @@ import { PolicyVersionService } from './policy-version.service';
  * PrismaService arrive through the global CommonModule.
  */
 @Module({
-  providers: [PolicyVersionService],
+  providers: [PolicyVersionService, PolicyLifecycleScheduler],
   exports: [PolicyVersionService],
 })
 export class PolicyVersionModule {}

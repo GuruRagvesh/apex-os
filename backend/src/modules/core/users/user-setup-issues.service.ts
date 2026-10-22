@@ -23,6 +23,7 @@ export const SETUP_ISSUE_CODES = {
   ATTENDANCE_POLICY_SETUP_PENDING: 'ATTENDANCE_POLICY_SETUP_PENDING',
   SCHEDULED_ACTIVATION_FAILED: 'SCHEDULED_ACTIVATION_FAILED',
   EMPLOYEE_ID_BACKFILL_FAILED: 'EMPLOYEE_ID_BACKFILL_FAILED',
+  LEAVE_SETUP_PENDING: 'LEAVE_SETUP_PENDING',
 } as const;
 export type SetupIssueCode = (typeof SETUP_ISSUE_CODES)[keyof typeof SETUP_ISSUE_CODES];
 
@@ -59,6 +60,11 @@ export const SETUP_ISSUE_SPECS: Record<SetupIssueCode, Spec> = {
     domain: 'ORGANIZATION', severity: 'WARNING', remediationClass: 'BACKEND_OPERATIONS',
     title: 'Employee ID could not be assigned',
     message: (n) => `${n} has no employee ID and one could not be assigned automatically.`,
+  },
+  LEAVE_SETUP_PENDING: {
+    domain: 'LEAVE', severity: 'WARNING', remediationClass: 'ADMIN_FIXABLE_FRONTEND',
+    title: 'Leave setup pending',
+    message: (n) => `${n} has a leave request saved as pending because their leave calendar or leave policy could not be resolved. Complete the setup; the request is settled automatically afterwards.`,
   },
 };
 
@@ -162,6 +168,11 @@ export class UserSetupIssuesService {
       found.push('SCHEDULED_ACTIVATION_FAILED');
     }
     if (!user.employeeId) found.push('EMPLOYEE_ID_BACKFILL_FAILED');
+    // Phase 3: a leave request still waiting on leave setup (not yet settled).
+    const unsettled = await this.prisma.leaveRequest.count({
+      where: { userId, setupStatus: 'POLICY_SETUP_PENDING', status: { in: ['PENDING', 'APPROVED'] }, fundingOutcome: null },
+    });
+    if (unsettled > 0) found.push('LEAVE_SETUP_PENDING');
     return found;
   }
 

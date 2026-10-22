@@ -111,14 +111,23 @@ describe('employee ID equivalence report', () => {
   });
 });
 
-it('no backend source outside the schema reads sickLeaveAllocation in Phase 1 (§7.4)', () => {
+// Phase 3 switched every entitlement reader at once (§7.4): Sick is now the
+// authority and the retired Emergency allocation must have no reader at all,
+// so 4 Emergency + 4 Sick (18 days) can never be shown.
+it('no backend source outside the schema reads emergencyLeaveAllocation after Phase 3 (§7.4)', () => {
   const root = join(__dirname, '../../src');
   const hits: string[] = [];
   const walk = (d: string) => readdirSync(d).forEach((f) => {
     const p = join(d, f);
     if (statSync(p).isDirectory()) walk(p);
-    else if (/\.ts$/.test(f) && readFileSync(p, 'utf8').includes('sickLeaveAllocation')) hits.push(p);
+    else if (/.ts$/.test(f) && readFileSync(p, 'utf8').includes('emergencyLeaveAllocation')) hits.push(p);
   });
   walk(root);
   expect(hits).toEqual([]);
+});
+
+it('the Sick allocation is read by the leave entitlement authority (Phase 3)', () => {
+  const rules = readFileSync(join(__dirname, '../../src/modules/operations/leave/leave-rules.ts'), 'utf8');
+  expect(rules).toContain('sickLeaveAllocation');
+  expect(rules).toContain('casualLeaveAllocation');
 });

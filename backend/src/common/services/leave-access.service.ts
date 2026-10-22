@@ -21,7 +21,12 @@ export class LeaveAccessService {
       if (query.dateFrom) filters.startDate.gte = new Date(query.dateFrom);
       if (query.dateTo) filters.startDate.lte = new Date(query.dateTo);
     }
-    const scope = user ? await this.buildScope(user) : {};
+    let scope = user ? await this.buildScope(user) : {};
+    // Phase 3: a request's routed approver always sees it, even outside their
+    // usual scope (a company fallback Manager, or HR acting at the HR tier).
+    if (user?.id && Object.keys(scope).length > 0) {
+      scope = { OR: [scope, { routingSnapshot: { resolvedApproverId: user.id } }] };
+    }
     return this.andWhere(filters, scope);
   }
 

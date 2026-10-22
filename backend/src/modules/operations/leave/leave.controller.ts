@@ -1,4 +1,7 @@
-import { BadRequestException, ConflictException, Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, ConflictException, Controller, Get, Post, Patch, Body, Param, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import { LEAVE_EVIDENCE_MAX_BYTES } from './leave-evidence.storage';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { LeaveService } from './leave.service';
 import {
@@ -7,10 +10,7 @@ import {
   CompOffSourceNotQualifyingError,
 } from './comp-off.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../shared/guards/roles.guard';
-import { Roles } from '../../../shared/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
-import { ROLES } from '../../../shared/constants/roles';
 import { LeaveType } from '@prisma/client';
 import { CreateLeaveRequestDto } from './dto/create-leave-request.dto';
 
@@ -62,18 +62,57 @@ export class LeaveController {
     return this.leaveService.create(body, user.id);
   }
 
+  /**
+   * No role guard: authority is the request's routed approver (Phase 3),
+   * which may be an HR user on an ordinary base role at the HR fallback tier.
+   * The service refuses everyone else; pre-routing requests keep LH-2 checks.
+   */
   @Patch(':id/approve')
-  @UseGuards(RolesGuard)
-  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.approve(id, user.id, user);
   }
 
   @Patch(':id/reject')
-  @UseGuards(RolesGuard)
-  @Roles(ROLES.TEAM_LEAD, ROLES.MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN)
   reject(@Param('id') id: string, @CurrentUser() user: any) {
     return this.leaveService.reject(id, user.id, user);
+  }
+
+  /** Emergency Leave evidence (Phase 3): append-only, private, never replaced. */
+  @Post(':id/evidence')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: LEAVE_EVIDENCE_MAX_BYTES } }))
+  submitEvidence(
+    @Param('id') id: string,
+    @UploadedFile() file: any,
+    @Body('note') note: string | undefined,
+    @CurrentUser() user: any,
+  ) {
+    return this.leaveService.submitEvidence(id, user.id, file, note);
+  }
+
+  @Get(':id/evidence')
+  listEvidence(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.leaveService.listEvidence(id, user);
+  }
+
+  @Get(':id/evidence/:evidenceId')
+  async readEvidence(
+    @Param('id') id: string,
+    @Param('evidenceId') evidenceId: string,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    const out: any = await this.leaveService.readEvidence(id, evidenceId, user);
+    if (out.url) return res.json({ url: out.url });
+    res.setHeader('Content-Type', out.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.fileName)}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(out.content);
+  }
+
+  /** Switch Emergency Leave funding between Casual and Sick, with a reason. */
+  @Patch(':id/funding')
+  changeFunding(@Param('id') id: string, @Body() body: { fundingBucket?: string; reason?: string }, @CurrentUser() user: any) {
+    return this.leaveService.changeFunding(id, user, body);
   }
 
   @Patch(':id/cancel')

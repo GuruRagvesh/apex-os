@@ -444,7 +444,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
                 {[
                   { icon: User, label: 'My Profile', href: '/settings?tab=profile' },
                   { icon: Palette, label: 'Appearance', href: '/settings?tab=appearance' },
-                  { icon: SlidersHorizontal, label: 'Preferences', href: '/settings?tab=preferences' },
+                  { icon: SlidersHorizontal, label: 'Notifications', href: '/settings?tab=notifications' },
                 ].map(({ icon: Icon, label, href }) => (
                   <button
                     key={href}
