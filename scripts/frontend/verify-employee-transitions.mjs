@@ -19,6 +19,8 @@
  *     when the viewer proposed or requested the item.
  *  7. NO RAW LINKS OR PERSONAL NAMES IN EVIDENCE REFERENCES: the input is
  *     upper-cased and described as an internal reference.
+ *  8. TRANSITION ADMIN ROUTES STAY OUT OF THE MAIN SIDEBAR until the product
+ *     team is ready to expose payroll, clearance and transfer review.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,6 +37,7 @@ const history = read('frontend/components/transitions/TransferHistory.tsx');
 const compliance = read('frontend/components/transitions/ComplianceSettings.tsx');
 const payroll = read('frontend/components/attendance/PayrollMonthClose.tsx');
 const payrollApi = read('frontend/components/attendance/payroll-api.ts');
+const sidebar = read('frontend/components/layout/sidebar.tsx');
 
 // 1. Idempotency keys on every exit / transfer / clearance / F&F / retention / hold mutation.
 const mutating = [...api.matchAll(/^\s+(\w+): \([^)]*\)[^=]*=>\s*r(?:<[^>]*>)?\(api\.(post|put|delete)\(/gm)].map((m) => m[1]);
@@ -84,6 +87,12 @@ must(/requestedById !== meId/.test(compliance), 'legal-hold confirm must be hidd
 
 // 7. Evidence references.
 must(/toUpperCase\(\)/.test(exit) && /AST-2026-0042/.test(exit), 'evidence input must be an upper-cased internal reference');
+
+// 8. Phase 4 admin pages remain directly routable but are intentionally not
+// advertised in the main navigation yet.
+for (const href of ['/users/transfers', '/users/clearance', '/attendance/payroll']) {
+  must(!sidebar.includes(`href: '${href}'`), `sidebar must not expose ${href}`);
+}
 
 if (problems.length) {
   console.error('Phase 4 surface verification FAILED:\n - ' + problems.join('\n - '));
