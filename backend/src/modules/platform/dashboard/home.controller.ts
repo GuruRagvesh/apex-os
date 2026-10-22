@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { HomeInsightsService } from './home-insights.service';
@@ -52,6 +52,11 @@ export class HomeController {
     return this.homeCarousel.getCarousel(user);
   }
 
+  @Get('announcements/current')
+  getCurrentAnnouncements(@CurrentUser() user: any) {
+    return this.homeCarousel.getCurrentAnnouncements(user);
+  }
+
   @Get('team-insights')
   getTeamInsights(
     @CurrentUser() user: any,
@@ -59,8 +64,10 @@ export class HomeController {
     @Query('personId') personId?: string,
     @Query('month') month?: string,
     @Query('week') week?: string,
+    @Query('date') date?: string,
+    @Query('calculationVersion') calculationVersion?: string,
   ) {
-    return this.teamInsights.getInsights(user, { departmentId, personId, month, week });
+    return this.teamInsights.getInsights(user, { departmentId, personId, month, week, date, calculationVersion });
   }
 
   /** Small hierarchy/filter payload used before the expensive insight canvas. */
@@ -77,6 +84,21 @@ export class HomeController {
   @Put('announcements')
   publishAnnouncements(@CurrentUser() user: any, @Body() body: unknown) {
     return this.homeCarousel.publishAnnouncements(user, body);
+  }
+
+  @Post('announcements')
+  createAnnouncement(@CurrentUser() user: any, @Body() body: unknown) {
+    return this.homeCarousel.createAnnouncement(user, body);
+  }
+
+  @Patch('announcements/:id')
+  updateAnnouncement(@CurrentUser() user: any, @Param('id') id: string, @Body() body: unknown) {
+    return this.homeCarousel.updateAnnouncement(user, id, body);
+  }
+
+  @Get('announcements/history')
+  getAnnouncementHistory(@CurrentUser() user: any) {
+    return this.homeCarousel.getAnnouncementHistory(user);
   }
 
   @Get('activity')

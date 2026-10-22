@@ -1611,8 +1611,8 @@ model LeavePolicy {
   @@map("leave_policies")
 }
 
-/// Manually granted Comp Off entitlement. No WorkSession automatically creates
-/// this row: management has not defined a qualifying work-duration threshold.
+/// Comp Off entitlement earned automatically from approved work-duration rules,
+/// or granted manually by HR as an audited exception.
 model CompOffCredit {
   id                      String              @id @default(cuid())
   employeeId              String

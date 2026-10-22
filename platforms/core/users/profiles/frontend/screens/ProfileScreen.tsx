@@ -5,17 +5,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rolesApi } from '@apex/core-organization-roles/api';
 import { dashboardApi } from '@apex/intelligence-dashboard/api';
 import { changeRequestsApi } from '@apex/core-users-change-requests/api';
-import { leaveApi } from '@apex/workforce-leave/api';
 import { usersApi } from '@apex/core-users/api';
-import { projectsApi } from '@apex/operations-projects/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
-import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
 import Link from 'next/link';
-import { Settings, Ticket, Clock, CalendarOff, FolderKanban, Network, Edit3, X, Plus, ArrowRight } from 'lucide-react';
-import { TicketRow } from '@apex/operations-tickets-lifecycle/components/ticket-row';
+import { Settings, Network, Edit3, X, Plus, ArrowRight } from 'lucide-react';
 import { ActivityItem } from '../components/activity-item';
 import { Skeleton } from '@apex/shared-ui/components/skeleton';
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 
 function getInitials(name: string) {
   return name?.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2) ?? 'U';
@@ -71,27 +67,9 @@ export default function ProfileScreen() {
   const [formData, setFormData] = useState({ requestType: '', newValue: '', reason: '' });
   const [multiChanges, setMultiChanges] = useState<{field: string, newValue: string}[]>([]);
 
-  const { data: myTickets, isLoading: ticketsLoading } = useQuery({
-    queryKey: ['my-tickets'],
-    queryFn: () => ticketsApi.getAll({ assignedToId: user?.id, status: 'OPEN', limit: 10 }) as Promise<any>,
-    enabled: !!user?.id,
-  });
-
   const { data: activity, isLoading: activityLoading } = useQuery({
     queryKey: ['my-activity'],
     queryFn: () => dashboardApi.getActivityFeed(10) as Promise<any[]>,
-  });
-
-  const { data: leaveBalance, isLoading: leaveLoading } = useQuery({
-    queryKey: ['my-leave-balance-profile'],
-    queryFn: () => leaveApi.getBalance() as Promise<any>,
-    enabled: !!user?.id,
-  });
-
-  const { data: projectsData, isLoading: projectsLoading } = useQuery({
-    queryKey: ['my-projects-profile'],
-    queryFn: () => projectsApi.getAll({ limit: 100, page: 1 }) as Promise<any>,
-    enabled: !!user?.id,
   });
 
   const { data: hierarchy, isLoading: hierarchyLoading } = useQuery({
@@ -154,10 +132,6 @@ export default function ProfileScreen() {
 
   const roleName = (user?.role as any)?.name ?? user?.role ?? '';
   const deptName = (user?.department as any)?.name ?? '';
-  const tickets: any[] = myTickets?.tickets ?? [];
-  const projects: any[] = projectsData?.projects ?? (Array.isArray(projectsData) ? projectsData : []);
-  const approvedLeaveDays = leaveBalance?.approved ?? 0;
-
   const currentTypeInfo = REQUEST_TYPES.find(r => r.value === formData.requestType);
   const isMulti = formData.requestType === 'MULTI_FIELD_CHANGE';
 
@@ -288,22 +262,6 @@ export default function ProfileScreen() {
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'Open Tickets', value: tickets.length, icon: <Ticket size={18} className="text-yellow-600" />, bg: 'bg-yellow-50' },
-          { label: 'In Progress', value: myTickets?.tickets?.filter((t: any) => t.status === 'IN_PROGRESS').length ?? 0, icon: <Clock size={18} className="text-blue-600" />, bg: 'bg-blue-50' },
-          { label: 'Leave Days', value: leaveLoading ? '...' : approvedLeaveDays, icon: <CalendarOff size={18} className="text-pink-600" />, bg: 'bg-pink-50' },
-          { label: 'Projects', value: projectsLoading ? '...' : projects.length, icon: <FolderKanban size={18} className="text-indigo-600" />, bg: 'bg-indigo-50' },
-        ].map((s) => (
-          <div key={s.label} className="apex-section-border bg-white rounded-xl border p-4">
-            <div className={`w-9 h-9 rounded-lg ${s.bg} flex items-center justify-center mb-3`}>{s.icon}</div>
-            <p className="text-xl font-bold text-slate-800">{s.value}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
-          </div>
-        ))}
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Current Approved Hierarchy */}
         <div className="apex-section-border bg-white rounded-xl border p-5">
@@ -369,27 +327,7 @@ export default function ProfileScreen() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* My Open Tickets */}
-        <div className="apex-section-border bg-white rounded-xl border">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-800">My Open Tickets</h2>
-            <Link href="/tickets" className="text-xs text-indigo-600 hover:underline">View all</Link>
-          </div>
-          <div className="divide-y divide-slate-50">
-            {ticketsLoading ? (
-              <div className="p-4 space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}</div>
-            ) : tickets.length > 0 ? (
-              tickets.map((t) => <TicketRow key={t.id} ticket={t} compact />)
-            ) : (
-              <div className="p-6 text-center text-slate-400 text-sm">
-                <Ticket size={24} className="mx-auto mb-2 text-slate-300" />
-                No open tickets
-              </div>
-            )}
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 gap-4">
         {/* Recent Activity */}
         <div className="apex-section-border bg-white rounded-xl border">
           <div className="px-5 py-4 border-b border-slate-100">

@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, ConflictException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
@@ -13,6 +13,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { isPunchedInSession, ticketCreationState } from '../../../common/services/active-workday-policy.service';
+import { CompOffService } from '../../operations/leave/comp-off.service';
 
 // Combined daily allowance for all break types (lunch + restroom + tea + other).
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
@@ -51,6 +52,7 @@ export class WorkdayService {
     private notificationEventService: NotificationEventService,
     private attendanceAuthority: AttendanceAuthorityService,
     private tva: TVAService,
+    @Optional() private compOff?: CompOffService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -559,6 +561,20 @@ export class WorkdayService {
         action: OperationalAction.WORKDAY_ENDED,
         metadata: { closureReason: txResult.session.closureReason, source: options.eventSource },
       }).catch(() => {});
+
+      // Only a completed employee punch-out/end-day can earn comp off. System
+      // auto-closes are deliberately excluded because they are not completed
+      // punch pairs and may overstate the hours actually worked.
+      if (options.eventSource === 'manual' && this.compOff) {
+        const businessDate = txResult.session.date instanceof Date
+          ? txResult.session.date.toISOString().slice(0, 10)
+          : String(txResult.session.date).slice(0, 10);
+        await this.compOff.evaluateCompletedWorkday(
+          txResult.userId,
+          businessDate,
+          txResult.session.id,
+        ).catch((error) => this.logger.warn(`Comp-off evaluation failed for ${txResult.userId}: ${error?.message ?? error}`));
+      }
     }
 
     return {
@@ -1092,8 +1108,27 @@ export class WorkdayService {
     };
   }
 
-  async getTeam(requestingUser: any) {
+  async getTeam(requestingUser: any, requestedDate?: string) {
     const today = this.getTodayDate();
+    const todayString = today.toISOString().slice(0, 10);
+    let selectedDate = today;
+    let selectedDateString = todayString;
+
+    if (requestedDate) {
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+        ? new Date(`${requestedDate}T00:00:00.000Z`)
+        : null;
+      if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== requestedDate) {
+        throw new BadRequestException('date must be a real calendar date in YYYY-MM-DD form');
+      }
+      if (requestedDate > todayString) {
+        throw new BadRequestException('Team attendance cannot be requested for a future date');
+      }
+      selectedDate = parsed;
+      selectedDateString = requestedDate;
+    }
+
+    const isToday = selectedDateString === todayString;
     const roleNameRaw = requestingUser.role?.name ?? requestingUser.role ?? '';
     const roleName = typeof roleNameRaw === 'string' ? roleNameRaw : '';
     const isHR = (requestingUser as any).isHR;
@@ -1143,15 +1178,15 @@ export class WorkdayService {
         role: true,
         department: true,
         workSessions: {
-          where: { date: today },
+          where: { date: selectedDate },
           orderBy: { createdAt: 'asc' },
           include: { breakLogs: true },
         },
         leaveRequests: {
           where: {
             status: 'APPROVED',
-            startDate: { lte: today },
-            endDate: { gte: today },
+            startDate: { lte: selectedDate },
+            endDate: { gte: selectedDate },
           },
         },
         workdayPolicyOverride: true,
@@ -1159,7 +1194,9 @@ export class WorkdayService {
       orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
     });
 
-    const now = this.tva.now();
+    const calculationTime = isToday
+      ? this.tva.now()
+      : this.tva.companyInstantAt(selectedDateString, '23:59') ?? new Date(`${selectedDateString}T23:59:59.999Z`);
     return members.map((m) => {
       // Latest session of the day, not the first — a user can have multiple
       // sessions per day, and the most recent one is what reflects current status.
@@ -1170,7 +1207,7 @@ export class WorkdayService {
         ...s,
         breakLogs: s.breakLogs.filter((b: any) => b.breakType !== 'MEETING'),
       }));
-      const rt = calculateWorkdayRuntime(workSessionsForRuntime as any, now);
+      const rt = calculateWorkdayRuntime(workSessionsForRuntime as any, calculationTime);
       const firstStartTime = rt.firstStartTime;
       const totalWorkMins = rt.elapsedWorkMinutes;
       const totalBreakMins = rt.totalBreakMinutes;
@@ -1199,8 +1236,9 @@ export class WorkdayService {
         isLate = TimezoneUtil.isLate(firstStartTime, expectedStart, tz);
       }
 
-      const breakCount = m.workSessions.reduce((sum, s: any) => sum + s.breakLogs.length, 0);
+      const breakCount = workSessionsForRuntime.reduce((sum, s: any) => sum + s.breakLogs.length, 0);
       const exceededBreakMinutes = Math.max(0, totalBreakMins - DAILY_BREAK_ALLOWANCE_MINUTES);
+      const lastCompletedSession = [...m.workSessions].reverse().find((item) => item.logoutAt);
 
       return {
         id: m.id,
@@ -1215,12 +1253,13 @@ export class WorkdayService {
         // WorkSession record (set by endWork() and the auto-close scheduler).
         // The frontend MUST display this; it must never compute End Time itself.
         startTime: rt.firstStartTime,
-        endTime: session?.logoutAt ?? null,
-        hasOpenSession: !!session && !session.logoutAt,
+        endTime: lastCompletedSession?.logoutAt ?? null,
+        hasOpenSession: isToday && !!session && !session.logoutAt,
         onLeaveToday: !!leave,
         leaveType: leave?.type ?? null,
         workMinutesToday: totalWorkMins,
         breakMinutesToday: totalBreakMins,
+        breakMinutes: totalBreakMins,
         breakCount,
         allowedBreakMinutes: DAILY_BREAK_ALLOWANCE_MINUTES,
         exceededBreakMinutes,
@@ -1229,6 +1268,8 @@ export class WorkdayService {
         isFlexible,
         policySource,
         autoClosed: session?.autoClosed ?? false,
+        selectedDate: selectedDateString,
+        isToday,
       };
     });
   }

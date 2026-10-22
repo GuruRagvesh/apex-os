@@ -43,29 +43,42 @@ export type HomeWorkspace = {
 export type TeamInsightPayload = {
   target: 'OVERALL' | 'PERSON';
   scope: { role: string; people: number; departmentId: string | null; companyWide: boolean };
-  period: { month: string; mode: 'MONTH' | 'WEEK'; week: string; from: string; to: string; dataThrough: string | null; weeks: { value: number; label: string; from: string; to: string }[] };
+  period: { month: string; mode: 'MONTH' | 'WEEK' | 'DAY'; week: string; date: string | null; from: string; to: string; dataThrough: string | null; weeks: { value: number; label: string; from: string; to: string }[] };
   identity: null | {
     id: string; name: string; initials: string; photoUrl: string | null; role: string;
     department: { id: string; name: string } | null; status: string;
     workingMinutes: number; activeBreakMinutes: number;
   };
-  focus: { ratio: number | null; changePoints: number | null };
-  workday: {
-    daysWorked: number; workingMinutes: number; productiveMinutes: number; ticketMinutes: number;
-    meetingMinutes: number; breakMinutes: number; meetingCount: number;
-    averages: { workingMinutes: number | null; productiveMinutes: number | null; breakMinutes: number | null; meetingMinutes: number | null; meetingCount: number | null };
+  tickets: {
+    active: number; inProgress: number; underReview: number; completed: number; overdue: number;
+    sentForReview: number; executionOverdue: number; reviewOverdue: number; reworkTickets: number; reworkAttempts: number;
   };
-  productivity: { direction: 'RISING' | 'STEADY' | 'FALLING' | 'NO_COMPARISON'; changePercent: number | null; buckets: { label: string; minutes: number; daysWorked: number; averageMinutes: number; isFuture: boolean; isPartial: boolean }[] };
-  tickets: { active: number; inProgress: number; underReview: number; sentForReview: number; executionOverdue: number; reviewOverdue: number; reworkTickets: number; reworkAttempts: number };
-  attendance: null | { counts: { present: number; late: number; halfDay: number; leave: number; weeklyOff: number; holiday: number; needsReview: number }; days: { date: string; status: string; workedMinutes: number; breakMinutes: number; lateMinutes: number }[] };
-  projects: { id: string; code: string; name: string; status: string; finishedAt: string | null; assigned: number; done: number; active: number; overdue: number; contributionPercent: number | null; hasStatusConflict: boolean }[];
+  projects: TeamInsightProject[];
+  workday: {
+    daysWorked: number; workingMinutes: number; presenceMinutes: number; productiveMinutes: number; ticketMinutes: number;
+    meetingMinutes: number; breakMinutes: number; breakCount: number; measurablePresenceDays: number;
+    meetingCount: number; meetingParticipationCount: number;
+    punchInMinute: number | null; punchOutMinute: number | null; punchInCount: number; punchOutCount: number;
+    calendarResolved: boolean; denominatorResolved: boolean; calculationComplete: boolean; scheduledWorkingDays: number; expectedEmployeeDays: number;
+    employmentExcludedDays: number; unresolvedScheduleDays: number;
+    presentDays: number; halfDays: number; lateDays: number; lessWorkingHoursDays: number; absentDays: number; leaveDays: number;
+    unresolvedDays: number; missingDays: number; attendanceRate: number | null; coverageRate: number | null;
+    leaveUsage: null | {
+      allocatedDays: number; takenDays: number; pendingDays: number; financialYear: string;
+      leaves: Array<{ id: string; type: string; startDate: string; endDate: string; isHalfDay: boolean }>;
+    };
+    attendanceCalendar: Array<{ date: string; status: string; holidayName: string | null; isWorkingDay: boolean }>;
+    averages: { workingMinutes: number | null; productiveMinutes: number | null; breakMinutes: number | null; breakCount: number | null; meetingMinutes: number | null; meetingCount: number | null };
+  };
 };
+
+export type TeamInsightProject = { id: string; code: string; name: string; status: string; finishedAt: string | null; assigned: number; done: number; active: number; overdue: number; contributionPercent: number | null; hasStatusConflict: boolean };
 
 export type PersonalHighlightPayload = {
   period: { month: string; from: string; to: string };
   achievements: { id: string; title: string; detail: string; tone: string; kind: 'LEADER' | 'INDIVIDUAL' | 'PERSONAL_BEST' }[];
   averageBreakMinutes: number | null;
-  projects: TeamInsightPayload['projects'];
+  projects: TeamInsightProject[];
 };
 
 export type HomeActivity = { id: string; actorId: string; actor: string; action: string; date: string; url: string | null };

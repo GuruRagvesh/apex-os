@@ -9,8 +9,6 @@ import {
 } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
-import { usersApi } from '@apex/core-users/api';
-import { readTeamPreferences } from '../../team-preferences';
 import { dashboardApi } from '../api';
 import { WorkdayBar } from '@/components/workday/WorkdayBar';
 import { HomeSkeleton } from '../components/HomeSkeleton';
@@ -84,21 +82,16 @@ function HeroGridMesh() {
  * route (frontend/app) and passed in as `personalPanel` rather than imported
  * here: this component stays inside its declared boundaries.
  */
-export default function HomePage({ personalPanel }: { personalPanel?: ReactNode } = {}) {
+export default function HomePage({ personalPanel, showTeamInsights = false }: { personalPanel?: ReactNode; showTeamInsights?: boolean } = {}) {
   const user = useAuthStore(s => s.user);
   const roleObj = user?.role as any;
   const role: string = roleObj?.name ?? (typeof roleObj === 'string' ? roleObj : '') ?? '';
   const isContributor = role === 'EMPLOYEE' || role === 'INTERN';
+  const canManageAnnouncements = Boolean((user as any)?.isHR) || ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
 
   const [heroTimeOverride, setHeroTimeOverride]   = useState<HeroDaypart | null>(null);
   const heroRef = useRef<HTMLElement | null>(null);
   const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
-  const { data: storedPreferences } = useQuery({
-    queryKey: ['team-display-preferences', user?.id],
-    queryFn: () => usersApi.getPreferences() as Promise<any>,
-    enabled: isLeadOrAbove && Boolean(user?.id),
-  });
-  const teamPreferences = readTeamPreferences(storedPreferences?.teamSettings);
 
   // Local preview helper: ?heroTime=morning|afternoon|evening|night (ignored in production).
   useEffect(() => {
@@ -140,7 +133,7 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
   const { data: teamScope, isPending: teamScopeLoading, isError: teamScopeError, refetch: retryTeamScope } = useQuery({
     queryKey: ['home-team-scope', user?.id],
     queryFn: () => dashboardApi.getHomeTeamScope() as Promise<HomeTeamScope>,
-    enabled: !!user?.id && isLeadOrAbove,
+    enabled: !!user?.id && isLeadOrAbove && showTeamInsights,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
@@ -169,18 +162,6 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
           : 'night';
   const heroDaypart = heroTimeOverride ?? actualDaypart;
   const timeOfDay = heroDaypart;
-  const alerts = (summary as any)?.criticalAlerts?.length ?? 0;
-
-  const roleGuidance =
-    role === 'EMPLOYEE' || role === 'INTERN'
-      ? "Here's your workday snapshot. Stay focused."
-      : role === 'TEAM_LEAD'
-      ? "Your team is counting on you. Here's the overview."
-      : role === 'MANAGER'
-      ? "Operations at a glance. Approve, delegate, decide."
-      : alerts > 0
-      ? `${alerts} item${alerts > 1 ? 's' : ''} need${alerts > 1 ? '' : 's'} your attention today.`
-      : "All systems nominal. Here's your command center.";
 
   return (
     <div className="apex-fade-in" style={{ maxWidth: '1280px', margin: '0 auto', paddingBottom: 48 }}>
@@ -204,9 +185,6 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
               <h1 className="apex-dashboard-hero-title">
                 Good {timeOfDay}, {firstName}
               </h1>
-              <p className="apex-dashboard-hero-copy text-sm mt-1.5">
-                {roleGuidance}
-              </p>
             </div>
             {user?.id && <HeroQuickActions userId={user.id} />}
           </div>
@@ -233,10 +211,11 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
       {/* Shared Home sections use the same role-scoped read model for all roles. */}
       {(!isContributor || Boolean(carousel?.announcement) || Boolean(carousel?.criticalAnnouncements.length)) && <div className="mb-3">
         <SmartAnnouncementsCarousel data={carousel} recognition={isContributor ? [] : carousel?.recognition}
-          announcementsOnly={isContributor} loading={carouselLoading && !!user} error={carouselError} onRetry={() => retryCarousel()} />
+          announcementsOnly={isContributor} loading={carouselLoading && !!user} error={carouselError} onRetry={() => retryCarousel()}
+          canManageAnnouncements={canManageAnnouncements} />
       </div>}
-      {teamScopeLoading && isLeadOrAbove && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading team filters…</div>}
-      {teamScopeError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Team filters could not be loaded. <button type="button" onClick={() => retryTeamScope()} className="underline">Retry</button></div>}
+      {showTeamInsights && teamScopeLoading && isLeadOrAbove && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading team filters…</div>}
+      {showTeamInsights && teamScopeError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Team filters could not be loaded. <button type="button" onClick={() => retryTeamScope()} className="underline">Retry</button></div>}
 
       {/* ── MY CALENDAR: attendance / productivity ── */}
       {personalPanel && (
@@ -251,8 +230,8 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
 
       {user?.id && isContributor && <div className="mt-6"><PersonalHighlightsSection /></div>}
 
-      {user?.id && isLeadOrAbove && <div className={`mt-6 ${teamPreferences.dashboardDensity === 'compact' ? 'space-y-3' : 'space-y-5'}`}>
-        {teamScope && teamPreferences.showTeamOverview && <TeamInsightsSection team={teamScope} highlightSla={teamPreferences.highlightApproachingSla} compact={teamPreferences.dashboardDensity === 'compact'} />}
+      {user?.id && isLeadOrAbove && (showTeamInsights || role === 'TEAM_LEAD' || role === 'MANAGER') && <div className="mt-6 space-y-5">
+        {showTeamInsights && teamScope && <TeamInsightsSection team={teamScope} />}
         {(role === 'TEAM_LEAD' || role === 'MANAGER') && <PersonalHighlightsSection />}
       </div>}
     </div>

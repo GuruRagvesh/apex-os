@@ -2,14 +2,14 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
 
-export function SectionFrame({ icon: Icon, title, subtitle, aside, children, id }: {
-  icon: LucideIcon; title: string; subtitle?: string; aside?: ReactNode; children: ReactNode; id?: string;
+export function SectionFrame({ icon: Icon, title, subtitle, aside, children, id, titleColor }: {
+  icon: LucideIcon; title: string; subtitle?: string; aside?: ReactNode; children: ReactNode; id?: string; titleColor?: string;
 }) {
   return (
     <section id={id} className="apex-section-border rounded-2xl border bg-white p-4 shadow-sm dark:bg-slate-900 sm:p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="flex w-fit items-center gap-2 rounded-lg bg-[var(--accent-text)] px-3 py-2 text-base font-bold text-white shadow-sm">
+          <h2 className="flex w-fit items-center gap-2 rounded-lg bg-[var(--accent-text)] px-3 py-2 text-base font-bold text-white shadow-sm" style={titleColor ? { backgroundColor: titleColor } : undefined}>
             <Icon size={17} aria-hidden />{title}
           </h2>
           {subtitle && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>}
