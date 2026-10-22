@@ -1631,13 +1631,27 @@ export class UsersService {
       if (!team || typeof team !== 'object' || Array.isArray(team) ||
         typeof team.showTeamOverview !== 'boolean' ||
         typeof team.highlightApproachingSla !== 'boolean' ||
-        !['comfortable', 'compact'].includes(team.dashboardDensity)) {
-        throw new BadRequestException('Invalid team display preferences');
+        !['comfortable', 'compact'].includes(team.dashboardDensity) ||
+        typeof team.requireAssignee !== 'boolean' ||
+        typeof team.requireDueDate !== 'boolean' ||
+        typeof team.reassignRequiresReason !== 'boolean' ||
+        !['warn', 'block'].includes(team.workloadGuardrail) ||
+        ![4, 8, 24].includes(team.escalationWindowHours) ||
+        typeof team.notifyOnUnassigned !== 'boolean' ||
+        !['reporting_manager', 'team_lead'].includes(team.approvalRoute)) {
+        throw new BadRequestException('Invalid team operation settings');
       }
       prefs = { ...prefs, teamSettings: {
         showTeamOverview: team.showTeamOverview,
         highlightApproachingSla: team.highlightApproachingSla,
         dashboardDensity: team.dashboardDensity,
+        requireAssignee: team.requireAssignee,
+        requireDueDate: team.requireDueDate,
+        reassignRequiresReason: team.reassignRequiresReason,
+        workloadGuardrail: team.workloadGuardrail,
+        escalationWindowHours: team.escalationWindowHours,
+        notifyOnUnassigned: team.notifyOnUnassigned,
+        approvalRoute: team.approvalRoute,
       } };
     }
     // Independent settings screens must not erase each other's keys. Serializable

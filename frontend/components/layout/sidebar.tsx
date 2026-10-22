@@ -146,6 +146,10 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
     enabled: !!user,
   });
   const workStatus = (workdayData as any)?.session?.status ?? 'OFFLINE';
+  // The footer identity is a shortcut to the signed-in person's complete
+  // Users & Roles record. Keep the personal dashboard as a safe hydration
+  // fallback only until the user id is available.
+  const profileHref = user?.id ? `/users/${user.id}/profile` : '/profile';
 
   const handleLogout = () => {
     if (['WORKING', 'ON_BREAK', 'IDLE'].includes(workStatus)) {
@@ -520,8 +524,9 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
           <div className="flex flex-col items-center gap-2">
             <button
               type="button"
-              onClick={() => router.push('/profile')}
-              title={user?.name ?? 'Profile'}
+              onClick={() => router.push(profileHref)}
+              title="Open my Users & Roles profile"
+              aria-label="Open my Users & Roles profile"
               className="rounded-full transition-opacity hover:opacity-80"
             >
               <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
@@ -537,40 +542,40 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
             </button>
           </div>
         ) : (
-          <div
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-slate-800/60"
-            onClick={() => router.push('/profile')}
-          >
-            <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
-              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
-                  style={{ backgroundColor: roleBadge.bg, color: roleBadge.text }}
-                >
-                  {role}
-                </span>
-                {isSuperAdmin && (
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => router.push(profileHref)} title="Open my Users & Roles profile"
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-slate-800/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
+              <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
+                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                   <span
-                    className="text-[10px] px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5"
-                    style={{
-                      background: apexMode === 'super_admin'
-                        ? 'linear-gradient(135deg,rgba(88,28,135,0.15) 0%,rgba(109,40,217,0.10) 100%)'
-                        : 'linear-gradient(135deg,rgba(30,64,175,0.15) 0%,rgba(79,70,229,0.10) 100%)',
-                      border: apexMode === 'super_admin' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(96,165,250,0.3)',
-                      color: apexMode === 'super_admin' ? '#a78bfa' : '#60a5fa',
-                    }}
+                    className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
+                    style={{ backgroundColor: roleBadge.bg, color: roleBadge.text }}
                   >
-                    {apexMode === 'super_admin'
-                      ? <><Zap size={9} />SA</>
-                      : <><Users size={9} />TL</>}
+                    {role}
                   </span>
-                )}
+                  {isSuperAdmin && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5"
+                      style={{
+                        background: apexMode === 'super_admin'
+                          ? 'linear-gradient(135deg,rgba(88,28,135,0.15) 0%,rgba(109,40,217,0.10) 100%)'
+                          : 'linear-gradient(135deg,rgba(30,64,175,0.15) 0%,rgba(79,70,229,0.10) 100%)',
+                        border: apexMode === 'super_admin' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(96,165,250,0.3)',
+                        color: apexMode === 'super_admin' ? '#a78bfa' : '#60a5fa',
+                      }}
+                    >
+                      {apexMode === 'super_admin'
+                        ? <><Zap size={9} />SA</>
+                        : <><Users size={9} />TL</>}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
+            </button>
             <button
-              onClick={(e) => { e.stopPropagation(); handleLogout(); }}
+              onClick={handleLogout}
               className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0"
               title="Logout"
             >

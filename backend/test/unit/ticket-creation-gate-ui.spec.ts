@@ -117,17 +117,23 @@ describe('GET /workday/today ticketCreation (same rule as the API)', () => {
 
 describe('every creation control goes through the gate', () => {
   const ENTRY_POINTS: Array<[string, RegExp]> = [
-    ['frontend/components/layout/topbar.tsx', /<CreateTicketLink[\s\S]*?New Ticket[\s\S]*?<\/CreateTicketLink>/],
     ['frontend/app/(dashboard)/(operations)/tickets/page.tsx', /<CreateTicketLink className="apex-btn-new-ticket">/],
     ['platforms/operations/tickets/lifecycle/frontend/screens/KanbanScreen.tsx', /<CreateTicketLink className="apex-btn-new-ticket">/],
     ['platforms/operations/projects/project-management/frontend/screens/ProjectDetailScreen.tsx', /<CreateTicketLink href=\{`\/tickets\/new\?projectId=/],
     ['platforms/intelligence/dashboard/overview/frontend/components/QuickActionStrip.tsx', /a\.url === '\/tickets\/new' && !ticketGate\.allowed/],
+    ['platforms/intelligence/dashboard/overview/frontend/screens/WorkspaceSection.tsx', /onClick=\{\(\) => \{ if \(ticketGate\.allowed\) router\.push\('\/tickets\/new'\); \}\}/],
     ['frontend/app/(dashboard)/layout.tsx', /\.\.\.\(!ticketGate\.allowed \? \[\] : \[\{\s*id: 'new-ticket'/],
     ['frontend/components/ui/QuickActionDock.tsx', /label: '\+ Ticket'[^\n]*\n\s*disabled: !ticketGate\.allowed, title: ticketGate\.reason/],
   ];
 
   it.each(ENTRY_POINTS)('%s is gated', (file, pattern) => {
     expect(read(file)).toMatch(pattern);
+  });
+
+  it('the header has no ticket-creation entry point', () => {
+    const topbar = read('frontend/components/layout/topbar.tsx');
+    expect(topbar).not.toContain('/tickets/new');
+    expect(topbar).not.toMatch(/New Ticket/);
   });
 
   it('no ungated link or navigation to /tickets/new remains', () => {

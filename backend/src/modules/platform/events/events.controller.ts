@@ -52,6 +52,87 @@ const ACTION_DESCRIPTIONS: Record<string, string> = {
   EXPORT_PERFORMED: 'exported data',
 };
 
+const EVENT_CATEGORIES: Record<string, string[]> = {
+  tickets: [
+    'TICKET_CREATED', 'TICKET_ASSIGNED', 'TICKET_UNASSIGNED', 'TICKET_ASSIGNEE_REMOVED',
+    'TICKET_UPDATED', 'TICKET_STARTED', 'TICKET_SUBMITTED_FOR_REVIEW', 'TICKET_REVIEWED',
+    'TICKET_REVIEW_STARTED', 'TICKET_REVIEW_PAUSED', 'TICKET_REVIEW_WITHDRAWN',
+    'TICKET_DONE', 'TICKET_CLOSED', 'TICKET_REOPENED', 'TICKET_OVERDUE', 'TICKET_BLOCKED',
+    'TICKET_UNBLOCKED', 'TICKET_CANCELLED', 'TICKET_DELETED', 'TICKET_APPROVED',
+    'TICKET_REJECTED', 'COMMENT_ADDED', 'ATTACHMENT_UPLOADED', 'ATTACHMENT_DELETED',
+    'DOCUMENT_UPLOADED', 'DOCUMENT_DELETED', 'PHOTO_UPLOADED', 'PHOTO_REMOVED',
+  ],
+  projects: ['PROJECT_CREATED', 'PROJECT_UPDATED', 'PROJECT_MEMBER_ADDED', 'PROJECT_MEMBER_REMOVED', 'PROJECT_DELETED'],
+  attendance: [
+    'WORKDAY_STARTED', 'BREAK_STARTED', 'BREAK_ENDED', 'IDLE_DETECTED', 'IDLE_CLASSIFIED',
+    'WORKDAY_CONTINUED', 'WORKDAY_ENDED', 'ATTENDANCE_PUNCH_RECORDED',
+    'REGULARIZATION_REQUESTED', 'REGULARIZATION_MANAGER_APPROVED', 'REGULARIZATION_HR_APPROVED',
+    'REGULARIZATION_REJECTED', 'REGULARIZATION_DECIDED', 'REGULARIZATION_DECISION_STALE',
+    'ATTENDANCE_OFFICIAL_REVISED', 'ATTENDANCE_FINALIZED', 'ATTENDANCE_EVALUATION_RUN',
+    'ATTENDANCE_SHADOW_RUN', 'ATTENDANCE_CONFIGURATION_ERROR', 'ATTENDANCE_PUNCH_REVIEWED',
+    'ATTENDANCE_ABSENCE_REPORTED', 'ATTENDANCE_UNREPORTED_ABSENCE_LWP',
+    'ATTENDANCE_UNREPORTED_ABSENCE_CORRECTED', 'COMP_OFF_GRANTED', 'COMP_OFF_CONSUMED',
+  ],
+  leave: [
+    'LEAVE_REQUESTED', 'LEAVE_APPROVED', 'LEAVE_REJECTED', 'LEAVE_CANCELLED',
+    'LEAVE_REROUTED', 'LEAVE_EVIDENCE_SUBMITTED', 'LEAVE_FUNDING_CHANGED', 'LEAVE_SETUP_RESOLVED',
+  ],
+  people: [
+    'USER_LOGIN', 'USER_LOGOUT', 'USER_AUTO_LOGOUT', 'USER_CREATED', 'USER_UPDATED',
+    'USER_DEACTIVATED', 'USER_REACTIVATED', 'USER_ROLE_CHANGED', 'ADMIN_USER_EMAIL_CORRECTED',
+    'PROFILE_UPDATED', 'PERSONAL_INFORMATION_CHANGE_REQUESTED',
+    'PERSONAL_INFORMATION_CHANGE_CONFIRMED', 'PERSONAL_INFORMATION_CHANGE_DECLINED',
+    'PERSONAL_INFORMATION_CHANGE_APPROVED', 'PERSONAL_INFORMATION_CHANGE_REJECTED',
+    'SENSITIVE_DATA_VIEWED', 'SENSITIVE_DATA_EDITED',
+  ],
+  settings: ['SETTINGS_UPDATED'],
+  sales: [
+    'LEAD_CREATED', 'LEAD_UPDATED', 'LEAD_OWNER_CHANGED', 'LEAD_STAGE_CHANGED',
+    'LEAD_DELETED', 'LEAD_ACTIVITY_ADDED', 'LEAD_FOLLOWUP_ADDED',
+    'LEAD_REQUIREMENT_ADDED', 'LEAD_DEAL_ADDED',
+  ],
+  system: ['EXPORT_PERFORMED'],
+};
+
+const CRITICAL_ACTIONS = new Set([
+  'TICKET_DELETED', 'PROJECT_DELETED', 'USER_DEACTIVATED', 'ADMIN_USER_EMAIL_CORRECTED',
+  'SENSITIVE_DATA_EDITED', 'ATTENDANCE_CONFIGURATION_ERROR', 'LEAD_DELETED',
+]);
+
+const WARNING_ACTIONS = new Set([
+  'TICKET_OVERDUE', 'TICKET_BLOCKED', 'TICKET_REJECTED', 'TICKET_CANCELLED',
+  'ATTACHMENT_DELETED', 'DOCUMENT_DELETED', 'PHOTO_REMOVED', 'IDLE_DETECTED',
+  'REGULARIZATION_REJECTED', 'REGULARIZATION_DECISION_STALE',
+  'ATTENDANCE_ABSENCE_REPORTED', 'ATTENDANCE_UNREPORTED_ABSENCE_LWP',
+  'LEAVE_REJECTED', 'LEAVE_CANCELLED', 'USER_AUTO_LOGOUT',
+  'PERSONAL_INFORMATION_CHANGE_DECLINED', 'PERSONAL_INFORMATION_CHANGE_REJECTED',
+]);
+
+function categoryForAction(action: string): string {
+  return Object.entries(EVENT_CATEGORIES).find(([, actions]) => actions.includes(action))?.[0] ?? 'system';
+}
+
+function severityForAction(action: string): 'critical' | 'warning' | 'info' {
+  if (CRITICAL_ACTIONS.has(action)) return 'critical';
+  if (WARNING_ACTIONS.has(action)) return 'warning';
+  return 'info';
+}
+
+function actionsForSeverity(severity: string): string[] | null {
+  const all = Object.values(EVENT_CATEGORIES).flat();
+  if (severity === 'critical') return all.filter((action) => CRITICAL_ACTIONS.has(action));
+  if (severity === 'warning') return all.filter((action) => WARNING_ACTIONS.has(action));
+  if (severity === 'info') return all.filter((action) => !CRITICAL_ACTIONS.has(action) && !WARNING_ACTIONS.has(action));
+  return null;
+}
+
+function intersectActions(left: string[] | null, right: string[] | null): string[] | null {
+  if (!left) return right;
+  if (!right) return left;
+  const allowed = new Set(right);
+  return left.filter((action) => allowed.has(action));
+}
+
 function getEntityUrl(entityType: string, entityId: string, metadata?: any): string | null {
   switch (entityType) {
     case 'Ticket': return `/tickets/${entityId}`;
@@ -77,7 +158,14 @@ function enrichEvent(event: any, nowMs: number): any {
   else if (diffMin < 1440) timeAgo = `${Math.floor(diffMin / 60)}h ago`;
   else timeAgo = `${Math.floor(diffMin / 1440)}d ago`;
 
-  return { ...event, description, entityUrl, timeAgo };
+  return {
+    ...event,
+    description,
+    entityUrl,
+    timeAgo,
+    category: categoryForAction(actionKey),
+    severity: severityForAction(actionKey),
+  };
 }
 
 function clip(s: string | null | undefined, max = 45): string {
@@ -89,7 +177,6 @@ function clip(s: string | null | undefined, max = 45): string {
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('events')
-@UseGuards(JwtAuthGuard)
 export class EventsController {
   constructor(
     private eventLogger: EventLoggerService,
@@ -105,14 +192,28 @@ export class EventsController {
   ) {
     const roleName = this.accessPolicy.roleName(user);
     const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
+    const paginated = query.paginated === 'true' || query.page !== undefined;
+    const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1);
+    const pageSize = Math.min(Math.max(Number.parseInt(query.limit ?? (paginated ? '30' : '100'), 10) || 30, 1), paginated ? 100 : 500);
 
     const where: any = {};
     if (query.entityType) where.entityType = query.entityType;
-    if (query.action) where.action = query.action;
+    let allowedActions: string[] | null = null;
+    if (query.category && EVENT_CATEGORIES[query.category]) {
+      allowedActions = EVENT_CATEGORIES[query.category];
+    }
+    allowedActions = intersectActions(allowedActions, actionsForSeverity(query.severity));
+    if (query.action) {
+      // Exact event type still honours category/severity when those filters are also present.
+      where.action = allowedActions && !allowedActions.includes(query.action)
+        ? { in: [] }
+        : query.action;
+    }
+    else if (allowedActions) where.action = { in: allowedActions };
     if (query.from || query.to) {
       where.timestamp = {};
-      if (query.from) where.timestamp.gte = new Date(query.from);
-      if (query.to) where.timestamp.lte = new Date(query.to);
+      if (query.from && !Number.isNaN(new Date(query.from).getTime())) where.timestamp.gte = new Date(query.from);
+      if (query.to && !Number.isNaN(new Date(query.to).getTime())) where.timestamp.lte = new Date(query.to);
     }
 
     if (isAdmin) {
@@ -122,7 +223,11 @@ export class EventsController {
     } else if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
       if (query.userId) {
         const targetUser = await this.prisma.user.findUnique({ where: { id: query.userId } });
-        if (!targetUser) return [];
+        if (!targetUser) {
+          return paginated
+            ? { items: [], total: 0, page, pageSize, totalPages: 0, summary: { byCategory: {}, bySeverity: {}, uniqueActors: 0 } }
+            : [];
+        }
         const canView = await this.accessPolicy.canViewUser(user, targetUser);
         if (!canView) {
           throw new ForbiddenException("You do not have permission to view this user's activity log");
@@ -221,16 +326,131 @@ export class EventsController {
       ];
     }
 
-    const limit = query.limit ? Math.min(parseInt(query.limit), 500) : 100;
-    const events = await this.prisma.operationalEvent.findMany({
-      where,
-      include: { actor: { select: { id: true, name: true, avatar: true } } },
-      orderBy: { timestamp: 'desc' },
-      take: limit,
-    });
+    if (query.departmentId) {
+      if (!isAdmin) {
+        const allowedDepartmentIds = await this.accessPolicy.managedDepartmentIds(user);
+        if (!allowedDepartmentIds.includes(query.departmentId)) {
+          throw new ForbiddenException('You do not have permission to view activity for this department');
+        }
+      }
+
+      const [departmentUsers, departmentTickets, departmentLeaves, departmentProjects] = await Promise.all([
+        this.prisma.user.findMany({
+          where: { departmentId: query.departmentId },
+          select: { id: true },
+        }),
+        this.prisma.ticket.findMany({
+          where: {
+            OR: [
+              { departmentId: query.departmentId },
+              { assignedTo: { departmentId: query.departmentId } },
+              { createdBy: { departmentId: query.departmentId } },
+              { assignees: { some: { user: { departmentId: query.departmentId } } } },
+            ],
+          },
+          select: { id: true },
+        }),
+        this.prisma.leaveRequest.findMany({
+          where: { user: { departmentId: query.departmentId } },
+          select: { id: true },
+        }),
+        this.prisma.project.findMany({
+          where: {
+            OR: [
+              { departmentId: query.departmentId },
+              { members: { some: { user: { departmentId: query.departmentId } } } },
+            ],
+          },
+          select: { id: true },
+        }),
+      ]);
+
+      const departmentScope = {
+        OR: [
+          { actorId: { in: departmentUsers.map((item) => item.id) } },
+          { AND: [{ entityType: 'Ticket' }, { entityId: { in: departmentTickets.map((item) => item.id) } }] },
+          { AND: [{ entityType: 'LeaveRequest' }, { entityId: { in: departmentLeaves.map((item) => item.id) } }] },
+          { AND: [{ entityType: 'Project' }, { entityId: { in: departmentProjects.map((item) => item.id) } }] },
+        ],
+      };
+      if (query.userId && !departmentUsers.some((item) => item.id === query.userId)) {
+        // A person filter is always subordinate to the selected department.
+        where.actorId = { in: [] };
+      }
+      const roleScope = where.OR ? { OR: where.OR } : null;
+      if (where.OR) delete where.OR;
+      where.AND = [...(where.AND ?? []), ...(roleScope ? [roleScope] : []), departmentScope];
+    }
+
+    // Search is AND-ed with the role scope instead of replacing its OR clause.
+    if (query.q?.trim()) {
+      const scopedOr = where.OR;
+      if (scopedOr) delete where.OR;
+      const search = query.q.trim();
+      where.AND = [
+        ...(where.AND ?? []),
+        ...(scopedOr ? [{ OR: scopedOr }] : []),
+        {
+          OR: [
+            { action: { contains: search, mode: 'insensitive' } },
+            { entityType: { contains: search, mode: 'insensitive' } },
+            { actor: { name: { contains: search, mode: 'insensitive' } } },
+          ],
+        },
+      ];
+    }
+
+    const [events, total, actionGroups, actorGroups] = await Promise.all([
+      this.prisma.operationalEvent.findMany({
+        where,
+        include: { actor: { select: { id: true, name: true, avatar: true } } },
+        orderBy: { timestamp: 'desc' },
+        skip: paginated ? (page - 1) * pageSize : 0,
+        take: pageSize,
+      }),
+      paginated ? this.prisma.operationalEvent.count({ where }) : Promise.resolve(0),
+      paginated
+        ? (this.prisma.operationalEvent as any).groupBy({ by: ['action'], where, _count: { _all: true } })
+        : Promise.resolve([]),
+      paginated
+        ? (this.prisma.operationalEvent as any).groupBy({ by: ['actorId'], where, _count: { _all: true } })
+        : Promise.resolve([]),
+    ]);
     const nowMs = this.tva.now().getTime();
     const enriched = events.map((e) => enrichEvent(e, nowMs));
-    return this.enrichWithTitles(enriched);
+    const titled = await this.enrichWithTitles(enriched);
+    const items = titled.map((event) => this.sanitizeEvent(event, isAdmin, user.id));
+
+    if (!paginated) return items;
+
+    const byCategory: Record<string, number> = {};
+    const bySeverity: Record<string, number> = {};
+    for (const group of actionGroups as any[]) {
+      const count = group._count?._all ?? 0;
+      const category = categoryForAction(group.action);
+      const severity = severityForAction(group.action);
+      byCategory[category] = (byCategory[category] ?? 0) + count;
+      bySeverity[severity] = (bySeverity[severity] ?? 0) + count;
+    }
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
+      summary: { byCategory, bySeverity, uniqueActors: (actorGroups as any[]).length },
+    };
+  }
+
+  private sanitizeEvent(event: any, isAdmin: boolean, viewerId: string): any {
+    if (isAdmin) return event;
+    const { ip: _ip, device: _device, ...safe } = event;
+    if (event.actorId !== viewerId && ['SENSITIVE_DATA_VIEWED', 'SENSITIVE_DATA_EDITED', 'ADMIN_USER_EMAIL_CORRECTED'].includes(event.action)) {
+      const { beforeValue: _before, afterValue: _after, metadata: _metadata, ...restricted } = safe;
+      return restricted;
+    }
+    return safe;
   }
 
   // ── Batch-enrich events with entity names (avoids N+1) ───────────────────
