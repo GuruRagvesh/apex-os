@@ -81,7 +81,7 @@ describe('lifecycle dependency matrix covers the schema', () => {
     for (const k of ['AttendancePunchEvidence.userId', 'WorkdayNote.userId', 'BreakLog.userId', 'TicketTimeLog.userId', 'AttendanceEvent.userId', 'CompOffCredit.employeeId']) {
       expect([k, at(k) < at('WorkSession.userId')]).toEqual([k, true]);
     }
-    expect(HANDLERS.filter((h) => h.appendOnly).map((h) => h.model).sort()).toEqual(['AttendancePunchEvidence', 'FnfAdjustment', 'LifecycleRemediationAttempt', 'WorkdayNote']);
+    expect(HANDLERS.filter((h) => h.appendOnly).map((h) => h.model).sort()).toEqual(['AttendancePunchEvidence', 'FnfAdjustment', 'FnfAdjustmentRequest', 'LeaveEvidence', 'LeaveEvidence', 'LifecycleRemediationAttempt', 'UnreportedAbsenceDecision', 'WorkdayNote']);
   });
 
   describe('lifecycle foundation (Phase 1) handlers', () => {

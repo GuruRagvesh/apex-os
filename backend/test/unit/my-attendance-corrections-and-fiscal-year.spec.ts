@@ -13,7 +13,7 @@ import * as path from 'path';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TVAService } from '../../src/common/services/tva.service';
-import { financialYearV2, mapRecoveredDay, type StoredRecoveredDay } from '../../src/modules/platform/attendance/v2/my-attendance-v2.contract';
+import { financialYearV2, mapRecoveredDay, summarizeAttendanceDays, type StoredRecoveredDay } from '../../src/modules/platform/attendance/v2/my-attendance-v2.contract';
 import { MyAttendanceV2Service } from '../../src/modules/platform/attendance/v2/my-attendance-v2.service';
 import { RegularizationService } from '../../src/modules/platform/attendance/regularization/regularization.service';
 import { AttendanceConsoleService } from '../../src/modules/platform/attendance/console/attendance-console.service';
@@ -80,6 +80,22 @@ describe('R recovered historical days in My Attendance', () => {
     expect(d.punchOutAt).toBe('2026-04-03T13:37:00.000Z');
   });
 
+  it('R1b. backend summaries count stored facts and keep review rows visible', () => {
+    const present = mapRecoveredDay(recovered('2026-04-03'), '2026-10-12');
+    const review = mapRecoveredDay(recovered('2026-04-04', {
+      punchOutAt: null,
+      evaluationState: 'NEEDS_REVIEW',
+      exceptionFlags: ['MISSING_PUNCH'],
+      workedMinutes: 0,
+    }), '2026-10-12');
+    expect(summarizeAttendanceDays([present, review])).toMatchObject({
+      recordedDays: 2,
+      finalizedDays: 1,
+      present: 1,
+      needsReview: 1,
+    });
+  });
+
   it('R2. break and lateness are unavailable, never 0:00 or "on time"; no requirement is invented', () => {
     const d = mapRecoveredDay(recovered('2026-04-03'), '2026-10-12');
     expect(d.breakMinutes).toBeNull();
@@ -136,6 +152,38 @@ describe('R recovered historical days in My Attendance', () => {
     const day = await new MyAttendanceV2Service(prisma, tva(), evaluator).day('u1', '2026-05-04');
     expect(day.outcome).toBe('PRESENT');
     expect(evaluator.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('R7. day detail returns stored session ranges, work context and breaks without reconstructing missing values', async () => {
+    const workSession = {
+      id: 'session-1', loginAt: new Date('2026-05-04T04:25:00.000Z'), startWorkAt: new Date('2026-05-04T04:30:00.000Z'),
+      logoutAt: null, status: 'WORKING', totalWorkMinutes: 175, autoClosed: false, autoClosedAt: null, closureReason: null,
+      breakLogs: [{
+        id: 'break-1', breakType: 'MEETING', startAt: new Date('2026-05-04T06:00:00.000Z'), endAt: null,
+        durationMinutes: null, note: null, reason: null, meeting: { topic: 'Client review', purpose: 'DELIVERY', clientName: 'Acme' },
+      }],
+      ticketTimeLogs: [{
+        id: 'log-1', startedAt: new Date('2026-05-04T04:30:00.000Z'), endedAt: null, durationSeconds: null,
+        ticket: { ticketId: 'APX-42', title: 'Attendance drawer' },
+      }],
+      workdayNotes: [{ id: 'note-1', content: 'Validated the day detail flow', createdAt: new Date('2026-05-04T05:00:00.000Z') }],
+    };
+    const findMany = jest.fn().mockResolvedValueOnce([workSession]).mockResolvedValueOnce([]);
+    const prisma: any = {
+      workSession: { findMany },
+      dailyAttendance: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const evaluator: any = { evaluate: jest.fn().mockResolvedValue(unofficial()) };
+
+    const day = await new MyAttendanceV2Service(prisma, tva(), evaluator).day('u1', '2026-05-04');
+
+    expect(findMany.mock.calls[0][0].where).toEqual({ userId: 'u1', date: new Date('2026-05-04T00:00:00.000Z') });
+    expect(day.workSessions[0]).toMatchObject({
+      id: 'session-1', startedAt: '2026-05-04T04:30:00.000Z', endedAt: null, workedMinutes: 175,
+      workItems: [{ ticketId: 'APX-42', title: 'Attendance drawer', endedAt: null, durationSeconds: null }],
+      notes: [{ content: 'Validated the day detail flow' }],
+      breaks: [{ type: 'MEETING', endedAt: null, durationMinutes: null, purpose: 'Client review · DELIVERY · Acme' }],
+    });
   });
 });
 
@@ -263,6 +311,8 @@ function consoleRig(users: any[], stored: any[] = []) {
     user: { findUnique: jest.fn(), findMany: jest.fn((args: any) => { userFinds.push(args); return Promise.resolve(users); }), count: jest.fn().mockResolvedValue(users.length) },
     dailyAttendance: { findMany: jest.fn().mockResolvedValue(stored) },
     attendanceRegularization: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]) },
+    // Phase 3: the HR register also lists punch devices.
+    attendancePunchEvidence: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const calendar: any = { classifyMonth: jest.fn().mockResolvedValue({ days: [{ businessDate: '2026-08-03', isWorkingDay: true }, { businessDate: '2026-08-04', isWorkingDay: true }], workingDays: 2, sources: { weeklyOffPolicy: 'ASSIGNED' } }) };
   const service = new AttendanceConsoleService(

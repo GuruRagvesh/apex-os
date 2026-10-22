@@ -9,11 +9,13 @@ export function CorrectionDialog({ date, onClose }: { date: string; onClose: () 
   const client = useQueryClient();
   const requests = useQuery({ queryKey: ['my-regularizations'], queryFn: getMyRegularizations, retry: false });
   const detail = useQuery({ queryKey: ['my-attendance-v2-day', date], queryFn: () => getMyAttendanceDayV2(date), retry: false });
-  const pending = requests.data?.find(row => row.date.slice(0, 10) === date && (row.status === 'PENDING' || row.status === 'MANAGER_APPROVED'));
+  const existing = requests.data?.find(row => row.date.slice(0, 10) === date);
+  const pending = existing && (existing.status === 'PENDING' || existing.status === 'MANAGER_APPROVED') ? existing : undefined;
   return <AttendanceDialog title="Request a Correction" onClose={onClose}>
     <section aria-label="Correction form">
-      {requests.isError ? <p role="alert">Correction requests unavailable. <button onClick={() => requests.refetch()}>Try again</button></p> : requests.isPending ? <p>Checking correction requests…</p> : pending ? <p role="status">Correction {stageLabel(pending.status).toLowerCase()}</p> :
-        <RequestCorrectionForm allowScreenshots businessDate={date} onCancel={onClose} onDone={() => { client.invalidateQueries({ queryKey: ['my-attendance-v2'] }); client.invalidateQueries({ queryKey: ['my-attendance-v2-day', date] }); client.invalidateQueries({ queryKey: ['my-attendance-v2-year-records'] }); onClose(); }} />}
+      {requests.isError ? <p role="alert">Correction requests unavailable. <button onClick={() => requests.refetch()}>Try again</button></p> : requests.isPending || detail.isPending ? <p>Checking correction eligibility…</p> : pending ? <p role="status">Correction {stageLabel(pending.status).toLowerCase()}</p> : !detail.data?.correctionAllowed ? <p role="alert">This date is not eligible for a correction request.</p> :
+        <RequestCorrectionForm historicalRecord={detail.data.dataSource === 'HISTORICAL_RECORD'} allowScreenshots businessDate={date} onCancel={onClose} onDone={() => { client.invalidateQueries({ queryKey: ['my-attendance-v2'] }); client.invalidateQueries({ queryKey: ['my-attendance-v2-day', date] }); client.invalidateQueries({ queryKey: ['my-attendance-v2-fiscal-year'] }); onClose(); }} />}
+      {existing && !pending && <div className="mt-3 rounded-lg border border-apex-border p-3 text-sm"><strong>{stageLabel(existing.status)}</strong><p className="mt-1">{existing.reason}</p></div>}
     </section>
     {detail.isError ? <p role="alert">Day Summary unavailable. <button onClick={() => detail.refetch()}>Try again</button></p> : detail.data ? <DaySummary day={detail.data} /> : <p>Loading Day Summary…</p>}
   </AttendanceDialog>;

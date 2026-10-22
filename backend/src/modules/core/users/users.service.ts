@@ -11,6 +11,15 @@ import { randomUUID } from 'crypto';
 import { sanitizeChannels } from '../../operations/notifications/notification-channels';
 import { RemediationException, buildRemediation } from '../../../common/remediation';
 import { SetupIssueCode, UserSetupIssuesService } from './user-setup-issues.service';
+import {
+  GOVERNING_POLICY_STATUSES,
+  POLICY_BASELINE_DATE,
+  resolveContinuousPolicy,
+} from '../../platform/attendance/policy/policy-continuity';
+import { closeProfilesAt, reopenProfileFrom } from '../../platform/attendance/timeline/profile-continuity';
+import { deactivateUser } from './employment-continuity';
+import { TransitionCapabilitiesService } from './transitions/capabilities.service';
+import { EventsGateway } from '../../platform/gateway/events.gateway';
 
 // documentType value the Documents & Verification UI sends for a profile photo.
 // Only this document type is allowed to update the user's avatar/photo.
@@ -29,6 +38,8 @@ export class UsersService {
     private emailService: EmailService,
     private backupVaultService: BackupVaultService,
     @Optional() private setupIssues?: UserSetupIssuesService,
+    @Optional() private capabilities?: TransitionCapabilitiesService,
+    @Optional() private gateway?: EventsGateway,
   ) {}
 
   /**
@@ -218,123 +229,71 @@ export class UsersService {
 
   private async attendanceDefaults(
     tx: Prisma.TransactionClient,
-    effectiveFrom: Date,
-    laterStartAllowed = true,
+    joiningDate: Date,
   ): Promise<any> {
-    // A version that has been superseded is still authoritative inside its
-    // closed historical window. This is the same rule the attendance readers
-    // use and prevents a future-dated activation from disabling Add User until
-    // the new version starts.
-    const governingVersion = {
-      status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] },
+    // Phase 3 policy continuity. The profile starts on the joining date, never
+    // before the company baseline, and every family resolves by the same rule
+    // the attendance readers use: the version covering the date (the latest
+    // one when versions overlap), else the predecessor across a gap, else the
+    // earliest version as the baseline. Only a family with no version at all
+    // is missing. A future (SCHEDULED) version never governs before its date.
+    const joining = joiningDate.toISOString().slice(0, 10);
+    const startDate = joining < POLICY_BASELINE_DATE ? POLICY_BASELINE_DATE : joining;
+    const effectiveFrom = new Date(`${startDate}T00:00:00.000Z`);
+    const usable = { status: { in: [...GOVERNING_POLICY_STATUSES] } };
+    const window = {
       effectiveFrom: { lte: effectiveFrom },
       OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
     };
-    const activeWindow = {
-      isActive: true,
-      effectiveFrom: { lte: effectiveFrom },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
+    const newestFirst = [{ effectiveFrom: 'desc' as const }, { id: 'desc' as const }];
+
+    const configurationWarnings: string[] = [];
+    const asCandidate = (r: any) => ({
+      id: r.id,
+      version: r.version ?? null,
+      effectiveFrom: r.effectiveFrom ? new Date(r.effectiveFrom).toISOString().slice(0, 10) : POLICY_BASELINE_DATE,
+      effectiveTo: r.effectiveTo ? new Date(r.effectiveTo).toISOString().slice(0, 10) : null,
+      row: r,
+    });
+    const resolveFamily = async (label: string, delegate: any, base: Record<string, unknown>) => {
+      const covering = await delegate.findMany({ where: { ...base, ...window }, orderBy: newestFirst, take: 2 });
+      if (covering.length > 1) configurationWarnings.push(`${label}_OVERLAP`);
+      if (covering.length > 0) return covering[0];
+      // Nothing covers the joining date: continue across a gap or apply the
+      // baseline, and say so. Never a refusal on its own.
+      const all = await delegate.findMany({ where: base });
+      const resolution = resolveContinuousPolicy((all ?? []).map(asCandidate), startDate);
+      if (resolution.health && resolution.health !== 'NO_POLICY') configurationWarnings.push(`${label}_${resolution.health}`);
+      return (resolution.policy as any)?.row ?? null;
     };
 
-    const [shifts, leavePolicies, calendars, weeklyOffPolicies] = await Promise.all([
-      tx.shiftPolicy.findMany({
-        where: { ...governingVersion, category: AttendanceCategory.REGULAR_EMPLOYEE },
-        orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }],
-        take: 2,
-      }),
-      tx.leavePolicy.findMany({ where: governingVersion, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
-      tx.holidayCalendar.findMany({ where: governingVersion, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
-      tx.weeklyOffPolicy.findMany({ where: activeWindow, orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }], take: 2 }),
-    ]);
+    const shift = await resolveFamily('SHIFT_POLICY', tx.shiftPolicy, { ...usable, category: AttendanceCategory.REGULAR_EMPLOYEE });
+    const leavePolicy = await resolveFamily('LEAVE_POLICY', tx.leavePolicy, usable);
+    const calendar = await resolveFamily('HOLIDAY_CALENDAR', tx.holidayCalendar, usable);
+    // isActive is the only approval signal an unversioned weekly-off row has.
+    const weeklyOff = await resolveFamily('WEEKLY_OFF_POLICY', tx.weeklyOffPolicy, { isActive: true });
 
-    // Overlap is a setup warning, not authority to block employment. The
-    // latest effective-from approved version wins; id is a stable tie-breaker.
-    const configurationWarnings = [
-      shifts.length > 1 ? 'SHIFT_POLICY_OVERLAP' : null,
-      leavePolicies.length > 1 ? 'LEAVE_POLICY_OVERLAP' : null,
-      calendars.length > 1 ? 'HOLIDAY_CALENDAR_OVERLAP' : null,
-      weeklyOffPolicies.length > 1 ? 'WEEKLY_OFF_POLICY_OVERLAP' : null,
-    ].filter((value): value is string => value !== null);
-
-    const shift = shifts[0] ?? null;
-    const attendancePolicy = shift
-      ? await tx.attendancePolicy.findFirst({
-          where: { id: shift.attendancePolicyId, ...governingVersion },
-        })
+    let attendancePolicy: any = shift
+      ? await tx.attendancePolicy.findFirst({ where: { id: shift.attendancePolicyId, ...usable, ...window } })
       : null;
-
-    const missing = [
-      shifts.length === 0 ? 'shift' : null,
-      attendancePolicy === null ? 'attendance' : null,
-      leavePolicies.length === 0 ? 'leave' : null,
-      calendars.length === 0 ? 'calendar' : null,
-      weeklyOffPolicies.length === 0 ? 'weeklyOff' : null,
-    ].filter((value): value is string => value !== null);
-
-    if (missing.length > 0 && laterStartAllowed) {
-      const usableVersion = { status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] } };
-      const future = { gt: effectiveFrom };
-      const [nextShift, nextLeave, nextCalendar, nextWeeklyOff, nextLinkedAttendance] = await Promise.all([
-        missing.includes('shift') || missing.includes('attendance')
-          ? tx.shiftPolicy.findFirst({
-              where: { ...usableVersion, category: AttendanceCategory.REGULAR_EMPLOYEE, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-        missing.includes('leave')
-          ? tx.leavePolicy.findFirst({
-              where: { ...usableVersion, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-        missing.includes('calendar')
-          ? tx.holidayCalendar.findFirst({
-              where: { ...usableVersion, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-        missing.includes('weeklyOff')
-          ? tx.weeklyOffPolicy.findFirst({
-              where: { isActive: true, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-        missing.includes('attendance') && shift
-          ? tx.attendancePolicy.findFirst({
-              where: { id: shift.attendancePolicyId, ...usableVersion, effectiveFrom: future },
-              orderBy: { effectiveFrom: 'asc' },
-              select: { effectiveFrom: true },
-            })
-          : null,
-      ]);
-
-      const nextFor: Record<string, Date | null> = {
-        shift: nextShift?.effectiveFrom ?? null,
-        attendance: nextLinkedAttendance?.effectiveFrom ?? nextShift?.effectiveFrom ?? null,
-        leave: nextLeave?.effectiveFrom ?? null,
-        calendar: nextCalendar?.effectiveFrom ?? null,
-        weeklyOff: nextWeeklyOff?.effectiveFrom ?? null,
-      };
-      const missingStarts = missing.map((key) => nextFor[key]);
-      if (missingStarts.every((date): date is Date => date instanceof Date)) {
-        // Start on the latest of the missing policies' first possible dates,
-        // then re-evaluate the whole bundle. Re-evaluation catches gaps and
-        // may advance again, but every attempt moves strictly forward.
-        const nextEffectiveFrom = new Date(Math.max(...missingStarts.map((date) => date!.getTime())));
-        if (nextEffectiveFrom.getTime() > effectiveFrom.getTime()) {
-          return this.attendanceDefaults(tx, nextEffectiveFrom, true);
-        }
+    if (shift && !attendancePolicy && typeof (tx.attendancePolicy as any).findUnique === 'function') {
+      // The shift's attendance policy series, by continuity.
+      const series = await tx.attendancePolicy.findUnique({ where: { id: shift.attendancePolicyId }, select: { policyKey: true } });
+      if (series) {
+        attendancePolicy = await resolveFamily('ATTENDANCE_POLICY', tx.attendancePolicy, { ...usable, policyKey: series.policyKey });
       }
     }
 
-    const resolvedShift = this.exactlyOne(shifts.slice(0, 1), 'regular shift policy');
-    if (!attendancePolicy) {
+    const missing = [
+      shift ? null : 'regular shift policy',
+      attendancePolicy || !shift ? null : 'attendance policy for the shift',
+      leavePolicy ? null : 'leave policy',
+      calendar ? null : 'holiday calendar',
+      weeklyOff ? null : 'weekly-off policy',
+    ].filter((value): value is string => value !== null);
+    if (missing.length > 0) {
       throw new BadRequestException(
-        'Attendance onboarding is unavailable: the active shift has no active attendance policy',
+        `Attendance onboarding is unavailable: no applicable ${missing.join(', ')} is configured`,
       );
     }
 
@@ -345,13 +304,13 @@ export class UsersService {
     }
 
     return {
-      shift: resolvedShift,
-      leavePolicy: this.exactlyOne(leavePolicies.slice(0, 1), 'leave policy'),
-      calendar: this.exactlyOne(calendars.slice(0, 1), 'holiday calendar'),
-      weeklyOff: this.exactlyOne(weeklyOffPolicies.slice(0, 1), 'weekly-off policy'),
+      shift,
+      leavePolicy,
+      calendar,
+      weeklyOff,
       assignedAttendanceLocationId,
       configurationWarnings,
-      /** When the attendance profile starts: the joining date, or the first policy date if later. */
+      /** When the attendance profile starts: the joining date, never before the baseline. */
       effectiveFrom,
     };
   }
@@ -491,6 +450,45 @@ export class UsersService {
       );
     }
     return this.accessPolicy.safeUser(user);
+  }
+
+  // Collaboration presence is a user preference. It never writes to
+  // currentStatus or WorkSession, which remain attendance-owned.
+  async getAvailability(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { availabilityStatus: true, availabilityExpiresAt: true, currentStatus: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const activeOverride = user.availabilityStatus !== 'AUTO' &&
+      (!user.availabilityExpiresAt || user.availabilityExpiresAt.getTime() > Date.now());
+    const workdayStatus = user.currentStatus;
+    const automaticStatus = workdayStatus === 'WORKING' ? 'AVAILABLE'
+      : workdayStatus === 'ON_BREAK' ? 'BE_RIGHT_BACK'
+      : workdayStatus === 'IDLE' ? 'AWAY'
+      : 'APPEAR_OFFLINE';
+    return {
+      selectedStatus: activeOverride ? user.availabilityStatus : 'AUTO',
+      effectiveStatus: activeOverride ? user.availabilityStatus : automaticStatus,
+      expiresAt: activeOverride ? user.availabilityExpiresAt : null,
+      workdayStatus,
+    };
+  }
+
+  async setAvailability(userId: string, status: string, durationMinutes?: number | null) {
+    const allowed = ['AUTO', 'AVAILABLE', 'BUSY', 'DO_NOT_DISTURB', 'BE_RIGHT_BACK', 'AWAY', 'APPEAR_OFFLINE'];
+    if (!allowed.includes(status)) throw new BadRequestException('Invalid availability status');
+    if (durationMinutes !== undefined && durationMinutes !== null &&
+      (![60, 240, 480].includes(durationMinutes))) {
+      throw new BadRequestException('Invalid availability duration');
+    }
+    const expiresAt = status !== 'AUTO' && durationMinutes
+      ? new Date(Date.now() + durationMinutes * 60_000) : null;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { availabilityStatus: status, availabilityExpiresAt: expiresAt },
+    });
+    return this.getAvailability(userId);
   }
 
   async create(
@@ -644,6 +642,17 @@ export class UsersService {
         },
         include: { role: true, department: true },
       });
+      // Phase 3: a new attendance profile from the return date, continuing the
+      // last one's assignments. Nothing covers the days they were inactive.
+      if (!joinsLater) {
+        const today = this.companyDate();
+        const reopened = await reopenProfileFrom(tx, userId, today, actorId);
+        const covered = reopened ?? (await tx.employeeAttendanceProfile.findFirst({
+          where: { userId, effectiveFrom: { lte: new Date(`${today}T00:00:00.000Z`) }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date(`${today}T00:00:00.000Z`) } }] },
+          select: { id: true },
+        }));
+        if (!covered) await this.recordAttendanceSetupPending(tx, userId, actorId, ['PROFILE_MISSING_ON_REACTIVATION']);
+      }
       await (tx as any).operationalEvent.create({
         data: {
           actorId,
@@ -1005,6 +1014,31 @@ export class UsersService {
       }
     }
 
+    // Phase 4: a primary department or base role change is a TRANSFER, with an
+    // impact preview, effective dating and rerouting -- never a field edit --
+    // once the transfer workflow is enabled. Until then the legacy edit stays,
+    // so departments can still be corrected during the rollout window.
+    if (clean.departmentId !== undefined || clean.roleId !== undefined) {
+      const current = await this.prisma.user.findUnique({ where: { id }, select: { departmentId: true, roleId: true } });
+      const deptChanged = clean.departmentId !== undefined && (clean.departmentId || null) !== (current?.departmentId ?? null);
+      const roleChanged = clean.roleId !== undefined && clean.roleId !== current?.roleId;
+      if ((deptChanged || roleChanged) && this.capabilities && (await this.capabilities.isEnabled('transfer'))) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'USE_TRANSFER_WORKFLOW',
+          message: 'Change the department or role with Transfer, which previews the impact first. Other changes in this form were not saved.',
+        });
+      }
+    }
+
+    // Administrative deactivation goes through the one lifecycle-safe helper
+    // (D11): profile closed, sessions revoked, handoffs cancelled, audit in the
+    // same transaction. The EmploymentPeriod stays open (Reactivate continues it).
+    if (clean.isActive === false) {
+      const { isActive: _ignored, ...rest } = clean;
+      return this.remove(id, actorId, rest);
+    }
+
     // HR AUTHORITY MAY BE COMBINED WITH ANY ROLE EXCEPT SUPER ADMIN.
     //
     // ADMIN + isHR is the HR ADMIN: ordinary Admin powers plus the HR set. That
@@ -1073,7 +1107,16 @@ export class UsersService {
     return result;
   }
 
-  async uploadPhoto(userId: string, file: Express.Multer.File): Promise<{ photoUrl: string }> {
+  async uploadPhoto(userId: string, file?: Express.Multer.File): Promise<{ photoUrl: string }> {
+    if (!file?.buffer?.length || file.size > 2 * 1024 * 1024 || file.buffer.length > 2 * 1024 * 1024) {
+      throw new BadRequestException('Profile photo must be at most 2 MB');
+    }
+    const bytes = file.buffer;
+    const isJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isPng = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    if (!((file.mimetype === 'image/jpeg' && isJpeg) || (file.mimetype === 'image/png' && isPng))) {
+      throw new BadRequestException('Use a valid JPG or PNG profile photo');
+    }
     const photoUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     await this.prisma.user.update({ where: { id: userId }, data: { photoUrl } });
     this.eventLogger.log({
@@ -1104,15 +1147,18 @@ export class UsersService {
     return { message: 'Password reset successfully' };
   }
 
-  async remove(id: string, actorId?: string) {
+  async remove(id: string, actorId?: string, otherFields: Record<string, unknown> = {}) {
     await this.assertNotSystemAccount(id);
-    await this.prisma.user.update({ where: { id }, data: { isActive: false, employmentState: 'DEACTIVATED', scheduledActivationOn: null } });
-    this.eventLogger.log({
-      actorId: actorId ?? id,
-      entityType: 'User',
-      entityId: id,
-      action: OperationalAction.USER_DEACTIVATED,
-    }).catch(() => {});
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${id} FOR UPDATE`;
+      // Plain edits sent alongside isActive:false (PUT) are saved first.
+      if (Object.keys(otherFields).length > 0) await tx.user.update({ where: { id }, data: otherFields as any });
+      // Phase 3/4: the attendance profile ends today, so no profile covers the
+      // inactive gap and no absence can be generated for it.
+      await deactivateUser(tx, { userId: id, reason: 'DEACTIVATION', lastDay: this.companyDate(), actorId: actorId ?? null, now, source: 'USERS_API' });
+    });
+    this.gateway?.disconnectUser?.(id);
     return { message: 'User deactivated' };
   }
 
@@ -1244,14 +1290,16 @@ export class UsersService {
     if (isManagerOfDept) {
       const { password, ctcAnnual, basicSalary, accountNumber, panNumber, aadhaarNumber, uanNumber,
         bankName, ifscCode, accountHolderName, salaryStructure, pfApplicable, esicApplicable,
-        professionalTax, taxRegime, hrNotes, ...rest } = target as any;
+        professionalTax, taxRegime, hrNotes, legalName, personalEmail, phone, dateOfBirth, gender,
+        bloodGroup, currentAddress, permanentAddress, emergencyName, emergencyPhone, emergencyRelation,
+        ...rest } = target as any;
       return rest;
     }
 
     if (isTeamLead) {
       return {
         id: target.id, name: target.name, email: target.email, avatar: target.avatar,
-        phone: (target as any).phone, designation: (target as any).designation, department: (target as any).department,
+        designation: (target as any).designation, department: (target as any).department,
         role: target.role, workMode: (target as any).workMode, shiftTiming: (target as any).shiftTiming,
         employmentType: (target as any).employmentType, joiningDate: (target as any).joiningDate,
       };
@@ -1282,9 +1330,23 @@ export class UsersService {
       'accountNumber','ifscCode','accountHolderName','paymentMode','panNumber',
       'aadhaarNumber','uanNumber','pfApplicable','esicApplicable','professionalTax','taxRegime'];
 
-    const PERSONAL_EDITABLE_BY_SELF = ['name','phone','currentAddress','permanentAddress',
-      'emergencyName','emergencyPhone','emergencyRelation','userLocation','bloodGroup',
-      'gender','dateOfBirth'];
+    const OFFICIAL_PERSONAL_FIELDS = ['legalName', 'phone', 'personalEmail', 'currentAddress', 'permanentAddress',
+      'emergencyName', 'emergencyPhone', 'emergencyRelation', 'bloodGroup', 'gender', 'dateOfBirth'];
+
+    const changedOfficialPersonalFields = OFFICIAL_PERSONAL_FIELDS.filter((field) => {
+      if (!(field in (dto ?? {}))) return false;
+      const incoming = dto[field] === '' || dto[field] === undefined ? null : dto[field];
+      const current = (target as any)[field] ?? null;
+      if (field === 'dateOfBirth') {
+        const incomingDate = incoming ? new Date(incoming).toISOString().slice(0, 10) : null;
+        const currentDate = current ? new Date(current).toISOString().slice(0, 10) : null;
+        return incomingDate !== currentDate;
+      }
+      return String(incoming ?? '') !== String(current ?? '');
+    });
+    if (changedOfficialPersonalFields.length > 0) {
+      throw new BadRequestException('Official personal details must be changed through a personal information request');
+    }
 
     let data: any = {};
 
@@ -1345,8 +1407,10 @@ export class UsersService {
         await this.logSensitiveAccess(requesterId, 'EDIT_PAYROLL_DATA', targetUserId, { fieldsChanged: payrollChanged });
       }
     } else if (isOwnProfile) {
-      for (const key of PERSONAL_EDITABLE_BY_SELF) {
-        if (key in dto) data[key] = dto[key];
+      // Personalization is handled by PATCH /users/me. Official identity,
+      // contact, address and emergency data require the audited HR workflow.
+      for (const field of ['name', 'bio', 'avatar', 'photoUrl']) {
+        if (field in dto) data[field] = dto[field];
       }
     } else {
       throw new ForbiddenException('Not authorized to edit this profile');
@@ -1430,7 +1494,20 @@ export class UsersService {
     };
   }
 
-  async uploadDocument(requesterId: string, targetUserId: string, file: Express.Multer.File, documentType: string) {
+  async uploadDocument(requesterId: string, targetUserId: string, file: Express.Multer.File | undefined, documentType: string) {
+    if (!file?.buffer?.length || file.size > 5 * 1024 * 1024 || file.buffer.length > 5 * 1024 * 1024) {
+      throw new BadRequestException('Document must be no larger than 5 MB');
+    }
+    const bytes = file.buffer;
+    const isJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isPng = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const isPdf = bytes.length >= 4 && bytes.subarray(0, 4).toString('ascii') === '%PDF';
+    if (!((file.mimetype === 'image/jpeg' && isJpeg) || (file.mimetype === 'image/png' && isPng) || (file.mimetype === 'application/pdf' && isPdf))) {
+      throw new BadRequestException('Use a valid PDF, JPG or PNG document');
+    }
+    if (typeof documentType !== 'string' || !documentType.trim() || documentType.length > 100) {
+      throw new BadRequestException('Document type is required');
+    }
     const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, include: { role: true } });
     const target = await this.prisma.user.findUnique({ where: { id: targetUserId }, include: { role: true, department: true } });
     if (!target) throw new NotFoundException('User not found');
@@ -1567,6 +1644,9 @@ export class UsersService {
   }
 
   async savePreferences(userId: string, prefs: any): Promise<any> {
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) {
+      throw new BadRequestException('Preferences must be an object');
+    }
     // Phase 1: `channels` is validated, never stored as sent.
     if (prefs && typeof prefs === 'object' && 'channels' in prefs) {
       const channels = sanitizeChannels(prefs.channels);
@@ -1574,12 +1654,54 @@ export class UsersService {
       if (channels) prefs.channels = channels;
       else delete prefs.channels;
     }
-    const saved = await this.prisma.appSetting.upsert({
-      where: { key: `user-prefs-${userId}` },
-      create: { key: `user-prefs-${userId}`, value: prefs, updatedBy: userId },
-      update: { value: prefs, updatedBy: userId },
-    });
-    return saved.value;
+    if ('teamSettings' in prefs) {
+      const team = prefs.teamSettings;
+      if (!team || typeof team !== 'object' || Array.isArray(team) ||
+        typeof team.showTeamOverview !== 'boolean' ||
+        typeof team.highlightApproachingSla !== 'boolean' ||
+        !['comfortable', 'compact'].includes(team.dashboardDensity) ||
+        typeof team.requireAssignee !== 'boolean' ||
+        typeof team.requireDueDate !== 'boolean' ||
+        typeof team.reassignRequiresReason !== 'boolean' ||
+        !['warn', 'block'].includes(team.workloadGuardrail) ||
+        ![4, 8, 24].includes(team.escalationWindowHours) ||
+        typeof team.notifyOnUnassigned !== 'boolean' ||
+        !['reporting_manager', 'team_lead'].includes(team.approvalRoute)) {
+        throw new BadRequestException('Invalid team operation settings');
+      }
+      prefs = { ...prefs, teamSettings: {
+        showTeamOverview: team.showTeamOverview,
+        highlightApproachingSla: team.highlightApproachingSla,
+        dashboardDensity: team.dashboardDensity,
+        requireAssignee: team.requireAssignee,
+        requireDueDate: team.requireDueDate,
+        reassignRequiresReason: team.reassignRequiresReason,
+        workloadGuardrail: team.workloadGuardrail,
+        escalationWindowHours: team.escalationWindowHours,
+        notifyOnUnassigned: team.notifyOnUnassigned,
+        approvalRoute: team.approvalRoute,
+      } };
+    }
+    // Independent settings screens must not erase each other's keys. Serializable
+    // read/merge/write also prevents two simultaneous saves from losing a group.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const key = `user-prefs-${userId}`;
+          const current = await tx.appSetting.findUnique({ where: { key } });
+          const merged = { ...((current?.value as object) ?? {}), ...prefs };
+          const saved = await tx.appSetting.upsert({
+            where: { key },
+            create: { key, value: merged, updatedBy: userId },
+            update: { value: merged, updatedBy: userId },
+          });
+          return saved.value;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error: any) {
+        if (attempt === 2 || !['P2034', 'P2002'].includes(error?.code)) throw error;
+      }
+    }
+    throw new ConflictException('Could not save preferences; please retry');
   }
 
   /**

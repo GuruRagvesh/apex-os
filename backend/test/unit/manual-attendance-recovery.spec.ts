@@ -171,15 +171,17 @@ describe('creator and approver stay distinct', () => {
     expect(created[0].actorRoleAtEntry).toBe('MANAGER');
   });
 
-  it('starts at MANAGER_APPROVED with the creator as that approver', async () => {
-    // The creator's act of entering IS their operational judgment; making them
-    // immediately approve their own entry would be ceremony, not control.
+  it('starts unresolved: creating a recovery never approves it (Phase 3)', async () => {
+    // The creation and the decision are separate audit events. An HR/Admin
+    // creator may decide it later only with a separate confirmation; a TL or
+    // Manager creator may not decide it at all.
     const { service, created } = build();
     await service.createManualRecovery(MANAGER, input() as any);
 
-    expect(created[0].status).toBe('MANAGER_APPROVED');
-    expect(created[0].managerApproverId).toBe(MANAGER.id);
-    expect(created[0].managerDecisionAt).toEqual(NOW);
+    expect(created[0].status).toBe('PENDING');
+    expect(created[0].managerApproverId).toBeUndefined();
+    expect(created[0].managerDecisionAt).toBeUndefined();
+    expect(created[0].createdById).toBe(MANAGER.id);
   });
 
   it('leaves HR approval outstanding — nothing official has changed', async () => {

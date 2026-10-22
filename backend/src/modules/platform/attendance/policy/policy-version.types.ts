@@ -37,9 +37,11 @@ export interface PolicyActor {
 /** Legal lifecycle transitions. Anything absent here is rejected. */
 export const ALLOWED_TRANSITIONS: Record<PolicyStatus, PolicyStatus[]> = {
   DRAFT: ['APPROVED'],
-  APPROVED: ['ACTIVE', 'DRAFT'],
+  APPROVED: ['ACTIVE', 'SCHEDULED', 'DRAFT'],
   ACTIVE: ['SUPERSEDED'],
   SUPERSEDED: [],
+  // Phase 3: a future-dated activation waits here until its company date.
+  SCHEDULED: ['ACTIVE'],
 };
 
 /** Fields that may still be edited, and only while a version is a DRAFT. */

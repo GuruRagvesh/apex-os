@@ -66,24 +66,21 @@ export interface StatusPresentation {
  * yet.
  */
 const OUTCOME_PRESENTATION: Record<AttendanceOutcome, StatusPresentation> = {
-  PRESENT: { label: 'Present', shortLabel: 'Present', color: '#18B86B', tint: '#C8F4DC', glyph: '✓' },
-  HALF_DAY: { label: 'Half day', shortLabel: 'Half', color: '#9B6DE3', tint: '#EEE3FF', glyph: '◐' },
-  ABSENT: { label: 'Absent', shortLabel: 'Absent', color: '#EC5D78', tint: '#FFDDE5', glyph: '✕' },
-  // The signed attendance-timeline audit uses red for full leave or
-  // insufficient-presence outcomes. The canonical outcome remains LEAVE;
-  // this is presentation only and does not create or deduct leave.
-  LEAVE: { label: 'Leave', shortLabel: 'Leave', color: '#EC5D78', tint: '#FFDDE5', glyph: '✈' },
+  PRESENT: { label: 'Present', shortLabel: 'Present', color: '#16A34A', tint: '#DCFCE7', glyph: '✓' },
+  HALF_DAY: { label: 'Half day', shortLabel: 'Half', color: '#9333EA', tint: '#F3E8FF', glyph: '◐' },
+  ABSENT: { label: 'Absent', shortLabel: 'Absent', color: '#DC2626', tint: '#FEE2E2', glyph: '✕' },
+  LEAVE: { label: 'Approved leave', shortLabel: 'Leave', color: '#0284C7', tint: '#E0F2FE', glyph: '✈' },
   // Backend keeps LWP; employees should not have to decode an acronym.
   LWP: {
     label: 'Unpaid leave',
     shortLabel: 'Unpaid',
-    color: '#EC5D78',
-    tint: '#FFDDE5',
+    color: '#0369A1',
+    tint: '#E0F2FE',
     glyph: '✈',
   },
-  HOLIDAY: { label: 'Holiday', shortLabel: 'Holiday', color: '#E5B52E', tint: '#FFF0B8', glyph: '★' },
-  WEEKLY_OFF: { label: 'Weekly off', shortLabel: 'Off', color: '#4F8FD8', tint: '#D7E9FF', glyph: '⊖' },
-  EXEMPT: { label: 'Not applicable', shortLabel: 'N/A', color: '#6D9BD2', tint: '#E0ECFA', glyph: '⊖' },
+  HOLIDAY: { label: 'Holiday', shortLabel: 'Holiday', color: '#D97706', tint: '#FEF3C7', glyph: '★' },
+  WEEKLY_OFF: { label: 'Weekly off', shortLabel: 'Off', color: '#64748B', tint: '#E2E8F0', glyph: '⊖' },
+  EXEMPT: { label: 'Not applicable', shortLabel: 'N/A', color: '#64748B', tint: '#E2E8F0', glyph: '⊖' },
   IN_PROGRESS: {
     label: 'Working',
     shortLabel: 'Working',
@@ -91,7 +88,7 @@ const OUTCOME_PRESENTATION: Record<AttendanceOutcome, StatusPresentation> = {
     tint: BRAND.paleBlue,
     glyph: '◉',
   },
-  UNRESOLVED: { label: 'Needs review', shortLabel: 'Review', color: '#8494AA', tint: '#EFF3F8', glyph: '⚠' },
+  UNRESOLVED: { label: 'Needs review', shortLabel: 'Review', color: '#475569', tint: '#F1F5F9', glyph: '⚠' },
 };
 
 /** A day with no evaluation. Neutral, and never mistakable for a verdict. */
@@ -120,6 +117,7 @@ export const LEGEND: Array<{ outcome: AttendanceOutcome } & StatusPresentation> 
     'HALF_DAY',
     'ABSENT',
     'LEAVE',
+    'LWP',
     'HOLIDAY',
     'WEEKLY_OFF',
     'UNRESOLVED',
@@ -279,12 +277,8 @@ export function isUnavailable(day: MyAttendanceDayV2, field: string): boolean {
 /** Presentation of explicit server modifiers; never derives an attendance verdict. */
 export function presentDay(day: MyAttendanceDayV2): StatusPresentation {
   if (day.isInProgress) return presentOutcome('IN_PROGRESS');
-  // An approved correction is an audit-approved display override. Preserve
-  // the canonical outcome in the payload and day detail, but use the
-  // fluorescent-green timeline treatment required by the audit.
-  if (day.modifiers.includes('REGULARIZED')) {
-    return { label: 'Regularized', shortLabel: 'Regularized', color: '#54D36C', tint: '#D7F8DF', glyph: '✓' };
-  }
+  // Regularization remains a secondary audit badge. It must never replace the
+  // canonical outcome or its semantic colour.
   const base = presentOutcome(day.outcome);
   if (day.outcome !== 'PRESENT') return base;
   const shortHours = day.modifiers.includes('INSUFFICIENT_PRESENCE') || day.modifiers.includes('INSUFFICIENT_EFFECTIVE_WORK');
@@ -293,5 +287,5 @@ export function presentDay(day: MyAttendanceDayV2): StatusPresentation {
   // Orange has two meanings in the audit. Name both when both are true rather
   // than making an employee infer the second reason from the same colour.
   const label = late && shortHours ? `${late} · short hours` : late ?? (shortHours ? 'Short hours' : null);
-  return label ? { ...base, label, shortLabel: label, color: '#F08A35', tint: '#FFE3C7', glyph: '◷' } : base;
+  return label ? { ...base, label, shortLabel: label, color: '#EA580C', tint: '#FFEDD5', glyph: '◷' } : base;
 }

@@ -1,61 +1,14 @@
 'use client';
-
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { RegularizationQueue } from '@/components/attendance/RegularizationQueue';
-
-/**
- * Correction review (AR-1).
- *
- * The minimum surface needed to decide a correction. The full HR attendance
- * console is a separate wave; this page exists so the Manager -> HR chain is
- * actually operable.
- *
- * Both tabs call the same scoped endpoint — the server decides what the caller
- * is allowed to see, so switching tabs can never widen access.
- */
-/**
- * Which tab a deep link asked for.
- *
- * The exception queue links here for a decision that is specifically HR's or
- * specifically the manager's; landing on the wrong tab would show an empty
- * list and read as "nothing to do". Read from the URL directly rather than
- * through useSearchParams, which would need a Suspense boundary to prerender.
- */
-function initialMode(): 'manager' | 'hr' {
-  if (typeof window === 'undefined') return 'manager';
-  return new URLSearchParams(window.location.search).get('mode') === 'hr' ? 'hr' : 'manager';
-}
-
+import { getRegularizationCounts } from '@/components/attendance/regularization-api';
+import { HeldRegularizations } from '@/components/attendance/HeldRegularizations';
+function initialScope(): 'team' | 'company' { if (typeof window === 'undefined') return 'team'; const p = new URLSearchParams(window.location.search); const value = p.get('scope') ?? p.get('mode'); return value === 'company' || value === 'hr' ? 'company' : 'team'; }
 export default function AttendanceReviewsPage() {
-  const [mode, setMode] = useState<'manager' | 'hr'>(initialMode);
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="apex-page-title apex-text text-xl">Attendance corrections</h1>
-        <p className="apex-text-muted mt-1 text-sm">
-          Requests waiting for your decision.
-        </p>
-      </div>
-
-      <div className="flex gap-2">
-        {(['manager', 'hr'] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={[
-              'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-              mode === m
-                ? 'bg-[var(--accent)] text-[var(--text-inverse)]'
-                : 'apex-text-muted border border-[var(--border-secondary)]',
-            ].join(' ')}
-          >
-            {m === 'manager' ? 'My team' : 'HR final review'}
-          </button>
-        ))}
-      </div>
-
-      <RegularizationQueue mode={mode} />
-    </div>
-  );
+  const [scope, setScope] = useState<'team' | 'company'>(initialScope);
+  const counts = useQuery({ queryKey: ['regularization-counts'], queryFn: getRegularizationCounts, retry: false });
+  const canCompany = counts.data?.canViewCompany === true;
+  const effective = scope === 'company' && !canCompany ? 'team' : scope;
+  return <div className="space-y-4"><div><h1 className="apex-page-title apex-text text-xl">Attendance corrections</h1><p className="apex-text-muted mt-1 text-sm">One eligible Team Lead, Manager, HR or administrator can make the final decision.</p></div><div className="flex gap-2" role="tablist" aria-label="Correction queue scope"><button type="button" role="tab" aria-selected={effective === 'team'} onClick={() => setScope('team')} className={effective === 'team' ? 'apex-btn apex-btn-primary' : 'apex-btn apex-btn-secondary'}>My team{counts.data ? ` (${counts.data.team})` : ''}</button>{canCompany && <button type="button" role="tab" aria-selected={effective === 'company'} onClick={() => setScope('company')} className={effective === 'company' ? 'apex-btn apex-btn-primary' : 'apex-btn apex-btn-secondary'}>Company pending{counts.data?.company != null ? ` (${counts.data.company})` : ''}</button>}</div>{effective === 'company' && canCompany && <HeldRegularizations />}<RegularizationQueue scope={effective} /></div>;
 }

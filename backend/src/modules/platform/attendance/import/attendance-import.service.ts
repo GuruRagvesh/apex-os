@@ -53,7 +53,7 @@ import { importContentType, importExtensionOf, importObjectKey } from './import-
  */
 
 /** Statuses that mean a correction has not been settled yet. */
-const OPEN_CORRECTION_STATUSES = ['PENDING', 'MANAGER_APPROVED'] as const;
+const OPEN_CORRECTION_STATUSES = ['PENDING', 'STALE_REVIEW_REQUIRED', 'MANAGER_APPROVED'] as const;
 
 export interface ImportPreview {
   mode: ImportMode;

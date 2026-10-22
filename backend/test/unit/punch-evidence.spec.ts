@@ -61,6 +61,9 @@ const VALID = {
   longitude: OFFICE.longitude,
   accuracyMeters: 12,
   photoAssetId: 'photo-1',
+  // Phase 3: an identified browser installation, so these cases are not also
+  // DEVICE_ID_UNAVAILABLE review items (covered by punch-device-evidence.spec).
+  device: { deviceId: '0b6f2c3e-8a41-4f7d-9c55-3e2a1d4b5c6f', deviceTypeHint: 'LAPTOP_DESKTOP' },
 };
 
 // PE-4: the punch composes the workday engine inside one transaction.

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveApi, compOffApi } from '../api';
 import { useAuthStore } from '@apex/core-identity';
 import { LEAVE_STATUS_COLORS } from '../lib/leave-status';
+import { knownNumber, metricText, presentLeaveError } from '../lib/leave-presentation';
 import { CompOffGrantPanel } from '../components/CompOffGrantPanel';
 import { cn, formatDate, getInitials } from '@apex/shared-utilities';
 import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, Info, ChevronDown } from 'lucide-react';
@@ -13,21 +14,111 @@ import toast from 'react-hot-toast';
 import { useSearchParams } from 'next/navigation';
 import { RemediationDialog, displayLeaveSetupStatus, useRemediation } from '@apex/shared-remediation';
 import { createRemediationActionRunner } from '@apex/shared-remediation/api';
+import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 
-const LEAVE_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'ANNUAL', 'SICK', 'UNPAID', 'OTHER'];
+// Phase 3 new requests use the two approved paid buckets. Emergency is a
+// submission mode funded from either one, not a third entitlement bucket.
+const LEAVE_TYPES = ['CASUAL', 'SICK', 'COMP_OFF', 'UNPAID'];
 
 /**
  * Types whose entitlement is NOT the generic leave balance shown above the form.
  *
- * Casual and Emergency are separate per-financial-year pools, and Comp Off is
- * funded by earned credits with no entitlement in that pool at all. Blocking
+ * Casual and Sick are separate per-financial-year pools, and Comp Off is funded
+ * by earned credits with no entitlement in either pool. Blocking
  * these on the generic balance would refuse a request the server would happily
  * accept -- and for Comp Off it would refuse every request, since its
  * entitlement from that pool is always zero. The server validates the real
  * per-type balance either way; this only decides whether the button is
  * pre-emptively disabled.
  */
-const SEPARATELY_FUNDED_TYPES = ['CASUAL', 'EMERGENCY', 'COMP_OFF', 'UNPAID'];
+const SEPARATELY_FUNDED_TYPES = ['CASUAL', 'SICK', 'COMP_OFF', 'UNPAID'];
+const retryLeaveRead = (failureCount: number, error: unknown) =>
+  failureCount < 2 && shouldRetryTransientQuery(failureCount, error);
+
+function LeaveModal({
+  labelledBy,
+  onClose,
+  maxWidth = 'max-w-md',
+  children,
+}: {
+  labelledBy: string;
+  onClose: () => void;
+  maxWidth?: string;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const focusable = () => Array.from(panel?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? []);
+
+    (focusable()[0] ?? panel)?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const items = focusable();
+      if (items.length === 0) {
+        event.preventDefault();
+        panel?.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = originalOverflow;
+      previousFocus?.focus();
+    };
+  }, []);
+
+  return (
+    <div
+      className="apex-backdrop flex items-center justify-center p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className={`apex-modal max-h-[90vh] w-full ${maxWidth} overflow-y-auto p-6 modal-enter`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export default function LeavePage() {
   const { user } = useAuthStore();
@@ -46,6 +137,7 @@ export default function LeavePage() {
 
   // Managers land on "Needs Action" tab first; employees see their own requests
   const [showNew, setShowNew] = useState(false);
+  const [showCompOff, setShowCompOff] = useState(false);
   const [tab, setTab] = useState<'all' | 'mine' | 'pending'>(isManager ? 'pending' : 'mine');
 
   const searchParams = useSearchParams();
@@ -62,22 +154,31 @@ export default function LeavePage() {
       setTab('all');
     }
   }, [queryString]);
-  const [form, setForm] = useState({ type: 'CASUAL', startDate: '', endDate: '', reason: '' });
+  const [form, setForm] = useState({ type: 'CASUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD' as 'STANDARD' | 'EMERGENCY', fundingBucket: 'CASUAL' as 'CASUAL' | 'SICK' });
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [balances, setBalances] = useState<Record<string, any>>({});
   const [loadingBalances, setLoadingBalances] = useState<Record<string, boolean>>({});
+  const [balanceErrors, setBalanceErrors] = useState<Record<string, boolean>>({});
 
   // Comp off is funded by earned credits and nothing else -- there is no
   // fallback into the Casual or Emergency pools -- so the employee has to see
   // how many unexpired credits they hold before requesting one.
-  const { data: compOffCredits } = useQuery({
-    queryKey: ['comp-off-mine'],
+  const {
+    data: compOffCredits,
+    isLoading: loadingCompOff,
+    isError: compOffFailed,
+    refetch: refetchCompOff,
+    isFetching: fetchingCompOff,
+  } = useQuery({
+    queryKey: ['comp-off-mine', user?.id],
     queryFn: () => compOffApi.mine() as Promise<any[]>,
+    enabled: !!user,
     staleTime: 60_000,
-    retry: false,
+    retry: retryLeaveRead,
+    retryDelay: transientQueryRetryDelay,
   });
-  const availableCompOff = Array.isArray(compOffCredits) ? compOffCredits.length : 0;
+  const availableCompOff = Array.isArray(compOffCredits) ? compOffCredits.length : null;
 
   // Apply leave form extras
   const [isHalfDay, setIsHalfDay] = useState(false);
@@ -87,35 +188,55 @@ export default function LeavePage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
+  const loadBalance = async (userId: string) => {
+    if (loadingBalances[userId]) return;
+    setLoadingBalances(prev => ({ ...prev, [userId]: true }));
+    setBalanceErrors(prev => ({ ...prev, [userId]: false }));
+    try {
+      const bal = await leaveApi.getBalance(userId);
+      setBalances(prev => ({ ...prev, [userId]: bal }));
+    } catch {
+      setBalanceErrors(prev => ({ ...prev, [userId]: true }));
+    } finally {
+      setLoadingBalances(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
   const toggleExpand = async (id: string, userId: string) => {
     if (expandedId === id) {
       setExpandedId(null);
       return;
     }
     setExpandedId(id);
-    if (!balances[userId] && !loadingBalances[userId]) {
-      setLoadingBalances(prev => ({ ...prev, [userId]: true }));
-      try {
-        const bal = await leaveApi.getBalance(userId);
-        setBalances(prev => ({ ...prev, [userId]: bal }));
-      } catch (err) {
-        console.error('Failed to load balance', err);
-      } finally {
-        setLoadingBalances(prev => ({ ...prev, [userId]: false }));
-      }
-    }
+    if (!balances[userId] || balanceErrors[userId]) await loadBalance(userId);
   };
 
   // Form duration fetched from authoritative backend
-  const [formDuration, setFormDuration] = useState(0);
+  const [formDuration, setFormDuration] = useState<number | null>(null);
+  const [durationState, setDurationState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     if (form.startDate && form.endDate) {
+      let cancelled = false;
+      setDurationState('loading');
+      setFormDuration(null);
       leaveApi.getDuration(form.startDate, form.endDate, isHalfDay)
-        .then((res: any) => setFormDuration(Number(res)))
-        .catch(() => setFormDuration(0));
+        .then((res: any) => {
+          if (cancelled) return;
+          const duration = Number(res);
+          if (!Number.isFinite(duration) || duration < 0) throw new Error('Invalid duration response');
+          setFormDuration(duration);
+          setDurationState('success');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setFormDuration(null);
+          setDurationState('error');
+        });
+      return () => { cancelled = true; };
     } else {
-      setFormDuration(0);
+      setFormDuration(null);
+      setDurationState('idle');
     }
   }, [form.startDate, form.endDate, isHalfDay]);
 
@@ -142,22 +263,42 @@ export default function LeavePage() {
 
   const queryParams = tab === 'mine' ? { userId: user?.id } : tab === 'pending' ? { status: 'PENDING', actionable: 'true' } : {};
 
-  const { data: leaveData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['leave', tab],
+  const { data: leaveData, isLoading, isError, error: leaveError, refetch, isFetching } = useQuery({
+    queryKey: ['leave', 'requests', user?.id ?? 'anonymous', _roleName, tab],
     queryFn: () => leaveApi.getAll(queryParams) as Promise<any>,
+    enabled: !!user,
+    retry: retryLeaveRead,
+    retryDelay: transientQueryRetryDelay,
   });
   // API returns { items, total, page, limit, totalPages } — unwrap for backward compat
   const leaves: any[] = Array.isArray(leaveData) ? leaveData : (leaveData?.items ?? []);
 
-  const { data: stats } = useQuery({
-    queryKey: ['leave-stats'],
+  const {
+    data: stats,
+    isLoading: loadingStats,
+    isError: statsFailed,
+    refetch: refetchStats,
+    isFetching: fetchingStats,
+  } = useQuery({
+    queryKey: ['leave', 'stats', user?.id ?? 'anonymous', _roleName],
     queryFn: () => leaveApi.getStats() as Promise<any>,
+    enabled: !!user,
+    retry: retryLeaveRead,
+    retryDelay: transientQueryRetryDelay,
   });
 
-  const { data: myBalance, isLoading: loadingMyBalance } = useQuery({
-    queryKey: ['my-leave-balance', user?.id],
+  const {
+    data: myBalance,
+    isLoading: loadingMyBalance,
+    isError: myBalanceFailed,
+    refetch: refetchMyBalance,
+    isFetching: fetchingMyBalance,
+  } = useQuery({
+    queryKey: ['my-leave-balance', user?.id, 'generic'],
     queryFn: () => leaveApi.getBalance() as Promise<any>,
     enabled: !!user,
+    retry: retryLeaveRead,
+    retryDelay: transientQueryRetryDelay,
   });
 
   // Structured errors open the remediation dialog over the leave form, which
@@ -169,11 +310,11 @@ export default function LeavePage() {
     mutationFn: (data: any) => leaveApi.create(data),
     onSuccess: () => {
       toast.success('Leave request submitted!');
-      qc.invalidateQueries({ queryKey: ['leave'] });
-      qc.invalidateQueries({ queryKey: ['leave-stats'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'requests'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
       setShowNew(false);
-      setForm({ type: 'CASUAL', startDate: '', endDate: '', reason: '' });
+      setForm({ type: 'CASUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD', fundingBucket: 'CASUAL' });
     },
     onError: (err: any) => {
       if (remediation.openFrom(err)) return;
@@ -185,8 +326,8 @@ export default function LeavePage() {
     mutationFn: (id: string) => leaveApi.approve(id),
     onSuccess: () => {
       toast.success('Approved!');
-      qc.invalidateQueries({ queryKey: ['leave'] });
-      qc.invalidateQueries({ queryKey: ['leave-stats'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'requests'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
     },
     onError: (err: any) => {
@@ -201,14 +342,26 @@ export default function LeavePage() {
       toast.success('Rejected');
       setRejectingId(null);
       setRejectReason('');
-      qc.invalidateQueries({ queryKey: ['leave'] });
-      qc.invalidateQueries({ queryKey: ['leave-stats'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'requests'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
     },
     onError: (err: any) => {
       if (remediation.openFrom(err)) return;
       setRejectingId(null);
       toast.error(err?.message || 'You do not have permission to perform this action.');
+    },
+  });
+
+  const evidenceMutation = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => leaveApi.submitEvidence(id, file),
+    onSuccess: () => {
+      toast.success('Emergency Leave evidence uploaded');
+      qc.invalidateQueries({ queryKey: ['leave'] });
+    },
+    onError: (err: any) => {
+      if (remediation.openFrom(err)) return;
+      toast.error(err?.message || 'Evidence could not be uploaded. The leave request is unchanged.');
     },
   });
 
@@ -222,19 +375,23 @@ export default function LeavePage() {
     rejectMutation.mutate(rejectingId);
   };
 
-  // Form: computed duration + balance check
+  // Form: computed duration + balance check. Unknown values never become zero.
+  const knownBalance = knownNumber(myBalance?.balance);
   const compOffShortfall =
-    form.type === 'COMP_OFF' && formDuration > 0 && formDuration > availableCompOff;
+    form.type === 'COMP_OFF' && formDuration != null && availableCompOff != null && formDuration > 0 && formDuration > availableCompOff;
 
   const exceedsBalance =
     !SEPARATELY_FUNDED_TYPES.includes(form.type) &&
-    myBalance != null &&
+    knownBalance != null &&
+    formDuration != null &&
     formDuration > 0 &&
-    formDuration > (myBalance.balance ?? 0);
+    formDuration > knownBalance;
+
+  const leaveErrorView = presentLeaveError(leaveError);
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Leave Management</h2>
@@ -244,30 +401,34 @@ export default function LeavePage() {
           </div>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Manage leave requests and approvals. Click a row to expand details.</p>
         </div>
-        <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
-          <Plus size={16} />Apply Leave
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {(_isAdmin || (user as any)?.isHR === true) && (
+            <button onClick={() => setShowCompOff(true)} className="apex-btn apex-btn-secondary">
+              Grant Comp Off
+            </button>
+          )}
+          <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
+            <Plus size={16} />Apply Leave
+          </button>
+        </div>
       </div>
-
-      {/* Manual comp off grant. Shown to HR/Admin; the server is the authority
-          and refuses anyone else with 403, which the panel reports. */}
-      {(_isAdmin || (user as any)?.isHR === true) && <CompOffGrantPanel />}
 
       {/* Stats & Personal Leave Balance */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="md:col-span-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'Total',    value: stats?.total    || 0, color: 'var(--text-secondary)',  bg: 'var(--bg-tertiary)'         },
-            { label: 'Pending',  value: stats?.pending  || 0, color: 'var(--color-warning)',   bg: 'var(--color-warning-bg)'    },
-            { label: 'Approved', value: stats?.approved || 0, color: 'var(--color-success)',   bg: 'var(--color-success-bg)'    },
-            { label: 'Rejected', value: stats?.rejected || 0, color: 'var(--color-danger)',    bg: 'var(--color-danger-bg)'     },
+            { label: 'Total',    value: metricText(stats?.total),    color: 'var(--text-primary)' },
+            { label: 'Pending',  value: metricText(stats?.pending),  color: 'var(--color-warning)' },
+            { label: 'Approved', value: metricText(stats?.approved), color: 'var(--color-success)' },
+            { label: 'Rejected', value: metricText(stats?.rejected), color: 'var(--color-danger)' },
           ].map((s) => (
-            <div key={s.label} className="apex-card p-4">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-2" style={{ backgroundColor: s.bg }}>
-                {s.label === 'Approved' ? <CheckCircle size={18} style={{ color: s.color }} /> : s.label === 'Rejected' ? <XCircle size={18} style={{ color: s.color }} /> : <Clock size={18} style={{ color: s.color }} />}
-              </div>
-              <p className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{s.value}</p>
-              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{s.label}</p>
+            <div key={s.label} className="apex-card min-h-[92px] p-4">
+              <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{s.label}</p>
+              {loadingStats ? (
+                <div className="mt-3 h-7 w-12 animate-pulse rounded bg-slate-200" aria-label={`Loading ${s.label.toLowerCase()}`} />
+              ) : (
+                <p className="mt-2 text-2xl font-bold tabular-nums" style={{ color: statsFailed ? 'var(--text-tertiary)' : s.color }}>{s.value}</p>
+              )}
             </div>
           ))}
         </div>
@@ -277,12 +438,20 @@ export default function LeavePage() {
             <div className="space-y-1.5 mt-1">
               {[1,2,3,4].map(i => <div key={i} className="h-3 rounded animate-pulse" style={{ backgroundColor: 'var(--bg-tertiary)' }} />)}
             </div>
+          ) : myBalanceFailed ? (
+            <div className="mt-1 space-y-2">
+              <p className="text-xs font-semibold" style={{ color: 'var(--color-danger)' }}>Balance unavailable</p>
+              <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Your balance has not been treated as zero.</p>
+              <button onClick={() => refetchMyBalance()} className="apex-btn apex-btn-secondary w-fit text-xs" disabled={fetchingMyBalance}>
+                {fetchingMyBalance ? 'Retrying…' : 'Retry'}
+              </button>
+            </div>
           ) : myBalance ? (
             <div className="space-y-1">
               {/* Remaining — prominent */}
               <div className="flex items-end gap-1">
-                <span className={cn("text-3xl font-extrabold leading-none", (myBalance.balance ?? 0) <= 2 ? 'text-red-500' : 'text-indigo-500')}>
-                  {myBalance.balance ?? 0}
+                <span className={cn("text-3xl font-extrabold leading-none tabular-nums", knownBalance != null && knownBalance <= 2 ? 'text-red-500' : 'text-indigo-500')}>
+                  {metricText(myBalance.balance)}
                 </span>
                 <span className="text-xs text-slate-500 mb-1">days remaining</span>
               </div>
@@ -290,40 +459,51 @@ export default function LeavePage() {
               <div className="grid grid-cols-3 gap-x-2 mt-1.5">
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Alloc</p>
-                  <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{myBalance.allocation}d</p>
+                  <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{metricText(myBalance.allocation)}d</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Used</p>
-                  <p className="text-xs font-semibold text-emerald-600">{myBalance.approved}d</p>
+                  <p className="text-xs font-semibold text-emerald-600">{metricText(myBalance.approved)}d</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Pend</p>
-                  <p className="text-xs font-semibold text-amber-500">{myBalance.pending ?? 0}d</p>
+                  <p className="text-xs font-semibold text-amber-500">{metricText(myBalance.pending)}d</p>
                 </div>
               </div>
-              {(myBalance.balance ?? 0) <= 2 && (
+              {knownBalance != null && knownBalance <= 2 && (
                 <p className="text-[10px] text-red-500 font-semibold flex items-center gap-1 mt-0.5">
                   <AlertTriangle size={9} /> Low balance
                 </p>
               )}
             </div>
           ) : (
-            <p className="text-xs text-slate-500 mt-2">No balance data available</p>
+            <p className="text-xs text-slate-500 mt-2">Balance unavailable</p>
           )}
         </div>
       </div>
+
+      {statsFailed && (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-amber-900">Request summary unavailable</p>
+            <p className="text-xs text-amber-800">The dashes above mean the summary could not be loaded; they are not zero counts.</p>
+          </div>
+          <button onClick={() => refetchStats()} className="apex-btn apex-btn-secondary text-xs" disabled={fetchingStats}>
+            {fetchingStats ? 'Retrying…' : 'Retry summary'}
+          </button>
+        </div>
+      )}
 
       {/* Tabs — managers see "Needs Action" first */}
       <div className="flex items-center gap-1 rounded-lg p-1 w-fit" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
         {(isManager
           ? [
-              { key: 'pending', label: 'Needs Action', badge: stats?.pending ?? 0 },
+              { key: 'pending', label: 'Needs Action', badge: knownNumber(stats?.pending) },
               { key: 'all',     label: 'All Requests' },
               { key: 'mine',    label: 'My Requests'  },
             ]
           : [
               { key: 'mine', label: 'My Requests'  },
-              { key: 'all',  label: 'All Requests' },
             ]
         ).map(({ key, label, badge }) => (
           <button
@@ -357,9 +537,15 @@ export default function LeavePage() {
         {isLoading ? (
           <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /></div>
         ) : isError ? (
-          <div className="flex flex-col items-center justify-center h-40 gap-3">
-            <p className="text-sm" style={{ color: 'var(--color-danger)' }}>Failed to load leave requests.</p>
-            <button onClick={() => refetch()} className="apex-btn apex-btn-secondary text-xs">Retry</button>
+          <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-6 py-8 text-center" role="alert">
+            <AlertTriangle size={22} style={{ color: 'var(--color-danger)' }} />
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{leaveErrorView.title}</p>
+            <p className="max-w-md text-xs" style={{ color: 'var(--text-secondary)' }}>{leaveErrorView.message}</p>
+            {leaveErrorView.canRetry && (
+              <button onClick={() => refetch()} disabled={isFetching} className="apex-btn apex-btn-secondary mt-2 text-xs disabled:opacity-60">
+                {isFetching ? 'Retrying…' : 'Retry'}
+              </button>
+            )}
           </div>
         ) : Array.isArray(leaves) && leaves.length > 0 ? (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -386,6 +572,9 @@ export default function LeavePage() {
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-xs font-semibold text-indigo-650 bg-indigo-50 dark:bg-indigo-950/30 dark:text-indigo-400 px-2 py-0.5 rounded">{leave.type}</span>
+                        {leave.submissionMode === 'EMERGENCY' && <span className="text-xs font-semibold rounded bg-red-50 px-2 py-0.5 text-red-700 dark:bg-red-900/20 dark:text-red-300">Emergency · {leave.fundingBucket ?? leave.type}</span>}
+                        {leave.isLateSubmission === true && <span className="text-xs font-semibold rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">Late submission · review required</span>}
+                        {leave.setupStatus === 'POLICY_SETUP_PENDING' && <span className="text-xs font-semibold rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">Policy setup pending</span>}
                         <span style={{ color: 'var(--border-primary)' }}>·</span>
                         <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{formatDate(leave.startDate)} – {formatDate(leave.endDate)}</span>
                         {leave.user?.department && (
@@ -435,17 +624,51 @@ export default function LeavePage() {
                           <p><span className="text-slate-500 font-medium">Duration:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{duration === null ? 'Unavailable — calendar setup required' : `${duration} working days`}{duration !== null && leave.isHalfDay && ` (Half-day: ${leave.halfDayType || 'First Half'})`}</span></p>
                           <p><span className="text-slate-500 font-medium">Reason:</span> <span className="text-slate-800 dark:text-gray-200">{leave.reason}</span></p>
                           <p data-testid="leave-setup-status" data-setup-status={leave.setupStatus ?? 'LEGACY_UNASSESSED'}><span className="text-slate-500 font-medium">Policy check:</span> <span className="text-slate-800 dark:text-gray-200">{displayLeaveSetupStatus(leave.setupStatus).label}</span></p>
+                          {leave.workflow?.currentApprover && leave.status === 'PENDING' && (
+                            <p data-testid="leave-current-approver"><span className="text-slate-500 font-medium">Current approver:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.workflow.currentApprover.name}</span></p>
+                          )}
+                          {leave.workflow?.fallbackReason && (
+                            <p data-testid="leave-fallback-reason"><span className="text-slate-500 font-medium">Routing:</span> <span className="text-slate-800 dark:text-gray-200">{leave.workflow.fallbackReason}</span></p>
+                          )}
+                          {leave.workflow?.reviewStatus === 'LATE_SUBMISSION_REVIEW_REQUIRED' && (
+                            <p><span className="text-slate-500 font-medium">Review:</span> <span className="text-slate-800 dark:text-gray-200">Late submission. Your approver reviews it; no salary deduction or extra workdays apply.</span></p>
+                          )}
+                          {leave.setupStatus === 'POLICY_SETUP_PENDING' && (
+                            <p><span className="text-slate-500 font-medium">Status:</span> <span className="text-slate-800 dark:text-gray-200">Received. Awaiting leave setup by HR/Admin; nothing is deducted until it is settled.</span></p>
+                          )}
+                          {leave.submissionMode === 'EMERGENCY' && leave.reviewDueOn && leave.status === 'PENDING' && (
+                            <p data-testid="leave-review-due"><span className="text-slate-500 font-medium">Review due:</span> <span className="text-slate-800 dark:text-gray-200">{formatDate(leave.reviewDueOn)}</span></p>
+                          )}
+                          {leave.submissionMode === 'EMERGENCY' && <p><span className="text-slate-500 font-medium">Emergency evidence:</span> <span className="text-slate-800 dark:text-gray-200">{leave.evidenceSubmittedAt ? `Submitted ${formatDate(leave.evidenceSubmittedAt)}` : `Due ${leave.evidenceDueOn ? formatDate(leave.evidenceDueOn) : 'after submission'}`}</span></p>}
                           {leave.status !== 'PENDING' && (
                             <p><span className="text-slate-500 font-medium">Processed by:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.approvedBy || leave.rejectedBy || 'System'}</span></p>
                           )}
                         </div>
                       </div>
 
+                      {leave.submissionMode === 'EMERGENCY' && leave.userId === user?.id && !leave.evidenceSubmittedAt && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-800 dark:bg-amber-900/20">
+                          <label htmlFor={`leave-evidence-${leave.id}`} className="font-semibold text-amber-800 dark:text-amber-300">Upload Emergency Leave evidence</label>
+                          <p className="mt-1 text-amber-700 dark:text-amber-400">PDF, JPG, PNG or WebP, up to 10 MB. Your leave remains protected while review is pending.</p>
+                          <input id={`leave-evidence-${leave.id}`} name="leaveEvidence" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={evidenceMutation.isPending} onChange={(e) => { const file = e.target.files?.[0]; if (file) evidenceMutation.mutate({ id: leave.id, file }); }} className="mt-2 block w-full text-xs" />
+                        </div>
+                      )}
+
                       {/* Leave Balance Section */}
                       <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
                         <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px] mb-1.5">Leave Balance Decision Support</p>
                         {isLoadingBalance ? (
                           <p className="text-xs text-slate-500 animate-pulse">Loading leave balance details...</p>
+                        ) : balanceErrors[leave.userId] ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-xs text-slate-500">Leave balance unavailable. No zero balance has been assumed.</p>
+                            <button
+                              onClick={() => loadBalance(leave.userId)}
+                              className="apex-btn apex-btn-secondary text-xs"
+                            >
+                              Retry
+                            </button>
+                          </div>
                         ) : balanceData ? (
                           <div className="flex items-center gap-6 text-xs bg-white dark:bg-slate-800/40 p-2.5 rounded-lg border border-slate-150 dark:border-slate-800 w-fit">
                             <div>
@@ -506,29 +729,44 @@ export default function LeavePage() {
         ) : (
           <EmptyState
             icon="📅"
-            title="No leave requests yet"
-            description="Apply for leave and track approvals here"
-            actionLabel="Apply Leave"
-            onAction={() => setShowNew(true)}
+            title={tab === 'pending' ? 'No requests need action' : tab === 'mine' ? 'No leave requests found' : 'No requests found'}
+            description={tab === 'pending' ? 'Pending approvals assigned to you will appear here.' : 'Leave requests matching this view will appear here.'}
+            actionLabel={tab === 'mine' ? 'Apply Leave' : undefined}
+            onAction={tab === 'mine' ? () => setShowNew(true) : undefined}
           />
         )}
       </div>
 
+      {/* Authorized comp-off grant is contextual, keeping the request list immediately visible. */}
+      {showCompOff && (_isAdmin || (user as any)?.isHR === true) && (
+        <LeaveModal labelledBy="grant-comp-off-title" onClose={() => setShowCompOff(false)} maxWidth="max-w-lg">
+          <div className="mb-4">
+            <h3 id="grant-comp-off-title" className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Grant Comp Off</h3>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Create a verified manual credit for an eligible employee and source date.</p>
+          </div>
+          <CompOffGrantPanel onClose={() => setShowCompOff(false)} />
+        </LeaveModal>
+      )}
+
       {/* New Leave Modal */}
       {showNew && (
-        <div className="apex-backdrop flex items-center justify-center p-4">
-          <div className="apex-modal w-full max-w-md p-6 modal-enter">
-            <h3 className="font-bold text-lg mb-1" style={{ color: 'var(--text-primary)' }}>Apply for Leave</h3>
+        <LeaveModal labelledBy="apply-leave-title" onClose={() => setShowNew(false)}>
+            <h3 id="apply-leave-title" className="font-bold text-lg mb-1" style={{ color: 'var(--text-primary)' }}>Apply for Leave</h3>
 
             {/* Balance context */}
             {myBalance && (
               <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
                 <Info size={12} style={{ color: 'var(--accent)', flexShrink: 0 }} />
                 <span style={{ color: 'var(--text-secondary)' }}>
-                  You have <strong style={{ color: (myBalance.balance ?? 0) <= 2 ? 'var(--color-danger)' : 'var(--accent-text)' }}>{myBalance.balance ?? 0} days</strong> remaining
-                  {(myBalance.pending ?? 0) > 0 && ` (${myBalance.pending}d pending)`}
-                  {' '}· Allocation: {myBalance.allocation}d · Used: {myBalance.approved}d
+                  You have <strong style={{ color: knownBalance != null && knownBalance <= 2 ? 'var(--color-danger)' : 'var(--accent-text)' }}>{metricText(myBalance.balance)} days</strong> remaining
+                  {knownNumber(myBalance.pending) != null && myBalance.pending > 0 && ` (${myBalance.pending}d pending)`}
+                  {' '}· Allocation: {metricText(myBalance.allocation)}d · Used: {metricText(myBalance.approved)}d
                 </span>
+              </div>
+            )}
+            {myBalanceFailed && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Leave balance is unavailable. You may still submit; the server will validate your entitlement.
               </div>
             )}
 
@@ -538,6 +776,12 @@ export default function LeavePage() {
                 <select value={form.type} onChange={(e) => setForm(f => ({ ...f, type: e.target.value }))} className="apex-select w-full">
                   {LEAVE_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
                 </select>
+
+                <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--border-secondary)] p-3">
+                  <input type="checkbox" name="emergencySubmission" checked={form.submissionMode === 'EMERGENCY'} onChange={(e) => setForm((f) => ({ ...f, submissionMode: e.target.checked ? 'EMERGENCY' : 'STANDARD', type: e.target.checked && !['CASUAL', 'SICK'].includes(f.type) ? 'CASUAL' : f.type, fundingBucket: ['CASUAL', 'SICK'].includes(f.type) ? f.type as 'CASUAL' | 'SICK' : f.fundingBucket }))} className="mt-0.5 rounded" />
+                  <span><strong className="block text-sm" style={{ color: 'var(--text-primary)' }}>Emergency submission</strong><span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Same-day submission is allowed and provisionally protected. TL/Manager approval and HR visibility are still recorded.</span></span>
+                </label>
+                {form.submissionMode === 'EMERGENCY' && <div className="mt-3"><label htmlFor="leave-funding-bucket" className="apex-label">Paid leave bucket</label><select id="leave-funding-bucket" name="fundingBucket" value={form.fundingBucket} onChange={(e) => setForm((f) => ({ ...f, fundingBucket: e.target.value as 'CASUAL' | 'SICK', type: e.target.value }))} className="apex-select w-full"><option value="CASUAL">Casual leave (10 days)</option><option value="SICK">Sick leave (4 days)</option></select></div>}
 
                 {form.type === 'COMP_OFF' && (
                   <div
@@ -552,11 +796,20 @@ export default function LeavePage() {
                       ? <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
                       : <Info size={12} className="mt-0.5 flex-shrink-0" />}
                     <span>
-                      {availableCompOff} comp off credit{availableCompOff === 1 ? '' : 's'} available.
+                      {loadingCompOff || fetchingCompOff
+                        ? 'Checking available comp off credits…'
+                        : compOffFailed || availableCompOff == null
+                          ? 'Comp off balance is unavailable. The server will validate your entitlement when you submit.'
+                          : `${availableCompOff} comp off credit${availableCompOff === 1 ? '' : 's'} available.`}
                       {compOffShortfall
                         ? ` This request needs ${formDuration}. Comp off is all-or-nothing, so it cannot be part-funded.`
-                        : ' The soonest-to-expire credits are used first.'}
+                        : availableCompOff != null ? ' The soonest-to-expire credits are used first.' : ''}
                     </span>
+                    {compOffFailed && (
+                      <button type="button" onClick={() => refetchCompOff()} className="ml-auto underline" disabled={fetchingCompOff}>
+                        {fetchingCompOff ? 'Retrying…' : 'Retry'}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -603,7 +856,19 @@ export default function LeavePage() {
               </div>
 
               {/* Duration preview */}
-              {formDuration > 0 && (
+              {durationState === 'loading' && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Calculating working-day duration…
+                </div>
+              )}
+
+              {durationState === 'error' && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Duration is unavailable. It has not been treated as zero; the server will validate the dates on submission.
+                </div>
+              )}
+
+              {formDuration != null && formDuration > 0 && (
                 <div className={cn(
                   "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border",
                   exceedsBalance
@@ -618,7 +883,7 @@ export default function LeavePage() {
                     This request = <strong>{formDuration} working day{formDuration !== 1 ? 's' : ''}</strong>
                     {isHalfDay && ' (half-day)'}
                     {exceedsBalance && ` — exceeds your remaining balance of ${myBalance?.balance ?? 0} days`}
-                    {!exceedsBalance && myBalance && ` · ${(myBalance.balance ?? 0) - formDuration} days remaining after`}
+                    {!exceedsBalance && knownBalance != null && ` · ${knownBalance - formDuration} days remaining after`}
                   </span>
                 </div>
               )}
@@ -633,7 +898,7 @@ export default function LeavePage() {
             <div className="mt-3 px-3 py-2 rounded-lg flex items-start gap-2 text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
               <Info size={11} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 1 }} />
               <span style={{ color: 'var(--text-secondary)' }}>
-                After submitting, your request goes to <strong>Pending</strong> status. Your manager or team lead will approve or reject it. You'll receive a notification when a decision is made. Pending requests count towards your tracked balance.
+                {form.submissionMode === 'EMERGENCY' ? <>Emergency Leave is provisionally protected immediately, but your Team Lead or Manager must still decide it and HR can review the evidence.</> : <>The request is routed automatically to your assigned Team Lead, department Team Lead, Manager, another active Manager, or Admin fallback. A late submission is recorded for review without an automatic salary deduction.</>}
               </span>
             </div>
 
@@ -660,19 +925,17 @@ export default function LeavePage() {
                 Cancel
               </button>
             </div>
-          </div>
-        </div>
+        </LeaveModal>
       )}
 
       {/* Reject Confirmation Modal */}
       {rejectingId && (
-        <div className="apex-backdrop flex items-center justify-center p-4">
-          <div className="apex-modal w-full max-w-sm p-6 modal-enter">
+        <LeaveModal labelledBy="reject-leave-title" onClose={() => { setRejectingId(null); setRejectReason(''); }} maxWidth="max-w-sm">
             <div className="flex items-center gap-2.5 mb-1">
               <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-danger-bg)' }}>
                 <XCircle size={16} style={{ color: 'var(--color-danger)' }} />
               </div>
-              <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Reject Leave Request</h3>
+              <h3 id="reject-leave-title" className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Reject Leave Request</h3>
             </div>
             <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
               You are about to reject this leave request. This action cannot be undone.
@@ -714,8 +977,7 @@ export default function LeavePage() {
                 Cancel
               </button>
             </div>
-          </div>
-        </div>
+        </LeaveModal>
       )}
       <RemediationDialog {...remediation.dialogProps} runAction={remediationRunner} />
     </div>

@@ -25,6 +25,20 @@ export class ChangeRequestsController {
     return this.changeRequestsService.createChangeRequest(id, dto, req.user);
   }
 
+  @Post(':id/personal-information-change-requests')
+  createPersonalInformationRequest(
+    @Param('id') id: string,
+    @Body() dto: { changes: Array<{ field: string; newValue: unknown }>; reason: string; supportingDocumentIds?: string[] },
+    @Request() req: any,
+  ) {
+    return this.changeRequestsService.createPersonalInformationRequest(id, dto, req.user);
+  }
+
+  @Get('me/personal-information-change-requests')
+  listMyPersonalInformationRequests(@Request() req: any) {
+    return this.changeRequestsService.listMyPersonalInformationRequests(req.user.id ?? req.user.sub);
+  }
+
   @Get('me/change-requests')
   listMyChangeRequests(@Request() req: any) {
     return this.changeRequestsService.listMyChangeRequests(req.user.id ?? req.user.sub);
@@ -33,7 +47,7 @@ export class ChangeRequestsController {
   @Get('change-requests/pending')
   listPendingApprovals(@Request() req: any) {
     const roleName = (req.user.role as any)?.name ?? req.user.role ?? '';
-    return this.changeRequestsService.listPendingApprovals(req.user.id ?? req.user.sub, roleName);
+    return this.changeRequestsService.listPendingApprovals(req.user.id ?? req.user.sub, roleName, Boolean(req.user.isHR));
   }
 
   @Get('change-requests/:requestId')
@@ -46,7 +60,7 @@ export class ChangeRequestsController {
     if (found) return found;
 
     const roleName = (req.user.role as any)?.name ?? req.user.role ?? '';
-    const pendingReqs = await this.changeRequestsService.listPendingApprovals(req.user.id ?? req.user.sub, roleName);
+    const pendingReqs = await this.changeRequestsService.listPendingApprovals(req.user.id ?? req.user.sub, roleName, Boolean(req.user.isHR));
     const pendingFound = pendingReqs.find((r: any) => r.id === requestId);
     if (pendingFound) return pendingFound;
 
@@ -77,5 +91,32 @@ export class ChangeRequestsController {
     @Request() req: any,
   ) {
     return this.changeRequestsService.cancelChangeRequest(requestId, req.user.id ?? req.user.sub);
+  }
+
+
+  @Patch('personal-information-change-requests/:requestId/confirm')
+  confirmPersonalInformationRequest(
+    @Param('requestId') requestId: string,
+    @Body() dto: { currentPassword: string },
+    @Request() req: any,
+  ) {
+    return this.changeRequestsService.confirmPersonalInformationRequest(
+      requestId,
+      req.user.id ?? req.user.sub,
+      dto?.currentPassword,
+    );
+  }
+
+  @Patch('personal-information-change-requests/:requestId/decline')
+  declinePersonalInformationRequest(
+    @Param('requestId') requestId: string,
+    @Body() dto: { reason: string },
+    @Request() req: any,
+  ) {
+    return this.changeRequestsService.declinePersonalInformationRequest(
+      requestId,
+      req.user.id ?? req.user.sub,
+      dto?.reason,
+    );
   }
 }

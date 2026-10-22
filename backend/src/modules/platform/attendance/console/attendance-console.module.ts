@@ -4,6 +4,8 @@ import { AttendanceConsoleController } from './attendance-console.controller';
 import { DailyAttendanceModule } from '../evaluation/daily-attendance.module';
 import { AttendanceProcessingModule } from '../processing/attendance-processing.module';
 import { BusinessCalendarModule } from '../calendar/business-calendar.module';
+import { PunchReviewService } from './punch-review.service';
+import { UnreportedAbsenceService } from '../absence/unreported-absence.service';
 import { LeaveModule } from '../../../operations/leave/leave.module';
 
 /**
@@ -23,7 +25,7 @@ import { LeaveModule } from '../../../operations/leave/leave.module';
     LeaveModule,
   ],
   controllers: [AttendanceConsoleController],
-  providers: [AttendanceConsoleService],
-  exports: [AttendanceConsoleService],
+  providers: [AttendanceConsoleService, PunchReviewService, UnreportedAbsenceService],
+  exports: [AttendanceConsoleService, UnreportedAbsenceService],
 })
 export class AttendanceConsoleModule {}

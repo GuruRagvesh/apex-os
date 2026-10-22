@@ -33,6 +33,12 @@ export interface SubmitPunchInput {
    */
   handoffId?: string;
   handoffToken?: string;
+  device?: {
+    deviceId?: string | null;
+    deviceTypeHint?: string | null;
+    clientHintMobile?: boolean | null;
+    clientHintPlatform?: string | null;
+  };
 }
 
 export interface PunchResult {
@@ -74,6 +80,10 @@ export interface OwnPunchEvidence {
   photoVerification: string;
   workSessionId: string | null;
   source: string;
+  deviceType: string | null;
+  deviceCode: string | null;
+  captureChannel: string | null;
+  deviceLabel: string;
 }
 
 /** The authenticated employee's own punches, newest first. */

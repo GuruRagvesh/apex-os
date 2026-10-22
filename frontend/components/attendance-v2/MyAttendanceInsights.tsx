@@ -3,129 +3,121 @@
 import { useState } from 'react';
 import { CorrectionScreenshots } from '../attendance/CorrectionScreenshots';
 import { AttendanceDialog } from './AttendanceDialog';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, CheckCircle2, Clock3, CircleAlert, ChevronRight, History, Info, Plane, RefreshCw } from 'lucide-react';
-import { getMyAttendanceV2, type MyAttendanceDayV2, type MyAttendanceOverviewV2 } from './my-attendance-v2-api';
+import { useQuery } from '@tanstack/react-query';
+import { CalendarDays, CheckCircle2, Clock3, CircleAlert, ChevronRight, FilePenLine, History, Info, Plane, RefreshCw } from 'lucide-react';
+import { getMyAttendanceFiscalYear, type MyAttendanceDayV2, type MyAttendanceOverviewV2 } from './my-attendance-v2-api';
 import { getMyRegularizations, stageLabel, type Regularization } from '../attendance/regularization-api';
 import { exceptionCopy, monthLabel, presentDay } from './status-presentation';
+import { reviewRecords } from './insights-presentation';
 import { usableFinancialYear } from './financial-year';
-import { adjacentFinancialYearMonth, finalizedRecords, financialYearTitle, monthsInFinancialYear, reviewRecords } from './insights-presentation';
 import { AttendanceTrend } from './AttendanceTrend';
 import s from './insights.module.css';
 
 export type InsightScope = 'month' | 'year';
-type MonthResult = { month: string; data?: MyAttendanceOverviewV2; failed: boolean };
 const OUTCOMES = [
-  { key: 'PRESENT', label: 'Present', color: '#18B86B' },
-  { key: 'HALF_DAY', label: 'Half day', color: '#9B6DE3' },
-  { key: 'ABSENT', label: 'Absent', color: '#EC5D78' },
-  { key: 'LEAVE', label: 'Leave', color: '#EC5D78' },
-  { key: 'LWP', label: 'Unpaid leave', color: '#EC5D78' },
-  { key: 'HOLIDAY', label: 'Holiday', color: '#E5B52E' },
-  { key: 'WEEKLY_OFF', label: 'Weekly off', color: '#4F8FD8' },
-  { key: 'EXEMPT', label: 'Not applicable', color: '#6D9BD2' },
+  { key: 'PRESENT', label: 'Present', color: '#16A34A' },
+  { key: 'HALF_DAY', label: 'Half day', color: '#9462D9' },
+  { key: 'ABSENT', label: 'Absent', color: '#DC2626' },
+  { key: 'LEAVE', label: 'Leave', color: '#DC2626' },
+  { key: 'LWP', label: 'Unpaid leave', color: '#DC2626' },
+  { key: 'HOLIDAY', label: 'Holiday', color: '#F59E0B' },
+  { key: 'WEEKLY_OFF', label: 'Weekly off', color: '#64748B' },
+  { key: 'EXEMPT', label: 'Not applicable', color: '#64748B' },
 ];
 
 /** Personal record exploration. Summaries count canonical rows, never evaluate attendance policy. */
-export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect, scope: requestedScope, onScopeChange }: {
+export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect, onRequestCorrection, scope, onScopeChange }: {
   month: string;
   scope: InsightScope;
   onScopeChange: (scope: InsightScope) => void;
   overview: MyAttendanceOverviewV2;
   onMonthChange: (month: string) => void;
   onSelect: (date: string) => void;
+  onRequestCorrection: (date: string) => void;
 }) {
-  const queryClient = useQueryClient();
   const [correctionsOpen, setCorrectionsOpen] = useState(false);
-  // The yearly view is the company FINANCIAL year (April to March) exactly as the backend defines it.
-  // An older backend sends no financial year. Then the yearly view is not offered and the month view carries on.
-  const fy = usableFinancialYear(overview.financialYear);
-  const scope: InsightScope = fy ? requestedScope : 'month';
-  const companyDate = overview.today.date;
-  const yearMonths = fy ? monthsInFinancialYear(fy, companyDate) : [];
-  const monthKeyLabel = (key: string) => monthLabel(Number(key.slice(0, 4)), Number(key.slice(5)));
+  const [correctionPickerOpen, setCorrectionPickerOpen] = useState(false);
+  const fiscalYear = usableFinancialYear(overview.financialYear);
+  const effectiveScope: InsightScope = fiscalYear ? scope : 'month';
   const annual = useQuery({
-    queryKey: ['my-attendance-v2-year-records', fy?.label ?? 'none', companyDate],
-    enabled: scope === 'year' && fy !== null,
+    queryKey: ['my-attendance-v2-fiscal-year', fiscalYear?.label ?? 'unavailable'],
+    enabled: effectiveScope === 'year' && fiscalYear !== null,
     staleTime: 60_000,
     retry: false,
-    queryFn: async (): Promise<MonthResult[]> => {
-      const results: MonthResult[] = [];
-      // Bound concurrency: the existing endpoint evaluates one month per request.
-      for (let index = 0; index < yearMonths.length; index += 3) {
-        const batch = await Promise.all(yearMonths.slice(index, index + 3).map(async key => {
-          try {
-            const data = await queryClient.fetchQuery({
-              queryKey: ['my-attendance-v2', key],
-              queryFn: () => getMyAttendanceV2(key),
-              staleTime: 60_000,
-              retry: false,
-            });
-            return { month: key, data, failed: false };
-          } catch {
-            return { month: key, failed: true };
-          }
-        }));
-        results.push(...batch);
-      }
-      return results;
-    },
+    queryFn: () => getMyAttendanceFiscalYear(fiscalYear!.label),
   });
   const corrections = useQuery({
     queryKey: ['my-regularizations'],
     queryFn: getMyRegularizations,
     retry: false,
   });
-  const monthly = [{ month, data: overview, failed: false }];
-  const periods: MonthResult[] = scope === 'year' ? annual.data ?? [] : monthly;
-  const loading = scope === 'year' && annual.isPending;
-  const incomplete = scope === 'year' && (annual.isError || periods.some(period => period.failed));
-  const days = periods.flatMap(period => period.data?.month.days ?? []);
-  const final = finalizedRecords(days);
+  const periods = effectiveScope === 'year'
+    ? annual.data?.months.map(value => ({
+        month: `${value.year}-${String(value.month).padStart(2, '0')}`,
+        days: value.days,
+        summary: value.summary,
+      })) ?? []
+    : [{ month, days: overview.month.days, summary: overview.month.summary }];
+  const loading = effectiveScope === 'year' && annual.isPending;
+  const incomplete = effectiveScope === 'year' && annual.isError;
+  const days = periods.flatMap(period => period.days);
   const review = reviewRecords(days);
-  const hasFinal = !loading && !incomplete && final.length > 0;
-  const count = (outcome: string) => hasFinal ? final.filter(day => day.outcome === outcome).length : null;
-  const late = hasFinal ? final.filter(day => day.modifiers.includes('LATE') || day.modifiers.includes('LATE_EXEMPTED')).length : null;
-  const rangeLabel = scope === 'month' || !fy ? monthLabel(overview.month.year, overview.month.month) : financialYearTitle(fy) + ' · ' + monthKeyLabel(yearMonths[0] ?? fy.months[0]) + ' – ' + monthKeyLabel(yearMonths.at(-1) ?? fy.months[0]);
-  const requestRows = corrections.data?.filter(row => scope === 'year' && fy ? fy.months.includes(row.date.slice(0, 7)) : row.date.startsWith(month));
+  const summary = effectiveScope === 'year' ? annual.data?.summary : overview.month.summary;
+  const count = (outcome: string) => {
+    if (!summary || loading || incomplete) return null;
+    switch (outcome) {
+      case 'PRESENT': return summary.present;
+      case 'HALF_DAY': return summary.halfDay;
+      case 'ABSENT': return summary.absent;
+      case 'LEAVE': return summary.leave;
+      case 'LWP': return summary.lwp;
+      case 'HOLIDAY': return summary.holiday;
+      case 'WEEKLY_OFF': return summary.weeklyOff;
+      default: return 0;
+    }
+  };
+  const late = summary && !loading && !incomplete ? summary.late : null;
+  const companyDate = overview.today.date;
+  const rangeLabel = effectiveScope === 'month' ? monthLabel(overview.month.year, overview.month.month) : `FY ${fiscalYear!.label}`;
+  const periodMonths = new Set(effectiveScope === 'year' ? fiscalYear!.months : [month]);
+  const requestRows = corrections.data?.filter(row => periodMonths.has(row.date.slice(0, 7)));
+  const correctionDays = [...days]
+    .filter(day => day.correctionAllowed)
+    .sort((a, b) => b.date.localeCompare(a.date));
 
   return (
     <section className={s.dashboard} aria-label="Personal attendance dashboard">
       <header className={s.header}>
         <div><div className={s.eyebrow}><span />YOUR PERSONAL OVERVIEW</div><h2>More than a single day.</h2><p>Your record, patterns and anything that needs a second look.</p></div>
         <div className={s.scopeTabs} aria-label="Attendance insight period">
-          {(fy ? ['month', 'year'] as InsightScope[] : ['month'] as InsightScope[]).map(value => <button key={value} aria-pressed={scope === value} onClick={() => onScopeChange(value)}>{value === 'month' ? 'Month' : 'Year'}</button>)}
+          {(['month', 'year'] as InsightScope[]).map(value => <button key={value} disabled={value === 'year' && !fiscalYear} aria-pressed={effectiveScope === value} onClick={() => onScopeChange(value)}>{value === 'month' ? 'Month' : 'Year'}</button>)}
         </div>
       </header>
       <div className={s.periodLine}>
         <span><CalendarDays size={15} /><strong>{rangeLabel}</strong></span>
-        {scope === 'month' || !fy ? <label className={s.periodInput}>Change month<input aria-label="Dashboard month" type="month" value={month} max={companyDate.slice(0, 7)} onChange={event => { if (event.target.value && event.target.value <= companyDate.slice(0, 7)) onMonthChange(event.target.value); }} /></label> :
-          <span className={s.periodInput} aria-label="Financial year">
-            <button type="button" aria-label="Previous financial year" onClick={() => { const target = adjacentFinancialYearMonth(fy, -1, companyDate); if (target) onMonthChange(target); }}>‹</button>
-            <strong>{financialYearTitle(fy)}</strong>
-            <button type="button" aria-label="Next financial year" disabled={adjacentFinancialYearMonth(fy, 1, companyDate) === null} onClick={() => { const target = adjacentFinancialYearMonth(fy, 1, companyDate); if (target) onMonthChange(target); }}>›</button>
-          </span>}
+        {effectiveScope === 'month' ? <label className={s.periodInput}>Change month<input aria-label="Dashboard month" type="month" value={month} max={companyDate.slice(0, 7)} onChange={event => { if (event.target.value && event.target.value <= companyDate.slice(0, 7)) onMonthChange(event.target.value); }} /></label> :
+          <span className={s.periodInput} aria-label="Financial year">FY {fiscalYear!.label}</span>}
       </div>
 
           {incomplete && <div className={s.notice} role="alert"><CircleAlert size={17} /><span>Some months could not be loaded. Period totals are unavailable; the chart shows only the records received.</span><button onClick={() => annual.refetch()}><RefreshCw size={14} />Retry</button></div>}
           <div className={s.stats} aria-busy={loading}>
-            <Stat icon={<CheckCircle2 />} label="Present" value={count('PRESENT')} note="Finalized days, including late" tone="green" loading={loading} />
-            <Stat icon={<Clock3 />} label="Late flags" value={late} note="Finalized · exemptions included" tone="orange" loading={loading} />
-            <Stat icon={<Plane />} label="Leave" value={count('LEAVE')} note="Finalized Leave outcomes" tone="blue" loading={loading} />
-            <Stat icon={<CircleAlert />} label="Needs review" value={loading || incomplete ? null : review.length} note="Closed days with review flags" tone="neutral" loading={loading} />
+            <Stat icon={<CheckCircle2 />} label="Present" value={count('PRESENT')} note="Recorded days, including late" tone="green" loading={loading} />
+            <Stat icon={<Clock3 />} label="Late flags" value={late} note="Recorded assessments · exemptions included" tone="orange" loading={loading} />
+            <Stat icon={<Plane />} label="Leave" value={count('LEAVE')} note="Recorded Leave outcomes" tone="blue" loading={loading} />
+            <Stat icon={<CircleAlert />} label="Needs review" value={loading || incomplete || !summary ? null : summary.needsReview} note="Closed days with review flags" tone="neutral" loading={loading} />
           </div>
           {loading ? <div className={s.loading} role="status"><RefreshCw size={18} />Loading this year’s recorded attendance…</div> : (
             <>
-              {scope === 'year' && <div className={s.yearGrid} aria-label="Year attendance months">
+              {effectiveScope === 'year' && <div className={s.yearGrid} aria-label="Year attendance months">
                 {periods.map(period => <button key={period.month} onClick={() => { onMonthChange(period.month); onScopeChange('month'); }}>
-                  <strong>{monthKeyLabel(period.month).split(' ')[0].slice(0, 3)}</strong>
-                  <span>{period.data ? finalizedRecords(period.data.month.days).length + ' finalized' : 'Unavailable'}</span>
-                  <div className={s.miniStrip}>{period.data?.month.days.filter(day => !day.isFuture).map(day => <i key={day.date} style={{ background: day.outcome ? presentDay(day).color : '#E9EEF6' }} />)}</div>
+                  <strong>{monthLabel(Number(period.month.slice(0, 4)), Number(period.month.slice(5))).split(' ')[0].slice(0, 3)}</strong>
+                  <span>{period.summary.recordedDays} recorded</span>
+                  <div className={s.miniStrip}>{period.days.filter(day => !day.isFuture).map(day => <i key={day.date} style={{ background: day.outcome ? presentDay(day).color : '#E9EEF6' }} />)}</div>
                 </button>)}
               </div>}
               <div className={s.distribution}>
-                <div><h3>Attendance record</h3><span>{incomplete ? 'Partial coverage' : final.length + ' finalized days'} · open days stay provisional</span></div>
-                {scope === 'month' ? <div className={s.dayStrip} aria-label="Monthly attendance strip">
+                <div><h3>Attendance record</h3><span>{incomplete || !summary ? 'Partial coverage' : summary.recordedDays + ' recorded days · ' + summary.finalizedDays + ' finalized'} · open days stay provisional</span></div>
+                {effectiveScope === 'month' ? <div className={s.dayStrip} aria-label="Monthly attendance strip">
                   {overview.month.days.map(day => <button key={day.date} disabled={day.isFuture} style={{ '--day-color': day.outcome && !day.isFuture ? presentDay(day).color : '#E7EDF6' } as React.CSSProperties}
                     aria-label={day.date + ', ' + (day.isFuture ? 'Future date' : presentDay(day).label)} title={day.date + ' · ' + (day.isFuture ? 'Future date' : presentDay(day).label)}
                     onClick={() => onSelect(day.date)}><i /><span>{Number(day.date.slice(8))}</span></button>)}
@@ -140,11 +132,21 @@ export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect,
           )}
 
       <div className={s.bottomRow}>
+        <button className={s.actionButton} onClick={() => setCorrectionPickerOpen(true)}><FilePenLine size={20} />Request Correction</button>
         <button className={s.actionButton} onClick={() => setCorrectionsOpen(true)}><FileLabel />My Corrections</button>
+        {correctionPickerOpen && <AttendanceDialog title="Request a Correction" onClose={() => setCorrectionPickerOpen(false)}>
+          <div className={s.correctionBody}>
+            <p>Select the attendance day you want reviewed.</p>
+            {correctionDays.length ? correctionDays.map(day => <button key={day.date} className={s.correctionRow} onClick={() => { setCorrectionPickerOpen(false); requestAnimationFrame(() => onRequestCorrection(day.date)); }}>
+              <span><b>{new Date(day.date + 'T12:00:00Z').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}</b><small>{presentDay(day).label}{day.reason ? ` · ${day.reason}` : ''}</small></span>
+              <ChevronRight size={15} />
+            </button>) : <p>No attendance days in this period are currently eligible for correction.</p>}
+          </div>
+        </AttendanceDialog>}
         {correctionsOpen && <AttendanceDialog title="My Corrections" onClose={() => setCorrectionsOpen(false)}>
           <CorrectionList rows={requestRows} failed={corrections.isError} loading={corrections.isPending} onSelect={date => { setCorrectionsOpen(false); requestAnimationFrame(() => onSelect(date)); }} retry={() => corrections.refetch()} />
         </AttendanceDialog>}
-        <details className={s.explanation}><summary><Info size={16} />About these numbers</summary><p>These are counts and plots of the attendance records returned for the selected period. Finalized outcomes come from the server. Late flags may overlap Present. No attendance rate, shift target, streak or payroll eligibility is calculated here. Punch-in times use your browser timezone; worked time is the separately recorded effective-work value. Missing values remain unavailable.</p></details>
+        <details className={s.explanation}><summary><Info size={16} />About these numbers</summary><p>Counts, attendance percentage and the April-to-March financial-year range come from the attendance API. Late flags may overlap Present. No shift target, streak or payroll eligibility is calculated here. Punch-in times use your browser timezone; worked time is the separately recorded effective-work value. Missing values remain unavailable.</p></details>
       </div>
     </section>
   );
@@ -169,10 +171,10 @@ function Attention({ days, incomplete, onSelect }: { days: MyAttendanceDayV2[]; 
 
 function CorrectionList({ rows, failed, loading, onSelect, retry }: { rows?: Regularization[]; failed: boolean; loading: boolean; onSelect: (date: string) => void; retry: () => void }) {
   const [filter, setFilter] = useState('all');
-  const filtered = (rows ?? []).filter(row => filter === 'all' || (filter === 'pending' ? row.status === 'PENDING' || row.status === 'MANAGER_APPROVED' : filter === 'approved' ? row.status === 'HR_APPROVED' : row.status === 'REJECTED'));
+  const filtered = (rows ?? []).filter(row => filter === 'all' || (filter === 'pending' ? row.status === 'PENDING' || row.status === 'STALE_REVIEW_REQUIRED' || row.status === 'MANAGER_APPROVED' : filter === 'approved' ? row.status === 'APPROVED' || row.status === 'HR_APPROVED' : row.status === 'REJECTED'));
   return <div className={s.correctionBody}>
     <div className={s.smallTabs} aria-label="Correction request status">{['all', 'pending', 'approved', 'rejected'].map(value => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
     {failed ? <p role="alert">Requests could not be loaded. <button onClick={retry}>Try again</button></p> : loading ? <p>Loading requests…</p> :
-      filtered.length ? [...filtered].sort((a, b) => b.date.localeCompare(a.date)).map(row => <div key={row.id}><button className={s.correctionRow} onClick={() => onSelect(row.date.slice(0, 10))}><span><b>{row.date.slice(0, 10)}</b><small>{row.reason || 'Open request details'}</small></span><span>{stageLabel(row.status)}</span><ChevronRight size={15} /></button><CorrectionScreenshots requestId={row.id} files={row.screenshots ?? []} /></div>) : <p>No {filter === 'all' ? '' : filter + ' '}correction requests in this period.</p>}
+      filtered.length ? [...filtered].sort((a, b) => b.date.localeCompare(a.date)).map(row => <div key={row.id}><button className={s.correctionRow} onClick={() => onSelect(row.date.slice(0, 10))}><span><b>{row.date.slice(0, 10)}</b><small>{row.reason || 'Open request details'}{row.decidedBy?.name ? ` · ${row.status === 'REJECTED' ? 'Rejected' : 'Approved'} by ${row.decidedBy.name}${row.decidedByRole ? ` (${row.decidedByRole.replaceAll('_', ' ')})` : ''}` : ''}{row.decisionReason ? ` · ${row.decisionReason}` : ''}</small></span><span>{stageLabel(row.status, row.applicationStatus)}</span><ChevronRight size={15} /></button><CorrectionScreenshots requestId={row.id} files={row.screenshots ?? []} /></div>) : <p>No {filter === 'all' ? '' : filter + ' '}correction requests in this period.</p>}
   </div>;
 }

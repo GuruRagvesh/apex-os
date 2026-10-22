@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { GOVERNING_POLICY_STATUSES, POLICY_BASELINE_DATE, resolveContinuousPolicy } from '../policy/policy-continuity';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import {
@@ -113,6 +114,13 @@ export class BusinessCalendarService {
     dateOnly: Date,
     strict: boolean,
   ): Promise<{ id: string | null; resolution: CalendarSourceResolution }> {
+    const businessDate = dateOnly.toISOString().slice(0, 10);
+    const covering = {
+      status: { in: [...GOVERNING_POLICY_STATUSES] },
+      effectiveFrom: { lte: this.tva.companyDayEnd(dateOnly) },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: this.tva.companyDayStart(dateOnly) } }],
+    };
+
     if (assignedHolidayCalendarId) {
       const assigned = await this.prisma.holidayCalendar.findUnique({
         where: { id: assignedHolidayCalendarId },
@@ -120,49 +128,82 @@ export class BusinessCalendarService {
       });
       if (!assigned) return { id: null, resolution: 'NONE' };
 
+      // The version of the assigned SERIES covering the date (a SCHEDULED
+      // successor governs from its own date).
       const effective = await this.prisma.holidayCalendar.findFirst({
-        where: {
-          policyKey: assigned.policyKey,
-          status: { in: ['ACTIVE', 'SUPERSEDED'] },
-          effectiveFrom: { lte: this.tva.companyDayEnd(dateOnly) },
-          OR: [{ effectiveTo: null }, { effectiveTo: { gte: this.tva.companyDayStart(dateOnly) } }],
-        },
+        where: { policyKey: assigned.policyKey, ...covering },
         orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
         select: { id: true },
       });
+      if (effective) return { id: effective.id, resolution: 'ASSIGNED' };
 
-      // If no version of the assigned series governed this date, fall back to
-      // the assigned row itself rather than silently switching series.
-      return { id: effective?.id ?? assigned.id, resolution: 'ASSIGNED' };
+      // Phase 3 continuity: nothing covers the date -> the predecessor across a
+      // gap, or the earliest version as the baseline. Never another series.
+      const series = await this.prisma.holidayCalendar.findMany({
+        where: { policyKey: assigned.policyKey, status: { in: [...GOVERNING_POLICY_STATUSES] } },
+        select: { id: true, version: true, policyKey: true, effectiveFrom: true, effectiveTo: true },
+      });
+      // Defensive: only rows of the assigned series ever take part.
+      const own = (series ?? []).filter((r: any) => (r.policyKey ? r.policyKey === assigned.policyKey : r.id === assigned.id));
+      const continued = resolveContinuousPolicy(own.map((r) => this.asCandidate(r)), businessDate);
+      return { id: continued.policy?.id ?? assigned.id, resolution: 'ASSIGNED' };
     }
 
     if (!strict) return { id: null, resolution: 'NONE' };
 
     // take: 2 is all that is needed to tell 0 from 1 from many.
     const candidates = await this.prisma.holidayCalendar.findMany({
-      where: {
-        status: 'ACTIVE',
-        effectiveFrom: { lte: this.tva.companyDayEnd(dateOnly) },
-        OR: [{ effectiveTo: null }, { effectiveTo: { gte: this.tva.companyDayStart(dateOnly) } }],
-      },
+      where: covering,
       select: { id: true },
       take: 2,
     });
-    if (candidates.length === 0) return { id: null, resolution: 'NONE' };
     if (candidates.length > 1) return { id: null, resolution: 'AMBIGUOUS' };
-    return { id: candidates[0].id, resolution: 'COMPANY_DEFAULT' };
+    if (candidates.length === 1) return { id: candidates[0].id, resolution: 'COMPANY_DEFAULT' };
+
+    // Phase 3 continuity for the company default: a gap continues the
+    // predecessor, a date before the first version takes it as the baseline.
+    // Two different series with nothing covering the date stay ambiguous.
+    const all = await this.prisma.holidayCalendar.findMany({
+      where: { status: { in: [...GOVERNING_POLICY_STATUSES] } },
+      select: { id: true, version: true, policyKey: true, effectiveFrom: true, effectiveTo: true },
+    });
+    return this.continuedDefault(all ?? [], businessDate);
+  }
+
+  /** yyyy-MM-dd candidate view of a policy row, for the continuity resolver. */
+  private asCandidate(r: { id: string; version?: number | null; effectiveFrom?: Date | null; effectiveTo?: Date | null }) {
+    return {
+      id: r.id,
+      version: r.version ?? null,
+      effectiveFrom: r.effectiveFrom ? this.tva.companyBusinessDate(r.effectiveFrom) : POLICY_BASELINE_DATE,
+      effectiveTo: r.effectiveTo ? this.tva.companyBusinessDate(r.effectiveTo) : null,
+    };
+  }
+
+  /** Continuity among unassigned candidates; several series means ambiguous. */
+  private continuedDefault(
+    rows: Array<{ id: string; version?: number | null; policyKey?: string | null; effectiveFrom?: Date | null; effectiveTo?: Date | null }>,
+    businessDate: string,
+  ): { id: string | null; resolution: CalendarSourceResolution } {
+    if (rows.length === 0) return { id: null, resolution: 'NONE' };
+    const series = new Set(rows.map((r) => r.policyKey ?? r.id));
+    if (series.size > 1) return { id: null, resolution: 'AMBIGUOUS' };
+    const resolved = resolveContinuousPolicy(rows.map((r) => this.asCandidate(r)), businessDate);
+    return resolved.policy ? { id: resolved.policy.id, resolution: 'COMPANY_DEFAULT' } : { id: null, resolution: 'NONE' };
   }
 
   /**
    * Resolves which WeeklyOffPolicy applies, and how. Same counting rule as
    * resolveCalendarId; WeeklyOffPolicy has no version series, so an assignment
-   * is used directly.
+   * is used directly -- and, Phase 3, continues across a gap in its own window
+   * rather than leaving the day unresolved.
    */
   private async resolveWeeklyOffPolicy(
     assignedWeeklyOffPolicyId: string | null | undefined,
     dateOnly: Date,
     strict: boolean,
   ): Promise<{ policy: any | null; resolution: CalendarSourceResolution }> {
+    const businessDate = dateOnly.toISOString().slice(0, 10);
     const window = {
       effectiveFrom: { lte: dateOnly },
       OR: [{ effectiveTo: null }, { effectiveTo: { gte: dateOnly } }],
@@ -173,9 +214,15 @@ export class BusinessCalendarService {
         where: { id: assignedWeeklyOffPolicyId, ...window },
         orderBy: { effectiveFrom: 'desc' },
       });
-      return { policy, resolution: policy ? 'ASSIGNED' : 'NONE' };
+      if (policy) return { policy, resolution: 'ASSIGNED' };
+      const anyWindow = await this.prisma.weeklyOffPolicy.findFirst({ where: { id: assignedWeeklyOffPolicyId } });
+      if (anyWindow && resolveContinuousPolicy([this.asCandidate(anyWindow)], businessDate).policy) {
+        return { policy: anyWindow, resolution: 'ASSIGNED' };
+      }
+      return { policy: null, resolution: 'NONE' };
     }
 
+    // isActive is the only approval signal an unversioned weekly-off row has.
     if (!strict) {
       const policy = await this.prisma.weeklyOffPolicy.findFirst({
         where: { isActive: true, ...window },
@@ -189,9 +236,11 @@ export class BusinessCalendarService {
       orderBy: { effectiveFrom: 'desc' },
       take: 2,
     });
-    if (candidates.length === 0) return { policy: null, resolution: 'NONE' };
     if (candidates.length > 1) return { policy: null, resolution: 'AMBIGUOUS' };
-    return { policy: candidates[0], resolution: 'COMPANY_DEFAULT' };
+    if (candidates.length === 1) return { policy: candidates[0], resolution: 'COMPANY_DEFAULT' };
+    const all = await this.prisma.weeklyOffPolicy.findMany({ where: { isActive: true } });
+    const picked = this.continuedDefault(all ?? [], businessDate);
+    return { policy: picked.id ? (all ?? []).find((r: any) => r.id === picked.id) ?? null : null, resolution: picked.resolution };
   }
 
   /**

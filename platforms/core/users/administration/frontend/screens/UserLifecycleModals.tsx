@@ -41,6 +41,7 @@ export const BLOCKER_LABELS: Record<string, string> = {
   ACTIVE_COLLEAGUE_ATTENDANCE_PROFILES: 'Colleagues whose attendance profile names them',
   TICKETS_AWAITING_APPROVAL: 'Their tickets still awaiting approval',
   OPEN_REPORTING_LINES: 'People for whom they are the primary Team Lead or Manager',
+  OPEN_EXIT_CASE: 'An exit still in progress (notice, clearance or unreleased F&F)',
 };
 
 const WORK_LABELS: Record<string, string> = {

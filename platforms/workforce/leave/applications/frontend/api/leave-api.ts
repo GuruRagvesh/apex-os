@@ -32,9 +32,16 @@ export const leaveApi = {
   reject: (id: string) => r(api.patch(`/leave/${id}/reject`)),
   cancel: (id: string) => r(api.patch(`/leave/${id}/cancel`)),
   getStats: () => r(api.get('/leave/stats')),
-  getBalance: (userId?: string) => r(api.get(userId ? `/leave/balance/${userId}` : '/leave/balance')),
+  getBalance: (userId?: string, type?: string) => r(api.get(userId ? `/leave/balance/${userId}` : '/leave/balance', { params: type ? { type } : undefined })),
   getDuration: (startDate: string, endDate: string, isHalfDay: boolean) =>
     r(api.get('/leave/duration', { params: { startDate, endDate, isHalfDay } })),
+  submitEvidence: (id: string, file: File, note?: string) => {
+    const body = new FormData();
+    body.append('file', file);
+    if (note?.trim()) body.append('note', note.trim());
+    return r(api.post(`/leave/${id}/evidence`, body, { headers: { 'Content-Type': 'multipart/form-data' } }));
+  },
+  listEvidence: (id: string) => r(api.get(`/leave/${id}/evidence`)),
 };
 
 export interface CompOffCredit {

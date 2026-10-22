@@ -499,6 +499,7 @@ function realWorkdayRig(
         return Promise.resolve(args);
       }),
     },
+    punchEvidenceReview: { create: jest.fn().mockResolvedValue({ id: 'review-1' }) },
     attendanceEvent: {
       create: jest.fn((args: any) => {
         attendanceEvents.push(args.data);

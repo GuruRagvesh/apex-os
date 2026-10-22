@@ -268,7 +268,63 @@ export interface MyAttendanceDayV2 {
   sourceFlags: string[];
   unmappedSourceFlags: string[];
 
+  /** Origin of the stored fact; null only when no attendance fact exists. */
+  dataSource: 'APEX_OS' | 'HISTORICAL_RECORD' | null;
+  /** Whether the existing regularization workflow may be offered for the day. */
+  correctionAllowed: boolean;
+
   unavailable: UnavailableField[];
+}
+
+/**
+ * Recorded work-session context for the self-scoped day drawer.
+ *
+ * These values are copied from stored WorkSession, BreakLog, TicketTimeLog,
+ * WorkdayNote and Meeting rows. Null means that the source did not record the
+ * value; this read model never reconstructs a missing end time or purpose.
+ */
+export interface MyAttendanceSessionBreakV2 {
+  id: string;
+  type: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationMinutes: number | null;
+  note: string | null;
+  purpose: string | null;
+}
+
+export interface MyAttendanceSessionWorkItemV2 {
+  id: string;
+  ticketId: string;
+  title: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number | null;
+}
+
+export interface MyAttendanceSessionNoteV2 {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface MyAttendanceWorkSessionV2 {
+  id: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  workedMinutes: number | null;
+  status: string;
+  autoClosed: boolean;
+  autoClosedAt: string | null;
+  closureReason: string | null;
+  breaks: MyAttendanceSessionBreakV2[];
+  workItems: MyAttendanceSessionWorkItemV2[];
+  notes: MyAttendanceSessionNoteV2[];
+}
+
+/** Full day detail. Month responses deliberately omit session rows. */
+export interface MyAttendanceDayDetailV2 extends MyAttendanceDayV2 {
+  workSessions: MyAttendanceWorkSessionV2[];
 }
 
 export interface MyAttendanceTodayV2 extends MyAttendanceDayV2 {
@@ -300,6 +356,50 @@ export interface MyAttendanceMonthV2 {
   year: number;
   month: number;
   days: MyAttendanceDayV2[];
+  summary: AttendanceSummaryV2;
+}
+
+export interface AttendanceSummaryV2 {
+  recordedDays: number;
+  finalizedDays: number;
+  present: number;
+  late: number;
+  halfDay: number;
+  leave: number;
+  lwp: number;
+  absent: number;
+  holiday: number;
+  weeklyOff: number;
+  needsReview: number;
+  attendancePercentage: number | null;
+}
+
+/** Counts the canonical day facts without re-evaluating policy or inventing missing values. */
+export function summarizeAttendanceDays(days: readonly MyAttendanceDayV2[]): AttendanceSummaryV2 {
+  const recorded = days.filter((day) => !day.isFuture && day.outcome !== null);
+  const finalized = recorded.filter((day) => !day.isInProgress && day.evaluationState === 'FINALIZED');
+  const count = (outcome: AttendanceOutcome) => recorded.filter((day) => day.outcome === outcome).length;
+  const present = count('PRESENT');
+  const halfDay = count('HALF_DAY');
+  const absent = count('ABSENT');
+  const assessedWorkingDays = present + halfDay + absent;
+
+  return {
+    recordedDays: recorded.length,
+    finalizedDays: finalized.length,
+    present,
+    late: recorded.filter((day) => day.modifiers.includes('LATE')).length,
+    halfDay,
+    leave: count('LEAVE'),
+    lwp: count('LWP'),
+    absent,
+    holiday: count('HOLIDAY'),
+    weeklyOff: count('WEEKLY_OFF'),
+    needsReview: recorded.filter((day) => day.evaluationState === 'NEEDS_REVIEW' || day.outcome === 'UNRESOLVED').length,
+    attendancePercentage: assessedWorkingDays > 0
+      ? Math.round(((present + halfDay * 0.5) / assessedWorkingDays) * 1000) / 10
+      : null,
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -427,6 +527,8 @@ export function mapDay(input: MapDayInput): MyAttendanceDayV2 {
     sourceStatus: result.status,
     sourceFlags: [...flags],
     unmappedSourceFlags: unmappedFlags(flags),
+    dataSource: 'APEX_OS',
+    correctionAllowed: date < companyToday,
     unavailable: figureGaps(result.presenceMinutes, result.requiredMinutes),
   };
 }
@@ -538,6 +640,8 @@ export function mapRecoveredDay(row: StoredRecoveredDay, companyToday: string): 
     sourceStatus: row.status,
     sourceFlags: [...row.exceptionFlags],
     unmappedSourceFlags: [],
+    dataSource: 'HISTORICAL_RECORD',
+    correctionAllowed: row.date < companyToday,
     unavailable,
   };
 }
@@ -579,6 +683,8 @@ function emptyDay(
     sourceStatus: null,
     sourceFlags: [],
     unmappedSourceFlags: [],
+    dataSource: null,
+    correctionAllowed: false,
     unavailable,
   };
 }
