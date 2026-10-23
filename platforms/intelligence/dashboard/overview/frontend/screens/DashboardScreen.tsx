@@ -21,7 +21,9 @@ import { HeroQuickActions } from './HeroQuickActions';
 import { TeamInsightsSection } from './TeamInsightsSection';
 import { PersonalHighlightsSection } from './PersonalHighlightsSection';
 
-type HeroDaypart = 'morning' | 'afternoon' | 'evening' | 'night';
+type HeroScene = 'morning' | 'late-morning' | 'afternoon' | 'evening' | 'sunset' | 'night';
+
+const HERO_SCENES: readonly HeroScene[] = ['morning', 'late-morning', 'afternoon', 'evening', 'sunset', 'night'];
 
 const HERO_MESH_PATH = [
   ...Array.from({ length: 31 }, (_, index) => `M ${index * 40} 0 V 320`),
@@ -31,49 +33,36 @@ const HERO_MESH_PATH = [
 function HeroGridMesh() {
   const renderMesh = (layer: 'base' | 'lit') => {
     const filterId = `apex-hero-mesh-${layer}`;
-    return (
-      <svg
-        className={`apex-hero-mesh-layer apex-hero-mesh-${layer}`}
-        viewBox="0 0 1200 320"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <defs>
-          <filter id={filterId} x="-8%" y="-20%" width="116%" height="140%">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.007 0.018"
-              numOctaves="1"
-              seed="12"
-              result="meshNoise"
-            >
-              <animate
-                attributeName="baseFrequency"
-                dur={layer === 'base' ? '16s' : '13s'}
-                values="0.007 0.018;0.011 0.026;0.006 0.021;0.007 0.018"
-                repeatCount="indefinite"
-              />
-            </feTurbulence>
-            <feDisplacementMap
-              in="SourceGraphic"
-              in2="meshNoise"
-              scale={layer === 'base' ? 24 : 29}
-              xChannelSelector="R"
-              yChannelSelector="G"
-            />
-          </filter>
-        </defs>
-        <path d={HERO_MESH_PATH} filter={`url(#${filterId})`} />
-      </svg>
-    );
+    return <svg className={`apex-hero-mesh-layer apex-hero-mesh-${layer}`} viewBox="0 0 1200 320" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <filter id={filterId} x="-8%" y="-20%" width="116%" height="140%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.007 0.018" numOctaves="1" seed="12" result="meshNoise">
+            <animate attributeName="baseFrequency" dur={layer === 'base' ? '16s' : '13s'} values="0.007 0.018;0.011 0.026;0.006 0.021;0.007 0.018" repeatCount="indefinite" />
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" in2="meshNoise" scale={layer === 'base' ? 24 : 29} xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </defs>
+      <path d={HERO_MESH_PATH} filter={`url(#${filterId})`} />
+    </svg>;
   };
 
-  return (
-    <div className="apex-hero-mesh" aria-hidden="true">
-      {renderMesh('base')}
-      {renderMesh('lit')}
-    </div>
-  );
+  return <div className="apex-hero-mesh" aria-hidden="true">{renderMesh('base')}{renderMesh('lit')}</div>;
+}
+
+function sceneForHour(hour: number): HeroScene {
+  if (hour >= 4 && hour < 8) return 'morning';
+  if (hour >= 8 && hour < 12) return 'late-morning';
+  if (hour >= 12 && hour < 16) return 'afternoon';
+  if (hour >= 16 && hour < 20) return 'evening';
+  if (hour >= 20) return 'sunset';
+  return 'night';
+}
+
+function greetingForScene(scene: HeroScene) {
+  if (scene === 'morning' || scene === 'late-morning') return 'morning';
+  if (scene === 'afternoon') return 'afternoon';
+  if (scene === 'evening' || scene === 'sunset') return 'evening';
+  return 'night';
 }
 /**
  * Home.
@@ -89,35 +78,38 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
   const isContributor = role === 'EMPLOYEE' || role === 'INTERN';
   const canManageAnnouncements = Boolean((user as any)?.isHR) || ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
 
-  const [heroTimeOverride, setHeroTimeOverride]   = useState<HeroDaypart | null>(null);
+  const [heroTimeOverride, setHeroTimeOverride] = useState<HeroScene | null>(null);
+  const [heroNow, setHeroNow] = useState(() => new Date());
   const heroRef = useRef<HTMLElement | null>(null);
   const isLeadOrAbove = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
 
-  // Local preview helper: ?heroTime=morning|afternoon|evening|night (ignored in production).
+  // Keep the scene current while the page remains open; crossing a time boundary
+  // does not require a refresh. Thirty-second ticks also avoid visible clock drift.
+  useEffect(() => {
+    const interval = window.setInterval(() => setHeroNow(new Date()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  // Local preview helper: ?heroTime=morning|late-morning|afternoon|evening|sunset|night.
   useEffect(() => {
     if (process.env.NODE_ENV === 'production') return;
     const value = new URLSearchParams(window.location.search).get('heroTime');
-    if (value === 'morning' || value === 'afternoon' || value === 'evening' || value === 'night') {
-      setHeroTimeOverride(value);
+    if (HERO_SCENES.some((scene) => scene === value)) {
+      setHeroTimeOverride(value as HeroScene);
     }
   }, []);
 
   const handleHeroPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
     const hero = heroRef.current;
     if (!hero) return;
-
     const bounds = hero.getBoundingClientRect();
-    const pointerX = event.clientX - bounds.left;
-    const pointerY = event.clientY - bounds.top;
-    hero.style.setProperty('--hero-pointer-x', `${pointerX}px`);
-    hero.style.setProperty('--hero-pointer-y', `${pointerY}px`);
+    hero.style.setProperty('--hero-pointer-x', `${event.clientX - bounds.left}px`);
+    hero.style.setProperty('--hero-pointer-y', `${event.clientY - bounds.top}px`);
     hero.dataset.pointerActive = 'true';
   };
 
   const handleHeroPointerLeave = () => {
-    const hero = heroRef.current;
-    if (!hero) return;
-    hero.dataset.pointerActive = 'false';
+    if (heroRef.current) heroRef.current.dataset.pointerActive = 'false';
   };
 
   const { data: summary, isLoading, isError: summaryError } = useQuery({
@@ -151,17 +143,8 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
   if (isLoading) return <HomeSkeleton />;
 
   const firstName = user?.name?.split(' ')[0] ?? 'there';
-  const hour = new Date().getHours();
-  const actualDaypart: HeroDaypart =
-    hour >= 8 && hour < 12
-      ? 'morning'
-      : hour >= 12 && hour < 16
-        ? 'afternoon'
-        : hour >= 16 && hour < 18
-          ? 'evening'
-          : 'night';
-  const heroDaypart = heroTimeOverride ?? actualDaypart;
-  const timeOfDay = heroDaypart;
+  const heroScene = heroTimeOverride ?? sceneForHour(heroNow.getHours());
+  const timeOfDay = greetingForScene(heroScene);
 
   return (
     <div className="apex-fade-in" style={{ maxWidth: '1280px', margin: '0 auto', paddingBottom: 48 }}>
@@ -173,11 +156,19 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.28, ease: 'easeOut' }}
         className="apex-dashboard-hero mb-6"
-        data-hero-daypart={heroDaypart}
+        data-hero-daypart={heroScene}
         data-pointer-active="false"
         onPointerMove={handleHeroPointerMove}
         onPointerLeave={handleHeroPointerLeave}
       >
+        <div className="apex-hero-sky" aria-hidden="true">
+          {HERO_SCENES.map((scene) => (
+            <span
+              key={scene}
+              className={`apex-hero-sky-layer apex-hero-sky-${scene}${scene === heroScene ? ' is-active' : ''}`}
+            />
+          ))}
+        </div>
         <HeroGridMesh />
         <div className="relative z-10 flex flex-col gap-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -217,6 +208,8 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
       {showTeamInsights && teamScopeLoading && isLeadOrAbove && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading team filters…</div>}
       {showTeamInsights && teamScopeError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Team filters could not be loaded. <button type="button" onClick={() => retryTeamScope()} className="underline">Retry</button></div>}
 
+      {user?.id && isLeadOrAbove && <PersonalHighlightsSection presentation="launcher" />}
+
       {/* ── MY CALENDAR: attendance / productivity ── */}
       {personalPanel && (
         <motion.div
@@ -230,9 +223,8 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
 
       {user?.id && isContributor && <div className="mt-6"><PersonalHighlightsSection /></div>}
 
-      {user?.id && isLeadOrAbove && (showTeamInsights || role === 'TEAM_LEAD' || role === 'MANAGER') && <div className="mt-6 space-y-5">
+      {user?.id && isLeadOrAbove && showTeamInsights && <div className="mt-6 space-y-5">
         {showTeamInsights && teamScope && <TeamInsightsSection team={teamScope} />}
-        {(role === 'TEAM_LEAD' || role === 'MANAGER') && <PersonalHighlightsSection />}
       </div>}
     </div>
   );

@@ -753,8 +753,8 @@
 .settings-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.30);
+  backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1639,8 +1639,8 @@
 }
 
 .settings-modal-overlay {
-  backdrop-filter: blur(8px) !important;
-  background: rgba(15, 23, 42, 0.6) !important;
+  backdrop-filter: blur(3px) !important;
+  background: rgba(15, 23, 42, 0.30) !important;
 }
 
 .settings-danger-zone {

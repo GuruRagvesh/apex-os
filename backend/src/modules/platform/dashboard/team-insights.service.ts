@@ -39,11 +39,9 @@ function clockMinute(date: Date, timezone: string) {
   return hour * 60 + minute;
 }
 
-function medianClockMinute(values: number[]) {
+export function averageClockMinute(values: number[]) {
   if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
 }
 
 function intervalOverlaps(start: Date, end: Date | null, range: Range) {
@@ -114,6 +112,21 @@ function ticketCompletionAt(ticket: any): Date | null {
     .filter((entry: any) => entry.field === 'status' && ['DONE', 'CLOSED'].includes(entry.newValue))
     .sort((a: any, b: any) => a.changedAt.getTime() - b.changedAt.getTime())[0];
   return transition?.changedAt ?? null;
+}
+
+export function ticketOverduePhase(ticket: any, asOf: Date): 'EXECUTION' | 'REVIEW' | null {
+  const completedAt = ticketCompletionAt(ticket);
+  if (completedAt && completedAt <= asOf) return null;
+  const status = ticketStatusAt(ticket, asOf);
+  if (status === TicketStatus.REVIEW) {
+    const due = ticket.reviewDueAt ?? ticket.dueDate;
+    return due && due < asOf ? 'REVIEW' : null;
+  }
+  if (status === TicketStatus.OPEN || status === TicketStatus.IN_PROGRESS) {
+    const due = ticket.executionDueAt ?? ticket.dueDate;
+    return due && due < asOf ? 'EXECUTION' : null;
+  }
+  return null;
 }
 
 function initials(name: string) {
@@ -458,12 +471,13 @@ export class TeamInsightsService {
     let breakCount = 0;
     for (const row of breaks) {
       if (row.breakType === 'MEETING') continue;
-      // Only completed breaks are historical facts. A live break contributes
-      // to today's live surface, not to a finalized monthly count.
-      if (!row.endAt) continue;
+      // An open break is temporarily clipped to `now`. This keeps live working
+      // time honest without completing or otherwise mutating the stored break.
       const intervals = clipToWorkingDays(row.userId, row.startAt, row.endAt);
       if (!intervals.length) continue;
-      breakCount += 1;
+      // Counts remain finalized facts; elapsed live break time is still
+      // included in break minutes and deducted from live working minutes.
+      if (row.endAt) breakCount += 1;
       breaksByUser.set(row.userId, [...(breaksByUser.get(row.userId) ?? []), ...intervals]);
     }
     let workingMinutes = 0;
@@ -546,7 +560,7 @@ export class TeamInsightsService {
     return {
       workingMinutes, presenceMinutes, breakMinutes, breakCount, ticketMinutes, meetingMinutes, productiveMinutes,
       meetingCount, meetingParticipationCount,
-      punchInMinute: medianClockMinute(punchIns), punchOutMinute: medianClockMinute(punchOuts),
+      punchInMinute: averageClockMinute(punchIns), punchOutMinute: averageClockMinute(punchOuts),
       punchInCount: punchIns.length, punchOutCount: punchOuts.length,
       measurablePresenceDays, daysWorked: workedDays.size, calendarDaysWorked,
     };
@@ -571,11 +585,15 @@ export class TeamInsightsService {
       const date = isoDay(row.date);
       return dateSet.has(date) && eligibleEmployeeDays.has(`${row.userId}:${date}`);
     });
-    const presentStatuses = new Set(['PRESENT', 'LATE', 'LATE_EXEMPTED']);
+    const fullDayPresentStatuses = new Set(['PRESENT', 'LATE', 'LATE_EXEMPTED']);
+    // "Present days" is intentionally inclusive: a half day, late day or
+    // short-hours day still means the employee attended. Attendance rate keeps
+    // its separate half-day weighting below.
+    const attendedStatuses = new Set([...fullDayPresentStatuses, 'HALF_DAY']);
     // Outcome buckets are mutually exclusive. A day under review is not also
     // advertised as verified present/half-day/absent/leave.
     const resolved = applicable.filter((row) => row.evaluationState !== 'NEEDS_REVIEW');
-    const presentDays = resolved.filter((row) => presentStatuses.has(row.status)).length;
+    const presentDays = resolved.filter((row) => attendedStatuses.has(row.status)).length;
     const halfDays = resolved.filter((row) => row.status === 'HALF_DAY').length;
     const lateDays = resolved.filter((row) => row.status === 'LATE').length;
     const lessWorkingHoursDays = resolved.filter((row) => (row.exceptionFlags ?? []).some((flag) =>
@@ -589,7 +607,7 @@ export class TeamInsightsService {
     // Never turn an unevaluated or under-review day into an absence. The rate
     // uses only verified attendance outcomes; completeness reports how much of
     // the scheduled population is trustworthy enough to analyse.
-    const resolvedPresent = resolved.filter((row) => presentStatuses.has(row.status)).length;
+    const resolvedPresent = resolved.filter((row) => fullDayPresentStatuses.has(row.status)).length;
     const resolvedHalfDays = resolved.filter((row) => row.status === 'HALF_DAY').length;
     // Every employment-eligible company working day stays in the denominator:
     // absence, leave, half-day and missing data do not silently disappear.
@@ -647,14 +665,25 @@ export class TeamInsightsService {
       const isShortHours = row?.exceptionFlags?.some((flag) =>
         flag === 'INSUFFICIENT_PRESENCE_SPAN' || flag === 'INSUFFICIENT_EFFECTIVE_WORK',
       );
-      const resolvedWorkday = row?.evaluationState !== 'NEEDS_REVIEW' && ['PRESENT', 'LATE', 'LATE_EXEMPTED'].includes(row?.status ?? '');
-      const isOvertime = resolvedWorkday && (row?.workedMinutes ?? 0) > 540;
+      const outcome = row?.status ?? null;
+      const isResolved = !!row && row.evaluationState !== 'NEEDS_REVIEW';
+      const isPresent = isResolved && ['PRESENT', 'LATE', 'LATE_EXEMPTED', 'HALF_DAY'].includes(outcome ?? '');
+      const isProductive = isPresent && productiveDates.has(day.businessDate);
+      const isOvertime = isPresent && (row?.workedMinutes ?? 0) > 540;
+      const modifiers = [
+        outcome === 'LATE' ? 'LATE' : null,
+        outcome === 'LATE_EXEMPTED' ? 'LATE_EXEMPTED' : null,
+        isShortHours ? 'SHORT_HOURS' : null,
+        isProductive ? 'PRODUCTIVE' : null,
+        isOvertime ? 'OVERTIME' : null,
+      ].filter((value): value is string => !!value);
       const attendanceStatus = row?.evaluationState === 'NEEDS_REVIEW'
         ? 'NEEDS_REVIEW'
-        : isOvertime ? 'OVERTIME'
-          : row?.status === 'PRESENT' && isShortHours ? 'SHORT_HOURS'
-            : row?.status === 'PRESENT' && productiveDates.has(day.businessDate) ? 'PRODUCTIVE'
-              : row?.status ?? null;
+        : outcome === 'HALF_DAY' ? 'HALF_DAY'
+          : isOvertime ? 'OVERTIME'
+            : isShortHours ? 'SHORT_HOURS'
+              : isProductive ? 'PRODUCTIVE'
+                : outcome;
       const displayStatus = attendanceStatus
         ?? (day.reason === 'HOLIDAY' || day.reason === 'COMPANY_CLOSURE' ? 'HOLIDAY'
           : ['SUNDAY', 'SECOND_SATURDAY', 'FOURTH_SATURDAY'].includes(day.reason) ? 'WEEKLY_OFF'
@@ -662,6 +691,9 @@ export class TeamInsightsService {
       return {
         date: day.businessDate,
         status: displayStatus,
+        outcome,
+        modifiers,
+        isPresent,
         holidayName: day.holidayName,
         isWorkingDay: day.isWorkingDay,
       };
@@ -756,13 +788,9 @@ export class TeamInsightsService {
     const reviewOverdueIds = new Set<string>();
     const asOf = new Date(Math.min(range.end.getTime(), this.tva.now().getTime()));
     for (const ticket of tickets) {
-      const completedAt = ticketCompletionAt(ticket);
-      const executionDue = ticket.executionDueAt ?? ticket.dueDate;
-      const reviewDue = ticket.reviewDueAt;
-      if (executionDue && executionDue < asOf && (!completedAt || completedAt > executionDue)
-        && (ticketHadStatus(ticket, TicketStatus.OPEN, range) || ticketHadStatus(ticket, TicketStatus.IN_PROGRESS, range))) executionOverdueIds.add(ticket.id);
-      if (reviewDue && reviewDue < asOf && (!completedAt || completedAt > reviewDue)
-        && ticketHadStatus(ticket, TicketStatus.REVIEW, range)) reviewOverdueIds.add(ticket.id);
+      const overduePhase = ticketOverduePhase(ticket, asOf);
+      if (overduePhase === 'EXECUTION') executionOverdueIds.add(ticket.id);
+      if (overduePhase === 'REVIEW') reviewOverdueIds.add(ticket.id);
     }
     const activeInPeriod = tickets.filter((ticket) => ACTIVE_TICKET_STATUSES.some((status) => ticketHadStatus(ticket, status, range)));
     return {
@@ -814,10 +842,12 @@ export class TeamInsightsService {
       where: { tickets: { some: { OR: [{ assignedToId: { in: userIds } }, { assignees: { some: { userId: { in: userIds } } } }] } } },
       select: {
         id: true, projectId: true, name: true, status: true, endDate: true,
+        department: { select: { id: true, name: true } },
         tickets: { select: {
           id: true, status: true, assignedToId: true, dueDate: true, executionDueAt: true, reviewDueAt: true,
           createdAt: true, updatedAt: true, actualStartAt: true, actualCompletedAt: true, submittedAt: true,
           reviewStartedAt: true, closedAt: true, resolvedAt: true, cancelledAt: true,
+          department: { select: { id: true, name: true } },
           assignees: { select: { userId: true } },
           history: { where: { field: 'status' }, orderBy: { changedAt: 'asc' } },
         } },
@@ -842,21 +872,60 @@ export class TeamInsightsService {
         return status != null && ACTIVE_TICKET_STATUSES.includes(status);
       }).length;
       const overdue = mine.filter((ticket) => {
-        const due = ticket.reviewDueAt ?? ticket.executionDueAt ?? ticket.dueDate;
-        const completedAt = ticketCompletionAt(ticket);
-        return !!due && due < asOf && (!completedAt || completedAt > due)
-          && ACTIVE_TICKET_STATUSES.some((status) => ticketHadStatus(ticket, status, range));
+        return ticketOverduePhase(ticket, asOf) != null;
       }).length;
       const allDone = project.tickets.filter((ticket) => inPeriod(ticket) && completedInPeriod(ticket)).length;
+      const inferredDepartments = [...new Map(project.tickets
+        .flatMap((ticket) => ticket.department ? [[ticket.department.id, ticket.department] as const] : [])).values()];
       return {
         id: project.id, code: project.projectId, name: project.name, status: project.status,
-        finishedAt: project.endDate, assigned: mine.length, done, active, overdue,
+        finishedAt: project.endDate, department: project.department,
+        departments: project.department ? [project.department] : inferredDepartments,
+        assigned: mine.length, done, active, overdue,
         // A company-wide numerator contains the same people as the denominator,
         // which would turn every populated project into a meaningless 100%.
         contributionPercent: showContribution && allDone ? Math.round(done / allDone * 100) : null,
         hasStatusConflict: project.status === 'COMPLETED' && active > 0,
       };
     }).filter((project) => project.assigned > 0);
+  }
+
+  private async companyActiveProjects(range: Range) {
+    const asOf = new Date(Math.min(range.end.getTime(), this.tva.now().getTime()));
+    const projects = await this.prisma.project.findMany({
+      where: { status: 'ACTIVE' },
+      select: {
+        id: true, projectId: true, name: true, status: true, endDate: true,
+        department: { select: { id: true, name: true } },
+        tickets: { where: { createdAt: { lt: range.end } }, select: {
+          id: true, status: true, createdAt: true, updatedAt: true,
+          actualStartAt: true, actualCompletedAt: true, submittedAt: true,
+          reviewStartedAt: true, closedAt: true, resolvedAt: true, cancelledAt: true,
+          department: { select: { id: true, name: true } },
+          history: { where: { field: 'status' }, orderBy: { changedAt: 'asc' } },
+        } },
+      },
+      orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
+    });
+
+    return projects.map((project) => {
+      const statuses = project.tickets.map((ticket) => ({ ticket, status: ticketStatusAt(ticket, asOf) }));
+      const active = statuses.filter(({ status }) => status != null && ACTIVE_TICKET_STATUSES.includes(status)).length;
+      const inProgress = statuses.filter(({ status }) => status === TicketStatus.IN_PROGRESS).length;
+      const done = project.tickets.filter((ticket) => {
+        const completedAt = ticketCompletionAt(ticket);
+        return completedAt && completedAt >= range.start && completedAt < range.end;
+      }).length;
+      const inferredDepartments = [...new Map(project.tickets
+        .flatMap((ticket) => ticket.department ? [[ticket.department.id, ticket.department] as const] : [])).values()];
+      return {
+        id: project.id, code: project.projectId, name: project.name, status: project.status,
+        finishedAt: project.endDate, department: project.department,
+        departments: project.department ? [project.department] : inferredDepartments,
+        assigned: project.tickets.length, active, inProgress, done, overdue: 0,
+        contributionPercent: null, hasStatusConflict: false,
+      };
+    });
   }
 
   private async achievementStats(userIds: string[], range: Range) {
@@ -1105,7 +1174,7 @@ export class TeamInsightsService {
         ? this.personalLeaveUsage(personId, range.start).catch(() => null)
         : Promise.resolve(null),
       this.ticketMetrics(userIds, effectiveRange),
-      companyWide ? Promise.resolve([]) : this.projects(userIds, effectiveRange, true),
+      companyWide ? this.companyActiveProjects(effectiveRange) : this.projects(userIds, effectiveRange, true),
     ]);
     // Scheduled employee-days are the fair denominator: holidays and weekly
     // offs disappear, while absence and half-day attendance remain visible

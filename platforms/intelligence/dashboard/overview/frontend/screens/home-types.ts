@@ -67,12 +67,26 @@ export type TeamInsightPayload = {
       allocatedDays: number; takenDays: number; pendingDays: number; financialYear: string;
       leaves: Array<{ id: string; type: string; startDate: string; endDate: string; isHalfDay: boolean }>;
     };
-    attendanceCalendar: Array<{ date: string; status: string; holidayName: string | null; isWorkingDay: boolean }>;
+    attendanceCalendar: Array<{
+      date: string;
+      status: string;
+      outcome: string | null;
+      modifiers: string[];
+      isPresent: boolean;
+      holidayName: string | null;
+      isWorkingDay: boolean;
+    }>;
     averages: { workingMinutes: number | null; productiveMinutes: number | null; breakMinutes: number | null; breakCount: number | null; meetingMinutes: number | null; meetingCount: number | null };
   };
 };
 
-export type TeamInsightProject = { id: string; code: string; name: string; status: string; finishedAt: string | null; assigned: number; done: number; active: number; overdue: number; contributionPercent: number | null; hasStatusConflict: boolean };
+export type TeamInsightProject = {
+  id: string; code: string; name: string; status: string; finishedAt: string | null;
+  department?: { id: string; name: string } | null;
+  departments?: Array<{ id: string; name: string }>;
+  assigned: number; done: number; active: number; inProgress?: number; overdue: number;
+  contributionPercent: number | null; hasStatusConflict: boolean;
+};
 
 export type PersonalHighlightPayload = {
   period: { month: string; from: string; to: string };

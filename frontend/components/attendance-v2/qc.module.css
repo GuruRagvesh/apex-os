@@ -1,5 +1,5 @@
 .dialog {border:1px solid #cfdef1;border-radius:18px;padding:0;background:#fff;color:#01266a;width:min(680px,calc(100vw - 32px));max-height:88dvh;box-shadow:0 20px 80px #01266a30;color-scheme:light;--text-primary:#01266a;--text-secondary:#496080;--text-tertiary:#496080;--bg-primary:#fff;--bg-secondary:#f0f7ff;--bg-tertiary:#f5f8fd;--border-secondary:#cfdef1;--border-primary:#cfdef1;--accent:#2666c4;}
-.dialog::backdrop {background:#08234566;}
+.dialog::backdrop {background:rgba(15,23,42,.30);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);}
 .dialog>header {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;border-bottom:1px solid #e0e9f6;position:sticky;top:0;background:white;z-index:1;}
 .dialog h2 {font-size:22px;font-weight:700;}
 .dialog header button {padding:8px;border-radius:8px;background:#eef5ff;}
