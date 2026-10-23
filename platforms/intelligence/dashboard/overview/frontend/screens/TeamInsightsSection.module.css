@@ -1,6 +1,6 @@
 .distribution { margin-top: 19px; padding: 0 0 17px; border-bottom: 1px solid #eaf0f8; }
 .distribution > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
-.distribution h3 { font-size: 19px; font-weight: 650; }
+.distribution h3 { font-size: 15px; font-weight: 650; }
 .distribution > div:first-child > span { color: #496080; font-size: 14px; line-height: 1.55; }
 .dayStrip { display: grid; grid-template-columns: repeat(31, minmax(0, 1fr)); gap: 5px; margin: 13px 0 10px; }
 .dayStrip button { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 5px; border-radius: 5px; color: #31577e; font-size: 12px; font-weight: 600; }
