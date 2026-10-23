@@ -155,9 +155,11 @@ describe('TeamInsightsService analytics rules', () => {
       ['u1'], ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15'], eligible, 0,
     );
 
+    // Present days include the half day (the person attended); the attendance
+    // rate still weights half days separately.
     expect(metrics).toMatchObject({
       expectedEmployeeDays: 4,
-      presentDays: 1,
+      presentDays: 2,
       halfDays: 1,
       lateDays: 1,
       lessWorkingHoursDays: 1,
