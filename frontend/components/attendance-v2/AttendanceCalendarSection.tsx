@@ -213,10 +213,10 @@ export function AttendanceCalendarSection({
                       <span><b>{period.summary.needsReview}</b> Review</span>
                     </span>
                     <span className={s.yearDistribution} aria-hidden="true">
-                      <i style={{ flex: period.summary.present || 0, background: '#16A34A' }} />
-                      <i style={{ flex: period.summary.halfDay || 0, background: '#9333EA' }} />
-                      <i style={{ flex: period.summary.leave + period.summary.lwp || 0, background: '#0284C7' }} />
-                      <i style={{ flex: period.summary.absent || 0, background: '#DC2626' }} />
+                      <i style={{ flex: period.summary.present, background: '#16A34A' }} />
+                      <i style={{ flex: period.summary.halfDay, background: '#9333EA' }} />
+                      <i style={{ flex: period.summary.leave + period.summary.lwp, background: '#0284C7' }} />
+                      <i style={{ flex: period.summary.absent, background: '#DC2626' }} />
                     </span>
                   </>
                 )}
