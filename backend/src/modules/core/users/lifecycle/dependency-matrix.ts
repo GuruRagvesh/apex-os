@@ -167,6 +167,8 @@ export const HANDLERS: Handler[] = [
   { key: 'UserSetupIssue.userId', model: 'UserSetupIssue', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: false, sheet: 'Setup Health', note: 'Setup health about the person.' },
   { key: 'HierarchyAssignment.subjectUserId', model: 'HierarchyAssignment', field: 'subjectUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'The person\'s own TL/Manager assignments. The initial one is setup-only.' },
   { key: 'HierarchyAssignment.assigneeUserId', model: 'HierarchyAssignment', field: 'assigneeUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'An open row where the person is TL/Manager blocks archival; ended rows are deleted.' },
+  { key: 'OrganizationReportingLine.subjectUserId', model: 'OrganizationReportingLine', field: 'subjectUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'The person\'s own business-reporting line. It is not an approval assignment.' },
+  { key: 'OrganizationReportingLine.supervisorId', model: 'OrganizationReportingLine', field: 'supervisorId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'An active business supervisor blocks archival until their reports have been reassigned.' },
   { key: 'DepartmentTransfer.userId', model: 'DepartmentTransfer', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Transfers', note: 'Cascades the transfer\'s review inventory.' },
 
   // ── 4. Shared records: reassign required actor/owner columns ──────────────
