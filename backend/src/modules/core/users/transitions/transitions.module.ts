@@ -25,6 +25,6 @@ import { TransitionsSchedulerService } from './transitions-scheduler.service';
     TransferService, ExitService, ClearanceService, SeparationService, FnfService,
     RetentionProposalsService, LegalHoldsService, TransitionsSchedulerService,
   ],
-  exports: [TransferService, ExitService, FnfService],
+  exports: [TransferService, ExitService, FnfService, RetentionProposalsService, LegalHoldsService],
 })
 export class TransitionsModule {}

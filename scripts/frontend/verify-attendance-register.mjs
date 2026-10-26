@@ -49,6 +49,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const FILES = {
   console: 'frontend/components/attendance/AttendanceConsole.tsx',
+  workspace: 'frontend/components/attendance/AttendanceConsoleWorkspace.tsx',
   api: 'frontend/components/attendance/console-api.ts',
   month: 'frontend/components/attendance/register-month.ts',
   exceptionQueue: 'frontend/components/attendance/AttendanceExceptionQueue.tsx',
@@ -67,24 +68,25 @@ function read(key) {
 }
 
 const consoleTsx = read('console');
+const workspaceTsx = read('workspace');
 const api = read('api');
 const month = read('month');
 
 // ── Rule 1: two tabs, named for the questions they answer ──────────────────
-const tabBlock = consoleTsx.match(/const TAB_LABEL = \{([\s\S]*?)\} as const;/);
-if (!tabBlock) {
-  failures.push('TAB_LABEL is gone; the console tab set can no longer be verified.');
-} else {
-  const keys = [...tabBlock[1].matchAll(/^\s*(\w+)\s*:/gm)].map((m) => m[1]);
-  if (keys.length !== 2 || !keys.includes('roster') || !keys.includes('register')) {
-    failures.push(`The console must have exactly two tabs (roster, register); found: ${keys.join(', ') || 'none'}.`);
-  }
-  if (/exceptions|payroll/i.test(tabBlock[1])) {
-    failures.push('An Exceptions or Payroll tab is back in the Attendance Console.');
-  }
-  if (!/Daily Review/.test(tabBlock[1]) || !/Monthly Register/.test(tabBlock[1])) {
-    failures.push('The tabs are not labelled "Daily Review" and "Monthly Register".');
-  }
+// The console workspace has two tabs, Team Review Corrections and Team
+// Attendance. Team Attendance renders the Monthly Register only, as its default.
+const workspaceTabs = [...workspaceTsx.matchAll(/role="tab"[\s\S]*?aria-selected=\{tab === '(\w+)'\}/g)].map((m) => m[1]);
+if (workspaceTabs.length !== 2 || !workspaceTabs.includes('reviews') || !workspaceTabs.includes('attendance')) {
+  failures.push(`The console workspace must have exactly two tabs (reviews, attendance); found: ${workspaceTabs.join(', ') || 'none'}.`);
+}
+if (!/Team Review Corrections/.test(workspaceTsx) || !/Team Attendance/.test(workspaceTsx)) {
+  failures.push('The tabs are not labelled "Team Review Corrections" and "Team Attendance".');
+}
+if (/exceptions|payroll/i.test(workspaceTsx.replace(/aria-label="[^"]*"/g, ''))) {
+  failures.push('An Exceptions or Payroll tab is back in the Attendance Console.');
+}
+if (!/Monthly Register/.test(consoleTsx)) {
+  failures.push('The Team Attendance view no longer shows the Monthly Register.');
 }
 if (/<AttendanceExceptionQueue\b|<PayrollMonthClose\b/.test(consoleTsx)) {
   failures.push('The Attendance Console still renders the exception queue or the payroll close.');
@@ -101,7 +103,8 @@ for (const key of ['exceptionQueue', 'payrollClose']) {
 }
 
 // ── Rule 3: exactly seven columns ──────────────────────────────────────────
-const registerBlock = consoleTsx.match(/tab === 'register' && \(([\s\S]*?)\n {6}\)\}/);
+// The register is the console's only view now: everything from its header row on.
+const registerBlock = consoleTsx.match(/(<span[^>]*>\s*Monthly Register\s*<\/span>[\s\S]*<\/table>)/);
 if (!registerBlock) {
   failures.push('The Monthly Register block could not be located; its columns cannot be verified.');
 } else {
@@ -188,5 +191,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('[attendance] Register OK — two tabs, seven columns, one computed result, both exports.');
+console.log('[attendance] Register OK — Monthly Register is the Team Attendance view, seven columns, one computed result, both exports.');
 process.exit(0);

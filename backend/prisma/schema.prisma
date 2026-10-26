@@ -153,6 +153,9 @@ model User {
   hierarchyAssignedTo   HierarchyAssignment[] @relation("HierarchyAssignee")
   departmentTransfers   DepartmentTransfer[]
   exitCases             ExitCase[]
+  reviewQueueAssignments ReviewQueueAssignment[] @relation("ReviewQueueAssignedReviewer")
+  reviewQueueForwards    ReviewQueueAssignment[] @relation("ReviewQueueForwardedBy")
+  reviewQueueSubjects    ReviewQueueAssignment[] @relation("ReviewQueueSubject")
 
   @@index([departmentId])
   @@index([roleId])
@@ -3223,6 +3226,28 @@ model RoutingSnapshot {
   @@index([entityType, entityId, createdAt], map: "routing_snapshots_entity_idx")
   @@index([resolvedApproverId])
   @@map("routing_snapshots")
+}
+
+/// Active reviewer ownership for the unified request queue. The underlying
+/// domain request remains authoritative; this row only records who a valid
+/// reviewer forwarded the pending item to. Historical rows are retained.
+model ReviewQueueAssignment {
+  id                 String    @id @default(cuid())
+  requestType        String
+  requestId          String
+  subjectUserId      String?
+  assignedReviewerId String
+  forwardedById      String
+  forwardReason      String?
+  createdAt          DateTime  @default(now())
+  endedAt            DateTime?
+  assignedReviewer   User      @relation("ReviewQueueAssignedReviewer", fields: [assignedReviewerId], references: [id], onDelete: Restrict)
+  forwardedBy        User      @relation("ReviewQueueForwardedBy", fields: [forwardedById], references: [id], onDelete: Restrict)
+  subjectUser        User?     @relation("ReviewQueueSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
+
+  @@index([assignedReviewerId, endedAt])
+  @@index([requestType, requestId])
+  @@map("review_queue_assignments")
 }
 
 model PolicyHealthIssue {

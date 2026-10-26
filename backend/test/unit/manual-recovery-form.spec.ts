@@ -189,7 +189,7 @@ describe('the control is not on any employee surface', () => {
     expect(F(file)).not.toMatch(/ManualRecoveryForm|manual-recovery-api/);
   });
 
-  it('lives on the console, where authorised people work', () => {
-    expect(F('components/attendance/AttendanceConsole.tsx')).toMatch(/<ManualRecoveryForm/);
+  it('lives in the Manual Recovery workspace, where authorised people work', () => {
+    expect(F('components/attendance/ImportWorkspace.tsx')).toMatch(/<ManualRecoveryForm/);
   });
 });

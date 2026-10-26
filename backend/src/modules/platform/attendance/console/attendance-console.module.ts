@@ -26,6 +26,6 @@ import { LeaveModule } from '../../../operations/leave/leave.module';
   ],
   controllers: [AttendanceConsoleController],
   providers: [AttendanceConsoleService, PunchReviewService, UnreportedAbsenceService],
-  exports: [AttendanceConsoleService, UnreportedAbsenceService],
+  exports: [AttendanceConsoleService, PunchReviewService, UnreportedAbsenceService],
 })
 export class AttendanceConsoleModule {}
