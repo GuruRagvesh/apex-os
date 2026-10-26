@@ -8,7 +8,14 @@ import { PunchPhotoStorage } from '../attendance/punch/punch-photo.storage';
 /** How long the health probe waits for the database before answering anyway. */
 const DB_PROBE_TIMEOUT_MS = 3_000;
 
-const ORGANIZATION_HIERARCHY_MIGRATIONS = [
+// These are the migrations required for an authenticated hierarchy request,
+// not merely the tables owned by the hierarchy module. The Phase 4 user
+// fields are read by JwtStrategy before the hierarchy controller runs.
+// Omitting them made readiness say "ready" even though every signed-in
+// hierarchy request failed against an older database.
+const ORGANIZATION_HIERARCHY_RUNTIME_MIGRATIONS = [
+  '20261022090000_phase4_enum_values',
+  '20261022090100_phase4_employee_transitions',
   '20261023104500_organization_reporting_lines',
   '20261023143000_matrix_organization_memberships',
   '20261023150000_aniket_qc_reports_to_rajashree',
@@ -98,7 +105,7 @@ export class HealthController {
           SELECT migration_name
           FROM "_prisma_migrations"
           WHERE finished_at IS NOT NULL
-            AND migration_name IN (${Prisma.join(ORGANIZATION_HIERARCHY_MIGRATIONS)})
+            AND migration_name IN (${Prisma.join(ORGANIZATION_HIERARCHY_RUNTIME_MIGRATIONS)})
         `,
       );
       appliedMigrationCount = new Set(
@@ -109,7 +116,8 @@ export class HealthController {
     }
 
     const organizationHierarchyReady =
-      appliedMigrationCount === ORGANIZATION_HIERARCHY_MIGRATIONS.length;
+      appliedMigrationCount ===
+      ORGANIZATION_HIERARCHY_RUNTIME_MIGRATIONS.length;
 
     return {
       status: organizationHierarchyReady ? 'ready' : 'not_ready',
@@ -118,7 +126,7 @@ export class HealthController {
       },
       organizationHierarchy: {
         endpoint: '/api/organization-hierarchy/organization',
-        requiredMigrations: ORGANIZATION_HIERARCHY_MIGRATIONS.length,
+        requiredMigrations: ORGANIZATION_HIERARCHY_RUNTIME_MIGRATIONS.length,
         appliedMigrations: appliedMigrationCount,
         ready: organizationHierarchyReady,
       },

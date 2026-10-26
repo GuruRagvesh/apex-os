@@ -181,6 +181,8 @@ describe('health readiness reporting', () => {
 
   it('reports the hierarchy release as ready only after every required migration is applied', async () => {
     const applied = [
+      '20261022090000_phase4_enum_values',
+      '20261022090100_phase4_employee_transitions',
       '20261023104500_organization_reporting_lines',
       '20261023143000_matrix_organization_memberships',
       '20261023150000_aniket_qc_reports_to_rajashree',
@@ -196,8 +198,8 @@ describe('health readiness reporting', () => {
     expect(body.status).toBe('ready');
     expect(body.organizationHierarchy).toEqual({
       endpoint: '/api/organization-hierarchy/organization',
-      requiredMigrations: 4,
-      appliedMigrations: 4,
+      requiredMigrations: 6,
+      appliedMigrations: 6,
       ready: true,
     });
   });
@@ -207,6 +209,8 @@ describe('health readiness reporting', () => {
       $queryRaw: jest
         .fn()
         .mockResolvedValue([
+          { migration_name: '20261022090000_phase4_enum_values' },
+          { migration_name: '20261022090100_phase4_employee_transitions' },
           { migration_name: '20261023104500_organization_reporting_lines' },
           { migration_name: '20261023143000_matrix_organization_memberships' },
         ]),
@@ -219,8 +223,8 @@ describe('health readiness reporting', () => {
 
     expect(body.status).toBe('not_ready');
     expect(body.organizationHierarchy).toMatchObject({
-      requiredMigrations: 4,
-      appliedMigrations: 2,
+      requiredMigrations: 6,
+      appliedMigrations: 4,
       ready: false,
     });
   });
