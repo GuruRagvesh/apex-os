@@ -170,6 +170,7 @@ export const HANDLERS: Handler[] = [
   { key: 'OrganizationReportingLine.subjectUserId', model: 'OrganizationReportingLine', field: 'subjectUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'The person\'s own business-reporting line. It is not an approval assignment.' },
   { key: 'OrganizationReportingLine.supervisorId', model: 'OrganizationReportingLine', field: 'supervisorId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'An active business supervisor blocks archival until their reports have been reassigned.' },
   { key: 'DepartmentTransfer.userId', model: 'DepartmentTransfer', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Transfers', note: 'Cascades the transfer\'s review inventory.' },
+  { key: 'ReviewQueueAssignment.subjectUserId', model: 'ReviewQueueAssignment', field: 'subjectUserId', fk: true, holds: 'id', action: 'NULL', history: true, sheet: 'Review Routing', note: 'Preserves the forwarding audit while clearing the deleted subject reference.' },
 
   // ── 4. Shared records: reassign required actor/owner columns ──────────────
   { key: 'Ticket.createdById', model: 'Ticket', field: 'createdById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Tickets Created', note: 'Shared ticket stays.' },
@@ -188,6 +189,8 @@ export const HANDLERS: Handler[] = [
   { key: 'UserLifecycleOperation.actorId', model: 'UserLifecycleOperation', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ OR: [{ userId: null }, { userId: { not: u.id } }] }), history: true, sheet: 'Lifecycle Operations', note: 'Operations the person ran on others.' },
   { key: 'UserArchiveSnapshot.createdById', model: 'UserArchiveSnapshot', field: 'createdById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ OR: [{ userId: null }, { userId: { not: u.id } }] }), history: true, sheet: 'Lifecycle Operations', note: 'Archives the person created of others.' },
   { key: 'DepartmentTransfer.actorId', model: 'DepartmentTransfer', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Transfers', note: 'Transfers the person performed for others.' },
+  { key: 'ReviewQueueAssignment.assignedReviewerId', model: 'ReviewQueueAssignment', field: 'assignedReviewerId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Review Routing', note: 'Required reviewer on preserved forwarding history; moved to the Deleted account principal.' },
+  { key: 'ReviewQueueAssignment.forwardedById', model: 'ReviewQueueAssignment', field: 'forwardedById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Review Routing', note: 'Required forwarding actor on preserved history; moved to the Deleted account principal.' },
   ...(['approvedById', 'recordedById'] as const).map((field): Handler => ({
     key: `FnfAdjustment.${field}`, model: 'FnfAdjustment', field, fk: false, holds: 'id', action: 'REASSIGN',
     scope: (u) => ({ subjectUserId: { not: u.id } }), history: true, sheet: 'Exit and F&F', note: 'Required actor on another person\'s adjustment; moved under the trigger exception.',
@@ -316,7 +319,7 @@ export const HANDLERS: Handler[] = [
  */
 export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set(
   HANDLERS.map((h) => h.key).filter((k) =>
-    /^(LifecycleRemediationAttempt|FnfAdjustmentRequest|RetentionRuleProposal|RetentionRuleVersion|TransitionRequestKey|DepartmentTransferImpact|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview)\./.test(k)
+    /^(LifecycleRemediationAttempt|FnfAdjustmentRequest|RetentionRuleProposal|RetentionRuleVersion|TransitionRequestKey|DepartmentTransferImpact|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview|ReviewQueueAssignment|OrganizationReportingLine)\./.test(k)
     || [
       'LeaveRequest.fundingChangedById',
       'RetentionRule.createdById',

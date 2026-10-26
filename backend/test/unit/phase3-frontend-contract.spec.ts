@@ -27,14 +27,30 @@ describe('Phase 3 connected frontend contract', () => {
   });
 
   it('renders team/company correction queues and explicit creator confirmation', () => {
-    const page = source('frontend/app/(dashboard)/attendance/reviews/page.tsx');
-    expect(page).toContain('My team');
-    expect(page).toContain('Company pending');
-    expect(page).not.toContain('HR final review');
+    const panel = source('frontend/components/attendance/AttendanceReviewsPanel.tsx');
+    expect(panel).toContain('My team');
+    expect(panel).toContain('Company pending');
+    expect(panel).not.toContain('HR final review');
     const queue = source('frontend/components/attendance/RegularizationQueue.tsx');
     expect(queue).toContain('confirmCreatorDecision');
     expect(queue).toContain('I entered this manual recovery');
     expect(queue).toContain('reviewedFingerprint');
+  });
+
+  it('exposes one Attendance Console with review and attendance tabs', () => {
+    const workspace = source('frontend/components/attendance/AttendanceConsoleWorkspace.tsx');
+    expect(workspace).toContain('Attendance Console');
+    expect(workspace).not.toContain('Welcome to Attendance Console');
+    expect(workspace).toContain('Team Review Corrections');
+    expect(workspace).toContain('Team Attendance');
+
+    const sidebar = source('frontend/components/layout/sidebar.tsx');
+    expect(sidebar).toContain("href: '/attendance/admin'");
+    expect(sidebar).not.toContain("label: 'Attendance Reviews'");
+
+    const legacyRoute = source('frontend/app/(dashboard)/attendance/reviews/page.tsx');
+    expect(legacyRoute).toContain("tab: 'reviews'");
+    expect(legacyRoute).toContain("redirect(`/attendance/admin?");
   });
 
   it('personal balances show Casual and Sick only, never an Emergency pool', () => {

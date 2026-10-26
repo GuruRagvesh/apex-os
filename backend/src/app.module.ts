@@ -53,6 +53,7 @@ import { AttendanceExceptionModule } from './modules/platform/attendance/excepti
 import { AttendanceProcessingModule } from './modules/platform/attendance/processing/attendance-processing.module';
 import { EventsModule } from './modules/platform/events/events.module';
 import { AnalyticsModule } from './modules/platform/analytics/analytics.module';
+import { ReviewQueueModule } from './modules/platform/review-queue/review-queue.module';
 
 import { AppThrottlerGuard } from './shared/guards/app-throttler.guard';
 
@@ -114,6 +115,7 @@ const isTest = process.env.NODE_ENV === 'test';
     AttendanceExceptionModule,
     EventsModule,
     AnalyticsModule,
+    ReviewQueueModule,
   ],
 })
 export class AppModule {}

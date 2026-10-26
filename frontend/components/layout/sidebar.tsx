@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
   Users, Building2, BarChart3, LogOut, Zap, Settings,
   Activity, ArrowRight, ChevronDown, Handshake,
-  CalendarCheck, ClipboardCheck,
+  CalendarCheck,
   PanelLeftClose, PanelLeftOpen, X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -71,8 +71,7 @@ const BASE_NAV = [
 ];
 
 const TEAMLEAD_NAV  = [
-  { href: '/team',                 label: 'My Team',              icon: Users          },
-  { href: '/attendance/reviews',   label: 'Attendance Reviews',   icon: ClipboardCheck },
+  { href: '/team', label: 'My Team', icon: Users },
 ];
 const MANAGER_NAV   = [
   { href: '/analytics',        label: 'Analytics',         icon: BarChart3    },

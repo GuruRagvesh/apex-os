@@ -73,6 +73,8 @@ const check = (label, condition, detail) => {
 };
 
 const CONSOLE = read('frontend/components/attendance/AttendanceConsole.tsx');
+const WORKSPACE_TABS = read('frontend/components/attendance/AttendanceConsoleWorkspace.tsx');
+const LAUNCHER = read('frontend/components/attendance/AttendanceImportLauncher.tsx');
 const WORKSPACE = read('frontend/components/attendance/ImportWorkspace.tsx');
 const TABLE = read('frontend/components/attendance/ImportRowTable.tsx');
 const API = read('frontend/components/attendance/import-api.ts');
@@ -81,25 +83,21 @@ const PAGE = read('frontend/app/(dashboard)/attendance/import/page.tsx');
 const SURFACE = [WORKSPACE, TABLE, API, PRESENT, PAGE].join('\n');
 
 // ── 1. Two tabs, and import is an action ────────────────────────────────────
-const tabKeys = CONSOLE.match(/const TAB_LABEL = \{([\s\S]*?)\} as const;/);
+const workspaceTabs = [...WORKSPACE_TABS.matchAll(/role="tab"[\s\S]*?aria-selected=\{tab === '(\w+)'\}/g)].map((m) => m[1]);
 check(
-  '1a. The console still declares exactly two tabs',
-  tabKeys && (tabKeys[1].match(/^\s*\w+:/gm) ?? []).length === 2,
-  'TAB_LABEL must contain exactly roster and register.',
+  '1a. The console workspace still declares exactly two tabs',
+  workspaceTabs.length === 2,
+  'The workspace must have exactly Team Review Corrections and Team Attendance.',
 );
 check(
   '1b. Import is reached from the console',
-  CONSOLE.includes('/attendance/import'),
-  'The console must link to the import workspace.',
+  CONSOLE.includes('AttendanceImportLauncher') && CONSOLE.includes('AttendanceImportModal'),
+  'The console must offer the Import / Update Data launcher and open its workflows in a modal.',
 );
 check(
-  '1c. Import is a link, not a tab button',
-  /<Link[\s\S]{0,200}\/attendance\/import/.test(CONSOLE) &&
-    // The TAB_LABEL OBJECT is what must not gain an import entry. Matching the
-    // identifier anywhere would also hit its render site, which now sits beside
-    // the import link -- a false positive that would make this rule noise.
-    !(tabKeys && /import/i.test(tabKeys[1])),
-  'Import must be an action leading to its own route, not a third entry in TAB_LABEL.',
+  '1c. Import is an action, not a tab button',
+  /import=\$\{option\.section\}/.test(LAUNCHER) && !workspaceTabs.some((t) => /import/i.test(t)),
+  'Import must be an action in the Team Attendance toolbar, not a third tab.',
 );
 check(
   '1d. The import route exists and is a thin adapter',

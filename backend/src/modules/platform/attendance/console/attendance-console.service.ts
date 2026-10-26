@@ -8,7 +8,6 @@ import { DailyAttendanceEvaluatorService } from '../evaluation/daily-attendance-
 import { AttendanceProcessingService } from '../processing/attendance-processing.service';
 import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import { LeaveBalanceService } from '../../../operations/leave/leave-balance.service';
-import { formatInTimeZone } from 'date-fns-tz';
 import { ROLES } from '../../../../shared/constants/roles';
 import { deviceFileName, devicesCsv, registerCsv, registerFileName, type RegisterResult } from './register-report';
 import { buildRegisterWorkbook } from './register-workbook';
@@ -38,17 +37,6 @@ const MAX_RANGE_DAYS = 62;
 /** Employee-days one evaluation command may process. */
 const MAX_EVALUATION_UNITS = 2000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * A punch in AFTER this company-local time is late.
- *
- * The policy window is 09:30-10:30 INCLUSIVE, so 10:30:00 is on time and
- * 10:30:01 is not. Compared as a zero-padded HH:mm:ss string in company time,
- * which sorts correctly and needs no offset arithmetic -- and reading the wall
- * clock in the company timezone is the whole point, since a UTC comparison
- * would call an 09:00 IST arrival late.
- */
-const LATE_AFTER = '10:30:00';
 
 /**
  * The only roles that operate this console without HR or Admin authority.
@@ -667,7 +655,15 @@ export class AttendanceConsoleService {
 
     const employees = await this.prisma.user.findMany({
       where: userWhere,
-      select: { id: true, name: true, employeeId: true, isActive: true, department: { select: { id: true, name: true } } },
+      select: {
+        id: true,
+        name: true,
+        employeeId: true,
+        isActive: true,
+        avatar: true,
+        photoUrl: true,
+        department: { select: { id: true, name: true } },
+      },
       orderBy: { name: 'asc' },
     });
 
@@ -776,7 +772,11 @@ export class AttendanceConsoleService {
       const applicable = mine.filter((r) =>
         elapsedWorkingDates.has(this.tva.companyBusinessDate(r.date)),
       );
-      const count = (status: string) => applicable.filter((r) => r.status === status).length;
+      // A review-pending row is visible in the review count, but it is not yet
+      // an official attendance outcome. The employee calendar follows the same
+      // rule: only resolved stored facts feed its summary figures.
+      const resolved = applicable.filter((r) => r.evaluationState !== 'NEEDS_REVIEW');
+      const count = (status: string) => resolved.filter((r) => r.status === status).length;
 
       // A late arrival is still an attended day. Lateness is reported in its
       // own column rather than deducted twice.
@@ -787,27 +787,29 @@ export class AttendanceConsoleService {
       const absent = count('ABSENT');
       const weeklyOff = mine.filter((r) => r.status === 'WEEKLY_OFF').length;
       const holiday = mine.filter((r) => r.status === 'HOLIDAY').length;
-      const needsReview = applicable.filter((r) => r.evaluationState === 'NEEDS_REVIEW').length;
+      const needsReview = applicable.length - resolved.length;
       const notEvaluated = Math.max(0, elapsedWorkingDates.size - applicable.length);
 
-      // Late is read from the ATTENDANCE punch, not a Workday session start.
-      // They are different facts and only this one is policy.
-      const latePunchIns = applicable.filter(
-        (r) =>
-          r.punchInAt &&
-          formatInTimeZone(r.punchInAt, this.tva.companyTimezone(), 'HH:mm:ss') > LATE_AFTER,
-      ).length;
+      // lateMinutes is the evaluator's policy-aware answer for the employee's
+      // assigned shift. Recomputing against one hard-coded wall-clock time here
+      // would disagree with employees on different shifts and with corrected
+      // days. Count each resolved late day once, including an exempted late
+      // arrival: the exemption changes the outcome, not the historical punch.
+      const latePunchIns = resolved.filter((r) => (r.lateMinutes ?? 0) > 0).length;
 
-      // Approved full-day leave leaves the denominator entirely: an employee
-      // on sanctioned leave has not failed to attend, and counting it against
-      // them is the unfairness this formula exists to avoid.
-      const eligibleWorkingDays = Math.max(0, elapsedWorkingDates.size - leave);
+      // Match the employee calendar's attendance matrix exactly. Only official
+      // attendance outcomes are assessed: present, absent and half day. Leave,
+      // LWP, holidays, weekly offs, missing evaluations and review-pending rows
+      // are reported separately and never fabricated into a failed day.
+      const eligibleWorkingDays = present + absent + halfDay;
       const credit = present + halfDay * 0.5;
 
       return {
         userId: e.id,
         name: e.name,
         employeeId: e.employeeId,
+        avatar: e.avatar,
+        photoUrl: e.photoUrl,
         // A former employee shown for the days they worked. Reports mark them; they are not reactivated.
         isActive: e.isActive,
         department: e.department?.name ?? null,
@@ -821,7 +823,7 @@ export class AttendanceConsoleService {
         // Null, never 0 or NaN: with nothing to measure, a percentage is not a
         // low score, it is an absent one.
         attendanceCompletionPercentage:
-          eligibleWorkingDays > 0
+          notEvaluated === 0 && needsReview === 0 && eligibleWorkingDays > 0
             ? Number(((credit / eligibleWorkingDays) * 100).toFixed(2))
             : null,
 

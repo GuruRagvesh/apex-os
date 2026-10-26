@@ -91,6 +91,10 @@ export interface RegisterEmployee {
   isActive: boolean;
   userId: string;
   name: string;
+  employeeId: string | null;
+  avatar: string | null;
+  photoUrl: string | null;
+  department: string | null;
   daysPresent: number;
   daysAbsent: number;
   halfDays: number;
