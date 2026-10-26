@@ -4,9 +4,8 @@ The organization hierarchy is a backend and database feature, not a frontend
 mock. A release is complete only when all three layers agree:
 
 1. `staging` contains the frontend and NestJS changes.
-2. The six runtime migrations are applied to the independently verified
-   staging database: the two authentication prerequisites plus the four
-   hierarchy migrations.
+2. The four hierarchy migrations are applied to the independently verified
+   staging database.
 3. Render is serving that same staging commit.
 
 ## Release order
@@ -34,7 +33,7 @@ node scripts/deployment/verify-staging-hierarchy.mjs
 The verifier requires all of the following:
 
 - `/api/health` says `environment: staging` and reports the deployed commit.
-- `/api/health/release-readiness` confirms all six runtime migrations.
+- `/api/health/release-readiness` confirms all four hierarchy migrations.
 - `/api/organization-hierarchy/organization` returns `401` or `403` when
   unauthenticated, proving the protected route is registered. A `404` means the
   frontend and backend are on different releases.
