@@ -53,10 +53,12 @@ type DraftOperation =
   | { type: 'UPSERT'; subjectUserId: string; assigneeUserId: string; role: RelationRole }
   | { type: 'END'; subjectUserId: string; role: RelationRole };
 
+const HIERARCHY_REQUEST_TIMEOUT_MS = 12_000;
+
 const hierarchyApi = {
-  getMap: () => unwrap<HierarchyData>(api.get('/organization-hierarchy/organization')),
-  getDirectory: (params: { q?: string; limit?: number }) => unwrap<DirectoryPage>(api.get('/organization-hierarchy/organization/directory', { params })),
-  apply: (operations: DraftOperation[]) => unwrap<{ applied: number; map: HierarchyData }>(api.post('/organization-hierarchy/organization', { operations })),
+  getMap: () => unwrap<HierarchyData>(api.get('/organization-hierarchy/organization', { timeout: HIERARCHY_REQUEST_TIMEOUT_MS })),
+  getDirectory: (params: { q?: string; limit?: number }) => unwrap<DirectoryPage>(api.get('/organization-hierarchy/organization/directory', { params, timeout: HIERARCHY_REQUEST_TIMEOUT_MS })),
+  apply: (operations: DraftOperation[]) => unwrap<{ applied: number; map: HierarchyData }>(api.post('/organization-hierarchy/organization', { operations }, { timeout: HIERARCHY_REQUEST_TIMEOUT_MS })),
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -101,6 +103,16 @@ function departmentFor(node: HierarchyNode, departmentId?: string | null) {
   return node.departmentMemberships?.find((membership) => membership.departmentId === departmentId)?.department ?? null;
 }
 
+function hierarchyErrorCopy(error: unknown) {
+  const requestError = error as { code?: string; message?: string; response?: { status?: number } } | undefined;
+  const status = requestError?.response?.status;
+  if (status === 401) return { title: 'Your session has expired', description: 'Sign in again, then reopen the organization hierarchy.' };
+  if (status === 404) return { title: 'Hierarchy update is not deployed', description: 'This workspace needs the current backend release. Try again after the release has completed.' };
+  if (status && status >= 500) return { title: 'Organization map is temporarily unavailable', description: 'The service is available but could not load the organization data. Try again in a moment.' };
+  if (requestError?.code === 'ECONNABORTED' || /timeout/i.test(requestError?.message ?? '')) return { title: 'Organization map is taking too long to load', description: 'Check the API connection, then try again. The page will not keep loading indefinitely.' };
+  return { title: 'Organization map is unavailable', description: 'The hierarchy service could not be reached. Check the connection and try again.' };
+}
+
 export function OrganizationHierarchySection() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -119,6 +131,8 @@ export function OrganizationHierarchySection() {
     queryKey: ['organization-hierarchy'],
     queryFn: hierarchyApi.getMap,
     staleTime: 30_000,
+    retry: 1,
+    retryDelay: 750,
   });
   const subjectDirectory = useQuery({
     queryKey: ['organization-hierarchy-directory', 'subject', personSearch],
@@ -180,7 +194,7 @@ export function OrganizationHierarchySection() {
     setAssigneeId('');
   };
   if (hierarchy.isLoading) return <HierarchySkeleton />;
-  if (hierarchy.isError || !data) return <div className="apex-card p-8 text-center"><AlertTriangle className="mx-auto mb-3 text-amber-500" /><h2 className="font-semibold text-[var(--text-primary)]">Organization map is unavailable</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">The hierarchy service could not be reached.</p><button type="button" onClick={() => hierarchy.refetch()} className="apex-btn apex-btn-secondary mt-4">Try again</button></div>;
+  if (hierarchy.isError || !data) { const errorCopy = hierarchyErrorCopy(hierarchy.error); return <div className="apex-card p-8 text-center"><AlertTriangle className="mx-auto mb-3 text-amber-500" /><h2 className="font-semibold text-[var(--text-primary)]">{errorCopy.title}</h2><p className="mx-auto mt-1 max-w-md text-sm text-[var(--text-secondary)]">{errorCopy.description}</p><button type="button" onClick={() => hierarchy.refetch()} disabled={hierarchy.isFetching} className="apex-btn apex-btn-secondary mt-4 disabled:opacity-60">{hierarchy.isFetching ? 'Retrying…' : 'Try again'}</button></div>; }
 
   return <section className="space-y-5">
     <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
