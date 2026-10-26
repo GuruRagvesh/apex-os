@@ -301,18 +301,19 @@ function OfficeMindMap({ nodes, directory, edges, selectedId, onSelect, onClearF
   if (!nodes.length) return <div className="flex min-h-[420px] flex-col items-center justify-center bg-[var(--bg-secondary)] p-8 text-center"><Search className="mb-3 text-[var(--text-tertiary)]" /><p className="font-semibold">No people match these filters</p><button type="button" onClick={onClearFilters} className="mt-2 text-sm font-medium text-blue-600">Clear filters</button></div>;
 
   return <div className="bg-[var(--bg-secondary)] p-4 sm:p-5">
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">Office mind map</p><h3 className="text-lg font-semibold text-[var(--text-primary)]">One view of the whole company</h3><p className="text-xs text-[var(--text-secondary)]">Pavan leads four leadership branches and Founder’s Office. Open a department to follow its reporting path.</p></div><span className="rounded-full bg-[var(--surface-card)] px-3 py-1 text-xs text-[var(--text-secondary)]">{nodes.length} of {directory.length} people</span></div>
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">Office mind map</p><h3 className="text-lg font-semibold text-[var(--text-primary)]">One view of the whole company</h3><p className="text-xs text-[var(--text-secondary)]">Pavan leads four business branches. Open a department to follow its reporting path.</p></div><span className="rounded-full bg-[var(--surface-card)] px-3 py-1 text-xs text-[var(--text-secondary)]">{nodes.length} of {directory.length} people</span></div>
     <div aria-label="Access role colors" className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-secondary)]"><span className="font-semibold text-[var(--text-primary)]">Card accent = access role</span>{(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'INTERN'] as const).map((role) => <span key={role} className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ROLE_TINT[role] }} />{ROLE_LABEL[role]}</span>)}</div>
     <div ref={viewportRef} className="overflow-x-auto rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-card)]" aria-label="Company reporting tree" tabIndex={0}>
-      <div className="min-w-[1280px] bg-[radial-gradient(circle_at_50%_0%,rgba(59,130,246,0.09),transparent_45%)] px-5 pb-40 pt-7">
+      <div className="min-w-[1120px] bg-[radial-gradient(circle_at_50%_0%,rgba(59,130,246,0.09),transparent_45%)] px-5 pb-40 pt-7">
         {root && <div className="mx-auto w-[320px] rounded-2xl border border-blue-200 bg-blue-50/70 p-3 shadow-sm">
           <p className="mb-2 text-center text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">Company leadership</p>
           <NetworkPersonCard node={root} selected={selectedId === root.id} onSelect={() => onSelect(root)} featured contextOnly={!visibleIds.has(root.id)} />
+          {founderTeam.length > 0 && <div className="mt-2 border-t border-blue-200 pt-2"><p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-600">Founder’s Office</p>{founderTeam.map((entry) => <NetworkPersonCard key={entry.edge.id} node={entry.node} selected={selectedId === entry.node.id} onSelect={() => onSelect(entry.node)} compact />)}</div>}
         </div>}
-        {(leaders.length > 0 || founderTeam.length > 0) && <>
+        {leaders.length > 0 && <>
           <div className="mx-auto h-7 w-px bg-blue-300" aria-hidden="true" />
-          <div className="relative mx-[10%] h-px bg-blue-300" aria-hidden="true" />
-          <div className="grid grid-cols-5 gap-4">
+          <div className="relative mx-[12.5%] h-px bg-blue-300" aria-hidden="true" />
+          <div className="grid grid-cols-4 gap-4">
             {leaders.map((leader) => {
               const branches = (children.get(leader.node.id) ?? []).filter((entry) => hasMatch(entry.node.id));
               return <section key={leader.edge.id} className="relative min-w-0 pt-6">
@@ -339,27 +340,14 @@ function OfficeMindMap({ nodes, directory, edges, selectedId, onSelect, onClearF
                 </div>
               </section>;
             })}
-            <FounderOfficeBranch entries={founderTeam} selectedId={selectedId} onSelect={onSelect} />
           </div>
         </>}
       </div>
     </div>
-    <p className="mt-2 text-xs text-[var(--text-tertiary)]">The CEO’s five direct branches stay together: four leadership branches plus Founder’s Office. Expand a department to explore its team; scroll sideways on narrower screens.</p>
+    <p className="mt-2 text-xs text-[var(--text-tertiary)]">The CEO’s four reporting branches stay together. Expand a department to explore its team; scroll sideways on narrower screens.</p>
     {accessOnly.length > 0 && <section className="mt-4 rounded-xl border border-violet-200 bg-violet-50/60 p-3"><h4 className="text-sm font-semibold">Platform administrators</h4><p className="mb-2 text-xs text-[var(--text-secondary)]">Technical access accounts</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{accessOnly.map((node) => <NetworkPersonCard key={node.id} node={node} selected={selectedId === node.id} onSelect={() => onSelect(node)} compact />)}</div></section>}
     {unassigned.length > 0 && <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3"><h4 className="text-sm font-semibold">Reporting setup required · {unassigned.length}</h4><div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{unassigned.map((node) => <NetworkPersonCard key={node.id} node={node} selected={selectedId === node.id} onSelect={() => onSelect(node)} compact />)}</div></section>}
   </div>;
-}
-
-/** Founder’s Office is a CEO-owned business branch, not a fifth leadership role. */
-function FounderOfficeBranch({ entries, selectedId, onSelect }: { entries: Array<{ node: HierarchyNode; edge: HierarchyEdge }>; selectedId: string | null; onSelect: (node: HierarchyNode) => void }) {
-  return <section className="relative min-w-0 pt-6 before:absolute before:left-1/2 before:top-0 before:h-6 before:w-px before:bg-blue-300">
-    <div className="h-full rounded-2xl border border-sky-200 bg-sky-50/60 p-3 shadow-sm">
-      <div className="flex items-start gap-2.5 rounded-xl border border-sky-200 bg-[var(--surface-card)] p-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700"><Building2 size={18} aria-hidden="true" /></span><span className="min-w-0"><strong className="block truncate text-sm text-[var(--text-primary)]">Founder’s Office</strong><span className="mt-0.5 block text-xs text-[var(--text-secondary)]">CEO-owned business branch</span><span className="mt-1 block text-[10px] font-semibold uppercase tracking-wide text-sky-700">Reports directly to the CEO</span></span></div>
-      <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-wide text-sky-700">{entries.length} {entries.length === 1 ? 'direct employee' : 'direct employees'}</p>
-      <div className="mx-auto my-2 h-4 w-px bg-sky-200" aria-hidden="true" />
-      <div className="space-y-2">{entries.length ? entries.map((entry) => <NetworkPersonCard key={entry.edge.id} node={entry.node} departmentId={entry.edge.departmentId} selected={selectedId === entry.node.id} onSelect={() => onSelect(entry.node)} compact />) : <p className="rounded-xl border border-dashed border-sky-200 bg-[var(--surface-card)] p-3 text-center text-xs text-sky-800">No Founder’s Office employee assigned</p>}</div>
-    </div>
-  </section>;
 }
 
 function FullPeopleNetwork({ nodes, directory, edges, selectedId, onSelect, onClearFilters }: {
