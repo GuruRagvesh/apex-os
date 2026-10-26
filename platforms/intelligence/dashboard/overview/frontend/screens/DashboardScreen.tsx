@@ -76,6 +76,7 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
   const roleObj = user?.role as any;
   const role: string = roleObj?.name ?? (typeof roleObj === 'string' ? roleObj : '') ?? '';
   const isContributor = role === 'EMPLOYEE' || role === 'INTERN';
+  const canViewPersonalHighlights = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER'].includes(role);
   const canManageAnnouncements = Boolean((user as any)?.isHR) || ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
 
   const [heroTimeOverride, setHeroTimeOverride] = useState<HeroScene | null>(null);
@@ -208,7 +209,7 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
       {showTeamInsights && teamScopeLoading && isLeadOrAbove && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading team filters…</div>}
       {showTeamInsights && teamScopeError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Team filters could not be loaded. <button type="button" onClick={() => retryTeamScope()} className="underline">Retry</button></div>}
 
-      {user?.id && isLeadOrAbove && <PersonalHighlightsSection presentation="launcher" />}
+      {user?.id && canViewPersonalHighlights && !isContributor && <PersonalHighlightsSection presentation="launcher" />}
 
       {/* ── MY CALENDAR: attendance / productivity ── */}
       {personalPanel && (
@@ -221,7 +222,7 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
         </motion.div>
       )}
 
-      {user?.id && isContributor && <div className="mt-6"><PersonalHighlightsSection /></div>}
+      {user?.id && canViewPersonalHighlights && isContributor && <div className="mt-6"><PersonalHighlightsSection /></div>}
 
       {user?.id && isLeadOrAbove && showTeamInsights && <div className="mt-6 space-y-5">
         {showTeamInsights && teamScope && <TeamInsightsSection team={teamScope} />}
