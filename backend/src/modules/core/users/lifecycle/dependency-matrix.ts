@@ -167,6 +167,8 @@ export const HANDLERS: Handler[] = [
   { key: 'UserSetupIssue.userId', model: 'UserSetupIssue', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: false, sheet: 'Setup Health', note: 'Setup health about the person.' },
   { key: 'HierarchyAssignment.subjectUserId', model: 'HierarchyAssignment', field: 'subjectUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'The person\'s own TL/Manager assignments. The initial one is setup-only.' },
   { key: 'HierarchyAssignment.assigneeUserId', model: 'HierarchyAssignment', field: 'assigneeUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'An open row where the person is TL/Manager blocks archival; ended rows are deleted.' },
+  { key: 'OrganizationReportingLine.subjectUserId', model: 'OrganizationReportingLine', field: 'subjectUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'The person\'s own organisation-chart reporting lines (primary and department-scoped).' },
+  { key: 'OrganizationReportingLine.supervisorId', model: 'OrganizationReportingLine', field: 'supervisorId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'Lines in which the person is the supervisor; deleted with them, leaving those reports to be re-assigned in Settings.' },
   { key: 'DepartmentTransfer.userId', model: 'DepartmentTransfer', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Transfers', note: 'Cascades the transfer\'s review inventory.' },
   { key: 'ReviewQueueAssignment.subjectUserId', model: 'ReviewQueueAssignment', field: 'subjectUserId', fk: true, holds: 'id', action: 'NULL', history: true, sheet: 'Review Routing', note: 'Preserves the forwarding audit while clearing the deleted subject reference.' },
 
@@ -317,7 +319,7 @@ export const HANDLERS: Handler[] = [
  */
 export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set(
   HANDLERS.map((h) => h.key).filter((k) =>
-    /^(LifecycleRemediationAttempt|FnfAdjustmentRequest|RetentionRuleProposal|RetentionRuleVersion|TransitionRequestKey|DepartmentTransferImpact|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview|ReviewQueueAssignment)\./.test(k)
+    /^(LifecycleRemediationAttempt|FnfAdjustmentRequest|RetentionRuleProposal|RetentionRuleVersion|TransitionRequestKey|DepartmentTransferImpact|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview|ReviewQueueAssignment|OrganizationReportingLine)\./.test(k)
     || [
       'LeaveRequest.fundingChangedById',
       'RetentionRule.createdById',
