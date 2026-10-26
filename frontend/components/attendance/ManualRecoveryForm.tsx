@@ -95,7 +95,7 @@ export function ManualRecoveryForm({
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
         <div className="w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-gray-900"
              style={{ maxHeight: '90vh' }}>
           <div className="mb-4">

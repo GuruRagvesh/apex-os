@@ -41,13 +41,23 @@ function initials(name: string) {
     .join('') || '?';
 }
 
+// The avatar field sometimes holds a colour such as "#3b82f6" rather than a
+// picture. Only something that can load as an image is treated as a photo, and
+// a photo that fails to load falls back to initials instead of a broken icon.
+function photoSource(employee: RegisterEmployee): string | null {
+  const candidate = employee.photoUrl || employee.avatar;
+  return candidate && /^(https?:|\/|data:image\/|blob:)/i.test(candidate) ? candidate : null;
+}
+
 function RegisterEmployeeIdentity({ employee }: { employee: RegisterEmployee }) {
-  const image = employee.photoUrl || employee.avatar;
+  const [failed, setFailed] = useState(false);
+  const image = failed ? null : photoSource(employee);
   return (
     <div className="flex min-w-0 items-center gap-3">
       {image ? (
         <img
           src={image}
+          onError={() => setFailed(true)}
           alt={`${employee.name} profile photo`}
           className="h-10 w-10 shrink-0 rounded-full border border-blue-200 object-cover"
         />
