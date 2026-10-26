@@ -221,9 +221,9 @@ html[data-theme="john-wick-dark"] {
 
 /* ── ACCENT THEMES ────────────────────── */
 html[data-accent="royal-blue"] { --accent:#2563eb;--accent-hover:#1d4ed8;--accent-subtle:rgba(37,99,235,0.08);--accent-border:rgba(37,99,235,0.25);--accent-text:#1e40af;--accent-ring:rgba(37,99,235,0.35); }
-html[data-accent="emerald"]    { --accent:#059669;--accent-hover:#047857;--accent-subtle:rgba(5,150,105,0.08);--accent-border:rgba(5,150,105,0.25);--accent-text:#065f46;--accent-ring:rgba(5,150,105,0.35); }
+html[data-accent="emerald"]    { --accent:#047857;--accent-hover:#065f46;--accent-subtle:rgba(4,120,87,0.08);--accent-border:rgba(4,120,87,0.25);--accent-text:#065f46;--accent-ring:rgba(4,120,87,0.35); }
 html[data-accent="violet"]     { --accent:#7c3aed;--accent-hover:#6d28d9;--accent-subtle:rgba(124,58,237,0.08);--accent-border:rgba(124,58,237,0.25);--accent-text:#5b21b6;--accent-ring:rgba(124,58,237,0.35); }
-html[data-accent="gold"]       { --accent:#d4af37;--accent-hover:#b8960c;--accent-subtle:rgba(212,175,55,0.08);--accent-border:rgba(212,175,55,0.25);--accent-text:#92710a;--accent-ring:rgba(212,175,55,0.35); }
+html[data-accent="gold"]       { --accent:#8a6900;--accent-hover:#715600;--accent-subtle:rgba(138,105,0,0.08);--accent-border:rgba(138,105,0,0.25);--accent-text:#715600;--accent-ring:rgba(138,105,0,0.35); }
 html[data-accent="crimson"]    { --accent:#dc2626;--accent-hover:#b91c1c;--accent-subtle:rgba(220,38,38,0.08);--accent-border:rgba(220,38,38,0.25);--accent-text:#991b1b;--accent-ring:rgba(220,38,38,0.35); }
 html[data-accent="slate"]      { --accent:#475569;--accent-hover:#334155;--accent-subtle:rgba(71,85,105,0.08);--accent-border:rgba(71,85,105,0.25);--accent-text:#1e293b;--accent-ring:rgba(71,85,105,0.35); }
 
@@ -654,7 +654,7 @@ html[data-theme="john-wick-dark"] .apex-profile-value { color: #dbeafe !importan
 
 .apex-btn-primary {
   background-color: var(--accent);
-  color: var(--text-inverse);
+  color: #ffffff;
   border-radius: var(--radius-sm);
   font-weight: 500;
   transition: background-color 0.15s;
@@ -801,16 +801,16 @@ html[data-theme="john-wick-dark"] textarea {
 ═══════════════════════════════════════ */
 :root {
   /* Dense product scale adapted from Mobbin's 12/14/16/20/24 hierarchy. */
-  --font-size-2xs:   10px;
-  --font-size-xs:    12px;
-  --font-size-sm:    13px;
-  --font-size-base:  14px;
-  --font-size-md:    15px;
-  --font-size-lg:    16px;
-  --font-size-xl:    20px;
-  --font-size-2xl:   24px;
-  --font-size-3xl:   30px;
-  --font-size-4xl:   36px;
+  --font-size-2xs:   0.625rem;
+  --font-size-xs:    0.75rem;
+  --font-size-sm:    0.8125rem;
+  --font-size-base:  0.875rem;
+  --font-size-md:    0.9375rem;
+  --font-size-lg:    1rem;
+  --font-size-xl:    1.25rem;
+  --font-size-2xl:   1.5rem;
+  --font-size-3xl:   1.875rem;
+  --font-size-4xl:   2.25rem;
 
   --font-weight-normal:   400;
   --font-weight-medium:   500;
@@ -824,9 +824,9 @@ html[data-theme="john-wick-dark"] textarea {
 }
 
 /* Font size presets */
-html[data-font-size="small"]  { --font-size-base: 12px; }
-html[data-font-size="medium"] { --font-size-base: 13px; }
-html[data-font-size="large"]  { --font-size-base: 15px; }
+html[data-font-size="small"]  { font-size: 14px; }
+html[data-font-size="medium"] { font-size: 16px; }
+html[data-font-size="large"]  { font-size: 18px; }
 
 body {
   font-size: var(--font-size-base);
@@ -836,9 +836,48 @@ body {
 /* ═══════════════════════════════════════
    COMPACT MODE
 ═══════════════════════════════════════ */
-html[data-compact="true"] { --spacing-unit: 0.75; }
-html[data-compact="true"] .apex-card { padding: 12px; }
-html[data-compact="true"] nav a { padding-top: 6px; padding-bottom: 6px; }
+html[data-compact="true"] .apex-card { padding: 0.75rem; }
+html[data-compact="true"] .apex-input { padding-block: 0.375rem; }
+html[data-compact="true"] .apex-btn { padding-block: 0.375rem; }
+html[data-compact="true"] nav a { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+html[data-compact="true"] main table th,
+html[data-compact="true"] main table td { padding-block: 0.375rem; }
+html[data-compact="true"] main .space-y-6 > :not([hidden]) ~ :not([hidden]) { margin-top: 1rem; }
+html[data-compact="true"] main .gap-6 { gap: 1rem; }
+
+/* Navigation density is independent of content density. */
+html[data-sidebar-density="compact"] #apex-sidebar nav .group { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+html[data-sidebar-density="compact"] #apex-sidebar nav p.font-mono { margin-top: 0.65rem; }
+
+/* Accessibility preferences retain the active theme and semantic status colours. */
+html[data-contrast="more"] {
+  --text-secondary: #263448;
+  --text-tertiary: #40516a;
+  --border-primary: #718096;
+  --border-subtle: #a8b4c5;
+}
+html[data-theme="john-wick-dark"][data-contrast="more"] {
+  --text-secondary: #e4e4e7;
+  --text-tertiary: #c4c4cc;
+  --border-primary: #a1a1aa;
+  --border-subtle: #71717a;
+}
+html[data-contrast="more"] :is(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid var(--accent) !important;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+html[data-motion="reduce"] { scroll-behavior: auto !important; }
+html[data-motion="reduce"] *, html[data-motion="reduce"] *::before, html[data-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
 
 /* ═══════════════════════════════════════
    CUSTOM SCROLLBARS (Apex OS)

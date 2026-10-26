@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { useTheme } from '@apex/shared-utilities/use-theme';
+import { applyDisplayPreferences, readAppearancePreference, resolveTheme } from '@apex/shared-utilities/appearance-preferences';
 import { settingsApi } from '@/lib/api';
 import { Sidebar } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/topbar';
@@ -22,7 +23,7 @@ import {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user, hasHydrated } = useAuthStore();
-  const { setCompanyDefaults } = useTheme();
+  const { setCompanyDefaults } = useTheme(user?.id);
   const router = useRouter();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -41,13 +42,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (!hasHydrated || !isAuthenticated) return;
+    applyDisplayPreferences(user?.id);
     settingsApi.getCompany().then((company: any) => {
       const theme = company?.defaultTheme === 'john-wick-dark' ? 'john-wick-dark' : 'technoedge-light';
       const accent = ['royal-blue', 'emerald', 'violet', 'gold', 'crimson', 'slate'].includes(company?.defaultAccent)
         ? company.defaultAccent : 'royal-blue';
       setCompanyDefaults(theme, accent);
     }).catch(() => { /* A saved device preference still works offline. */ });
-  }, [hasHydrated, isAuthenticated, setCompanyDefaults]);
+  }, [hasHydrated, isAuthenticated, setCompanyDefaults, user?.id]);
+
+  useEffect(() => {
+    if (!hasHydrated || !isAuthenticated || !user?.id) return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncDeviceTheme = () => {
+      if (readAppearancePreference(user.id, 'theme') === 'system') {
+        document.documentElement.setAttribute('data-theme', resolveTheme('system'));
+      }
+    };
+    media.addEventListener('change', syncDeviceTheme);
+    return () => media.removeEventListener('change', syncDeviceTheme);
+  }, [hasHydrated, isAuthenticated, user?.id]);
 
   // Saved page state (filters, scroll, New Ticket draft) belongs to one user:
   // keep only the signed-in user's fresh entries; with nobody signed in, none.

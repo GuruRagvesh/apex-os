@@ -61,6 +61,9 @@ model User {
   /// A non-person row (the "Deleted account" principal). Never signs in and is
   /// excluded from every list, count, selector and report.
   isSystemAccount           Boolean                        @default(false)
+  /// Whether this identity belongs in the business organization chart.
+  /// ACCESS_ONLY accounts retain RBAC privileges without becoming leaders.
+  organizationParticipation String                         @default("WORKFORCE")
   probationPeriod           String?
   reportingManager          String?
   teamLeadName              String?
@@ -118,6 +121,8 @@ model User {
   roleAssignments           UserRoleAssignment[]
   teamMemberships           TeamMember[]
   teamsLed                  Team[]                         @relation("TeamLeadOf")
+  organizationReportsTo     OrganizationReportingLine[]    @relation("OrganizationReportingSubject")
+  organizationDirectReports OrganizationReportingLine[]    @relation("OrganizationReportingSupervisor")
   ticketWatching            TicketWatcher[]
   assignedTickets           Ticket[]                       @relation("TicketAssignee")
   createdTickets            Ticket[]                       @relation("TicketCreator")
@@ -208,6 +213,7 @@ model Department {
   salesLeads           Lead[]
   meetings             Meeting[]
   hierarchyAssignments HierarchyAssignment[]
+  organizationReportingLines OrganizationReportingLine[]
 
   @@map("departments")
 }
@@ -939,13 +945,16 @@ model ManagerDeptAccess {
 }
 
 model UserDepartmentMembership {
-  id           String     @id @default(cuid())
-  userId       String
-  departmentId String
-  isPrimary    Boolean    @default(false)
-  createdAt    DateTime   @default(now())
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  id                String     @id @default(cuid())
+  userId            String
+  departmentId      String
+  isPrimary         Boolean    @default(false)
+  designation       String?
+  isDepartmentLead  Boolean    @default(false)
+  allocationPercent Int?
+  createdAt         DateTime   @default(now())
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department        Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
   @@unique([userId, departmentId])
   @@index([userId])
@@ -3105,6 +3114,28 @@ model HierarchyAssignment {
 
   @@index([assigneeUserId])
   @@map("hierarchy_assignments")
+}
+
+/// Business reporting structure used only by the organization chart. This is
+/// deliberately separate from HierarchyAssignment, which governs approvals.
+model OrganizationReportingLine {
+  id           String      @id
+  subjectUserId String
+  supervisorId String
+  departmentId String?
+  /// PRIMARY is the person's home reporting line. Department-scoped values
+  /// use DEPARTMENT:<departmentId> for matrix/cross-functional assignments.
+  scopeKey     String      @default("PRIMARY")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  subject      User        @relation("OrganizationReportingSubject", fields: [subjectUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supervisor   User        @relation("OrganizationReportingSupervisor", fields: [supervisorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([subjectUserId, scopeKey])
+  @@index([supervisorId])
+  @@index([departmentId])
+  @@map("organization_reporting_lines")
 }
 
 /// Immutable routing decision (append-only by trigger). A reroute appends a

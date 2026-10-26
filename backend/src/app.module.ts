@@ -12,6 +12,7 @@ import { AuthModule } from './modules/core/auth/auth.module';
 import { UsersModule } from './modules/core/users/users.module';
 import { RolesModule } from './modules/core/roles/roles.module';
 import { DepartmentsModule } from './modules/core/departments/departments.module';
+import { HierarchyModule } from './modules/core/hierarchy/hierarchy.module';
 
 // ── 🎫 Operations ─────────────────────────────────────────────────────────────
 import { TicketsModule } from './modules/operations/tickets/tickets.module';
@@ -74,6 +75,7 @@ const isTest = process.env.NODE_ENV === 'test';
     UsersModule,
     RolesModule,
     DepartmentsModule,
+    HierarchyModule,
     // 🎫 Operations
     TicketsModule,
     ProjectsModule,

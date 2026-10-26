@@ -14,12 +14,15 @@ import {
   User, Shield, Palette, Building2,
   CalendarDays, Eye, EyeOff, Lock, Tags, Bell, UsersRound, Clock3, ClipboardCheck,
   ExternalLink, Globe2, IndianRupee, Mail, MapPin,
+  ArrowLeft, Network,
 } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
-import { useTheme, type ThemeId, type AccentId } from '@apex/shared-utilities/use-theme';
-import { enablePushNotifications } from '@/lib/push-notifications';
+import { useTheme, type ThemeId, type ThemeChoice, type AccentId } from '@apex/shared-utilities/use-theme';
+import { applyAppearanceForUser, readAppearancePreference, resolveTheme, writeAppearancePreference } from '@apex/shared-utilities/appearance-preferences';
+import { enablePushNotifications, supportsPushNotifications } from '@/lib/push-notifications';
 import { TeamLeadershipSection } from './TeamLeadershipSection';
 import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
+import { OrganizationHierarchySection } from './OrganizationHierarchySection';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
 const inputCls  = 'apex-input';
@@ -29,12 +32,13 @@ const cardCls   = 'apex-card p-6 space-y-4';
 const AVATAR_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#14b8a6'];
 
 // ── Toggle ────────────────────────────────────────────────────────────────────
-function Toggle({ checked, onChange, disabled = false }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+function Toggle({ checked, onChange, disabled = false, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label?: string }) {
   return (
     <button
       type="button"
       onClick={() => onChange(!checked)}
       role="switch"
+      aria-label={label}
       aria-checked={checked}
       disabled={disabled}
       className="relative w-10 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-50"
@@ -57,7 +61,7 @@ function ToggleRow({ label, desc, checked, onChange }: {
         <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{label}</p>
         <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{desc}</p>
       </div>
-      <Toggle checked={checked} onChange={onChange} />
+      <Toggle checked={checked} onChange={onChange} label={label} />
     </div>
   );
 }
@@ -395,13 +399,21 @@ const NOTIF_DEFAULTS = {
   assignedTicket: true,
   statusChanged:  true,
   commentAdded:   false,
-  overdueTicket:  true,
   ticketResolved: true,
+  ticketBlocked:  true,
+  reviewPending:  true,
+  projectCreated: true,
+  breakOverrun:   true,
+  workdayStart:   true,
+  workdayEnd:     true,
   leaveApproved:  true,
   leaveRejected:  true,
   teamLeaveApply: true,
+  attendanceCorrection: true,
+  attendanceCorrectionDecided: true,
   inApp:          true,
   pushEnabled:    true,
+  quietHoursEnabled: true,
   quietFrom:      '22:00',
   quietTo:        '08:00',
 };
@@ -410,18 +422,25 @@ const NOTIF_DEFAULTS = {
 // notification; these switches only decide popups and push. There is no email
 // delivery path for these events yet, so no email switch is shown.
 type ChannelKey = 'popup' | 'push';
-const NOTIF_EVENTS: { group: 'Ticket Events' | 'Leave Events'; key: keyof typeof NOTIF_DEFAULTS; label: string; desc: string; managerOnly?: boolean }[] = [
-  { group: 'Ticket Events', key: 'assignedTicket', label: 'Ticket assigned to me', desc: 'When a ticket is assigned to you' },
-  { group: 'Ticket Events', key: 'statusChanged', label: 'Status changed', desc: "When a ticket's status is updated" },
-  { group: 'Ticket Events', key: 'commentAdded', label: 'Comment added', desc: 'When someone comments on your ticket' },
-  { group: 'Ticket Events', key: 'overdueTicket', label: 'Overdue alert', desc: 'When a ticket you own goes overdue' },
-  { group: 'Ticket Events', key: 'ticketResolved', label: 'Ticket resolved', desc: 'When your raised ticket is resolved' },
-  { group: 'Leave Events', key: 'leaveApproved', label: 'Leave approved', desc: 'When your leave request is approved' },
-  { group: 'Leave Events', key: 'leaveRejected', label: 'Leave rejected', desc: 'When your leave request is rejected' },
-  { group: 'Leave Events', key: 'teamLeaveApply', label: 'Team member applied', desc: 'When a team member applies for leave', managerOnly: true },
+const NOTIF_EVENTS: { group: 'Tickets' | 'Leave' | 'Workday & attendance' | 'Projects'; key: keyof typeof NOTIF_DEFAULTS; label: string; desc: string; managerOnly?: boolean }[] = [
+  { group: 'Tickets', key: 'assignedTicket', label: 'Assigned to me', desc: 'A ticket is assigned to you' },
+  { group: 'Tickets', key: 'statusChanged', label: 'Status changed', desc: 'A ticket you follow changes status' },
+  { group: 'Tickets', key: 'commentAdded', label: 'New comment', desc: 'Someone comments on your ticket' },
+  { group: 'Tickets', key: 'ticketResolved', label: 'Ticket resolved', desc: 'A ticket you raised is resolved' },
+  { group: 'Tickets', key: 'ticketBlocked', label: 'Ticket blocked', desc: 'A ticket needs attention because it is blocked' },
+  { group: 'Tickets', key: 'reviewPending', label: 'Review needed', desc: 'Work is waiting for your review' },
+  { group: 'Leave', key: 'leaveApproved', label: 'Leave approved', desc: 'Your leave request is approved' },
+  { group: 'Leave', key: 'leaveRejected', label: 'Leave rejected', desc: 'Your leave request is rejected' },
+  { group: 'Leave', key: 'teamLeaveApply', label: 'Team leave request', desc: 'A team member applies for leave', managerOnly: true },
+  { group: 'Workday & attendance', key: 'workdayStart', label: 'Start reminder', desc: 'Your workday is due to begin' },
+  { group: 'Workday & attendance', key: 'workdayEnd', label: 'End reminder', desc: 'Your workday is due to end' },
+  { group: 'Workday & attendance', key: 'breakOverrun', label: 'Break overrun', desc: 'A break exceeds its scheduled length' },
+  { group: 'Workday & attendance', key: 'attendanceCorrection', label: 'Attendance correction', desc: 'A correction needs attention' },
+  { group: 'Workday & attendance', key: 'attendanceCorrectionDecided', label: 'Correction decision', desc: 'Your attendance correction is decided' },
+  { group: 'Projects', key: 'projectCreated', label: 'New project', desc: 'A project is created for your team' },
 ];
 
-function ChannelSwitch({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
+function ChannelSwitch({ checked, onChange, label, disabled = false }: { checked: boolean; onChange: () => void; label: string; disabled?: boolean }) {
   return (
     <button
       type="button"
@@ -429,7 +448,8 @@ function ChannelSwitch({ checked, onChange, label }: { checked: boolean; onChang
       aria-checked={checked}
       aria-label={label}
       onClick={onChange}
-      className="relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+      disabled={disabled}
+      className="relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       style={{ backgroundColor: checked ? 'var(--accent)' : 'var(--bg-tertiary)' }}
     >
       <span className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform" style={{ transform: checked ? 'translateX(18px)' : 'translateX(2px)' }} />
@@ -437,39 +457,92 @@ function ChannelSwitch({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
-function readCachedNotificationPreferences(): Record<string, any> {
-  if (typeof window === 'undefined') return {};
+function notificationCacheKey(userId: string | null | undefined): string | null {
+  return userId ? `apexNotifPrefs:${userId}` : null;
+}
+
+function readCachedNotificationPreferences(userId: string | null | undefined): Record<string, any> {
+  const key = notificationCacheKey(userId);
+  if (typeof window === 'undefined' || !key) return {};
   try {
-    const value = JSON.parse(localStorage.getItem('apexNotifPrefs') ?? '{}');
+    const value = JSON.parse(localStorage.getItem(key) ?? '{}');
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   } catch {
     return {};
   }
 }
 
+// Preferences are shared by several Settings screens. Keep this screen's
+// payload limited to notification keys so an older tab cannot overwrite a
+// newer Team operations (or other) save.
+function notificationPreferencesOnly(value: unknown): Partial<typeof NOTIF_DEFAULTS> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(
+    (Object.keys(NOTIF_DEFAULTS) as Array<keyof typeof NOTIF_DEFAULTS>)
+      .filter((key) => typeof source[key] === typeof NOTIF_DEFAULTS[key])
+      .map((key) => [key, source[key]]),
+  ) as Partial<typeof NOTIF_DEFAULTS>;
+}
+
 function NotificationsSection({ isManager }: { isManager: boolean }) {
+  const userId = useAuthStore((state) => state.user?.id);
   const [prefs, setPrefs] = useState(NOTIF_DEFAULTS);
   const [channels, setChannels] = useState<Record<string, Partial<Record<ChannelKey | 'email', boolean>>>>({});
+  const [savedSnapshot, setSavedSnapshot] = useState('');
+  const [loadState, setLoadState] = useState<'loading' | 'server' | 'offline'>('loading');
+  const [notificationTimezone, setNotificationTimezone] = useState('Asia/Kolkata');
+  const [deviceStatus, setDeviceStatus] = useState<'checking' | 'enabled' | 'not-enabled' | 'blocked' | 'unsupported'>('checking');
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Tickets: true, Leave: true });
   const [saving, setSaving] = useState(false);
   const [enablingDevice, setEnablingDevice] = useState(false);
 
   // Hydrate from server prefs (falling back to localStorage) after mount
   useEffect(() => {
+    if (!userId) return;
+    let current = true;
+    setLoadState('loading');
     usersApi.getPreferences()
       .then((remote: any) => {
-        const local = readCachedNotificationPreferences();
+        if (!current) return;
+        const local = readCachedNotificationPreferences(userId);
         // Server wins over localStorage for cross-device sync; local is the cache
-        const merged = { ...NOTIF_DEFAULTS, ...local, ...remote };
-        setPrefs((p) => ({ ...p, ...merged }));
-        if (merged.channels && typeof merged.channels === 'object') setChannels(merged.channels);
+        const merged = { ...NOTIF_DEFAULTS, ...notificationPreferencesOnly(local), ...notificationPreferencesOnly(remote) };
+        const savedChannels = remote?.channels ?? local.channels;
+        const nextChannels = savedChannels && typeof savedChannels === 'object' && !Array.isArray(savedChannels) ? savedChannels : {};
+        setPrefs(merged);
+        setChannels(nextChannels);
+        setSavedSnapshot(JSON.stringify({ prefs: merged, channels: nextChannels }));
+        setNotificationTimezone(typeof remote?.timezone === 'string' ? remote.timezone : 'Asia/Kolkata');
+        setLoadState('server');
       })
       .catch(() => {
+        if (!current) return;
         // Offline fallback: use localStorage only
-        const local = readCachedNotificationPreferences();
-        setPrefs((p) => ({ ...p, ...local }));
+        const local = readCachedNotificationPreferences(userId);
+        const nextPrefs = { ...NOTIF_DEFAULTS, ...notificationPreferencesOnly(local) };
+        const nextChannels = local.channels && typeof local.channels === 'object' && !Array.isArray(local.channels) ? local.channels : {};
+        setPrefs(nextPrefs);
+        setChannels(nextChannels);
+        setSavedSnapshot(JSON.stringify({ prefs: nextPrefs, channels: nextChannels }));
+        setNotificationTimezone(typeof local.timezone === 'string' ? local.timezone : 'Asia/Kolkata');
+        setLoadState('offline');
       });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { current = false; };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!supportsPushNotifications()) { setDeviceStatus('unsupported'); return; }
+    if (Notification.permission === 'denied') { setDeviceStatus('blocked'); return; }
+    let current = true;
+    void navigator.serviceWorker.getRegistration('/').then(async (registration) => {
+      const subscription = await registration?.pushManager.getSubscription();
+      if (current) setDeviceStatus(subscription ? 'enabled' : 'not-enabled');
+    }).catch(() => { if (current) setDeviceStatus('not-enabled'); });
+    return () => { current = false; };
   }, []);
+
+  const dirty = loadState !== 'loading' && savedSnapshot !== JSON.stringify({ prefs, channels });
 
   const toggle = (k: keyof typeof prefs) => setPrefs((p) => ({ ...p, [k]: !p[k] }));
 
@@ -483,11 +556,15 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
     setChannels((ch) => ({ ...ch, [eventKey]: { ...(ch[eventKey] ?? {}), [c]: !channelOn(eventKey, c) } }));
 
   const handleSave = async () => {
+    if (!userId || loadState === 'loading') return;
     setSaving(true);
-    const body = { ...prefs, channels };
+    const body = { ...notificationPreferencesOnly(prefs), channels };
     try {
       await usersApi.updatePreferences(body);
-      localStorage.setItem('apexNotifPrefs', JSON.stringify(body));
+      const key = notificationCacheKey(userId);
+      if (key) localStorage.setItem(key, JSON.stringify(body));
+      setSavedSnapshot(JSON.stringify({ prefs, channels }));
+      setLoadState('server');
       toast.success('Notification preferences saved');
     } catch (err: any) {
       toast.error('Notification preferences were not saved. Please retry.');
@@ -500,8 +577,8 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
     setEnablingDevice(true);
     try {
       const result = await enablePushNotifications();
-      if (result === 'enabled') toast.success('System notifications enabled on this device');
-      else if (result === 'denied') toast.error('Notifications are blocked in this browser');
+      if (result === 'enabled') { setDeviceStatus('enabled'); toast.success('System notifications enabled on this device'); }
+      else if (result === 'denied') { setDeviceStatus('blocked'); toast.error('Notifications are blocked in this browser'); }
       else if (result === 'unconfigured') toast.error('Server push is not configured yet');
       else toast.error('Push notifications are not supported on this device');
     } catch (error: any) {
@@ -511,64 +588,86 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
     }
   };
 
+  if (loadState === 'loading') return <div className="apex-card p-5 text-sm" role="status">Loading notification preferences…</div>;
+
   return (
     <div className="space-y-5">
-      <p className="text-sm" style={{ color: 'var(--text-secondary)' }} data-testid="notification-center-note">
-        Notification Center always keeps every notification. These switches only choose whether you also get a popup or a push alert.
-      </p>
-      {(['Ticket Events', 'Leave Events'] as const).map((group) => (
-        <div key={group} className={cardCls} data-testid={`notif-matrix-${group === 'Ticket Events' ? 'tickets' : 'leave'}`}>
-          <div className="flex items-center gap-3">
-            <h3 className="font-semibold flex-1" style={{ color: 'var(--text-primary)' }}>{group}</h3>
-            <span className="w-12 text-center text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Popup</span>
-            <span className="w-12 text-center text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Push</span>
-          </div>
+      <div>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Notifications</h2>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }} data-testid="notification-center-note">
+          Choose which events interrupt you. The bell keeps the full notification history even when popup or push alerts are off.
+        </p>
+        {loadState === 'offline' && <p className="mt-2 text-xs" role="status" style={{ color: 'var(--color-warning)' }}>Server unavailable. Showing this account’s saved browser copy; changes cannot be saved until the connection returns.</p>}
+      </div>
+      {(['Tickets', 'Leave', 'Workday & attendance', 'Projects'] as const).map((group) => (
+        <div key={group} className="apex-card overflow-hidden p-0" data-testid={`notif-matrix-${group.toLowerCase().replace(/[^a-z]+/g, '-')}`}>
+          <button type="button" aria-expanded={!!expandedGroups[group]} onClick={() => setExpandedGroups((current) => ({ ...current, [group]: !current[group] }))}
+            className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]">
+            <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{group}</span>
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{NOTIF_EVENTS.filter((event) => event.group === group && (!event.managerOnly || isManager)).length} events {expandedGroups[group] ? '−' : '+'}</span>
+          </button>
+          {expandedGroups[group] && <div className="border-t px-5 pb-4" style={{ borderColor: 'var(--border-primary)' }}>
+            <div className="flex items-center gap-3 py-3">
+              <span className="flex-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Event</span>
+              <span className="w-12 text-center text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Popup</span>
+              <span className="w-12 text-center text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Push</span>
+            </div>
           {NOTIF_EVENTS.filter((e) => e.group === group && (!e.managerOnly || isManager)).map((e) => (
-            <div key={e.key} className="flex items-center gap-3 py-1" data-event={e.key}>
+            <div key={e.key} className="flex items-center gap-3 border-t py-3" style={{ borderColor: 'var(--border-subtle)' }} data-event={e.key}>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{e.label}</p>
                 <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{e.desc}</p>
               </div>
-              <span className="w-12 flex justify-center"><ChannelSwitch label={`${e.label}: popup`} checked={channelOn(e.key, 'popup')} onChange={() => toggleChannel(e.key, 'popup')} /></span>
-              <span className="w-12 flex justify-center"><ChannelSwitch label={`${e.label}: push`} checked={channelOn(e.key, 'push')} onChange={() => toggleChannel(e.key, 'push')} /></span>
+              <span className="w-12 flex justify-center"><ChannelSwitch label={`${e.label}: popup`} checked={channelOn(e.key, 'popup')} disabled={!prefs.inApp} onChange={() => toggleChannel(e.key, 'popup')} /></span>
+              <span className="w-12 flex justify-center"><ChannelSwitch label={`${e.label}: push`} checked={channelOn(e.key, 'push')} disabled={!prefs.pushEnabled} onChange={() => toggleChannel(e.key, 'push')} /></span>
             </div>
           ))}
+          </div>}
         </div>
       ))}
 
       <div className={cardCls}>
         <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Delivery</h3>
-        <ToggleRow label="In-app notifications" desc="Show bell notifications in the top bar" checked={prefs.inApp} onChange={() => toggle('inApp')} />
-        <ToggleRow label="System push notifications" desc="Send alerts to registered computers and phones, including while Apex OS is in the background" checked={prefs.pushEnabled} onChange={() => toggle('pushEnabled')} />
+        <ToggleRow label="Popup alerts" desc="Show a brief on-screen alert for selected events. The bell history remains available." checked={prefs.inApp} onChange={() => toggle('inApp')} />
+        <ToggleRow label="System push alerts" desc="Send selected alerts to registered devices, including when Apex OS is in the background." checked={prefs.pushEnabled} onChange={() => toggle('pushEnabled')} />
         {prefs.pushEnabled && (
-          <button
-            type="button"
-            onClick={enableThisDevice}
-            disabled={enablingDevice}
-            className="apex-btn apex-btn-secondary text-sm"
-          >
-            {enablingDevice ? 'Enabling…' : 'Enable notifications on this device'}
-          </button>
+          <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--surface-sunken)' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>This device</p>
+            <p className="mt-1 text-xs" role="status" style={{ color: 'var(--text-secondary)' }}>
+              {deviceStatus === 'enabled' ? 'Registered for push alerts.' : deviceStatus === 'blocked' ? 'Notifications are blocked in this browser. Allow them in browser settings.' : deviceStatus === 'unsupported' ? 'Push alerts are not supported in this browser.' : deviceStatus === 'checking' ? 'Checking browser permission…' : 'Not registered for push alerts.'}
+            </p>
+            {deviceStatus === 'not-enabled' && <button type="button" onClick={enableThisDevice} disabled={enablingDevice || dirty}
+              className="apex-btn apex-btn-secondary mt-2 text-sm disabled:opacity-50">
+              {enablingDevice ? 'Enabling…' : 'Enable on this device'}
+            </button>}
+            {deviceStatus === 'not-enabled' && dirty && <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Save your changes first, then enable this device.</p>}
+          </div>
         )}
         <div className="pt-3">
-          <p className="text-sm font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>Quiet Hours</p>
+          <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Quiet hours</p>
+          <p className="mb-3 text-xs" style={{ color: 'var(--text-secondary)' }}>Pause popup and push alerts during this time. Events still appear in the bell. Timezone: {notificationTimezone}.</p>
+          <ToggleRow label="Use quiet hours" desc="Pause alerts between the times below." checked={prefs.quietHoursEnabled} onChange={() => toggle('quietHoursEnabled')} />
           <div className="flex items-center gap-3">
             <div className="flex-1">
-              <label className="block text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>From</label>
-              <input type="time" value={prefs.quietFrom} onChange={(e) => setPrefs((p) => ({ ...p, quietFrom: e.target.value }))} className={inputCls} />
+              <label htmlFor="notification-quiet-from" className="block text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>From</label>
+              <input id="notification-quiet-from" type="time" disabled={!prefs.quietHoursEnabled} value={prefs.quietFrom} onChange={(e) => setPrefs((p) => ({ ...p, quietFrom: e.target.value }))} className={inputCls} />
             </div>
             <div className="flex-1">
-              <label className="block text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>To</label>
-              <input type="time" value={prefs.quietTo}   onChange={(e) => setPrefs((p) => ({ ...p, quietTo: e.target.value }))}   className={inputCls} />
+              <label htmlFor="notification-quiet-to" className="block text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>To</label>
+              <input id="notification-quiet-to" type="time" disabled={!prefs.quietHoursEnabled} value={prefs.quietTo} onChange={(e) => setPrefs((p) => ({ ...p, quietTo: e.target.value }))} className={inputCls} />
             </div>
           </div>
         </div>
       </div>
 
-      <button type="button" onClick={handleSave} disabled={saving}
-        className="apex-btn-primary px-6 py-2 text-sm font-medium">
-        {saving ? 'Saving…' : 'Save Preferences'}
-      </button>
+      <div className="sticky bottom-3 z-30 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 shadow-lg" style={{ backgroundColor: 'var(--surface-elevated)', borderColor: dirty ? 'var(--accent)' : 'var(--border-primary)' }}>
+        <div role="status" aria-live="polite"><p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{dirty ? 'Unsaved notification changes' : 'Notification settings saved'}</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{dirty ? 'Save to use these choices on your other devices.' : 'Your choices are up to date.'}</p></div>
+        <button type="button" onClick={handleSave} disabled={saving || !dirty}
+          className="apex-btn apex-btn-primary px-5 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60">
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1407,17 +1506,30 @@ function TaskTypesSettings() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECTION: Appearance (theme + accent + font size + compact mode)
+// SECTION: Appearance (personal display controls and organization defaults)
 // ─────────────────────────────────────────────────────────────────────────────
+type DisplayDraft = {
+  theme: ThemeChoice;
+  accent: AccentId;
+  fontSize: 'small' | 'medium' | 'large';
+  compact: boolean;
+  contrast: boolean;
+  reduceMotion: boolean;
+  sidebarDensity: 'comfortable' | 'compact';
+};
+
 function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
-  const { theme, accent, setTheme, setAccent, setCompanyDefaults, resetToCompanyDefaults } = useTheme();
   const { user } = useAuthStore();
+  const userId = user?.id;
+  const { theme, accent, setTheme, setAccent, setCompanyDefaults } = useTheme(userId);
   const roleName = (user?.role as any)?.name ?? '';
   const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(roleName);
 
   const [companyTheme, setCompanyThemeState] = useState<ThemeId>('technoedge-light');
   const [companyAccent, setCompanyAccentState] = useState<AccentId>('royal-blue');
   const [savingDefaults, setSavingDefaults] = useState(false);
+  const [saved, setSaved] = useState<DisplayDraft | null>(null);
+  const [draft, setDraft] = useState<DisplayDraft | null>(null);
 
   useEffect(() => {
     settingsApi.getCompany().then((company: any) => {
@@ -1428,47 +1540,65 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
       setCompanyAccentState(savedAccent);
       setCompanyDefaults(savedTheme, savedAccent);
     }).catch(() => { /* Device-local defaults remain available offline. */ });
-    const size = localStorage.getItem('apex-font-size');
-    if (size === 'small' || size === 'medium' || size === 'large') document.documentElement.setAttribute('data-font-size', size);
-    document.documentElement.setAttribute('data-compact', localStorage.getItem('apex-compact') === 'true' ? 'true' : 'false');
-  }, [setCompanyDefaults]);
+  }, [setCompanyDefaults, userId]);
 
-  // Font size
-  const [fontSize, setFontSizeState] = useState<'small' | 'medium' | 'large'>(() =>
-    typeof window !== 'undefined'
-      ? ((localStorage.getItem('apex-font-size') as any) ?? 'medium')
-      : 'medium',
-  );
+  useEffect(() => {
+    if (!userId || mode !== 'personal') return;
+    const size = readAppearancePreference(userId, 'font-size');
+    const next: DisplayDraft = {
+      theme, accent,
+      fontSize: size === 'small' || size === 'large' ? size : 'medium',
+      compact: readAppearancePreference(userId, 'compact') === 'true',
+      contrast: readAppearancePreference(userId, 'contrast') === 'more',
+      reduceMotion: readAppearancePreference(userId, 'motion') === 'reduce',
+      sidebarDensity: readAppearancePreference(userId, 'sidebar-density') === 'compact' ? 'compact' : 'comfortable',
+    };
+    setSaved(next);
+    setDraft(next);
+  }, [accent, mode, theme, userId]);
 
-  const applyFontSize = (size: 'small' | 'medium' | 'large') => {
-    setFontSizeState(size);
-    localStorage.setItem('apex-font-size', size);
-    document.documentElement.setAttribute('data-font-size', size);
-  };
+  useEffect(() => {
+    if (!draft || mode !== 'personal') return;
+    const root = document.documentElement;
+    root.setAttribute('data-theme', resolveTheme(draft.theme));
+    root.setAttribute('data-accent', draft.accent);
+    root.setAttribute('data-font-size', draft.fontSize);
+    root.setAttribute('data-compact', String(draft.compact));
+    root.setAttribute('data-contrast', draft.contrast ? 'more' : 'normal');
+    root.setAttribute('data-motion', draft.reduceMotion ? 'reduce' : 'normal');
+    root.setAttribute('data-sidebar-density', draft.sidebarDensity);
+  }, [draft, mode]);
 
-  // Compact mode
-  const [compact, setCompactState] = useState<boolean>(() =>
-    typeof window !== 'undefined'
-      ? localStorage.getItem('apex-compact') === 'true'
-      : false,
-  );
+  useEffect(() => () => applyAppearanceForUser(userId), [userId]);
 
-  const applyCompact = (val: boolean) => {
-    setCompactState(val);
-    localStorage.setItem('apex-compact', String(val));
-    document.documentElement.setAttribute('data-compact', String(val));
+  const updateDraft = (changes: Partial<DisplayDraft>) => setDraft((current) => current ? { ...current, ...changes } : current);
+  const dirty = !!draft && !!saved && JSON.stringify(draft) !== JSON.stringify(saved);
+
+  const applyDraft = () => {
+    if (!userId || !draft) return;
+    writeAppearancePreference(userId, 'theme', draft.theme);
+    writeAppearancePreference(userId, 'accent', draft.accent);
+    writeAppearancePreference(userId, 'font-size', draft.fontSize);
+    writeAppearancePreference(userId, 'compact', String(draft.compact));
+    writeAppearancePreference(userId, 'contrast', draft.contrast ? 'more' : 'normal');
+    writeAppearancePreference(userId, 'motion', draft.reduceMotion ? 'reduce' : 'normal');
+    writeAppearancePreference(userId, 'sidebar-density', draft.sidebarDensity);
+    setTheme(draft.theme);
+    setAccent(draft.accent);
+    setSaved({ ...draft });
+    toast.success('Display settings saved');
   };
 
   const THEMES = [
     { id: 'technoedge-light', name: 'TechnoEdge Light', desc: 'Clean Professional', preview: { bg: '#f8fafc', sidebar: '#ffffff', accent: '#2563eb' }, active: true },
-    { id: 'john-wick-dark', name: 'John Wick Dark', desc: 'Matte Minimal', preview: { bg: '#050505', sidebar: '#0d0d0f', accent: '#fafafa' }, active: true },
+    { id: 'john-wick-dark', name: 'TechnoEdge Dark', desc: 'Matte Minimal', preview: { bg: '#050505', sidebar: '#0d0d0f', accent: '#fafafa' }, active: true },
   ] as const;
 
   const ACCENTS = [
     { id: 'royal-blue', color: '#2563eb', name: 'Royal Blue' },
-    { id: 'emerald',    color: '#059669', name: 'Emerald' },
+    { id: 'emerald',    color: '#047857', name: 'Emerald' },
     { id: 'violet',     color: '#7c3aed', name: 'Violet' },
-    { id: 'gold',       color: '#d4af37', name: 'Gold' },
+    { id: 'gold',       color: '#8a6900', name: 'Gold' },
     { id: 'crimson',    color: '#dc2626', name: 'Crimson' },
     { id: 'slate',      color: '#475569', name: 'Slate' },
   ] as const;
@@ -1477,25 +1607,36 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
     <div className="space-y-8">
       {mode === 'personal' && <>
       <div>
-        <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Appearance</h2>
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Personalize your workspace look and feel</p>
+        <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Display &amp; theme</h2>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Choose a comfortable, readable workspace.</p>
         <p className="text-xs mt-1 font-medium px-3 py-2 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)', display: 'inline-block' }}>
-          These appearance preferences apply only to this browser/device.
+          Preview changes here, then apply to save for your account on this browser.
         </p>
       </div>
 
       {/* System Theme */}
       <div>
-        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>System Theme</h3>
-        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Choose your workspace theme</p>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Theme</h3>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Follow your device or choose a fixed theme.</p>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <button type="button" aria-pressed={draft?.theme === 'system'} disabled={!draft}
+            onClick={() => updateDraft({ theme: 'system' })}
+            className="rounded-xl border-2 p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            style={{ borderColor: draft?.theme === 'system' ? 'var(--accent)' : 'var(--border-primary)', backgroundColor: 'var(--surface-card)' }}>
+            <div className="mb-2 flex h-12 overflow-hidden rounded-lg"><span className="w-1/2 bg-slate-100" /><span className="w-1/2 bg-slate-900" /></div>
+            <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Follow device</p>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Light or dark automatically</p>
+          </button>
           {THEMES.map((t) => (
             <button
               key={t.id}
-              onClick={() => t.active && setTheme(t.id as ThemeId)}
-              className="relative text-left rounded-xl border-2 p-3 transition-all"
+              type="button"
+              aria-pressed={draft?.theme === t.id}
+              disabled={!t.active}
+              onClick={() => updateDraft({ theme: t.id as ThemeId })}
+              className="relative text-left rounded-xl border-2 p-3 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
               style={{
-                borderColor: theme === t.id ? 'var(--accent)' : 'var(--border-primary)',
+                borderColor: draft?.theme === t.id ? 'var(--accent)' : 'var(--border-primary)',
                 backgroundColor: 'var(--surface-card)',
                 opacity: t.active ? 1 : 0.5,
                 cursor: t.active ? 'pointer' : 'not-allowed',
@@ -1514,7 +1655,7 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
               {!t.active && (
                 <span className="absolute top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>Phase 2</span>
               )}
-              {theme === t.id && (
+              {draft?.theme === t.id && (
                 <span className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs" style={{ backgroundColor: 'var(--accent)' }}>&#10003;</span>
               )}
             </button>
@@ -1530,31 +1671,65 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
           {ACCENTS.map((a) => (
             <button
               key={a.id}
-              onClick={() => setAccent(a.id as AccentId)}
+              type="button"
+              aria-label={`${a.name} accent`}
+              aria-pressed={draft?.accent === a.id}
+              onClick={() => updateDraft({ accent: a.id as AccentId })}
               title={a.name}
-              className="relative flex items-center justify-center transition-transform hover:scale-110"
+              className="relative flex items-center justify-center transition-transform hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
               style={{
                 width: 36, height: 36,
                 borderRadius: '50%',
                 backgroundColor: a.color,
-                boxShadow: accent === a.id
+                boxShadow: draft?.accent === a.id
                   ? `0 0 0 3px var(--surface-card), 0 0 0 5px ${a.color}`
                   : 'none',
               }}
             >
-              {accent === a.id && <span className="text-white text-sm font-bold">&#10003;</span>}
+              {draft?.accent === a.id && <span className="text-white text-sm font-bold">&#10003;</span>}
             </button>
           ))}
         </div>
 
-        {/* Live Preview */}
-        <div className="rounded-xl p-4 border" style={{ backgroundColor: 'var(--surface-sunken)', borderColor: 'var(--border-primary)' }}>
-          <p className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>Preview</p>
-          <div className="flex items-center gap-3 flex-wrap">
-            <button className="px-4 py-2 text-sm font-medium rounded-lg text-white" style={{ backgroundColor: 'var(--accent)' }}>Primary Button</button>
-            <span className="text-sm font-medium pb-1" style={{ color: 'var(--accent)', borderBottom: '2px solid var(--accent)' }}>Active Tab</span>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: 'var(--accent)', boxShadow: '0 0 0 3px var(--surface-sunken), 0 0 0 5px var(--accent-ring)' }}>AB</div>
-            <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)' }}>Active badge</span>
+        {/* Representative, non-interactive workspace preview. Semantic status colours stay independent of the accent. */}
+        <div className="overflow-hidden rounded-xl border" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+          <div className="flex items-center justify-between gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--surface-sunken)' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Workspace preview</p>
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{ACCENTS.find((item) => item.id === draft?.accent)?.name ?? 'Royal Blue'} · {resolveTheme(draft?.theme ?? 'technoedge-light') === 'john-wick-dark' ? 'Dark' : 'Light'}</span>
+          </div>
+          <div role="img" aria-label={`Apex OS workspace preview with ${ACCENTS.find((item) => item.id === draft?.accent)?.name ?? 'Royal Blue'} accent`} className="flex min-h-[214px]">
+            <div className="w-20 flex-shrink-0 space-y-2 border-r p-2 sm:w-28" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-secondary)' }}>
+              <div className="mb-4 flex items-center gap-1.5"><span className="h-5 w-5 rounded-md" style={{ backgroundColor: 'var(--accent)' }} /><span className="hidden text-[10px] font-bold sm:inline" style={{ color: 'var(--text-primary)' }}>APEX OS</span></div>
+              <div className="rounded-md px-2 py-1.5 text-[10px] font-semibold" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', borderLeft: '3px solid var(--accent)' }}>Home</div>
+              <div className="px-2 py-1 text-[10px]" style={{ color: 'var(--text-secondary)' }}>Tickets</div>
+              <div className="px-2 py-1 text-[10px]" style={{ color: 'var(--text-secondary)' }}>My Team</div>
+            </div>
+            <div className="min-w-0 flex-1 p-3" style={{ backgroundColor: 'var(--bg-primary)' }}>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div><p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Good morning, Alex</p><p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Your workspace</p></div>
+                <span className="rounded-md px-2 py-1 text-[10px] font-semibold text-white" style={{ backgroundColor: 'var(--accent)' }}>+ New ticket</span>
+              </div>
+              <div className="mb-3 flex gap-3 border-b text-[10px] font-semibold" style={{ borderColor: 'var(--border-primary)' }}>
+                <span className="border-b-2 pb-1" style={{ borderColor: 'var(--accent)', color: 'var(--accent-text)' }}>Overview</span>
+                <span style={{ color: 'var(--text-secondary)' }}>My work</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border p-2" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+                  <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Open tickets</p>
+                  <p className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>12</p>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)' }}><div className="h-full w-2/3 rounded-full" style={{ backgroundColor: 'var(--accent)' }} /></div>
+                </div>
+                <div className="rounded-lg border p-2" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+                  <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Team status</p>
+                  <p className="mt-1 text-[10px] font-semibold" style={{ color: 'var(--text-primary)' }}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--color-success)' }} />Available</p>
+                  <p className="mt-1 text-[10px]" style={{ color: 'var(--text-secondary)' }}>Status colour stays distinct</p>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-[10px]" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+                <span className="truncate" style={{ color: 'var(--text-primary)' }}>Website update</span>
+                <span className="whitespace-nowrap rounded-full px-2 py-0.5 font-semibold" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}>In progress</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1562,26 +1737,27 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
       {/* Font Size */}
       <div>
         <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Font Size</h3>
-        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Adjusts the base text size across the app</p>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Adjusts text and layout scale across the workspace</p>
         <div className="flex gap-3">
           {([
-            { id: 'small',  label: 'Small',  desc: '12px' },
-            { id: 'medium', label: 'Medium', desc: '13px' },
-            { id: 'large',  label: 'Large',  desc: '15px' },
+            { id: 'small',  label: 'Small',  desc: 'Compact text' },
+            { id: 'medium', label: 'Medium', desc: 'Default' },
+            { id: 'large',  label: 'Large',  desc: 'Larger text' },
           ] as const).map(({ id, label, desc }) => (
             <button
               key={id}
               type="button"
-              onClick={() => applyFontSize(id)}
-              className="flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all"
+              aria-pressed={draft?.fontSize === id}
+              onClick={() => updateDraft({ fontSize: id })}
+              className="flex-1 py-2.5 rounded-lg text-sm font-medium border transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
               style={{
-                borderColor: fontSize === id ? 'var(--accent)' : 'var(--border-primary)',
-                backgroundColor: fontSize === id ? 'var(--accent-subtle)' : 'var(--surface-card)',
-                color: fontSize === id ? 'var(--accent)' : 'var(--text-secondary)',
+                borderColor: draft?.fontSize === id ? 'var(--accent)' : 'var(--border-primary)',
+                backgroundColor: draft?.fontSize === id ? 'var(--accent-subtle)' : 'var(--surface-card)',
+                color: draft?.fontSize === id ? 'var(--accent)' : 'var(--text-secondary)',
               }}
             >
               {label}
-              <span className="block text-xs mt-0.5" style={{ color: fontSize === id ? 'var(--accent-text)' : 'var(--text-tertiary)' }}>{desc}</span>
+              <span className="block text-xs mt-0.5" style={{ color: draft?.fontSize === id ? 'var(--accent-text)' : 'var(--text-tertiary)' }}>{desc}</span>
             </button>
           ))}
         </div>
@@ -1594,21 +1770,57 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
             <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Compact Mode</p>
             <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Reduces spacing for denser information display</p>
           </div>
-          <Toggle checked={compact} onChange={applyCompact} />
+          <Toggle checked={draft?.compact ?? false} onChange={(compact) => updateDraft({ compact })} disabled={!draft} label="Compact mode" />
         </div>
       </div>
 
-      {/* Reset */}
-      <div>
-        <button onClick={resetToCompanyDefaults} className="text-sm" style={{ color: 'var(--accent)' }}>
-          Reset to company defaults
-        </button>
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Readability</h3>
+        <div className="rounded-xl border p-4 flex items-center justify-between gap-4" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+          <div><p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Higher contrast</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Stronger text and borders throughout the workspace.</p></div>
+          <Toggle checked={draft?.contrast ?? false} onChange={(contrast) => updateDraft({ contrast })} disabled={!draft} label="Higher contrast" />
+        </div>
       </div>
 
-      <div className={cardCls}>
-        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Welcome screen</h3>
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Replay the introduction on this device after your next sign-in.</p>
-        <button type="button" onClick={() => { localStorage.removeItem('apexWelcomeSeen'); toast.success('Welcome screen will show on your next sign-in'); }} className="apex-btn apex-btn-secondary text-sm">Reset welcome screen</button>
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Motion &amp; navigation</h3>
+        <div className="rounded-xl border p-4 flex items-center justify-between gap-4" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+          <div><p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Reduce motion</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Minimise sliding and decorative animation. Your device preference is also respected.</p></div>
+          <Toggle checked={draft?.reduceMotion ?? false} onChange={(reduceMotion) => updateDraft({ reduceMotion })} disabled={!draft} label="Reduce motion" />
+        </div>
+        <div className="rounded-xl border p-4" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Sidebar spacing</p>
+          <p className="text-xs mt-0.5 mb-3" style={{ color: 'var(--text-secondary)' }}>Adjust navigation independently of content density.</p>
+          <div className="flex gap-2" role="group" aria-label="Sidebar spacing">
+            {(['comfortable', 'compact'] as const).map((density) => (
+              <button key={density} type="button" aria-pressed={draft?.sidebarDensity === density}
+                onClick={() => updateDraft({ sidebarDensity: density })}
+                className="rounded-lg border px-4 py-2 text-sm capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                style={{ borderColor: draft?.sidebarDensity === density ? 'var(--accent)' : 'var(--border-primary)', backgroundColor: draft?.sidebarDensity === density ? 'var(--accent-subtle)' : 'var(--surface-card)', color: 'var(--text-primary)' }}>
+                {density}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="sticky bottom-3 z-30 flex flex-col gap-3 rounded-xl border p-3 shadow-lg sm:flex-row sm:items-center sm:justify-between"
+        style={{ backgroundColor: 'var(--surface-elevated)', borderColor: dirty ? 'var(--accent)' : 'var(--border-primary)' }}>
+        <div className="min-w-0" role="status" aria-live="polite">
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{dirty ? 'Unsaved display changes' : 'Display settings saved'}</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{dirty ? 'Apply to keep this preview.' : 'Make a change to preview it.'}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={applyDraft} disabled={!dirty} className="apex-btn apex-btn-primary px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60">Apply changes</button>
+          <button type="button" disabled={!dirty} onClick={() => { setDraft(saved); applyAppearanceForUser(userId); }} className="apex-btn apex-btn-secondary px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60">Cancel</button>
+          <button type="button" onClick={() => updateDraft({
+            theme: (localStorage.getItem('apex-company-theme') === 'john-wick-dark' ? 'john-wick-dark' : 'technoedge-light'),
+            accent: (['royal-blue', 'emerald', 'violet', 'gold', 'crimson', 'slate'].includes(localStorage.getItem('apex-company-accent') || '') ? localStorage.getItem('apex-company-accent') : 'royal-blue') as AccentId,
+            fontSize: 'medium', compact: false, contrast: false, reduceMotion: false, sidebarDensity: 'comfortable',
+          })} className="px-2 py-2 text-sm underline" style={{ color: 'var(--accent-text)' }}>Reset to defaults</button>
+        </div>
       </div>
       </>}
 
@@ -1622,6 +1834,8 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
             {THEMES.filter(t => t.active).map((t) => (
               <button
                 key={t.id}
+                type="button"
+                aria-pressed={companyTheme === t.id}
                 onClick={() => setCompanyThemeState(t.id as ThemeId)}
                 className="relative text-left rounded-xl border-2 p-3 transition-all"
                 style={{
@@ -1640,7 +1854,7 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
 
           <div className="flex items-center gap-3 mb-4">
             {ACCENTS.map((a) => (
-              <button key={a.id} onClick={() => setCompanyAccentState(a.id as AccentId)} title={a.name}
+              <button key={a.id} type="button" aria-label={`${a.name} organization accent`} aria-pressed={companyAccent === a.id} onClick={() => setCompanyAccentState(a.id as AccentId)} title={a.name}
                 className="transition-transform hover:scale-110" style={{ width:32, height:32, borderRadius:'50%', backgroundColor:a.color,
                   boxShadow: companyAccent === a.id ? `0 0 0 2px var(--surface-card), 0 0 0 4px ${a.color}` : 'none' }} />
             ))}
@@ -1708,7 +1922,7 @@ function PolicyCenter() {
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
   | 'profile' | 'appearance' | 'notifications' | 'security' | 'team'
-  | 'company' | 'policies';
+  | 'company' | 'policies' | 'hierarchy';
 
 type SettingsNavItem = { id: SectionId; label: string; icon: React.ReactNode; keywords: string };
 type SettingsNavGroup = { label: string; items: SettingsNavItem[] };
@@ -1731,6 +1945,7 @@ export function SettingsCenter() {
   const organizationItems: SettingsNavItem[] = isAdmin ? [
     { id: 'company', label: 'Organization profile', icon: <Building2 size={16} />, keywords: 'company organization name email timezone branding theme accent' },
     { id: 'policies', label: 'Policy', icon: <ClipboardCheck size={16} />, keywords: 'leave work schedule ticket types service levels SLA' },
+    { id: 'hierarchy', label: 'Organization hierarchy', icon: <Network size={16} />, keywords: 'organization chart reporting manager team lead department structure roles hierarchy' },
   ] : [];
   const groups: SettingsNavGroup[] = [
     { label: 'My account', items: accountItems },
@@ -1746,6 +1961,23 @@ export function SettingsCenter() {
     setActive(allowed.includes(resolved) ? resolved : 'profile');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roleName]);
+
+  const leaveHierarchy = () => {
+    setActive('profile');
+    window.history.replaceState(null, '', '/settings?tab=profile');
+  };
+
+  if (active === 'hierarchy' && isAdmin) {
+    return <div className="w-full max-w-none px-2 pb-8 sm:px-4">
+      <div className="sticky top-2 z-30 mb-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-card)] px-3 py-2.5 shadow-sm sm:px-4">
+        <button type="button" onClick={leaveHierarchy} className="apex-btn apex-btn-secondary inline-flex items-center gap-2 text-sm">
+          <ArrowLeft size={16} /> Back to settings
+        </button>
+        <p className="hidden text-sm font-semibold text-[var(--text-primary)] sm:block">Organization hierarchy workspace</p>
+      </div>
+      <OrganizationHierarchySection />
+    </div>;
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-5 px-4 sm:px-6">
@@ -1778,6 +2010,7 @@ export function SettingsCenter() {
           {active === 'team' && isLead && <TeamLeadershipSection />}
           {active === 'company' && isAdmin && <div className="space-y-7"><CompanySection /><AppearanceSettings mode="company" /></div>}
           {active === 'policies' && isAdmin && <PolicyCenter />}
+          {active === 'hierarchy' && isAdmin && <OrganizationHierarchySection />}
         </main>
       </div>
     </div>
