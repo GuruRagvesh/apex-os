@@ -24,9 +24,15 @@ function LoginForm() {
 
   useEffect(() => {
     if (searchParams.get('expired') === 'true') {
-      toast.error('Your session has expired. Please log in again.', { duration: 5000 });
+      toast.error('Your session has expired. Please log in again.', { id: 'login-error', duration: 5000 });
     }
   }, [searchParams]);
+
+  const showLoginError = (message: string) => {
+    // A failed request can be retried, but it should update the same visible
+    // message rather than filling the page with identical network toasts.
+    toast.error(message, { id: 'login-error' });
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,13 +64,13 @@ function LoginForm() {
       // never a raw transport error.
       const code = err?.statusCode ?? err?.status;
       if (code === 429) {
-        toast.error('Too many sign-in attempts. Please wait a few minutes and try again.');
+        showLoginError('Too many sign-in attempts. Please wait a few minutes and try again.');
       } else if (err?.isAxiosError && !err?.response) {
-        toast.error('Cannot reach Apex OS right now. Check your connection and try again.');
+        showLoginError('Cannot reach Apex OS right now. Check your connection and try again.');
       } else if (typeof code === 'number' && code >= 500) {
-        toast.error('Sign-in is temporarily unavailable. Please try again shortly.');
+        showLoginError('Sign-in is temporarily unavailable. Please try again shortly.');
       } else {
-        toast.error(err?.message || 'Invalid credentials');
+        showLoginError(err?.message || 'Invalid credentials');
       }
     } finally {
       setLoading(false);

@@ -169,5 +169,23 @@ describe('NotificationEventService', () => {
       expect(mockPrisma.notification.create).toHaveBeenCalled();
       expect(mockGateway.emitNotificationToUser).not.toHaveBeenCalled();
     });
+
+    it('delivers a popup during quiet hours when the user disables quiet hours', async () => {
+      mockUsersService.getPreferences.mockResolvedValue({
+        assignedTicket: true,
+        quietHoursEnabled: false,
+        quietFrom: '22:00',
+        quietTo: '08:00',
+      });
+      mockPrisma.notification.create.mockResolvedValue({ id: 'notif4' });
+      const quietCheck = jest.spyOn(service, 'isInQuietHours');
+
+      await service.sendNotification('user1', 'assignedTicket', {
+        title: 'Ticket assigned', message: 'A ticket needs you', type: NotificationType.INFO,
+      });
+
+      expect(quietCheck).not.toHaveBeenCalled();
+      expect(mockGateway.emitNotificationToUser).toHaveBeenCalledWith('user1', expect.anything());
+    });
   });
 });
