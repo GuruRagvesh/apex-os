@@ -84,6 +84,13 @@ describe('lifecycle dependency matrix covers the schema', () => {
     expect(HANDLERS.filter((h) => h.appendOnly).map((h) => h.model).sort()).toEqual(['AttendancePunchEvidence', 'FnfAdjustment', 'FnfAdjustmentRequest', 'LeaveEvidence', 'LeaveEvidence', 'LifecycleRemediationAttempt', 'UnreportedAbsenceDecision', 'WorkdayNote']);
   });
 
+  it('classifies business reporting lines separately from approval assignments', () => {
+    const actionFor = (key: string) => HANDLERS.find((handler) => handler.key === key)?.action;
+
+    expect(actionFor('OrganizationReportingLine.subjectUserId')).toBe('DEL');
+    expect(actionFor('OrganizationReportingLine.supervisorId')).toBe('DEL');
+  });
+
   describe('lifecycle foundation (Phase 1) handlers', () => {
     const at = (k: string) => {
       const i = HANDLERS.findIndex((h) => h.key === k);

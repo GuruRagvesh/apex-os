@@ -206,7 +206,7 @@ export class UserLifecycleService {
     const [
       reports, teamMembersLed, teamsLed, managedDepts,
       pendingLeaveMgr, pendingLeaveHr, pendingTicketApprovals,
-      pendingProfileChanges, pendingCorrections, openLeads, colleagueProfiles, awaitingApproval, openReportingLines,
+      pendingProfileChanges, pendingCorrections, openLeads, colleagueProfiles, awaitingApproval, openApprovalReportingLines, openOrganizationReportingLines,
     ] = await Promise.all([
       employeeId ? db.user.count({ where: { id: { not: userId }, isActive: true, reportingManager: employeeId } }) : 0,
       employeeId ? db.user.count({ where: { id: { not: userId }, isActive: true, teamLeadName: employeeId } }) : 0,
@@ -235,8 +235,10 @@ export class UserLifecycleService {
         },
       }),
       db.ticket.count({ where: { status: 'PENDING_APPROVAL', OR: [{ assignedToId: userId }, { assignees: { some: { userId } } }] } }),
-      // Phase 1: an open TL/Manager assignment held by this person (as the assignee) is never ended automatically.
+      // Approval routing and the organization chart are deliberately separate.
+      // Neither kind of active report may be silently orphaned by archival.
       db.hierarchyAssignment.count({ where: { assigneeUserId: userId, effectiveTo: null } }),
+      db.organizationReportingLine.count({ where: { supervisorId: userId, subjectUserId: { not: userId } } }),
     ]);
     // Phase 4 (D8): an exit still running, or cleared with F&F unreleased.
     const openExit = await countOpenExitCases(db, userId);
@@ -253,7 +255,7 @@ export class UserLifecycleService {
     add('OPEN_CRM_LEADS', openLeads);
     add('ACTIVE_COLLEAGUE_ATTENDANCE_PROFILES', colleagueProfiles);
     add('TICKETS_AWAITING_APPROVAL', awaitingApproval);
-    add('OPEN_REPORTING_LINES', openReportingLines);
+    add('OPEN_REPORTING_LINES', openApprovalReportingLines + openOrganizationReportingLines);
     add('OPEN_EXIT_CASE', openExit);
     return out;
   }
