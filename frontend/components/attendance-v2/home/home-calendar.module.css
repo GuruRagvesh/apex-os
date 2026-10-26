@@ -127,15 +127,15 @@ button.title { cursor: pointer; }
 .teamLeave small { font-size: 9px; font-weight: 600; color: #6b82a6; }
 .teamState { min-height: 320px; display: grid; place-items: center; color: #6684a8; font-size: 12px; font-weight: 700; }
 
-.branchMap { position: absolute; z-index: 80; left: calc(100% + 13px); top: 50%; width: 354px; padding: 12px; border: 1px solid var(--section-border); border-radius: 16px; background: var(--surface-card); box-shadow: 0 18px 42px rgba(12,51,104,.2); transform: translateY(-50%); animation: branchEnter .18s ease-out; }
-.branchMap::before { content: ''; position: absolute; left: -8px; top: 50%; width: 15px; height: 15px; border-left: 1px solid var(--section-border); border-bottom: 1px solid var(--section-border); background: var(--surface-card); transform: translateY(-50%) rotate(45deg); }
-@keyframes branchEnter { from { opacity: 0; transform: translate(7px, -50%) scale(.98); } }
-.branchRoot { position: relative; z-index: 1; width: fit-content; display: flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 8px; background: #004687; color: #fff; font-size: 11px; font-weight: 800; }
-.branchStem { position: relative; width: 22px; height: 17px; margin-left: 21px; border-left: 2px solid #86b8ed; border-bottom: 2px solid #86b8ed; }
-.branchStem::after { content: ''; position: absolute; left: 20px; bottom: -2px; width: 275px; height: 2px; background: linear-gradient(90deg, #86b8ed, #d7e8fa); }
-.branchChoices { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.branchChoices button { position: relative; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid #d1e1f3; border-radius: 11px; background: #fbfdff; color: #3974bd; text-align: left; transition: transform .15s, border-color .15s, box-shadow .15s, background .15s; }
-.branchChoices button::before { content: ''; position: absolute; left: 50%; top: -10px; width: 2px; height: 10px; background: #b8d6f4; }
+.branchMap { position: absolute; z-index: 80; left: 0; top: calc(100% + 10px); width: 390px; padding: 15px; border: 1px solid #b9d3ef; border-radius: 18px; background: var(--surface-card); box-shadow: 0 20px 46px rgba(12,51,104,.22); animation: branchEnter .18s ease-out; }
+.branchMap::before { content: ''; position: absolute; left: 23px; top: -8px; width: 15px; height: 15px; border-left: 1px solid #b9d3ef; border-bottom: 1px solid #b9d3ef; background: var(--surface-card); transform: rotate(135deg); }
+@keyframes branchEnter { from { opacity: 0; transform: translateY(-6px) scale(.98); } }
+.branchRoot { position: relative; z-index: 1; width: fit-content; display: flex; align-items: center; gap: 7px; margin: 0 auto; padding: 7px 12px; border-radius: 9px; background: #004687; color: #fff; font-size: 11px; font-weight: 800; box-shadow: 0 5px 12px rgba(0,70,135,.2); }
+.branchStem { width: 2px; height: 18px; margin: 0 auto; background: #86b8ed; }
+.branchChoices { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding-top: 13px; }
+.branchChoices::before { content: ''; position: absolute; top: 0; left: 25%; right: 25%; height: 2px; background: linear-gradient(90deg, #86b8ed, #b8d6f4, #86b8ed); }
+.branchChoices button { position: relative; min-width: 0; display: flex; align-items: center; gap: 9px; min-height: 60px; padding: 11px 12px; border: 1px solid #d1e1f3; border-radius: 12px; background: #fbfdff; color: #3974bd; text-align: left; transition: transform .15s, border-color .15s, box-shadow .15s, background .15s; }
+.branchChoices button::before { content: ''; position: absolute; left: 50%; top: -13px; width: 2px; height: 13px; background: #b8d6f4; }
 .branchChoices button:hover { transform: translateY(-1px); border-color: var(--accent); box-shadow: 0 6px 14px rgba(18,61,115,.1); }
 .branchChoices button[data-selected="true"] { border-color: var(--accent); background: var(--accent-subtle); box-shadow: inset 0 0 0 1px var(--accent-border); }
 .branchChoices button > span { min-width: 0; }
@@ -145,9 +145,7 @@ button.title { cursor: pointer; }
   .teamTable { min-width: 1080px; }
   .teamViewTitle { position: static; order: 3; width: 100%; padding-top: 2px; text-align: center; transform: none; }
   .teamDateControls { width: 100%; justify-content: space-between; order: 4; }
-  .branchMap { left: 0; top: calc(100% + 9px); width: min(354px, calc(100vw - 42px)); transform: none; }
-  .branchMap::before { left: 22px; top: -8px; transform: rotate(135deg); }
-  @keyframes branchEnter { from { opacity: 0; transform: translateY(-5px) scale(.98); } }
+  .branchMap { width: min(390px, calc(100vw - 42px)); }
 }
 
 .toggle {
@@ -401,7 +399,7 @@ button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
 .personalLeaveUsedKpi em { position: absolute; right: 13px; bottom: 12px; color: #a86408; font-size: 8px; font-style: normal; font-weight: 800; }
 .personalLeaveTotals > :nth-child(3) strong { color: #087f5b; }
 .personalLeaveTotals small { font-size: 9px; color: #7890ae; }
-.usedLeaveModalBackdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(8,24,48,.35); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); animation: usedLeaveBackdropEnter .16s ease-out; }
+.usedLeaveModalBackdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(15,23,42,.30); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: usedLeaveBackdropEnter .16s ease-out; }
 .usedLeaveModal { width: min(620px, 100%); max-height: min(76vh, 650px); display: flex; flex-direction: column; padding: 18px; overflow: hidden; border: 1px solid #e5b85d; border-radius: 18px; background: #fffdf8; box-shadow: 0 26px 70px rgba(10,32,62,.3); animation: usedLeaveModalEnter .2s ease-out; }
 @keyframes usedLeaveBackdropEnter { from { opacity: 0; } }
 @keyframes usedLeaveModalEnter { from { opacity: 0; transform: translateY(10px) scale(.97); } }
@@ -540,7 +538,7 @@ button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
 .leaveAnalysisLaunch strong { color: #fff; font-size: 12px; font-weight: 800; }
 .leaveAnalysisLaunch small { margin-top: 3px; overflow: hidden; color: rgba(255,255,255,.76); font-size: 9px; font-weight: 600; line-height: 1.25; }
 
-.leaveAnalysisModalBackdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(5,18,38,.58); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: usedLeaveBackdropEnter .18s ease-out; }
+.leaveAnalysisModalBackdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(15,23,42,.30); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: usedLeaveBackdropEnter .18s ease-out; }
 .leaveAnalysisModal { width: min(960px, 100%); max-height: min(88vh, 820px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #a9c8ed; border-radius: 24px; background: linear-gradient(145deg, #fff, #f6faff); box-shadow: 0 32px 90px rgba(3,18,42,.42); animation: usedLeaveModalEnter .22s ease-out; }
 .leaveAnalysisModalHeader { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto 40px; align-items: center; gap: 14px; padding: 22px 24px 18px; border-bottom: 1px solid #d8e7f7; }
 .leaveAnalysisModalHeader h2 { color: #172b50; font-size: 23px; line-height: 1.1; font-weight: 850; letter-spacing: -.025em; }
@@ -666,7 +664,7 @@ button.dimmedDay:hover, button.dimmedDay:focus-visible { opacity: 1; }
 .futureDayNotice span { color: #607a9b; font-size: 10px; line-height: 1.4; }
 .futureDayNotice small { margin-top: 3px; color: #2563eb; font-size: 9px; font-weight: 800; }
 
-.applyLeaveBackdrop { position: fixed; z-index: 1200; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(4,18,39,.62); backdrop-filter: blur(11px); -webkit-backdrop-filter: blur(11px); }
+.applyLeaveBackdrop { position: fixed; z-index: 1200; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(15,23,42,.30); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
 .applyLeaveModal { width: min(680px, 100%); max-height: calc(100vh - 32px); overflow: auto; border: 1px solid #9dc3ee; border-radius: 22px; background: linear-gradient(145deg, #fff, #f5f9ff); box-shadow: 0 30px 90px rgba(3,18,42,.42); }
 .applyLeaveModal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 24px 18px; border-bottom: 1px solid #d9e7f6; }
 .applyLeaveModal > header span { color: #2563eb; font-size: 9px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }

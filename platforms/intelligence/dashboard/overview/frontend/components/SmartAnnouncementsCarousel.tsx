@@ -263,7 +263,7 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
 
       <Dialog.Root open={detailsOpen} onOpenChange={(open) => { setDetailsOpen(open); if (!open) { setSelectedCritical(null); setSelectedKey(null); } }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[100] bg-slate-950/40" />
+          <Dialog.Overlay className="fixed inset-0 z-[100] bg-slate-950/30 backdrop-blur-[3px]" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-[101] max-h-[85vh] w-[min(92vw,540px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl focus:outline-none dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -299,7 +299,7 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
 
       <Dialog.Root open={editorOpen} onOpenChange={(open) => { if (!saveAnnouncement.isPending) setEditorOpen(open); }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[130] bg-slate-950/55 backdrop-blur-sm" />
+          <Dialog.Overlay className="fixed inset-0 z-[130] bg-slate-950/30 backdrop-blur-[3px]" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-[131] w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-blue-100 bg-white p-6 shadow-2xl focus:outline-none dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-start justify-between gap-3">
               <div><p className="text-xs font-semibold uppercase tracking-wider text-blue-600">APEX OS live updates</p>

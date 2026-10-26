@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Building2, CalendarDays, CheckCircle2, Clock3, Coffee, Eye, FolderKanban, LogIn, LogOut, PlayCircle, Presentation, Ticket, UserRound, Users, X, Zap } from 'lucide-react';
 import { dashboardApi } from '../api/dashboard-api';
-import type { HomeExperience, TeamInsightPayload } from './home-types';
+import type { HomeExperience, TeamInsightPayload, TeamInsightProject } from './home-types';
 import { SectionFrame } from './home-ui';
+import { ModalPortal } from '../components/ModalPortal';
 import attendanceInsightsStyles from './TeamInsightsSection.module.css';
 
 const EMPTY_DEPARTMENTS: HomeExperience['team']['departments'] = [];
@@ -38,6 +39,21 @@ function clockLabel(value: number | null | undefined) {
 function meetingCountLabel(value: number | null | undefined) {
   if (value == null) return '—';
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function personInitials(name: string | null | undefined) {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '?';
+  return `${words[0][0]}${words.length > 1 ? words[words.length - 1][0] : ''}`.toUpperCase();
+}
+
+function projectDepartmentLabel(project: TeamInsightProject) {
+  const departments = project.departments?.length
+    ? project.departments
+    : project.department ? [project.department] : [];
+  if (!departments.length) return 'No department assigned';
+  if (departments.length === 1) return departments[0].name;
+  return `Cross-department · ${departments.map((department) => department.name).join(', ')}`;
 }
 
 function readablePeriod(mode: AnalysisMode, month: string, date: string) {
@@ -107,10 +123,12 @@ function PersonalAttendanceKpi({ label, value, note, tone, onClick }: { label: s
     : <article className={`rounded-xl border px-3 py-2.5 ${styles}`}>{content}</article>;
 }
 
-function AttendanceFilterKpi({ label, value, color, selected, onClick }: { label: string; value: number; color: string; selected: boolean; onClick: () => void }) {
+function AttendanceFilterKpi({ label, value, color, selected, description, onClick }: { label: string; value: number; color: string; selected: boolean; description?: string; onClick: () => void }) {
   return <button
     type="button"
     aria-pressed={selected}
+    aria-label={description ? `${label}: ${value}. ${description}` : `${label}: ${value}`}
+    title={description}
     onClick={onClick}
     className={`group flex min-w-[118px] flex-1 items-center gap-2 rounded-xl border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${selected ? 'border-blue-600 bg-blue-50 shadow-sm ring-2 ring-blue-100 dark:bg-blue-950/30 dark:ring-blue-900' : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900'}`}
   >
@@ -198,12 +216,9 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
 
   useEffect(() => {
     if (!showLeaveDetails) return undefined;
-    const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setShowLeaveDetails(false); };
-    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', closeOnEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [showLeaveDetails]);
@@ -261,30 +276,31 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
   const useAverages = analysisMode === 'monthly' || insight?.target === 'OVERALL';
   const workday = insight?.workday;
   const metrics = workday ? (useAverages ? workday.averages : workday) : null;
-  const isScheduledDay = (workday?.scheduledWorkingDays ?? 0) > 0;
   const meetingValue = analysisMode === 'monthly'
     ? `${meetingCountLabel(workday?.averages.meetingCount)} avg/day`
     : `${meetingCountLabel(insight?.target === 'OVERALL' ? workday?.averages.meetingCount : workday?.meetingCount)} meeting${(insight?.target === 'PERSON' && workday?.meetingCount === 1) ? '' : 's'}`;
   const attendanceDays = workday?.attendanceCalendar ?? [];
-  const matchesAttendanceFilter = (status: string, filter: PersonalAttendanceFilter) => ({
-    PRESENT: ['PRESENT', 'PRODUCTIVE', 'OVERTIME'],
-    PRODUCTIVE: ['PRODUCTIVE'],
-    OVERTIME: ['OVERTIME'],
-    LATE: ['LATE', 'SHORT_HOURS', 'LATE_EXEMPTED'],
-    HALF_DAY: ['HALF_DAY'],
-    LEAVE: ['LEAVE', 'LWP'],
-    ABSENT: ['ABSENT'],
-  }[filter] as string[]).includes(status);
-  const attendanceFilterKpis: Array<{ filter: PersonalAttendanceFilter; label: string; color: string; value: number }> = [
-    { filter: 'PRESENT', label: 'Present', color: 'bg-emerald-400', value: workday?.presentDays ?? 0 },
-    { filter: 'PRODUCTIVE', label: 'Productive', color: 'bg-cyan-300', value: attendanceDays.filter((day) => day.status === 'PRODUCTIVE').length },
-    { filter: 'OVERTIME', label: 'Overtime', color: 'bg-indigo-400', value: attendanceDays.filter((day) => day.status === 'OVERTIME').length },
-    { filter: 'LATE', label: 'Late / short', color: 'bg-orange-300', value: attendanceDays.filter((day) => matchesAttendanceFilter(day.status, 'LATE')).length },
+  const matchesAttendanceFilter = (
+    day: TeamInsightPayload['workday']['attendanceCalendar'][number],
+    filter: PersonalAttendanceFilter,
+  ) => {
+    if (filter === 'PRESENT') return day.isPresent;
+    if (filter === 'PRODUCTIVE') return day.modifiers.includes('PRODUCTIVE');
+    if (filter === 'OVERTIME') return day.modifiers.includes('OVERTIME');
+    if (filter === 'LATE') return day.modifiers.some((modifier) => ['LATE', 'LATE_EXEMPTED', 'SHORT_HOURS'].includes(modifier));
+    if (filter === 'HALF_DAY') return day.outcome === 'HALF_DAY';
+    if (filter === 'LEAVE') return day.outcome === 'LEAVE' || day.outcome === 'LWP';
+    return day.outcome === 'ABSENT';
+  };
+  const attendanceFilterKpis: Array<{ filter: PersonalAttendanceFilter; label: string; color: string; value: number; description?: string }> = [
+    { filter: 'PRESENT', label: 'Present', color: 'bg-emerald-400', value: workday?.presentDays ?? 0, description: 'Includes full days, late attendance, short hours, half days, productive days and overtime.' },
+    { filter: 'PRODUCTIVE', label: 'Productive', color: 'bg-cyan-300', value: attendanceDays.filter((day) => matchesAttendanceFilter(day, 'PRODUCTIVE')).length },
+    { filter: 'OVERTIME', label: 'Overtime', color: 'bg-indigo-400', value: attendanceDays.filter((day) => matchesAttendanceFilter(day, 'OVERTIME')).length },
+    { filter: 'LATE', label: 'Late / short', color: 'bg-orange-300', value: attendanceDays.filter((day) => matchesAttendanceFilter(day, 'LATE')).length },
     { filter: 'HALF_DAY', label: 'Half day', color: 'bg-violet-300', value: workday?.halfDays ?? 0 },
     { filter: 'LEAVE', label: 'Leave', color: 'bg-rose-300', value: workday?.leaveDays ?? 0 },
     { filter: 'ABSENT', label: 'Absent', color: 'bg-red-400', value: workday?.absentDays ?? 0 },
   ];
-  const filteredAttendanceCount = attendanceFilter ? attendanceDays.filter((day) => matchesAttendanceFilter(day.status, attendanceFilter)).length : attendanceDays.length;
   const personalAttendanceKpis = insight?.target === 'PERSON' && workday ? <>
     <PersonalAttendanceKpi label="Present days" value={workday.presentDays} tone="green" />
     <PersonalAttendanceKpi label="Half days" value={workday.halfDays} tone="violet" />
@@ -301,13 +317,16 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
     {insight && workday && <div className="grid grid-cols-1 gap-5 xl:grid-cols-2" data-department-id={departmentId} data-person-id={personId}>
       <header className="order-0 flex flex-wrap items-center gap-3 px-1 xl:col-span-2">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-700 font-bold text-white" style={insight.identity?.photoUrl ? { backgroundImage: `url(${insight.identity.photoUrl})`, backgroundPosition: 'center', backgroundSize: 'cover' } : undefined}>{insight.identity?.photoUrl ? '' : insight.identity?.initials ?? <Users size={21} />}</div>
+          <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-700 font-bold text-white">
+            <span aria-hidden>{personInitials(insight.identity?.name ?? overallLabel)}</span>
+            {insight.identity?.photoUrl && <img src={insight.identity.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+          </div>
           <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-base font-bold text-slate-900 dark:text-white">{insight.identity?.name ?? overallLabel}</h3>{insight.identity && <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset ${identityStatus.tone}`}><i className="h-1.5 w-1.5 rounded-full bg-current" />{identityStatus.label}</span>}</div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{insight.identity ? [readableRole(insight.identity.role), insight.identity.department?.name].filter(Boolean).join(' · ') : `${insight.scope.people} people in the permitted hierarchy scope`}</p></div>
         </div>
       </header>
 
       <section className="order-1 px-1 xl:col-span-2" aria-label="Workday analysis">
-        <div className="flex flex-wrap items-end justify-between gap-2"><h3 className="text-lg font-black text-slate-900 dark:text-white">Workday Analysis</h3>{!workday.calendarResolved ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Calendar policy needs review</span> : workday.unresolvedScheduleDays > 0 ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{workday.unresolvedScheduleDays} schedule day{workday.unresolvedScheduleDays === 1 ? '' : 's'} unresolved</span> : workday.coverageRate != null && workday.coverageRate < 100 ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{workday.coverageRate}% attendance verified</span> : !workday.daysWorked && isScheduledDay ? <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-800">No work session recorded</span> : null}</div>
+        <div className="flex flex-wrap items-end justify-between gap-2"><h3 className="inline-flex rounded-lg bg-slate-600 px-3 py-1.5 text-sm font-black text-white ring-1 ring-inset ring-slate-700 dark:bg-slate-600 dark:text-white dark:ring-slate-500">Workday Analysis</h3>{!workday.calendarResolved ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Calendar policy needs review</span> : workday.unresolvedScheduleDays > 0 ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{workday.unresolvedScheduleDays} schedule day{workday.unresolvedScheduleDays === 1 ? '' : 's'} unresolved</span> : null}</div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <MetricTile icon={Clock3} label="Working hours" value={minutesLabel(metrics?.workingMinutes)} tone="blue" />
           <MetricTile icon={Zap} label="Productive hours" value={minutesLabel(metrics?.productiveMinutes)} tone="violet" />
@@ -321,8 +340,7 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
 
       <section className="order-3 px-1" aria-label="Ticket analysis">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div><h3 className="text-lg font-black text-slate-900 dark:text-white">Ticket Analysis</h3></div>
-          <span className="rounded-full bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">{insight.target === 'PERSON' ? 'Individual' : 'Scope'} totals</span>
+          <div><h3 className="inline-flex rounded-lg bg-slate-600 px-3 py-1.5 text-sm font-black text-white ring-1 ring-inset ring-slate-700 dark:bg-slate-600 dark:text-white dark:ring-slate-500">Ticket Analysis</h3></div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <TicketKpi icon={Ticket} label="Active" value={insight.tickets.active} tone="blue" />
@@ -333,36 +351,39 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
         </div>
       </section>
 
-      {!insight.scope.companyWide && <section className="order-3 px-1" aria-label="Project contributions">
+      <section className="order-3 px-1" aria-label={insight.scope.companyWide ? 'Active projects' : 'Project contributions'}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div><h3 className="text-lg font-black text-slate-900 dark:text-white">Project Contributions</h3></div>
-          <span className="rounded-full bg-violet-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">{insight.projects.length} active project{insight.projects.length === 1 ? '' : 's'}</span>
+          <div><h3 className="inline-flex rounded-lg bg-slate-600 px-3 py-1.5 text-sm font-black text-white ring-1 ring-inset ring-slate-700 dark:bg-slate-600 dark:text-white dark:ring-slate-500">{insight.scope.companyWide ? 'Active Projects' : 'Project Contributions'}</h3></div>
+          {insight.scope.companyWide && <span className="rounded-full bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/30 dark:text-blue-300 dark:ring-blue-800">{insight.projects.length} ongoing project{insight.projects.length === 1 ? '' : 's'}</span>}
         </div>
-        {insight.projects.length ? <div className="mt-3 space-y-2">
+        {insight.projects.length ? <div className={`mt-3 space-y-2 ${insight.scope.companyWide ? 'max-h-[360px] overflow-y-auto pr-1' : ''}`}>
           {insight.projects.map((project) => <article key={project.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/40">
             <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2.5"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#004687] shadow-sm dark:bg-slate-900 dark:text-blue-300"><FolderKanban size={17} aria-hidden /></span><div className="min-w-0"><p className="truncate text-sm font-black text-slate-900 dark:text-white">{project.name}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400">{project.code} · {project.status.replaceAll('_', ' ')}</p></div></div>
+              <div className="flex min-w-0 items-center gap-2.5"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#004687] shadow-sm dark:bg-slate-900 dark:text-blue-300"><FolderKanban size={17} aria-hidden /></span><div className="min-w-0"><p className="truncate text-sm font-black text-slate-900 dark:text-white">{project.name}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400">{project.code} · {projectDepartmentLabel(project)}{insight.scope.companyWide ? '' : ` · ${project.status.replaceAll('_', ' ')}`}</p></div></div>
             </div>
-            <div className="grid grid-cols-4 gap-3 text-center">
-              {[['Assigned', project.assigned], ['Active', project.active], ['Completed', project.done], ['Overdue', project.overdue]].map(([label, value]) => <div key={label}><p className="text-sm font-black text-slate-950 dark:text-white">{value}</p><p className="mt-0.5 text-[8px] font-bold uppercase tracking-wide text-slate-500">{label}</p></div>)}
+            <div className={`grid gap-3 text-center ${insight.scope.companyWide ? 'grid-cols-3' : 'grid-cols-4'}`}>
+              {(insight.scope.companyWide
+                ? [['Active', project.active], ['In progress', project.inProgress ?? 0], ['Completed', project.done]]
+                : [['Assigned', project.assigned], ['Active', project.active], ['Completed', project.done], ['Overdue', project.overdue]]
+              ).map(([label, value]) => <div key={label}><p className="text-sm font-black text-slate-950 dark:text-white">{value}</p><p className="mt-0.5 text-[8px] font-bold uppercase tracking-wide text-slate-500">{label}</p></div>)}
             </div>
-            <div className="shrink-0 text-right"><p className="text-lg font-black text-[#004687] dark:text-blue-300">{project.contributionPercent == null ? '—' : `${project.contributionPercent}%`}</p><p className="text-[8px] font-bold uppercase tracking-wide text-slate-500">Contribution</p></div>
+            {!insight.scope.companyWide && <div className="shrink-0 text-right"><p className="text-lg font-black text-[#004687] dark:text-blue-300">{project.contributionPercent == null ? '—' : `${project.contributionPercent}%`}</p><p className="text-[8px] font-bold uppercase tracking-wide text-slate-500">Contribution</p></div>}
           </article>)}
-        </div> : <div className="mt-3 flex min-h-24 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/30 dark:text-slate-400">No project-linked ticket activity was recorded for this selection.</div>}
-      </section>}
+        </div> : <div className="mt-3 flex min-h-24 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/30 dark:text-slate-400">{insight.scope.companyWide ? 'No active projects are currently recorded.' : 'No project-linked ticket activity was recorded for this selection.'}</div>}
+      </section>
 
       {insight.target === 'PERSON' && <section className="order-2 px-1 xl:col-span-2" aria-label="Individual attendance analysis">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-black text-slate-900 dark:text-white">Attendance</h3>
-          {analysisMode === 'monthly' && <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">Individual monthly calendar</span>}
+          <h3 className="inline-flex rounded-lg bg-slate-600 px-3 py-1.5 text-sm font-black text-white ring-1 ring-inset ring-slate-700 dark:bg-slate-600 dark:text-white dark:ring-slate-500">Attendance</h3>
         </div>
         {analysisMode === 'monthly' ? <div className="mt-3 space-y-3">
-          <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Attendance record filters">
+          <div className="flex gap-2 overflow-x-auto pb-1 pt-1" aria-label="Attendance record filters">
             {attendanceFilterKpis.map((kpi) => <AttendanceFilterKpi
               key={kpi.filter}
               label={kpi.label}
               value={kpi.value}
               color={kpi.color}
+              description={kpi.description}
               selected={attendanceFilter === kpi.filter}
               onClick={() => setAttendanceFilter((current) => current === kpi.filter ? null : kpi.filter)}
             />)}
@@ -376,13 +397,12 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
             <div className={attendanceInsightsStyles.distribution}>
               <div>
                 <h3>Attendance record</h3>
-                <span>{attendanceFilter ? `${filteredAttendanceCount} matching day${filteredAttendanceCount === 1 ? '' : 's'}` : `${attendanceDays.filter((day) => day.date <= today).length} recorded days`} · open days stay provisional</span>
               </div>
               <div className={attendanceInsightsStyles.dayStrip} aria-label={`${readablePeriod('monthly', month, date)} attendance record`}>
                 {attendanceDays.map((day) => {
                   const canSelect = day.date <= today;
                   const label = day.holidayName || attendanceDayLabel(day.status);
-                  const matches = !attendanceFilter || matchesAttendanceFilter(day.status, attendanceFilter);
+                  const matches = !attendanceFilter || matchesAttendanceFilter(day, attendanceFilter);
                   return <button
                     key={day.date}
                     type="button"
@@ -405,7 +425,7 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
         </div> : <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">{personalAttendanceKpis}</div>}
       </section>}
     </div>}
-    {showLeaveDetails && insight?.target === 'PERSON' && workday?.leaveUsage && <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowLeaveDetails(false); }}>
+    {showLeaveDetails && insight?.target === 'PERSON' && workday?.leaveUsage && <ModalPortal><div className="fixed inset-0 z-[160] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-md" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowLeaveDetails(false); }}>
       <section role="dialog" aria-modal="true" aria-labelledby="team-leave-details-title" className="w-full max-w-3xl overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-2xl dark:border-blue-800 dark:bg-slate-900">
         <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-700">
           <div>
@@ -433,6 +453,6 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
           <button type="button" onClick={() => setShowLeaveDetails(false)} className="rounded-xl bg-[#004687] px-5 py-2.5 font-bold text-white shadow-sm transition hover:bg-[#003765] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">Close</button>
         </footer>
       </section>
-    </div>}
+    </div></ModalPortal>}
   </SectionFrame>;
 }
