@@ -20,7 +20,8 @@ const SECRET = 'staging-api-secret-value';
 const config = (vars: Record<string, string>) =>
   ({ get: (k: string) => vars[k] }) as unknown as ConfigService;
 
-const storageWith = (vars: Record<string, string>) => new PunchPhotoStorage(config(vars));
+const storageWith = (vars: Record<string, string>) =>
+  new PunchPhotoStorage(config(vars));
 
 describe('PunchPhotoStorage configuration rule', () => {
   it('is configured only when all three variables are present', () => {
@@ -35,7 +36,9 @@ describe('PunchPhotoStorage configuration rule', () => {
 
   it('is NOT configured with the cloud name alone', () => {
     // Exactly the trap: this combination silenced the old startup warning.
-    expect(storageWith({ CLOUDINARY_CLOUD_NAME: CLOUD }).isConfigured()).toBe(false);
+    expect(storageWith({ CLOUDINARY_CLOUD_NAME: CLOUD }).isConfigured()).toBe(
+      false,
+    );
   });
 
   it('is NOT configured with cloud name and API key but no secret', () => {
@@ -53,9 +56,9 @@ describe('PunchPhotoStorage configuration rule', () => {
 
   it('refuses to upload rather than falling back to storing bytes elsewhere', async () => {
     const storage = storageWith({});
-    await expect(storage.upload('user-1', Buffer.from('x'), 'image/jpeg')).rejects.toThrow(
-      /not configured/i,
-    );
+    await expect(
+      storage.upload('user-1', Buffer.from('x'), 'image/jpeg'),
+    ).rejects.toThrow(/not configured/i);
   });
 
   it('uses private signed local storage in development', async () => {
@@ -78,7 +81,9 @@ describe('PunchPhotoStorage configuration rule', () => {
 
       expect(stored.content).toEqual(bytes);
       expect(stored.mimeType).toBe('image/jpeg');
-      expect(url).toMatch(/^http:\/\/localhost:3001\/api\/attendance\/punch-photo\/local\//);
+      expect(url).toMatch(
+        /^http:\/\/localhost:3001\/api\/attendance\/punch-photo\/local\//,
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -86,7 +91,9 @@ describe('PunchPhotoStorage configuration rule', () => {
 });
 
 describe('health readiness reporting', () => {
-  const prismaOk = { $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } as any;
+  const prismaOk = {
+    $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
+  } as any;
 
   const controllerWith = (vars: Record<string, string>, prisma = prismaOk) =>
     new HealthController(prisma, storageWith(vars));
@@ -162,12 +169,64 @@ describe('health readiness reporting', () => {
   });
 
   it('still reports a database error, and does so independently of storage', async () => {
-    const failing = { $queryRaw: jest.fn().mockRejectedValue(new Error('down')) } as any;
+    const failing = {
+      $queryRaw: jest.fn().mockRejectedValue(new Error('down')),
+    } as any;
     const body: any = await controllerWith(configured, failing).check();
 
     expect(body.database).toBe('error');
     // The two answers are separate facts.
     expect(body.attendancePhotoStorage.configured).toBe(true);
+  });
+
+  it('reports the hierarchy release as ready only after every required migration is applied', async () => {
+    const applied = [
+      '20261022090000_phase4_enum_values',
+      '20261022090100_phase4_employee_transitions',
+      '20261023104500_organization_reporting_lines',
+      '20261023143000_matrix_organization_memberships',
+      '20261023150000_aniket_qc_reports_to_rajashree',
+      '20261026123000_backfill_company_reporting_tree',
+    ].map((migration_name) => ({ migration_name }));
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue(applied) } as any;
+
+    const body: any = await controllerWith(
+      configured,
+      prisma,
+    ).releaseReadiness();
+
+    expect(body.status).toBe('ready');
+    expect(body.organizationHierarchy).toEqual({
+      endpoint: '/api/organization-hierarchy/organization',
+      requiredMigrations: 6,
+      appliedMigrations: 6,
+      ready: true,
+    });
+  });
+
+  it('fails release readiness closed when a hierarchy migration is missing', async () => {
+    const prisma = {
+      $queryRaw: jest
+        .fn()
+        .mockResolvedValue([
+          { migration_name: '20261022090000_phase4_enum_values' },
+          { migration_name: '20261022090100_phase4_employee_transitions' },
+          { migration_name: '20261023104500_organization_reporting_lines' },
+          { migration_name: '20261023143000_matrix_organization_memberships' },
+        ]),
+    } as any;
+
+    const body: any = await controllerWith(
+      configured,
+      prisma,
+    ).releaseReadiness();
+
+    expect(body.status).toBe('not_ready');
+    expect(body.organizationHierarchy).toMatchObject({
+      requiredMigrations: 6,
+      appliedMigrations: 4,
+      ready: false,
+    });
   });
 });
 
@@ -187,7 +246,8 @@ describe('startup warning', () => {
   });
 
   it('prints variable names, never their values', () => {
-    const warnBlock = /missingCloudinary[\s\S]{0,600}?\n  \}/.exec(MAIN)?.[0] ?? '';
+    const warnBlock =
+      /missingCloudinary[\s\S]{0,600}?\n  \}/.exec(MAIN)?.[0] ?? '';
     expect(warnBlock).toMatch(/missingCloudinary\.join/);
     // Nothing reads a value to print it.
     expect(warnBlock).not.toMatch(/process\.env\[[^\]]+\]\s*\}/);
@@ -196,13 +256,15 @@ describe('startup warning', () => {
   it('does not make the service exit when storage is unconfigured', () => {
     // Only DATABASE_URL and JWT_SECRET are fatal.
     expect(MAIN).toMatch(/const required = \['DATABASE_URL', 'JWT_SECRET'\]/);
-    const fatalBlock = /const missing = required[\s\S]*?\n  \}/.exec(MAIN)?.[0] ?? '';
+    const fatalBlock =
+      /const missing = required[\s\S]*?\n  \}/.exec(MAIN)?.[0] ?? '';
     expect(fatalBlock).not.toMatch(/CLOUDINARY/);
   });
 });
 
 describe('module wiring', () => {
-  const read = (p: string) => readFileSync(resolve(__dirname, '../../src', p), 'utf8');
+  const read = (p: string) =>
+    readFileSync(resolve(__dirname, '../../src', p), 'utf8');
 
   it('gives health the storage without importing the attendance chain', () => {
     const healthModule = read('modules/platform/health/health.module.ts');
@@ -210,22 +272,30 @@ describe('module wiring', () => {
     expect(healthModule).toMatch(/PunchPhotoStorageModule/);
     // Importing PunchEvidenceModule would drag in context, settings and workday.
     expect(healthModule).not.toMatch(/PunchEvidenceModule/);
-    expect(healthModule).not.toMatch(/WorkdayModule|SettingsModule|DailyContextModule/);
+    expect(healthModule).not.toMatch(
+      /WorkdayModule|SettingsModule|DailyContextModule/,
+    );
   });
 
   it('keeps the storage module a leaf, so it cannot form a cycle', () => {
-    const storageModule = read('modules/platform/attendance/punch/punch-photo-storage.module.ts');
+    const storageModule = read(
+      'modules/platform/attendance/punch/punch-photo-storage.module.ts',
+    );
 
     expect(storageModule).toMatch(/exports: \[PunchPhotoStorage\]/);
     expect(storageModule).not.toMatch(/imports:/);
   });
 
   it('leaves PunchPhotoStorage the single authority, provided once', () => {
-    const punchModule = read('modules/platform/attendance/punch/punch-evidence.module.ts');
+    const punchModule = read(
+      'modules/platform/attendance/punch/punch-evidence.module.ts',
+    );
 
     // It now consumes the shared module rather than providing its own copy.
     expect(punchModule).toMatch(/PunchPhotoStorageModule/);
-    expect(punchModule).not.toMatch(/providers: \[[^\]]*PunchPhotoStorage[,\]]/);
+    expect(punchModule).not.toMatch(
+      /providers: \[[^\]]*PunchPhotoStorage[,\]]/,
+    );
 
     // And the configuration rule is not restated in the controller.
     const controller = read('modules/platform/health/health.controller.ts');
