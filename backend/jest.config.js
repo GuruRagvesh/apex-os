@@ -14,10 +14,7 @@ module.exports = {
   transform: {
     '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: './tsconfig.json' }],
   },
-  testMatch: [
-    '<rootDir>/test/unit/**/*.spec.ts',
-    '<rootDir>/src/**/*.spec.ts',
-  ],
+  testMatch: ['**/test/unit/**/*.spec.ts', '**/src/**/*.spec.ts'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
   },

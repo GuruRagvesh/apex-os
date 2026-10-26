@@ -17,7 +17,7 @@ module.exports = {
   transform: {
     '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: './tsconfig.json' }],
   },
-  testMatch: ['<rootDir>/test/integration/**/*.spec.ts'],
+  testMatch: ['**/test/integration/**/*.spec.ts'],
   moduleNameMapper: { '^src/(.*)$': '<rootDir>/src/$1' },
   globalSetup: '<rootDir>/test/integration/global-setup.ts',
   testTimeout: 60000,
