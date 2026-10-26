@@ -12,31 +12,33 @@ function service() {
   );
 }
 
-describe('Home workspace daily essential', () => {
-  it('returns only the first saved essential from the former five-link format', () => {
+describe('Home workspace daily essentials', () => {
+  it('returns all five saved essential slots and preserves existing links', () => {
     const result = (service() as any).workspaceEssentials([
       { id: 'one', label: 'Company mail', url: 'https://mail.example.com' },
-      { id: 'two', label: 'Old second link', url: 'https://example.com/two' },
+      { id: 'two', label: 'Second link', url: 'https://example.com/two' },
     ]);
 
-    expect(result).toEqual([
-      { id: 'one', label: 'Company mail', url: 'https://mail.example.com' },
-    ]);
+    expect(result).toHaveLength(5);
+    expect(result[0]).toEqual({ id: 'one', label: 'Company mail', url: 'https://mail.example.com' });
+    expect(result[1]).toEqual({ id: 'two', label: 'Second link', url: 'https://example.com/two' });
+    expect(result[4]).toEqual({ id: 'essential-5', label: 'Essential 5', url: '' });
   });
 
-  it('creates one empty essential for a workspace without saved links', () => {
-    expect((service() as any).workspaceEssentials(null)).toEqual([
-      { id: 'essential-1', label: 'Essential 1', url: '' },
-    ]);
+  it('creates five empty essentials for a workspace without saved links', () => {
+    const result = (service() as any).workspaceEssentials(null);
+    expect(result).toHaveLength(5);
+    expect(result[0]).toEqual({ id: 'essential-1', label: 'Essential 1', url: '' });
+    expect(result[4]).toEqual({ id: 'essential-5', label: 'Essential 5', url: '' });
   });
 
-  it('rejects attempts to save more than one essential', async () => {
+  it('rejects attempts to save anything other than five essentials', async () => {
     await expect(service().updateWorkspace('user-1', {
       essentials: [
         { id: 'one', label: 'One', url: 'https://example.com/one' },
         { id: 'two', label: 'Two', url: 'https://example.com/two' },
       ],
-    })).rejects.toThrow('Workspace must contain exactly one essential');
+    })).rejects.toThrow('Workspace must contain exactly five essentials');
   });
 });
 

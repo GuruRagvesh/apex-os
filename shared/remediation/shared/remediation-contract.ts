@@ -141,6 +141,9 @@ export const DENIED_DETAIL_KEYS: readonly string[] = [
 
 /** The detail keys the dialog may show, per code. Anything else is never rendered. */
 export const DISPLAYABLE_DETAIL_KEYS: Record<string, string[]> = {
+  OPEN_EXIT_CASE: ['otherBlockers'],
+  RETENTION_POLICY_REQUIRED: ['retentionCategories', 'otherBlockers'],
+  PAYROLL_UNRESOLVED_ACK_REQUIRED: ['unresolvedEmployees', 'unresolvedSettlements'],
   LEGAL_HOLD_ACTIVE: ['holdStatus', 'otherBlockers'],
   LEGAL_HOLD_REQUESTED: ['holdStatus', 'otherBlockers'],
   LIFECYCLE_KEYS_MISSING: ['keyConfigurationIssues', 'otherBlockers'],

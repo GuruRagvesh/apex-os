@@ -243,13 +243,13 @@ describe('Phase 2 Permanent Delete recovery (PostgreSQL)', () => {
     let pre = await w.svc.deletePreflight(F.id, w.admin);
     expect(pre.remediation).toMatchObject({ code: 'LEGAL_HOLD_REQUESTED', details: { otherBlockers: ['LIFECYCLE_KEYS_MISSING'] } });
 
-    await w.prisma.userLegalHold.update({ where: { id: hold.id }, data: { status: 'ACTIVE', placedById: w.admin.id, placedAt: NOW } });
+    await w.prisma.userLegalHold.update({ where: { id: hold.id }, data: { status: 'ACTIVE', placedById: w.seed.actors.hr.id, placedAt: NOW } });
     pre = await w.svc.deletePreflight(F.id, w.admin);
     expect(pre.remediation?.code).toBe('LEGAL_HOLD_ACTIVE');
     w.env.LIFECYCLE_HANDLE_ENCRYPTION_KEY = enc;
 
     await w.prisma.userLegalHold.update({ where: { id: hold.id }, data: { status: 'RELEASED', releasedById: w.admin.id, releasedAt: NOW, releaseReason: 'Closed' } });
-    await w.prisma.userLegalHold.create({ data: { id: randomUUID(), userId: F.id, reasonCode: 'AUDIT', status: 'REJECTED', requestedById: w.admin.id, requestedAt: NOW, rejectedById: w.admin.id, rejectedAt: NOW, rejectionReason: 'No case' } });
+    await w.prisma.userLegalHold.create({ data: { id: randomUUID(), userId: F.id, reasonCode: 'AUDIT', status: 'REJECTED', requestedById: w.admin.id, requestedAt: NOW, rejectedById: w.seed.actors.hr.id, rejectedAt: NOW, rejectionReason: 'No case' } });
     await w.prisma.userLegalHold.create({ data: { id: randomUUID(), userId: F.id, reasonCode: 'AUDIT', status: 'WITHDRAWN', requestedById: w.admin.id, requestedAt: NOW, withdrawnById: w.admin.id, withdrawnAt: NOW } });
     pre = await w.svc.deletePreflight(F.id, w.admin);
     expect(pre.holdStatus).toBeNull();

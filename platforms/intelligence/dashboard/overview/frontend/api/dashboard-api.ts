@@ -54,14 +54,26 @@ export const dashboardApi = {
       return experience.team;
     }
   },
-  getTeamInsights: (params: { departmentId?: string; personId?: string; month: string; week: string }) =>
+  getTeamInsights: (params: { departmentId?: string; personId?: string; month: string; week?: string; date?: string; calculationVersion?: string }) =>
     r(api.get('/home/team-insights', { params })),
   getPersonalHighlights: (month?: string) => r(api.get('/home/personal-highlights', { params: { month } })),
   getHomeCarousel: () => r(api.get('/home/carousel')),
+  getCurrentAnnouncements: () => r(api.get('/home/announcements/current')),
+  createAnnouncement: (data: AnnouncementInput) => r(api.post('/home/announcements', data)),
+  updateAnnouncement: (id: string, data: AnnouncementInput) => r(api.patch(`/home/announcements/${id}`, data)),
+  getAnnouncementHistory: () => r(api.get('/home/announcements/history')),
   getHomeActivity: (scope: 'my' | 'team' | 'company') => r(api.get('/home/activity', { params: { scope } })),
   getHomeWorkspace: () => r(api.get('/home/workspace')),
   updateHomeWorkspace: (data: any) => r(api.put('/home/workspace', data)),
 };
+
+export interface AnnouncementInput {
+  title: string;
+  body: string;
+  priority: 'GENERAL' | 'IMPORTANT' | 'CRITICAL';
+  audience: 'COMPANY' | 'ROLE' | 'DEPARTMENT';
+  targetIds: string[];
+}
 
 export interface HomeKpiScope {
   openTickets: number;

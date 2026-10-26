@@ -13,6 +13,7 @@ import {
   previousMonth,
   sendToFinance,
   setFinanceRecipients,
+  type UnresolvedSetup,
 } from './payroll-api';
 
 /**
@@ -32,6 +33,7 @@ export function PayrollMonthClose() {
   const [toDraft, setToDraft] = useState('');
   const [ccDraft, setCcDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [ack, setAck] = useState(false);
 
   const preview = useQuery({
     queryKey: ['payroll-preview', month],
@@ -56,7 +58,9 @@ export function PayrollMonthClose() {
 
   const act = useMutation({
     mutationFn: (what: 'finalize' | 'send') =>
-      what === 'finalize' ? finalizeMonth(month) : sendToFinance(month),
+      what === 'finalize'
+        ? finalizeMonth(month, ack && preview.data?.unresolvedSetup?.items.length ? preview.data.unresolvedSetup.fingerprint : undefined)
+        : sendToFinance(month),
     onSuccess: () => {
       setError(null);
       setConfirming(null);
@@ -64,7 +68,7 @@ export function PayrollMonthClose() {
     },
     onError: (err: any) => {
       setConfirming(null);
-      setError(err?.response?.data?.message ?? 'The action could not be completed.');
+      setError(err?.message ?? err?.response?.data?.message ?? 'The action could not be completed.');
     },
   });
 
@@ -154,7 +158,17 @@ export function PayrollMonthClose() {
           </p>
         )}
 
-        {error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
+        {!finalized && (
+          <UnresolvedSetupPanel
+            setup={preview.data?.unresolvedSetup ?? null}
+            review={preview.data?.employmentRecordReview ?? []}
+            ack={ack}
+            onAck={setAck}
+            required={preview.data?.unresolvedAckRequired === true}
+          />
+        )}
+
+        {error && <p role="alert" className="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
 
         <div className="mt-4 flex flex-wrap gap-2">
           <button
@@ -167,7 +181,7 @@ export function PayrollMonthClose() {
           {!finalized && (
             <button
               onClick={() => setConfirming('finalize')}
-              disabled={act.isPending || !preview.data}
+              disabled={act.isPending || !preview.data || (preview.data.unresolvedAckRequired === true && (preview.data.unresolvedSetup?.items.length ?? 0) > 0 && !ack)}
               className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--text-inverse)] disabled:opacity-50"
             >
               Finalize month
@@ -384,5 +398,71 @@ function Fact({
         {value}
       </dd>
     </div>
+  );
+}
+
+
+const SETUP_LABEL: Record<string, string> = { POLICY: 'leave policy', CALENDAR: 'holiday calendar', BALANCE: 'leave balance' };
+
+/**
+ * Setup-pending leave that payroll could not settle (Phase 4). Shown BEFORE
+ * finalizing, with exactly which days were left out and why, plus the people
+ * whose employment record is too incomplete to place in the month.
+ */
+function UnresolvedSetupPanel({
+  setup, review, ack, onAck, required,
+}: {
+  setup: UnresolvedSetup | null;
+  review: Array<{ userId: string; name: string; employeeId: string | null; attendanceDays: number }>;
+  ack: boolean;
+  onAck: (v: boolean) => void;
+  required: boolean;
+}) {
+  const items = setup?.items ?? [];
+  if (items.length === 0 && review.length === 0) return null;
+  return (
+    <section aria-label="Unresolved leave setup" className="mt-4 space-y-3 rounded-lg border border-amber-300 p-3 text-sm">
+      {items.length > 0 && setup && (
+        <>
+          <h3 className="font-semibold">
+            {setup.employees} employee{setup.employees === 1 ? '' : 's'}, {setup.settlements} leave settlement{setup.settlements === 1 ? '' : 's'} not settled
+          </h3>
+          <p className="text-xs">{setup.statement} Their other attendance (present days, other leave and so on) is still counted.</p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-xs">
+              <caption className="sr-only">Leave days left out of the totals</caption>
+              <thead><tr className="text-left"><th className="py-1 pr-2">Employee</th><th className="pr-2">Reason</th><th className="pr-2">Days left out</th><th className="pr-2">Dates</th><th>Missing setup</th></tr></thead>
+              <tbody>
+                {items.map((i) => (
+                  <tr key={i.userId} className="border-t align-top">
+                    <td className="py-1 pr-2">{i.name}{i.employeeId ? ` (${i.employeeId})` : ''}</td>
+                    <td className="pr-2">Leave settlement pending</td>
+                    <td className="pr-2">{i.excludedDayUnits}</td>
+                    <td className="pr-2">{i.dates.join(', ')}</td>
+                    <td>
+                      {i.missingSetup.map((m) => SETUP_LABEL[m]).join(', ')}{' '}
+                      <a className="underline" href={`/users/${i.userId}?tab=leaves`}>Resolve setup</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <label className="flex items-start gap-2 text-xs">
+            <input type="checkbox" checked={ack} onChange={(e) => onAck(e.target.checked)} className="mt-0.5" />
+            <span>
+              I have seen the days listed above. They were not counted as paid or unpaid in this report{required ? ' (required to finalize)' : ''}.
+            </span>
+          </label>
+        </>
+      )}
+      {review.length > 0 && (
+        <div>
+          <h3 className="font-semibold">Employment record review</h3>
+          <p className="text-xs">These people have attendance this month but their employment dates cannot place them in it. They are not counted in the totals.</p>
+          <ul className="mt-1 list-disc pl-4 text-xs">{review.map((p) => <li key={p.userId}>{p.name}{p.employeeId ? ` (${p.employeeId})` : ''}: {p.attendanceDays} attendance day(s). <a className="underline" href={`/users/${p.userId}`}>Open profile</a></li>)}</ul>
+        </div>
+      )}
+    </section>
   );
 }

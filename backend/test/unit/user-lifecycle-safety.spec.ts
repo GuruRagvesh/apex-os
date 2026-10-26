@@ -484,7 +484,11 @@ describe('lifecycle is the latest transition, not the first one ever', () => {
       },
       role: { findUnique: jest.fn(async () => ({ name: 'EMPLOYEE' })) },
       // A deactivated (not archived) account: no archive event.
-      operationalEvent: { findFirst: jest.fn(async () => null) },
+      operationalEvent: { findFirst: jest.fn(async () => null), create: jest.fn(async ({ data }: any) => void audit.push(data)) },
+      employeeAttendanceProfile: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      attendancePunchHandoff: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      $queryRaw: jest.fn(async () => []),
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
     };
     const service = new UsersService(
       prisma, policy as any,

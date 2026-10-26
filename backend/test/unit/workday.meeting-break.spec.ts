@@ -402,6 +402,7 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
       const result = await service.getTeam(admin);
 
       expect(result[0].breakMinutesToday).toBe(10);
+      expect(result[0].breakCount).toBe(1);
       expect(result[0].workMinutesToday).toBe(110);
     });
   });

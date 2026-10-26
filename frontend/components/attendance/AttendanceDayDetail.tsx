@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { workdayApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import { DrawerFact, DrawerSection } from './AttendanceDrawer';
 import { LeaveBalanceCard } from './LeaveBalanceCard';
 import { PunchPhoto } from './PunchPhoto';

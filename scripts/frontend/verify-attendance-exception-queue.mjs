@@ -141,7 +141,7 @@ const NON_ATTENDANCE_MODELS = ['UserSetupIssue'];
 const attendanceSchema = NON_ATTENDANCE_MODELS.reduce(
   (s, model) => s.replace(new RegExp('^model\\s+' + model + '\\s*\\{[\\s\\S]*?^\\}', 'm'), ''),
   schema,
-);
+).replace(/^\s*\/\/\/?.*$/gm, ''); // Policy comments may describe acknowledgement; only schema fields are forbidden here.
 for (const word of ['acknowledged', 'acknowledgedAt', 'exceptionResolvedAt', 'snoozedUntil']) {
   if (new RegExp('\\b' + word + '\\b').test(attendanceSchema)) {
     failures.push(

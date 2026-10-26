@@ -26,6 +26,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       include: { role: true, department: true },
     });
     if (!user || !user.isActive || (user as any).isSystemAccount) throw new UnauthorizedException();
+    // Phase 4: a resigning employee's access ends at the start of the day after
+    // their last working day, even if the separation job has not run yet.
+    const accessEndsAt = (user as any).accessEndsAt as Date | null;
+    if (accessEndsAt && accessEndsAt.getTime() <= Date.now()) throw new UnauthorizedException();
     // Archive, rehire, permanent delete and admin password reset revoke every
     // token issued before them (compared in whole seconds, as iat is).
     const revokedAt = (user as any).sessionsRevokedAt as Date | null;

@@ -318,6 +318,39 @@ export class LeaveRoutingService {
     return rerouted;
   }
 
+  /**
+   * Phase 4 transfer entry point. Inside the transfer's own transaction, AFTER
+   * the department/role change, re-resolves one PENDING request of the
+   * transferred employee with the same resolve() and appends a superseding
+   * snapshot only when the approver actually changes. The caller holds the
+   * leave row lock. Decided requests and requests without a snapshot (legacy)
+   * are never touched. Returns the new snapshot, or null.
+   */
+  async rerouteForTransfer(tx: Prisma.TransactionClient, leaveId: string, actorId: string, now = new Date()) {
+    const leave = await tx.leaveRequest.findUnique({ where: { id: leaveId }, select: { id: true, userId: true, status: true, routingSnapshotId: true } });
+    if (!leave || leave.status !== LeaveStatus.PENDING || !leave.routingSnapshotId) return null;
+    const current = await (tx as any).routingSnapshot.findUnique({ where: { id: leave.routingSnapshotId } });
+    const route = await this.resolve(leave.userId, tx, now);
+    if (route.approverId && route.approverId === current?.resolvedApproverId) return null;
+    const next = await (tx as any).routingSnapshot.create({
+      data: {
+        id: randomUUID(),
+        workflow: 'LEAVE',
+        entityType: 'LeaveRequest',
+        entityId: leave.id,
+        subjectUserId: leave.userId,
+        originalDepartmentId: current?.originalDepartmentId ?? null,
+        resolvedApproverId: route.approverId,
+        tier: route.tier,
+        fallbackReason: route.fallbackReason ?? 'EMPLOYEE_TRANSFERRED',
+        supersedesId: current?.id ?? null,
+        createdById: actorId,
+      },
+    });
+    await tx.leaveRequest.update({ where: { id: leave.id }, data: { routingSnapshotId: next.id } });
+    return { snapshot: next, previousApproverId: current?.resolvedApproverId ?? null, route };
+  }
+
   /** Pending requests currently routed to this user (called when they leave). */
   async rerouteForApprover(approverId: string, actorId = 'system'): Promise<number> {
     const routed = await this.prisma.leaveRequest.findMany({

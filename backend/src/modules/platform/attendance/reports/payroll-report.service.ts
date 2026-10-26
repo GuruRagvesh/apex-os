@@ -25,6 +25,9 @@ import {
   workbookToBuffer,
 } from './payroll-workbook';
 import { lockAttendanceMonth } from '../evaluation/attendance-month-lock';
+import { gatherPopulation, PAYROLL_RULE_PHASE4, ruleVersionFor, RuleVersion, unresolvedSetup } from './payroll-population';
+import { RemediationException } from '../../../../common/remediation/remediation.exception';
+import { buildRemediation } from '../../../../common/remediation/remediation.serializer';
 
 /**
  * Monthly attendance close and the payroll workbook Finance receives.
@@ -87,6 +90,11 @@ export interface PreviewResult {
   reportDataFingerprint: string;
   /** Size of the actual .xlsx that would be downloaded or sent. */
   reportByteSize: number;
+  /** Phase 4. */
+  reportRuleVersion?: string | null;
+  unresolvedSetup?: unknown;
+  employmentRecordReview?: unknown[];
+  unresolvedAckRequired?: boolean;
 }
 
 import {
@@ -136,21 +144,32 @@ export class PayrollReportService {
    * manual recovery, a phone punch and a web punch are three different claims
    * about how attendance was established, and Finance is entitled to see which.
    */
-  private async gather(month: string) {
+  private monthRange(month: string) {
     const { from, to } = this.bounds(month);
-    const gte = this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`));
-    const lte = this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`));
+    return {
+      gte: this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`)),
+      lte: this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`)),
+    };
+  }
 
-    const employees = await this.prisma.user.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        name: true,
-        employeeId: true,
-        department: { select: { name: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
+  /**
+   * Phase 4: unresolved setup-pending leave and the employment-record review
+   * list for the CURRENT rules. Shown on the preview; acknowledged at finalize.
+   */
+  async unresolvedFor(month: string) {
+    const { gte, lte } = this.monthRange(month);
+    const population = await gatherPopulation(this.prisma, gte, lte, PAYROLL_RULE_PHASE4);
+    const summary = await unresolvedSetup(this.prisma, gte, lte, population.employees);
+    return { unresolvedSetup: summary, employmentRecordReview: population.employmentRecordReview };
+  }
+
+  private async gather(month: string, rule: RuleVersion = PAYROLL_RULE_PHASE4) {
+    const { gte, lte } = this.monthRange(month);
+
+    // Phase 4: active users plus everyone whose employment overlaps the month
+    // (mid-month leavers). A month finalized before Phase 4 keeps the legacy
+    // active-only population so its stored fingerprint stays stable.
+    const { employees } = await gatherPopulation(this.prisma, gte, lte, rule);
     const ids = employees.map((e) => e.id);
 
     const [records, evidence, regularizations, leaves, sessions] = await Promise.all([
@@ -236,7 +255,7 @@ export class PayrollReportService {
    * finalisation is caught rather than quietly delivered.
    */
   private async render(month: string, close: any, actorLabel: string) {
-    const { meta, facts } = await this.gather(month);
+    const { meta, facts } = await this.gather(month, ruleVersionFor(close));
     const byUser = new Map<string, DayFacts[]>();
     for (const f of facts) {
       const list = byUser.get(f.userId) ?? [];
@@ -324,6 +343,7 @@ export class PayrollReportService {
       })
       .catch(() => {});
 
+    const frozen = close?.status === 'FINALIZED' || close?.status === 'SENT';
     return {
       month,
       status: close?.status ?? 'REVIEWING',
@@ -331,7 +351,18 @@ export class PayrollReportService {
       summaries: rendered.summaries,
       reportDataFingerprint: rendered.dataFingerprint,
       reportByteSize: rendered.buffer.length,
+      reportRuleVersion: ruleVersionFor(close),
+      // A frozen month shows what was acknowledged; an open one shows today's.
+      ...(frozen
+        ? { unresolvedSetup: (close as any)?.unresolvedSummary ?? null, employmentRecordReview: [] }
+        : await this.unresolvedFor(month)),
+      unresolvedAckRequired: await this.ackRequired(),
     };
+  }
+
+  private async ackRequired(): Promise<boolean> {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: 'payroll.unresolvedAckRequired' }, select: { value: true } });
+    return row?.value === true;
   }
 
   /** The workbook itself, for download. */
@@ -362,9 +393,10 @@ export class PayrollReportService {
    * accept them. They are counted, stored and shown, so accepting them is a
    * decision somebody made rather than something that happened quietly.
    */
-  async finalize(actor: any, month: string) {
+  async finalize(actor: any, month: string, acknowledgeUnresolved?: { fingerprint?: string }) {
     this.assertHr(actor);
     this.assertMonth(month);
+    const ackRequired = await this.ackRequired();
 
     await this.prisma.$transaction(async (tx) => {
     // THE MONTH IS HELD FOR THE WHOLE CLOSE.
@@ -390,10 +422,27 @@ export class PayrollReportService {
     const finalizedAt = this.tva.now();
     const finalizedById = actor?.id ?? actor?.sub;
 
+    // Phase 4: unresolved setup-pending leave must be acknowledged exactly as
+    // it stands now (matching fingerprint), never invented into an outcome.
+    const { unresolvedSetup: unresolved } = await this.unresolvedFor(month);
+    const acknowledged = !!acknowledgeUnresolved?.fingerprint && acknowledgeUnresolved.fingerprint === unresolved.fingerprint;
+    if (ackRequired && unresolved.items.length > 0 && !acknowledged) {
+      throw new RemediationException(
+        buildRemediation('PAYROLL_UNRESOLVED_ACK_REQUIRED', { details: { unresolvedEmployees: unresolved.employees, unresolvedSettlements: unresolved.settlements } }),
+        409,
+        undefined,
+        { unresolvedSetup: unresolved },
+      );
+    }
+
     // Persist the finalization FIRST, then fingerprint the canonical render of
     // what was persisted. Fingerprinting before the row exists digests a report
     // built from different metadata than the one send() will rebuild.
-    const marked = { status: 'FINALIZED' as const, finalizedById, finalizedAt };
+    const marked = {
+      status: 'FINALIZED' as const, finalizedById, finalizedAt, reportRuleVersion: PAYROLL_RULE_PHASE4,
+      unresolvedSummary: unresolved as any,
+      ...(acknowledged && unresolved.items.length > 0 ? { unresolvedAcknowledgedById: finalizedById, unresolvedAcknowledgedAt: finalizedAt } : {}),
+    };
     await tx.attendanceMonthClose.upsert({
       where: { month },
       create: { month, ...marked },

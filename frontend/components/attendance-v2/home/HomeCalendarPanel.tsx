@@ -3,23 +3,25 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import { workdayApi } from '@/lib/api';
 import { shouldRetryTransientQuery, transientQueryRetryDelay, pollWhileHealthy } from '@apex/shared-auth';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, CalendarCheck, CalendarDays, ChevronDown,
-  ChevronLeft, ChevronRight, Flame, Gauge, GitFork, LogIn, LogOut, Minus, PencilLine, Star, Ticket, Timer, UserRound, UsersRound, X,
+  ChevronLeft, ChevronRight, Gauge, GitFork, LogIn, LogOut, Minus, PencilLine, Star, Ticket, Timer, UserRound, UsersRound, X,
 } from 'lucide-react';
 import { getMyAttendanceV2, type MyAttendanceDayV2 } from '../my-attendance-v2-api';
 import { getMyPunchEvidence, type OwnPunchEvidence } from '../../attendance/punch-api';
-import { getMyLeaveBalance, getUserLeaveBalance, type PersonalLeaveType } from '../../attendance/leave-balance-api';
+import { getMyLeaveBalance, getUserLeaveBalance, LEAVE_TYPE_LABEL, type PersonalLeaveType } from '../../attendance/leave-balance-api';
+import { compOffApi, leaveApi } from '@apex/workforce-leave/api';
 import { monthLabel, presentDay, formatTime } from '../status-presentation';
 import { CorrectionDialog } from '../CorrectionDialog';
 import { getHomePersonalHighlights, getHomeProductivity, type HomeProductivityDay } from './home-insights-api';
 import { TinyPunchPhoto } from './TinyPunchPhoto';
 import {
-  addDays, attendanceStreak, attendanceWeek, clockLabel, datesBetween, hoursLabel, monthOf,
+  addDays, attendanceWeek, clockLabel, datesBetween, hoursLabel, monthOf,
   hasActivity, pickWeek, productiveDays, productivityWeek, rangeLabel, shiftMonth,
   type WeekWindow,
 } from './home-week';
@@ -27,6 +29,7 @@ import s from './home-calendar.module.css';
 
 type Mode = 'attendance' | 'productivity';
 type AttendanceScope = 'personal' | 'team';
+type AttendanceKpiFilter = 'Total late marks' | 'Total present days' | 'Less working hours';
 
 const ATTENDANCE_LEGEND = [
   { label: 'Present', color: '#18B86B' },
@@ -38,6 +41,7 @@ const ATTENDANCE_LEGEND = [
   { label: 'Weekly off', color: '#4F8FD8' },
   { label: 'Needs review', color: '#8494AA' },
 ] as const;
+type AttendanceFilter = typeof ATTENDANCE_LEGEND[number]['label'] | AttendanceKpiFilter;
 
 function localToday(): string {
   const d = new Date();
@@ -66,8 +70,9 @@ function photoId(e: OwnPunchEvidence | null | undefined): string | null {
   return e?.photoAssetId ? e.id : null;
 }
 
-export function HomeCalendarPanel() {
+export function HomeCalendarPanel({ onAttendanceScopeChange }: { onAttendanceScopeChange?: (scope: AttendanceScope) => void } = {}) {
   const today = localToday();
+  const userId = useAuthStore((state) => state.user?.id ?? '');
   const role = useAuthStore((state) => (state.user?.role as any)?.name ?? state.user?.role ?? '');
   const normalizedRole = String(role).toUpperCase();
   const isIntern = normalizedRole === 'INTERN';
@@ -76,10 +81,23 @@ export function HomeCalendarPanel() {
   const [mode, setMode] = useState<Mode>('attendance');
   const [attendanceScope, setAttendanceScope] = useState<AttendanceScope>('personal');
   const [showAttendanceMap, setShowAttendanceMap] = useState(false);
-  const [attendanceFilter, setAttendanceFilter] = useState<string | null>(null);
+  const [attendanceFilter, setAttendanceFilter] = useState<AttendanceFilter | null>(null);
   const [month, setMonth] = useState(() => monthOf(today));
+  const [teamDate, setTeamDate] = useState(today);
+  const [teamDatePickerOpen, setTeamDatePickerOpen] = useState(false);
   const [popup, setPopup] = useState<{ date: string; anchor: HTMLElement } | null>(null);
   const [correctionDate, setCorrectionDate] = useState<string | null>(null);
+  const [leaveAnalysisOpen, setLeaveAnalysisOpen] = useState(false);
+  const [leaveRange, setLeaveRange] = useState<{ startDate: string; endDate: string } | null>(null);
+  const calendarCardRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+
+  const compOffCredits = useQuery({
+    queryKey: ['comp-off-mine'],
+    queryFn: () => compOffApi.mine() as Promise<any[]>,
+    staleTime: 60_000,
+    retry: false,
+  });
 
   // Attendance: the displayed month, plus the months the weekly figures and
   // streak need (this month and the one before it). Same cache keys as the
@@ -152,14 +170,34 @@ export function HomeCalendarPanel() {
   }, [weekProductivity.data, monthProductivity.data]);
   const highlight = useMemo(() => productiveDays(monthProductivity.data ?? []), [monthProductivity.data]);
 
-  const canGoNext = month < monthOf(today);
+  const latestCalendarMonth = shiftMonth(monthOf(today), 12);
+  const canGoNext = month < latestCalendarMonth;
   const [y, m] = month.split('-').map(Number);
 
   const openDay = (date: string, anchor: HTMLElement) => setPopup({ date, anchor });
+  const selectLeaveRangeDate = (date: string, anchor: HTMLElement) => {
+    setLeaveRange((current) => {
+      if (!current || current.startDate !== current.endDate) return { startDate: date, endDate: date };
+      return date < current.startDate
+        ? { startDate: date, endDate: current.startDate }
+        : { startDate: current.startDate, endDate: date };
+    });
+    setPopup({ date, anchor });
+  };
+  const selectTeamDate = (value: string) => {
+    if (value && value <= today && value !== teamDate) setTeamDate(value);
+    setTeamDatePickerOpen(false);
+  };
+  const selectAttendanceKpi = (filter: AttendanceKpiFilter) => {
+    const selecting = attendanceFilter !== filter;
+    setAttendanceFilter(selecting ? filter : null);
+    setPopup(null);
+    if (selecting) requestAnimationFrame(() => calendarCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
 
   return (
     <section className={s.panel} aria-label="Attendance">
-      <div className={`${s.card} ${s.calendar} ${attendanceScope === 'team' ? s.teamCalendar : ''}`}>
+      <div ref={calendarCardRef} className={`${s.card} ${s.calendar} ${attendanceScope === 'team' ? s.teamCalendar : ''}`}>
         <header className={s.header}>
           {mode === 'attendance' && canViewTeamAttendance ? (
             <div className={s.titleBranchWrap}>
@@ -169,7 +207,7 @@ export function HomeCalendarPanel() {
               {showAttendanceMap && (
                 <AttendanceBranchMap
                   selected={attendanceScope}
-                  onSelect={(scope) => { setAttendanceScope(scope); setMode('attendance'); setPopup(null); setShowAttendanceMap(false); }}
+                  onSelect={(scope) => { setAttendanceScope(scope); onAttendanceScopeChange?.(scope); setMode('attendance'); setPopup(null); setShowAttendanceMap(false); }}
                   onClose={() => setShowAttendanceMap(false)}
                 />
               )}
@@ -188,25 +226,33 @@ export function HomeCalendarPanel() {
           </div>}
           {attendanceScope === 'personal' && <div className={s.monthControls}>
             <button type="button" onClick={() => { setMonth(shiftMonth(month, -1)); setPopup(null); }} aria-label="Previous month"><ChevronLeft size={16} /></button>
-            <label className={s.monthPicker}>
-              <CalendarDays size={14} aria-hidden="true" />
-              <span>{monthLabel(y, m)}</span>
-              <ChevronDown size={14} aria-hidden="true" />
-              <input
-                type="month"
-                aria-label="Select month"
-                value={month}
-                max={monthOf(today)}
-                onChange={(e) => { if (e.target.value) { setMonth(e.target.value); setPopup(null); } }}
-              />
-            </label>
+            <MonthPickerControl selected={month} today={today} maxMonth={latestCalendarMonth} onSelect={(value) => { setMonth(value); setPopup(null); }} />
             <button type="button" onClick={() => { setMonth(shiftMonth(month, 1)); setPopup(null); }} disabled={!canGoNext} aria-label="Next month"><ChevronRight size={16} /></button>
           </div>}
-          {attendanceScope === 'team' && <span className={s.liveIndicator}><i />Updates every 15 seconds</span>}
+          {attendanceScope === 'team' && <div className={s.teamDateControls}>
+            <div className={s.teamDatePickerWrap} onMouseDown={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className={s.teamDatePicker}
+                onClick={() => setTeamDatePickerOpen((open) => !open)}
+                aria-label="Open team attendance date filter"
+                aria-haspopup="dialog"
+                aria-expanded={teamDatePickerOpen}
+              >
+                <CalendarDays size={14} aria-hidden="true" />
+                <span>{teamDate === today ? 'Today' : new Date(`${teamDate}T12:00:00.000Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</span>
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+              {teamDatePickerOpen && <TeamDatePicker selected={teamDate} today={today} onSelect={selectTeamDate} onClose={() => setTeamDatePickerOpen(false)} />}
+            </div>
+            {teamDate === today
+              ? <span className={s.liveIndicator}><i />Live · updates every 15 seconds</span>
+              : <span className={s.historyIndicator}>Saved daily record</span>}
+          </div>}
         </header>
 
         {attendanceScope === 'team' ? (
-          <TeamAttendanceTable />
+          <TeamAttendanceTable date={teamDate} today={today} />
         ) : <div className={mode === 'attendance' ? s.attendanceCalendarLayout : undefined}>
           {mode === 'attendance' && (
             <aside className={s.attendanceLegend} aria-label="Attendance colour guide">
@@ -242,6 +288,8 @@ export function HomeCalendarPanel() {
                 productivityByDate={productivityByDate}
                 highlight={highlight}
                 onOpen={openDay}
+                leaveRange={leaveRange}
+                onSelectLeaveRange={selectLeaveRangeDate}
               />
             )}
           </div>
@@ -259,10 +307,10 @@ export function HomeCalendarPanel() {
       </div>
 
       {attendanceScope === 'personal' && (mode === 'attendance'
-        ? <AttendanceSide today={today} week={week} byDate={attendanceByDate} isIntern={isIntern} averageBreakMinutes={personalHighlights.data?.averageBreakMinutes ?? null} showAverageBreak={hasPersonalHighlights} />
+        ? <AttendanceSide week={week} monthLabel={monthLabel(y, m)} monthDays={monthQuery?.data?.month.days ?? []} monthLoading={!!monthQuery?.isLoading} monthFailed={!!monthQuery?.isError} byDate={attendanceByDate} averageBreakMinutes={personalHighlights.data?.averageBreakMinutes ?? null} showAverageBreak={hasPersonalHighlights} selectedMetric={attendanceFilter} onSelectMetric={selectAttendanceKpi} onOpenLeaveAnalysis={() => setLeaveAnalysisOpen(true)} />
         : <ProductivitySide week={week} byDate={productivityByDate} loading={weekProductivity.isLoading} failed={weekProductivity.isError} month={{ start: monthStart, end: monthTo, label: monthLabel(y, m), days: monthProductivity.data, loading: monthProductivity.isLoading, failed: monthProductivity.isError, future: monthStart > today }} />)}
 
-      {attendanceScope === 'personal' && mode === 'attendance' && <LeaveBalanceAnalysis />}
+      {leaveAnalysisOpen && <PersonalLeaveUsageModal userId={userId} today={today} isIntern={isIntern} onClose={() => setLeaveAnalysisOpen(false)} />}
 
       {popup && (
         <DayPopup
@@ -273,12 +321,27 @@ export function HomeCalendarPanel() {
           punch={punches.get(popup.date)}
           productivity={productivityByDate.get(popup.date)}
           highlight={highlight}
-          correctionAllowed={correctionAllowed}
+          correctionAllowed={popup.date < today || (popup.date === today && correctionAllowed)}
+          leaveRange={leaveRange}
+          availableCompOff={Array.isArray(compOffCredits.data) ? compOffCredits.data.length : 0}
           onCorrection={() => { setCorrectionDate(popup.date); setPopup(null); }}
+          onApplyLeave={(type) => {
+            const range = leaveRange && popup.date >= leaveRange.startDate && popup.date <= leaveRange.endDate
+              ? leaveRange
+              : { startDate: popup.date, endDate: popup.date };
+            const params = new URLSearchParams({
+              apply: 'true',
+              startDate: range.startDate,
+              endDate: range.endDate,
+            });
+            if (type) params.set('type', type);
+            setPopup(null);
+            router.push(`/leave?${params.toString()}`);
+          }}
           onClose={() => setPopup(null)}
         />
       )}
-      {correctionDate && correctionAllowed && <CorrectionDialog date={correctionDate} onClose={() => setCorrectionDate(null)} />}
+      {correctionDate && (correctionDate < today || (correctionDate === today && correctionAllowed)) && <CorrectionDialog date={correctionDate} onClose={() => setCorrectionDate(null)} />}
     </section>
   );
 }
@@ -297,6 +360,9 @@ type TeamMember = {
   hasOpenSession?: boolean;
   onLeaveToday?: boolean;
   leaveType?: string | null;
+  breakCount?: number;
+  breakMinutes?: number;
+  breakMinutesToday?: number;
 };
 
 function initials(name: string) {
@@ -314,78 +380,209 @@ function liveStatus(member: TeamMember): { label: string; tone: string } {
   return { label: 'Not started', tone: 'offline' };
 }
 
-function TeamAttendanceTable() {
-  const pageSize = 10;
-  const [page, setPage] = useState(0);
+function TeamAttendanceTable({ date, today }: { date: string; today: string }) {
+  const isToday = date === today;
   const team = useQuery({
-    queryKey: ['workday-team', 'home-attendance'],
-    queryFn: () => workdayApi.getTeam() as Promise<TeamMember[]>,
-    refetchInterval: pollWhileHealthy(15_000),
-    staleTime: 10_000,
+    queryKey: ['workday-team', 'home-attendance', date],
+    queryFn: () => workdayApi.getTeam(date) as Promise<TeamMember[]>,
+    refetchInterval: isToday ? pollWhileHealthy(15_000) : false,
+    staleTime: isToday ? 10_000 : 5 * 60_000,
     retry: shouldRetryTransientQuery,
     retryDelay: transientQueryRetryDelay,
   });
   const members = team.data ?? [];
-  const pageCount = Math.max(1, Math.ceil(members.length / pageSize));
-  const pageStart = page * pageSize;
-  const visibleMembers = members.slice(pageStart, pageStart + pageSize);
 
-  useEffect(() => {
-    if (page >= pageCount) setPage(pageCount - 1);
-  }, [page, pageCount]);
-
-  const balances = useQueries({
-    queries: visibleMembers.map((member) => ({
-      queryKey: ['leave-balance', member.id],
-      queryFn: () => getUserLeaveBalance(member.id),
-      staleTime: 60_000,
-      retry: shouldRetryTransientQuery,
-      retryDelay: transientQueryRetryDelay,
-    })),
-  });
-
-  if (team.isLoading) return <div className={s.teamState}>Loading today’s team attendance…</div>;
+  if (team.isLoading) return <div className={s.teamState}>Loading team attendance for {isToday ? 'today' : date}…</div>;
   if (team.isError) return <div className={s.teamState}>Team attendance could not be loaded. Refresh to try again.</div>;
   if (!members.length) return <div className={s.teamState}>No active team members are assigned to you.</div>;
 
   return (
     <div className={s.teamTableWrap}>
       <div className={s.teamTableViewport}>
-        <div className={s.teamTable} role="table" aria-label="Today’s team attendance">
-          <div className={s.teamTableHeader} role="row">
-            <span role="columnheader">Name</span><span role="columnheader">Punch in</span><span role="columnheader">Punch out</span><span role="columnheader">Status</span><span role="columnheader">Leave balance</span>
+        <div className={s.teamTable} role="table" aria-label={`${isToday ? 'Today’s live' : date} team attendance`}>
+          <div className={`${s.teamTableHeader} ${isToday ? s.teamTableLiveColumns : s.teamTablePastColumns}`} role="row">
+            <span role="columnheader">Name</span><span role="columnheader">Punch in</span><span role="columnheader">Punch out</span><span role="columnheader">No. of breaks</span><span role="columnheader">Total break time</span>{isToday && <span role="columnheader">Current status</span>}<span role="columnheader">Leave balance</span>
           </div>
-          {visibleMembers.map((member, index) => {
+          {members.map((member) => {
             const status = liveStatus(member);
-            const balance = balances[index]?.data;
             const role = typeof member.role === 'string' ? member.role : member.role?.name;
             const photo = member.photoUrl || member.avatar;
             return (
-              <div key={member.id} className={s.teamTableRow} role="row">
+              <div key={member.id} className={`${s.teamTableRow} ${isToday ? s.teamTableLiveColumns : s.teamTablePastColumns}`} role="row">
                 <div className={s.teamPerson} role="cell">
                   <span className={s.teamAvatar}>{photo ? <img src={photo} alt="" /> : initials(member.name)}</span>
                   <span><strong>{member.name}</strong><small>{[role?.replace('_', ' '), member.department?.name].filter(Boolean).join(' · ')}</small></span>
                 </div>
                 <span className={s.teamTime} role="cell"><LogIn size={15} />{formatTime(member.startTime ?? null)}</span>
                 <span className={s.teamTime} role="cell"><LogOut size={15} />{formatTime(member.endTime ?? member.todaySession?.logoutAt ?? null)}</span>
-                <span role="cell"><i className={s.teamStatus} data-tone={status.tone}>{status.label}</i></span>
-                <span className={s.teamLeave} role="cell">
-                  {balance ? <><strong>{balance.balance}</strong><small> left · {balance.approved} used / {balance.allocation} allocated</small></> : balances[index]?.isError ? <small>Unavailable</small> : <small>Loading…</small>}
-                </span>
+                <span className={s.teamBreakCount} role="cell">{member.breakCount ?? 0}</span>
+                <span className={s.teamBreakTime} role="cell"><Timer size={15} />{hoursLabel(member.breakMinutes ?? member.breakMinutesToday ?? 0)}</span>
+                {isToday && <span role="cell"><i className={s.teamStatus} data-tone={status.tone}>{status.label}</i></span>}
+                <TeamLeaveBalanceCell memberId={member.id} />
               </div>
             );
           })}
         </div>
       </div>
-      <nav className={s.teamPagination} aria-label="Team attendance pages">
-        <span>Showing {pageStart + 1}–{Math.min(pageStart + pageSize, members.length)} of {members.length}</span>
-        <div>
-          <button type="button" onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={page === 0} aria-label="Previous 10 team members"><ChevronLeft size={15} />Previous</button>
-          <span>Page {page + 1} of {pageCount}</span>
-          <button type="button" onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={page >= pageCount - 1} aria-label="Next 10 team members">Next<ChevronRight size={15} /></button>
-        </div>
-      </nav>
+    </div>
+  );
+}
+
+function TeamLeaveBalanceCell({ memberId }: { memberId: string }) {
+  const cellRef = useRef<HTMLSpanElement | null>(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+
+  useEffect(() => {
+    const element = cellRef.current;
+    if (!element || shouldLoad) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setShouldLoad(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setShouldLoad(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '140px 0px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [shouldLoad]);
+
+  const balance = useQuery({
+    queryKey: ['leave-balance', memberId],
+    queryFn: () => getUserLeaveBalance(memberId),
+    enabled: shouldLoad,
+    staleTime: 60_000,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
+  });
+
+  return <span ref={cellRef} className={s.teamLeave} role="cell">
+    {balance.data ? <><strong>{balance.data.balance}</strong><small> left · {balance.data.approved} used / {balance.data.allocation} allocated</small></>
+      : balance.isError ? <small>Unavailable</small>
+        : <small>{shouldLoad ? 'Loading…' : 'Scroll to load'}</small>}
+  </span>;
+}
+
+function TeamDatePicker({ selected, today, onSelect, onClose }: { selected: string; today: string; onSelect: (date: string) => void; onClose: () => void }) {
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const [visibleMonth, setVisibleMonth] = useState(() => monthOf(selected));
+  const [year, monthNumber] = visibleMonth.split('-').map(Number);
+  const firstWeekday = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay();
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const currentMonth = monthOf(today);
+
+  useEffect(() => {
+    const closeOnKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const closeOutside = (event: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) onClose();
+    };
+    window.addEventListener('keydown', closeOnKey);
+    window.addEventListener('mousedown', closeOutside);
+    return () => {
+      window.removeEventListener('keydown', closeOnKey);
+      window.removeEventListener('mousedown', closeOutside);
+    };
+  }, [onClose]);
+
+  return (
+    <div ref={pickerRef} className={s.teamDatePopover} role="dialog" aria-label="Choose team attendance date">
+      <div className={s.teamDatePopoverHeader}>
+        <button type="button" onClick={() => setVisibleMonth(shiftMonth(visibleMonth, -1))} aria-label="Previous month"><ChevronLeft size={15} /></button>
+        <strong>{monthLabel(year, monthNumber)}</strong>
+        <button type="button" onClick={() => setVisibleMonth(shiftMonth(visibleMonth, 1))} disabled={visibleMonth >= currentMonth} aria-label="Next month"><ChevronRight size={15} /></button>
       </div>
+      <div className={s.teamDateWeekdays} aria-hidden="true">
+        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => <span key={day}>{day}</span>)}
+      </div>
+      <div className={s.teamDateDays}>
+        {Array.from({ length: firstWeekday }, (_, index) => <span key={`blank-${index}`} />)}
+        {Array.from({ length: lastDay }, (_, index) => {
+          const day = index + 1;
+          const date = `${visibleMonth}-${String(day).padStart(2, '0')}`;
+          const disabled = date > today;
+          return (
+            <button
+              key={date}
+              type="button"
+              onClick={() => onSelect(date)}
+              disabled={disabled}
+              aria-label={`Show team attendance for ${date}`}
+              aria-pressed={date === selected}
+              data-today={date === today}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MonthPickerControl({ selected, today, maxMonth, onSelect }: { selected: string; today: string; maxMonth: string; onSelect: (month: string) => void }) {
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [visibleYear, setVisibleYear] = useState(() => Number(selected.slice(0, 4)));
+  const currentMonth = monthOf(today);
+  const maxYear = Number(maxMonth.slice(0, 4));
+  const selectedNumber = Number(selected.slice(5, 7));
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  useEffect(() => {
+    if (open) setVisibleYear(Number(selected.slice(0, 4)));
+  }, [open, selected]);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
+    const closeOutside = (event: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener('keydown', closeOnKey);
+    window.addEventListener('mousedown', closeOutside);
+    return () => {
+      window.removeEventListener('keydown', closeOnKey);
+      window.removeEventListener('mousedown', closeOutside);
+    };
+  }, [open]);
+
+  return (
+    <div ref={pickerRef} className={s.monthPickerWrap}>
+      <button
+        type="button"
+        className={s.monthPicker}
+        onClick={() => setOpen((value) => !value)}
+        aria-label="Choose attendance month"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <CalendarDays size={14} aria-hidden="true" />
+        <span>{monthLabel(Number(selected.slice(0, 4)), selectedNumber)}</span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </button>
+      {open && <div className={s.monthPickerPopover} role="dialog" aria-label="Choose month">
+        <div className={s.monthPickerPopoverHead}>
+          <button type="button" onClick={() => setVisibleYear((year) => year - 1)} aria-label="Previous year"><ChevronLeft size={15} /></button>
+          <strong>{visibleYear}</strong>
+          <button type="button" onClick={() => setVisibleYear((year) => year + 1)} disabled={visibleYear >= maxYear} aria-label="Next year"><ChevronRight size={15} /></button>
+        </div>
+        <div className={s.monthPickerGrid}>
+          {monthNames.map((name, index) => {
+            const value = `${visibleYear}-${String(index + 1).padStart(2, '0')}`;
+            return <button
+              key={value}
+              type="button"
+              disabled={value > maxMonth}
+              aria-pressed={value === selected}
+              data-current={value === currentMonth}
+              onClick={() => { onSelect(value); setOpen(false); }}
+            >{name.slice(0, 3)}</button>;
+          })}
+        </div>
+      </div>}
+    </div>
   );
 }
 
@@ -421,17 +618,20 @@ function AttendanceBranchMap({ selected, onSelect, onClose }: { selected: Attend
 
 function CalendarGrid({
   month, today, mode, attendanceFilter, selected, attendanceByDate, punches, productivityByDate, highlight, onOpen,
+  leaveRange, onSelectLeaveRange,
 }: {
   month: string;
   today: string;
   mode: Mode;
-  attendanceFilter: string | null;
+  attendanceFilter: AttendanceFilter | null;
   selected: string | null;
   attendanceByDate: Map<string, MyAttendanceDayV2>;
   punches: Map<string, { in: OwnPunchEvidence | null; out: OwnPunchEvidence | null }>;
   productivityByDate: Map<string, HomeProductivityDay>;
   highlight: ReturnType<typeof productiveDays>;
   onOpen: (date: string, el: HTMLElement) => void;
+  leaveRange: { startDate: string; endDate: string } | null;
+  onSelectLeaveRange: (date: string, el: HTMLElement) => void;
 }) {
   const { start, end } = monthBounds(month);
   const lead = (new Date(`${start}T12:00:00.000Z`).getUTCDay());
@@ -445,14 +645,15 @@ function CalendarGrid({
           const inMonth = date >= start && date <= end;
           const future = date > today;
           const dayNum = Number(date.slice(8));
-          if (!inMonth || future) {
+          if (!inMonth || (future && mode === 'productivity')) {
             return (
               <div key={date} className={`${s.day} ${s.muted} ${attendanceFilter ? s.dimmedDay : ''}`} aria-hidden={!inMonth}>
                 <div className={s.dayTop}><span className={s.dayNumber}>{inMonth ? dayNum : ''}</span></div>
               </div>
             );
           }
-          const cls = [s.day, date === today ? s.today : '', selected === date ? s.selected : ''];
+          const inLeaveRange = !!leaveRange && date >= leaveRange.startDate && date <= leaveRange.endDate;
+          const cls = [s.day, date === today ? s.today : '', selected === date ? s.selected : '', inLeaveRange ? s.leaveSelectedDay : ''];
           if (mode === 'productivity') {
             const p = productivityByDate.get(date);
             const active = hasActivity(p);
@@ -475,21 +676,28 @@ function CalendarGrid({
           }
           const day = attendanceByDate.get(date);
           const punch = punches.get(date);
-          const status = day ? presentDay(day) : null;
-          if (attendanceFilter && (!day || !matchesHomeAttendanceFilter(day, attendanceFilter))) cls.push(s.dimmedDay);
+          const displayOutcome = day?.outcome ?? (day?.calendar?.status !== 'WORKING' ? day?.calendar?.status ?? null : null);
+          const status = day && displayOutcome ? presentDay({ ...day, outcome: displayOutcome }) : null;
+          const matchesFilter = !!attendanceFilter && !!day && matchesHomeAttendanceFilter(day, attendanceFilter);
+          if (attendanceFilter && !matchesFilter) cls.push(s.dimmedDay);
+          if (matchesFilter) cls.push(s.highlightedDay);
           return (
             <button key={date} type="button" className={cls.join(' ')}
               data-status={status?.label}
               style={{
-                '--day-tint': day?.outcome && status ? status.tint : undefined,
-                '--day-status': day?.outcome && status ? status.color : undefined,
+                '--day-tint': displayOutcome && status ? status.tint : undefined,
+                '--day-status': displayOutcome && status ? status.color : undefined,
               } as CSSProperties}
               onClick={(e) => onOpen(date, e.currentTarget)}
-              aria-label={`${date}: ${status?.label ?? 'no attendance result'}`}>
+              onContextMenu={future ? (event) => { event.preventDefault(); onSelectLeaveRange(date, event.currentTarget); } : undefined}
+              aria-label={`${date}: ${status?.label ?? (future ? 'future working day, apply leave available' : 'no attendance result')}`}>
               <div className={s.dayTop}>
                 <span className={s.dayNumber}>{dayNum}</span>
-                {status && day?.outcome && <span className={s.statusDot} style={{ background: status.color }} title={status.label} />}
+                {status && displayOutcome && <span className={s.statusDot} style={{ background: status.color }} title={day?.calendar?.holidayName ?? status.label} />}
               </div>
+              {displayOutcome && ['WEEKLY_OFF', 'HOLIDAY'].includes(displayOutcome) && (
+                <span className={s.plannedDayLabel}>{day?.calendar?.holidayName ?? status?.label}</span>
+              )}
               {day?.punchInAt ? (
                 <>
                   <span className={s.punchRow}>
@@ -510,17 +718,168 @@ function CalendarGrid({
   );
 }
 
-function matchesHomeAttendanceFilter(day: MyAttendanceDayV2, filter: string): boolean {
+function matchesHomeAttendanceFilter(day: MyAttendanceDayV2, filter: AttendanceFilter): boolean {
+  // Calendar policy exists before an attendance result does. Fixed weekly offs
+  // and published holidays must therefore participate in the filter even on a
+  // future date (where outcome correctly remains null).
+  const effectiveOutcome = day.outcome ?? (day.calendar?.status !== 'WORKING' ? day.calendar?.status ?? null : null);
   const lateOrShort = day.modifiers.some((value) => ['LATE', 'LATE_EXEMPTED', 'INSUFFICIENT_PRESENCE', 'INSUFFICIENT_EFFECTIVE_WORK'].includes(value));
-  if (filter === 'Needs review') return day.evaluationState === 'NEEDS_REVIEW' || day.outcome === 'UNRESOLVED';
+  if (filter === 'Total late marks') return day.modifiers.includes('LATE');
+  if (filter === 'Total present days') return effectiveOutcome === 'PRESENT';
+  if (filter === 'Less working hours') return day.modifiers.includes('INSUFFICIENT_EFFECTIVE_WORK')
+    || (day.workedMinutes !== null && day.requiredMinutes !== null && day.workedMinutes < day.requiredMinutes);
+  if (filter === 'Needs review') return day.evaluationState === 'NEEDS_REVIEW' || effectiveOutcome === 'UNRESOLVED';
   if (filter === 'Late / Short hours') return lateOrShort;
   if (filter === 'Regularized') return day.modifiers.includes('REGULARIZED');
-  if (filter === 'Present') return day.outcome === 'PRESENT' && !lateOrShort && !day.modifiers.includes('REGULARIZED');
-  if (filter === 'Absent / leave') return ['ABSENT', 'LEAVE', 'LWP'].includes(day.outcome ?? '');
-  if (filter === 'Half day') return day.outcome === 'HALF_DAY';
-  if (filter === 'Holiday') return day.outcome === 'HOLIDAY';
-  if (filter === 'Weekly off') return day.outcome === 'WEEKLY_OFF';
+  if (filter === 'Present') return effectiveOutcome === 'PRESENT' && !lateOrShort && !day.modifiers.includes('REGULARIZED');
+  if (filter === 'Absent / leave') return ['ABSENT', 'LEAVE', 'LWP'].includes(effectiveOutcome ?? '');
+  if (filter === 'Half day') return effectiveOutcome === 'HALF_DAY';
+  if (filter === 'Holiday') return effectiveOutcome === 'HOLIDAY';
+  if (filter === 'Weekly off') return effectiveOutcome === 'WEEKLY_OFF';
   return false;
+}
+
+type PersonalLeaveRecord = {
+  id: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  isHalfDay?: boolean;
+  duration?: number | null;
+};
+
+const LEAVE_TYPE_NAMES: Record<string, string> = {
+  ...LEAVE_TYPE_LABEL,
+  ANNUAL: 'Annual Leave',
+  SICK: 'Sick Leave',
+  COMP_OFF: 'Comp Off',
+  UNPAID: 'Unpaid Leave',
+  OTHER: 'Other Leave',
+};
+
+const LEAVE_TYPE_COLORS: Record<string, string> = {
+  CASUAL: '#2563eb',
+  EMERGENCY: '#f59e0b',
+  ANNUAL: '#7c3aed',
+  SICK: '#ec4899',
+  COMP_OFF: '#0d9488',
+  UNPAID: '#64748b',
+  OTHER: '#4f46e5',
+};
+
+function leaveRecordDays(record: PersonalLeaveRecord): number {
+  const duration = record.duration == null ? null : Number(record.duration);
+  if (duration !== null && Number.isFinite(duration) && duration > 0) return duration;
+  if (record.isHalfDay) return 0.5;
+  const start = new Date(record.startDate).getTime();
+  const end = new Date(record.endDate).getTime();
+  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(1, Math.floor((end - start) / 86_400_000) + 1) : 0;
+}
+
+function leaveDateLabel(startDate: string, endDate: string): string {
+  const format = (value: string) => new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const start = format(startDate);
+  const end = format(endDate);
+  return start === end ? start : `${start} – ${end}`;
+}
+
+function PersonalLeaveUsageModal({ userId, today, isIntern, onClose }: { userId: string; today: string; isIntern: boolean; onClose: () => void }) {
+  const [expanded, setExpanded] = useState<'used' | 'pending' | null>(null);
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [onClose]);
+  const balanceTypes: PersonalLeaveType[] = isIntern ? ['CASUAL'] : ['CASUAL', 'SICK'];
+  const balances = useQueries({
+    queries: balanceTypes.map((type) => ({
+      queryKey: ['my-leave-balance', type],
+      queryFn: () => getMyLeaveBalance(type),
+      staleTime: 300_000,
+      retry: shouldRetryTransientQuery,
+      retryDelay: transientQueryRetryDelay,
+    })),
+  });
+  const records = useQuery({
+    queryKey: ['my-leave-records-summary', userId],
+    queryFn: () => leaveApi.getAll({ userId, page: 1, limit: 200 }) as Promise<any>,
+    enabled: !!userId,
+    staleTime: 300_000,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
+  });
+
+  const [todayYear, todayMonth] = today.split('-').map(Number);
+  const leaveYearStart = todayMonth >= 4 ? todayYear : todayYear - 1;
+  const periodStart = `${leaveYearStart}-04-01`;
+  const periodEnd = `${leaveYearStart + 1}-03-31`;
+  const allRecords = (Array.isArray(records.data) ? records.data : records.data?.items ?? []) as PersonalLeaveRecord[];
+  const approvedRecords = allRecords
+    .filter((record) => record.status === 'APPROVED' && record.startDate.slice(0, 10) <= periodEnd && record.endDate.slice(0, 10) >= periodStart)
+    .sort((a, b) => b.startDate.localeCompare(a.startDate));
+  const pendingRecords = allRecords
+    .filter((record) => record.status === 'PENDING' && record.startDate.slice(0, 10) <= periodEnd && record.endDate.slice(0, 10) >= periodStart)
+    .sort((a, b) => b.startDate.localeCompare(a.startDate));
+  const validBalances = balances.map((query, index) => ({ type: balanceTypes[index], data: query.data })).filter((entry) => entry.data);
+  const allocated = validBalances.reduce((sum, entry) => sum + (entry.data?.allocation ?? 0), 0);
+  const used = validBalances.reduce((sum, entry) => sum + (entry.data?.approved ?? 0), 0);
+  const remaining = validBalances.reduce((sum, entry) => sum + (entry.data?.balance ?? 0), 0);
+  const pending = validBalances.reduce((sum, entry) => sum + (entry.data?.pending ?? 0), 0);
+  const loading = records.isLoading || balances.some((query) => query.isLoading);
+  const unavailable = records.isError || balances.some((query) => query.isError);
+
+  if (typeof document === 'undefined') return null;
+  const detailRecords = expanded === 'used' ? approvedRecords : pendingRecords;
+  const detailTitle = expanded === 'used' ? 'Used leave dates' : 'Leaves awaiting approval';
+  const emptyText = expanded === 'used'
+    ? 'No approved leave dates are recorded for this leave year.'
+    : 'No leave requests are currently awaiting approval.';
+
+  return createPortal(
+    <div className={s.leaveAnalysisModalBackdrop} onMouseDown={onClose}>
+      <section className={s.leaveAnalysisModal} role="dialog" aria-modal="true" aria-labelledby="leave-analysis-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className={s.leaveAnalysisModalHeader}>
+          <span className={s.leaveAnalysisIcon} aria-hidden="true"><CalendarDays size={22} /></span>
+          <div><h2 id="leave-analysis-title">Leave Analysis</h2><p>Your allocation, usage, remaining balance and requests awaiting approval.</p></div>
+          <span className={s.leavePeriod}>Leave year · Apr {leaveYearStart}–Mar {leaveYearStart + 1}</span>
+          <button type="button" className={s.leaveAnalysisModalClose} onClick={onClose} aria-label="Close leave analysis"><X size={20} /></button>
+        </header>
+        {loading ? <div className={s.leaveAnalysisState}>Loading your leave analysis…</div>
+          : unavailable ? <div className={s.leaveAnalysisState}>Your leave analysis could not be loaded. Refresh to try again.</div>
+          : <>
+            <div className={s.leaveAnalysisModalKpis}>
+              <article><span>Allocated days</span><strong>{allocated}<small> days</small></strong><p>Total leave assigned for this leave year.</p></article>
+              <button type="button" data-tone="used" aria-expanded={expanded === 'used'} aria-controls="leave-analysis-records" onClick={() => setExpanded((value) => value === 'used' ? null : 'used')}>
+                <span>Used days</span><strong>{used}<small> days</small></strong><p>Approved leave already taken.</p><em>{expanded === 'used' ? 'Hide dates' : 'View dates'} <ChevronDown size={15} /></em>
+              </button>
+              <article data-tone="remaining"><span>Remaining days</span><strong>{remaining}<small> days</small></strong><p>Leave still available to use.</p></article>
+              <button type="button" data-tone="pending" aria-expanded={expanded === 'pending'} aria-controls="leave-analysis-records" onClick={() => setExpanded((value) => value === 'pending' ? null : 'pending')}>
+                <span>Pending approval</span><strong>{pending}<small> days</small></strong><p>Submitted leave not yet approved.</p><em>{expanded === 'pending' ? 'Hide requests' : 'View requests'} <ChevronDown size={15} /></em>
+              </button>
+            </div>
+            {expanded && <div id="leave-analysis-records" className={s.leaveAnalysisRecords}>
+              <div className={s.leaveAnalysisRecordsHead}><div><h3>{detailTitle}</h3><p>{expanded === 'used' ? 'Exact approved dates and leave types' : 'Dates and leave types waiting for a decision'}</p></div><span>{detailRecords.length} record{detailRecords.length === 1 ? '' : 's'}</span></div>
+              <div className={s.usedLeaveList}>
+                {detailRecords.length ? <ul>{detailRecords.map((record) => (
+                  <li key={record.id}>
+                    <i style={{ background: LEAVE_TYPE_COLORS[record.type] ?? '#4f46e5' }} />
+                    <div><strong>{LEAVE_TYPE_NAMES[record.type] ?? record.type}</strong><span>{leaveDateLabel(record.startDate, record.endDate)}</span></div>
+                    <b>{leaveRecordDays(record)}d</b>
+                  </li>
+                ))}</ul> : <div className={s.personalLeaveEmpty}>{emptyText}</div>}
+              </div>
+            </div>}
+          </>}
+      </section>
+    </div>,
+    document.body,
+  );
 }
 
 // ── Side KPIs ────────────────────────────────────────────────────────────────
@@ -558,34 +917,56 @@ function weekName(week: WeekWindow) {
   return week.kind === 'this' ? 'This week' : 'Last week';
 }
 
-function KpiScoreMetric({ label, value, icon, detail, full = false }: {
+function KpiScoreMetric({ label, value, icon, detail, full = false, onClick, selected = false }: {
   label: string;
   value: string;
   icon: React.ReactNode;
   detail?: string;
   full?: boolean;
+  onClick?: () => void;
+  selected?: boolean;
 }) {
-  return (
-    <article className={`${s.kpiScoreMetric} ${full ? s.kpiScoreMetricFull : ''}`}>
+  const content = (
+    <>
       <span className={s.kpiScoreMetricIcon} aria-hidden="true">{icon}</span>
       <div className={s.kpiScoreMetricCopy}>
         <span>{label}</span>
         <strong>{value}</strong>
         {detail && <small>{detail}</small>}
       </div>
-    </article>
+    </>
   );
+  const className = `${s.kpiScoreMetric} ${full ? s.kpiScoreMetricFull : ''} ${onClick ? s.kpiScoreMetricButton : ''}`;
+  return onClick
+    ? <button type="button" className={className} onClick={onClick} aria-pressed={selected} aria-label={`${label}: ${value}. Highlight contributing days`}>{content}</button>
+    : <article className={className}>{content}</article>;
 }
 
-function AttendanceKpiScore({ current, streak, averageBreakMinutes, showAverageBreak }: { current: ReturnType<typeof attendanceWeek>; streak: number; averageBreakMinutes: number | null; showAverageBreak: boolean }) {
-  const level = Math.max(1, Math.ceil(Math.max(1, streak) / 5));
-  const nextLevelAt = level * 5 + 5;
-  const daysToNextLevel = Math.max(0, nextLevelAt - streak);
+function AttendanceKpiScore({ current, averageBreakMinutes, showAverageBreak, monthLabel: selectedMonthLabel, monthDays, monthLoading, monthFailed, selectedMetric, onSelectMetric, onOpenLeaveAnalysis }: {
+  current: ReturnType<typeof attendanceWeek>;
+  averageBreakMinutes: number | null;
+  showAverageBreak: boolean;
+  monthLabel: string;
+  monthDays: MyAttendanceDayV2[];
+  monthLoading: boolean;
+  monthFailed: boolean;
+  selectedMetric: AttendanceFilter | null;
+  onSelectMetric: (filter: AttendanceKpiFilter) => void;
+  onOpenLeaveAnalysis: () => void;
+}) {
+  const completedDays = monthDays.filter((day) => !day.isFuture && !day.isInProgress);
+  const presentDays = completedDays.filter((day) => day.outcome === 'PRESENT').length;
+  const lateMarks = completedDays.filter((day) => day.modifiers.includes('LATE')).length;
+  const shortDays = completedDays.filter((day) =>
+    day.modifiers.includes('INSUFFICIENT_EFFECTIVE_WORK')
+      || (day.workedMinutes !== null && day.requiredMinutes !== null && day.workedMinutes < day.requiredMinutes),
+  ).length;
+  const attendanceValue = (value: number) => monthLoading ? '—' : monthFailed ? 'Unavailable' : String(value);
 
   return (
     <section className={`${s.card} ${s.kpiScore}`} aria-label="The Trailer">
       <header className={s.kpiScoreHead}>
-        <div><h2>The Trailer</h2><p>Your work rhythm at a glance</p></div>
+        <div><h2>The Trailer</h2></div>
         <span className={s.kpiIcon} aria-hidden="true"><Gauge size={16} /></span>
       </header>
       <div className={s.kpiScoreGrid}>
@@ -593,119 +974,48 @@ function AttendanceKpiScore({ current, streak, averageBreakMinutes, showAverageB
         <KpiScoreMetric label="Avg punch in" value={clockLabel(current.avgPunchInMinutes)} icon={<LogIn size={15} />} detail="Working days" />
         <KpiScoreMetric label="Avg punch out" value={clockLabel(current.avgPunchOutMinutes)} icon={<LogOut size={15} />} detail="Completed days" />
         {showAverageBreak && <KpiScoreMetric label="Avg break time" value={hoursLabel(averageBreakMinutes)} icon={<Timer size={15} />} detail="Selected month · meetings excluded" />}
-        <KpiScoreMetric label="Consistency streak" value={`${streak} day${streak === 1 ? '' : 's'}`} icon={<Flame size={15} />} detail={`Level ${level}${daysToNextLevel ? ` · ${daysToNextLevel} to next badge` : ' · Badge unlocked'}`} full />
+        <KpiScoreMetric label="Total late marks" value={attendanceValue(lateMarks)} icon={<LogIn size={15} />} detail={`${selectedMonthLabel} · Click to view days`} onClick={() => onSelectMetric('Total late marks')} selected={selectedMetric === 'Total late marks'} />
+        <KpiScoreMetric label="Total present days" value={attendanceValue(presentDays)} icon={<CalendarCheck size={15} />} detail={`${selectedMonthLabel} · Click to view days`} onClick={() => onSelectMetric('Total present days')} selected={selectedMetric === 'Total present days'} />
+        <KpiScoreMetric label="Less working hours" value={attendanceValue(shortDays)} icon={<Timer size={15} />} detail={`Below required hours · ${selectedMonthLabel}`} onClick={() => onSelectMetric('Less working hours')} selected={selectedMetric === 'Less working hours'} />
       </div>
+      <button type="button" className={s.leaveAnalysisLaunch} onClick={onOpenLeaveAnalysis}>
+        <span className={s.leaveAnalysisLaunchIcon}><CalendarDays size={19} aria-hidden="true" /></span>
+        <span><strong>Leave Analysis</strong><small>Balance, used dates and pending approvals</small></span>
+        <ChevronRight size={18} aria-hidden="true" />
+      </button>
     </section>
   );
 }
 
-function LeaveBalanceAnalysis({ compactIntern = false }: { compactIntern?: boolean } = {}) {
-  const role = useAuthStore((state) => (state.user?.role as any)?.name ?? state.user?.role ?? '');
-  const isIntern = String(role).toUpperCase() === 'INTERN';
-  const casual = useQuery({
-    queryKey: ['my-leave-balance', 'CASUAL', 'role-policy-v2'],
-    queryFn: () => getMyLeaveBalance('CASUAL' as PersonalLeaveType),
-    staleTime: 300_000,
-    retry: shouldRetryTransientQuery,
-    retryDelay: transientQueryRetryDelay,
-    refetchOnMount: 'always',
-  });
-  // Phase 3: 10 Casual + 4 Sick from the versioned policy, for interns too.
-  const sick = useQuery({
-    queryKey: ['my-leave-balance', 'SICK', 'role-policy-v2'],
-    queryFn: () => getMyLeaveBalance('SICK' as PersonalLeaveType),
-    staleTime: 300_000,
-    retry: shouldRetryTransientQuery,
-    retryDelay: transientQueryRetryDelay,
-    refetchOnMount: 'always',
-  });
-  void isIntern;
-  void compactIntern;
-
-  const entries = [
-    { key: 'casual', label: 'Casual Leave', query: casual, tone: 'blue' as const },
-    { key: 'sick', label: 'Sick Leave', query: sick, tone: 'amber' as const },
-  ];
-
-  return (
-    <section className={`${s.card} ${s.leaveAnalysis}`} aria-label="Leave usage and allocation analysis">
-      <header className={s.leaveAnalysisHeader}>
-        <span className={s.leaveAnalysisIcon} aria-hidden="true"><CalendarDays size={19} /></span>
-        <div>
-          <h2>Leave Usage &amp; Allocation Analysis</h2>
-        </div>
-        <span className={s.leavePeriod}>Current year · {new Date().getFullYear()}</span>
-      </header>
-      <div className={s.leaveAnalysisGrid}>
-        {entries.map((entry) => {
-          if (entry.query.isLoading) return <div key={entry.key} className={s.leaveAnalysisState}>Loading {entry.label.toLowerCase()}…</div>;
-          if (entry.query.isError || !entry.query.data) return <div key={entry.key} className={s.leaveAnalysisState}>{entry.label} balance is unavailable.</div>;
-          const data = entry.query.data;
-          // Phase 3: no applicable leave policy yet. Said plainly; never an invented number.
-          if (data.allocation === null || data.balance === null) return <div key={entry.key} className={s.leaveAnalysisState}>{entry.label}: leave setup is pending with HR.</div>;
-          return <LeaveAnalysisCard key={entry.key} label={entry.label} tone={entry.tone} balance={{ ...data, allocation: data.allocation, balance: data.balance }} />;
-        })}
-      </div>
-    </section>
-  );
-}
-
-function LeaveAnalysisCard({ label, tone, balance }: {
-  label: string;
-  tone: 'blue' | 'amber';
-  balance: { allocation: number; approved: number; pending: number; balance: number };
+function AttendanceSide({ week, monthLabel: selectedMonthLabel, monthDays, monthLoading, monthFailed, byDate, averageBreakMinutes, showAverageBreak, selectedMetric, onSelectMetric, onOpenLeaveAnalysis }: {
+  week: WeekWindow;
+  monthLabel: string;
+  monthDays: MyAttendanceDayV2[];
+  monthLoading: boolean;
+  monthFailed: boolean;
+  byDate: Map<string, MyAttendanceDayV2>;
+  averageBreakMinutes: number | null;
+  showAverageBreak: boolean;
+  selectedMetric: AttendanceFilter | null;
+  onSelectMetric: (filter: AttendanceKpiFilter) => void;
+  onOpenLeaveAnalysis: () => void;
 }) {
-  const allocated = Math.max(0, balance.allocation);
-  const used = Math.max(0, balance.approved);
-  const pending = Math.max(0, balance.pending);
-  const remaining = Math.max(0, balance.balance);
-  const denominator = Math.max(allocated, used + pending + remaining, 1);
-  const usedPercent = Math.min(100, (used / denominator) * 100);
-  const pendingPercent = Math.min(100 - usedPercent, (pending / denominator) * 100);
-  const usagePercent = allocated ? Math.min(100, Math.round((used / allocated) * 100)) : 0;
-  const usedColor = tone === 'amber' ? '#D97706' : '#2563EB';
-  const pendingColor = tone === 'amber' ? '#FBBF24' : '#60A5FA';
-  const chart = `conic-gradient(${usedColor} 0 ${usedPercent}%, ${pendingColor} ${usedPercent}% ${usedPercent + pendingPercent}%, #DCE9F8 ${usedPercent + pendingPercent}% 100%)`;
-
-  return (
-    <article className={s.leaveAnalysisCard} data-tone={tone}>
-      <div className={s.leaveCardHeading}>
-        <span className={s.leaveTypeIcon} aria-hidden="true"><CalendarCheck size={17} /></span>
-        <div><h3>{label} Analysis</h3></div>
-      </div>
-      <div className={s.leaveCardBody}>
-        <div className={s.leaveFigures}>
-          <div className={s.leaveAllocationRow}>
-            <div><span>Allocated</span><strong>{allocated}<small> days</small></strong></div>
-            <div><span>Remaining</span><strong>{remaining}<small> days</small></strong></div>
-          </div>
-          <div className={s.leaveUsageHead}><span>Usage progress</span><strong>{usagePercent}%</strong></div>
-          <div className={s.leaveUsageTrack}><span style={{ width: `${usagePercent}%`, background: usedColor }} /></div>
-          <div className={s.leaveBreakdown}>
-            <span><i style={{ background: usedColor }} />Used <strong>{used}d</strong></span>
-            <span><i style={{ background: pendingColor }} />Pending <strong>{pending}d</strong></span>
-          </div>
-        </div>
-        <div className={s.leaveChartStage}>
-          <div className={s.leaveChartShadow} aria-hidden="true" />
-          <div className={s.leaveChart} style={{ background: chart }} role="img" aria-label={`${label}: ${used} days used out of ${allocated} allocated`}>
-            <div><strong>{used}d</strong><span>used</span></div>
-          </div>
-          <p><strong>{remaining}d</strong> available</p>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function AttendanceSide({ today, week, byDate, isIntern, averageBreakMinutes, showAverageBreak }: { today: string; week: WeekWindow; byDate: Map<string, MyAttendanceDayV2>; isIntern: boolean; averageBreakMinutes: number | null; showAverageBreak: boolean }) {
   const current = attendanceWeek(week.start, week.end, byDate);
-  const earliest = Array.from(byDate.keys()).sort()[0] ?? today;
-  const streak = attendanceStreak(today, byDate, earliest);
 
   return (
     <aside className={s.side} aria-label={`${weekName(week)} attendance`}>
-      <AttendanceKpiScore current={current} streak={streak} averageBreakMinutes={averageBreakMinutes} showAverageBreak={showAverageBreak} />
+      <AttendanceKpiScore
+        current={current}
+        averageBreakMinutes={averageBreakMinutes}
+        showAverageBreak={showAverageBreak}
+        monthLabel={selectedMonthLabel}
+        monthDays={monthDays}
+        monthLoading={monthLoading}
+        monthFailed={monthFailed}
+        selectedMetric={selectedMetric}
+        onSelectMetric={onSelectMetric}
+        onOpenLeaveAnalysis={onOpenLeaveAnalysis}
+      />
     </aside>
   );
 }
@@ -767,7 +1077,8 @@ function ProductivitySide({ week, byDate, loading, failed, month }: { week: Week
 // ── Day popup ────────────────────────────────────────────────────────────────
 
 function DayPopup({
-  date, anchor, mode, day, punch, productivity, highlight, correctionAllowed, onCorrection, onClose,
+  date, anchor, mode, day, punch, productivity, highlight, correctionAllowed, leaveRange,
+  availableCompOff, onCorrection, onApplyLeave, onClose,
 }: {
   date: string;
   anchor: HTMLElement;
@@ -777,7 +1088,10 @@ function DayPopup({
   productivity: HomeProductivityDay | undefined;
   highlight: ReturnType<typeof productiveDays>;
   correctionAllowed: boolean;
+  leaveRange: { startDate: string; endDate: string } | null;
+  availableCompOff: number;
   onCorrection: () => void;
+  onApplyLeave: (type?: string) => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -838,6 +1152,10 @@ function DayPopup({
   const active = hasActivity(productivity);
   const isTop = highlight.top.includes(date);
   const isAbove = highlight.aboveAverage.has(date);
+  const future = !!day?.isFuture || date > localToday();
+  const plannedStatus = day?.calendar?.status;
+  const plannedOff = plannedStatus === 'HOLIDAY' || plannedStatus === 'WEEKLY_OFF';
+  const activeLeaveRange = leaveRange && date >= leaveRange.startDate && date <= leaveRange.endDate ? leaveRange : null;
 
   if (typeof document === 'undefined') return null;
 
@@ -864,7 +1182,12 @@ function DayPopup({
 
       {mode === 'attendance' ? (
         <>
-          <div className={s.punchPair}>
+          {future && <div className={s.futureDayNotice}>
+            <strong>{plannedOff ? (day?.calendar?.holidayName ?? (plannedStatus === 'HOLIDAY' ? 'Company holiday' : 'Weekly off')) : 'No attendance yet'}</strong>
+            <span>{plannedOff ? 'This date is not charged as leave.' : 'Future attendance stays blank until this day occurs.'}</span>
+            {activeLeaveRange && <small>Selected range: {activeLeaveRange.startDate} to {activeLeaveRange.endDate}</small>}
+          </div>}
+          {!future && <div className={s.punchPair}>
             <div className={s.punchCard}>
               <TinyPunchPhoto large evidenceId={photoId(punch?.in)} label={`Punch in ${formatTime(day?.punchInAt ?? null)}`} />
               <div><span className={s.punchLabel}>Punch in</span><strong>{formatTime(day?.punchInAt ?? null)}</strong></div>
@@ -873,16 +1196,18 @@ function DayPopup({
               <TinyPunchPhoto large evidenceId={photoId(punch?.out)} label={`Punch out ${formatTime(day?.punchOutAt ?? null)}`} />
               <div><span className={s.punchLabel}>Punch out</span><strong>{day?.punchOutAt ? formatTime(day.punchOutAt) : day?.isInProgress ? 'Working' : '—'}</strong></div>
             </div>
-          </div>
-          <div className={s.stats}>
+          </div>}
+          {!future && <div className={s.stats}>
             <div className={s.stat}><span>Working hours</span><strong>{hoursLabel(day?.presenceMinutes ?? day?.workedMinutes)}</strong></div>
             <div className={s.stat}><span>Break time</span><strong>{hoursLabel(day?.breakMinutes)}</strong></div>
-          </div>
+          </div>}
           <div className={s.actions}>
-            <Link href="/attendance" className={s.primaryAction}>Open full day <ArrowRight size={13} aria-hidden="true" /></Link>
-            {correctionAllowed && day?.outcome && (
+            {!future && <Link href="/attendance" className={s.primaryAction}>Open full day <ArrowRight size={13} aria-hidden="true" /></Link>}
+            {!future && correctionAllowed && (
               <button type="button" className={s.secondaryAction} onClick={onCorrection}><PencilLine size={13} aria-hidden="true" />Request correction</button>
             )}
+            {future && !plannedOff && <button type="button" className={s.primaryAction} onClick={() => onApplyLeave()}>Apply leave</button>}
+            {future && !plannedOff && availableCompOff > 0 && <button type="button" className={s.secondaryAction} onClick={() => onApplyLeave('COMP_OFF')}>Use comp-off ({availableCompOff})</button>}
           </div>
         </>
       ) : (

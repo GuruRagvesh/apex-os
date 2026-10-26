@@ -61,6 +61,12 @@ export interface UnavailableField {
 
 export interface MyAttendanceDayV2 {
   date: string;
+  calendar?: {
+    isWorkingDay: boolean;
+    status: 'WORKING' | 'WEEKLY_OFF' | 'HOLIDAY';
+    reason: string;
+    holidayName: string | null;
+  } | null;
   outcome: AttendanceOutcome | null;
   modifiers: AttendanceModifier[];
   exceptions: AttendanceExceptionCode[];

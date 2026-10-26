@@ -58,6 +58,9 @@ export class AuthService {
       }
       throw new UnauthorizedException('Invalid credentials');
     }
+    // Phase 4: access ended with the last working day (separation may still be pending).
+    const accessEndsAt = (user as any).accessEndsAt as Date | null | undefined;
+    if (accessEndsAt && accessEndsAt.getTime() <= Date.now()) throw new UnauthorizedException('Invalid credentials');
 
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');

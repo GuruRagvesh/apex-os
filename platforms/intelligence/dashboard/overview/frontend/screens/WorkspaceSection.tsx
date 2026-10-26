@@ -45,6 +45,7 @@ export function WorkspaceSection({ userId, drawer = false }: { userId: string; d
   const [task, setTask] = useState('');
   const [taskPriority, setTaskPriority] = useState<'HIGH' | 'MEDIUM' | 'LOW'>('MEDIUM');
   const [editingEssentials, setEditingEssentials] = useState(false);
+  const [activeEssential, setActiveEssential] = useState(0);
   const [essentials, setEssentials] = useState<HomeWorkspace['essentials']>([]);
 
   useEffect(() => {
@@ -70,25 +71,29 @@ export function WorkspaceSection({ userId, drawer = false }: { userId: string; d
     await saveChecklist([...checklist, { id: crypto.randomUUID(), text, done: false, priority: taskPriority }]);
     setTask('');
   };
-  const saveEssentials = async () => { try { await mutation.mutateAsync({ essentials }); setEditingEssentials(false); toast.success('Daily essential saved'); } catch {} };
+  const saveEssentials = async () => { try { await mutation.mutateAsync({ essentials }); setEditingEssentials(false); toast.success('Daily essentials saved'); } catch {} };
   const updateEssential = (index: number, key: 'label' | 'url', value: string) => setEssentials((current) => current.map((essential, itemIndex) => itemIndex === index ? { ...essential, [key]: value } : essential));
+  const editEssential = (index: number) => { setActiveEssential(index); setEditingEssentials(true); };
 
   const content = <>
     {isPending && <p className="text-sm text-slate-500">Loading your workspace…</p>}
     {isError && <p className="text-sm text-rose-600">Your workspace could not be loaded. <button onClick={() => refetch()} className="underline">Retry</button></p>}
     {data && <div className={drawer ? 'space-y-4' : 'grid gap-3 lg:grid-cols-3'}>
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
-        <div className="mb-1 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Daily essential</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">One personal link, editable by you.</p></div><button type="button" onClick={() => setEditingEssentials((open) => !open)} aria-expanded={editingEssentials} className="rounded-lg p-2 text-slate-500 hover:bg-white hover:text-blue-700 dark:hover:bg-slate-900" title="Edit daily essential"><Pencil size={15} /></button></div>
-        <div className="mt-3 grid grid-cols-1 gap-2">
-          {data.essentials.map((essential) => essential.url ? <a key={essential.id} href={essential.url} target="_blank" rel="noopener noreferrer" className="group flex min-h-16 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white px-2 text-center text-xs font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><span className="mb-1 flex size-6 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/50"><ExternalLink size={13} /></span>{essential.label}</a> : <button key={essential.id} type="button" onClick={() => setEditingEssentials(true)} className="flex min-h-16 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 px-2 text-center text-xs font-medium text-slate-500 transition hover:border-blue-300 hover:text-blue-700 dark:border-slate-600"><Plus size={14} className="mb-1" />{essential.label}</button>)}
+        <div className="mb-1 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Daily essentials</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Five personal links, editable by you.</p></div><button type="button" onClick={() => editingEssentials ? setEditingEssentials(false) : editEssential(activeEssential)} aria-expanded={editingEssentials} className="rounded-lg p-2 text-slate-500 hover:bg-white hover:text-blue-700 dark:hover:bg-slate-900" title="Edit selected essential"><Pencil size={15} /></button></div>
+        <div className="mt-3 grid grid-cols-5 gap-2">
+          {data.essentials.map((essential, index) => essential.url && !editingEssentials ? <a key={essential.id} href={essential.url} target="_blank" rel="noopener noreferrer" className="group flex min-h-16 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white px-2 text-center text-xs font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><span className="mb-1 flex size-6 items-center justify-center rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/50"><ExternalLink size={13} /></span>{essential.label}</a> : <button key={essential.id} type="button" onClick={() => editEssential(index)} className={`flex min-h-16 flex-col items-center justify-center rounded-xl border px-2 text-center text-xs font-medium transition hover:border-blue-300 hover:text-blue-700 dark:border-slate-600 ${essential.url ? '' : 'border-dashed'} ${editingEssentials && activeEssential === index ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/30' : 'border-slate-300 bg-white text-slate-500 dark:bg-slate-900'}`} aria-pressed={editingEssentials && activeEssential === index}>{essential.url ? <ExternalLink size={14} className="mb-1" /> : <Plus size={14} className="mb-1" />}{essential.label}</button>)}
         </div>
-        {editingEssentials && <div className="mt-4 space-y-2 border-t border-slate-200 pt-4 dark:border-slate-700">
-          {essentials.map((essential, index) => <div key={essential.id} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]"><input value={essential.label} maxLength={40} onChange={(event) => updateEssential(index, 'label', event.target.value)} aria-label="Essential link label" className="min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input type="url" value={essential.url} maxLength={500} onChange={(event) => updateEssential(index, 'url', event.target.value)} placeholder="https://…" aria-label="Essential link URL" className="min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>)}
-          <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={() => { setEssentials(data.essentials); setEditingEssentials(false); }} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700">Cancel</button><button type="button" disabled={mutation.isPending} onClick={saveEssentials} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Save essential</button></div>
+        {editingEssentials && essentials[activeEssential] && <div className="mt-4 space-y-2 border-t border-slate-200 pt-4 dark:border-slate-700">
+          <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Editing {essentials[activeEssential].label || `Essential ${activeEssential + 1}`}</p>
+          <div key={essentials[activeEssential].id} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]"><input value={essentials[activeEssential].label} maxLength={40} onChange={(event) => updateEssential(activeEssential, 'label', event.target.value)} aria-label={`Essential ${activeEssential + 1} link label`} className="min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input type="url" value={essentials[activeEssential].url} maxLength={500} onChange={(event) => updateEssential(activeEssential, 'url', event.target.value)} placeholder="https://…" aria-label={`Essential ${activeEssential + 1} link URL`} className="min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
+          <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={() => { setEssentials(data.essentials); setEditingEssentials(false); }} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700">Cancel</button><button type="button" disabled={mutation.isPending} onClick={saveEssentials} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Save essentials</button></div>
         </div>}
       </section>
 
-      {drawer && <nav className="apex-workspace-action-strip" aria-label="Quick actions">
+      {drawer && <section className="apex-workspace-actions-box" aria-labelledby="get-things-done-title">
+        <h3 id="get-things-done-title" className="apex-workspace-actions-title">Get Things Done</h3>
+        <nav className="apex-workspace-action-strip" aria-label="Get Things Done quick actions">
         <button
           type="button"
           className="apex-workspace-action apex-workspace-action-ticket"
@@ -111,7 +116,8 @@ export function WorkspaceSection({ userId, drawer = false }: { userId: string; d
           <span className="apex-workspace-action-icon"><Pencil size={17} /></span>
           <span className="apex-workspace-action-label">Edit Hero Bar</span>
         </button>
-      </nav>}
+        </nav>
+      </section>}
 
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
         <div className="mb-4"><h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100"><StickyNote size={15} className="text-blue-600" /> Personal notes</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Your latest six private notes. Select one to unfold it.</p></div>

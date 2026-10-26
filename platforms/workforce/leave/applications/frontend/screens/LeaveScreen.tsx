@@ -153,6 +153,22 @@ export default function LeavePage() {
     } else if (qTab === 'all') {
       setTab('all');
     }
+
+    // Calendar shortcuts land on the canonical Leave flow.  Keeping the form
+    // here gives every request the same validation, balance checks and
+    // approval workflow as a leave request started directly from this page.
+    if (params.get('apply') === 'true') {
+      const startDate = params.get('startDate') ?? '';
+      const endDate = params.get('endDate') ?? startDate;
+      const type = params.get('type');
+      setForm((current) => ({
+        ...current,
+        startDate,
+        endDate: endDate >= startDate ? endDate : startDate,
+        type: type && LEAVE_TYPES.includes(type) ? type : current.type,
+      }));
+      setShowNew(true);
+    }
   }, [queryString]);
   const [form, setForm] = useState({ type: 'CASUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD' as 'STANDARD' | 'EMERGENCY', fundingBucket: 'CASUAL' as 'CASUAL' | 'SICK' });
 

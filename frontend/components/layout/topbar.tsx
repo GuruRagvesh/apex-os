@@ -84,6 +84,13 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         duration: 4000,
         style: { fontSize: '13px' },
       });
+      if (notification.entityType === 'announcement') {
+        // Reuse the one existing app socket instead of polling a second live
+        // channel. The lightweight feed opens the full-screen notice, while
+        // the dashboard ticker refreshes from the same event.
+        void qc.invalidateQueries({ queryKey: ['current-announcements'] });
+        void qc.invalidateQueries({ queryKey: ['home-carousel'] });
+      }
     },
     onLeaveStatusChanged: ({ status }) => {
       const word = status === 'APPROVED' ? 'approved ✓' : 'rejected';
