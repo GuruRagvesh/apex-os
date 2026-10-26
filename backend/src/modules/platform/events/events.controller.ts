@@ -49,6 +49,8 @@ const ACTION_DESCRIPTIONS: Record<string, string> = {
   SETTINGS_UPDATED: 'updated settings',
   USER_CREATED: 'created a user',
   USER_ROLE_CHANGED: 'changed a user role',
+  HIERARCHY_ASSIGNMENT_UPDATED: 'updated an organization reporting line',
+  HIERARCHY_ASSIGNMENT_ENDED: 'ended an organization reporting line',
   EXPORT_PERFORMED: 'exported data',
 };
 
@@ -84,6 +86,7 @@ const EVENT_CATEGORIES: Record<string, string[]> = {
     'PERSONAL_INFORMATION_CHANGE_CONFIRMED', 'PERSONAL_INFORMATION_CHANGE_DECLINED',
     'PERSONAL_INFORMATION_CHANGE_APPROVED', 'PERSONAL_INFORMATION_CHANGE_REJECTED',
     'SENSITIVE_DATA_VIEWED', 'SENSITIVE_DATA_EDITED',
+    'HIERARCHY_ASSIGNMENT_UPDATED', 'HIERARCHY_ASSIGNMENT_ENDED',
   ],
   settings: ['SETTINGS_UPDATED'],
   sales: [

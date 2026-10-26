@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useCallback, useState } from 'react';
-
-const THEME_KEY = 'apex-theme';
-const ACCENT_KEY = 'apex-accent';
+import { clearAppearancePreference, readAppearancePreference, resolveTheme, writeAppearancePreference } from './appearance-preferences';
 
 export type ThemeId = 'technoedge-light' | 'john-wick-dark';
+export type ThemeChoice = ThemeId | 'system';
 
 export type AccentId = 'royal-blue' | 'emerald' | 'violet' | 'gold' | 'crimson' | 'slate';
 
@@ -15,56 +14,64 @@ export function applyTheme(theme: ThemeId, accent: AccentId) {
   document.documentElement.setAttribute('data-accent', accent);
 }
 
-function getStoredTheme(): ThemeId {
+function getStoredTheme(userId?: string | null): ThemeChoice {
   if (typeof localStorage === 'undefined') return 'technoedge-light';
-  const stored = localStorage.getItem(THEME_KEY) || localStorage.getItem('apex-company-theme');
-  return stored === 'john-wick-dark' ? 'john-wick-dark' : 'technoedge-light';
+  const stored = readAppearancePreference(userId, 'theme') || localStorage.getItem('apex-company-theme');
+  return stored === 'john-wick-dark' || stored === 'system' ? stored : 'technoedge-light';
 }
 
-function getStoredAccent(): AccentId {
+function getStoredAccent(userId?: string | null): AccentId {
   if (typeof localStorage === 'undefined') return 'royal-blue';
-  const stored = localStorage.getItem(ACCENT_KEY) || localStorage.getItem('apex-company-accent');
+  const stored = readAppearancePreference(userId, 'accent') || localStorage.getItem('apex-company-accent');
   return (['royal-blue', 'emerald', 'violet', 'gold', 'crimson', 'slate'] as (string | null)[]).includes(stored)
     ? stored as AccentId : 'royal-blue';
 }
 
-export function useTheme() {
-  const [theme, setThemeState] = useState<ThemeId>('technoedge-light');
+export function useTheme(userId?: string | null) {
+  const [theme, setThemeState] = useState<ThemeChoice>('technoedge-light');
   const [accent, setAccentState] = useState<AccentId>('royal-blue');
 
   useEffect(() => {
-    const t = getStoredTheme();
-    const a = getStoredAccent();
+    const t = getStoredTheme(userId);
+    const a = getStoredAccent(userId);
     setThemeState(t);
     setAccentState(a);
-    applyTheme(t, a);
-  }, []);
+    applyTheme(resolveTheme(t), a);
+  }, [userId]);
 
-  const setTheme = useCallback((t: ThemeId) => {
-    localStorage.setItem(THEME_KEY, t);
+  useEffect(() => {
+    if (theme !== 'system') return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = () => applyTheme(resolveTheme('system'), getStoredAccent(userId));
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [theme, userId]);
+
+  const setTheme = useCallback((t: ThemeChoice) => {
+    writeAppearancePreference(userId, 'theme', t);
     setThemeState(t);
-    applyTheme(t, getStoredAccent());
-  }, []);
+    applyTheme(resolveTheme(t), getStoredAccent(userId));
+  }, [userId]);
 
   const setAccent = useCallback((a: AccentId) => {
-    localStorage.setItem(ACCENT_KEY, a);
+    writeAppearancePreference(userId, 'accent', a);
     setAccentState(a);
-    applyTheme(getStoredTheme(), a);
-  }, []);
+    applyTheme(resolveTheme(getStoredTheme(userId)), a);
+  }, [userId]);
 
   const setCompanyDefaults = useCallback((t: ThemeId, a: AccentId) => {
     localStorage.setItem('apex-company-theme', t);
     localStorage.setItem('apex-company-accent', a);
-    const effectiveTheme = getStoredTheme();
-    const effectiveAccent = getStoredAccent();
+    const effectiveTheme = getStoredTheme(userId);
+    const effectiveAccent = getStoredAccent(userId);
     setThemeState(effectiveTheme);
     setAccentState(effectiveAccent);
-    applyTheme(effectiveTheme, effectiveAccent);
-  }, []);
+    applyTheme(resolveTheme(effectiveTheme), effectiveAccent);
+  }, [userId]);
 
   const resetToCompanyDefaults = useCallback(() => {
-    localStorage.removeItem(THEME_KEY);
-    localStorage.removeItem(ACCENT_KEY);
+    clearAppearancePreference(userId, 'theme');
+    clearAppearancePreference(userId, 'accent');
     const t = localStorage.getItem('apex-company-theme') === 'john-wick-dark' ? 'john-wick-dark' : 'technoedge-light';
     const storedAccent = localStorage.getItem('apex-company-accent');
     const a = (['royal-blue', 'emerald', 'violet', 'gold', 'crimson', 'slate'] as (string | null)[]).includes(storedAccent)
@@ -72,7 +79,7 @@ export function useTheme() {
     setThemeState(t);
     setAccentState(a);
     applyTheme(t, a);
-  }, []);
+  }, [userId]);
 
   return { theme, accent, setTheme, setAccent, setCompanyDefaults, resetToCompanyDefaults };
 }

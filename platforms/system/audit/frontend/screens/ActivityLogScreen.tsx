@@ -94,6 +94,8 @@ const ACTION_OPTIONS: Array<{ value: string; label: string; category: string }> 
   { value: 'USER_CREATED', label: 'User created', category: 'people' },
   { value: 'USER_ROLE_CHANGED', label: 'User role changed', category: 'people' },
   { value: 'USER_DEACTIVATED', label: 'User deactivated', category: 'people' },
+  { value: 'HIERARCHY_ASSIGNMENT_UPDATED', label: 'Reporting line updated', category: 'people' },
+  { value: 'HIERARCHY_ASSIGNMENT_ENDED', label: 'Reporting line ended', category: 'people' },
   { value: 'PROFILE_UPDATED', label: 'Profile updated', category: 'people' },
   { value: 'SETTINGS_UPDATED', label: 'Settings updated', category: 'settings' },
   { value: 'EXPORT_PERFORMED', label: 'Data exported', category: 'system' },

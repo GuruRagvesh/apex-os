@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { applyAppearanceForUser } from '@apex/shared-utilities/appearance-preferences';
 
 interface User {
   id: string;
@@ -35,6 +36,7 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (user, token) => {
         localStorage.setItem('apex_token', token);
         set({ user, token, isAuthenticated: true });
+        applyAppearanceForUser(user.id);
       },
 
       logout: () => {
@@ -49,6 +51,7 @@ export const useAuthStore = create<AuthState>()(
         localStorage.removeItem('apex_token');
         localStorage.removeItem('apexMode');
         set({ user: null, token: null, isAuthenticated: false });
+        applyAppearanceForUser(null);
       },
 
       updateUser: (updates) =>

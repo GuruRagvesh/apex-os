@@ -27,6 +27,7 @@ const NOTIF_DEFAULTS = {
   attendanceCorrection: true,
   attendanceCorrectionDecided: true,
   inApp:          true,
+  quietHoursEnabled: true,
   quietFrom:      '22:00',
   quietTo:        '08:00',
   timezone:       'Asia/Kolkata',
@@ -99,7 +100,7 @@ export class NotificationEventService {
     const quietTo = resolvedPrefs.quietTo || '08:00';
     const userTimezone = resolvedPrefs.timezone || 'Asia/Kolkata';
 
-    const inQuietHours = this.isInQuietHours(quietFrom, quietTo, userTimezone, this.tva.now());
+    const inQuietHours = resolvedPrefs.quietHoursEnabled !== false && this.isInQuietHours(quietFrom, quietTo, userTimezone, this.tva.now());
 
     if (!inQuietHours && channels.popup) {
       // 5. Deliver real-time socket notification
