@@ -4,23 +4,13 @@ import { useState, useMemo, createContext, useContext } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
-import { analyticsApi } from '@apex/intelligence-analytics/api';
 import { usersApi } from '@apex/core-users/api';
 import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 import { rolesApi } from '@apex/core-organization-roles/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import { ChevronRight, Edit2, Upload, Eye, Clock, CheckCircle, AlertTriangle, RotateCcw, Building2, UsersRound } from 'lucide-react';
-
-const fmtSeconds = (sec: number | null | undefined) => {
-  if (sec == null) return '0h 0m';
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  return `${h}h ${m}m`;
-};
-
-const fmtPct = (pct: number | null | undefined) => (pct == null ? '0%' : `${pct}%`);
+import { ChevronRight, Edit2, Upload, Building2, UsersRound } from 'lucide-react';
 
 const ProfileFormContext = createContext<any>(null);
 
@@ -30,7 +20,7 @@ const TABS = [
   { id: 'access', label: 'Account & Access' },
   { id: 'payroll', label: 'Payroll & Statutory' },
   { id: 'documents', label: 'Documents & Verification' },
-  { id: 'approvals', label: 'Approval Workload' },
+  { id: 'assets', label: 'Asset Management' },
 ];
 
 const DOCUMENT_TYPES = [
@@ -62,9 +52,6 @@ const readCls = 'apex-profile-value w-full px-4 py-3 rounded-xl border border-[v
 const sectionCls = 'apex-section-border bg-[var(--surface-sunken)] rounded-xl p-6 border';
 const neutralButtonCls = 'border border-[var(--border-secondary)] bg-[var(--surface-card)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]';
 const selectCls = 'apex-profile-value w-full px-4 py-3 rounded-xl border border-[var(--border-secondary)] bg-[var(--surface-card)] text-sm';
-const metricCardCls = 'apex-section-border bg-[var(--surface-sunken)] p-4 rounded-xl border flex flex-col';
-const metricLabelCls = 'apex-profile-label flex items-center gap-2 mb-2';
-const metricValueCls = 'apex-profile-value text-3xl font-black';
 const sectionHeadingCls = 'apex-profile-heading text-xl font-black';
 
 const Field = ({ label, field, type = 'text', readOnly = false }: any) => {
@@ -223,12 +210,6 @@ export default function UserProfileScreen() {
   const { data: documents, refetch: refetchDocs } = useQuery({
     queryKey: ['user-documents', userId],
     queryFn: () => (usersApi as any).getDocuments(userId) as Promise<any[]>,
-  });
-
-  const { data: reviewerMetrics, isLoading: reviewerMetricsLoading } = useQuery({
-    queryKey: ['reviewer-metrics', userId],
-    queryFn: () => analyticsApi.getReviewerMetrics(userId) as Promise<any>,
-    enabled: ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(profile?.role?.name ?? ''),
   });
 
   const updateMutation = useMutation({
@@ -473,7 +454,6 @@ export default function UserProfileScreen() {
             {TABS.filter((t) => {
               if (t.id === 'payroll') return canSeePayroll;
               if (t.id === 'access') return canSeeAccess || isOwnProfile;
-              if (t.id === 'approvals') return ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
               return true;
             }).map((tab) => (
               <button
@@ -638,7 +618,7 @@ export default function UserProfileScreen() {
               </div>
               <div className={sectionCls}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <Field label="Employee ID" field="employeeId" readOnly />
+                  <Field label="Employee ID *" field="employeeId" readOnly={!canEditAll} />
                   <div><label className={labelCls}>Company</label><div className={readCls}>TechnoEdge Learning Solutions</div></div>
                   <div><label className={labelCls}>Department *</label><div className={readCls}>{profile?.department?.name || 'Not set'}</div></div>
                   <Field label="Designation *" field="designation" readOnly={!canEditAll} />
@@ -1015,96 +995,14 @@ export default function UserProfileScreen() {
             </div>
           )}
 
-          {/* Tab 6: Approval Workload */}
-          {activeTab === 'approvals' && (
+          {/* Tab 6: Asset Management. The final asset list and controls will be
+              added after the approved design is supplied. */}
+          {activeTab === 'assets' && (
             <div>
-              <h2 className={`${sectionHeadingCls} mb-6`}>Approval Workload</h2>
-              {reviewerMetricsLoading ? (
-                <div className="text-[var(--text-secondary)]">Loading metrics...</div>
-              ) : !reviewerMetrics ? (
-                <div className="text-[var(--text-secondary)]">No approval metrics available.</div>
-              ) : (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <Eye size={16} />
-                        <span className="text-sm font-medium">Pending Approvals</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.pendingApprovalsCount ?? 0}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <CheckCircle size={16} className="text-green-500" />
-                        <span className="text-sm font-medium">Completed Approvals</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.completedApprovalsCount ?? 0}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <Clock size={16} className="text-blue-500" />
-                        <span className="text-sm font-medium">Avg. Reviewer Active Time</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {fmtSeconds(reviewerMetrics.averageApprovalSeconds)}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <CheckCircle size={16} className="text-green-500" />
-                        <span className="text-sm font-medium">Approvals Today</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.approvalsToday ?? 0}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <CheckCircle size={16} className="text-green-500" />
-                        <span className="text-sm font-medium">Approvals This Week</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.approvalsThisWeek ?? 0}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <CheckCircle size={16} className={reviewerMetrics.approvalPercent >= 60 ? 'text-green-500' : 'text-yellow-500'} />
-                        <span className="text-sm font-medium">Approval Rate</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {fmtPct(reviewerMetrics.approvalPercent)}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <RotateCcw size={16} className={reviewerMetrics.rejectionPercent > 40 ? 'text-yellow-500' : 'text-[var(--text-secondary)]'} />
-                        <span className="text-sm font-medium">Rework Rate</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {fmtPct(reviewerMetrics.rejectionPercent)}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <AlertTriangle size={16} className={reviewerMetrics.approvalSlaBreaches > 0 ? 'text-red-500' : 'text-green-500'} />
-                        <span className="text-sm font-medium">SLA Breaches</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.approvalSlaBreaches ?? 0}
-                        <span className="text-sm font-normal text-[var(--text-tertiary)] ml-2">({fmtPct(reviewerMetrics.approvalSlaBreachRate)})</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <h2 className={`${sectionHeadingCls} mb-3`}>Asset Management</h2>
+              <p className="text-sm text-[var(--text-secondary)]">
+                The asset list will be added here after the Asset Management design is finalized.
+              </p>
             </div>
           )}
         </div>

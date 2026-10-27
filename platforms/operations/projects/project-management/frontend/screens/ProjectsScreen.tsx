@@ -279,7 +279,7 @@ export default function ProjectsPage() {
             type="search"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="apex-input pl-8 w-full"
+            className="apex-input apex-search-input w-full"
             placeholder="Search by name or project ID"
             aria-label="Search projects"
           />

@@ -560,7 +560,7 @@ export default function KanbanScreen() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search tickets…"
-              className="apex-input w-full pl-9 pr-9"
+              className="apex-input apex-search-input w-full pr-9"
             />
             {search && (
               <button

@@ -323,7 +323,7 @@ export default function UsersPage() {
           placeholder="Search by name or email..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="apex-input pl-9 rounded-xl"
+          className="apex-input apex-search-input rounded-xl"
         />
       </div>
 

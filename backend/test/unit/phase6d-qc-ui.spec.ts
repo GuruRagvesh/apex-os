@@ -180,12 +180,13 @@ describe('boundaries', () => {
   it('Sonali 10: My Team changes only through an explicit, reviewed baseline update', () => {
     // SHA-256 of the page (line endings normalised) at main 139134f. Phase 6D
     // must not touch it; a later, deliberate My Team change updates this hash.
-    // Updated twice since: the team-status poll now backs off while it fails
+    // Updated since: the team-status poll now backs off while it fails
     // (pollWhileHealthy, Tickets 500 / polling repair), and the reviewed
     // availability/profile-photo enhancements made the collaboration state
-    // visible without conflating it with ticket workload.
+    // visible without conflating it with ticket workload. The shared search
+    // input class now also keeps text clear of its leading icon.
     const page = read('frontend/app/(dashboard)/(operations)/team/page.tsx');
-    expect(createHash('sha256').update(page).digest('hex')).toBe('a7ba5df902094de68660bfd8984ae63e49a8c13d09e1b6314f91fbf955146ea9');
+    expect(createHash('sha256').update(page).digest('hex')).toBe('f15ca47b33bd499a0b652d3a90fdf1a786a2de082480a8c2a1a043be311380d3');
   });
 
   it('department responses read users through the safe select, never a full-row include', () => {
