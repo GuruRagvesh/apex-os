@@ -51,3 +51,22 @@ export function tokenStorageAction(
   if (!next) return currentToken ? 'sign-out' : 'ignore';
   return 'reload';
 }
+
+/**
+ * Returns a function to call with the signed-in user id once auth has
+ * hydrated. It runs `apply` on the first call and again whenever the id
+ * changes, so each person's appearance follows them and signing out (null)
+ * falls back to the default appearance. Repeat calls with the same id do
+ * nothing. The auth store itself stays free of appearance side effects.
+ */
+export function createAppearanceSync(apply: (userId: string | null) => void) {
+  let seen = false;
+  let last: string | null = null;
+  return (userId: string | null | undefined): void => {
+    const next = userId ?? null;
+    if (seen && next === last) return;
+    seen = true;
+    last = next;
+    apply(next);
+  };
+}

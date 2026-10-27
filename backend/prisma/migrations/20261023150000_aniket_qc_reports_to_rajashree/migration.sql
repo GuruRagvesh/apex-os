@@ -11,4 +11,9 @@ WHERE line."subjectUserId" = aniket."id"
   AND line."scopeKey" = 'DEPARTMENT:' || qc."id"
   AND lower(aniket."name") = 'aniket phapale'
   AND lower(rajashree."name") = 'rajashree solanki'
-  AND qc."name" = 'QC Team';
+  AND qc."name" = 'QC Team'
+  -- Names identify people here, so act only when each name is unambiguous.
+  -- A shared name would otherwise pick an arbitrary Rajashree, or move every
+  -- Aniket's QC line.
+  AND (SELECT count(*) FROM "users" AS u WHERE lower(u."name") = 'aniket phapale') = 1
+  AND (SELECT count(*) FROM "users" AS u WHERE lower(u."name") = 'rajashree solanki') = 1;
