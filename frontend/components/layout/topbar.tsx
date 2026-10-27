@@ -11,6 +11,7 @@ import { notificationsApi, workdayApi } from '@/lib/api';
 import { formatRelativeTime } from '@apex/shared-utilities';
 import { useSocket } from '@/hooks/useSocket';
 import { CommandPalette } from '@apex/apps-web/components/command-palette';
+import { PersonalHighlightsTopbar } from '@apex/intelligence-dashboard';
 import toast from 'react-hot-toast';
 import { pollWhileHealthy } from '@apex/shared-auth';
 
@@ -192,6 +193,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         >
           <Search size={16} />
         </button>
+        {user && <PersonalHighlightsTopbar role={typeof user.role === 'string' ? user.role : (user.role as any)?.name ?? ''} />}
         {/* Keep the compact workday state in the header; detailed attendance remains on Home. */}
         <div className="relative">
           <button

@@ -24,6 +24,7 @@ import {
   type EvaluationState,
   type LeaveDayFacts,
 } from './daily-attendance.types';
+import { classifyRefinedAttendance } from './refined-attendance-policy';
 
 /**
  * The Daily Attendance Evaluator (AE-1).
@@ -457,6 +458,20 @@ export class DailyAttendanceEvaluatorService {
         // corrections: only one may be open at a time, so they are strictly
         // serialized. Bounded so a pathological day cannot load without limit.
         take: 10,
+        // Avoid selecting the additive policyCorrectionType column here. This
+        // evaluation only needs the governing decision and punch correction,
+        // and older local preview schemas can safely answer that contract.
+        select: {
+          id: true,
+          status: true,
+          applicationStatus: true,
+          hrDecisionAt: true,
+          decidedAt: true,
+          createdAt: true,
+          requestedPunchIn: true,
+          requestedPunchOut: true,
+          proposedStatus: true,
+        },
       }),
     ]);
 
@@ -707,6 +722,44 @@ export class DailyAttendanceEvaluatorService {
         ? Math.max(0, Math.floor((punchOutAt.getTime() - punchInAt.getTime()) / 60_000))
         : null;
 
+    // Refined policy is the current default. The thresholds live on the
+    // effective-dated AttendancePolicy version, so later policy changes never
+    // rewrite a historical result.
+    if (presenceSpanMinutes !== null && punchInAt && punchOutAt) {
+      const localTimeMinutes = (value: Date) => {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: this.tva.companyTimezone(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+        }).formatToParts(value);
+        return Number(parts.find((p) => p.type === 'hour')?.value ?? 0) * 60
+          + Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+      };
+      const refined = classifyRefinedAttendance({
+        workedMinutes,
+        punchInMinutes: localTimeMinutes(punchInAt),
+        punchOutMinutes: localTimeMinutes(punchOutAt),
+        requiredMinutes: requiredSpan,
+        halfDayMaximumMinutes: (policy as any)?.halfDayMaximumMinutes ?? 270,
+        lateArrivalBoundaryMinutes: (policy as any)?.lateArrivalBoundaryMinutes ?? 780,
+        fullHalfDayCompletionMinutes: (policy as any)?.fullHalfDayCompletionMinutes ?? 1110,
+        earlyCheckoutBoundaryMinutes: (policy as any)?.earlyCheckoutBoundaryMinutes ?? 960,
+      });
+      if (refined === 'FULL_DAY') {
+        status = 'PRESENT';
+        reason = 'REFINED_FULL_DAY';
+      } else if (refined === 'HALF_DAY') {
+        status = 'HALF_DAY';
+        reason = 'REFINED_HALF_DAY';
+        // Attendance classification must not spend annual leave. Payroll sees
+        // the unpaid fraction; an approved half-day leave is handled by the
+        // explicit leave branch above.
+        lwpDeducted = 0.5;
+      } else {
+        status = 'LATE';
+        reason = 'REFINED_SHORT_DAY';
+        lwpDeducted = (policy as any)?.shortDayPayDeduction ?? (1 / 3);
+      }
+    } else {
+
     // Late beyond the punch window.
     if (lateMinutes > 0) {
       status = policy?.lateExemptionEnabled ? 'LATE_EXEMPTED' : 'LATE';
@@ -744,6 +797,7 @@ export class DailyAttendanceEvaluatorService {
       leaveDeducted += decision.leaveDeducted;
       lwpDeducted += decision.lwpDeducted;
       if (decision.status || decision.review) reason = 'POLICY_DECISION_DEFERRED';
+    }
     }
 
     if (context.calendar.override?.type === 'SPECIAL_WORKING_DAY' && reason === 'COMPLETE_WORKDAY') {

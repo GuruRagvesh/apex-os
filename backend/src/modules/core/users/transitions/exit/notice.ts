@@ -23,6 +23,27 @@ export function defaultNotice(status: ProbationStatus): { noticeDays: number; no
     : { noticeDays: DEFAULT_NOTICE_DAYS.CONFIRMED, noticeSource: 'POLICY_CONFIRMED' };
 }
 
+/** Refined employment policy. Role/category, not probation, owns notice length. */
+export function defaultNoticeForEmployee(input: {
+  roleName?: string | null;
+  employmentType?: string | null;
+  designation?: string | null;
+}): { noticeDays: number; noticeSource: NoticeSource; noticePolicyCode: 'REF_ROLE_LEVEL' } {
+  const role = String(input.roleName ?? '').toUpperCase();
+  const employment = String(input.employmentType ?? '').toUpperCase();
+  const designation = String(input.designation ?? '').toUpperCase();
+  if (employment.includes('INTERN') || role === 'INTERN') {
+    return { noticeDays: 7, noticeSource: 'POLICY_CONFIRMED', noticePolicyCode: 'REF_ROLE_LEVEL' };
+  }
+  if (role === 'EMPLOYEE' || designation === 'EMPLOYEE') {
+    return { noticeDays: 15, noticeSource: 'POLICY_CONFIRMED', noticePolicyCode: 'REF_ROLE_LEVEL' };
+  }
+  if (role === 'SUPER_ADMIN' || role === 'ADMIN' || /DIRECTOR|VICE PRESIDENT|VP|CHIEF|HEAD OF/.test(designation)) {
+    return { noticeDays: 60, noticeSource: 'POLICY_CONFIRMED', noticePolicyCode: 'REF_ROLE_LEVEL' };
+  }
+  return { noticeDays: 30, noticeSource: 'POLICY_CONFIRMED', noticePolicyCode: 'REF_ROLE_LEVEL' };
+}
+
 export function lastWorkingDay(resignedOn: string, noticeDays: number): string {
   return addDays(resignedOn, noticeDays);
 }

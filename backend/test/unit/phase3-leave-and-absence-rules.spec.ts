@@ -7,15 +7,15 @@ import {
 import { findUnreportedRuns, type DayFact } from '../../src/modules/platform/attendance/absence/unreported-absence';
 
 describe('Phase 3 leave rules', () => {
-  it('maps every row to Casual, Sick or nothing; historical EMERGENCY draws Sick one-for-one', () => {
-    expect(bucketOf({ type: 'CASUAL' })).toBe('CASUAL');
-    expect(bucketOf({ type: 'SICK' })).toBe('SICK');
-    expect(bucketOf({ type: 'EMERGENCY' })).toBe('SICK');
-    expect(bucketOf({ type: 'ANNUAL' })).toBe('CASUAL');
+  it('maps every historical paid category into the single annual pool', () => {
+    expect(bucketOf({ type: 'CASUAL' })).toBe('ANNUAL');
+    expect(bucketOf({ type: 'SICK' })).toBe('ANNUAL');
+    expect(bucketOf({ type: 'EMERGENCY' })).toBe('ANNUAL');
+    expect(bucketOf({ type: 'ANNUAL' })).toBe('ANNUAL');
     expect(bucketOf({ type: 'COMP_OFF' })).toBeNull();
     expect(bucketOf({ type: 'UNPAID' })).toBeNull();
-    // An Emergency submission funds from the bucket it named.
-    expect(bucketOf({ type: 'CASUAL', fundingBucket: 'SICK' })).toBe('SICK');
+    // Legacy funding metadata cannot split the new annual entitlement.
+    expect(bucketOf({ type: 'CASUAL', fundingBucket: 'SICK' })).toBe('ANNUAL');
   });
 
   it('the standard week: Mon-Fri and 1st/3rd/5th Saturdays work; Sundays, 2nd/4th Saturdays and holidays do not', () => {

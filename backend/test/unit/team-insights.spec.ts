@@ -28,6 +28,7 @@ function prismaDouble() {
     ticket: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
     reviewCycleLog: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
     dailyAttendance: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    leaveRequest: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
     project: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
   } as any;
 }
@@ -221,6 +222,35 @@ describe('TeamInsightsService analytics rules', () => {
     ]);
   });
 
+  it('shows approved leave immediately and lets real work evidence replace a stale leave row', async () => {
+    const prisma = prismaDouble();
+    prisma.leaveRequest.findMany.mockResolvedValue([{
+      id: 'leave-1', type: 'CASUAL', startDate: new Date('2026-10-12T00:00:00Z'),
+      endDate: new Date('2026-10-12T00:00:00Z'), isHalfDay: false,
+    }]);
+    const service = new TeamInsightsService(prisma, access, timing, tva);
+    const window = {
+      from: '2026-10-12', to: '2026-10-12',
+      start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z'), days: 1,
+    };
+    const calendar = [{ businessDate: '2026-10-12', isWorkingDay: true, reason: 'WORKING', holidayName: null }];
+
+    const leaveDays = await (service as any).personalAttendanceCalendar('u1', window, calendar);
+    expect(leaveDays[0]).toMatchObject({ status: 'LEAVE', outcome: 'LEAVE', leaveType: 'CASUAL' });
+
+    prisma.leaveRequest.findMany.mockResolvedValue([]);
+    prisma.dailyAttendance.findMany.mockResolvedValue([{
+      date: new Date('2026-10-12T00:00:00Z'), status: 'LEAVE', evaluationState: 'FINALIZED',
+      punchInAt: null, punchOutAt: null, exceptionFlags: [], workedMinutes: 0,
+    }]);
+    prisma.workSession.findMany.mockResolvedValue([{
+      id: 'ws1', date: new Date('2026-10-12T00:00:00Z'),
+      startWorkAt: new Date('2026-10-12T09:00:00Z'), logoutAt: null, status: 'WORKING',
+    }]);
+    const workedDays = await (service as any).personalAttendanceCalendar('u1', window, calendar);
+    expect(workedDays[0]).toMatchObject({ status: 'NEEDS_REVIEW', outcome: null, leaveType: null });
+  });
+
   it('counts a completed shared meeting once in overall even with several participants', async () => {
     const prisma = prismaDouble();
     prisma.meeting.findMany.mockResolvedValue([{
@@ -407,10 +437,38 @@ describe('TeamInsightsService analytics rules', () => {
     expect(result.averageBreakMinutes).toBe(40);
   });
 
-  it('does not expose personal achievements to admins or super admins', async () => {
-    const service = new TeamInsightsService(prismaDouble(), access, timing, tva);
-    await expect(service.getPersonalHighlights({ id: 'admin1', role: { name: 'ADMIN' } }, '2026-10')).rejects.toThrow('not available for this role');
-    await expect(service.getPersonalHighlights({ id: 'super1', role: { name: 'SUPER_ADMIN' } }, '2026-10')).rejects.toThrow('not available for this role');
+  it.each([
+    ['admin1', 'ADMIN'],
+    ['super1', 'SUPER_ADMIN'],
+  ])('exposes personal achievements and project contributions to %s', async (userId, role) => {
+    const prisma = prismaDouble();
+    prisma.user.findMany.mockResolvedValue([{ id: userId }]);
+    const service = new TeamInsightsService(prisma, access, timing, tva);
+    const stats = new Map([[userId, {
+      daysWorked: 3,
+      workingMinutes: 1440,
+      productiveMinutes: 900,
+      breakMinutes: 120,
+      completedTickets: 1,
+      attendanceDays: 3,
+      onTimeDays: 3,
+    }]]);
+    const previous = new Map([[userId, {
+      daysWorked: 0,
+      workingMinutes: 0,
+      productiveMinutes: 0,
+      breakMinutes: 0,
+      completedTickets: 0,
+      attendanceDays: 0,
+      onTimeDays: 0,
+    }]]);
+    jest.spyOn(service as any, 'achievementStats').mockResolvedValueOnce(stats).mockResolvedValueOnce(previous);
+    jest.spyOn(service as any, 'projects').mockResolvedValue([{ id: 'project-1', name: 'Leadership project' }]);
+
+    const result = await service.getPersonalHighlights({ id: userId, role: { name: role } }, '2026-10');
+
+    expect(result.achievements.length).toBeGreaterThan(0);
+    expect(result.projects).toEqual([{ id: 'project-1', name: 'Leadership project' }]);
   });
 
   it('shares identical in-flight insight calculations and reuses the completed result', async () => {

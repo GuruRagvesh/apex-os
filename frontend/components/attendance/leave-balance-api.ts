@@ -19,7 +19,7 @@ export interface LeaveBalance {
   approved: number;
   pending: number;
   balance: number | null;
-  bucket?: 'CASUAL' | 'SICK' | null;
+  bucket?: 'ANNUAL' | null;
   setupStatus?: 'RESOLVED' | 'POLICY_SETUP_PENDING';
   unmeasuredRequests?: number;
 }
@@ -33,16 +33,14 @@ export interface CompOffCredit {
 }
 
 /**
- * The two paid-leave buckets an employee sees (Phase 3): 10 Casual + 4 Sick.
- * Emergency is a way of SUBMITTING leave, funded from one of these, never a
- * third balance -- so no screen can add up to 18 paid days.
+ * The single paid-leave balance. Emergency is a submission mode and does not
+ * create another balance.
  */
-export const PERSONAL_LEAVE_TYPES = ['CASUAL', 'SICK'] as const;
+export const PERSONAL_LEAVE_TYPES = ['ANNUAL'] as const;
 export type PersonalLeaveType = (typeof PERSONAL_LEAVE_TYPES)[number];
 
 export const LEAVE_TYPE_LABEL: Record<PersonalLeaveType, string> = {
-  CASUAL: 'Casual Leave',
-  SICK: 'Sick Leave',
+  ANNUAL: 'Annual Leave',
 };
 
 export async function getMyLeaveBalance(type: PersonalLeaveType): Promise<LeaveBalance> {

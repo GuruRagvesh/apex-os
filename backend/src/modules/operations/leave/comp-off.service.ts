@@ -12,11 +12,8 @@ import { NotificationEventService } from '../notifications/notification-event.se
 /**
  * Comp Off credits.
  *
- * A completed day earns one credit when either:
- *  - effective work reaches 9 hours on a Sunday, 2nd/4th Saturday or official
- *    holiday; or
- *  - effective work reaches 12 hours on three consecutive company working
- *    days. Weekly offs and holidays are skipped when finding those three days.
+ * A completed 12-hour day earns 180 minutes. Three such days therefore total
+ * one 540-minute (9-hour) comp-off day without an overlapping bonus.
  *
  * Consumption is likewise exact: a leave request for N qualifying days needs N
  * credits, and there is no fallback to Casual or Emergency entitlement.
@@ -25,8 +22,9 @@ import { NotificationEventService } from '../notifications/notification-event.se
 /** Qualifying weekly-off reasons. A plain working day never earns comp off. */
 const QUALIFYING_WEEKLY_OFF = ['SUNDAY', 'SECOND_SATURDAY', 'FOURTH_SATURDAY'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const OFF_DAY_MINUTES = 9 * 60;
 const LONG_DAY_MINUTES = 12 * 60;
+const SINGLE_LONG_DAY_CREDIT_MINUTES = 3 * 60;
+const FULL_COMP_OFF_DAY_MINUTES = 9 * 60;
 
 export class CompOffSourceNotQualifyingError extends Error {
   constructor(businessDate: string, public readonly reasons: string[]) {
@@ -102,7 +100,7 @@ export class CompOffService {
     employeeId: string,
     businessDate: string,
     workSessionId: string,
-    rule: 'OFF_DAY_9_HOURS' | 'THREE_WORKING_DAYS_12_HOURS',
+    rule: 'SINGLE_DAY_12_HOURS',
   ) {
     const expiryDays = await this.expiryDaysFor(employeeId, businessDate);
     let credit;
@@ -114,6 +112,8 @@ export class CompOffService {
           earnedFromWorkSessionId: workSessionId,
           expiresAt: this.expiresOn(businessDate, expiryDays),
           status: 'AVAILABLE',
+          creditMinutes: SINGLE_LONG_DAY_CREDIT_MINUTES,
+          remainingMinutes: SINGLE_LONG_DAY_CREDIT_MINUTES,
         },
       });
     } catch (error: any) {
@@ -130,9 +130,7 @@ export class CompOffService {
     }).catch(() => {});
     this.notifications?.sendNotification(employeeId, 'system', {
       title: 'Comp-off earned',
-      message: rule === 'OFF_DAY_9_HOURS'
-        ? `You earned one comp-off for working 9 or more hours on ${businessDate}. It expires in ${expiryDays} days.`
-        : `You earned one comp-off after three consecutive company working days of 12 or more hours. It expires in ${expiryDays} days.`,
+      message: `You earned 3 hours of comp-off for working 12 or more hours on ${businessDate}. It expires in ${expiryDays} days.`,
       type: NotificationType.SUCCESS,
       link: '/leave',
       entityId: credit.id,
@@ -145,39 +143,9 @@ export class CompOffService {
   /** Called after a real, completed punch-out/end-day; safe to retry. */
   async evaluateCompletedWorkday(employeeId: string, businessDate: string, workSessionId: string) {
     if (!DATE_RE.test(businessDate)) return null;
-    const qualification = await this.qualifyingSourceDay(employeeId, businessDate);
     const currentMinutes = (await this.workedMinutes(employeeId, [businessDate])).get(businessDate) ?? 0;
-    if (qualification.qualifies) {
-      if (currentMinutes < OFF_DAY_MINUTES) return null;
-      return this.createAutomaticCredit(employeeId, businessDate, workSessionId, 'OFF_DAY_9_HOURS');
-    }
-
-    // Find the current and two immediately preceding COMPANY WORKING days.
-    const workingDates = [businessDate];
-    let cursor = businessDate;
-    for (let scanned = 0; workingDates.length < 3 && scanned < 14; scanned += 1) {
-      cursor = this.shiftDate(cursor, -1);
-      if (await this.isCompanyWorkingDay(employeeId, cursor)) workingDates.push(cursor);
-    }
-    if (workingDates.length < 3) return null;
-
-    const totals = await this.workedMinutes(employeeId, workingDates);
-    if (workingDates.some((date) => (totals.get(date) ?? 0) < LONG_DAY_MINUTES)) return null;
-
-    // A credit on either preceding working day means this three-day block has
-    // already paid out. This makes days 1-3 one credit, days 4-6 the next,
-    // instead of issuing overlapping credits on days 3, 4 and 5.
-    const precedingCredit = await this.prisma.compOffCredit.findFirst({
-      where: {
-        employeeId,
-        earnedFromBusinessDate: {
-          in: workingDates.slice(1).map((date) => this.tva.companyDateOnly(new Date(`${date}T00:00:00.000Z`))),
-        },
-      },
-      select: { id: true },
-    });
-    if (precedingCredit) return null;
-    return this.createAutomaticCredit(employeeId, businessDate, workSessionId, 'THREE_WORKING_DAYS_12_HOURS');
+    if (currentMinutes < LONG_DAY_MINUTES) return null;
+    return this.createAutomaticCredit(employeeId, businessDate, workSessionId, 'SINGLE_DAY_12_HOURS');
   }
 
   /**
@@ -278,6 +246,8 @@ export class CompOffService {
           earnedFromWorkSessionId: input.earnedFromWorkSessionId ?? null,
           expiresAt: this.expiresOn(input.earnedFromBusinessDate, expiryDays),
           status: 'AVAILABLE',
+          creditMinutes: FULL_COMP_OFF_DAY_MINUTES,
+          remainingMinutes: FULL_COMP_OFF_DAY_MINUTES,
         },
       });
     } catch (err: any) {
@@ -309,10 +279,31 @@ export class CompOffService {
   /** The employee's own unexpired, unused credits. */
   async listAvailable(employeeId: string) {
     const today = this.tva.companyDateOnly(this.tva.now());
-    return this.prisma.compOffCredit.findMany({
+    const credits = await this.prisma.compOffCredit.findMany({
       where: { employeeId, status: 'AVAILABLE', expiresAt: { gte: today } },
       orderBy: [{ expiresAt: 'asc' }, { earnedAt: 'asc' }],
+      // Keep this read usable while an additive, owner-only local migration is
+      // pending. Existing credits predate minute entitlements and represent one
+      // full day each, so expose the documented 540-minute compatibility value.
+      select: {
+        id: true,
+        employeeId: true,
+        earnedFromBusinessDate: true,
+        earnedFromWorkSessionId: true,
+        earnedAt: true,
+        expiresAt: true,
+        usedAt: true,
+        leaveRequestId: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
+    return credits.map((credit) => ({
+      ...credit,
+      creditMinutes: FULL_COMP_OFF_DAY_MINUTES,
+      remainingMinutes: FULL_COMP_OFF_DAY_MINUTES,
+    }));
   }
 
   /**
@@ -332,29 +323,41 @@ export class CompOffService {
     leaveRequestId: string,
     requiredDays: number,
   ) {
-    const needed = Math.ceil(Math.max(0, requiredDays));
-    if (needed === 0) return [];
+    const neededMinutes = Math.ceil(Math.max(0, requiredDays) * FULL_COMP_OFF_DAY_MINUTES);
+    if (neededMinutes === 0) return [];
 
     const today = this.tva.companyDateOnly(this.tva.now());
     // Oldest-expiring first, deterministically: a credit about to lapse is spent
     // before one with months left, so nobody loses entitlement to ordering luck.
-    const rows = await tx.$queryRaw<Array<{ id: string }>>(
-      Prisma.sql`SELECT id FROM "comp_off_credits"
+    const rows = await tx.$queryRaw<Array<{ id: string; remainingMinutes: number }>>(
+      Prisma.sql`SELECT id, "remainingMinutes" FROM "comp_off_credits"
         WHERE "employeeId" = ${employeeId}
           AND status = 'AVAILABLE'
+          AND "remainingMinutes" > 0
           AND "expiresAt" >= ${today}
         ORDER BY "expiresAt" ASC, "earnedAt" ASC
-        LIMIT ${needed} FOR UPDATE`,
+        FOR UPDATE`,
     );
 
-    if (rows.length < needed) return null;
+    if (rows.reduce((sum, row) => sum + row.remainingMinutes, 0) < neededMinutes) return null;
 
     const usedAt = this.tva.now();
-    await tx.compOffCredit.updateMany({
-      where: { id: { in: rows.map((r) => r.id) } },
-      data: { status: 'USED', usedAt, leaveRequestId },
-    });
-    return rows.map((r) => r.id);
+    let remaining = neededMinutes;
+    const usedIds: string[] = [];
+    for (const row of rows) {
+      if (remaining <= 0) break;
+      const spent = Math.min(remaining, row.remainingMinutes);
+      const left = row.remainingMinutes - spent;
+      await tx.compOffCredit.update({
+        where: { id: row.id },
+        data: left === 0
+          ? { remainingMinutes: 0, status: 'USED', usedAt, leaveRequestId }
+          : { remainingMinutes: left },
+      });
+      remaining -= spent;
+      usedIds.push(row.id);
+    }
+    return usedIds;
   }
 
   /**

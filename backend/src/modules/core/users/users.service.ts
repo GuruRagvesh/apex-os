@@ -953,7 +953,7 @@ export class UsersService {
     'currentAddress', 'permanentAddress', 'bio', 'avatar', 'photoUrl',
     'emergencyName', 'emergencyPhone', 'emergencyRelation',
     // Employment
-    'employeeId', 'designation', 'employmentType', 'workMode', 'shiftTiming',
+    'designation', 'employmentType', 'workMode', 'shiftTiming',
     'workLocation', 'userLocation', 'reportingManager', 'teamLeadName',
     'joiningDate', 'probationPeriod', 'lastWorkingDate',
     // Payroll and statutory. Already logged as sensitive access below.
@@ -1273,6 +1273,7 @@ export class UsersService {
     const isHR = (requester as any)?.isHR;
     const canSeeFull = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR;
     const isOwnProfile = requesterId === targetUserId;
+
     const managerDeptIds = roleName === 'MANAGER' ? await this.accessPolicy.managedDepartmentIds(requester) : [];
     const isManagerOfDept = roleName === 'MANAGER' && Boolean(target.departmentId && managerDeptIds.includes(target.departmentId));
     const isTeamLead = roleName === 'TEAM_LEAD' && requester?.departmentId === target.departmentId;
@@ -1325,6 +1326,10 @@ export class UsersService {
     const isHR = (requester as any)?.isHR;
     const canEditAll = ['SUPER_ADMIN', 'ADMIN'].includes(roleName) || isHR;
     const isOwnProfile = requesterId === targetUserId;
+
+    if ('employeeId' in (dto ?? {}) && dto.employeeId !== target.employeeId) {
+      throw new BadRequestException('Employee ID is system-generated and cannot be changed. Rehires receive a new ID.');
+    }
 
     const PAYROLL_FIELDS = ['ctcAnnual','basicSalary','salaryStructure','bankName',
       'accountNumber','ifscCode','accountHolderName','paymentMode','panNumber',

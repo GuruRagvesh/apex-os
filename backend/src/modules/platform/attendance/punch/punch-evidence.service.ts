@@ -365,7 +365,12 @@ export class PunchEvidenceService {
       if (input.type === 'PUNCH_IN') {
         const started = await this.workday.startWorkInTransaction(tx, userId);
         workSessionId = started.session.id;
-        after = () => this.workday.afterWorkStarted(userId, started.session, started.wasAutoClosed);
+        after = () => this.workday.afterWorkStarted(
+          userId,
+          started.session,
+          started.wasAutoClosed,
+          started.autoCancelledLeaves,
+        );
       } else {
         // Resolve the session to close through the same query the workday
         // engine uses, rather than inventing a second notion of "current".

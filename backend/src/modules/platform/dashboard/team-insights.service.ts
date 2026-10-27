@@ -9,7 +9,7 @@ import { LeaveBalanceService } from '../../operations/leave/leave-balance.servic
 import { BusinessCalendarService } from '../attendance/calendar/business-calendar.service';
 
 const LEADER_ROLES = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
-const PERSONAL_INSIGHT_ROLES = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER'];
+const PERSONAL_INSIGHT_ROLES = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const ACTIVE_TICKET_STATUSES: TicketStatus[] = [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.REVIEW];
 const DATE_RE = /^\d{4}-\d{2}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -623,10 +623,22 @@ export class TeamInsightsService {
     range: Range,
     calendarDays: Array<{ businessDate: string; isWorkingDay: boolean; reason: string; holidayName: string | null }>,
   ) {
-    const [rows, ticketLogs, meetings] = await Promise.all([
+    const [rows, sessions, breaks, ticketLogs, meetings, approvedLeaves] = await Promise.all([
       this.prisma.dailyAttendance.findMany({
         where: { userId, date: { gte: databaseDay(range.from), lte: databaseDay(range.to) } },
-        select: { date: true, status: true, evaluationState: true, exceptionFlags: true, workedMinutes: true },
+        select: {
+          date: true, status: true, evaluationState: true, exceptionFlags: true,
+          workedMinutes: true, breakMinutes: true, lateMinutes: true, punchInAt: true, punchOutAt: true,
+        },
+      }),
+      this.prisma.workSession.findMany({
+        where: { userId, date: { gte: databaseDay(range.from), lte: databaseDay(range.to) }, startWorkAt: { not: null } },
+        select: { id: true, date: true, startWorkAt: true, logoutAt: true, status: true },
+        orderBy: { startWorkAt: 'asc' },
+      }),
+      this.prisma.breakLog.findMany({
+        where: { userId, startAt: { lt: range.end }, OR: [{ endAt: null }, { endAt: { gt: range.start } }] },
+        select: { id: true, breakType: true, startAt: true, endAt: true },
       }),
       this.prisma.ticketTimeLog.findMany({
         where: { userId, countsAsWork: true, startedAt: { lt: range.end }, OR: [{ endedAt: null }, { endedAt: { gt: range.start } }] },
@@ -643,6 +655,16 @@ export class TeamInsightsService {
           participants: { where: { userId, status: { in: ['ACCEPTED', 'LEFT'] } }, select: { joinedAt: true, leftAt: true } },
         },
       }),
+      this.prisma.leaveRequest?.findMany ? this.prisma.leaveRequest.findMany({
+        where: {
+          userId,
+          status: 'APPROVED',
+          startDate: { lt: range.end },
+          endDate: { gte: range.start },
+        },
+        select: { id: true, type: true, startDate: true, endDate: true, isHalfDay: true },
+        orderBy: { startDate: 'asc' },
+      }) : Promise.resolve([]),
     ]);
     const rowsByDate = new Map(rows.map((row) => [isoDay(row.date), row]));
     const today = this.tva.companyToday();
@@ -662,11 +684,64 @@ export class TeamInsightsService {
     }
     return calendarDays.map((day) => {
       const row = rowsByDate.get(day.businessDate);
+      const dayRange: Range = {
+        from: day.businessDate,
+        to: day.businessDate,
+        start: this.tva.companyInstantAt(day.businessDate, '00:00') as Date,
+        end: this.tva.companyInstantAt(addDays(day.businessDate, 1), '00:00') as Date,
+        days: 1,
+      };
+      const daySessions = sessions.filter((session) => isoDay(session.date) === day.businessDate);
+      const dayBreakRows = breaks.filter((item) => !!clippedInterval(item.startAt, item.endAt, dayRange, now));
+      const nonMeetingBreaks = dayBreakRows.filter((item) => item.breakType !== 'MEETING');
+      const breakIntervals = nonMeetingBreaks
+        .map((item) => clippedInterval(item.startAt, item.endAt, dayRange, now))
+        .filter((item): item is Interval => !!item);
+      const sessionIntervals = daySessions
+        .map((session) => clippedInterval(session.startWorkAt, session.logoutAt, dayRange, now))
+        .filter((item): item is Interval => !!item);
+      const derivedWorkingMinutes = sessionIntervals.reduce((sum, interval) => sum + netSessionMinutes(interval, breakIntervals), 0);
+      const ticketIntervals = ticketLogs
+        .map((log) => clippedInterval(log.startedAt, log.endedAt, dayRange, now))
+        .filter((item): item is Interval => !!item);
+      const meetingIntervals: Interval[] = [];
+      let meetingCount = 0;
+      for (const meeting of meetings) {
+        const participantIntervals = meeting.participants
+          .map((participant) => clippedInterval(participant.joinedAt ?? meeting.startedAt, participant.leftAt ?? meeting.endedAt, dayRange, now))
+          .filter((item): item is Interval => !!item);
+        if (participantIntervals.length) {
+          meetingCount += 1;
+          meetingIntervals.push(...participantIntervals);
+        }
+      }
+      const sessionPunchIns = daySessions.flatMap((session) => session.startWorkAt ? [session.startWorkAt] : []);
+      const sessionPunchOuts = daySessions.flatMap((session) => session.logoutAt ? [session.logoutAt] : []);
+      const punchInAt = row?.punchInAt ?? (sessionPunchIns.length ? new Date(Math.min(...sessionPunchIns.map((value) => value.getTime()))) : null);
+      const punchOutAt = row?.punchOutAt ?? (sessionPunchOuts.length ? new Date(Math.max(...sessionPunchOuts.map((value) => value.getTime()))) : null);
+      const approvedLeave = approvedLeaves.find((leave) =>
+        leave.startDate < dayRange.end && leave.endDate >= dayRange.start,
+      );
+      const openSession = day.businessDate === today ? daySessions.find((session) => !session.logoutAt) : null;
+      const openBreak = day.businessDate === today ? dayBreakRows.find((item) => !item.endAt) : null;
+      const currentStatus = day.businessDate !== today ? null
+        : openBreak?.breakType === 'MEETING' ? 'IN_MEETING'
+          : openBreak ? 'ON_BREAK'
+            : openSession?.status ?? (punchOutAt ? 'DAY_COMPLETED' : 'NOT_STARTED');
       const isShortHours = row?.exceptionFlags?.some((flag) =>
         flag === 'INSUFFICIENT_PRESENCE_SPAN' || flag === 'INSUFFICIENT_EFFECTIVE_WORK',
       );
-      const outcome = row?.status ?? null;
-      const isResolved = !!row && row.evaluationState !== 'NEEDS_REVIEW';
+      // An approved leave request is a calendar fact even before the nightly
+      // attendance evaluator materialises a DailyAttendance row. Conversely,
+      // a real punch-in wins over a stale historical LEAVE row after the
+      // workday transaction has auto-cancelled the request.
+      const storedOutcome = row?.status ?? null;
+      const outcome = approvedLeave && !punchInAt
+        ? 'LEAVE'
+        : punchInAt && (storedOutcome === 'LEAVE' || storedOutcome === 'LWP')
+          ? null
+          : storedOutcome;
+      const isResolved = (!!row && row.evaluationState !== 'NEEDS_REVIEW') || (!!approvedLeave && !punchInAt);
       const isPresent = isResolved && ['PRESENT', 'LATE', 'LATE_EXEMPTED', 'HALF_DAY'].includes(outcome ?? '');
       const isProductive = isPresent && productiveDates.has(day.businessDate);
       const isOvertime = isPresent && (row?.workedMinutes ?? 0) > 540;
@@ -684,8 +759,10 @@ export class TeamInsightsService {
             : isShortHours ? 'SHORT_HOURS'
               : isProductive ? 'PRODUCTIVE'
                 : outcome;
-      const displayStatus = attendanceStatus
-        ?? (day.reason === 'HOLIDAY' || day.reason === 'COMPANY_CLOSURE' ? 'HOLIDAY'
+      const knownAttendanceStatuses = new Set(['PRESENT', 'PRODUCTIVE', 'OVERTIME', 'SHORT_HOURS', 'LATE', 'LATE_EXEMPTED', 'HALF_DAY', 'LEAVE', 'LWP', 'ABSENT', 'HOLIDAY', 'WEEKLY_OFF']);
+      const displayStatus = (row && attendanceStatus && !knownAttendanceStatuses.has(attendanceStatus) ? 'NEEDS_REVIEW' : attendanceStatus)
+        ?? (punchInAt ? (day.businessDate === today && !punchOutAt ? 'IN_PROGRESS' : 'NEEDS_REVIEW')
+          : day.reason === 'HOLIDAY' || day.reason === 'COMPANY_CLOSURE' ? 'HOLIDAY'
           : ['SUNDAY', 'SECOND_SATURDAY', 'FOURTH_SATURDAY'].includes(day.reason) ? 'WEEKLY_OFF'
             : day.businessDate > today ? 'FUTURE' : 'MISSING');
       return {
@@ -696,6 +773,17 @@ export class TeamInsightsService {
         isPresent,
         holidayName: day.holidayName,
         isWorkingDay: day.isWorkingDay,
+        punchInAt: punchInAt?.toISOString() ?? null,
+        punchOutAt: punchOutAt?.toISOString() ?? null,
+        workingMinutes: sessionIntervals.length ? derivedWorkingMinutes : row?.workedMinutes ?? null,
+        productiveMinutes: unionMinutes([...ticketIntervals, ...meetingIntervals]),
+        meetingMinutes: unionMinutes(meetingIntervals),
+        meetingCount,
+        breakCount: nonMeetingBreaks.length,
+        breakMinutes: breakIntervals.length ? unionMinutes(breakIntervals) : row?.breakMinutes ?? 0,
+        lateMinutes: row?.lateMinutes ?? 0,
+        currentStatus,
+        leaveType: approvedLeave && !punchInAt ? approvedLeave.type : null,
       };
     });
   }

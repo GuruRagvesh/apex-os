@@ -145,7 +145,7 @@ model User {
   meetingsOrganized         Meeting[]                      @relation("MeetingOrganizer")
   meetingsAsCounterparty    Meeting[]                      @relation("MeetingCounterparty")
   meetingParticipations     MeetingParticipant[]
-  meetingApprovalResponses MeetingApprovalResponse[]
+  meetingApprovalResponses  MeetingApprovalResponse[]
 
   // ── Lifecycle foundation (Phase 1) ─────────────────────────────────────────
   /// Null on legacy rows: derived at read time (deriveEmploymentState).
@@ -405,7 +405,7 @@ model Ticket {
 /// survive reference retirement so the UI can mark them NEEDS_UPDATE instead
 /// of silently cascading them away.
 model QuickTicketTemplate {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   ownerUserId      String
   code             String
   codeSequence     Int
@@ -415,15 +415,15 @@ model QuickTicketTemplate {
   departmentId     String?
   taskTypeId       String?
   taskSubtypeId    String?
-  assigneeIds      String[] @default([])
+  assigneeIds      String[]  @default([])
   priority         Priority?
   estimatedMinutes Int?
   projectId        String?
-  isVisible        Boolean  @default(true)
-  isPinned         Boolean  @default(false)
-  displayOrder     Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  isVisible        Boolean   @default(true)
+  isPinned         Boolean   @default(false)
+  displayOrder     Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([ownerUserId, code])
   @@unique([ownerUserId, codeSequence])
@@ -774,7 +774,7 @@ model BreakLog {
 /// A captured meeting occurrence. Shared meetings expose meetingCode as the
 /// bridge other users can verify and join; personal meetings keep it null.
 model Meeting {
-  id                       String               @id @default(cuid())
+  id                       String                    @id @default(cuid())
   topic                    String
   meetingType              String
   timingMode               String
@@ -786,27 +786,27 @@ model Meeting {
   purpose                  String?
   clientName               String?
   guestNames               String?
-  isDepartmental           Boolean              @default(false)
+  isDepartmental           Boolean                   @default(false)
   /// Users who must approve this meeting. Kept for fast routing and legacy reads.
-  approverIds              String[]             @default([])
+  approverIds              String[]                  @default([])
   /// NOT_REQUIRED | PENDING | APPROVED | REJECTED
-  approvalStatus           String               @default("NOT_REQUIRED")
+  approvalStatus           String                    @default("NOT_REQUIRED")
   decidedById              String?
   decidedAt                DateTime?
-  meetingCode              String?              @unique
-  visibility               String               @default("PERSONAL")
+  meetingCode              String?                   @unique
+  visibility               String                    @default("PERSONAL")
   createdByRole            String?
-  status                   String               @default("PENDING")
+  status                   String                    @default("PENDING")
   scheduledStartAt         DateTime?
   plannedMinutes           Int?
-  requestedAt              DateTime             @default(now())
+  requestedAt              DateTime                  @default(now())
   startedAt                DateTime?
   endedAt                  DateTime?
-  createdAt                DateTime             @default(now())
-  updatedAt                DateTime             @updatedAt
-  organizer                User                 @relation("MeetingOrganizer", fields: [organizerId], references: [id])
-  counterparty             User                 @relation("MeetingCounterparty", fields: [counterpartyId], references: [id])
-  department               Department?          @relation(fields: [departmentId], references: [id])
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  organizer                User                      @relation("MeetingOrganizer", fields: [organizerId], references: [id])
+  counterparty             User                      @relation("MeetingCounterparty", fields: [counterpartyId], references: [id])
+  department               Department?               @relation(fields: [departmentId], references: [id])
   participants             MeetingParticipant[]
   approvalResponses        MeetingApprovalResponse[]
   breakLogs                BreakLog[]
@@ -841,7 +841,7 @@ model MeetingApprovalResponse {
 }
 
 model MeetingParticipant {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   meetingId           String
   userId              String?
   displayNameSnapshot String
@@ -850,9 +850,9 @@ model MeetingParticipant {
   respondedAt         DateTime?
   joinedAt            DateTime?
   leftAt              DateTime?
-  createdAt           DateTime @default(now())
-  meeting             Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt           DateTime  @default(now())
+  meeting             Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user                User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([meetingId, userId])
   @@index([userId, meetingId])
@@ -1098,33 +1098,33 @@ model ReviewCycleLog {
 }
 
 model EmployeeProfileChangeRequest {
-  id                String    @id @default(cuid())
-  targetUserId      String
-  requestedById     String
-  requestType       String
-  status            String    @default("PENDING_TL_APPROVAL")
-  changes           Json
-  reason            String?
-  currentApproverId String?
-  tlApproverId      String?
-  managerApproverId String?
-  adminApproverId   String?
-  tlDecision        String?
-  managerDecision   String?
-  adminDecision     String?
-  rejectionReason   String?
+  id                    String    @id @default(cuid())
+  targetUserId          String
+  requestedById         String
+  requestType           String
+  status                String    @default("PENDING_TL_APPROVAL")
+  changes               Json
+  reason                String?
+  currentApproverId     String?
+  tlApproverId          String?
+  managerApproverId     String?
+  adminApproverId       String?
+  tlDecision            String?
+  managerDecision       String?
+  adminDecision         String?
+  rejectionReason       String?
   supportingDocumentIds String[]  @default([])
-  employeeConfirmedAt    DateTime?
-  employeeDeclinedAt     DateTime?
-  employeeDeclineReason  String?
-  approvedAt        DateTime?
-  rejectedAt        DateTime?
-  cancelledAt       DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  currentApprover   User?     @relation("ChangeRequestCurrentApprover", fields: [currentApproverId], references: [id])
-  requestedBy       User      @relation("ChangeRequestRequester", fields: [requestedById], references: [id])
-  targetUser        User      @relation("ChangeRequestTarget", fields: [targetUserId], references: [id])
+  employeeConfirmedAt   DateTime?
+  employeeDeclinedAt    DateTime?
+  employeeDeclineReason String?
+  approvedAt            DateTime?
+  rejectedAt            DateTime?
+  cancelledAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  currentApprover       User?     @relation("ChangeRequestCurrentApprover", fields: [currentApproverId], references: [id])
+  requestedBy           User      @relation("ChangeRequestRequester", fields: [requestedById], references: [id])
+  targetUser            User      @relation("ChangeRequestTarget", fields: [targetUserId], references: [id])
 
   @@index([targetUserId])
   @@index([requestedById])
@@ -1141,41 +1141,41 @@ model EmployeeProfileChangeRequest {
 // ════════════════════════════════════════════════════════════════════════════
 
 model AttendancePolicy {
-  id                          String               @id @default(cuid())
-  financialYear               String
-  name                        String
-  isActive                    Boolean              @default(true)
-  minimumWorkingMinutes       Int                  @default(540)
-  lateExemptionEnabled        Boolean              @default(true)
-  faceCaptureRequired         Boolean              @default(false)
-  locationCaptureRequired     Boolean              @default(false)
-  geoFenceEnabled             Boolean              @default(false)
-  regularizationEnabled       Boolean              @default(true)
-  createdAt                   DateTime             @default(now())
-  updatedAt                   DateTime             @updatedAt
-  updatedById                 String?
+  id                           String               @id @default(cuid())
+  financialYear                String
+  name                         String
+  isActive                     Boolean              @default(true)
+  minimumWorkingMinutes        Int                  @default(540)
+  lateExemptionEnabled         Boolean              @default(true)
+  faceCaptureRequired          Boolean              @default(false)
+  locationCaptureRequired      Boolean              @default(false)
+  geoFenceEnabled              Boolean              @default(false)
+  regularizationEnabled        Boolean              @default(true)
+  createdAt                    DateTime             @default(now())
+  updatedAt                    DateTime             @updatedAt
+  updatedById                  String?
   // Immutable identity of the logical policy SERIES. V1/V2/V3 of the same
   // policy share it; a different series (e.g. Team Leader shift vs Regular
   // Employee shift) has its own. Never derived from the mutable display name.
-  policyKey                   String
+  policyKey                    String
   // ── Versioned policy lifecycle (BL-4) ──────────────────────────────────
   // status is AUTHORITATIVE. isActive above is kept as a derived mirror so the
   // pre-existing readers and seed keep working; PolicyVersionService writes both.
-  version                     Int                  @default(1)
-  status                      PolicyStatus         @default(DRAFT)
-  effectiveFrom               DateTime             @default(now())
-  effectiveTo                 DateTime?
-  approvedById                String?
-  approvedAt                  DateTime?
-  createdById                 String?
-  supersededById              String?
+  version                      Int                  @default(1)
+  status                       PolicyStatus         @default(DRAFT)
+  effectiveFrom                DateTime             @default(now())
+  effectiveTo                  DateTime?
+  approvedById                 String?
+  approvedAt                   DateTime?
+  createdById                  String?
+  supersededById               String?
   // ── Configurable management rules (BL-4) ───────────────────────────────
   // Safe defaults: anything undecided REQUIRES REVIEW rather than silently
   // deducting leave or marking absence. Management changes these by issuing a
   // NEW policy version, which never rewrites historical attendance.
-  afterPunchWindowAction      PolicyDecisionAction @default(REQUIRE_REVIEW)
-  insufficientHoursAction     PolicyDecisionAction @default(REQUIRE_REVIEW)
-  automaticHalfDayEnabled     Boolean              @default(false)
+  afterPunchWindowAction       PolicyDecisionAction @default(REQUIRE_REVIEW)
+  insufficientHoursAction      PolicyDecisionAction @default(REQUIRE_REVIEW)
+  automaticHalfDayEnabled      Boolean              @default(false)
   // ── Duration semantics (AR-1) ──────────────────────────────────────────
   // minimumWorkingMinutes above is the required PRESENCE SPAN, not effective
   // work: it defaults to 540, and ShiftPolicy's own 10:00-19:00 window spans
@@ -1183,11 +1183,17 @@ model AttendancePolicy {
   // fields below are the pieces that never existed, so span and effective work
   // stopped being distinguishable.
   /// Break time the span is allowed to contain, in minutes.
-  permittedBreakMinutes       Int                  @default(60)
+  permittedBreakMinutes        Int                  @default(60)
   /// Effective work floor, checked only when explicitly configured. Left unset
   /// so enabling AR-1 cannot newly fail anyone on a threshold nobody chose.
-  minimumEffectiveWorkMinutes Int?
-  shiftPolicies               ShiftPolicy[]
+  minimumEffectiveWorkMinutes  Int?
+  /// Refined attendance thresholds. Values are minutes from midnight/duration.
+  halfDayMaximumMinutes        Int                  @default(270)
+  lateArrivalBoundaryMinutes   Int                  @default(780)
+  fullHalfDayCompletionMinutes Int                  @default(1110)
+  earlyCheckoutBoundaryMinutes Int                  @default(960)
+  shortDayPayDeduction         Float                @default(0.3333333333333333)
+  shiftPolicies                ShiftPolicy[]
 
   @@unique([policyKey, version])
   @@index([financialYear])
@@ -1535,13 +1541,13 @@ model WorkdayNote {
 
 /// Private Home-page content. Only the authenticated user can read or edit it.
 model DashboardWorkspace {
-  userId     String   @id
-  notes      String   @default("") @db.Text
-  checklist  Json     @default("[]")
-  shortcuts  Json     @default("{}")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @id
+  notes     String   @default("") @db.Text
+  checklist Json     @default("[]")
+  shortcuts Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("dashboard_workspaces")
 }
@@ -1635,6 +1641,9 @@ model CompOffCredit {
   usedAt                  DateTime?
   leaveRequestId          String?
   status                  CompOffCreditStatus @default(AVAILABLE)
+  /// Minute-based entitlement: one 12-hour day earns 180; three total 540.
+  creditMinutes           Int                 @default(540)
+  remainingMinutes        Int                 @default(540)
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
   employee                User                @relation(fields: [employeeId], references: [id])
@@ -1721,6 +1730,8 @@ model AttendanceRegularization {
   userId             String
   date               DateTime                  @db.Date
   requestType        RegularizationRequestType
+  /// Refined-policy category. Text avoids rewriting the historical enum.
+  policyCorrectionType String?
   reason             String
   requestedPunchIn   DateTime?
   requestedPunchOut  DateTime?
@@ -3138,23 +3149,23 @@ model EmployeeIdAllocation {
 
 /// One employment stint. At most one open period per user (partial unique).
 model EmploymentPeriod {
-  id                  String                @id
-  userId              String
-  startDate           DateTime              @db.Date
-  endDate             DateTime?             @db.Date
-  startReason         EmploymentStartReason
-  endReason           EmploymentEndReason?
+  id                    String                @id
+  userId                String
+  startDate             DateTime              @db.Date
+  endDate               DateTime?             @db.Date
+  startReason           EmploymentStartReason
+  endReason             EmploymentEndReason?
   /// Null on a REHIRE period means the rehire terms are still pending.
-  probationStatus     ProbationStatus?
-  benefitEligibleFrom DateTime?             @db.Date
+  probationStatus       ProbationStatus?
+  benefitEligibleFrom   DateTime?             @db.Date
   /// Phase 4: HR/Admin confirmed probationStatus. An exit needs it.
   probationVerifiedById String?
   probationVerifiedAt   DateTime?
-  createdById         String?
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  exitCases           ExitCase[]
+  createdById           String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  exitCases             ExitCase[]
 
   @@index([userId, startDate])
   @@map("employment_periods")
@@ -3395,6 +3406,8 @@ model ExitCase {
   resignedOn             DateTime            @db.Date
   noticeDays             Int
   noticeSource           NoticeSource
+  /// REF_ROLE_LEVEL for the refined role/category policy.
+  noticePolicyCode       String?
   noticeAdjustmentReason String?
   lastWorkingDay         DateTime            @db.Date
   withdrawnAt            DateTime?
@@ -3455,23 +3468,23 @@ model ExitClearanceItem {
 /// F&F hold, deadline (8 working days after the last working day), escalation
 /// and release. Outside the retention-period calculation.
 model FnfSettlement {
-  id              String          @id
-  exitCaseId      String          @unique
-  state           FnfState        @default(NOT_STARTED)
-  holdReason      String?
-  deadlineOn      DateTime        @db.Date
-  lastEscalatedAt DateTime?
+  id               String                 @id
+  exitCaseId       String                 @unique
+  state            FnfState               @default(NOT_STARTED)
+  holdReason       String?
+  deadlineOn       DateTime               @db.Date
+  lastEscalatedAt  DateTime?
   releasedAt       DateTime?
   releasedById     String?
-  updatedAt        DateTime                @updatedAt
+  updatedAt        DateTime               @updatedAt
   readyAt          DateTime?
   releaseReference String?
-  escalationCount  Int                     @default(0)
-  nextEscalationOn DateTime?               @db.Date
+  escalationCount  Int                    @default(0)
+  nextEscalationOn DateTime?              @db.Date
   /// Calendar/policy basis of deadlineOn; frozen from separation.
   deadlineBasis    Json?
   cancelledAt      DateTime?
-  exitCase         ExitCase                @relation(fields: [exitCaseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  exitCase         ExitCase               @relation(fields: [exitCaseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   adjustments      FnfAdjustment[]
   requests         FnfAdjustmentRequest[]
 
@@ -3514,25 +3527,25 @@ model FnfAdjustmentRequest {
 /// new row whose reversesId points at the original (validated by trigger).
 /// Never created automatically.
 model FnfAdjustment {
-  id            String                 @id
-  settlementId  String
+  id               String                 @id
+  settlementId     String
   /// Denormalised for the Permanent Delete guard.
-  subjectUserId String
-  kind          FnfAdjustmentKind
-  direction     FnfAdjustmentDirection
-  amount        Decimal                @db.Decimal(12, 2)
-  currency      String                 @default("INR") @db.Char(3)
-  reasonCode    String
-  reference     String
-  note          String?
-  approvedById  String
-  approvedAt    DateTime
-  recordedById  String
-  reversesId    String?                @unique
-  createdAt     DateTime               @default(now())
-  settlement    FnfSettlement          @relation(fields: [settlementId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  reverses      FnfAdjustment?         @relation("FnfReversal", fields: [reversesId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  reversedBy    FnfAdjustment?         @relation("FnfReversal")
+  subjectUserId    String
+  kind             FnfAdjustmentKind
+  direction        FnfAdjustmentDirection
+  amount           Decimal                @db.Decimal(12, 2)
+  currency         String                 @default("INR") @db.Char(3)
+  reasonCode       String
+  reference        String
+  note             String?
+  approvedById     String
+  approvedAt       DateTime
+  recordedById     String
+  reversesId       String?                @unique
+  createdAt        DateTime               @default(now())
+  settlement       FnfSettlement          @relation(fields: [settlementId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reverses         FnfAdjustment?         @relation("FnfReversal", fields: [reversesId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reversedBy       FnfAdjustment?         @relation("FnfReversal")
   reversalRequests FnfAdjustmentRequest[] @relation("FnfRequestReverses")
   request          FnfAdjustmentRequest?  @relation("FnfRequestAdjustment")
 

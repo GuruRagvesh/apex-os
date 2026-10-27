@@ -152,6 +152,7 @@ export class CorrectionDecisionService {
       counts,
       items: await Promise.all(items.map(async (row) => ({
         ...row,
+        requestType: row.policyCorrectionType ?? row.requestType,
         eligibleVia: (await this.authority.eligibility(actor, row.userId))?.via ?? null,
         current: await this.currentDay(row.userId, row.date),
       }))),
@@ -185,7 +186,7 @@ export class CorrectionDecisionService {
       take: 200,
       include: { user: { select: { id: true, name: true, email: true, employeeId: true } }, screenshots: { select: SCREENSHOT_METADATA } },
     });
-    return { items: await Promise.all(rows.map(async (row) => ({ ...row, current: await this.currentDay(row.userId, row.date) }))) };
+    return { items: await Promise.all(rows.map(async (row) => ({ ...row, requestType: row.policyCorrectionType ?? row.requestType, current: await this.currentDay(row.userId, row.date) }))) };
   }
 
   /** The official values a reviewer is deciding against, with its fingerprint. */
@@ -318,7 +319,7 @@ export class CorrectionDecisionService {
       }
 
       // Review-only requests record the decision and change no attendance.
-      if (row.requestType === 'OTHER') {
+      if (row.requestType === 'OTHER' || row.policyCorrectionType === 'INCORRECT_ATTENDANCE_STATUS') {
         const updated = await decided({ status: 'APPROVED', applicationStatus: 'NOT_REQUIRED', applicationFailureReason: 'REVIEW_ONLY_REQUEST' });
         return { kind: 'DECIDED' as const, row: updated, eligibility, revision: null, businessDate };
       }
@@ -510,7 +511,7 @@ export class CorrectionDecisionService {
         decisionReason: 'Legacy manager approval reconciled',
         decisionFingerprint: currentFingerprint,
       };
-      if (row.requestType === 'OTHER') {
+      if (row.requestType === 'OTHER' || row.policyCorrectionType === 'INCORRECT_ATTENDANCE_STATUS') {
         await tx.attendanceRegularization.update({ where: { id }, data: { ...common, applicationStatus: 'NOT_REQUIRED', applicationFailureReason: 'REVIEW_ONLY_REQUEST' } });
         return { kind: 'NOT_REQUIRED' } as const;
       }

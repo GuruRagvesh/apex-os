@@ -14,7 +14,7 @@ import {
   requireText, TRANSITION_CODE, TransitionActor,
 } from '../transitions-codes';
 import { hrAndAdminIds, notifyMany, supervisorIds } from '../transition-support';
-import { adjustmentProblem, defaultNotice, lastWorkingDay, NoticeSource, separationDueAt, withdrawalClosesAt } from './notice';
+import { adjustmentProblem, defaultNoticeForEmployee, lastWorkingDay, NoticeSource, separationDueAt, withdrawalClosesAt } from './notice';
 
 type Tx = any;
 const OPEN_STATES = ['NOTICE_RUNNING', 'CLEARANCE_IN_PROGRESS', 'CLEARED'];
@@ -97,7 +97,7 @@ export class ExitService {
     try {
       await this.prisma.$transaction(async (tx: Tx) => {
         await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${userId} FOR UPDATE`;
-        const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, isActive: true, isSystemAccount: true, employmentState: true, departmentId: true, joiningDate: true } });
+        const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, isActive: true, isSystemAccount: true, employmentState: true, departmentId: true, joiningDate: true, employmentType: true, designation: true, role: { select: { name: true } } } });
         if (!user || user.isSystemAccount || !user.isActive || user.employmentState === 'ARCHIVED' || user.employmentState === 'SCHEDULED_TO_JOIN') {
           conflict(TRANSITION_CODE.EXIT_USER_NOT_ELIGIBLE, 'A resignation can be started only for an active employee.');
         }
@@ -110,14 +110,18 @@ export class ExitService {
         if (!period.probationVerifiedAt || !period.probationStatus) {
           throw new RemediationException(buildRemediation(TRANSITION_CODE.PROBATION_STATUS_UNVERIFIED, { affectedUserId: userId }), 409);
         }
-        const { noticeDays, noticeSource } = defaultNotice(period.probationStatus);
+        const { noticeDays, noticeSource, noticePolicyCode } = defaultNoticeForEmployee({
+          roleName: user.role?.name,
+          employmentType: user.employmentType,
+          designation: user.designation,
+        });
         const lwd = lastWorkingDay(resignedOn, noticeDays);
         const due = separationDueAt(lwd, this.tz());
         exitCaseId = randomUUID();
         await tx.exitCase.create({
           data: {
             id: exitCaseId, userId, employmentPeriodId: period.id, state: 'NOTICE_RUNNING', resignedOn: dateOnly(resignedOn), noticeDays, defaultNoticeDays: noticeDays,
-            noticeSource, lastWorkingDay: dateOnly(lwd), separationDueAt: due, idempotencyKey: key, createdById: actor.id, submittedById: actor.id,
+            noticeSource, noticePolicyCode, lastWorkingDay: dateOnly(lwd), separationDueAt: due, idempotencyKey: key, createdById: actor.id, submittedById: actor.id,
             backdateReason, backdateReference,
           },
         });
@@ -127,7 +131,7 @@ export class ExitService {
         await claimKey(tx, { key, scope: 'EXIT_START', entityId: exitCaseId, actorId: actor.id });
         await writeAudit(tx, {
           actorId: actor.id, entityType: 'ExitCase', entityId: exitCaseId, action: 'RESIGNATION_STARTED', toState: 'NOTICE_RUNNING',
-          metadata: { noticeSource, noticeDays, selfService: self, backdated: !!backdateReason },
+          metadata: { noticeSource, noticePolicyCode, noticeDays, selfService: self, backdated: !!backdateReason },
         });
       });
     } catch (err) {

@@ -40,6 +40,13 @@ export interface FinalizeWorkSessionOptions {
   ticketPauseReason: string;
 }
 
+type AutoCancelledLeave = {
+  id: string;
+  type: string;
+  startDate: Date;
+  endDate: Date;
+};
+
 @Injectable()
 export class WorkdayService {
   private readonly logger = new Logger(WorkdayService.name);
@@ -245,13 +252,68 @@ export class WorkdayService {
 
     await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
 
+    // Starting real work is stronger evidence than an approved plan to be
+    // absent. Cancel every approved request covering today in the SAME
+    // transaction as the work session, so the employee can never be both
+    // WORKING and on approved leave. Paid balances are derived from approved
+    // requests, while Comp Off uses explicit credits which must be released.
+    const autoCancelledLeaves = await this.autoCancelApprovedLeaveForWorkday(tx, userId, today);
+
     // Next-day / next-session auto resume of the ticket the worker's day (not
     // the ticket) paused, in this same transaction: the ledger re-checks the
     // session it now sees as WORKING, and a resume failure rolls the workday
     // start back rather than leaving the person WORKING with a stranded timer.
     await this.ticketLedger.resumeAfterWorkdayStart(userId, tx);
 
-    return { session: session!, wasAutoClosed };
+    return { session: session!, wasAutoClosed, autoCancelledLeaves };
+  }
+
+  private async autoCancelApprovedLeaveForWorkday(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    businessDate: Date,
+  ): Promise<AutoCancelledLeave[]> {
+    // A few isolated legacy consumers provide a deliberately narrow
+    // transaction facade. A real Prisma transaction always exposes the leave
+    // delegate; the fallback simply means there is no leave domain to cancel.
+    if (!tx.leaveRequest) return [];
+    const candidates = await tx.leaveRequest.findMany({
+      where: {
+        userId,
+        status: 'APPROVED',
+        startDate: { lte: this.tva.companyDayEnd(businessDate) },
+        endDate: { gte: this.tva.companyDayStart(businessDate) },
+      },
+      select: { id: true, type: true, startDate: true, endDate: true },
+    });
+    const cancelled: AutoCancelledLeave[] = [];
+
+    for (const candidate of candidates) {
+      await tx.$queryRaw`SELECT id FROM "leave_requests" WHERE id = ${candidate.id} FOR UPDATE`;
+      const changed = await tx.leaveRequest.updateMany({
+        where: { id: candidate.id, userId, status: 'APPROVED' },
+        data: { status: 'CANCELLED' },
+      });
+      if (changed.count !== 1) continue;
+
+      await tx.compOffCredit.updateMany({
+        where: { leaveRequestId: candidate.id, status: 'USED' },
+        data: { status: 'AVAILABLE', usedAt: null, leaveRequestId: null },
+      });
+      // An unlocked leave-only materialisation can be safely regenerated from
+      // the newly recorded work evidence. Locked rows remain immutable; the
+      // calendar still gives the live work session precedence.
+      await tx.dailyAttendance.deleteMany({
+        where: {
+          userId,
+          date: businessDate,
+          locked: false,
+          status: { in: ['LEAVE', 'LWP'] },
+        },
+      });
+      cancelled.push(candidate);
+    }
+    return cancelled;
   }
 
   /**
@@ -309,7 +371,12 @@ export class WorkdayService {
    * startWork() and by the attendance punch orchestrator, so both announce a
    * start the same way -- and only once it is real.
    */
-  async afterWorkStarted(userId: string, session: any, wasAutoClosed: boolean) {
+  async afterWorkStarted(
+    userId: string,
+    session: any,
+    wasAutoClosed: boolean,
+    autoCancelledLeaves: AutoCancelledLeave[] = [],
+  ) {
     if (wasAutoClosed) {
       try {
         await this.notificationEventService.sendNotification(userId, 'system', {
@@ -329,14 +396,36 @@ export class WorkdayService {
       entityId: session.id,
       action: OperationalAction.WORKDAY_STARTED,
     }).catch(() => {});
+
+    for (const leave of autoCancelledLeaves) {
+      this.eventLogger.log({
+        actorId: userId,
+        entityType: 'LeaveRequest',
+        entityId: leave.id,
+        action: OperationalAction.LEAVE_CANCELLED,
+        fromState: 'APPROVED',
+        toState: 'CANCELLED (work started)',
+      }).catch(() => {});
+      const date = formatInTimeZone(session.startWorkAt ?? this.tva.now(), DEFAULT_COMPANY_TIMEZONE, 'd MMM yyyy');
+      try {
+        await this.notificationEventService.sendNotification(userId, 'system', {
+          title: 'Approved leave cancelled',
+          message: `Your ${String(leave.type).replaceAll('_', ' ').toLowerCase()} leave was cancelled automatically because you started work on ${date}.`,
+          type: NotificationType.INFO,
+          link: '/dashboard',
+          entityType: 'LEAVE',
+          entityId: leave.id,
+        });
+      } catch (_e) {}
+    }
   }
 
   async startWork(userId: string) {
-    const { session, wasAutoClosed } = await this.prisma.$transaction(
+    const { session, wasAutoClosed, autoCancelledLeaves } = await this.prisma.$transaction(
       (tx) => this.startWorkInTransaction(tx, userId),
       WORKDAY_TIMER_TRANSACTION,
     );
-    await this.afterWorkStarted(userId, session, wasAutoClosed);
+    await this.afterWorkStarted(userId, session, wasAutoClosed, autoCancelledLeaves);
     return { session, message: 'Workday started' };
   }
 
