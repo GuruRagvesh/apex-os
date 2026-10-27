@@ -88,30 +88,34 @@ describe('Phase 3 attendance and leave API', () => {
     }
   });
 
-  it('new leave uses Casual/Sick; Emergency must name its bucket; EMERGENCY/ANNUAL types are retired for new requests', async () => {
+  it('new leave uses Annual/Comp Off/Unpaid; CASUAL, SICK and EMERGENCY types are retired for new requests', async () => {
     const employee = await bearerFor(app, 'employee');
-    const retired = await http().post('/api/leave').set('Authorization', employee).send({ type: 'EMERGENCY', startDate: '2027-01-11', endDate: '2027-01-11', reason: 'Retired type' });
-    expect(retired.status).toBe(400);
-    const missingBucket = await http().post('/api/leave').set('Authorization', employee).send({ type: 'UNPAID', submissionMode: 'EMERGENCY', startDate: '2027-01-12', endDate: '2027-01-12', reason: 'No bucket' });
-    expect(missingBucket.status).toBe(400);
+    for (const type of ['EMERGENCY', 'CASUAL', 'SICK']) {
+      const retired = await http().post('/api/leave').set('Authorization', employee).send({ type, startDate: '2027-01-11', endDate: '2027-01-11', reason: 'Retired type' });
+      expect(retired.status).toBe(400);
+      expect(retired.body.code ?? retired.body.message?.code).toBe('LEAVE_TYPE_RETIRED');
+    }
     // A Monday no earlier run used, so the overlap rule never interferes.
     const fresh = new Date(Date.UTC(2027, 1, 1));
     fresh.setUTCDate(fresh.getUTCDate() + 7 * (Math.floor(Date.now() / 60000) % 50));
     const freshDay = fresh.toISOString().slice(0, 10);
-    const ok = await http().post('/api/leave').set('Authorization', employee).send({ type: 'CASUAL', startDate: freshDay, endDate: freshDay, reason: 'Ordinary request' });
+    const ok = await http().post('/api/leave').set('Authorization', employee).send({ type: 'ANNUAL', startDate: freshDay, endDate: freshDay, reason: 'Ordinary request' });
     expect(ok.status).toBe(201);
-    expect(ok.body).toEqual(expect.objectContaining({ status: 'PENDING', submissionMode: 'STANDARD', fundingBucket: 'CASUAL', isLateSubmission: false }));
+    // New annual-pool requests leave the legacy CASUAL/SICK funding bucket unset.
+    expect(ok.body).toEqual(expect.objectContaining({ type: 'ANNUAL', status: 'PENDING', submissionMode: 'STANDARD', fundingBucket: null, isLateSubmission: false }));
     // Every new request is routed to exactly one approver with an immutable snapshot.
     expect(ok.body.routingSnapshotId).toEqual(expect.any(String));
   });
 
-  it('balances are Casual 10 and Sick 4, and no total reaches 18', async () => {
+  it('paid leave is one 14-day annual pool: every legacy bucket resolves to the same allocation', async () => {
     const employee = await bearerFor(app, 'employee');
+    const annual = await http().get('/api/leave/balance?type=ANNUAL').set('Authorization', employee).expect(200);
     const casual = await http().get('/api/leave/balance?type=CASUAL').set('Authorization', employee).expect(200);
     const sick = await http().get('/api/leave/balance?type=SICK').set('Authorization', employee).expect(200);
     const total = await http().get('/api/leave/balance').set('Authorization', employee).expect(200);
-    expect(casual.body.allocation).toBe(10);
-    expect(sick.body.allocation).toBe(4);
+    expect(annual.body.allocation).toBe(14);
+    expect(casual.body.allocation).toBe(14);
+    expect(sick.body.allocation).toBe(14);
     expect(total.body.allocation).toBe(14);
   });
 
