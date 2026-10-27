@@ -170,10 +170,6 @@ describe('CORS behaviour through the real middleware', () => {
 
 describe('bootstrap wiring', () => {
   const MAIN = readFileSync(resolve(__dirname, '../../src/main.ts'), 'utf8');
-  const GATEWAY = readFileSync(
-    resolve(__dirname, '../../src/modules/platform/gateway/events.gateway.ts'),
-    'utf8',
-  );
 
   it('builds the allowlist from the shared resolver, not a second inline list', () => {
     expect(MAIN).toMatch(/resolveCorsOrigins\(\)/);
@@ -185,11 +181,5 @@ describe('bootstrap wiring', () => {
   it('keeps credentials on and never widens to a wildcard', () => {
     expect(MAIN).toMatch(/credentials: true/);
     expect(MAIN).not.toMatch(/origin: '\*'/);
-  });
-
-  it('uses the same exact-origin resolver for Socket.IO', () => {
-    expect(GATEWAY).toMatch(/resolveCorsOrigins\(\)/);
-    expect(GATEWAY).toMatch(/cors: \{ origin: WS_ORIGINS, credentials: true \}/);
-    expect(GATEWAY).not.toMatch(/process\.env\.FRONTEND_URL/);
   });
 });

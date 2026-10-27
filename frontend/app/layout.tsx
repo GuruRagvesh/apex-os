@@ -11,11 +11,6 @@ export const metadata: Metadata = {
   description: 'Apex OS — AI-powered Business Operating System by TechnoEdge Learning Services',
   icons: { icon: '/favicon.svg' },
   manifest: '/manifest.webmanifest',
-  other: {
-    // Chromium now expects the standard PWA capability declaration. Keep the
-    // Apple-specific metadata below for older iOS home-screen installations.
-    'mobile-web-app-capable': 'yes',
-  },
   appleWebApp: {
     capable: true,
     title: 'Apex OS',
