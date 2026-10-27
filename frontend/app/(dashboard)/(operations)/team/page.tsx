@@ -239,7 +239,7 @@ function SuperAdminCompanyView({ me }: { me: any }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name, email, or department…"
-          className="apex-input pl-9 pr-3 py-2"
+          className="apex-input apex-search-input pr-3 py-2"
         />
       </div>
 
@@ -317,7 +317,7 @@ function ManagerTeamView({ me }: { me: any }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name, email, or department…"
-          className="apex-input pl-9 pr-3 py-2"
+          className="apex-input apex-search-input pr-3 py-2"
         />
       </div>
 
@@ -478,7 +478,7 @@ function MyTeamView({ me }: { me: any }) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name, email, or department…"
-              className="apex-input pl-9 pr-3 py-2"
+              className="apex-input apex-search-input pr-3 py-2"
             />
           </div>
           <div className="relative">
