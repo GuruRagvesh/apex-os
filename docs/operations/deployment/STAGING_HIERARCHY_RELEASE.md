@@ -21,8 +21,14 @@ staging database identity first.
 
 ## Verification
 
-Run the **Verify staging hierarchy release** GitHub workflow against the staging
-commit, or run this command from a trusted terminal:
+After the approved migrations and manual Render deployment have started, run
+the **Verify staging hierarchy release** GitHub workflow against the staging
+commit. The workflow is deliberately manual: a staging push does not deploy
+the backend or authorize database migrations. It waits up to 20 minutes for
+Render to serve the selected commit before checking the database and route
+contract.
+
+Alternatively, run this command from a trusted terminal after deployment:
 
 ```bash
 STAGING_API_URL=https://apex-os-backend-staging.onrender.com/api \

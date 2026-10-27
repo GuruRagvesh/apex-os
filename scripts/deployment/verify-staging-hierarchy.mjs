@@ -16,6 +16,24 @@ const rawApiBase =
   'https://apex-os-backend-staging.onrender.com/api';
 const apiBase = rawApiBase.replace(/\/+$/, '');
 const expectedCommit = (process.env.EXPECTED_COMMIT || '').trim();
+const deployTimeoutMs = Number.parseInt(
+  process.env.STAGING_DEPLOY_TIMEOUT_MS || '0',
+  10,
+);
+const deployPollIntervalMs = Number.parseInt(
+  process.env.STAGING_DEPLOY_POLL_INTERVAL_MS || '15000',
+  10,
+);
+
+if (!Number.isFinite(deployTimeoutMs) || deployTimeoutMs < 0) {
+  throw new Error('STAGING_DEPLOY_TIMEOUT_MS must be a non-negative integer');
+}
+
+if (!Number.isFinite(deployPollIntervalMs) || deployPollIntervalMs <= 0) {
+  throw new Error(
+    'STAGING_DEPLOY_POLL_INTERVAL_MS must be a positive integer',
+  );
+}
 
 async function request(path) {
   const response = await fetch(`${apiBase}${path}`, {
@@ -37,27 +55,68 @@ function fail(message) {
   process.exitCode = 1;
 }
 
-try {
-  const health = await request('/health');
-  if (!health.response.ok || health.body?.status !== 'ok') {
-    fail(`health returned HTTP ${health.response.status}`);
-  } else if (health.body?.environment !== 'staging') {
-    fail(
-      `health reported environment "${health.body?.environment ?? 'unknown'}", expected "staging"`,
+function commitsMatch(deployedCommit, expected) {
+  return (
+    deployedCommit.startsWith(expected) || expected.startsWith(deployedCommit)
+  );
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForExpectedDeployment() {
+  const deadline = Date.now() + deployTimeoutMs;
+  let lastReason = 'the staging deployment is not ready';
+
+  while (true) {
+    try {
+      const health = await request('/health');
+
+      if (!health.response.ok || health.body?.status !== 'ok') {
+        lastReason = `health returned HTTP ${health.response.status}`;
+      } else if (health.body?.environment !== 'staging') {
+        throw new Error(
+          `health reported environment "${health.body?.environment ?? 'unknown'}", expected "staging"`,
+        );
+      } else if (!health.body?.release?.commit) {
+        lastReason =
+          'health does not expose a deployed commit; deploy the current backend build first';
+      } else if (
+        expectedCommit &&
+        !commitsMatch(health.body.release.commit, expectedCommit)
+      ) {
+        lastReason = `backend commit ${health.body.release.commit} does not match expected staging commit ${expectedCommit}`;
+      } else {
+        return health;
+      }
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes('expected "staging"')
+      ) {
+        throw error;
+      }
+      lastReason = error instanceof Error ? error.message : 'unknown error';
+    }
+
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error(
+        `${lastReason} after waiting ${Math.round(deployTimeoutMs / 1000)} seconds for the staging deployment`,
+      );
+    }
+
+    const waitMs = Math.min(deployPollIntervalMs, remainingMs);
+    console.log(
+      `WAITING FOR STAGING DEPLOYMENT: ${lastReason}; retrying in ${Math.round(waitMs / 1000)} seconds`,
     );
-  } else if (!health.body?.release?.commit) {
-    fail(
-      'health does not expose a deployed commit; deploy the current backend build first',
-    );
-  } else if (
-    expectedCommit &&
-    !health.body.release.commit.startsWith(expectedCommit) &&
-    !expectedCommit.startsWith(health.body.release.commit)
-  ) {
-    fail(
-      `backend commit ${health.body.release.commit} does not match expected staging commit ${expectedCommit}`,
-    );
+    await sleep(waitMs);
   }
+}
+
+try {
+  const health = await waitForExpectedDeployment();
 
   const readiness = await request('/health/release-readiness');
   if (!readiness.response.ok) {

@@ -4,13 +4,6 @@ name: Verify staging hierarchy release
 # run migrations. Database changes remain an explicit, human-confirmed release
 # operation under docs/operations/deployment/MIGRATION_RELEASE_PROCEDURE.md.
 on:
-  push:
-    branches: [staging]
-    paths:
-      - 'backend/**'
-      - 'frontend/components/settings/OrganizationHierarchySection.tsx'
-      - 'scripts/deployment/verify-staging-hierarchy.mjs'
-      - '.github/workflows/staging-hierarchy-release.yml'
   workflow_dispatch:
     inputs:
       api_base_url:
@@ -27,7 +20,7 @@ permissions:
 
 concurrency:
   group: staging-hierarchy-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -41,4 +34,9 @@ jobs:
         env:
           STAGING_API_URL: ${{ inputs.api_base_url || 'https://apex-os-backend-staging.onrender.com/api' }}
           EXPECTED_COMMIT: ${{ inputs.expected_commit || github.sha }}
+          # Render deploys asynchronously after the staging push. Wait for the
+          # expected release instead of failing against the previous healthy
+          # deployment a few seconds after the merge.
+          STAGING_DEPLOY_TIMEOUT_MS: '1200000'
+          STAGING_DEPLOY_POLL_INTERVAL_MS: '15000'
         run: node scripts/deployment/verify-staging-hierarchy.mjs
