@@ -10,11 +10,12 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
+import { resolveCorsOrigins } from '../../../shared/config/cors-origins';
 
-const WS_ORIGINS = [
-  'http://localhost:3000',    // local frontend dev server
-  process.env.FRONTEND_URL,  // production / staging frontend URL
-].filter(Boolean) as string[];
+// Keep Socket.IO and HTTP on the same exact-origin policy. A separate list
+// previously omitted the dedicated staging frontend, so ordinary API calls
+// could recover while live updates continued failing their handshake.
+const WS_ORIGINS = resolveCorsOrigins();
 
 @WebSocketGateway({
   cors: { origin: WS_ORIGINS, credentials: true },
