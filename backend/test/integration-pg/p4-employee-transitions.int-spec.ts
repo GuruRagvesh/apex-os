@@ -131,7 +131,7 @@ describe('Phase 4 employee transitions (PostgreSQL)', () => {
       await w.exits.verifyProbation(w.hr, e.id, { idempotencyKey: id(), probationStatus: 'PROBATION' });
       const key = id();
       const first: any = await w.exits.start(w.emp('A'), e.id, { idempotencyKey: key });
-      expect(first).toMatchObject({ state: 'NOTICE_RUNNING', noticeDays: 15, noticeSource: 'POLICY_PROBATION' });
+      expect(first).toMatchObject({ state: 'NOTICE_RUNNING', noticeDays: 15, noticeSource: 'POLICY_CONFIRMED' });
       expect(first.clearance).toHaveLength(9);
 
       const replay: any = await w.exits.start(w.emp('A'), e.id, { idempotencyKey: key });
