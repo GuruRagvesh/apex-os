@@ -5674,3 +5674,35 @@ assertContract('the D10 placeholder stubs are still present', () => {
   ];
   return STUBS.filter((f) => readRepo(f) === null).map((f) => `${f} is a D10 stub and must stay until it has content`);
 });
+
+// ── gate self-check ─────────────────────────────────────────────────────────
+// This file used to count failures and still exit 0, so CI showed green over
+// FAIL lines. The child run below proves a single failing contract now fails
+// the whole run. APEX_ARCH_GATE_SELF_CHECK=fail adds that contract and skips
+// this check inside the child, so it does not recurse.
+if (process.env.APEX_ARCH_GATE_SELF_CHECK === 'fail') {
+  assertContract('deliberately failing contract (gate self-check)', () => ['this contract always fails']);
+} else {
+  assertContract('a failing contract makes the test run exit nonzero', () => {
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
+      encoding: 'utf8',
+      env: { ...process.env, APEX_ARCH_GATE_SELF_CHECK: 'fail' },
+    });
+    const output = `${child.stdout ?? ''}\n${child.stderr ?? ''}`;
+    const problems = [];
+    if (child.status !== 1) problems.push(`expected exit 1, got ${child.status}`);
+    if (!output.includes('FAIL  deliberately failing contract (gate self-check)')) {
+      problems.push('the deliberate failure was not reported');
+    }
+    if (!/\d+ passed, [1-9]\d* failed/.test(output)) problems.push('summary did not report the failure');
+    return problems;
+  });
+}
+
+const summary = `\n[architecture:test] ${passed} passed, ${failed} failed`;
+if (failed > 0) {
+  console.error(summary);
+  process.exitCode = 1;
+} else {
+  console.log(summary);
+}

@@ -2,15 +2,65 @@
 -- Access roles are intentionally independent: a SUPER_ADMIN or ADMIN role
 -- does not make that account part of company leadership.
 
-UPDATE "users"
+-- People are named below, not identified by id, so every step resolves a name
+-- through this table. A name resolves only when it points to exactly one
+-- active user, or, when no active user has it, exactly one user. A name two
+-- people share is skipped (and reported below) instead of aborting the
+-- migration or giving both people the same title and manager.
+CREATE TEMP TABLE "_reporting_tree_people" AS
+WITH named AS (
+  SELECT lower("name") AS name_key, "id", "isActive" FROM "users"
+)
+SELECT name_key, min("id") AS id
+FROM named
+WHERE "isActive"
+GROUP BY name_key
+HAVING count(*) = 1
+UNION ALL
+SELECT name_key, min("id") AS id
+FROM named
+WHERE NOT EXISTS (
+  SELECT 1 FROM named AS active WHERE active.name_key = named.name_key AND active."isActive"
+)
+GROUP BY name_key
+HAVING count(*) = 1;
+
+DO $$
+DECLARE
+  skipped TEXT;
+BEGIN
+  SELECT string_agg(DISTINCT u."name", ', ')
+  INTO skipped
+  FROM "users" AS u
+  WHERE lower(u."name") IN (
+    'pavan lalwani', 'payal', 'tejas kadam', 'anshika patel', 'krunal mehta',
+    'komal', 'arpit bharuka', 'suyash', 'swayam', 'guru thanumoorthy', 'pratik',
+    'shama', 'snehal intern', 'sonali', 'subrat', 'gunjan ranglani',
+    'harshal tilekar', 'sumedh sadaphal', 'ajay singh', 'snehal p', 'vaishnavi',
+    'gaurav', 'irfan', 'shubendu', 'honey dembani', 'mahendra', 'pooja kamble',
+    'revati patil', 'sahil waykar', 'sanika dongare', 'trishank pal', 'vishal',
+    'narendra suthar', 'pawan tiwari', 'aniket phapale', 'salman', 'sushant gire',
+    'charu kadam', 'harshada patil', 'pankaj', 'rajashree solanki'
+  )
+    AND NOT EXISTS (
+      SELECT 1 FROM "_reporting_tree_people" AS p WHERE p.name_key = lower(u."name")
+    );
+  IF skipped IS NOT NULL THEN
+    RAISE WARNING 'Reporting tree backfill skipped names shared by more than one user: %', skipped;
+  END IF;
+END $$;
+
+UPDATE "users" AS person
 SET "organizationParticipation" = CASE
-  WHEN lower("name") = 'subrat' THEN 'ACCESS_ONLY'
+  WHEN resolved.name_key = 'subrat' THEN 'ACCESS_ONLY'
   ELSE 'WORKFORCE'
 END
-WHERE lower("name") IN (
-  'subrat', 'pavan lalwani', 'payal', 'tejas kadam', 'anshika patel',
-  'krunal mehta', 'komal', 'guru thanumoorthy'
-);
+FROM "_reporting_tree_people" AS resolved
+WHERE person."id" = resolved.id
+  AND resolved.name_key IN (
+    'subrat', 'pavan lalwani', 'payal', 'tejas kadam', 'anshika patel',
+    'krunal mehta', 'komal', 'guru thanumoorthy'
+  );
 
 WITH titles(name, designation) AS (
   VALUES
@@ -60,15 +110,18 @@ UPDATE "users" AS person
 SET "designation" = titles.designation,
     "updatedAt" = CURRENT_TIMESTAMP
 FROM titles
-WHERE lower(person."name") = lower(titles.name);
+JOIN "_reporting_tree_people" AS resolved ON resolved.name_key = lower(titles.name)
+WHERE person."id" = resolved.id;
 
 -- Aniket belongs to Retail Business while owning the QC department. This is
 -- represented by one primary membership plus one department-lead membership.
 UPDATE "users" AS aniket
 SET "departmentId" = retail."id",
     "updatedAt" = CURRENT_TIMESTAMP
-FROM "departments" AS retail
-WHERE lower(aniket."name") = 'aniket phapale'
+FROM "departments" AS retail,
+     "_reporting_tree_people" AS resolved
+WHERE aniket."id" = resolved.id
+  AND resolved.name_key = 'aniket phapale'
   AND retail."name" = 'Retail Business';
 
 INSERT INTO "user_department_memberships" (
@@ -80,8 +133,9 @@ SELECT
   aniket."id", retail."id", true, 'QC Team Lead', false, NULL,
   CURRENT_TIMESTAMP
 FROM "users" AS aniket
+JOIN "_reporting_tree_people" AS resolved ON resolved.id = aniket."id"
 JOIN "departments" AS retail ON retail."name" = 'Retail Business'
-WHERE lower(aniket."name") = 'aniket phapale'
+WHERE resolved.name_key = 'aniket phapale'
 ON CONFLICT ("userId", "departmentId") DO UPDATE
 SET "isPrimary" = true,
     "designation" = 'QC Team Lead';
@@ -95,8 +149,9 @@ SELECT
   aniket."id", qc."id", false, 'QC Team Lead', true, NULL,
   CURRENT_TIMESTAMP
 FROM "users" AS aniket
+JOIN "_reporting_tree_people" AS resolved ON resolved.id = aniket."id"
 JOIN "departments" AS qc ON qc."name" = 'QC Team'
-WHERE lower(aniket."name") = 'aniket phapale'
+WHERE resolved.name_key = 'aniket phapale'
 ON CONFLICT ("userId", "departmentId") DO UPDATE
 SET "isPrimary" = false,
     "designation" = 'QC Team Lead',
@@ -105,9 +160,9 @@ SET "isPrimary" = false,
 -- A person has one primary business supervisor. Department memberships carry
 -- cross-department responsibility without producing duplicate chart nodes.
 DELETE FROM "organization_reporting_lines" AS line
-USING "users" AS person
-WHERE line."subjectUserId" = person."id"
-  AND lower(person."name") = 'aniket phapale'
+USING "_reporting_tree_people" AS resolved
+WHERE line."subjectUserId" = resolved.id
+  AND resolved.name_key = 'aniket phapale'
   AND line."scopeKey" <> 'PRIMARY';
 
 WITH relationships(subject_name, supervisor_name) AS (
@@ -165,9 +220,13 @@ SELECT
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
 FROM relationships
-JOIN "users" AS subject ON lower(subject."name") = lower(relationships.subject_name)
-JOIN "users" AS supervisor ON lower(supervisor."name") = lower(relationships.supervisor_name)
+JOIN "_reporting_tree_people" AS subject_ref ON subject_ref.name_key = lower(relationships.subject_name)
+JOIN "_reporting_tree_people" AS supervisor_ref ON supervisor_ref.name_key = lower(relationships.supervisor_name)
+JOIN "users" AS subject ON subject."id" = subject_ref.id
+JOIN "users" AS supervisor ON supervisor."id" = supervisor_ref.id
 ON CONFLICT ("subjectUserId", "scopeKey") DO UPDATE
 SET "supervisorId" = EXCLUDED."supervisorId",
     "departmentId" = EXCLUDED."departmentId",
     "updatedAt" = CURRENT_TIMESTAMP;
+
+DROP TABLE "_reporting_tree_people";

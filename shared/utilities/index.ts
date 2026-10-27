@@ -18,3 +18,4 @@ export { cn } from './class-names';
 export { formatDate } from './date';
 export { formatRelativeTime } from './date';
 export { getInitials } from './text';
+export { applyAppearanceForUser } from './appearance-preferences';

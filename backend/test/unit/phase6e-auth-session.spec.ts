@@ -9,6 +9,9 @@
  *     browser query cache, so the next user never sees the last user's data.
  * C3  Another tab signing in as someone else, or out, never leaves this tab
  *     acting with a token that is not the one it shows.
+ * C4  Appearance follows the signed-in user from the app shell, not from the
+ *     auth store: applied after hydration and on every user change, with
+ *     logout falling back to the default appearance.
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, HttpException } from '@nestjs/common';
@@ -21,6 +24,7 @@ import { EventLoggerService } from '../../src/common/services/event-logger.servi
 import { EmailService } from '../../src/modules/platform/email/email.service';
 import { UsersService } from '../../src/modules/core/users/users.service';
 import {
+  createAppearanceSync,
   createUserChangeTracker,
   tokenStorageAction,
   AUTH_TOKEN_KEY,
@@ -124,5 +128,32 @@ describe('C3: another tab changing the token', () => {
 
   it('a signed-out tab ignores another tab signing out', () => {
     expect(tokenStorageAction(ev(AUTH_TOKEN_KEY, null), null)).toBe('ignore');
+  });
+});
+
+describe('C4: appearance follows the signed-in user', () => {
+  it('applies the hydrated user once, then ignores repeats of the same id', () => {
+    const apply = jest.fn();
+    const sync = createAppearanceSync(apply);
+    sync('user-a');
+    sync('user-a');
+    expect(apply.mock.calls).toEqual([['user-a']]);
+  });
+
+  it('applies the default appearance when nobody is signed in after hydration', () => {
+    const apply = jest.fn();
+    createAppearanceSync(apply)(undefined);
+    expect(apply.mock.calls).toEqual([[null]]);
+  });
+
+  it('logout, login and account switch each re-apply', () => {
+    const apply = jest.fn();
+    const sync = createAppearanceSync(apply);
+    sync('user-a');
+    sync(null);        // logout -> default appearance
+    sync(undefined);   // still signed out, nothing to do
+    sync('user-b');    // next person signs in
+    sync('user-a');    // switch without logging out
+    expect(apply.mock.calls).toEqual([['user-a'], [null], ['user-b'], ['user-a']]);
   });
 });
