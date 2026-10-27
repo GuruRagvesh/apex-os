@@ -28,4 +28,3 @@ export function classifyRefinedAttendance(input: RefinedAttendanceInput): Refine
   if (input.punchOutMinutes !== null && input.punchOutMinutes <= earlyCheckout) return 'HALF_DAY';
   return 'SHORT_DAY';
 }
-
