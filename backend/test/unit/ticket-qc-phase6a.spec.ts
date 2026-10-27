@@ -210,10 +210,11 @@ describe('B / C / E / F. browser-only wiring (source checks)', () => {
   const list = read('frontend/app/(dashboard)/(operations)/tickets/page.tsx');
   const detail = read('frontend/app/(dashboard)/(operations)/tickets/[id]/page.tsx');
 
-  it('the ticket approval queue has its own cache key, never the user change-request key', () => {
-    expect(list).toContain("['ticket-pending-approvals']");
+  it('the retired ticket approval queue is absent and never aliases the user change-request queue', () => {
+    expect(list).not.toContain('ticket-pending-approvals');
     expect(list).not.toContain("queryKey: ['pending-approvals']");
-    expect(list).toContain('Could not load pending approvals');
+    expect(list).not.toContain('getPendingApprovals');
+    expect(list).not.toContain('Pending Approvals');
   });
 
   it('the Close button is shown only when the backend says the viewer may close', () => {
