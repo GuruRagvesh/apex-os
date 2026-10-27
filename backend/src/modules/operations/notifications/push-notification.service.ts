@@ -66,6 +66,7 @@ export class PushNotificationService {
     const setting = await this.prisma.appSetting.findUnique({ where: { key: `user-prefs-${userId}` } });
     const prefs: any = setting?.value ?? {};
     if (prefs.pushEnabled === false) return false;
+    if (prefs.quietHoursEnabled === false) return true;
     const from = String(prefs.quietFrom || '22:00');
     const to = String(prefs.quietTo || '08:00');
     const timezone = String(prefs.timezone || this.tva.companyTimezone());

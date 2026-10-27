@@ -10,6 +10,19 @@
 
 /* Quick Access drawer action rail. Inspired by the compact expanding icon bar
    in the supplied reference, while using Apex OS colours and focus behavior. */
+.apex-workspace-actions-box {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.apex-workspace-actions-title {
+  margin: 0 0 0.45rem 0.2rem;
+  color: #1e293b;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 .apex-workspace-action-strip {
   display: flex;
   align-items: center;
@@ -79,6 +92,10 @@
 .dark .apex-workspace-action-strip {
   border-color: #334155;
   background: rgba(15, 23, 42, 0.88);
+}
+
+.dark .apex-workspace-actions-title {
+  color: #e2e8f0;
 }
 
 .dark .apex-workspace-action {
@@ -219,45 +236,11 @@ html[data-theme="john-wick-dark"] {
   --shadow-card: 0 1px 3px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
 }
 
-/* ── Phase 2 themes (defined, inactive) ── */
-html[data-theme="gen-z-pastel"] {
-  --bg-primary: #faf9ff; --bg-secondary: #ffffff; --bg-tertiary: #f3f0ff;
-  --surface-card: #ffffff; --surface-elevated: #ffffff; --surface-sunken: #faf9ff;
-  --border-primary: #e8e0ff; --border-secondary: #d4c9ff; --border-subtle: #f3f0ff;
-  --section-border: #93c5fd; --section-border-subtle: #bfdbfe;
-  --text-primary: #1a1523; --text-secondary: #6b5f8a; --text-tertiary: #a89fc2; --text-inverse: #ffffff;
-  --shadow-sm: 0 1px 2px rgba(139,92,246,0.06); --shadow-md: 0 4px 6px rgba(139,92,246,0.08); --shadow-card: 0 1px 3px rgba(139,92,246,0.1);
-}
-html[data-theme="executive-midnight"] {
-  --bg-primary: #0a0e1a; --bg-secondary: #0f1424; --bg-tertiary: #141929;
-  --surface-card: #111827; --surface-elevated: #1a2035; --surface-sunken: #080c16;
-  --border-primary: #1e2a3d; --border-secondary: #2d3a52; --border-subtle: #141c2e;
-  --section-border: #a1a1aa; --section-border-subtle: #71717a;
-  --text-primary: #f1f5f9; --text-secondary: #8892a4; --text-tertiary: #4a5568; --text-inverse: #0a0e1a;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5); --shadow-md: 0 4px 12px rgba(0,0,0,0.7); --shadow-card: 0 1px 3px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.03);
-}
-html[data-theme="focus-mode"] {
-  --bg-primary: #fafaf8; --bg-secondary: #f5f5f0; --bg-tertiary: #efefea;
-  --surface-card: #ffffff; --surface-elevated: #ffffff; --surface-sunken: #f5f5f0;
-  --border-primary: #e5e5de; --border-secondary: #d4d4c9; --border-subtle: #efefea;
-  --section-border: #93c5fd; --section-border-subtle: #bfdbfe;
-  --text-primary: #1c1c1a; --text-secondary: #57574f; --text-tertiary: #9a9a90; --text-inverse: #ffffff;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04); --shadow-md: 0 4px 6px rgba(0,0,0,0.05); --shadow-card: 0 1px 3px rgba(0,0,0,0.06);
-}
-html[data-theme="neo-future"] {
-  --bg-primary: #06060f; --bg-secondary: #0d0d1a; --bg-tertiary: #111122;
-  --surface-card: #0f0f1e; --surface-elevated: #151528; --surface-sunken: #08080f;
-  --border-primary: #1e1e38; --border-secondary: #2a2a4a; --border-subtle: #12122a;
-  --section-border: #a1a1aa; --section-border-subtle: #71717a;
-  --text-primary: #e8eaf6; --text-secondary: #9899b8; --text-tertiary: #4a4a6a; --text-inverse: #06060f;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.6); --shadow-md: 0 4px 12px rgba(0,0,0,0.7); --shadow-card: 0 1px 3px rgba(0,0,0,0.8), 0 0 0 1px rgba(120,120,255,0.06);
-}
-
 /* ── ACCENT THEMES ────────────────────── */
 html[data-accent="royal-blue"] { --accent:#2563eb;--accent-hover:#1d4ed8;--accent-subtle:rgba(37,99,235,0.08);--accent-border:rgba(37,99,235,0.25);--accent-text:#1e40af;--accent-ring:rgba(37,99,235,0.35); }
-html[data-accent="emerald"]    { --accent:#059669;--accent-hover:#047857;--accent-subtle:rgba(5,150,105,0.08);--accent-border:rgba(5,150,105,0.25);--accent-text:#065f46;--accent-ring:rgba(5,150,105,0.35); }
+html[data-accent="emerald"]    { --accent:#047857;--accent-hover:#065f46;--accent-subtle:rgba(4,120,87,0.08);--accent-border:rgba(4,120,87,0.25);--accent-text:#065f46;--accent-ring:rgba(4,120,87,0.35); }
 html[data-accent="violet"]     { --accent:#7c3aed;--accent-hover:#6d28d9;--accent-subtle:rgba(124,58,237,0.08);--accent-border:rgba(124,58,237,0.25);--accent-text:#5b21b6;--accent-ring:rgba(124,58,237,0.35); }
-html[data-accent="gold"]       { --accent:#d4af37;--accent-hover:#b8960c;--accent-subtle:rgba(212,175,55,0.08);--accent-border:rgba(212,175,55,0.25);--accent-text:#92710a;--accent-ring:rgba(212,175,55,0.35); }
+html[data-accent="gold"]       { --accent:#8a6900;--accent-hover:#715600;--accent-subtle:rgba(138,105,0,0.08);--accent-border:rgba(138,105,0,0.25);--accent-text:#715600;--accent-ring:rgba(138,105,0,0.35); }
 html[data-accent="crimson"]    { --accent:#dc2626;--accent-hover:#b91c1c;--accent-subtle:rgba(220,38,38,0.08);--accent-border:rgba(220,38,38,0.25);--accent-text:#991b1b;--accent-ring:rgba(220,38,38,0.35); }
 html[data-accent="slate"]      { --accent:#475569;--accent-hover:#334155;--accent-subtle:rgba(71,85,105,0.08);--accent-border:rgba(71,85,105,0.25);--accent-text:#1e293b;--accent-ring:rgba(71,85,105,0.35); }
 
@@ -343,23 +326,32 @@ code, pre, .mono, .font-mono, [data-mono] {
   background: var(--surface-card);
   box-shadow: var(--shadow-card);
   isolation: isolate;
-  transition: background 320ms ease, border-color 320ms ease, box-shadow 320ms ease;
+  transition: background 900ms ease, border-color 900ms ease, box-shadow 900ms ease;
 }
 .apex-dashboard-hero[data-hero-daypart="morning"] {
   --hero-title: #ffffff;
   --hero-copy: #eff6ff;
   --hero-mesh-base: rgba(255, 255, 255, 0.16);
   --hero-mesh-lit: rgba(255, 246, 196, 0.72);
-  background: linear-gradient(180deg, #1d5f8f 0%, #6f9fbd 52%, #e3c47d 82%, #f2d476 100%);
+  background: linear-gradient(155deg, #477fa6 0%, #86aec3 52%, #efc980 100%);
   border-color: #78a3bd;
   box-shadow: 0 14px 34px rgba(29, 95, 143, 0.20);
+}
+.apex-dashboard-hero[data-hero-daypart="late-morning"] {
+  --hero-title: #ffffff;
+  --hero-copy: #f1fbff;
+  --hero-mesh-base: rgba(255, 255, 255, 0.15);
+  --hero-mesh-lit: rgba(246, 210, 139, 0.78);
+  background: linear-gradient(155deg, #0b3d91 0%, #1e7fbf 38%, #3fc6d8 67%, #dcefff 100%);
+  border-color: #3fc6d8;
+  box-shadow: 0 14px 36px rgba(11, 61, 145, 0.22);
 }
 .apex-dashboard-hero[data-hero-daypart="afternoon"] {
   --hero-title: #ffffff;
   --hero-copy: #f8fafc;
   --hero-mesh-base: rgba(255, 255, 255, 0.15);
   --hero-mesh-lit: rgba(255, 255, 255, 0.74);
-  background: linear-gradient(180deg, #1679bf 0%, #55ace1 44%, #bce3f5 77%, #f4edc4 100%);
+  background: linear-gradient(160deg, #187cbc 0%, #62b7df 52%, #e9d99f 100%);
   border-color: #67b3df;
   box-shadow: 0 14px 34px rgba(22, 121, 191, 0.19);
 }
@@ -368,21 +360,98 @@ code, pre, .mono, .font-mono, [data-mono] {
   --hero-copy: #f3f6ff;
   --hero-mesh-base: rgba(221, 230, 255, 0.16);
   --hero-mesh-lit: rgba(255, 220, 202, 0.74);
-  background:
-    radial-gradient(ellipse 62% 54% at 18% 48%, rgba(105, 72, 132, 0.58) 0%, rgba(105, 72, 132, 0) 72%),
-    radial-gradient(ellipse 48% 38% at 82% 71%, rgba(237, 113, 98, 0.38) 0%, rgba(237, 113, 98, 0) 74%),
-    linear-gradient(180deg, #123f78 0%, #315f98 34%, #70638f 61%, #c77d82 81%, #efb27d 100%);
+  background: linear-gradient(160deg, #163f76 0%, #596b9a 48%, #d38c78 78%, #efb170 100%);
   border-color: #687ca5;
   box-shadow: 0 16px 40px rgba(25, 47, 91, 0.28);
 }
+.apex-dashboard-hero[data-hero-daypart="sunset"] {
+  --hero-title: #ffffff;
+  --hero-copy: #fff7ed;
+  --hero-mesh-base: rgba(255, 229, 210, 0.16);
+  --hero-mesh-lit: rgba(255, 244, 214, 0.78);
+  background: linear-gradient(160deg, #252d65 0%, #82486f 43%, #e3664e 72%, #f6b04f 100%);
+  border-color: #9c647b;
+  box-shadow: 0 16px 40px rgba(70, 36, 71, 0.31);
+}
 .apex-dashboard-hero[data-hero-daypart="night"] {
   --hero-title: #ffffff;
-  --hero-copy: #dbeafe;
-  --hero-mesh-base: rgba(191, 219, 254, 0.15);
-  --hero-mesh-lit: rgba(239, 246, 255, 0.72);
-  background: linear-gradient(180deg, #01266a 0%, #2666c4 58%, #73c2fb 100%);
-  border-color: #2666c4;
-  box-shadow: 0 16px 38px rgba(1, 38, 106, 0.28);
+  --hero-copy: #e4eef8;
+  --hero-mesh-base: rgba(183, 208, 230, 0.12);
+  --hero-mesh-lit: rgba(183, 208, 230, 0.70);
+  background: linear-gradient(160deg, #050a17 0%, #0e1b32 46%, #27405e 72%, #4e6f8e 90%, #b7d0e6 100%);
+  border-color: #27405e;
+  box-shadow: 0 17px 42px rgba(5, 10, 23, 0.40);
+}
+.apex-hero-sky,
+.apex-hero-sky-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.apex-hero-sky {
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.apex-hero-sky-layer {
+  opacity: 0;
+  transform: scale(1.035);
+  transition: opacity 1.45s ease-in-out, transform 12s ease-out;
+  will-change: opacity, transform;
+}
+.apex-hero-sky-layer.is-active { opacity: 1; transform: scale(1); }
+.apex-hero-sky-morning {
+  background:
+    radial-gradient(circle at 9% 88%, rgba(255,255,204,1) 0 3.8%, rgba(255,226,91,.98) 8%, rgba(255,178,62,.73) 16%, rgba(255,150,79,.30) 27%, transparent 40%),
+    radial-gradient(ellipse 72% 20% at 28% 71%, rgba(255,184,104,.72) 0%, rgba(255,151,98,.42) 48%, transparent 78%),
+    radial-gradient(ellipse 61% 15% at 25% 48%, rgba(255,207,153,.46) 0%, rgba(238,163,145,.25) 56%, transparent 82%),
+    radial-gradient(ellipse 56% 17% at 68% 30%, rgba(218,160,151,.34) 0%, rgba(126,124,166,.20) 57%, transparent 82%),
+    radial-gradient(ellipse 48% 12% at 24% 18%, rgba(250,184,126,.30) 0%, rgba(232,174,151,.13) 58%, transparent 82%),
+    linear-gradient(180deg, #286da8 0%, #4f88b7 28%, #7897bb 45%, #b69bac 58%, #e9a184 73%, #f6b766 88%, #f8d17c 100%);
+}
+.apex-hero-sky-late-morning {
+  background:
+    radial-gradient(circle at 45% 16%, rgba(255,255,238,1) 0 3.5%, rgba(246,210,139,.80) 8%, rgba(220,239,255,.28) 17%, transparent 28%),
+    radial-gradient(ellipse 58% 23% at 70% 74%, rgba(220,239,255,.64), transparent 74%),
+    radial-gradient(ellipse 40% 10% at 23% 58%, rgba(220,239,255,.38), transparent 74%),
+    radial-gradient(ellipse 38% 8% at 67% 42%, rgba(30,127,191,.20), transparent 76%),
+    linear-gradient(160deg, #0b3d91 0%, #1e7fbf 40%, #3fc6d8 70%, #a8e0ee 86%, #dcefff 100%);
+}
+.apex-hero-sky-afternoon {
+  background:
+    radial-gradient(circle at 53% 15%, rgba(255,253,190,1) 0 3.7%, rgba(255,229,101,.90) 7%, rgba(255,224,91,.35) 15%, transparent 24%),
+    radial-gradient(ellipse 78% 105% at 42% 18%, rgba(255,223,96,.56) 0%, rgba(255,229,125,.38) 43%, rgba(255,240,185,.20) 68%, transparent 88%),
+    radial-gradient(ellipse 50% 26% at 85% 78%, rgba(255,255,255,.72), transparent 76%),
+    linear-gradient(112deg, #e8c84f 0%, #efd66f 38%, #f4e59e 63%, #f8f5df 82%, rgba(250,253,255,.98) 100%);
+}
+.apex-hero-sky-evening {
+  background:
+    radial-gradient(circle at 88% 28%, rgba(255,236,178,.98) 0 3%, rgba(255,176,104,.48) 10%, transparent 23%),
+    radial-gradient(ellipse 76% 19% at 46% 43%, rgba(255,125,151,.42), rgba(222,112,164,.20) 48%, transparent 76%),
+    radial-gradient(ellipse 82% 24% at 65% 65%, rgba(255,165,139,.46), rgba(255,194,158,.20) 54%, transparent 80%),
+    radial-gradient(ellipse 58% 20% at 24% 24%, rgba(119,91,174,.43), transparent 76%),
+    linear-gradient(174deg, #67569d 0%, #8c67aa 23%, #c174a6 43%, #e989a5 59%, #f5a27f 74%, #f8c59f 86%, #c9e3eb 100%);
+}
+.apex-hero-sky-sunset {
+  background:
+    radial-gradient(circle at 97% 98%, rgba(255,246,174,1) 0 3.5%, rgba(255,156,60,.74) 9%, transparent 25%),
+    radial-gradient(ellipse 54% 30% at 79% 72%, rgba(255,113,73,.39), transparent 72%),
+    radial-gradient(ellipse 38% 22% at 24% 24%, rgba(117,101,164,.26), transparent 75%),
+    linear-gradient(160deg, #22285d 0%, #704169 40%, #c84f55 67%, #f1874d 83%, #ffc45b 100%);
+}
+.apex-hero-sky-night {
+  --hero-cloud-light: rgba(183, 208, 230, .20);
+  --hero-cloud-shadow: rgba(5, 10, 23, .64);
+  background:
+    radial-gradient(circle at 82% 16%, rgba(245,249,255,.96) 0 2.8%, rgba(183,208,230,.42) 6%, transparent 15%),
+    radial-gradient(circle at 8% 18%, rgba(255,255,255,.8) 0 1px, transparent 2px),
+    radial-gradient(circle at 18% 42%, rgba(255,255,255,.68) 0 1px, transparent 2px),
+    radial-gradient(circle at 34% 12%, rgba(255,255,255,.74) 0 1px, transparent 2px),
+    radial-gradient(circle at 47% 31%, rgba(255,255,255,.62) 0 1px, transparent 2px),
+    radial-gradient(circle at 64% 45%, rgba(255,255,255,.70) 0 1px, transparent 2px),
+    radial-gradient(circle at 91% 35%, rgba(255,255,255,.76) 0 1px, transparent 2px),
+    radial-gradient(ellipse 57% 38% at 61% 15%, rgba(78,111,142,.20), transparent 73%),
+    linear-gradient(165deg, #050a17 0%, #0e1b32 50%, #27405e 76%, #4e6f8e 92%, #b7d0e6 100%);
 }
 .apex-hero-mesh,
 .apex-hero-mesh-layer {
@@ -391,7 +460,7 @@ code, pre, .mono, .font-mono, [data-mono] {
   pointer-events: none;
 }
 .apex-hero-mesh {
-  z-index: 0;
+  z-index: 1;
   overflow: hidden;
 }
 .apex-hero-mesh-layer {
@@ -450,10 +519,12 @@ code, pre, .mono, .font-mono, [data-mono] {
 
 /*
  * Keep the KPI row legible where the daypart gradient becomes pale.
- * Morning and afternoon use a mid-blue glass surface. Evening uses a distinct
- * blue-violet twilight glass; night retains the brighter white-glass treatment.
+ * Morning and late morning use a mid-blue glass surface. Afternoon shifts to
+ * a brighter sky-blue glass. Evening uses blue-violet twilight glass; night
+ * retains the brighter white-glass treatment.
  */
 .apex-dashboard-hero[data-hero-daypart="morning"] .apex-hero-kpi,
+.apex-dashboard-hero[data-hero-daypart="late-morning"] .apex-hero-kpi,
 .apex-dashboard-hero[data-hero-daypart="afternoon"] .apex-hero-kpi {
   border-color: rgba(219, 238, 255, 0.62);
   background: linear-gradient(145deg, rgba(23, 101, 164, 0.86), rgba(16, 75, 136, 0.74));
@@ -462,11 +533,30 @@ code, pre, .mono, .font-mono, [data-mono] {
   backdrop-filter: blur(13px) saturate(135%);
 }
 .apex-dashboard-hero[data-hero-daypart="morning"] .apex-hero-kpi:hover,
+.apex-dashboard-hero[data-hero-daypart="late-morning"] .apex-hero-kpi:hover,
 .apex-dashboard-hero[data-hero-daypart="afternoon"] .apex-hero-kpi:hover {
   background: linear-gradient(145deg, rgba(27, 113, 181, 0.92), rgba(16, 75, 136, 0.82));
   box-shadow: 0 13px 28px rgba(12, 62, 112, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
-.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi {
+.apex-dashboard-hero[data-hero-daypart="afternoon"] .apex-hero-kpi {
+  border-color: rgba(225, 247, 255, 0.72);
+  background: linear-gradient(145deg, rgba(49, 158, 211, 0.88), rgba(29, 124, 185, 0.78));
+  box-shadow: 0 11px 25px rgba(31, 114, 166, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+.apex-dashboard-hero[data-hero-daypart="afternoon"] .apex-hero-kpi:hover {
+  background: linear-gradient(145deg, rgba(62, 172, 222, 0.94), rgba(32, 132, 195, 0.86));
+  box-shadow: 0 14px 30px rgba(28, 107, 160, 0.31), inset 0 1px 0 rgba(255, 255, 255, 0.31);
+}
+.apex-dashboard-hero[data-hero-daypart="late-morning"] .apex-hero-kpi {
+  border-color: rgba(220, 239, 255, 0.64);
+  background: linear-gradient(145deg, rgba(11, 61, 145, 0.88), rgba(30, 127, 191, 0.76));
+  box-shadow: 0 11px 25px rgba(11, 61, 145, 0.27), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+.apex-dashboard-hero[data-hero-daypart="late-morning"] .apex-hero-kpi:hover {
+  background: linear-gradient(145deg, rgba(13, 72, 165, 0.94), rgba(42, 145, 207, 0.84));
+}
+.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi,
+.apex-dashboard-hero[data-hero-daypart="sunset"] .apex-hero-kpi {
   border-color: rgba(229, 232, 255, 0.48);
   background: linear-gradient(145deg, rgba(24, 54, 101, 0.70), rgba(83, 57, 104, 0.54));
   box-shadow: 0 12px 28px rgba(20, 35, 75, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.22);
@@ -474,26 +564,29 @@ code, pre, .mono, .font-mono, [data-mono] {
   backdrop-filter: blur(15px) saturate(145%);
 }
 .apex-dashboard-hero[data-hero-daypart="night"] .apex-hero-kpi {
-  border-color: rgba(255, 255, 255, 0.52);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.13));
-  box-shadow: 0 11px 26px rgba(40, 18, 54, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.30);
+  border-color: rgba(183, 208, 230, 0.48);
+  background: linear-gradient(145deg, rgba(5, 10, 23, 0.86), rgba(39, 64, 94, 0.68));
+  box-shadow: 0 11px 26px rgba(5, 10, 23, 0.38), inset 0 1px 0 rgba(183, 208, 230, 0.24);
   -webkit-backdrop-filter: blur(14px) saturate(145%);
   backdrop-filter: blur(14px) saturate(145%);
 }
-.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi:hover {
+.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi:hover,
+.apex-dashboard-hero[data-hero-daypart="sunset"] .apex-hero-kpi:hover {
   background: linear-gradient(145deg, rgba(29, 67, 122, 0.78), rgba(100, 63, 113, 0.62));
   box-shadow: 0 15px 32px rgba(19, 34, 73, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 .apex-dashboard-hero[data-hero-daypart="night"] .apex-hero-kpi:hover {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.19));
-  box-shadow: 0 14px 30px rgba(30, 15, 48, 0.31), inset 0 1px 0 rgba(255, 255, 255, 0.36);
+  background: linear-gradient(145deg, rgba(14, 27, 50, 0.92), rgba(78, 111, 142, 0.76));
+  box-shadow: 0 14px 30px rgba(5, 10, 23, 0.42), inset 0 1px 0 rgba(183, 208, 230, 0.32);
 }
 .apex-dashboard-hero[data-hero-daypart="morning"] .apex-hero-kpi-icon,
+.apex-dashboard-hero[data-hero-daypart="late-morning"] .apex-hero-kpi-icon,
 .apex-dashboard-hero[data-hero-daypart="afternoon"] .apex-hero-kpi-icon {
   background: rgba(255, 255, 255, 0.18);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
-.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi-icon {
+.apex-dashboard-hero[data-hero-daypart="evening"] .apex-hero-kpi-icon,
+.apex-dashboard-hero[data-hero-daypart="sunset"] .apex-hero-kpi-icon {
   background: rgba(229, 220, 255, 0.20);
   box-shadow: inset 0 0 0 1px rgba(240, 232, 255, 0.22);
 }
@@ -577,7 +670,7 @@ code, pre, .mono, .font-mono, [data-mono] {
 .apex-hero-quick-action-primary:hover { background: #fff; }
 .apex-workspace-drawer-layer { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: flex-start; justify-content: flex-end; overflow-y: auto; padding: 16px; scrollbar-width: none; }
 .apex-workspace-drawer-layer::-webkit-scrollbar { display: none; }
-.apex-workspace-drawer-scrim { position: fixed; inset: 0; width: 100%; border: 0; background: rgba(7, 20, 38, 0.42); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.apex-workspace-drawer-scrim { position: fixed; inset: 0; width: 100%; border: 0; background: rgba(15, 23, 42, 0.30); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .apex-workspace-drawer { position: relative; z-index: 1; display: flex; width: min(540px, calc(100vw - 32px)); min-height: calc(100vh - 32px); flex-direction: column; overflow: visible; border: 1px solid rgba(148, 163, 184, 0.42); border-radius: 18px; background: rgba(255, 255, 255, 0.98); box-shadow: -12px 18px 56px rgba(15, 23, 42, 0.28); animation: apex-workspace-drawer-in 220ms ease-out both; }
 .apex-workspace-drawer-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e8f0; }
 .apex-workspace-drawer-close { display: inline-flex; size: 34px; align-items: center; justify-content: center; border-radius: 10px; color: #475569; transition: background 140ms ease-out, color 140ms ease-out; }
@@ -650,9 +743,7 @@ code, pre, .mono, .font-mono, [data-mono] {
   box-shadow: 0 16px 36px rgba(30, 64, 175, 0.20);
 }
 
-html[data-theme="john-wick-dark"] .apex-profile-hero,
-html[data-theme="executive-midnight"] .apex-profile-hero,
-html[data-theme="neo-future"] .apex-profile-hero {
+html[data-theme="john-wick-dark"] .apex-profile-hero {
   background:
     radial-gradient(circle at 88% 18%, rgba(96, 165, 250, 0.18), transparent 30%),
     linear-gradient(108deg, #071a3f 0%, #0d3d8f 54%, #1d66b1 100%);
@@ -665,17 +756,11 @@ html[data-theme="neo-future"] .apex-profile-hero {
 .apex-profile-label   { color: #475569; }
 .apex-profile-value   { color: #1e3a5f; }
 
-html[data-theme="john-wick-dark"] .apex-profile-heading,
-html[data-theme="executive-midnight"] .apex-profile-heading,
-html[data-theme="neo-future"] .apex-profile-heading { color: #f8fafc; }
+html[data-theme="john-wick-dark"] .apex-profile-heading { color: #f8fafc; }
 
-html[data-theme="john-wick-dark"] .apex-profile-label,
-html[data-theme="executive-midnight"] .apex-profile-label,
-html[data-theme="neo-future"] .apex-profile-label { color: #94a3b8; }
+html[data-theme="john-wick-dark"] .apex-profile-label { color: #94a3b8; }
 
-html[data-theme="john-wick-dark"] .apex-profile-value,
-html[data-theme="executive-midnight"] .apex-profile-value,
-html[data-theme="neo-future"] .apex-profile-value { color: #dbeafe !important; }
+html[data-theme="john-wick-dark"] .apex-profile-value { color: #dbeafe !important; }
 
 .apex-input {
   background-color: var(--surface-sunken);
@@ -694,9 +779,13 @@ html[data-theme="neo-future"] .apex-profile-value { color: #dbeafe !important; }
 }
 .apex-input::placeholder { color: var(--text-tertiary); }
 
+/* Search fields render an icon inside the input. Keep their text clear of it
+   even though the base .apex-input rule is declared after Tailwind utilities. */
+.apex-search-input { padding-left: 2.5rem; }
+
 .apex-btn-primary {
   background-color: var(--accent);
-  color: var(--text-inverse);
+  color: #ffffff;
   border-radius: var(--radius-sm);
   font-weight: 500;
   transition: background-color 0.15s;
@@ -843,16 +932,16 @@ html[data-theme="john-wick-dark"] textarea {
 ═══════════════════════════════════════ */
 :root {
   /* Dense product scale adapted from Mobbin's 12/14/16/20/24 hierarchy. */
-  --font-size-2xs:   10px;
-  --font-size-xs:    12px;
-  --font-size-sm:    13px;
-  --font-size-base:  14px;
-  --font-size-md:    15px;
-  --font-size-lg:    16px;
-  --font-size-xl:    20px;
-  --font-size-2xl:   24px;
-  --font-size-3xl:   30px;
-  --font-size-4xl:   36px;
+  --font-size-2xs:   0.625rem;
+  --font-size-xs:    0.75rem;
+  --font-size-sm:    0.8125rem;
+  --font-size-base:  0.875rem;
+  --font-size-md:    0.9375rem;
+  --font-size-lg:    1rem;
+  --font-size-xl:    1.25rem;
+  --font-size-2xl:   1.5rem;
+  --font-size-3xl:   1.875rem;
+  --font-size-4xl:   2.25rem;
 
   --font-weight-normal:   400;
   --font-weight-medium:   500;
@@ -866,9 +955,9 @@ html[data-theme="john-wick-dark"] textarea {
 }
 
 /* Font size presets */
-html[data-font-size="small"]  { --font-size-base: 13px; }
-html[data-font-size="medium"] { --font-size-base: 14px; }
-html[data-font-size="large"]  { --font-size-base: 16px; }
+html[data-font-size="small"]  { font-size: 14px; }
+html[data-font-size="medium"] { font-size: 16px; }
+html[data-font-size="large"]  { font-size: 18px; }
 
 body {
   font-size: var(--font-size-base);
@@ -878,9 +967,48 @@ body {
 /* ═══════════════════════════════════════
    COMPACT MODE
 ═══════════════════════════════════════ */
-html[data-compact="true"] { --spacing-unit: 0.75; }
-html[data-compact="true"] .apex-card { padding: 12px; }
-html[data-compact="true"] nav a { padding-top: 6px; padding-bottom: 6px; }
+html[data-compact="true"] .apex-card { padding: 0.75rem; }
+html[data-compact="true"] .apex-input { padding-block: 0.375rem; }
+html[data-compact="true"] .apex-btn { padding-block: 0.375rem; }
+html[data-compact="true"] nav a { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+html[data-compact="true"] main table th,
+html[data-compact="true"] main table td { padding-block: 0.375rem; }
+html[data-compact="true"] main .space-y-6 > :not([hidden]) ~ :not([hidden]) { margin-top: 1rem; }
+html[data-compact="true"] main .gap-6 { gap: 1rem; }
+
+/* Navigation density is independent of content density. */
+html[data-sidebar-density="compact"] #apex-sidebar nav .group { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+html[data-sidebar-density="compact"] #apex-sidebar nav p.font-mono { margin-top: 0.65rem; }
+
+/* Accessibility preferences retain the active theme and semantic status colours. */
+html[data-contrast="more"] {
+  --text-secondary: #263448;
+  --text-tertiary: #40516a;
+  --border-primary: #718096;
+  --border-subtle: #a8b4c5;
+}
+html[data-theme="john-wick-dark"][data-contrast="more"] {
+  --text-secondary: #e4e4e7;
+  --text-tertiary: #c4c4cc;
+  --border-primary: #a1a1aa;
+  --border-subtle: #71717a;
+}
+html[data-contrast="more"] :is(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid var(--accent) !important;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+html[data-motion="reduce"] { scroll-behavior: auto !important; }
+html[data-motion="reduce"] *, html[data-motion="reduce"] *::before, html[data-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
 
 /* ═══════════════════════════════════════
    CUSTOM SCROLLBARS (Apex OS)
@@ -1147,9 +1275,49 @@ html[data-theme="john-wick-dark"] {
      inside a `space-y-*` stack, whose sibling margin otherwise pushed the
      overlay 20px down and left the top bar uncovered. */
   margin: 0 !important;
-  background-color: rgba(0,0,0,0.5);
-  backdrop-filter: blur(2px);
+  background-color: rgba(15, 23, 42, 0.30);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
   z-index: 40;
+}
+
+/*
+ * Application modal standard: the shell remains recognizable, but subdued;
+ * the overlay owns all pointer input while the modal surface stays crisp.
+ * Attribute selectors also cover CSS-module overlays across the CRM and
+ * attendance workspaces without coupling this rule to generated class names.
+ */
+:where(
+  div.fixed.inset-0:has(> [role="dialog"]),
+  section.fixed.inset-0[role="dialog"],
+  div.fixed.inset-0[role="dialog"],
+  body > div.fixed.inset-0,
+  body > section.fixed.inset-0,
+  [class*="ui-modal-overlay"],
+  [class*="modal-overlay"],
+  [class*="modalOverlay"],
+  [class*="ModalBackdrop"],
+  [class*="modalBackdrop"]
+) {
+  background-color: rgba(15, 23, 42, 0.30) !important;
+  -webkit-backdrop-filter: blur(3px) !important;
+  backdrop-filter: blur(3px) !important;
+  pointer-events: auto;
+  overscroll-behavior: contain;
+}
+:where(
+  .apex-backdrop,
+  div.fixed.inset-0:has(> [role="dialog"]),
+  body > div.fixed.inset-0,
+  body > section.fixed.inset-0,
+  [class*="ui-modal-overlay"],
+  [class*="modal-overlay"],
+  [class*="modalOverlay"],
+  [class*="ModalBackdrop"],
+  [class*="modalBackdrop"]
+) > :where([role="dialog"], .apex-modal, .apex-card, [class*="ui-modal"], [class*="Modal"]) {
+  border-color: rgba(148, 163, 184, 0.50) !important;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.72) !important;
 }
 
 /* Slide-over panel */
@@ -1247,9 +1415,7 @@ html[data-theme="john-wick-dark"] .text-red-600   { color: #f87171 !important; }
 
 /* User-directory fallback avatars: blue in light themes, white in dark themes. */
 .apex-user-initials { color: #2563eb; }
-html[data-theme="john-wick-dark"] .apex-user-initials,
-html[data-theme="executive-midnight"] .apex-user-initials,
-html[data-theme="neo-future"] .apex-user-initials { color: #ffffff !important; }
+html[data-theme="john-wick-dark"] .apex-user-initials { color: #ffffff !important; }
 
 html[data-theme="john-wick-dark"] .border-gray-100,
 html[data-theme="john-wick-dark"] .border-slate-100 { border-color: var(--border-subtle) !important; }
@@ -1510,9 +1676,7 @@ main#apex-main-content {
    classes (bg-*-100, text-*-700) used in status/priority/role chips
    so they render correctly against dark surfaces.
 ═══════════════════════════════════════ */
-html[data-theme="john-wick-dark"],
-html[data-theme="executive-midnight"],
-html[data-theme="neo-future"] {
+html[data-theme="john-wick-dark"] {
 
   /* Slate / gray — neutral, low-priority, closed */
   .bg-slate-100  { background-color: rgba(71,85,105,0.22) !important; }
@@ -1606,8 +1770,6 @@ html[data-theme="neo-future"] {
 }
 
 /* Keep user-directory role text white after all generic dark badge overrides. */
-html[data-theme="john-wick-dark"] .apex-user-role-badge,
-html[data-theme="executive-midnight"] .apex-user-role-badge,
-html[data-theme="neo-future"] .apex-user-role-badge {
+html[data-theme="john-wick-dark"] .apex-user-role-badge {
   color: #ffffff !important;
 }

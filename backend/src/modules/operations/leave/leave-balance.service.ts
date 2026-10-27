@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../../platform/settings/settings.service';
 import { LeaveStatus, LeaveType } from '@prisma/client';
@@ -11,6 +11,30 @@ import {
   ATTENDANCE_V2_DEFAULTS,
   ATTENDANCE_V2_SETTING_KEY,
 } from '../../platform/attendance/punch/punch-evidence.types';
+import { PolicyVersionService } from '../../platform/attendance/policy/policy-version.service';
+import { EmployeeTimelineService } from '../../platform/attendance/timeline/employee-timeline.service';
+import { allocationFor, bucketOf, type PaidBucket } from './leave-rules';
+
+/** Balance for one paid bucket, or both together (no bucket). */
+export interface LeaveBalanceResult {
+  /** Null when no leave policy could be resolved (setup pending). Never invented. */
+  allocation: number | null;
+  approved: number;
+  pending: number;
+  balance: number | null;
+  bucket: PaidBucket | null;
+  setupStatus: 'RESOLVED' | 'POLICY_SETUP_PENDING';
+  /** Requests whose duration could not be measured yet (calendar setup pending). */
+  unmeasuredRequests: number;
+}
+
+/** Raised when no leave policy governs the date. The caller saves the request as setup-pending. */
+export class LeavePolicyUnresolvedError extends Error {
+  constructor() {
+    super('No leave policy applies to this employee on this date. HR/Admin need to complete leave setup.');
+    this.name = 'LeavePolicyUnresolvedError';
+  }
+}
 
 @Injectable()
 export class LeaveBalanceService {
@@ -19,6 +43,8 @@ export class LeaveBalanceService {
     private settings: SettingsService,
     private tva: TVAService,
     private workingDays: LeaveWorkingDayService,
+    @Optional() private policies?: PolicyVersionService,
+    @Optional() private timeline?: EmployeeTimelineService,
   ) {}
 
   /**
@@ -63,78 +89,60 @@ export class LeaveBalanceService {
   }
 
   /**
-   * Paid-leave allocation for a year.
+   * The LeavePolicy governing this employee on a date (Phase 3).
    *
-   * V2 takes it from the employee's effective versioned LeavePolicy, which is
-   * where the approved 14-leave policy actually lives. The legacy role-quota
-   * table remains as compatibility configuration and still answers when the
-   * flag is off.
+   * The profile's assigned leave policy names a SERIES; the continuity
+   * resolver picks the version governing the date (a successor applies from
+   * its own date, a gap continues the predecessor). With no assignment, the
+   * company's leave policy by the same rule. Null only when no leave policy
+   * exists at all -- the caller treats that as setup pending, never as zero
+   * and never as an invented number.
+   */
+  async resolveLeavePolicy(userId: string, businessDate: string): Promise<any | null> {
+    if (!this.policies) return null;
+    const profile = this.timeline ? await this.timeline.findProfileOn(userId, businessDate).catch(() => null) : null;
+    if (profile?.assignedLeavePolicyId) {
+      const assigned = await this.policies.resolvePolicyOn('LEAVE_POLICY', businessDate, { id: profile.assignedLeavePolicyId });
+      if (assigned) return assigned;
+    }
+    return this.policies.resolvePolicyOn('LEAVE_POLICY', businessDate, {});
+  }
+
+  /**
+   * Paid-leave allocation for one bucket (Phase 3).
+   *
+   * The ONLY entitlement authority is LeavePolicy.totalPaidLeaves (14 by
+   * default). Historical type labels do not create separate entitlements.
+   *
+   * `leaveType` is accepted for compatibility; every paid historical type maps
+   * to the same ANNUAL pool. Throws LeavePolicyUnresolvedError when no policy applies.
    */
   async getYearlyAllocation(
     userId: string,
     year = 2026,
-    leaveType?: LeaveType,
+    leaveType?: LeaveType | PaidBucket,
+    asOf?: Date | string,
   ): Promise<number> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { role: true },
-    });
-
-    // Intern leave is earned monthly, not made available as a 12-day annual
-    // bank. The annual equivalent is returned here for reports; balance and
-    // request validation below enforce the actual one-day monthly window.
-    if (user?.role?.name === 'INTERN') {
-      if (leaveType === LeaveType.EMERGENCY) return 0;
-      return 12;
-    }
-
-    // Company-wide paid-leave rule: every non-intern role has two independent
-    // entitlements — 10 Casual days and 4 Emergency days per financial year.
-    // Do this before policy lookup so an older assigned profile cannot silently
-    // replace the approved company allocation with stale values.
-    if (leaveType === LeaveType.CASUAL) return 10;
-    if (leaveType === LeaveType.EMERGENCY) return 4;
-
-    if (await this.v2AuthorityEnabled()) {
-      const fromPolicy = await this.allocationFromLeavePolicy(userId, year, leaveType);
-      if (fromPolicy !== null) return fromPolicy;
-      // No effective policy assigned: fall through to the legacy quota rather
-      // than inventing a number. Reported, not silently zeroed.
-    }
-
-    if (!user) return 0;
-    const quotas = await this.settings.getLeaveQuotas();
-    return quotas[user.role.name] ?? 14;
+    const probe = this.allocationProbeDate(year, asOf);
+    const policy = await this.resolveLeavePolicy(userId, probe);
+    if (!policy) throw new LeavePolicyUnresolvedError();
+    const bucket = leaveType ? bucketOf({ type: leaveType }) : null;
+    if (leaveType && !bucket) return 0;
+    if (bucket) return allocationFor(policy, bucket);
+    return allocationFor(policy, 'ANNUAL');
   }
 
-  /** totalPaidLeaves from the employee's effective-dated LeavePolicy, if any. */
-  private async allocationFromLeavePolicy(
-    userId: string,
-    year: number,
-    leaveType?: LeaveType,
-  ): Promise<number | null> {
-    // Mid-year is a safe probe for "the policy that governs this year": it sits
-    // inside every sane effective window for the year.
-    const profile = await this.prisma.employeeAttendanceProfile.findFirst({
-      where: {
-        userId,
-        effectiveFrom: { lte: this.tva.companyDayEnd(new Date(`${year}-07-01T00:00:00.000Z`)) },
-        OR: [
-          { effectiveTo: null },
-          { effectiveTo: { gte: this.tva.companyDayStart(new Date(`${year}-07-01T00:00:00.000Z`)) } },
-        ],
-      },
-      orderBy: { effectiveFrom: 'desc' },
-      include: { assignedLeavePolicy: true },
-    });
-
-    const policy = profile?.assignedLeavePolicy;
-    if (!policy) return null;
-    if (leaveType === LeaveType.CASUAL) return policy.casualLeaveAllocation;
-    if (leaveType === LeaveType.EMERGENCY) return policy.emergencyLeaveAllocation;
-    if (leaveType === LeaveType.COMP_OFF) return 0;
-    return typeof policy.totalPaidLeaves === 'number' ? policy.totalPaidLeaves : null;
+  /** The date whose governing policy answers for a leave year. */
+  private allocationProbeDate(year: number, asOf?: Date | string): string {
+    if (asOf) return typeof asOf === 'string' ? asOf.slice(0, 10) : this.tva.companyBusinessDate(asOf);
+    const fy = this.tva.financialYearBounds(`${year}-${year + 1}`);
+    const today = this.tva.companyBusinessDate(this.tva.now());
+    const start = this.tva.companyBusinessDate(fy.start);
+    const end = this.tva.companyBusinessDate(fy.end);
+    // Today when it falls inside the year, otherwise the nearer end of it.
+    return today >= start && today <= end ? today : today < start ? start : end;
   }
+
 
   /**
    * Working days in a leave range.
@@ -239,55 +247,28 @@ export class LeaveBalanceService {
   async getLeaveBalance(
     userId: string,
     year = 2026,
-    leaveType?: LeaveType,
+    leaveType?: LeaveType | PaidBucket,
     asOf?: Date,
-  ): Promise<{ allocation: number; approved: number; pending: number; balance: number }> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { role: true },
-    });
-    const isIntern = user?.role?.name === 'INTERN';
-    const allocation = isIntern
-      ? leaveType === LeaveType.EMERGENCY ? 0 : 1
-      : await this.getYearlyAllocation(userId, year, leaveType);
+  ): Promise<LeaveBalanceResult> {
+    const bucket = leaveType ? bucketOf({ type: leaveType }) : null;
 
-    // THE BALANCE WINDOW IS THE FINANCIAL YEAR. ALWAYS.
-    //
-    // `year` has meant the FY START year at every caller for as long as this
-    // method has had one -- LeaveService.getUserBalance() passes
-    // financialYear().startYear, and so does the HR monthly register. The
-    // window itself used to depend on attendance_v2.leaveAuthorityEnabled and
-    // fell back to January-December when that was off, so the same argument
-    // could name two different periods depending on a feature flag.
-    //
-    // For nine months of the year those two windows carry the same number and
-    // the disagreement is invisible. From January to March it is real: leave
-    // taken in Jan-Mar was counted against the WRONG financial year, and a
-    // balance labelled "FY 2026-2027" was measuring January to December 2026.
-    //
-    // The company leave year is April to March. That is a policy fact, not a
-    // rollout stage, so it no longer waits on a flag. Deliberately narrow: the
-    // flag still governs leave DURATION and ALLOCATION, which are separate
-    // decisions with their own blast radius, and neither is touched here.
+    // THE BALANCE WINDOW IS THE FINANCIAL YEAR (April to March). Unchanged by
+    // Phase 3; every caller passes the FY start year.
     const fy = this.tva.financialYearBounds(`${year}-${year + 1}`);
-    let startOfYear = this.tva.companyDayStart(fy.start);
-    let endOfYear = this.tva.companyDayEnd(fy.end);
+    const startOfYear = this.tva.companyDayStart(fy.start);
+    const endOfYear = this.tva.companyDayEnd(fy.end);
 
-    // Interns receive one paid Casual day in each calendar month. Unused days
-    // do not silently accumulate into an annual bank.
-    if (isIntern) {
-      const businessDate = this.tva.companyBusinessDate(asOf ?? this.tva.now());
-      const [windowYear, windowMonth] = businessDate.split('-').map(Number);
-      const monthStart = new Date(Date.UTC(windowYear, windowMonth - 1, 1));
-      const monthEnd = new Date(Date.UTC(windowYear, windowMonth, 0));
-      startOfYear = this.tva.companyDayStart(monthStart);
-      endOfYear = this.tva.companyDayEnd(monthEnd);
+    let allocation: number | null;
+    try {
+      allocation = await this.getYearlyAllocation(userId, year, bucket ?? undefined, asOf);
+    } catch (error) {
+      if (!(error instanceof LeavePolicyUnresolvedError)) throw error;
+      allocation = null;
     }
 
-    const leaves = await this.prisma.leaveRequest.findMany({
+    const rows = await this.prisma.leaveRequest.findMany({
       where: {
         userId,
-        ...(leaveType ? { type: leaveType } : {}),
         startDate: { gte: startOfYear, lte: endOfYear },
         status: { in: [LeaveStatus.APPROVED, LeaveStatus.PENDING] },
       },
@@ -297,12 +278,7 @@ export class LeaveBalanceService {
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
 
     // Leave records that predate the employee's first V2 attendance profile
-    // were submitted and approved under the legacy working-day rules. Trying
-    // to replay those records through the newer effective-dated calendar has
-    // no authoritative profile to resolve and used to make the *entire*
-    // balance endpoint fail. Keep the compatibility boundary explicit: only
-    // records created before the first V2 profile may use their original
-    // legacy calculation. Any unresolved current/V2 record still fails safely.
+    // keep their original legacy calculation (see LH-1).
     const firstV2Profile = await this.prisma.employeeAttendanceProfile.findFirst({
       where: { userId },
       orderBy: { effectiveFrom: 'asc' },
@@ -311,8 +287,21 @@ export class LeaveBalanceService {
 
     let approvedDays = 0;
     let pendingDays = 0;
+    let unmeasured = 0;
 
-    for (const leave of leaves) {
+    for (const leave of rows) {
+      const rowBucket = bucketOf(leave);
+      // Comp Off and Unpaid never draw on a paid bucket.
+      if (!rowBucket) continue;
+      if (bucket && rowBucket !== bucket) continue;
+
+      // An approved request whose settlement was recorded uses what it was
+      // actually funded with, never a re-measurement.
+      if (leave.status === LeaveStatus.APPROVED && typeof leave.paidDays === 'number') {
+        approvedDays += leave.paidDays;
+        continue;
+      }
+
       let duration: number;
       try {
         duration = await this.calculateLeaveDuration(
@@ -323,97 +312,57 @@ export class LeaveBalanceService {
           userId,
         );
       } catch (error) {
+        if (!(error instanceof LeaveCalendarUnresolvedError)) throw error;
         const isPreFoundationRecord =
-          error instanceof LeaveCalendarUnresolvedError &&
-          firstV2Profile?.effectiveFrom &&
-          leave.createdAt < firstV2Profile.effectiveFrom;
-
-        if (!isPreFoundationRecord) throw error;
-        duration = this.legacyDuration(
-          leave.startDate,
-          leave.endDate,
-          workingDaysSetting,
-        );
+          firstV2Profile?.effectiveFrom && leave.createdAt < firstV2Profile.effectiveFrom;
+        if (!isPreFoundationRecord) {
+          // Phase 3: a request that cannot be measured yet (calendar setup
+          // pending) is counted separately rather than failing the balance.
+          unmeasured += 1;
+          continue;
+        }
+        duration = this.legacyDuration(leave.startDate, leave.endDate, workingDaysSetting);
       }
-      if (leave.status === LeaveStatus.APPROVED) {
-        approvedDays += duration;
-      } else if (leave.status === LeaveStatus.PENDING) {
-        pendingDays += duration;
-      }
+      if (leave.status === LeaveStatus.APPROVED) approvedDays += duration;
+      else pendingDays += duration;
     }
 
-    const balance = Math.max(0, allocation - approvedDays);
-
-    return { allocation, approved: approvedDays, pending: pendingDays, balance };
+    return {
+      allocation,
+      approved: approvedDays,
+      pending: pendingDays,
+      balance: allocation === null ? null : Math.max(0, allocation - approvedDays),
+      bucket,
+      setupStatus: allocation === null ? 'POLICY_SETUP_PENDING' : 'RESOLVED',
+      unmeasuredRequests: unmeasured,
+    };
   }
 
+  /**
+   * Submission checks for a new request (Phase 3).
+   *
+   * Overlap with a pending or approved request is always refused. Balance is
+   * NOT a reason to refuse: final approval records PAID/PARTIAL/UNPAID, and an
+   * underfunded request is saved and flagged, never turned into LWP here.
+   * Configuration gaps throw LeaveCalendarUnresolvedError /
+   * LeavePolicyUnresolvedError so the caller saves the request setup-pending.
+   */
   async validateLeaveRequest(
     userId: string,
     startDate: Date | string,
     endDate: Date | string,
     isHalfDay = false,
     leaveType?: LeaveType,
-  ): Promise<void> {
+    fundingBucket?: PaidBucket | null,
+  ): Promise<{ duration: number; balance: number | null; insufficient: boolean }> {
     const start = new Date(startDate);
     const end = new Date(endDate);
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { role: true },
-    });
-    const isIntern = user?.role?.name === 'INTERN';
 
-    if (isIntern) {
-      const startMonth = this.tva.companyBusinessDate(start).slice(0, 7);
-      const endMonth = this.tva.companyBusinessDate(end).slice(0, 7);
-      if (startMonth !== endMonth) {
-        throw new ForbiddenException('Intern paid-leave requests must stay within one calendar month.');
-      }
-      if (leaveType === LeaveType.EMERGENCY) {
-        throw new ForbiddenException('Interns have one paid Casual leave day per month and no separate Emergency leave allocation.');
-      }
-    }
+    await this.assertNoOverlap(userId, start, end);
 
-    // 1. Prevent overlapping leaves
-    const overlapping = await this.prisma.leaveRequest.count({
-      where: {
-        userId,
-        status: { in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] },
-        OR: [
-          {
-            startDate: { lte: end },
-            endDate: { gte: start },
-          },
-        ],
-      },
-    });
-
-    if (overlapping > 0) {
-      throw new ForbiddenException('You have an overlapping pending or approved leave request for these dates.');
-    }
-
-    // 2. Validate leave balance
-    //
-    // THE YEAR NAMED HERE MUST MATCH THE WINDOW getLeaveBalance() MEASURES.
-    //
-    // This used to fall back to the calendar year when the flag was off, which
-    // paired with the calendar-year window it also selected. The window is now
-    // always the financial year, so a calendar year here would name FY 2027-28
-    // for a February 2027 request -- a year that has not begun, holds no
-    // leave, and would let an underfunded request through on an empty balance.
-    // One authority for "which leave year is this date in", used on both sides.
-    const balanceYear = this.tva.financialYear(start).startYear;
-    const { balance } = await this.getLeaveBalance(userId, balanceYear, leaveType, start);
     const policy = await this.settings.get('leave_policy');
     const workingDaysSetting = policy?.workingDays || 'Mon–Sat';
-
-    const requestDuration = await this.calculateLeaveDuration(
-      start,
-      end,
-      isHalfDay,
-      workingDaysSetting,
-      userId,
-    );
-
+    const requestDuration = await this.calculateLeaveDuration(start, end, isHalfDay, workingDaysSetting, userId);
     if (requestDuration === 0) {
       throw new ForbiddenException('Selected range contains no working days.');
     }
@@ -422,20 +371,31 @@ export class LeaveBalanceService {
       if (isHalfDay || requestDuration !== 1) {
         throw new ForbiddenException('A Comp Off request must cover exactly one full working day.');
       }
-      // Availability is serialized at final HR approval. Submission never
-      // reserves a credit and never falls through to another entitlement.
-      return;
+      return { duration: requestDuration, balance: null, insufficient: false };
     }
 
-    // Legacy rejects an underfunded request here. LH-2 deliberately permits it
-    // so final HR approval can record PAID/PARTIAL/UNPAID without rewriting the
-    // employee's requested leave type.
-    if (balance < requestDuration) {
-      // Under LH-2, submission records what was requested; the serialized HR
-      // approval transaction is the authority that settles PAID/PARTIAL/UNPAID.
-      // The legacy path keeps its original pre-submission rejection.
-      if (await this.approvalSettlementEnabled()) return;
-      throw new ForbiddenException(`Insufficient leave balance. Remaining: ${balance} days, Requested: ${requestDuration} days.`);
+    const bucket = fundingBucket ?? (leaveType ? bucketOf({ type: leaveType }) : null);
+    if (!bucket) return { duration: requestDuration, balance: null, insufficient: false };
+
+    const balanceYear = this.tva.financialYear(start).startYear;
+    const result = await this.getLeaveBalance(userId, balanceYear, bucket, start);
+    if (result.allocation === null) throw new LeavePolicyUnresolvedError();
+    const available = (result.balance ?? 0) - result.pending;
+    return { duration: requestDuration, balance: result.balance, insufficient: available < requestDuration };
+  }
+
+  /** Overlap with a pending or approved request is refused in every mode. */
+  async assertNoOverlap(userId: string, start: Date, end: Date): Promise<void> {
+    const overlapping = await this.prisma.leaveRequest.count({
+      where: {
+        userId,
+        status: { in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] },
+        startDate: { lte: end },
+        endDate: { gte: start },
+      },
+    });
+    if (overlapping > 0) {
+      throw new ForbiddenException('You have an overlapping pending or approved leave request for these dates.');
     }
   }
 }

@@ -99,6 +99,36 @@ export class TicketAccessService {
     private hierarchy: HierarchyApprovalService,
   ) {}
 
+  /**
+   * Phase 4 ticket-bound review snapshot (D4, correction 2). When a worker is
+   * transferred while their ticket is in REVIEW, the reviewer resolved from
+   * the ORIGINAL department is frozen on an append-only RoutingSnapshot for
+   * that one ticket. The grant holds only while all are true:
+   *   - the ticket is still in REVIEW and is not a QUERY;
+   *   - the snapshot is the latest TICKET_REVIEW snapshot for the ticket;
+   *   - it was taken in the current review cycle (createdAt >= submittedAt);
+   *   - the user is that snapshot's resolved approver and not a worker on it.
+   * Deciding the review moves the ticket out of REVIEW and a resubmission sets
+   * a new submittedAt, so the grant ends by itself. No department-wide or
+   * permanent authority is created; the general TL ticket-authority model is
+   * Phase 4.5.
+   */
+  async transferReviewGrant(userId: string | undefined, ticket: any): Promise<boolean> {
+    if (!userId || !ticket?.id || ticket.status !== TicketStatus.REVIEW || ticket.type === 'QUERY' || !ticket.submittedAt) return false;
+    const isWorker =
+      userId === ticket.assignedToId || Boolean(ticket.assignees?.some?.((a: any) => (a?.userId ?? a?.user?.id) === userId));
+    if (isWorker) return false;
+    const snapshots = (this.prisma as any)?.routingSnapshot;
+    if (typeof snapshots?.findFirst !== 'function') return false;
+    const snap = await snapshots.findFirst({
+      where: { workflow: 'TICKET_REVIEW', entityType: 'Ticket', entityId: ticket.id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { resolvedApproverId: true, createdAt: true },
+    });
+    if (!snap || snap.resolvedApproverId !== userId) return false;
+    return snap.createdAt.getTime() >= new Date(ticket.submittedAt).getTime();
+  }
+
   /** Exposed so services that already hold TicketAccessService can ask without a new dep. */
   isSelfAssigned(ticket: any): boolean {
     return this.hierarchy.isSelfAssigned(ticket);
@@ -122,6 +152,7 @@ export class TicketAccessService {
     if (ticket.type === 'QUERY') {
       return user.id === ticket.createdById;
     }
+    if (await this.transferReviewGrant(user.id, ticket)) return true;
     if (this.hierarchy.isSelfAssigned(ticket)) {
       if (user.id === ticket.createdById) {
         const roleName = this.access.roleName(user);
@@ -278,6 +309,16 @@ export class TicketAccessService {
     toStatus: TicketStatus,
     updates?: any,
   ): Promise<void> {
+    // Phase 4 transfer continuity: the reviewer frozen for THIS ticket's
+    // current review cycle may decide it (leave REVIEW), and nothing else.
+    if (
+      !updates &&
+      ticket?.status === TicketStatus.REVIEW &&
+      toStatus !== TicketStatus.REVIEW &&
+      (await this.transferReviewGrant(user?.id, ticket))
+    ) {
+      return;
+    }
     await this.assertCanUpdateTicket(user, ticket, updates);
     const fromStatus = ticket.status as TicketStatus;
     if (fromStatus === toStatus) return;

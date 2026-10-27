@@ -24,6 +24,7 @@ import {
   type EvaluationState,
   type LeaveDayFacts,
 } from './daily-attendance.types';
+import { classifyRefinedAttendance } from './refined-attendance-policy';
 
 /**
  * The Daily Attendance Evaluator (AE-1).
@@ -358,6 +359,21 @@ export class DailyAttendanceEvaluatorService {
         reason = 'APPROVED_PARTIALLY_FUNDED_LEAVE';
         flags.push('PARTIALLY_FUNDED_LEAVE');
         break;
+      case 'SETTLEMENT_PENDING':
+        // Approved while leave setup was pending: protected as leave, nothing
+        // deducted, and kept in review (out of payroll) until it is settled.
+        status = 'LEAVE';
+        reason = 'APPROVED_LEAVE_SETTLEMENT_PENDING';
+        flags.push('LEAVE_SETTLEMENT_PENDING');
+        break;
+      case 'PROVISIONAL_EMERGENCY':
+        // Phase 3: same-day Emergency Leave protects the day at once, but it
+        // is not approved yet, so nothing is deducted and the day stays in
+        // review until the TL/Manager decides. Never absent.
+        status = 'LEAVE';
+        reason = 'PROVISIONAL_EMERGENCY_LEAVE';
+        flags.push('EMERGENCY_LEAVE_PROVISIONAL');
+        break;
       default:
         status = 'LEAVE';
         reason = 'APPROVED_PAID_LEAVE';
@@ -423,10 +439,18 @@ export class DailyAttendanceEvaluatorService {
       // createdAt then id break the remaining tie. Two corrections decided in
       // the same millisecond otherwise resolve in whatever order the plan
       // returns, which is not a rule.
+      // Phase 3: a single-decision APPROVED correction governs only once it has
+      // actually been APPLIED; one held at REVIEW_REQUIRED (locked or closed
+      // day) must not rewrite the day by being re-evaluated.
       client.attendanceRegularization.findMany({
-        where: { userId, date, status: 'HR_APPROVED' },
+        where: {
+          userId,
+          date,
+          OR: [{ status: 'HR_APPROVED' }, { status: 'APPROVED', applicationStatus: 'APPLIED' }],
+        },
         orderBy: [
           { hrDecisionAt: { sort: 'desc', nulls: 'last' } },
+          { decidedAt: { sort: 'desc', nulls: 'last' } },
           { createdAt: 'desc' },
           { id: 'desc' },
         ],
@@ -434,17 +458,46 @@ export class DailyAttendanceEvaluatorService {
         // corrections: only one may be open at a time, so they are strictly
         // serialized. Bounded so a pathological day cannot load without limit.
         take: 10,
+        // Avoid selecting the additive policyCorrectionType column here. This
+        // evaluation only needs the governing decision and punch correction,
+        // and older local preview schemas can safely answer that contract.
+        select: {
+          id: true,
+          status: true,
+          applicationStatus: true,
+          hrDecisionAt: true,
+          decidedAt: true,
+          createdAt: true,
+          requestedPunchIn: true,
+          requestedPunchOut: true,
+          proposedStatus: true,
+        },
       }),
     ]);
 
     // The newest DATED decision governs. An undated one never does.
-    const correction = approvals.find((c) => c.hrDecisionAt !== null) ?? null;
+    // Decision time: the legacy HR decision, or the Phase 3 single decision.
+    // A legacy HR_APPROVED row is dated by hrDecisionAt; a Phase 3 APPROVED row
+    // by decidedAt. The newest dated decision of either kind governs.
+    const decidedAtOf = (c: any): Date | null | undefined => (c.status === 'APPROVED' ? c.decidedAt : c.hrDecisionAt);
+    const isDated = (c: any) => decidedAtOf(c) !== null;
+    const dated = approvals
+      .map((c: any, i: number) => ({ c, i }))
+      .filter(({ c }: any) => isDated(c))
+      .sort((x: any, y: any) => {
+        const tx = decidedAtOf(x.c);
+        const ty = decidedAtOf(y.c);
+        if (tx instanceof Date && ty instanceof Date && tx.getTime() !== ty.getTime()) return ty.getTime() - tx.getTime();
+        return x.i - y.i;
+      })
+      .map(({ c }: any) => c);
+    const correction = dated[0] ?? null;
 
     // An approved correction with no decision timestamp cannot be placed in
     // time, so it is not allowed to rewrite attendance -- but somebody approved
     // it, and a decision that quietly stops applying is worse than a loud one.
     // The day goes to review rather than silently ignoring the row.
-    if (approvals.some((c) => c.hrDecisionAt === null)) {
+    if (approvals.some((c: any) => !isDated(c))) {
       flags.push('APPROVED_CORRECTION_WITHOUT_DECISION_TIME');
     }
 
@@ -504,6 +557,28 @@ export class DailyAttendanceEvaluatorService {
     // that authorises turning it into an automatic ABSENT.
     if (!punchIn && sessions.length === 0 && !isCorrected) {
       flags.push('NO_ATTENDANCE_EVIDENCE');
+      // Phase 3: the three-day unreported-absence rule already decided this
+      // day (and HR has not corrected it). Re-evaluation keeps that decision
+      // instead of quietly turning it back into a missing punch.
+      const decision = await client.unreportedAbsenceDecision?.findUnique?.({
+        where: { userId_businessDate: { userId, businessDate: new Date(`${businessDate}T00:00:00.000Z`) } },
+        select: { outcome: true },
+      });
+      if (decision?.outcome === 'APPLIED') {
+        flags.push('UNREPORTED_ABSENCE_3_DAYS');
+        return this.build({
+          userId,
+          businessDate,
+          context,
+          status: 'LWP',
+          reason: 'UNREPORTED_ABSENCE_LWP',
+          flags,
+          presenceMinutes: null,
+          requiredMinutes: requiredPresenceMinutes,
+          leaveRequestId: leave.leaveRequestId,
+          lwpDeducted: 1,
+        });
+      }
       return this.build({
         userId,
         businessDate,
@@ -647,6 +722,44 @@ export class DailyAttendanceEvaluatorService {
         ? Math.max(0, Math.floor((punchOutAt.getTime() - punchInAt.getTime()) / 60_000))
         : null;
 
+    // Refined policy is the current default. The thresholds live on the
+    // effective-dated AttendancePolicy version, so later policy changes never
+    // rewrite a historical result.
+    if (presenceSpanMinutes !== null && punchInAt && punchOutAt) {
+      const localTimeMinutes = (value: Date) => {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: this.tva.companyTimezone(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+        }).formatToParts(value);
+        return Number(parts.find((p) => p.type === 'hour')?.value ?? 0) * 60
+          + Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+      };
+      const refined = classifyRefinedAttendance({
+        workedMinutes,
+        punchInMinutes: localTimeMinutes(punchInAt),
+        punchOutMinutes: localTimeMinutes(punchOutAt),
+        requiredMinutes: requiredSpan,
+        halfDayMaximumMinutes: (policy as any)?.halfDayMaximumMinutes ?? 270,
+        lateArrivalBoundaryMinutes: (policy as any)?.lateArrivalBoundaryMinutes ?? 780,
+        fullHalfDayCompletionMinutes: (policy as any)?.fullHalfDayCompletionMinutes ?? 1110,
+        earlyCheckoutBoundaryMinutes: (policy as any)?.earlyCheckoutBoundaryMinutes ?? 960,
+      });
+      if (refined === 'FULL_DAY') {
+        status = 'PRESENT';
+        reason = 'REFINED_FULL_DAY';
+      } else if (refined === 'HALF_DAY') {
+        status = 'HALF_DAY';
+        reason = 'REFINED_HALF_DAY';
+        // Attendance classification must not spend annual leave. Payroll sees
+        // the unpaid fraction; an approved half-day leave is handled by the
+        // explicit leave branch above.
+        lwpDeducted = 0.5;
+      } else {
+        status = 'LATE';
+        reason = 'REFINED_SHORT_DAY';
+        lwpDeducted = (policy as any)?.shortDayPayDeduction ?? (1 / 3);
+      }
+    } else {
+
     // Late beyond the punch window.
     if (lateMinutes > 0) {
       status = policy?.lateExemptionEnabled ? 'LATE_EXEMPTED' : 'LATE';
@@ -684,6 +797,7 @@ export class DailyAttendanceEvaluatorService {
       leaveDeducted += decision.leaveDeducted;
       lwpDeducted += decision.lwpDeducted;
       if (decision.status || decision.review) reason = 'POLICY_DECISION_DEFERRED';
+    }
     }
 
     if (context.calendar.override?.type === 'SPECIAL_WORKING_DAY' && reason === 'COMPLETE_WORKDAY') {

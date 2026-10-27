@@ -5,20 +5,15 @@ import { ConfigService } from '@nestjs/config';
 import { TVAService } from '../../src/common/services/tva.service';
 import { LeaveBalanceService } from '../../src/modules/operations/leave/leave-balance.service';
 
-describe('management leave entitlements', () => {
-  const rig = (rows: any[] = [], leaveApprovalEnabled = false) => {
+/**
+ * Refined policy entitlement: one 14-day Annual Leave pool from the versioned
+ * LeavePolicy. Emergency is a submission mode, never another balance.
+ */
+describe('management leave entitlements (Phase 3)', () => {
+  const POLICY = { id: 'lp-1', totalPaidLeaves: 14 };
+  const rig = (rows: any[] = [], policy: any = POLICY) => {
     const prisma: any = {
-      employeeAttendanceProfile: {
-        findFirst: jest.fn().mockResolvedValue({
-          assignedLeavePolicy: {
-            totalPaidLeaves: 14,
-            // Deliberately stale values: the approved company-wide typed
-            // entitlements must win over an older assigned profile.
-            casualLeaveAllocation: 6,
-            emergencyLeaveAllocation: 6,
-          },
-        }),
-      },
+      employeeAttendanceProfile: { findFirst: jest.fn().mockResolvedValue(null) },
       leaveRequest: {
         findMany: jest.fn().mockResolvedValue(rows),
         count: jest.fn().mockResolvedValue(0),
@@ -26,13 +21,7 @@ describe('management leave entitlements', () => {
       user: { findUnique: jest.fn() },
     };
     const settings: any = {
-      get: jest.fn((key: string) =>
-        Promise.resolve(
-          key === 'attendance_v2'
-            ? { leaveAuthorityEnabled: true, leaveApprovalEnabled }
-            : {},
-        ),
-      ),
+      get: jest.fn((key: string) => Promise.resolve(key === 'attendance_v2' ? { leaveAuthorityEnabled: true } : {})),
       getLeaveQuotas: jest.fn(),
     };
     const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
@@ -40,84 +29,68 @@ describe('management leave entitlements', () => {
       countWorkingDays: jest.fn().mockResolvedValue(1),
       enumerateBusinessDates: jest.fn(),
     };
-    return { service: new LeaveBalanceService(prisma, settings, tva, workingDays), prisma };
+    const policies: any = { resolvePolicyOn: jest.fn().mockResolvedValue(policy) };
+    const timeline: any = { findProfileOn: jest.fn().mockResolvedValue({ assignedLeavePolicyId: 'lp-1' }) };
+    return { service: new LeaveBalanceService(prisma, settings, tva, workingDays, policies, timeline), prisma, settings, policies };
   };
 
-  it('keeps Casual 10 and Emergency 4 as separate FY authorities even when an assigned policy is stale', async () => {
-    const { service } = rig();
-    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.CASUAL)).toBe(10);
-    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.EMERGENCY)).toBe(4);
+  it('reads the 14-day Annual allocation from the versioned policy', async () => {
+    const { service, settings } = rig();
+    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.ANNUAL)).toBe(14);
+    expect(await service.getYearlyAllocation('emp-1', 2026)).toBe(14);
+    expect(settings.getLeaveQuotas).not.toHaveBeenCalled();
   });
 
-  it('gives interns one Casual paid day in the current month and no Emergency pool', async () => {
+  it('a different policy version is the only way to a different entitlement', async () => {
+    const { service } = rig([], { ...POLICY, totalPaidLeaves: 18 });
+    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.ANNUAL)).toBe(18);
+  });
+
+  it('interns follow the same versioned policy (no one-day-per-month hard-code)', async () => {
     const { service, prisma } = rig();
     prisma.user.findUnique.mockResolvedValue({ role: { name: 'INTERN' } });
-
-    const casual = await service.getLeaveBalance(
-      'intern-1',
-      2026,
-      LeaveType.CASUAL,
-      new Date('2026-10-12T06:30:00.000Z'),
-    );
-    const emergency = await service.getLeaveBalance(
-      'intern-1',
-      2026,
-      LeaveType.EMERGENCY,
-      new Date('2026-10-12T06:30:00.000Z'),
-    );
-
-    expect(casual.allocation).toBe(1);
-    expect(emergency.allocation).toBe(0);
+    const annual = await service.getLeaveBalance('intern-1', 2026, LeaveType.ANNUAL, new Date('2026-10-12T06:30:00.000Z'));
+    expect(annual.allocation).toBe(14);
     const range = prisma.leaveRequest.findMany.mock.calls[0][0].where.startDate;
-    expect(range.gte.toISOString().slice(0, 10)).toBe('2026-09-30');
-    expect(range.lte.toISOString().slice(0, 10)).toBe('2026-10-31');
+    expect(range.gte.toISOString().slice(0, 10)).toBe('2026-03-31');
+    expect(range.lte.toISOString().slice(0, 10)).toBe('2027-03-31');
   });
 
-  it('uses TVA financial-year bounds for management balances', async () => {
+  it('uses TVA financial-year bounds for balances', async () => {
     const { service, prisma } = rig();
-    await service.getLeaveBalance('emp-1', 2026, LeaveType.CASUAL);
+    await service.getLeaveBalance('emp-1', 2026, LeaveType.ANNUAL);
     const range = prisma.leaveRequest.findMany.mock.calls[0][0].where.startDate;
     expect(range.gte.toISOString().slice(0, 10)).toBe('2026-03-31'); // 1 Apr IST start
     expect(range.lte.toISOString().slice(0, 10)).toBe('2027-03-31');
   });
 
-  it('never cross-consumes Emergency from Casual or Casual from Emergency', async () => {
-    const casual = rig([{ type: LeaveType.CASUAL, status: 'APPROVED', startDate: new Date(), endDate: new Date(), isHalfDay: false }]);
-    const emergency = rig([]);
-
-    const casualBalance = await casual.service.getLeaveBalance('emp-1', 2026, LeaveType.CASUAL);
-    const emergencyBalance = await emergency.service.getLeaveBalance('emp-1', 2026, LeaveType.EMERGENCY);
-
-    expect(casual.prisma.leaveRequest.findMany.mock.calls[0][0].where.type).toBe(LeaveType.CASUAL);
-    expect(emergency.prisma.leaveRequest.findMany.mock.calls[0][0].where.type).toBe(LeaveType.EMERGENCY);
-    expect(casualBalance).toMatchObject({ allocation: 10, approved: 1, balance: 9 });
-    expect(emergencyBalance).toMatchObject({ allocation: 4, approved: 0, balance: 4 });
+  it('all historical paid rows consume the single Annual pool', async () => {
+    const at = { startDate: new Date('2026-08-03T00:00:00.000Z'), endDate: new Date('2026-08-03T00:00:00.000Z'), isHalfDay: false, status: 'APPROVED' };
+    const rows = [
+      { ...at, id: 'c', type: LeaveType.CASUAL },
+      { ...at, id: 's', type: LeaveType.SICK },
+      { ...at, id: 'e', type: LeaveType.EMERGENCY },
+      { ...at, id: 'ef', type: LeaveType.CASUAL, fundingBucket: 'CASUAL', submissionMode: 'EMERGENCY' },
+      { ...at, id: 'u', type: LeaveType.UNPAID },
+      { ...at, id: 'co', type: LeaveType.COMP_OFF },
+    ];
+    const annual = await rig(rows).service.getLeaveBalance('emp-1', 2026, LeaveType.ANNUAL);
+    expect(annual).toMatchObject({ allocation: 14, approved: 4, balance: 10, bucket: 'ANNUAL' });
   });
 
-  it('allows an underfunded entitlement request only for LH-2 final settlement', async () => {
-    const enabled = rig([], true);
-    jest.spyOn(enabled.service, 'getLeaveBalance').mockResolvedValue({
-      allocation: 10, approved: 10, pending: 0, balance: 0,
-    });
-    await expect(enabled.service.validateLeaveRequest(
-      'emp-1',
-      '2026-08-03',
-      '2026-08-03',
-      false,
-      LeaveType.CASUAL,
-    )).resolves.toBeUndefined();
+  it('no total ever reaches 18, even with the retired Emergency column still set', async () => {
+    const { service } = rig();
+    const total = await service.getLeaveBalance('emp-1', 2026);
+    expect(total.allocation).toBe(14);
+  });
 
-    const legacy = rig([], false);
-    jest.spyOn(legacy.service, 'getLeaveBalance').mockResolvedValue({
-      allocation: 10, approved: 10, pending: 0, balance: 0,
+  it('an underfunded request is saved and flagged, never refused for balance', async () => {
+    const { service } = rig();
+    jest.spyOn(service, 'getLeaveBalance').mockResolvedValue({
+      allocation: 14, approved: 14, pending: 0, balance: 0, bucket: 'ANNUAL', setupStatus: 'RESOLVED', unmeasuredRequests: 0,
     });
-    await expect(legacy.service.validateLeaveRequest(
-      'emp-1',
-      '2026-08-03',
-      '2026-08-03',
-      false,
-      LeaveType.CASUAL,
-    )).rejects.toThrow(/Insufficient leave balance/);
+    await expect(service.validateLeaveRequest('emp-1', '2026-08-03', '2026-08-03', false, LeaveType.ANNUAL))
+      .resolves.toMatchObject({ insufficient: true });
   });
 });
 

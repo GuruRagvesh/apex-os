@@ -5,7 +5,7 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 const upload = () => ({ buffer: png, size: png.length, mimetype: 'image/png', originalname: '../failure.png' });
 function setup() {
   const prisma = {
-    attendanceRegularization: { findUnique: jest.fn().mockResolvedValue({ id: 'request', userId: 'owner' }), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'request' }), findMany: jest.fn().mockResolvedValue([]) },
+    attendanceRegularization: { count: jest.fn().mockResolvedValue(0), findUnique: jest.fn().mockResolvedValue({ id: 'request', userId: 'owner' }), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'request' }), findMany: jest.fn().mockResolvedValue([]) },
     correctionScreenshot: { findFirst: jest.fn().mockResolvedValue({ id: 'image', content: png }) },
     dailyAttendance: { findUnique: jest.fn().mockResolvedValue(null) },
   };
@@ -27,7 +27,7 @@ describe('Correction screenshot supporting attachments', () => {
   ])('rejects %s', (_, files) => expect(() => validateScreenshots(files())).toThrow(BadRequestException));
   it('writes screenshots atomically with the employee request and returns only file metadata', async () => {
     const { svc, prisma } = setup();
-    await svc.create('owner', { businessDate: '2026-10-06', requestType: 'MISSING_PUNCH', reason: 'System failed before punching in.' }, [upload()]);
+    await svc.create('owner', { businessDate: '2026-10-06', requestType: 'MISSING_PUNCH_IN', reason: 'System failed before punching in.' }, [upload()]);
     const input = prisma.attendanceRegularization.create.mock.calls[0][0];
     expect(input.data.userId).toBe('owner'); expect(input.data.screenshots.create[0].content).toEqual(png); expect(input.include.screenshots.select.content).toBeUndefined();
   });

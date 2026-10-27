@@ -10,8 +10,10 @@ import { CommonModule } from './common/common.module';
 // ── 🔐 Core ───────────────────────────────────────────────────────────────────
 import { AuthModule } from './modules/core/auth/auth.module';
 import { UsersModule } from './modules/core/users/users.module';
+import { TransitionsModule } from './modules/core/users/transitions/transitions.module';
 import { RolesModule } from './modules/core/roles/roles.module';
 import { DepartmentsModule } from './modules/core/departments/departments.module';
+import { HierarchyModule } from './modules/core/hierarchy/hierarchy.module';
 
 // ── 🎫 Operations ─────────────────────────────────────────────────────────────
 import { TicketsModule } from './modules/operations/tickets/tickets.module';
@@ -51,6 +53,7 @@ import { AttendanceExceptionModule } from './modules/platform/attendance/excepti
 import { AttendanceProcessingModule } from './modules/platform/attendance/processing/attendance-processing.module';
 import { EventsModule } from './modules/platform/events/events.module';
 import { AnalyticsModule } from './modules/platform/analytics/analytics.module';
+import { ReviewQueueModule } from './modules/platform/review-queue/review-queue.module';
 
 import { AppThrottlerGuard } from './shared/guards/app-throttler.guard';
 
@@ -72,8 +75,10 @@ const isTest = process.env.NODE_ENV === 'test';
     // 🔐 Core
     AuthModule,
     UsersModule,
+    TransitionsModule,
     RolesModule,
     DepartmentsModule,
+    HierarchyModule,
     // 🎫 Operations
     TicketsModule,
     ProjectsModule,
@@ -110,6 +115,7 @@ const isTest = process.env.NODE_ENV === 'test';
     AttendanceExceptionModule,
     EventsModule,
     AnalyticsModule,
+    ReviewQueueModule,
   ],
 })
 export class AppModule {}

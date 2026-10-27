@@ -1,15 +1,16 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { DailyAttendanceEvaluationState, DailyAttendanceStatus, TicketStatus } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { DailyAttendanceEvaluationState, DailyAttendanceStatus, NotificationType, TicketStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { TicketAccessService } from '../../../common/services/ticket-access.service';
 import { TVAService } from '../../../common/services/tva.service';
+import { NotificationEventService } from '../../operations/notifications/notification-event.service';
 
 const SETTINGS_KEY = 'home_announcements_v1';
 const ROLES = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const PRIORITIES = ['GENERAL', 'IMPORTANT', 'CRITICAL'];
-type Announcement = {
+export type Announcement = {
   id: string;
   title: string;
   body: string;
@@ -19,6 +20,10 @@ type Announcement = {
   startsAt: string;
   endsAt: string | null;
   active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
+  creatorName?: string;
 };
 
 @Injectable()
@@ -28,6 +33,7 @@ export class HomeCarouselService {
     private readonly access: AccessPolicyService,
     private readonly ticketAccess: TicketAccessService,
     private readonly tva: TVAService,
+    private readonly notifications: NotificationEventService,
   ) {}
 
   private async announcements(): Promise<Announcement[]> {
@@ -46,6 +52,18 @@ export class HomeCarouselService {
     return Boolean(user.departmentId && item.targetIds.includes(user.departmentId));
   }
 
+  private expiresAt(item: Announcement): Date {
+    // Legacy records sometimes had no end. Treat those as 24-hour notices too
+    // so no announcement can remain live indefinitely.
+    return item.endsAt
+      ? new Date(item.endsAt)
+      : new Date(new Date(item.startsAt).getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  private isLive(item: Announcement, now: Date): boolean {
+    return item.active && new Date(item.startsAt) <= now && this.expiresAt(item) > now;
+  }
+
   async getCarousel(user: any) {
     const now = this.tva.now();
     const [announcements, spotlight, recognition] = await Promise.all([
@@ -53,18 +71,143 @@ export class HomeCarouselService {
       this.getPunctualitySpotlight(user),
       this.getRecognition(user, now),
     ]);
-    const visible = announcements.filter((item) =>
-      item.active && this.visibleTo(item, user) &&
-      new Date(item.startsAt) <= now && (!item.endsAt || new Date(item.endsAt) >= now),
-    ).sort((a, b) => Number(b.priority === 'IMPORTANT') - Number(a.priority === 'IMPORTANT') ||
+    const visible = announcements.filter((item) => this.isLive(item, now) && this.visibleTo(item, user))
+      .sort((a, b) => Number(b.priority === 'IMPORTANT') - Number(a.priority === 'IMPORTANT') ||
       new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime());
 
     return {
+      announcements: visible,
       announcement: visible.find((item) => item.priority !== 'CRITICAL') ?? null,
       criticalAnnouncements: visible.filter((item) => item.priority === 'CRITICAL'),
       spotlight,
       recognition,
     };
+  }
+
+  /** Lightweight feed for the app-wide blocking announcement guard. */
+  async getCurrentAnnouncements(user: any) {
+    const now = this.tva.now();
+    return (await this.announcements())
+      .filter((item) => this.isLive(item, now) && this.visibleTo(item, user))
+      .sort((a, b) => new Date(b.updatedAt ?? b.startsAt).getTime() - new Date(a.updatedAt ?? a.startsAt).getTime());
+  }
+
+  private canManageAnnouncements(user: any): boolean {
+    return Boolean(user?.isHR) || ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(this.access.roleName(user));
+  }
+
+  private assertCanManage(user: any) {
+    if (!this.canManageAnnouncements(user)) {
+      throw new ForbiddenException('HR, Manager, Admin or Super Admin access required');
+    }
+  }
+
+  private validateAnnouncementInput(input: unknown) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid announcement');
+    const item = input as Record<string, unknown>;
+    if (Object.keys(item).some((key) => !['title', 'body', 'priority', 'audience', 'targetIds'].includes(key))) {
+      throw new BadRequestException('Unknown announcement field');
+    }
+    if (typeof item.title !== 'string' || !item.title.trim() || item.title.length > 140 ||
+        typeof item.body !== 'string' || !item.body.trim() || item.body.length > 2000 ||
+        !PRIORITIES.includes(String(item.priority ?? 'GENERAL')) ||
+        !['COMPANY', 'ROLE', 'DEPARTMENT'].includes(String(item.audience ?? 'COMPANY')) ||
+        !Array.isArray(item.targetIds ?? []) || (item.targetIds as unknown[]).length > 30 ||
+        (item.targetIds as unknown[]).some((target) => typeof target !== 'string')) {
+      throw new BadRequestException('Invalid announcement fields');
+    }
+    const audience = String(item.audience ?? 'COMPANY') as Announcement['audience'];
+    const targets = [...new Set((item.targetIds ?? []) as string[])];
+    if ((audience === 'COMPANY' && targets.length) || (audience !== 'COMPANY' && !targets.length) ||
+        (audience === 'ROLE' && targets.some((target) => !ROLES.includes(target)))) {
+      throw new BadRequestException('Invalid announcement audience');
+    }
+    return { title: item.title.trim(), body: item.body.trim(), priority: String(item.priority ?? 'GENERAL') as Announcement['priority'], audience, targetIds: targets };
+  }
+
+  private async assertDepartmentTargets(audience: Announcement['audience'], targets: string[]) {
+    if (audience !== 'DEPARTMENT') return;
+    const count = await this.prisma.department.count({ where: { id: { in: targets } } });
+    if (count !== targets.length) throw new BadRequestException('Unknown department target');
+  }
+
+  private async saveAnnouncements(announcements: Announcement[], userId: string) {
+    // Keep current and historical announcements together. The bounded history
+    // prevents this settings document from growing forever.
+    const bounded = announcements
+      .sort((a, b) => new Date(b.createdAt ?? b.startsAt).getTime() - new Date(a.createdAt ?? a.startsAt).getTime())
+      .slice(0, 250);
+    await this.prisma.appSetting.upsert({ where: { key: SETTINGS_KEY },
+      create: { key: SETTINGS_KEY, value: bounded, updatedBy: userId },
+      update: { value: bounded, updatedBy: userId } });
+  }
+
+  private async notifyAudience(item: Announcement) {
+    const users = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        isSystemAccount: false,
+        ...(item.audience === 'ROLE' ? { role: { name: { in: item.targetIds as any } } } : {}),
+        ...(item.audience === 'DEPARTMENT' ? { departmentId: { in: item.targetIds } } : {}),
+      },
+      select: { id: true },
+    });
+    // Publishing must not become a duplicate-prone failure if one recipient's
+    // optional push channel is unavailable. Each durable notification is
+    // independently deduplicated by user + announcement revision.
+    await Promise.allSettled(users.map(({ id }) => this.notifications.sendNotification(id, 'announcement', {
+      title: item.title,
+      message: item.body,
+      type: item.priority === 'CRITICAL' ? NotificationType.ERROR : item.priority === 'IMPORTANT' ? NotificationType.WARNING : NotificationType.INFO,
+      link: '/dashboard',
+      entityId: item.id,
+      entityType: 'announcement',
+      dedupeKey: `announcement:${item.id}:${item.updatedAt}`,
+    })));
+  }
+
+  async createAnnouncement(user: any, input: unknown) {
+    this.assertCanManage(user);
+    const value = this.validateAnnouncementInput(input);
+    await this.assertDepartmentTargets(value.audience, value.targetIds);
+    const now = this.tva.now();
+    const item: Announcement = {
+      id: randomUUID(), ...value, active: true,
+      startsAt: now.toISOString(),
+      endsAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: now.toISOString(), updatedAt: now.toISOString(),
+      createdBy: user.id, creatorName: user.name ?? 'Apex OS',
+    };
+    await this.saveAnnouncements([item, ...(await this.announcements())], user.id);
+    await this.notifyAudience(item);
+    return item;
+  }
+
+  async updateAnnouncement(user: any, id: string, input: unknown) {
+    this.assertCanManage(user);
+    const value = this.validateAnnouncementInput(input);
+    await this.assertDepartmentTargets(value.audience, value.targetIds);
+    const announcements = await this.announcements();
+    const index = announcements.findIndex((item) => item.id === id);
+    if (index < 0) throw new NotFoundException('Announcement not found');
+    const existing = announcements[index];
+    const now = this.tva.now();
+    if (!this.isLive(existing, now)) {
+      throw new BadRequestException('Only a current announcement can be edited');
+    }
+    const updated: Announcement = { ...existing, ...value, updatedAt: now.toISOString() };
+    announcements[index] = updated;
+    await this.saveAnnouncements(announcements, user.id);
+    await this.notifyAudience(updated);
+    return updated;
+  }
+
+  async getAnnouncementHistory(user: any) {
+    this.assertCanManage(user);
+    const now = this.tva.now();
+    return (await this.announcements())
+      .filter((item) => !this.isLive(item, now))
+      .sort((a, b) => new Date(b.createdAt ?? b.startsAt).getTime() - new Date(a.createdAt ?? a.startsAt).getTime());
   }
 
   private async getRecognition(user: any, now: Date) {
@@ -133,7 +276,7 @@ export class HomeCarouselService {
 
   /** Admin-only publishing boundary. Replaces a bounded, validated announcement set. */
   async publishAnnouncements(user: any, input: unknown) {
-    if (!this.access.isAdmin(user)) throw new ForbiddenException('Administrator access required');
+    this.assertCanManage(user);
     if (!Array.isArray(input) || input.length > 50) throw new BadRequestException('Expected up to 50 announcements');
     const announcements: Announcement[] = [];
     const ids = new Set<string>();

@@ -1,14 +1,38 @@
 ﻿import { Controller, Get } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PunchPhotoStorage } from '../attendance/punch/punch-photo.storage';
 
 /** How long the health probe waits for the database before answering anyway. */
 const DB_PROBE_TIMEOUT_MS = 3_000;
 
+// These are the migrations required for an authenticated hierarchy request,
+// not merely the tables owned by the hierarchy module. The Phase 4 user
+// fields are read by JwtStrategy before the hierarchy controller runs.
+// Omitting them made readiness say "ready" even though every signed-in
+// hierarchy request failed against an older database.
+const ORGANIZATION_HIERARCHY_RUNTIME_MIGRATIONS = [
+  '20261022090000_phase4_enum_values',
+  '20261022090100_phase4_employee_transitions',
+  '20261023104500_organization_reporting_lines',
+  '20261023143000_matrix_organization_memberships',
+  '20261023150000_aniket_qc_reports_to_rajashree',
+  '20261026123000_backfill_company_reporting_tree',
+];
+
+function deployedCommit() {
+  return (
+    process.env.RENDER_GIT_COMMIT ??
+    process.env.GIT_COMMIT_SHA ??
+    process.env.GITHUB_SHA ??
+    null
+  );
+}
+
 @ApiTags('Health')
-@SkipThrottle()   // Health checks are called by uptime monitors — exempt from rate limiting
+@SkipThrottle() // Health checks are called by uptime monitors — exempt from rate limiting
 @Controller('health')
 export class HealthController {
   constructor(
@@ -17,7 +41,9 @@ export class HealthController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Health check â€” returns API status and DB connectivity' })
+  @ApiOperation({
+    summary: 'Health check â€” returns API status and DB connectivity',
+  })
   async check() {
     let database: 'connected' | 'error' = 'connected';
 
@@ -29,7 +55,12 @@ export class HealthController {
     try {
       await Promise.race([
         this.prisma.$queryRaw`SELECT 1`,
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), DB_PROBE_TIMEOUT_MS); }),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('timeout')),
+            DB_PROBE_TIMEOUT_MS,
+          );
+        }),
       ]);
     } catch {
       database = 'error';
@@ -49,11 +80,55 @@ export class HealthController {
       status: 'ok',
       timestamp: new Date().toISOString(),
       version: '1.0.0',
+      release: {
+        commit: deployedCommit(),
+      },
       database,
       environment: process.env.APP_ENV || process.env.NODE_ENV || 'development',
       attendancePhotoStorage: {
         provider: this.punchPhotoStorage.providerName(),
         configured: this.punchPhotoStorage.isConfigured(),
+      },
+    };
+  }
+
+  @Get('release-readiness')
+  @ApiOperation({ summary: 'Release readiness for deployed API capabilities' })
+  async releaseReadiness() {
+    let appliedMigrationCount = 0;
+
+    try {
+      const migrations = await this.prisma.$queryRaw<
+        Array<{ migration_name: string }>
+      >(
+        Prisma.sql`
+          SELECT migration_name
+          FROM "_prisma_migrations"
+          WHERE finished_at IS NOT NULL
+            AND migration_name IN (${Prisma.join(ORGANIZATION_HIERARCHY_RUNTIME_MIGRATIONS)})
+        `,
+      );
+      appliedMigrationCount = new Set(
+        migrations.map((migration) => migration.migration_name),
+      ).size;
+    } catch {
+      // A release verifier receives `ready: false`; liveness remains unaffected.
+    }
+
+    const organizationHierarchyReady =
+      appliedMigrationCount ===
+      ORGANIZATION_HIERARCHY_RUNTIME_MIGRATIONS.length;
+
+    return {
+      status: organizationHierarchyReady ? 'ready' : 'not_ready',
+      release: {
+        commit: deployedCommit(),
+      },
+      organizationHierarchy: {
+        endpoint: '/api/organization-hierarchy/organization',
+        requiredMigrations: ORGANIZATION_HIERARCHY_RUNTIME_MIGRATIONS.length,
+        appliedMigrations: appliedMigrationCount,
+        ready: organizationHierarchyReady,
       },
     };
   }

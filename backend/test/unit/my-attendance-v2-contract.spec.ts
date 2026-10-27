@@ -286,6 +286,17 @@ describe('a future date', () => {
     const d = mapDay({ result: result(), date: '2026-10-20', companyToday: TODAY });
     expect(d.outcome).toBeNull();
   });
+
+  it('keeps a published weekly-off classification without inventing an attendance outcome', () => {
+    const d = mapDay({
+      result: null,
+      date: '2026-10-25',
+      companyToday: TODAY,
+      calendar: { isWorkingDay: false, status: 'WEEKLY_OFF', reason: 'SUNDAY', holidayName: null },
+    });
+    expect(d.outcome).toBeNull();
+    expect(d.calendar).toMatchObject({ status: 'WEEKLY_OFF', reason: 'SUNDAY' });
+  });
 });
 
 describe('a day with no official result', () => {

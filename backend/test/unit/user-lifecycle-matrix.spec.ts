@@ -81,7 +81,14 @@ describe('lifecycle dependency matrix covers the schema', () => {
     for (const k of ['AttendancePunchEvidence.userId', 'WorkdayNote.userId', 'BreakLog.userId', 'TicketTimeLog.userId', 'AttendanceEvent.userId', 'CompOffCredit.employeeId']) {
       expect([k, at(k) < at('WorkSession.userId')]).toEqual([k, true]);
     }
-    expect(HANDLERS.filter((h) => h.appendOnly).map((h) => h.model).sort()).toEqual(['AttendancePunchEvidence', 'FnfAdjustment', 'LifecycleRemediationAttempt', 'WorkdayNote']);
+    expect(HANDLERS.filter((h) => h.appendOnly).map((h) => h.model).sort()).toEqual(['AttendancePunchEvidence', 'FnfAdjustment', 'FnfAdjustmentRequest', 'LeaveEvidence', 'LeaveEvidence', 'LifecycleRemediationAttempt', 'UnreportedAbsenceDecision', 'WorkdayNote']);
+  });
+
+  it('classifies business reporting lines separately from approval assignments', () => {
+    const actionFor = (key: string) => HANDLERS.find((handler) => handler.key === key)?.action;
+
+    expect(actionFor('OrganizationReportingLine.subjectUserId')).toBe('DEL');
+    expect(actionFor('OrganizationReportingLine.supervisorId')).toBe('DEL');
   });
 
   describe('lifecycle foundation (Phase 1) handlers', () => {

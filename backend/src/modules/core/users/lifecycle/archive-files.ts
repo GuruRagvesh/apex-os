@@ -49,6 +49,8 @@ export const FILE_COLUMNS: { column: string; handlerKey: string; field: string; 
   { column: 'AttendancePunchPhoto.objectKey', handlerKey: 'AttendancePunchPhoto.userId', field: 'objectKey' },
   { column: 'AttendancePunchEvidence.photoObjectKey', handlerKey: 'AttendancePunchEvidence.userId', field: 'photoObjectKey' },
   { column: 'AttendanceEvent.faceImageUrl', handlerKey: 'AttendanceEvent.userId', field: 'faceImageUrl' },
+  // Phase 3: Emergency Leave evidence files, private and owned by the employee.
+  { column: 'LeaveEvidence.storageKey', handlerKey: 'LeaveEvidence.userId', field: 'storageKey' },
   // Ticket attachments are shared business records: copied, never deleted.
   { column: 'Attachment.url', handlerKey: 'Attachment.uploadedById', field: 'url', alwaysShared: true },
 ];
@@ -158,6 +160,7 @@ export async function markShared(db: any, subjectId: string, files: FileObject[]
       db.attendancePunchPhoto.count({ where: { userId: { not: subjectId }, objectKey: { in: values } } }),
       db.attendancePunchEvidence.count({ where: { userId: { not: subjectId }, photoObjectKey: { in: values } } }),
       db.attendanceEvent.count({ where: { userId: { not: subjectId }, faceImageUrl: { in: values } } }),
+      db.leaveEvidence.count({ where: { userId: { not: subjectId }, storageKey: { in: values } } }),
       db.attachment.count({ where: { url: { in: values } } }),
     ]);
     if (checks.some((n: number) => n > 0)) f.shared = true;

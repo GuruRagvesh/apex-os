@@ -118,17 +118,17 @@ async function givePhase1Rows(w: World, subject: string, other: string) {
   // The subject's own completed exit case, settlement, clearance and adjustments.
   const ownCase = await p.exitCase.create({ data: { id: id(), userId: subject, employmentPeriodId: ownPeriod.id, state: 'COMPLETED', resignedOn: new Date('2026-08-01'), noticeDays: 30, noticeSource: 'POLICY_CONFIRMED', lastWorkingDay: new Date('2026-08-31') } });
   await p.exitClearanceItem.create({ data: { id: id(), exitCaseId: ownCase.id, category: 'ASSETS', status: 'DONE', completedAt: NOW, completedById: w.admin.id } });
-  const ownSettlement = await p.fnfSettlement.create({ data: { id: id(), exitCaseId: ownCase.id, state: 'RELEASED', deadlineOn: new Date('2026-09-10'), releasedAt: NOW, releasedById: w.admin.id } });
-  const ownAdj = await p.fnfAdjustment.create({ data: { id: id(), settlementId: ownSettlement.id, subjectUserId: subject, kind: 'ASSET_RECOVERY', direction: 'DEBIT', amount: '1500.00', reasonCode: 'LAPTOP', reference: 'REF-1', approvedById: w.admin.id, approvedAt: NOW, recordedById: w.admin.id } });
-  await p.fnfAdjustment.create({ data: { id: id(), settlementId: ownSettlement.id, subjectUserId: subject, kind: 'ASSET_RECOVERY', direction: 'CREDIT', amount: '1500.00', reasonCode: 'CORRECTION', reference: 'REF-1R', approvedById: w.admin.id, approvedAt: NOW, recordedById: w.admin.id, reversesId: ownAdj.id } });
+  const ownSettlement = await p.fnfSettlement.create({ data: { id: id(), exitCaseId: ownCase.id, state: 'RELEASED', deadlineOn: new Date('2026-09-10'), readyAt: NOW, releasedAt: NOW, releasedById: w.admin.id, releaseReference: 'PAY-2026-0001' } });
+  const ownAdj = await p.fnfAdjustment.create({ data: { id: id(), settlementId: ownSettlement.id, subjectUserId: subject, kind: 'ASSET_RECOVERY', direction: 'DEBIT', amount: '1500.00', reasonCode: 'LAPTOP', reference: 'REF-1', approvedById: w.admin.id, approvedAt: NOW, recordedById: w.seed.actors.hr.id } });
+  await p.fnfAdjustment.create({ data: { id: id(), settlementId: ownSettlement.id, subjectUserId: subject, kind: 'ASSET_RECOVERY', direction: 'CREDIT', amount: '1500.00', reasonCode: 'CORRECTION', reference: 'REF-1R', approvedById: w.admin.id, approvedAt: NOW, recordedById: w.seed.actors.hr.id, reversesId: ownAdj.id } });
   // The other person's open exit case, which the subject handled.
   const otherCase = await p.exitCase.create({ data: { id: id(), userId: other, employmentPeriodId: otherPeriod.id, state: 'CLEARANCE_IN_PROGRESS', resignedOn: new Date('2026-10-01'), noticeDays: 30, noticeSource: 'POLICY_CONFIRMED', lastWorkingDay: new Date('2026-10-31'), createdById: subject } });
   await p.exitClearanceItem.create({ data: { id: id(), exitCaseId: otherCase.id, category: 'HANDOVER', ownerId: subject } });
   const otherSettlement = await p.fnfSettlement.create({ data: { id: id(), exitCaseId: otherCase.id, deadlineOn: new Date('2026-11-11') } });
-  const otherAdj = await p.fnfAdjustment.create({ data: { id: id(), settlementId: otherSettlement.id, subjectUserId: other, kind: 'NOTICE_RECOVERY', direction: 'DEBIT', amount: '900.00', reasonCode: 'NOTICE', reference: 'REF-2', approvedById: subject, approvedAt: NOW, recordedById: subject } });
+  const otherAdj = await p.fnfAdjustment.create({ data: { id: id(), settlementId: otherSettlement.id, subjectUserId: other, kind: 'NOTICE_RECOVERY', direction: 'DEBIT', amount: '900.00', reasonCode: 'NOTICE', reference: 'REF-2', approvedById: subject, approvedAt: NOW, recordedById: w.admin.id } });
   await p.leaveRequest.create({ data: { userId: other, type: 'CASUAL', startDate: new Date('2026-09-02'), endDate: new Date('2026-09-02'), reason: 'r', status: 'APPROVED', fundingBucket: 'CASUAL', fundingChangedById: subject, fundingChangeReason: 'Moved to casual' } as any });
   // Holds on the other person placed, released and requested by the subject.
-  const releasedHold = await p.userLegalHold.create({ data: { id: id(), userId: other, reasonCode: 'AUDIT', status: 'RELEASED', requestedById: subject, requestedAt: NOW, placedById: subject, placedAt: NOW, releasedById: subject, releasedAt: NOW, releaseReason: 'Closed' } });
+  const releasedHold = await p.userLegalHold.create({ data: { id: id(), userId: other, reasonCode: 'AUDIT', status: 'RELEASED', requestedById: w.admin.id, requestedAt: NOW, placedById: subject, placedAt: NOW, releasedById: subject, releasedAt: NOW, releaseReason: 'Closed' } });
   const withdrawnHold = await p.userLegalHold.create({ data: { id: id(), userId: other, reasonCode: 'AUDIT', status: 'WITHDRAWN', requestedById: subject, requestedAt: NOW, withdrawnById: subject, withdrawnAt: NOW } });
   // Remediation attempts the subject made on someone else's operation.
   const otherOp = await p.userLifecycleOperation.create({ data: { id: id(), userId: other, kind: 'ARCHIVE', state: 'FAILED', actorId: subject, idempotencyKey: key() } });
@@ -213,9 +213,9 @@ describe('Phase 1 lifecycle foundation (PostgreSQL)', () => {
 
     // Shared records keep a valid actor (v2.3 REASSIGN) or a cleared optional one.
     const released = await p.userLegalHold.findUniqueOrThrow({ where: { id: rows.releasedHold.id } });
-    expect(released).toEqual(expect.objectContaining({ status: 'RELEASED', requestedById: DELETED_ACCOUNT.id, placedById: DELETED_ACCOUNT.id, releasedById: DELETED_ACCOUNT.id }));
+    expect(released).toEqual(expect.objectContaining({ status: 'RELEASED', requestedById: w.admin.id, placedById: DELETED_ACCOUNT.id, releasedById: DELETED_ACCOUNT.id }));
     expect((await p.userLegalHold.findUniqueOrThrow({ where: { id: rows.withdrawnHold.id } })).withdrawnById).toBe(DELETED_ACCOUNT.id);
-    expect(await p.fnfAdjustment.findUniqueOrThrow({ where: { id: rows.otherAdj.id } })).toEqual(expect.objectContaining({ approvedById: DELETED_ACCOUNT.id, recordedById: DELETED_ACCOUNT.id, amount: expect.anything() }));
+    expect(await p.fnfAdjustment.findUniqueOrThrow({ where: { id: rows.otherAdj.id } })).toEqual(expect.objectContaining({ approvedById: DELETED_ACCOUNT.id, recordedById: w.admin.id, amount: expect.anything() }));
     expect(await p.lifecycleRemediationAttempt.count({ where: { operationId: rows.otherOp.id, actorId: DELETED_ACCOUNT.id } })).toBe(1);
     expect((await p.exitCase.findUniqueOrThrow({ where: { id: rows.otherCase.id } })).createdById).toBeNull();
     expect(await p.exitClearanceItem.count({ where: { exitCaseId: rows.otherCase.id, ownerId: null } })).toBe(1);

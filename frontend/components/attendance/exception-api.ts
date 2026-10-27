@@ -130,9 +130,9 @@ export const RESOLVER_LABEL: Record<ResolverRole, string> = {
 export function actionHref(item: ExceptionItem): string | null {
   switch (item.resolvingAction.kind) {
     case 'MANAGER_DECISION':
-      return '/attendance/reviews?mode=manager';
+      return '/attendance/admin?tab=reviews&mode=manager';
     case 'HR_DECISION':
-      return '/attendance/reviews?mode=hr';
+      return '/attendance/admin?tab=reviews&mode=hr';
     case 'REVIEW_AND_FINALIZE':
     case 'MANUAL_RECOVERY':
       return `/attendance/admin?businessDate=${item.businessDate}`;

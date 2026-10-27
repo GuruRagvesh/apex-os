@@ -18,6 +18,10 @@ export interface RetentionRuleRow {
   retentionMonths: number | null;
   active: boolean;
   approvedAt: Date | null;
+  /** Phase 4. NULL/absent = a legacy row, read exactly as before. */
+  status?: 'ACTIVE' | 'INACTIVE' | null;
+  noExpiry?: boolean;
+  policyReference?: string | null;
 }
 
 export interface RetentionInput {
@@ -26,6 +30,28 @@ export interface RetentionInput {
   rules: RetentionRuleRow[];
   activeLegalHolds: number;
   now: Date;
+  /**
+   * Phase 4 (D1), per environment via compliance.retentionDefaultDeny: a
+   * missing, inactive or invalid rule for a protected category BLOCKS deletion
+   * instead of only warning. Off by default.
+   */
+  defaultDeny?: boolean;
+}
+
+/** Why a category's rule is or is not usable (readiness report vocabulary). */
+export type RuleHealth = 'OK' | 'MISSING' | 'INACTIVE' | 'INVALID' | 'LEGACY_UNAPPROVED';
+
+export function ruleHealth(rule: RetentionRuleRow | undefined): RuleHealth {
+  if (!rule) return 'MISSING';
+  if (rule.status === 'INACTIVE') return 'INACTIVE';
+  if (rule.status === 'ACTIVE') {
+    const periodOk = rule.noExpiry ? rule.retentionMonths === null : Number.isInteger(rule.retentionMonths) && (rule.retentionMonths as number) > 0;
+    return rule.approvedAt && periodOk && (rule.policyReference ?? '').trim() ? 'OK' : 'INVALID';
+  }
+  // Legacy (status NULL): the Phase 1 reading.
+  if (!rule.active) return 'INACTIVE';
+  if (!rule.approvedAt) return 'LEGACY_UNAPPROVED';
+  return Number.isInteger(rule.retentionMonths) && (rule.retentionMonths as number) > 0 ? 'OK' : 'INVALID';
 }
 
 export interface RetentionEvaluation {
@@ -62,9 +88,15 @@ export function evaluateRetention(input: RetentionInput): RetentionEvaluation {
     anyProtected = true;
     const rule = input.rules.find((r) => r.category === category);
     // An inactive, unapproved or NULL/non-positive period is not a policy.
-    const usable = !!rule && rule.active && !!rule.approvedAt && Number.isInteger(rule.retentionMonths) && (rule.retentionMonths as number) > 0;
+    const usable = ruleHealth(rule) === 'OK';
     if (!usable) {
-      categories[category] = { rows: dates.length, reason: REASON.POLICY_NOT_CONFIGURED };
+      categories[category] = { rows: dates.length, reason: input.defaultDeny ? REASON.RETENTION_POLICY_REQUIRED : REASON.POLICY_NOT_CONFIGURED };
+      if (input.defaultDeny) anyHeld = true;
+      continue;
+    }
+    if (rule!.status === 'ACTIVE' && rule!.noExpiry) {
+      categories[category] = { rows: dates.length, reason: REASON.RETAINED_INDEFINITELY };
+      anyHeld = true;
       continue;
     }
     const newest = dates.reduce((a, b) => (b > a ? b : a));
@@ -98,4 +130,41 @@ export function protectedRowDate(row: any): Date {
     if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
   }
   return new Date(0);
+}
+
+/** The AppSetting key for default-deny retention (D1). Off unless set to true. */
+export const RETENTION_DEFAULT_DENY_KEY = 'compliance.retentionDefaultDeny';
+
+export async function retentionDefaultDeny(db: any): Promise<boolean> {
+  const row = await db.appSetting.findUnique({ where: { key: RETENTION_DEFAULT_DENY_KEY }, select: { value: true } });
+  return row?.value === true;
+}
+
+/** The refusal for a retention evaluation that does not allow deletion. */
+export function retentionRefusal(e: RetentionEvaluation): [ReasonCode, string] {
+  const reasons = Object.values(e.categories).map((c) => c.reason);
+  if (reasons.includes(REASON.RETENTION_POLICY_REQUIRED)) {
+    return [REASON.RETENTION_POLICY_REQUIRED, 'Permanent deletion needs an approved retention rule for every protected record category.'];
+  }
+  if (reasons.includes(REASON.RETAINED_INDEFINITELY)) {
+    return [REASON.RETENTION_BLOCKED, 'Permanent deletion is blocked: an approved retention rule keeps these records indefinitely.'];
+  }
+  return [REASON.RETENTION_BLOCKED, 'Permanent deletion is blocked by a record-retention requirement.'];
+}
+
+/**
+ * Exit cases that block Archive and Permanent Delete (D8, correction 7):
+ * NOTICE_RUNNING, CLEARANCE_IN_PROGRESS, and CLEARED while F&F is not
+ * RELEASED. WITHDRAWN and COMPLETED never block.
+ */
+export async function countOpenExitCases(db: any, userId: string): Promise<number> {
+  return db.exitCase.count({
+    where: {
+      userId,
+      OR: [
+        { state: { in: ['NOTICE_RUNNING', 'CLEARANCE_IN_PROGRESS'] } },
+        { state: 'CLEARED', OR: [{ settlement: null }, { settlement: { state: { not: 'RELEASED' } } }] },
+      ],
+    },
+  });
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { ImportRowTable } from './ImportRowTable';
@@ -45,6 +44,9 @@ import {
   type Tone,
 } from './import-presentation';
 import { pollWhileHealthy } from '@apex/shared-auth';
+import { ManualRecoveryForm } from './ManualRecoveryForm';
+import { getConsoleAccess, getRoster, type RosterRow } from './console-api';
+import { formatTime, presentStatus } from './attendance-status';
 
 /**
  * Attendance Data Control workspace.
@@ -71,12 +73,24 @@ const TONE_TEXT: Record<Tone, string> = {
   muted: 'apex-text-muted',
 };
 
-type Section = 'HOME' | 'BULK' | 'RECOVERY' | 'HISTORY' | 'HEALTH' | 'HISTORICAL_RECOVERY';
+export type ImportWorkspaceSection =
+  | 'HOME'
+  | 'BULK'
+  | 'RECOVERY'
+  | 'HISTORY'
+  | 'HEALTH'
+  | 'HISTORICAL_RECOVERY';
 
-export function ImportWorkspace() {
+export function ImportWorkspace({
+  initialSection = 'HOME',
+  embedded = false,
+}: {
+  initialSection?: ImportWorkspaceSection;
+  embedded?: boolean;
+} = {}) {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
-  const [section, setSection] = useState<Section>('HOME');
+  const [section, setSection] = useState<ImportWorkspaceSection>(initialSection);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [mode, setMode] = useState<ImportMode>('CURRENT_CORRECTION');
   const [file, setFile] = useState<File | null>(null);
@@ -94,8 +108,8 @@ export function ImportWorkspace() {
   // The Data Health badge links here with ?view=health. Read after mount, so the
   // page stays statically renderable; only company-wide authority is sent there.
   useEffect(() => {
-    if (mayApprove && new URLSearchParams(window.location.search).get('view') === 'health') setSection('HEALTH');
-  }, [mayApprove]);
+    if (!embedded && mayApprove && new URLSearchParams(window.location.search).get('view') === 'health') setSection('HEALTH');
+  }, [embedded, mayApprove]);
 
   const { data: batch } = useQuery({
     queryKey: ['import-batch', batchId],
@@ -227,26 +241,28 @@ export function ImportWorkspace() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="apex-text text-xl font-semibold">Import / Update Data</h1>
-          <p className="apex-text-muted mt-1 text-sm">
-            Correct or recover attendance when normal capture did not work.
-          </p>
-        </div>
-        {section !== 'HOME' && (
-          <button
-            type="button"
-            onClick={() => {
-              setSection('HOME');
-              setError(null);
-            }}
-            className="apex-text-muted text-sm underline underline-offset-2"
-          >
-            ← All options
-          </button>
-        )}
-      </header>
+      {!embedded && (
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="apex-text text-xl font-semibold">Import / Update Data</h1>
+            <p className="apex-text-muted mt-1 text-sm">
+              Correct or recover attendance when normal capture did not work.
+            </p>
+          </div>
+          {section !== 'HOME' && (
+            <button
+              type="button"
+              onClick={() => {
+                setSection('HOME');
+                setError(null);
+              }}
+              className="apex-text-muted text-sm underline underline-offset-2"
+            >
+              ← All options
+            </button>
+          )}
+        </header>
+      )}
 
       {error && (
         <div role="alert" className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
@@ -528,16 +544,44 @@ export function ImportWorkspace() {
 }
 
 /**
- * Manual recovery, reached where the context already exists.
+ * Manual recovery, for one employee on one day.
  *
  * The recovery form needs the employee, the day, AND what is currently
- * recorded for them, which is exactly a Daily Review row. Building a second
- * employee picker here would duplicate that lookup and hand HR a name with no
- * context beside it -- so this sends them to the day instead, using the deep
- * link Daily Review already understands.
+ * recorded for them, so the day's roster is listed right here: HR sees each
+ * person's status and punches beside the name before choosing whom to
+ * recover. The roster endpoint decides scope, exactly as it does for the
+ * console, so a manager only ever sees their own team.
  */
 function Recovery() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [search, setSearch] = useState('');
+  const [recovering, setRecovering] = useState<RosterRow | null>(null);
+
+  const { data: access } = useQuery({
+    queryKey: ['console-access'],
+    queryFn: getConsoleAccess,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
+  const { data: roster, isLoading, isError } = useQuery({
+    queryKey: ['console-roster', date],
+    queryFn: () => getRoster({ businessDate: date, limit: 200 }),
+    enabled: !!date && !!access?.hasTeam,
+    staleTime: 30_000,
+  });
+
+  const rows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const all = roster?.rows ?? [];
+    if (!term) return all;
+    return all.filter(
+      (r) =>
+        r.employee.name.toLowerCase().includes(term) ||
+        (r.employee.employeeId ?? '').toLowerCase().includes(term),
+    );
+  }, [roster, search]);
+
   return (
     <div className="apex-card">
       <p className="apex-text text-sm font-semibold">Manual recovery</p>
@@ -545,10 +589,6 @@ function Recovery() {
         One employee, one day — for when a punch could not be captured at all. Apex OS records
         that the entry was made by hand, and never invents location or photo evidence for a day
         nobody captured.
-      </p>
-      <p className="apex-text-muted mt-2 text-sm">
-        Pick the day and recover it from that day&apos;s review, where you can see what is
-        already recorded for each person.
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <div>
@@ -563,10 +603,95 @@ function Recovery() {
             className="apex-input mt-1"
           />
         </div>
-        <Link href={`/attendance/admin?businessDate=${date}`} className="apex-btn-primary">
-          Open that day
-        </Link>
+        <div className="min-w-[200px] flex-1">
+          <label htmlFor="recovery-search" className="apex-text-subtle text-[11px] uppercase tracking-wide">
+            Find a person
+          </label>
+          <input
+            id="recovery-search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Name or employee ID"
+            className="apex-input mt-1 w-full"
+          />
+        </div>
       </div>
+
+      <div className="mt-4 overflow-x-auto">
+        {access && !access.hasTeam ? (
+          <p className="apex-text-muted py-6 text-center text-sm">
+            You have nobody whose attendance you can recover.
+          </p>
+        ) : isLoading ? (
+          <p className="apex-text-muted py-6 text-center text-sm">Loading that day…</p>
+        ) : isError ? (
+          <p className="py-6 text-center text-sm text-red-700 dark:text-red-400">
+            Could not load attendance for that day.
+          </p>
+        ) : (
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead>
+              <tr className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                <th className="pb-2">Employee</th>
+                <th className="pb-2">Status</th>
+                <th className="pb-2">In</th>
+                <th className="pb-2">Out</th>
+                <th className="pb-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.employee.id} className="border-t border-[var(--border-primary)]">
+                  <td className="py-2">
+                    <span className="apex-text font-medium">{r.employee.name}</span>
+                    {r.employee.employeeId && (
+                      <span className="apex-text-subtle ml-2 text-xs">{r.employee.employeeId}</span>
+                    )}
+                  </td>
+                  <td className="py-2">
+                    {r.evaluationState === 'NOT_EVALUATED' ? (
+                      <span className="apex-text-subtle text-xs">Not evaluated</span>
+                    ) : (
+                      <span
+                        className={`rounded-md px-2 py-0.5 text-xs font-medium ${presentStatus(r.status as any).chip}`}
+                      >
+                        {presentStatus(r.status as any).label}
+                      </span>
+                    )}
+                  </td>
+                  <td className="apex-text-muted py-2 text-xs">{formatTime(r.punchInAt)}</td>
+                  <td className="apex-text-muted py-2 text-xs">{formatTime(r.punchOutAt)}</td>
+                  <td className="py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setRecovering(r)}
+                      className="apex-text-muted rounded-lg border border-[var(--border-secondary)] px-2 py-1 text-xs"
+                    >
+                      Manual recovery
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {roster && rows.length === 0 && (
+          <p className="apex-text-muted py-6 text-center text-sm">
+            {search.trim() ? 'Nobody matches that search.' : 'No employees for that day.'}
+          </p>
+        )}
+      </div>
+
+      {recovering && (
+        <ManualRecoveryForm
+          employee={{ id: recovering.employee.id, name: recovering.employee.name }}
+          businessDate={date}
+          existing={{ punchInAt: recovering.punchInAt, punchOutAt: recovering.punchOutAt }}
+          actorIsHr={!!access?.isHr}
+          onClose={() => setRecovering(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,65 +1,79 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { AlertCircle } from 'lucide-react';
-import { getMyAttendanceV2 } from './my-attendance-v2-api';
-import { BRAND } from './status-presentation';
 import Link from 'next/link';
-import { useAuthStore } from '@/store/auth.store';
-import s from './visual-fidelity.module.css';
+import { useQuery } from '@tanstack/react-query';
+import { AlertCircle, ChevronDown, History, Palmtree } from 'lucide-react';
+import { useAuthStore } from '@apex/core-identity';
+import { workdayApi } from '@/lib/api';
+import { getMyAttendanceV2 } from './my-attendance-v2-api';
+import { getMyRegularizations, stageLabel } from '../attendance/regularization-api';
+import { AttendanceDialog } from './AttendanceDialog';
 import { DayDetailDrawer } from './DayDetailDrawer';
-import { MonthCalendar } from './MonthCalendar';
-import { StatusBanner } from './StatusBanner';
-import { TodaySummaryCard } from './TodaySummaryCard';
 import { CorrectionDialog } from './CorrectionDialog';
-import { AttendanceAccountOverview } from './AttendanceAccountOverview';
-import { MyAttendanceInsights, type InsightScope } from './MyAttendanceInsights';
+import { TodaySummaryCard } from './TodaySummaryCard';
+import { AttendanceCalendarSection, type CalendarScope } from './AttendanceCalendarSection';
+import s from './my-attendance.module.css';
 
 /**
- * My Attendance V2 â€” the whole screen.
- *
- * Mounted at /attendance. The former preview URL redirects to this screen.
- *
- * THE ERROR CONTRACT. This is the rule the page is built around: a failed
- * request produces an ERROR STATE, never a zero. There is no `?? 0` anywhere in
- * this component tree, and no figure is defaulted. An employee who cannot reach
- * the server is told the view failed; they are never shown a day that says they
- * worked no hours, because that reads as an accusation and it would be one the
- * system cannot support.
- *
- * NO ATTENDANCE ARITHMETIC. Every outcome, modifier, exception, figure, banner
- * and explanation arrives from the backend. Insights count existing finalized
- * records and plot recorded measures; they do not assign attendance verdicts.
+ * The employee attendance surface has two primary sections: the live workday
+ * and the attendance calendar. Detailed evidence, requests and annual context
+ * remain available on demand instead of competing with those two questions.
  */
 export function MyAttendanceV2() {
-  const [month, setMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [insightScope, setInsightScope] = useState<InsightScope>('month');
+  const [calendarScope, setCalendarScope] = useState<CalendarScope>('month');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [correctionDate, setCorrectionDate] = useState<string | null>(null);
+  const [correctionsOpen, setCorrectionsOpen] = useState(false);
   const user = useAuthStore(state => state.user);
   const role = typeof user?.role === 'string' ? user.role : user?.role?.name;
   const canReviewLeave = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role ?? '');
 
   const overview = useQuery({
     queryKey: ['my-attendance-v2', month],
-    queryFn: () => getMyAttendanceV2(month),
+    queryFn: () => getMyAttendanceV2(month ?? undefined),
+    retry: false,
+  });
+  const workday = useQuery({
+    queryKey: ['workday-today'],
+    queryFn: () => workdayApi.getToday() as Promise<WorkdayTodayProjection>,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const corrections = useQuery({
+    queryKey: ['my-regularizations'],
+    queryFn: getMyRegularizations,
+    enabled: correctionsOpen,
     retry: false,
   });
 
   const seed = useMemo(
-    () => overview.data?.month.days.find((d) => d.date === selectedDate),
+    () => overview.data?.month.days.find(day => day.date === selectedDate),
     [overview.data, selectedDate],
   );
-
-  // Forward navigation stops at the current month: there is nothing to show in
-  // a month that has not started, and offering the move implies there is.
-  const companyMonth = (overview.data?.today.date ?? new Date().toISOString()).slice(0, 7);
-  const canGoNext = month < companyMonth;
+  const displayedMonth = overview.data
+    ? `${overview.data.month.year}-${String(overview.data.month.month).padStart(2, '0')}`
+    : month;
+  const canGoNext = !!displayedMonth && displayedMonth < (overview.data?.today.date.slice(0, 7) ?? displayedMonth);
+  const sessions = Array.isArray(workday.data?.allSessions) ? workday.data.allSessions : null;
+  const sessionCount = typeof workday.data?.sessionCount === 'number'
+    ? workday.data.sessionCount
+    : sessions?.length ?? null;
+  const breakCount = typeof workday.data?.breakCount === 'number'
+    ? workday.data.breakCount
+    : sessions?.reduce(
+      (total, session) => total + (session.breakLogs ?? []).filter(item => item.breakType !== 'MEETING').length,
+      0,
+    ) ?? null;
 
   const openDay = (date: string, correction = false) => {
-    if (correction) { setDrawerOpen(false); setCorrectionDate(date); return; }
+    if (correction) {
+      setDrawerOpen(false);
+      setCorrectionDate(date);
+      return;
+    }
     setCorrectionDate(null);
     setSelectedDate(date);
     setDrawerOpen(true);
@@ -67,115 +81,110 @@ export function MyAttendanceV2() {
 
   return (
     <div className={[s.page, drawerOpen ? s.withDrawer : ''].join(' ')}>
-      <header className={s.pageHeader}><div>
-        <h1 className="text-2xl font-semibold tracking-tight" style={{ color: BRAND.navy }}>
-          My Attendance
-        </h1>
-
-      </div><details className={s.leaveMenu}><summary>Leave options</summary><nav aria-label="Leave options">
-        <Link href="/leave">Apply / view my leave</Link>
-        {canReviewLeave && <Link href="/leave">Leave approvals</Link>}
-      </nav></details></header>
+      <header className={s.pageHeader}>
+        <div>
+          <h1>My Attendance</h1>
+          <p>Today’s workday and your recorded attendance.</p>
+        </div>
+        <div className={s.headerActions}>
+          <button type="button" className={s.textAction} onClick={() => setCorrectionsOpen(true)}>
+            <History aria-hidden="true" />My Corrections
+          </button>
+          <details className={s.leaveMenu}>
+            <summary><Palmtree aria-hidden="true" />Leave &amp; Balance<ChevronDown aria-hidden="true" /></summary>
+            <nav aria-label="Leave and balance options">
+              <Link href="/leave">Apply for leave and view balance</Link>
+              {canReviewLeave && <Link href="/leave">Review leave requests</Link>}
+            </nav>
+          </details>
+        </div>
+      </header>
 
       {overview.isError ? (
-        <div
-          role="alert"
-          className="flex items-start gap-3 rounded-xl border p-4"
-          style={{ background: '#FEF4F1', borderColor: '#F2C7BB' }}
-        >
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" style={{ color: '#B91C1C' }} />
+        <div role="alert" className={s.errorState}>
+          <AlertCircle aria-hidden="true" />
           <div>
-            <p className="text-sm font-semibold" style={{ color: '#7F1D1D' }}>
-              Your attendance could not be loaded
-            </p>
-            <p className="apex-text-muted mt-0.5 text-sm">
-              This is a problem reaching the server, not a change to your attendance. Nothing has
-              been recorded as absent or as zero hours.
-            </p>
-            <button
-              type="button"
-              onClick={() => overview.refetch()}
-              className="apex-text mt-3 rounded-lg border border-apex-border px-3 py-1.5 text-sm font-semibold"
-            >
-              Try again
-            </button>
+            <strong>Your attendance could not be loaded</strong>
+            <p>This view is unavailable. No attendance value has been replaced with zero.</p>
+            <button type="button" onClick={() => overview.refetch()}>Try again</button>
           </div>
         </div>
       ) : overview.isLoading ? (
-        <>
-          <Skeleton className="h-44" />
-          <Skeleton className="h-96" />
-        </>
+        <div className={s.loadingStack} aria-label="Loading attendance">
+          <Skeleton className={s.todaySkeleton} />
+          <Skeleton className={s.calendarSkeleton} />
+        </div>
       ) : overview.data ? (
-        <>
+        <main className={s.content}>
           <TodaySummaryCard
             today={overview.data.today}
+            sessionCount={sessionCount}
+            breakCount={breakCount}
             onViewDetails={() => openDay(overview.data.today.date)}
-            onRequestCorrection={() => openDay(overview.data.today.date, true)}
           />
-
-          <StatusBanner banner={overview.data.today.banner} />
-
-          <MyAttendanceInsights
-            scope={insightScope}
-            onScopeChange={setInsightScope}
-            month={month}
+          <AttendanceCalendarSection
             overview={overview.data}
-            onMonthChange={setMonth}
-            onSelect={openDay}
-          />
-
-          <AttendanceAccountOverview />
-
-          <MonthCalendar
-            year={overview.data.month.year}
-            month={overview.data.month.month}
-            days={overview.data.month.days}
+            month={displayedMonth as string}
+            scope={calendarScope}
             selectedDate={selectedDate}
-            onSelect={openDay}
-            onPrevMonth={() => setMonth(shiftMonth(month, -1))}
-            onNextMonth={() => setMonth(shiftMonth(month, 1))}
-            onMonthChange={setMonth}
             canGoNext={canGoNext}
+            onScopeChange={setCalendarScope}
+            onMonthChange={setMonth}
+            onSelect={openDay}
+            onPrevMonth={() => displayedMonth && setMonth(shiftMonth(displayedMonth, -1))}
+            onNextMonth={() => displayedMonth && setMonth(shiftMonth(displayedMonth, 1))}
           />
-        </>
+        </main>
       ) : null}
 
-      {correctionDate && overview.data && canRequestCorrection(correctionDate, overview.data.today) && <CorrectionDialog date={correctionDate} onClose={() => setCorrectionDate(null)} />}
+      {correctionsOpen && (
+        <AttendanceDialog title="My Corrections" onClose={() => setCorrectionsOpen(false)}>
+          <div className={s.correctionList}>
+            {corrections.isError ? (
+              <p role="alert">Correction requests could not be loaded. <button onClick={() => corrections.refetch()}>Try again</button></p>
+            ) : corrections.isPending ? (
+              <p>Loading correction requests…</p>
+            ) : corrections.data?.length ? (
+              [...corrections.data].sort((a, b) => b.date.localeCompare(a.date)).map(request => (
+                <button key={request.id} onClick={() => {
+                  setCorrectionsOpen(false);
+                  requestAnimationFrame(() => openDay(request.date.slice(0, 10)));
+                }}>
+                  <span><strong>{request.date.slice(0, 10)}</strong><small>{request.reason || 'Attendance correction'}</small></span>
+                  <span>{stageLabel(request.status)}</span>
+                </button>
+              ))
+            ) : <p>No correction requests were found.</p>}
+          </div>
+        </AttendanceDialog>
+      )}
 
+      {correctionDate && <CorrectionDialog date={correctionDate} onClose={() => setCorrectionDate(null)} />}
       <DayDetailDrawer
         date={selectedDate}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         seed={seed}
-        correctable={!!selectedDate && !!overview.data && canRequestCorrection(selectedDate, overview.data.today)}
-        onRequestCorrection={(date) => openDay(date, true)}
+        onRequestCorrection={date => openDay(date, true)}
       />
     </div>
   );
 }
 
-/**
- * Any past day can be queried. Today only once the workday has closed (the backend's own flag, so an
- * open day is never argued about), and a future day never.
- */
-function canRequestCorrection(date: string, today: { date: string; correctionAllowed: boolean }): boolean {
-  return date < today.date || (date === today.date && today.correctionAllowed);
+interface WorkdayTodayProjection {
+  sessionCount?: number;
+  breakCount?: number;
+  allSessions?: Array<{
+    breakLogs?: Array<{ breakType?: string }>;
+  }>;
 }
 
 function Skeleton({ className }: { className: string }) {
-  return (
-    <div
-      className={`animate-pulse rounded-2xl border border-apex-border ${className}`}
-      style={{ background: '#F0F7FF' }}
-      aria-hidden="true"
-    />
-  );
+  return <div className={`${s.skeleton} ${className}`} aria-hidden="true" />;
 }
 
-/** Month arithmetic in UTC, so a timezone cannot shift which month is shown. */
 function shiftMonth(month: string, delta: number): string {
   const [year, monthNumber] = month.split('-').map(Number);
-  const d = new Date(Date.UTC(year, monthNumber - 1 + delta, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  const date = new Date(Date.UTC(year, monthNumber - 1 + delta, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }

@@ -5,15 +5,17 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
+import { resolveCorsOrigins } from '../../../shared/config/cors-origins';
 
-const WS_ORIGINS = [
-  'http://localhost:3000',    // local frontend dev server
-  process.env.FRONTEND_URL,  // production / staging frontend URL
-].filter(Boolean) as string[];
+// Keep Socket.IO and HTTP on the same exact-origin policy. A separate list
+// previously omitted the dedicated staging frontend, so ordinary API calls
+// could recover while live updates continued failing their handshake.
+const WS_ORIGINS = resolveCorsOrigins();
 
 @WebSocketGateway({
   cors: { origin: WS_ORIGINS, credentials: true },
@@ -26,10 +28,33 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
+    @Optional() private prisma?: PrismaService,
   ) {}
 
   afterInit() {
     this.logger.log('WebSocket Gateway initialized');
+  }
+
+  /** True when the account may hold a socket: active, not revoked, not separated. */
+  private accountGate = async (userId: string, iat?: number): Promise<boolean> => {
+    if (!this.prisma) return true;
+    const user: any = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isActive: true, isSystemAccount: true, sessionsRevokedAt: true, accessEndsAt: true },
+    });
+    if (!user || !user.isActive || user.isSystemAccount) return false;
+    if (user.sessionsRevokedAt && (typeof iat !== 'number' || iat < Math.floor(user.sessionsRevokedAt.getTime() / 1000))) return false;
+    if (user.accessEndsAt && user.accessEndsAt.getTime() <= Date.now()) return false;
+    return true;
+  };
+
+  /** Drops every live socket of a user (separation, deactivation, revocation). */
+  disconnectUser(userId: string) {
+    try {
+      this.server?.in(`user:${userId}`).disconnectSockets(true);
+    } catch (err: any) {
+      this.logger.warn(`disconnectUser failed for ${userId}: ${err?.message ?? err}`);
+    }
   }
 
   async handleConnection(client: Socket) {
@@ -48,9 +73,16 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
       // be a serious bypass. Throw so the WS handshake fails safely.
       const jwtSecret = this.configService.get<string>('JWT_SECRET');
       if (!jwtSecret) throw new Error('JWT_SECRET not configured');
-      const payload = this.jwtService.verify<{ sub: string; email: string }>(token, {
+      const payload = this.jwtService.verify<{ sub: string; email: string; iat?: number }>(token, {
         secret: jwtSecret,
       });
+
+      // Same account checks as the HTTP JWT strategy: an inactive, revoked or
+      // separated account keeps no live socket (Phase 4, issue 4).
+      if (this.accountGate && !(await this.accountGate(payload.sub, payload.iat))) {
+        client.disconnect(true);
+        return;
+      }
 
       client.data.userId = payload.sub;
       client.join(`user:${payload.sub}`);

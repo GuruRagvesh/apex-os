@@ -151,7 +151,8 @@ export class AttendanceExceptionService {
         // month, and a queue filtered to this week must not hide it there.
         where: this.scopeWhere(scope, {
           date: { gte, lte },
-          status: { in: ['PENDING', 'MANAGER_APPROVED'] },
+          // Phase 3: STALE_REVIEW_REQUIRED is still unresolved.
+          status: { in: ['PENDING', 'STALE_REVIEW_REQUIRED', 'MANAGER_APPROVED'] },
         }),
         orderBy: { createdAt: 'asc' },
         take: MAX_ITEMS,

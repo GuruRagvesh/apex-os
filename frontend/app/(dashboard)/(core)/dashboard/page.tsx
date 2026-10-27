@@ -1,3 +1,5 @@
+'use client';
+
 // Thin route adapter. Only this component is published from the barrel, so
 // there is no risk of an unrelated route loading the dashboard widgets.
 //
@@ -7,5 +9,8 @@ import { DashboardScreen } from '@apex/intelligence-dashboard';
 import { HomeCalendarPanel } from '@/components/attendance-v2/home/HomeCalendarPanel';
 
 export default function DashboardPage() {
-  return <DashboardScreen personalPanel={<HomeCalendarPanel />} />;
+  return <DashboardScreen
+    personalPanel={<HomeCalendarPanel />}
+    showTeamInsights
+  />;
 }

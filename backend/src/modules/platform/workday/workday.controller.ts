@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Request, UseGuards, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Request, UseGuards, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { WorkdayService } from './workday.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -95,7 +95,7 @@ export class WorkdayController {
   }
 
   @Get('team')
-  getTeam(@Request() req: any) {
-    return this.workdayService.getTeam(req.user);
+  getTeam(@Request() req: any, @Query('date') date?: string) {
+    return this.workdayService.getTeam(req.user, date);
   }
 }

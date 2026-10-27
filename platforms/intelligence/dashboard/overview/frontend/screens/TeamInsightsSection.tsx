@@ -2,49 +2,72 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Building2, CalendarDays, Gauge, TicketCheck, UserRound, Users } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarDays, CheckCircle2, Eye, FolderKanban, PlayCircle, Ticket, UserRound, Users } from 'lucide-react';
 import { dashboardApi } from '../api/dashboard-api';
-import type { HomeExperience, TeamInsightPayload } from './home-types';
+import type { HomeExperience, TeamInsightPayload, TeamInsightProject } from './home-types';
 import { SectionFrame } from './home-ui';
 
 const EMPTY_DEPARTMENTS: HomeExperience['team']['departments'] = [];
+type AnalysisMode = 'monthly' | 'daily';
 
-function currentMonth() {
+function localDay() {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
-function minutesLabel(value: number | null | undefined) {
-  if (value == null) return '—';
-  const hours = Math.floor(value / 60);
-  const minutes = Math.round(value % 60);
-  return hours ? `${hours}h ${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
+function personInitials(name: string | null | undefined) {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '?';
+  return `${words[0][0]}${words.length > 1 ? words[words.length - 1][0] : ''}`.toUpperCase();
 }
 
-function weekDateRange(from: string, to: string) {
-  const format = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-  return `${format(from)}–${format(to)}`;
+function projectDepartmentLabel(project: TeamInsightProject) {
+  const departments = project.departments?.length
+    ? project.departments
+    : project.department ? [project.department] : [];
+  if (!departments.length) return 'No department assigned';
+  if (departments.length === 1) return departments[0].name;
+  return `Cross-department · ${departments.map((department) => department.name).join(', ')}`;
 }
 
-function statusLabel(status?: string) {
-  return ({ WORKING: 'Working now', ON_BREAK: 'On break', IN_MEETING: 'In a meeting', ON_LEAVE: 'On leave', IDLE: 'Paused', LOGGED_OUT: 'Day ended', OFFLINE: 'Not started' } as Record<string, string>)[status ?? ''] ?? 'Not started';
+function TicketKpi({ icon: Icon, label, value, tone }: { icon: typeof Ticket; label: string; value: number; tone: 'blue' | 'violet' | 'amber' | 'rose' | 'emerald' }) {
+  const styles = {
+    blue: 'border-blue-200 bg-blue-50/70 text-blue-700 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-300',
+    violet: 'border-violet-200 bg-violet-50/70 text-violet-700 dark:border-violet-800 dark:bg-violet-950/20 dark:text-violet-300',
+    amber: 'border-amber-200 bg-amber-50/70 text-amber-700 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300',
+    rose: 'border-rose-200 bg-rose-50/70 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300',
+    emerald: 'border-emerald-200 bg-emerald-50/70 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-300',
+  }[tone];
+  return <article className={`flex min-h-16 items-center justify-between gap-2 rounded-xl border px-3 py-2 ${styles}`}>
+    <div><p className="text-[9px] font-bold uppercase tracking-[0.08em]">{label}</p><p className="mt-1 text-xl font-black leading-none text-slate-950 dark:text-white">{value}</p></div>
+    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/80 shadow-sm dark:bg-slate-900/70"><Icon size={14} aria-hidden /></span>
+  </article>;
 }
 
-function MetricTile({ label, value, note, danger = false, strongBorder = false }: { label: string; value: string | number; note?: string; danger?: boolean; strongBorder?: boolean }) {
-  const surface = danger ? 'bg-rose-50/70 dark:bg-rose-950/20' : 'bg-white dark:bg-slate-900';
-  const border = strongBorder ? 'border-black dark:border-slate-300' : danger ? 'border-rose-300 dark:border-rose-700' : 'apex-section-border-subtle';
-  return <div className={`rounded-xl border px-3 py-3 ${surface} ${border}`}>
-    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">{label}</p>
-    <p className={`mt-1 text-xl font-bold ${danger ? 'text-rose-600 dark:text-rose-300' : 'text-slate-900 dark:text-white'}`}>{value}</p>
-    {note && <p className="mt-0.5 text-[10px] leading-4 text-slate-500 dark:text-slate-400">{note}</p>}
-  </div>;
+function readablePersonStatus(status: string | null | undefined) {
+  const normalized = String(status ?? 'OFFLINE').trim().toUpperCase();
+  const label = normalized.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
+  const tone = normalized === 'WORKING' || normalized === 'ACTIVE'
+    ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300'
+    : normalized === 'ON_BREAK'
+      ? 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300'
+      : normalized === 'IN_MEETING'
+        ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/30 dark:text-violet-300'
+        : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300';
+  return { label, tone };
+}
+
+function readableRole(role: string | null | undefined) {
+  return String(role ?? '').replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) {
+  const today = localDay();
   const [departmentId, setDepartmentId] = useState('all');
   const [personId, setPersonId] = useState('overall');
-  const [month, setMonth] = useState(currentMonth);
-  const [week, setWeek] = useState('all');
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('monthly');
+  const [month, setMonth] = useState(today.slice(0, 7));
+  const [date, setDate] = useState(today);
   const departments = team.departments ?? EMPTY_DEPARTMENTS;
 
   useEffect(() => {
@@ -63,21 +86,19 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
   }, [departmentId, people]);
 
   const insightQuery = useQuery({
-    queryKey: ['home-team-insights', departmentId, personId, month, week],
+    queryKey: ['home-team-insights', 'personal-attendance-calendar-v7', departmentId, personId, analysisMode, analysisMode === 'monthly' ? month : date],
     queryFn: () => dashboardApi.getTeamInsights({
       ...(departmentId !== 'all' ? { departmentId } : {}),
       personId,
-      month,
-      week,
+      month: analysisMode === 'monthly' ? month : date.slice(0, 7),
+      calculationVersion: 'personal-attendance-calendar-v7',
+      ...(analysisMode === 'daily' ? { date } : {}),
     }) as Promise<TeamInsightPayload>,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    staleTime: 30_000,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
   });
   const insight = insightQuery.data;
-  useEffect(() => {
-    if (week !== 'all' && insight && !insight.period.weeks.some((item) => String(item.value) === week)) setWeek('all');
-  }, [insight, week]);
 
   const overallLabel = team.hierarchyRole === 'TEAM_LEAD'
     ? 'Overall team'
@@ -85,123 +106,85 @@ export function TeamInsightsSection({ team }: { team: HomeExperience['team'] }) 
       ? departmentId === 'all' ? 'Overall assigned departments' : `Overall ${selectedDepartment?.name ?? 'department'}`
       : departmentId === 'all' ? 'Overall company' : `Overall ${selectedDepartment?.name ?? 'department'}`;
 
-  const filters = <div className="flex max-w-full flex-nowrap items-center justify-end gap-2 overflow-x-auto pb-0.5">
-    {team.showDepartmentFilter && <label className="relative flex min-w-[170px] flex-none items-center">
-      <Building2 size={14} className="pointer-events-none absolute left-3 text-slate-500" aria-hidden />
+  const filters = <div className="flex max-w-full flex-wrap items-center justify-end gap-2 rounded-xl border border-[#004687]/20 bg-blue-50/70 p-1.5 dark:bg-blue-950/20">
+    {team.showDepartmentFilter && <label className="relative flex min-w-[165px] flex-1 items-center sm:flex-none">
+      <Building2 size={14} className="pointer-events-none absolute left-3 text-white/80" aria-hidden />
       <span className="sr-only">Department</span>
-      <select
-        value={departmentId}
-        onChange={(event) => { setDepartmentId(event.target.value); setPersonId('overall'); }}
-        className="h-9 w-full appearance-none rounded-lg border border-blue-900 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 dark:border-blue-400 dark:bg-slate-900 dark:text-slate-200"
-        aria-label="Filter team insights by department"
-      >
-        <option value="all">{team.hierarchyRole === 'MANAGER' ? 'All assigned departments' : 'All departments'}</option>
-        {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+      <select value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setPersonId('overall'); }} className="h-9 w-full appearance-none rounded-lg border border-[#004687] bg-[#004687] pl-9 pr-8 text-xs font-bold text-white outline-none focus:ring-2 focus:ring-blue-300 [&>option]:bg-white [&>option]:text-slate-800">
+        <option className="bg-white text-slate-800" value="all">{team.hierarchyRole === 'MANAGER' ? 'All assigned departments' : 'All departments'}</option>
+        {departments.map((department) => <option className="bg-white text-slate-800" key={department.id} value={department.id}>{department.name}</option>)}
       </select>
     </label>}
-    <label className="relative flex min-w-[180px] flex-none items-center">
-      <UserRound size={14} className="pointer-events-none absolute left-3 text-slate-500" aria-hidden />
+    <label className="relative flex min-w-[170px] flex-1 items-center sm:flex-none">
+      <UserRound size={14} className="pointer-events-none absolute left-3 text-white/80" aria-hidden />
       <span className="sr-only">Person</span>
-      <select
-        value={personId}
-        onChange={(event) => setPersonId(event.target.value)}
-        className="h-9 w-full appearance-none rounded-lg border border-blue-900 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 dark:border-blue-400 dark:bg-slate-900 dark:text-slate-200"
-        aria-label="Filter team insights by person"
-      >
-        <option value="overall">{overallLabel}</option>
-        {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+      <select value={personId} onChange={(event) => setPersonId(event.target.value)} className="h-9 w-full appearance-none rounded-lg border border-[#004687] bg-[#004687] pl-9 pr-8 text-xs font-bold text-white outline-none focus:ring-2 focus:ring-blue-300 [&>option]:bg-white [&>option]:text-slate-800">
+        <option className="bg-white text-slate-800" value="overall">{overallLabel}</option>
+        {people.map((person) => <option className="bg-white text-slate-800" key={person.id} value={person.id}>{person.name}</option>)}
       </select>
     </label>
-    <label className="relative flex min-w-[145px] flex-none items-center">
-      <CalendarDays size={14} className="pointer-events-none absolute left-3 text-slate-500" aria-hidden />
-      <span className="sr-only">Month</span>
-      <input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setWeek('all'); }} className="h-9 w-full rounded-lg border border-blue-900 bg-white pl-9 pr-2 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 dark:border-blue-400 dark:bg-slate-900 dark:text-slate-200" />
-    </label>
-    <label className="relative flex min-w-[175px] flex-none items-center">
-      <span className="sr-only">Week</span>
-      <select value={week} onChange={(event) => setWeek(event.target.value)} className="h-9 w-full rounded-lg border border-blue-900 bg-white px-3 text-xs font-medium text-slate-700 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 dark:border-blue-400 dark:bg-slate-900 dark:text-slate-200">
-        <option value="all">Whole month</option>
-        {(insight?.period.weeks ?? []).map((item) => <option key={item.value} value={item.value}>{item.label} · {weekDateRange(item.from, item.to)}</option>)}
-      </select>
+    <div className="flex h-9 rounded-lg bg-[#004687] p-1" aria-label="Team insights period">
+      {(['monthly', 'daily'] as const).map((mode) => <button key={mode} type="button" onClick={() => setAnalysisMode(mode)} aria-pressed={analysisMode === mode} className={`rounded-md px-3 text-xs font-bold capitalize transition ${analysisMode === mode ? 'bg-white text-[#004687] shadow-sm' : 'text-white/75 hover:text-white'}`}>{mode}</button>)}
+    </div>
+    <label className="relative flex min-w-[150px] flex-1 items-center sm:flex-none">
+      <CalendarDays size={14} className="pointer-events-none absolute left-3 text-white/80" aria-hidden />
+      <span className="sr-only">{analysisMode === 'monthly' ? 'Month' : 'Date'}</span>
+      {analysisMode === 'monthly'
+        ? <input type="month" value={month} max={today.slice(0, 7)} onChange={(event) => event.target.value && setMonth(event.target.value)} className="h-9 w-full rounded-lg border border-[#004687] bg-[#004687] pl-9 pr-2 text-xs font-bold text-white outline-none [color-scheme:dark] focus:ring-2 focus:ring-blue-300" />
+        : <input type="date" value={date} max={today} onChange={(event) => event.target.value && setDate(event.target.value)} className="h-9 w-full rounded-lg border border-[#004687] bg-[#004687] pl-9 pr-2 text-xs font-bold text-white outline-none [color-scheme:dark] focus:ring-2 focus:ring-blue-300" />}
     </label>
   </div>;
 
-  const focus = insight?.focus.ratio;
-  const focusColor = focus == null ? '#cbd5e1' : focus >= 65 ? '#16a34a' : focus >= 45 ? '#d97706' : '#dc2626';
-  const trendMax = Math.max(1, ...(insight?.productivity.buckets.filter((bucket) => !bucket.isFuture).map((bucket) => bucket.averageMinutes) ?? [1]));
-  const actualWorkingMinutes = insight?.workday.workingMinutes ?? 0;
-  const workdayTotal = Math.max(1, actualWorkingMinutes);
-  const productiveShareMinutes = Math.min(insight?.workday.productiveMinutes ?? 0, actualWorkingMinutes);
-  const otherMinutes = Math.max(0, actualWorkingMinutes - productiveShareMinutes);
+  const identityStatus = readablePersonStatus(insight?.identity?.status);
 
-  return <SectionFrame icon={Users} title="Team Insights" aside={filters}>
-    {insightQuery.isLoading && <div className="grid min-h-[280px] place-items-center rounded-xl border border-slate-200 text-sm text-slate-500 dark:border-slate-700">Calculating live insights…</div>}
-    {insightQuery.isError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300"><span>These insights could not be calculated from the current database.</span><button type="button" onClick={() => insightQuery.refetch()} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700">Try again</button></div>}
-    {insight && <div className="space-y-3" aria-label="Selected person insight canvas" data-department-id={departmentId} data-person-id={personId}>
-      <div className="grid gap-3 lg:grid-cols-[1fr_210px]">
-        <article className="apex-section-border flex min-h-[132px] flex-wrap items-center gap-4 rounded-2xl border bg-white p-4 dark:bg-slate-900">
-          <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-700 text-lg font-bold text-white shadow-sm" style={insight.identity?.photoUrl ? { backgroundImage: `url(${insight.identity.photoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}>{insight.identity?.photoUrl ? '' : insight.identity?.initials ?? <Users size={24} />}</div>
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-lg font-bold text-slate-900 dark:text-white">{insight.identity?.name ?? overallLabel}</h3>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {insight.identity ? <><span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 dark:bg-blue-950/50 dark:text-blue-200">{insight.identity.role.replace(/_/g, ' ')}</span>{insight.identity.department && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{insight.identity.department.name}</span>}</> : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{insight.scope.people} active people</span>}
+  return <SectionFrame icon={Users} title="Team Insights" titleColor="#004687" aside={filters}>
+    {insightQuery.isLoading && <div className="grid min-h-64 place-items-center rounded-2xl border border-slate-200 bg-white text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900">Loading team insights…</div>}
+    {insightQuery.isError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300"><span>Team insights could not be loaded.</span><button type="button" onClick={() => insightQuery.refetch()} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700">Try again</button></div>}
+    {insight && <div className="grid grid-cols-1 gap-5" data-department-id={departmentId} data-person-id={personId}>
+      <header className="order-0 flex flex-wrap items-center gap-3 px-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-700 font-bold text-white">
+            <span aria-hidden>{personInitials(insight.identity?.name ?? overallLabel)}</span>
+            {insight.identity?.photoUrl && <img src={insight.identity.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+          </div>
+          <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-base font-bold text-slate-900 dark:text-white">{insight.identity?.name ?? overallLabel}</h3>{insight.identity && <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset ${identityStatus.tone}`}><i className="h-1.5 w-1.5 rounded-full bg-current" />{identityStatus.label}</span>}</div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{insight.identity ? [readableRole(insight.identity.role), insight.identity.department?.name].filter(Boolean).join(' · ') : `${insight.scope.people} people in the permitted hierarchy scope`}</p></div>
+        </div>
+      </header>
+
+      <section className="order-1 px-1" aria-label="Ticket analysis">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><h3 className="inline-flex rounded-lg bg-slate-600 px-3 py-1.5 text-sm font-black text-white ring-1 ring-inset ring-slate-700 dark:bg-slate-600 dark:text-white dark:ring-slate-500">Ticket Analysis</h3></div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+          <TicketKpi icon={Ticket} label="Active" value={insight.tickets.active} tone="blue" />
+          <TicketKpi icon={PlayCircle} label="In progress" value={insight.tickets.inProgress} tone="violet" />
+          <TicketKpi icon={Eye} label="Under review" value={insight.tickets.underReview} tone="amber" />
+          <TicketKpi icon={AlertTriangle} label="Overdue" value={insight.tickets.overdue} tone="rose" />
+          <TicketKpi icon={CheckCircle2} label="Completed" value={insight.tickets.completed} tone="emerald" />
+        </div>
+      </section>
+
+      <section className="order-2 px-1" aria-label={insight.scope.companyWide ? 'Active projects' : 'Project contributions'}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><h3 className="inline-flex rounded-lg bg-slate-600 px-3 py-1.5 text-sm font-black text-white ring-1 ring-inset ring-slate-700 dark:bg-slate-600 dark:text-white dark:ring-slate-500">{insight.scope.companyWide ? 'Active Projects' : 'Project Contributions'}</h3></div>
+          {insight.scope.companyWide && <span className="rounded-full bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/30 dark:text-blue-300 dark:ring-blue-800">{insight.projects.length} ongoing project{insight.projects.length === 1 ? '' : 's'}</span>}
+        </div>
+        {insight.projects.length ? <div className={`mt-3 space-y-2 ${insight.scope.companyWide ? 'max-h-[360px] overflow-y-auto pr-1' : ''}`}>
+          {insight.projects.map((project) => <article key={project.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/40">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2.5"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#004687] shadow-sm dark:bg-slate-900 dark:text-blue-300"><FolderKanban size={17} aria-hidden /></span><div className="min-w-0"><p className="truncate text-sm font-black text-slate-900 dark:text-white">{project.name}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400">{project.code} · {projectDepartmentLabel(project)}{insight.scope.companyWide ? '' : ` · ${project.status.replaceAll('_', ' ')}`}</p></div></div>
             </div>
-            {insight.identity && <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"><span className={`h-2.5 w-2.5 rounded-full ${insight.identity.status === 'WORKING' ? 'bg-emerald-500' : insight.identity.status === 'IN_MEETING' ? 'bg-violet-500' : insight.identity.status === 'ON_BREAK' ? 'bg-amber-500' : 'bg-slate-400'}`} />{statusLabel(insight.identity.status)} · {minutesLabel(insight.identity.workingMinutes)}{insight.identity.status === 'ON_BREAK' && insight.identity.activeBreakMinutes ? ` · break ${minutesLabel(insight.identity.activeBreakMinutes)}` : ''}</div>}
-          </div>
-        </article>
-        <article className="apex-section-border flex items-center justify-center gap-4 rounded-2xl border bg-white p-4 dark:bg-slate-900">
-          <div className="grid h-24 w-24 place-items-center rounded-full" style={{ background: `conic-gradient(${focusColor} ${(focus ?? 0) * 3.6}deg, #e2e8f0 0)` }}><div className="grid h-[74px] w-[74px] place-items-center rounded-full bg-white text-center dark:bg-slate-900"><div><strong className="text-xl text-slate-900 dark:text-white">{focus == null ? '—' : `${focus}%`}</strong><p className="text-[9px] font-semibold uppercase text-slate-500">Focus</p></div></div></div>
-          <div><p className="text-xs font-semibold text-slate-800 dark:text-slate-100">Focus ratio</p><p className="mt-1 text-[10px] text-slate-500">Tickets + meetings<br />÷ working time</p>{insight.focus.changePoints != null && <p className={`mt-2 text-xs font-semibold ${insight.focus.changePoints >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{insight.focus.changePoints >= 0 ? '▲' : '▼'} {Math.abs(insight.focus.changePoints)} pts</p>}</div>
-        </article>
-      </div>
+            <div className={`grid gap-3 text-center ${insight.scope.companyWide ? 'grid-cols-3' : 'grid-cols-4'}`}>
+              {(insight.scope.companyWide
+                ? [['Active', project.active], ['In progress', project.inProgress ?? 0], ['Completed', project.done]]
+                : [['Assigned', project.assigned], ['Active', project.active], ['Completed', project.done], ['Overdue', project.overdue]]
+              ).map(([label, value]) => <div key={label}><p className="text-sm font-black text-slate-950 dark:text-white">{value}</p><p className="mt-0.5 text-[8px] font-bold uppercase tracking-wide text-slate-500">{label}</p></div>)}
+            </div>
+            {!insight.scope.companyWide && <div className="shrink-0 text-right"><p className="text-lg font-black text-[#004687] dark:text-blue-300">{project.contributionPercent == null ? '—' : `${project.contributionPercent}%`}</p><p className="text-[8px] font-bold uppercase tracking-wide text-slate-500">Contribution</p></div>}
+          </article>)}
+        </div> : <div className="mt-3 flex min-h-24 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/30 dark:text-slate-400">{insight.scope.companyWide ? 'No active projects are currently recorded.' : 'No project-linked ticket activity was recorded for this selection.'}</div>}
+      </section>
 
-      <div className="grid gap-3 xl:grid-cols-[1.2fr_.8fr]">
-        <article className="apex-section-border rounded-2xl border bg-white p-3 dark:bg-slate-900">
-          <div className="mb-3 flex items-start justify-between gap-3"><div><h3 className="w-fit rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white shadow-sm">Workday</h3><p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Averages across {insight.workday.daysWorked} worked person-day{insight.workday.daysWorked === 1 ? '' : 's'}</p></div><Activity size={17} className="mt-2 text-slate-600" /></div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            <MetricTile label="Working hours" value={minutesLabel(insight.workday.averages.workingMinutes)} note="Punch in to punch out − breaks" strongBorder />
-            <MetricTile label="Productive hours" value={minutesLabel(insight.workday.averages.productiveMinutes)} note="Tickets + meetings" strongBorder />
-            <MetricTile label="Break time" value={minutesLabel(insight.workday.averages.breakMinutes)} note="Non-meeting breaks" strongBorder />
-            <MetricTile label="Meetings" value={insight.workday.averages.meetingCount == null ? '—' : `${insight.workday.averages.meetingCount} / day`} note={`${minutesLabel(insight.workday.averages.meetingMinutes)} per day`} strongBorder />
-          </div>
-          <div className="mt-3 flex h-7 overflow-hidden rounded-full bg-slate-100 text-[9px] font-semibold dark:bg-slate-800" aria-label="Working-time composition">
-            <div className="grid min-w-fit place-items-center bg-gradient-to-r from-blue-600 to-violet-500 px-2 text-white" style={{ width: `${productiveShareMinutes / workdayTotal * 100}%` }} title={`Productive time ${minutesLabel(insight.workday.productiveMinutes)}`}>Productive {minutesLabel(insight.workday.productiveMinutes)}</div>
-            <div className="grid min-w-fit place-items-center px-2 text-slate-600 dark:text-slate-300" style={{ width: `${otherMinutes / workdayTotal * 100}%` }} title={`Other working time ${minutesLabel(otherMinutes)}`}>Other {minutesLabel(otherMinutes)}</div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-3 text-[10px] font-semibold text-slate-500"><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-500" />Tickets {minutesLabel(insight.workday.ticketMinutes)}</span><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-violet-500" />Meetings {minutesLabel(insight.workday.meetingMinutes)}</span><span className="font-normal">Overlapping ticket and meeting time is counted once.</span></div>
-        </article>
-        <article className="apex-section-border rounded-2xl border bg-white p-3 dark:bg-slate-900">
-          <div className="flex items-start justify-between gap-3"><div><h3 className="w-fit rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white shadow-sm">Productivity Direction</h3><p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Productive time only: tickets + meetings</p></div><span className={`mt-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${insight.productivity.direction === 'RISING' ? 'bg-emerald-100 text-emerald-700' : insight.productivity.direction === 'FALLING' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>{insight.productivity.direction.replace('_', ' ')}</span></div>
-          <div className="mt-4 flex h-28 items-end gap-2">{insight.productivity.buckets.map((bucket) => <div key={bucket.label} className={`flex min-w-0 flex-1 flex-col items-center gap-1 ${bucket.isFuture ? 'opacity-55' : ''}`} title={bucket.isFuture ? `${bucket.label} has not started` : `${minutesLabel(bucket.minutes)} total across ${bucket.daysWorked} worked person-day${bucket.daysWorked === 1 ? '' : 's'}${bucket.isPartial ? ' (to date)' : ''}`}><span className="text-[9px] font-semibold text-slate-500">{bucket.isFuture ? 'Upcoming' : minutesLabel(bucket.averageMinutes)}</span><div className={`w-full rounded-t-md ${bucket.isFuture ? 'border border-dashed border-slate-300 bg-slate-100 dark:border-slate-600 dark:bg-slate-800' : 'bg-gradient-to-t from-blue-600 to-cyan-400'}`} style={{ height: bucket.isFuture ? '18px' : `${Math.max(4, bucket.averageMinutes / trendMax * 78)}px` }} /><span className="text-[9px] text-slate-500">{bucket.label}{bucket.isPartial ? ' · to date' : ''}</span></div>)}</div>
-          <p className="mt-3 text-xs font-semibold text-slate-700 dark:text-slate-200">{insight.productivity.changePercent == null ? 'No complete comparison period yet' : `${insight.productivity.changePercent >= 0 ? '+' : ''}${insight.productivity.changePercent}% vs the preceding equivalent period`}</p>
-        </article>
-      </div>
-
-      <div className={`grid gap-3 ${insight.attendance ? 'xl:grid-cols-[1.65fr_.85fr]' : ''}`}>
-        <article className="apex-section-border rounded-2xl border bg-white p-3 dark:bg-slate-900">
-          <div className="mb-3 flex items-start justify-between gap-3"><h3 className="w-fit rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white shadow-sm">Tickets</h3><TicketCheck size={17} className="mt-2 text-slate-600" /></div>
-          <div className={`grid grid-cols-2 gap-2 sm:grid-cols-4 ${insight.attendance ? 'xl:grid-cols-4' : 'xl:grid-cols-7'}`}>
-            <MetricTile label="Active" value={insight.tickets.active} strongBorder />
-            <MetricTile label="In progress" value={insight.tickets.inProgress} strongBorder />
-            <MetricTile label="Under review" value={insight.tickets.underReview} note="During this period" strongBorder />
-            <MetricTile label="Sent for review" value={insight.tickets.sentForReview} note="Distinct tickets" strongBorder />
-            <MetricTile label="Execution overdue" value={insight.tickets.executionOverdue} note="Not submitted on time" danger={insight.tickets.executionOverdue > 0} strongBorder />
-            <MetricTile label="Review overdue" value={insight.tickets.reviewOverdue} note="Reviewer SLA elapsed" danger={insight.tickets.reviewOverdue > 0} strongBorder />
-            <div title={`${insight.tickets.reworkAttempts} total rework attempt${insight.tickets.reworkAttempts === 1 ? '' : 's'}`}><MetricTile label="Reworked" value={insight.tickets.reworkTickets} note={`${insight.tickets.reworkAttempts} attempt${insight.tickets.reworkAttempts === 1 ? '' : 's'}`} danger={insight.tickets.reworkTickets > 0} strongBorder /></div>
-          </div>
-        </article>
-
-        {insight.attendance && <article className="apex-section-border rounded-2xl border bg-white p-3 dark:bg-slate-900">
-          <div><h3 className="w-fit rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white shadow-sm">Attendance Pattern</h3><p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">One square for each recorded day</p></div>
-          <div className="mt-3 grid grid-cols-7 gap-1.5">{insight.attendance.days.map((day) => <span key={day.date} title={`${day.date} · ${day.status.replace(/_/g, ' ')}`} className={`grid aspect-square min-h-7 place-items-center rounded-md border text-[9px] font-bold text-slate-800 ${day.status === 'PRESENT' ? 'border-emerald-500 bg-emerald-300' : day.status.startsWith('LATE') ? 'border-orange-500 bg-orange-300' : day.status === 'HALF_DAY' ? 'border-violet-500 bg-violet-300' : ['LEAVE', 'LWP', 'ABSENT'].includes(day.status) ? 'border-rose-500 bg-rose-300' : day.status === 'WEEKLY_OFF' ? 'border-blue-500 bg-blue-200' : day.status === 'HOLIDAY' ? 'border-amber-500 bg-amber-200' : 'border-slate-400 bg-slate-200'}`}>{Number(day.date.slice(-2))}</span>)}</div>
-          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[9px] font-semibold text-slate-500">{Object.entries(insight.attendance.counts).filter(([, value]) => value > 0).map(([key, value]) => <span key={key}>{key.replace(/([A-Z])/g, ' $1')}: {value}</span>)}</div>
-        </article>}
-      </div>
-
-      <article className="apex-section-border overflow-hidden rounded-2xl border bg-white p-3 dark:bg-slate-900">
-        <div className="flex items-start justify-between gap-3"><div><h3 className="w-fit rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white shadow-sm">Projects Contributed To</h3><p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">{insight.scope.companyWide ? 'Company totals; contribution percentage is not applicable at this scope' : 'Distinct tickets; co-assignment never duplicates a ticket'}</p></div><Gauge size={17} className="mt-2 text-slate-600" /></div>
-        {insight.projects.length ? <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800/60"><tr><th className="px-4 py-2.5">Project</th><th>Status</th><th>Assigned</th><th>Done</th><th>Active</th><th>Overdue</th><th className="pr-4">Contribution</th></tr></thead><tbody>{insight.projects.map((project) => <tr key={project.id} className={`border-t dark:border-slate-800 ${project.hasStatusConflict ? 'border-amber-200 bg-amber-50/70 dark:bg-amber-950/10' : 'border-slate-100'}`}><td className="px-4 py-3"><p className="font-semibold text-slate-800 dark:text-slate-100">{project.name}</p><p className="text-[10px] text-slate-500">{project.code}</p>{project.hasStatusConflict && <p className="mt-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300">Data check: completed project still has active tickets</p>}</td><td><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{project.status}</span></td><td>{project.assigned}</td><td className="font-semibold text-emerald-600">{project.done}</td><td>{project.active}</td><td className={project.overdue ? 'font-semibold text-rose-600' : ''}>{project.overdue}</td><td className="pr-4">{insight.scope.companyWide ? <span className="text-[10px] font-semibold text-slate-500">Not applicable</span> : <div className="flex items-center gap-2"><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${project.contributionPercent ?? 0}%` }} /></div><span className="w-9 text-right font-semibold">{project.contributionPercent == null ? '—' : `${project.contributionPercent}%`}</span></div>}</td></tr>)}</tbody></table></div> : <div className="p-6 text-center text-sm text-slate-500">No project contribution is recorded for this scope.</div>}
-      </article>
     </div>}
   </SectionFrame>;
 }

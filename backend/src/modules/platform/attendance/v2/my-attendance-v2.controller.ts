@@ -7,6 +7,7 @@ import { MyAttendanceV2Service } from './my-attendance-v2.service';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const FINANCIAL_YEAR_RE = /^\d{4}-\d{4}$/;
 
 /**
  * My Attendance V2 — the employee's own attendance, in the target day contract.
@@ -54,6 +55,17 @@ export class MyAttendanceV2Controller {
     // The default month comes from the company clock, not the server's local
     // time, so it matches the timezone the rest of attendance evaluates in.
     return this.service.overview(userId, requested ?? this.tva.companyToday().slice(0, 7));
+  }
+
+  /** One complete April-to-March year, using the same company definition as overview. */
+  @Get('fiscal-year')
+  @ApiOperation({ summary: "The authenticated employee's attendance for a financial year" })
+  async financialYear(@CurrentUser() user: any, @Query('year') year: string) {
+    const userId = user?.id ?? user?.sub;
+    if (!FINANCIAL_YEAR_RE.test(year) || Number(year.slice(5)) !== Number(year.slice(0, 4)) + 1) {
+      throw new BadRequestException('year must be a consecutive yyyy-yyyy financial-year label');
+    }
+    return this.service.financialYear(userId, year);
   }
 
   /** One day in full detail, for the day drawer. */

@@ -2,10 +2,14 @@ import { validateScreenshots, SCREENSHOT_METADATA, type ScreenshotUpload } from 
 import { formatInTimeZone } from 'date-fns-tz';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { CorrectionAuthorityService } from './correction-authority.service';
+import { CorrectionDecisionService, UNRESOLVED_STATUSES } from './correction-decision.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import { EventLoggerService, OperationalAction } from '../../../../common/services/event-logger.service';
@@ -44,15 +48,14 @@ import {
  */
 
 const REQUEST_TYPES = [
-  'MISSING_PUNCH',
-  'LOCATION_EXCEPTION',
-  'FACE_EXCEPTION',
-  'LATE_CORRECTION',
-  'HALF_DAY_CORRECTION',
-  // Review-only: status / worked-hours / other concerns. Approval records the
-  // decision and never revises the official day (see approveAsHr).
-  'OTHER',
+  'MISSING_PUNCH_IN',
+  'MISSING_PUNCH_OUT',
+  'INCORRECT_PUNCH_IN',
+  'INCORRECT_PUNCH_OUT',
+  'INCORRECT_ATTENDANCE_STATUS',
 ] as const;
+
+const PUNCH_CORRECTION_TYPES = REQUEST_TYPES.filter((type) => type !== 'INCORRECT_ATTENDANCE_STATUS');
 
 export interface CreateRegularizationInput {
   businessDate: string;
@@ -115,7 +118,19 @@ export class RegularizationService {
     private readonly accessPolicy: AccessPolicyService,
     private readonly settings: SettingsService,
     private readonly evaluator: DailyAttendanceEvaluatorService,
+    @Optional() private readonly authority?: CorrectionAuthorityService,
+    @Optional() private readonly decisions?: CorrectionDecisionService,
   ) {}
+
+  /** Phase 3: once the single-decision workflow is on, the stage routes refuse. */
+  private async assertLegacyStageRoutesAllowed() {
+    if (this.decisions && (await this.decisions.enabled())) {
+      throw new ConflictException({
+        code: 'USE_DECISION_ENDPOINT',
+        message: 'Attendance corrections are now decided once, by any eligible reviewer. Use the Approve or Reject decision.',
+      });
+    }
+  }
 
   /** Feature flag, defaulting OFF like every other Attendance V2 capability. */
   private async enabled(): Promise<boolean> {
@@ -160,10 +175,39 @@ export class RegularizationService {
 
     const date = this.tva.companyDateOnly(new Date(`${input.businessDate}T00:00:00.000Z`));
 
+    // Refined policy: missing/incorrect punches share one request per calendar
+    // month; attendance-status corrections have a separate three-per-month
+    // allowance. Rejected requests still count because the limit controls
+    // submissions, not approvals.
+    const [year, month] = input.businessDate.split('-').map(Number);
+    const monthStart = this.tva.companyDateOnly(new Date(Date.UTC(year, month - 1, 1)));
+    const monthEnd = this.tva.companyDateOnly(new Date(Date.UTC(year, month, 1)));
+    const statusCorrection = input.requestType === 'INCORRECT_ATTENDANCE_STATUS';
+    const usedThisMonth = await this.prisma.attendanceRegularization.count({
+      where: {
+        userId,
+        date: { gte: monthStart, lt: monthEnd },
+        OR: statusCorrection
+          ? [{ policyCorrectionType: 'INCORRECT_ATTENDANCE_STATUS' }, { policyCorrectionType: null, requestType: 'OTHER' }]
+          : [
+              { policyCorrectionType: { in: PUNCH_CORRECTION_TYPES as any } },
+              { policyCorrectionType: null, requestType: { in: ['MISSING_PUNCH', 'LATE_CORRECTION', 'HALF_DAY_CORRECTION'] as any } },
+            ],
+      },
+    });
+    const monthlyLimit = statusCorrection ? 3 : 1;
+    if (usedThisMonth >= monthlyLimit) {
+      throw new BadRequestException(
+        statusCorrection
+          ? 'The monthly limit of three attendance-status correction requests has been reached.'
+          : 'The monthly limit of one missing/incorrect punch correction request has been reached.',
+      );
+    }
+
     // One open request per day. A second one would give two approvers two
     // different answers for the same date.
     const open = await this.prisma.attendanceRegularization.findFirst({
-      where: { userId, date, status: { in: ['PENDING', 'MANAGER_APPROVED'] } },
+      where: { userId, date, status: { in: [...UNRESOLVED_STATUSES] } },
     });
     if (open) {
       throw new ForbiddenException('A correction for this date is already under review');
@@ -176,11 +220,11 @@ export class RegularizationService {
     });
 
     // A recovered historical day is a verified, locked fact from before the attendance policy existed. The
-    // ordinary evaluator cannot re-judge those dates, so a punch correction could not be applied to it (and
-    // must never be allowed to overwrite it). Such a day can still be raised for HR to review as OTHER.
-    if (official?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT' && input.requestType !== 'OTHER') {
+    // ordinary evaluator cannot re-judge those dates, so only a status review
+    // may be raised; punches in preserved history are immutable.
+    if (official?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT' && input.requestType !== 'INCORRECT_ATTENDANCE_STATUS') {
       throw new BadRequestException(
-        'This day is a recovered historical record. Choose "Other attendance issue" so HR can review it; a punch correction cannot be applied to it.',
+        'This day is a recovered historical record. Choose "Incorrect Attendance Status" so HR can review it; a punch correction cannot be applied to it.',
       );
     }
 
@@ -188,7 +232,10 @@ export class RegularizationService {
       data: {
         userId,
         date,
-        requestType: input.requestType as any,
+        // Keep the historical enum stable; the exact refined-policy category
+        // is recorded in its additive provenance column.
+        requestType: (statusCorrection ? 'OTHER' : 'MISSING_PUNCH') as any,
+        policyCorrectionType: input.requestType,
         reason: input.reason.trim(),
         requestedPunchIn: input.requestedPunchIn ? new Date(input.requestedPunchIn) : null,
         requestedPunchOut: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
@@ -201,7 +248,14 @@ export class RegularizationService {
         ...(screenshots.length ? { screenshots: { create: screenshots } } : {}),
       },
       include: { screenshots: { select: SCREENSHOT_METADATA } },
+    }).catch((error: any) => {
+      // The database is the authority on "one unresolved request per day":
+      // two simultaneous submissions cannot both pass the check above.
+      if (error?.code === 'P2002') throw new ForbiddenException('A correction for this date is already under review');
+      throw error;
     });
+    // Eligible reviewers are told at once (Phase 3); preferences decide channels.
+    this.decisions?.notifyCreated(created).catch(() => undefined);
 
     this.eventLogger.log({
       actorId: userId,
@@ -212,16 +266,25 @@ export class RegularizationService {
       metadata: { businessDate: input.businessDate, requestType: input.requestType },
     }).catch(() => {});
 
-    return created;
+    return { ...created, requestType: input.requestType };
   }
 
   /** The authenticated employee's own correction requests. */
   async listMine(userId: string, limit = 50) {
-    return this.prisma.attendanceRegularization.findMany({
+    const rows = await this.prisma.attendanceRegularization.findMany({
       where: { userId },
       include: { screenshots: { select: SCREENSHOT_METADATA } },
       orderBy: { createdAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 200),
+    });
+    const actorIds = [...new Set(rows.flatMap((row) => [row.decidedById, row.hrApproverId, row.managerApproverId]).filter((id): id is string => !!id))];
+    const actors = actorIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(actors.map((actor) => [actor.id, actor]));
+    return rows.map((row) => {
+      const actorId = row.decidedById ?? row.hrApproverId ?? row.managerApproverId;
+      return { ...row, requestType: row.policyCorrectionType ?? row.requestType, decidedBy: actorId ? byId.get(actorId) ?? { id: actorId, name: 'Deleted account' } : null };
     });
   }
 
@@ -230,9 +293,15 @@ export class RegularizationService {
     const row = await this.prisma.attendanceRegularization.findUnique({ where: { id }, include: { screenshots: { select: SCREENSHOT_METADATA } } });
     if (!row) throw new NotFoundException('Correction request not found');
 
-    if (row.userId === actor?.id) return row;
-    if (this.accessPolicy.isHrOrAdmin(actor)) return row;
-    if (await this.hierarchy.isApproverFor(actor?.id, row.userId)) return row;
+    if (row.userId === actor?.id) return { ...row, requestType: row.policyCorrectionType ?? row.requestType };
+    if (this.authority) {
+      // Phase 3: the same eligibility that decides also governs who may read.
+      const loaded = await this.authority.loadActor(actor?.id);
+      if (await this.authority.eligibility(loaded, row.userId)) return { ...row, requestType: row.policyCorrectionType ?? row.requestType };
+    } else {
+      if (this.accessPolicy.isHrOrAdmin(actor)) return { ...row, requestType: row.policyCorrectionType ?? row.requestType };
+      if (await this.hierarchy.isApproverFor(actor?.id, row.userId)) return { ...row, requestType: row.policyCorrectionType ?? row.requestType };
+    }
 
     // Same response as a genuine miss: revealing that someone else's request
     // exists is itself a small leak.
@@ -257,7 +326,15 @@ export class RegularizationService {
    * Scoped, never global: a manager sees only their own reports' requests, and
    * HR sees the requests that have cleared manager review.
    */
-  async pendingFor(actor: any, limit = 100) {
+  async pendingFor(actor: any, limit = 100, scope?: string, page?: number) {
+    // Phase 3: scoped queues filtered in PostgreSQL before paging. The old
+    // shape (HR saw only MANAGER_APPROVED; others filtered a global page in
+    // memory) hid new requests and is no longer reachable when the scoped
+    // service is present.
+    if (this.decisions) {
+      const resolved = scope === 'company' ? 'company' : 'team';
+      return this.decisions.queue(actor?.id ?? actor?.sub, resolved, page, limit);
+    }
     const take = Math.min(Math.max(limit, 1), 200);
 
     if (this.accessPolicy.isHrOrAdmin(actor)) {
@@ -356,7 +433,7 @@ export class RegularizationService {
     const date = this.tva.companyDateOnly(new Date(`${input.businessDate}T00:00:00.000Z`));
 
     const open = await this.prisma.attendanceRegularization.findFirst({
-      where: { userId: input.userId, date, status: { in: ['PENDING', 'MANAGER_APPROVED'] } },
+      where: { userId: input.userId, date, status: { in: [...UNRESOLVED_STATUSES] } },
     });
     if (open) {
       throw new ForbiddenException(
@@ -418,13 +495,14 @@ export class RegularizationService {
           employeeInformedAt: new Date(input.employeeInformedAt),
         }) as any),
 
-        // The creator's own operational judgment, recorded as such. HR approval
-        // is still required and is still the only thing that rewrites
-        // attendance.
-        status: 'MANAGER_APPROVED',
-        managerApproverId: actorId,
-        managerDecisionAt: this.tva.now(),
+        // Phase 3: creating a recovery never approves it. It is an unresolved
+        // request like any other; the creation and the later decision are
+        // separate audit events (an HR/Admin creator must confirm separately).
+        status: 'PENDING',
       },
+    }).catch((error: any) => {
+      if (error?.code === 'P2002') throw new ForbiddenException('A correction for this date is already under review. Resolve it before recording another.');
+      throw error;
     });
 
     this.eventLogger.log({
@@ -456,6 +534,7 @@ export class RegularizationService {
   /** Stage one: the employee's actual reporting authority. */
   async approveAsManager(actor: any, id: string) {
     if (!(await this.enabled())) throw new RegularizationDisabledError();
+    await this.assertLegacyStageRoutesAllowed();
 
     const row = await this.prisma.attendanceRegularization.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Correction request not found');
@@ -514,6 +593,7 @@ export class RegularizationService {
    */
   async approveAsHr(actor: any, id: string) {
     if (!(await this.enabled())) throw new RegularizationDisabledError();
+    await this.assertLegacyStageRoutesAllowed();
     if (!this.accessPolicy.isHrOrAdmin(actor)) {
       throw new ForbiddenException('Only HR can give final approval for an attendance correction');
     }
@@ -542,7 +622,7 @@ export class RegularizationService {
       // A review-only request (OTHER) rewrites nothing, so there is no newer
       // official result it could overwrite.
       if (
-        row.requestType !== 'OTHER' &&
+        row.requestType !== 'OTHER' && row.policyCorrectionType !== 'INCORRECT_ATTENDANCE_STATUS' &&
         row.basedOnFingerprint &&
         current?.sourceFingerprint &&
         row.basedOnFingerprint !== current.sourceFingerprint
@@ -553,7 +633,7 @@ export class RegularizationService {
       const businessDate = this.tva.companyBusinessDate(row.date);
 
       // Never let a punch correction rewrite a recovered historical day (see create()).
-      if (row.requestType !== 'OTHER' && current?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT') {
+      if (row.requestType !== 'OTHER' && row.policyCorrectionType !== 'INCORRECT_ATTENDANCE_STATUS' && current?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT') {
         throw new ForbiddenException(
           'This day is a recovered historical record; a punch correction cannot be applied to it. Reject this request and raise it as Other for review.',
         );
@@ -574,7 +654,7 @@ export class RegularizationService {
       // touched. Whatever it concerns is then fixed through the ordinary,
       // audited routes (a punch correction or a manual recovery).
       const revision =
-        row.requestType === 'OTHER'
+        row.requestType === 'OTHER' || row.policyCorrectionType === 'INCORRECT_ATTENDANCE_STATUS'
           ? null
           : await this.evaluator.reviseForApprovedCorrection(tx, row.userId, businessDate, id);
 
@@ -620,15 +700,26 @@ export class RegularizationService {
    */
   async reject(actor: any, id: string, reason?: string) {
     if (!(await this.enabled())) throw new RegularizationDisabledError();
+    await this.assertLegacyStageRoutesAllowed();
 
     const trimmed = (reason ?? '').trim();
     if (trimmed.length === 0) {
       throw new BadRequestException('A reason is required when rejecting a correction request');
     }
 
+    // Once the additive Phase 3 code is deployed, even the compatibility
+    // route writes through the generic v1 decision writer. This preserves the
+    // old URL while preventing a newly-created legacy REJECTED row.
+    if (this.decisions) {
+      return this.decisions.decideCompatibility(actor.id, id, {
+        decision: 'REJECT',
+        reason: trimmed,
+      });
+    }
+
     const row = await this.prisma.attendanceRegularization.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Correction request not found');
-    if (row.status === 'HR_APPROVED' || row.status === 'REJECTED') {
+    if (row.status === 'HR_APPROVED' || row.status === 'REJECTED' || row.status === 'APPROVED') {
       throw new ForbiddenException('This request has already been decided');
     }
 

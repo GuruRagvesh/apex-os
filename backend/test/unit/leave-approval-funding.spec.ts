@@ -231,7 +231,9 @@ describe('LH-2 serialized settlement', () => {
     const { service, updates } = settlementRig({
       allocation: 14,
       requestedDays: 2,
-      otherApproved: [{ id: 'lv-old', paidDays: 14, startDate: LEAVE.startDate, endDate: LEAVE.endDate, isHalfDay: false }],
+      // Phase 3: consumption is counted per paid bucket, so the earlier leave
+      // names its type (ANNUAL draws the Casual bucket, like the request).
+      otherApproved: [{ id: 'lv-old', type: LEAVE.type, paidDays: 14, startDate: LEAVE.startDate, endDate: LEAVE.endDate, isHalfDay: false }],
     });
 
     const { settlement } = await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
@@ -699,34 +701,36 @@ describe('LH-2 migration invents no history', () => {
     expect(assignsTo('hrApprovedAt')).toBe(false);
   });
 
+  // Refined policy: every historical paid type settles from the Annual pool.
   it.each([
-    ['CASUAL', 10],
-    ['EMERGENCY', 4],
-  ])('16. %s settlement reads only its own entitlement pool', async (type, allocation) => {
-    const { service, balance, tx } = settlementRig({
+    ['CASUAL', 'ANNUAL', 14],
+    ['SICK', 'ANNUAL', 14],
+    ['EMERGENCY', 'ANNUAL', 14],
+  ])('16. %s settlement reads only its %s bucket', async (type, bucket, allocation) => {
+    const { service, balance } = settlementRig({
       leave: { ...LEAVE, type },
       allocation,
       requestedDays: 1,
     });
     await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
-    expect(balance.getYearlyAllocation).toHaveBeenCalledWith('emp-1', 2026, type);
-    expect(tx.leaveRequest.findMany.mock.calls[0][0].where.type).toBe(type);
+    expect(balance.getYearlyAllocation).toHaveBeenCalledWith('emp-1', 2026, bucket, LEAVE.startDate);
   });
 
-  it('16a. intern settlement is capped at one Casual paid day in that request month', async () => {
+  it('16a. an intern settles against the same versioned policy, over the financial year', async () => {
     const { service, balance, tx } = settlementRig({
       leave: { ...LEAVE, type: 'CASUAL' },
       employeeRole: 'INTERN',
+      allocation: 14,
       requestedDays: 2,
     });
 
     const result = await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
 
-    expect(balance.getYearlyAllocation).not.toHaveBeenCalled();
-    expect(result.settlement).toMatchObject({ fundingOutcome: 'PARTIAL', paidDays: 1, unpaidDays: 1 });
+    expect(balance.getYearlyAllocation).toHaveBeenCalledWith('emp-1', 2026, 'ANNUAL', LEAVE.startDate);
+    expect(result.settlement).toMatchObject({ fundingOutcome: 'PAID', paidDays: 2, unpaidDays: 0 });
     const range = tx.leaveRequest.findMany.mock.calls[0][0].where.startDate;
-    expect(range.gte.toISOString().slice(0, 10)).toBe('2026-07-31');
-    expect(range.lte.toISOString().slice(0, 10)).toBe('2026-08-31');
+    // The April-March leave year, not a one-month intern window.
+    expect(range.gte.toISOString().slice(0, 10)).toBe('2026-03-31');
   });
 
   it('17. COMP_OFF final approval atomically consumes one locked credit', async () => {

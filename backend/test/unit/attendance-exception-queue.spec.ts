@@ -720,7 +720,8 @@ describe('the queue is a read surface', () => {
     const where = calls.find((c) => c.model === 'attendanceRegularization')!.args.where;
     expect(where.date).toBeDefined();
     expect(where.createdAt).toBeUndefined();
-    expect(where.status).toEqual({ in: ['PENDING', 'MANAGER_APPROVED'] });
+    // Phase 3: STALE_REVIEW_REQUIRED is unresolved too.
+    expect(where.status).toEqual({ in: ['PENDING', 'STALE_REVIEW_REQUIRED', 'MANAGER_APPROVED'] });
   });
 });
 

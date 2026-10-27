@@ -1,8 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
+import { NotificationsModule } from '../../../operations/notifications/notifications.module';
 import { RegularizationService } from './regularization.service';
 import { RegularizationController } from './regularization.controller';
 import { DailyAttendanceModule } from '../evaluation/daily-attendance.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { CorrectionAuthorityService } from './correction-authority.service';
+import { CorrectionDecisionService } from './correction-decision.service';
 
 /**
  * Attendance regularization (AR-1).
@@ -14,9 +17,9 @@ import { SettingsModule } from '../../settings/settings.module';
  * hierarchy, HR and audit conventions rather than defining their own.
  */
 @Module({
-  imports: [DailyAttendanceModule, SettingsModule],
+  imports: [DailyAttendanceModule, SettingsModule, forwardRef(() => NotificationsModule)],
   controllers: [RegularizationController],
-  providers: [RegularizationService],
-  exports: [RegularizationService],
+  providers: [RegularizationService, CorrectionAuthorityService, CorrectionDecisionService],
+  exports: [RegularizationService, CorrectionAuthorityService, CorrectionDecisionService],
 })
 export class RegularizationModule {}

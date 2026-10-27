@@ -4,22 +4,13 @@ import { useState, useMemo, createContext, useContext } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
-import { analyticsApi } from '@apex/intelligence-analytics/api';
 import { usersApi } from '@apex/core-users/api';
+import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 import { rolesApi } from '@apex/core-organization-roles/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import { ChevronRight, Edit2, Upload, Eye, Clock, CheckCircle, AlertTriangle, RotateCcw, Building2, UsersRound } from 'lucide-react';
-
-const fmtSeconds = (sec: number | null | undefined) => {
-  if (sec == null) return '0h 0m';
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  return `${h}h ${m}m`;
-};
-
-const fmtPct = (pct: number | null | undefined) => (pct == null ? '0%' : `${pct}%`);
+import { ChevronRight, Edit2, Upload, Building2, UsersRound } from 'lucide-react';
 
 const ProfileFormContext = createContext<any>(null);
 
@@ -29,7 +20,7 @@ const TABS = [
   { id: 'access', label: 'Account & Access' },
   { id: 'payroll', label: 'Payroll & Statutory' },
   { id: 'documents', label: 'Documents & Verification' },
-  { id: 'approvals', label: 'Approval Workload' },
+  { id: 'assets', label: 'Asset Management' },
 ];
 
 const DOCUMENT_TYPES = [
@@ -61,9 +52,6 @@ const readCls = 'apex-profile-value w-full px-4 py-3 rounded-xl border border-[v
 const sectionCls = 'apex-section-border bg-[var(--surface-sunken)] rounded-xl p-6 border';
 const neutralButtonCls = 'border border-[var(--border-secondary)] bg-[var(--surface-card)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]';
 const selectCls = 'apex-profile-value w-full px-4 py-3 rounded-xl border border-[var(--border-secondary)] bg-[var(--surface-card)] text-sm';
-const metricCardCls = 'apex-section-border bg-[var(--surface-sunken)] p-4 rounded-xl border flex flex-col';
-const metricLabelCls = 'apex-profile-label flex items-center gap-2 mb-2';
-const metricValueCls = 'apex-profile-value text-3xl font-black';
 const sectionHeadingCls = 'apex-profile-heading text-xl font-black';
 
 const Field = ({ label, field, type = 'text', readOnly = false }: any) => {
@@ -224,12 +212,6 @@ export default function UserProfileScreen() {
     queryFn: () => (usersApi as any).getDocuments(userId) as Promise<any[]>,
   });
 
-  const { data: reviewerMetrics, isLoading: reviewerMetricsLoading } = useQuery({
-    queryKey: ['reviewer-metrics', userId],
-    queryFn: () => analyticsApi.getReviewerMetrics(userId) as Promise<any>,
-    enabled: ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(profile?.role?.name ?? ''),
-  });
-
   const updateMutation = useMutation({
     mutationFn: (data: any) => (usersApi as any).updateProfile(userId, data),
     onSuccess: () => {
@@ -239,6 +221,39 @@ export default function UserProfileScreen() {
       setEditMode(false);
     },
     onError: (e: any) => toast.error(e?.message || 'Update failed'),
+  });
+
+  const [personalChangeReason, setPersonalChangeReason] = useState('');
+  const [personalChangeFiles, setPersonalChangeFiles] = useState<File[]>([]);
+  const personalRequestMutation = useMutation({
+    mutationFn: async () => {
+      const fields = ['legalName', 'dateOfBirth', 'gender', 'bloodGroup', 'phone', 'personalEmail',
+        'currentAddress', 'permanentAddress', 'emergencyName', 'emergencyPhone', 'emergencyRelation'];
+      const comparable = (field: string, value: any) => {
+        if (value === null || value === undefined || value === '') return null;
+        return field === 'dateOfBirth' ? new Date(value).toISOString().slice(0, 10) : String(value).trim();
+      };
+      const changes = fields.filter((field) => comparable(field, formData[field]) !== comparable(field, profile?.[field]))
+        .map((field) => ({ field, newValue: comparable(field, formData[field]) }));
+      if (!changes.length) throw new Error('No official personal details changed');
+      if (!personalChangeReason.trim()) throw new Error('A reason is required');
+      const needsEvidence = changes.some((change) => ['legalName', 'dateOfBirth'].includes(change.field));
+      if (needsEvidence && personalChangeFiles.length === 0) throw new Error('Attach evidence for legal-name or date-of-birth corrections');
+      const supportingDocumentIds: string[] = [];
+      for (const file of personalChangeFiles) {
+        if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+          throw new Error('Evidence must be PDF, JPG or PNG and no larger than 5 MB');
+        }
+        const uploaded = await usersApi.uploadDocument(userId, file, 'Personal Information Change Evidence') as any;
+        if (uploaded?.document?.id) supportingDocumentIds.push(uploaded.document.id);
+      }
+      return changeRequestsApi.createPersonalInformation(userId, { changes, reason: personalChangeReason.trim(), supportingDocumentIds });
+    },
+    onSuccess: () => {
+      toast.success(isOwnProfile ? 'Request submitted for HR review' : 'Correction sent for employee confirmation');
+      setEditMode(false); setPersonalChangeReason(''); setPersonalChangeFiles([]);
+    },
+    onError: (error: any) => toast.error(error?.message ?? 'Correction request failed'),
   });
 
   // Admin Correction — separate from the Personal Details form above. Email there is
@@ -268,7 +283,7 @@ export default function UserProfileScreen() {
     setEditMode((v) => !v);
   };
 
-  const handleSave = () => updateMutation.mutate(formData);
+  const handleSave = () => activeTab === 'personal' ? personalRequestMutation.mutate() : updateMutation.mutate(formData);
 
   const handleDocumentUpload = async (docType: string, file: File) => {
     if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB'); return; }
@@ -439,7 +454,6 @@ export default function UserProfileScreen() {
             {TABS.filter((t) => {
               if (t.id === 'payroll') return canSeePayroll;
               if (t.id === 'access') return canSeeAccess || isOwnProfile;
-              if (t.id === 'approvals') return ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
               return true;
             }).map((tab) => (
               <button
@@ -469,9 +483,9 @@ export default function UserProfileScreen() {
                   <div className="flex items-center gap-2">
                     {editMode ? (
                       <>
-                        <button onClick={handleSave} disabled={updateMutation.isPending}
+                        <button onClick={handleSave} disabled={personalRequestMutation.isPending}
                           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl disabled:opacity-50">
-                          {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+                          {personalRequestMutation.isPending ? 'Submitting…' : (isOwnProfile ? 'Submit for HR Review' : 'Send for Employee Confirmation')}
                         </button>
                         <button onClick={() => setEditMode(false)}
                           className={`px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>
@@ -481,7 +495,7 @@ export default function UserProfileScreen() {
                     ) : (
                       <button onClick={handleEditToggle}
                         className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-xl ${neutralButtonCls}`}>
-                        <Edit2 size={14} /> Edit
+                        <Edit2 size={14} /> {isOwnProfile ? 'Request Changes' : 'Initiate Correction'}
                       </button>
                     )}
                   </div>
@@ -489,9 +503,10 @@ export default function UserProfileScreen() {
               </div>
               <div className={sectionCls}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <Field label="Full Name *" field="name" />
-                  <Field label="Email *" field="email" readOnly />
+                  <Field label="Legal Name" field="legalName" />
+                  <Field label="Official Login Email" field="email" readOnly />
                   <Field label="Phone" field="phone" type="tel" />
+                  <Field label="Personal Email" field="personalEmail" type="email" />
                   <Field label="Date of Birth" field="dateOfBirth" type="date" />
                   <SelectField label="Gender" field="gender" options={['Male','Female','Non-binary','Prefer not to say']} />
                   <SelectField label="Blood Group" field="bloodGroup" options={['A+','A-','B+','B-','O+','O-','AB+','AB-']} />
@@ -516,9 +531,19 @@ export default function UserProfileScreen() {
                   <Field label="Emergency Contact Name" field="emergencyName" />
                   <Field label="Emergency Contact Number" field="emergencyPhone" type="tel" />
                   <Field label="Relationship" field="emergencyRelation" />
-                  <Field label="Location" field="userLocation" />
+                  <Field label="Location" field="userLocation" readOnly />
                 </div>
               </div>
+
+              {editMode && <div className={`${sectionCls} mt-5`}>
+                <label className={labelCls}>Reason for correction *</label>
+                <textarea value={personalChangeReason} onChange={(event) => setPersonalChangeReason(event.target.value)} maxLength={1000}
+                  className={`${inputCls} min-h-[80px] resize-none`} placeholder="Explain why the official information needs correction" />
+                <label className={`${labelCls} mt-4`}>Supporting documents</label>
+                <input type="file" multiple accept="application/pdf,image/jpeg,image/png" onChange={(event) => setPersonalChangeFiles(Array.from(event.target.files ?? []))}
+                  className="block w-full text-sm text-[var(--text-secondary)]" />
+                <p className="mt-1 text-xs text-[var(--text-tertiary)]">Required for legal-name or date-of-birth corrections · PDF, JPG or PNG · 5 MB each</p>
+              </div>}
 
               {/* Admin Correction — ADMIN/SUPER_ADMIN only (canSeeAccess, not canEditAll,
                   since HR must not get this). Separate from the form above: the Email
@@ -970,96 +995,14 @@ export default function UserProfileScreen() {
             </div>
           )}
 
-          {/* Tab 6: Approval Workload */}
-          {activeTab === 'approvals' && (
+          {/* Tab 6: Asset Management. The final asset list and controls will be
+              added after the approved design is supplied. */}
+          {activeTab === 'assets' && (
             <div>
-              <h2 className={`${sectionHeadingCls} mb-6`}>Approval Workload</h2>
-              {reviewerMetricsLoading ? (
-                <div className="text-[var(--text-secondary)]">Loading metrics...</div>
-              ) : !reviewerMetrics ? (
-                <div className="text-[var(--text-secondary)]">No approval metrics available.</div>
-              ) : (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <Eye size={16} />
-                        <span className="text-sm font-medium">Pending Approvals</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.pendingApprovalsCount ?? 0}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <CheckCircle size={16} className="text-green-500" />
-                        <span className="text-sm font-medium">Completed Approvals</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.completedApprovalsCount ?? 0}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <Clock size={16} className="text-blue-500" />
-                        <span className="text-sm font-medium">Avg. Reviewer Active Time</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {fmtSeconds(reviewerMetrics.averageApprovalSeconds)}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <CheckCircle size={16} className="text-green-500" />
-                        <span className="text-sm font-medium">Approvals Today</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.approvalsToday ?? 0}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <CheckCircle size={16} className="text-green-500" />
-                        <span className="text-sm font-medium">Approvals This Week</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.approvalsThisWeek ?? 0}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <CheckCircle size={16} className={reviewerMetrics.approvalPercent >= 60 ? 'text-green-500' : 'text-yellow-500'} />
-                        <span className="text-sm font-medium">Approval Rate</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {fmtPct(reviewerMetrics.approvalPercent)}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <RotateCcw size={16} className={reviewerMetrics.rejectionPercent > 40 ? 'text-yellow-500' : 'text-[var(--text-secondary)]'} />
-                        <span className="text-sm font-medium">Rework Rate</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {fmtPct(reviewerMetrics.rejectionPercent)}
-                      </span>
-                    </div>
-                    <div className={metricCardCls}>
-                      <div className={metricLabelCls}>
-                        <AlertTriangle size={16} className={reviewerMetrics.approvalSlaBreaches > 0 ? 'text-red-500' : 'text-green-500'} />
-                        <span className="text-sm font-medium">SLA Breaches</span>
-                      </div>
-                      <span className={metricValueCls}>
-                        {reviewerMetrics.approvalSlaBreaches ?? 0}
-                        <span className="text-sm font-normal text-[var(--text-tertiary)] ml-2">({fmtPct(reviewerMetrics.approvalSlaBreachRate)})</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <h2 className={`${sectionHeadingCls} mb-3`}>Asset Management</h2>
+              <p className="text-sm text-[var(--text-secondary)]">
+                The asset list will be added here after the Asset Management design is finalized.
+              </p>
             </div>
           )}
         </div>

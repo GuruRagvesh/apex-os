@@ -66,32 +66,32 @@ export interface StatusPresentation {
  * yet.
  */
 const OUTCOME_PRESENTATION: Record<AttendanceOutcome, StatusPresentation> = {
-  PRESENT: { label: 'Present', shortLabel: 'Present', color: '#18B86B', tint: '#C8F4DC', glyph: '✓' },
-  HALF_DAY: { label: 'Half day', shortLabel: 'Half', color: '#9B6DE3', tint: '#EEE3FF', glyph: '◐' },
-  ABSENT: { label: 'Absent', shortLabel: 'Absent', color: '#EC5D78', tint: '#FFDDE5', glyph: '✕' },
+  PRESENT: { label: 'Present', shortLabel: 'Present', color: '#0D8A62', tint: '#EFFAF5', glyph: '✓' },
+  HALF_DAY: { label: 'Half day', shortLabel: 'Half', color: '#7C3AED', tint: '#F7F3FF', glyph: '◐' },
+  ABSENT: { label: 'Absent', shortLabel: 'Absent', color: '#D94B68', tint: '#FFF3F5', glyph: '✕' },
   // The signed attendance-timeline audit uses red for full leave or
   // insufficient-presence outcomes. The canonical outcome remains LEAVE;
   // this is presentation only and does not create or deduct leave.
-  LEAVE: { label: 'Leave', shortLabel: 'Leave', color: '#EC5D78', tint: '#FFDDE5', glyph: '✈' },
+  LEAVE: { label: 'Leave', shortLabel: 'Leave', color: '#D94B68', tint: '#FFF3F5', glyph: '✈' },
   // Backend keeps LWP; employees should not have to decode an acronym.
   LWP: {
     label: 'Unpaid leave',
     shortLabel: 'Unpaid',
-    color: '#EC5D78',
-    tint: '#FFDDE5',
+    color: '#D94B68',
+    tint: '#FFF3F5',
     glyph: '✈',
   },
-  HOLIDAY: { label: 'Holiday', shortLabel: 'Holiday', color: '#E5B52E', tint: '#FFF0B8', glyph: '★' },
-  WEEKLY_OFF: { label: 'Weekly off', shortLabel: 'Off', color: '#4F8FD8', tint: '#D7E9FF', glyph: '⊖' },
-  EXEMPT: { label: 'Not applicable', shortLabel: 'N/A', color: '#6D9BD2', tint: '#E0ECFA', glyph: '⊖' },
+  HOLIDAY: { label: 'Holiday', shortLabel: 'Holiday', color: '#D9A514', tint: '#FFF9DC', glyph: '★' },
+  WEEKLY_OFF: { label: 'Weekly off', shortLabel: 'Off', color: '#2767B0', tint: '#F1F6FD', glyph: '⊖' },
+  EXEMPT: { label: 'Not applicable', shortLabel: 'N/A', color: '#5F7898', tint: '#F4F7FA', glyph: '⊖' },
   IN_PROGRESS: {
     label: 'Working',
     shortLabel: 'Working',
     color: BRAND.blue,
-    tint: BRAND.paleBlue,
+    tint: '#F2F7FF',
     glyph: '◉',
   },
-  UNRESOLVED: { label: 'Needs review', shortLabel: 'Review', color: '#8494AA', tint: '#EFF3F8', glyph: '⚠' },
+  UNRESOLVED: { label: 'Needs review', shortLabel: 'Review', color: '#6F7F94', tint: '#F5F7FA', glyph: '⚠' },
 };
 
 /** A day with no evaluation. Neutral, and never mistakable for a verdict. */
@@ -283,7 +283,7 @@ export function presentDay(day: MyAttendanceDayV2): StatusPresentation {
   // the canonical outcome in the payload and day detail, but use the
   // fluorescent-green timeline treatment required by the audit.
   if (day.modifiers.includes('REGULARIZED')) {
-    return { label: 'Regularized', shortLabel: 'Regularized', color: '#54D36C', tint: '#D7F8DF', glyph: '✓' };
+    return { label: 'Regularized', shortLabel: 'Regularized', color: '#218B52', tint: '#F0FAF4', glyph: '✓' };
   }
   const base = presentOutcome(day.outcome);
   if (day.outcome !== 'PRESENT') return base;
@@ -293,5 +293,5 @@ export function presentDay(day: MyAttendanceDayV2): StatusPresentation {
   // Orange has two meanings in the audit. Name both when both are true rather
   // than making an employee infer the second reason from the same colour.
   const label = late && shortHours ? `${late} · short hours` : late ?? (shortHours ? 'Short hours' : null);
-  return label ? { ...base, label, shortLabel: label, color: '#F08A35', tint: '#FFE3C7', glyph: '◷' } : base;
+  return label ? { ...base, label, shortLabel: label, color: '#C45C0A', tint: '#FFF7EE', glyph: '◷' } : base;
 }

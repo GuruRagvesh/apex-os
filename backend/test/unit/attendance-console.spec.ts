@@ -389,7 +389,7 @@ describe('HC-1 commands are HR-only and explicit', () => {
 
   it('19. no GET route can evaluate or finalize', async () => {
     const { service, evaluator } = rig({ isHr: true, records: [record('emp-1')] });
-    const controller = new AttendanceConsoleController(service);
+    const controller = new AttendanceConsoleController(service, {} as any, {} as any);
 
     await controller.access(HR);
     await controller.summary(HR, DATE);
@@ -728,35 +728,38 @@ describe('HC-1 roster and register report stored results', () => {
     expect(out.employees[0].daysPresent).toBe(1);
   });
 
-  it('30d. 10:30 exactly is on time and 10:30:01 is late', async () => {
+  it('30d. late punch-ins use the evaluator policy result, not a hard-coded clock', async () => {
     const { service } = rig({
       isHr: true,
       employees: [employee('e1'), employee('e2')],
       workingDates: ['2026-08-03'],
       records: [
-        on('e1', '2026-08-03', { punchInAt: ist('2026-08-03', '10:30:00') }),
-        on('e2', '2026-08-03', { punchInAt: ist('2026-08-03', '10:30:01') }),
+        on('e1', '2026-08-03', { punchInAt: ist('2026-08-03', '10:30:00'), lateMinutes: 0 }),
+        on('e2', '2026-08-03', { punchInAt: ist('2026-08-03', '10:30:01'), lateMinutes: 1 }),
       ],
     });
 
     const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
 
-    // The policy window is 09:30-10:30 INCLUSIVE. The boundary belongs to the
-    // employee.
+    // The evaluator already resolved each employee's assigned shift and grace
+    // period. The register consumes that answer instead of inventing one.
     expect(out.employees.find((e: any) => e.userId === 'e1')!.latePunchIns).toBe(0);
     expect(out.employees.find((e: any) => e.userId === 'e2')!.latePunchIns).toBe(1);
   });
 
-  it('30e. lateness is read in company time, not UTC', async () => {
+  it('30e. a policy-exempted late arrival remains visible in the late-punch count', async () => {
     const { service } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03'],
-      records: [on('e1', '2026-08-03', { punchInAt: ist('2026-08-03', '11:00:00') })],
+      records: [on('e1', '2026-08-03', {
+        status: 'LATE_EXEMPTED',
+        punchInAt: ist('2026-08-03', '11:00:00'),
+        lateMinutes: 30,
+      })],
     });
 
     const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
-    // 11:00 IST is 05:30 UTC. A UTC comparison would call this on time.
     expect(out.employees[0].latePunchIns).toBe(1);
   });
 
@@ -770,6 +773,32 @@ describe('HC-1 roster and register report stored results', () => {
 
     const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
     expect(out.employees[0].latePunchIns).toBe(0);
+  });
+
+  it('30f2. missing and review-pending days suppress attendance percentage', async () => {
+    const { service } = rig({
+      isHr: true,
+      employees: [employee('e1')],
+      workingDates: ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06'],
+      records: [
+        on('e1', '2026-08-03', { status: 'PRESENT', evaluationState: 'FINALIZED' }),
+        on('e1', '2026-08-04', { status: 'HALF_DAY', evaluationState: 'FINALIZED' }),
+        on('e1', '2026-08-05', { status: 'ABSENT', evaluationState: 'NEEDS_REVIEW' }),
+        // 6 August deliberately has no stored row.
+      ],
+    });
+
+    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-06' });
+    const row = out.employees[0];
+
+    expect(row.daysPresent).toBe(1);
+    expect(row.halfDays).toBe(1);
+    expect(row.daysAbsent).toBe(0);
+    expect(row.needsReview).toBe(1);
+    expect(row.notEvaluated).toBe(1);
+    expect(row.eligibleWorkingDays).toBe(2);
+    // A partial set of facts must not look like a complete 75% score.
+    expect(row.attendanceCompletionPercentage).toBeNull();
   });
 
   it('30g. leave balance comes from the leave service, and one failure does not blank the register', async () => {
@@ -1049,22 +1078,33 @@ describe('HC-1 review queue links back to existing sources', () => {
     });
   });
 
-  it('38. the console controller exposes exactly two write routes', () => {
+  it('38. the console controller exposes exactly its attendance write routes plus the Phase 3 HR review commands', () => {
     const surface = Object.getOwnPropertyNames(AttendanceConsoleController.prototype).sort();
     expect(surface).toEqual([
       'access',
       'constructor',
+      // Phase 3, HR/Admin only, each audited: correct an LWP decision with a
+      // reason, record a reported absence, resolve a punch-review item. None
+      // edits punch evidence; the LWP correction re-evaluates through the
+      // ordinary evaluator.
+      'correctUnreportedAbsence',
       'detail',
       'evaluate',
+      // Phase 3: device sheet as CSV, a read of the same register result.
+      'exportDevicesCsv',
       // Both exports are GETs that render what monthlyRegister() returned.
       // They read; they decide nothing.
       'exportRegisterCsv',
       'exportRegisterXlsx',
       'finalize',
+      'punchReviews',
+      'recordAbsenceReport',
       'register',
+      'resolvePunchReview',
       'reviewQueue',
       'roster',
       'summary',
+      'unreportedAbsence',
     ]);
   });
 });

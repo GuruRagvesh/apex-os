@@ -91,6 +91,10 @@ export interface RegisterEmployee {
   isActive: boolean;
   userId: string;
   name: string;
+  employeeId: string | null;
+  avatar: string | null;
+  photoUrl: string | null;
+  department: string | null;
   daysPresent: number;
   daysAbsent: number;
   halfDays: number;
@@ -176,3 +180,14 @@ export async function runEvaluation(body: {
 export async function finalizeDay(userId: string, businessDate: string) {
   return r(api.post('/attendance/console/finalize', { userId, businessDate }));
 }
+
+export interface PunchReviewItem {
+  id: string;
+  status: 'PENDING' | 'REVIEWED' | 'DISMISSED';
+  reasonCodes: string[];
+  createdAt: string;
+  employee: { id: string; name: string; employeeId: string | null };
+  evidence: { id: string; type: string; businessDate: string; serverOccurredAt: string; deviceType: string | null; deviceCode: string | null; captureChannel: string | null; deviceLabel: string; source: string };
+}
+export async function getPunchReviews(status = 'PENDING'): Promise<{ status: string; items: PunchReviewItem[] }> { return r(api.get('/attendance/console/punch-reviews', { params: { status } })); }
+export async function resolvePunchReview(id: string, status: 'REVIEWED' | 'DISMISSED', note?: string) { return r(api.post(`/attendance/console/punch-reviews/${id}/resolve`, { status, note })); }

@@ -1,20 +1,19 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
+import { NotificationType, Prisma } from '@prisma/client';
+import { PolicyVersionService } from '../../platform/attendance/policy/policy-version.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
 import { BusinessCalendarService } from '../../platform/attendance/calendar/business-calendar.service';
 import { EmployeeTimelineService } from '../../platform/attendance/timeline/employee-timeline.service';
+import { NotificationEventService } from '../notifications/notification-event.service';
 
 /**
  * Comp Off credits.
  *
- * Management confirmed which days EARN comp off — Sunday, 2nd Saturday, 4th
- * Saturday, and official company holidays — but has NOT specified how much work
- * on such a day is required to earn one. So nothing here creates a credit from a
- * WorkSession. A credit exists only because a human granted it, and that grant
- * is audited.
+ * A completed 12-hour day earns 180 minutes. Three such days therefore total
+ * one 540-minute (9-hour) comp-off day without an overlapping bonus.
  *
  * Consumption is likewise exact: a leave request for N qualifying days needs N
  * credits, and there is no fallback to Casual or Emergency entitlement.
@@ -23,6 +22,9 @@ import { EmployeeTimelineService } from '../../platform/attendance/timeline/empl
 /** Qualifying weekly-off reasons. A plain working day never earns comp off. */
 const QUALIFYING_WEEKLY_OFF = ['SUNDAY', 'SECOND_SATURDAY', 'FOURTH_SATURDAY'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const LONG_DAY_MINUTES = 12 * 60;
+const SINGLE_LONG_DAY_CREDIT_MINUTES = 3 * 60;
+const FULL_COMP_OFF_DAY_MINUTES = 9 * 60;
 
 export class CompOffSourceNotQualifyingError extends Error {
   constructor(businessDate: string, public readonly reasons: string[]) {
@@ -57,7 +59,94 @@ export class CompOffService {
     private readonly timeline: EmployeeTimelineService,
     private readonly accessPolicy: AccessPolicyService,
     private readonly eventLogger: EventLoggerService,
+    @Optional() private readonly policies?: PolicyVersionService,
+    @Optional() private readonly notifications?: NotificationEventService,
   ) {}
+
+  private shiftDate(date: string, days: number) {
+    const value = new Date(`${date}T00:00:00.000Z`);
+    value.setUTCDate(value.getUTCDate() + days);
+    return value.toISOString().slice(0, 10);
+  }
+
+  private async isCompanyWorkingDay(employeeId: string, businessDate: string) {
+    const profile = await this.timeline.findProfileOn(employeeId, businessDate);
+    const facts = await this.calendar.resolveBusinessDay(businessDate, {
+      holidayCalendarId: profile?.assignedHolidayCalendarId ?? null,
+      weeklyOffPolicyId: profile?.assignedWeeklyOffPolicyId ?? null,
+      strict: true,
+    });
+    return facts.expectedCompanyWorkingDay;
+  }
+
+  private async workedMinutes(employeeId: string, dates: string[]) {
+    const rows = await this.prisma.workSession.findMany({
+      where: {
+        userId: employeeId,
+        date: { in: dates.map((date) => this.tva.companyDateOnly(new Date(`${date}T00:00:00.000Z`))) },
+        logoutAt: { not: null },
+      },
+      select: { date: true, totalWorkMinutes: true },
+    });
+    const totals = new Map<string, number>();
+    for (const row of rows) {
+      const key = row.date.toISOString().slice(0, 10);
+      totals.set(key, (totals.get(key) ?? 0) + Math.max(0, row.totalWorkMinutes ?? 0));
+    }
+    return totals;
+  }
+
+  private async createAutomaticCredit(
+    employeeId: string,
+    businessDate: string,
+    workSessionId: string,
+    rule: 'SINGLE_DAY_12_HOURS',
+  ) {
+    const expiryDays = await this.expiryDaysFor(employeeId, businessDate);
+    let credit;
+    try {
+      credit = await this.prisma.compOffCredit.create({
+        data: {
+          employeeId,
+          earnedFromBusinessDate: this.tva.companyDateOnly(new Date(`${businessDate}T00:00:00.000Z`)),
+          earnedFromWorkSessionId: workSessionId,
+          expiresAt: this.expiresOn(businessDate, expiryDays),
+          status: 'AVAILABLE',
+          creditMinutes: SINGLE_LONG_DAY_CREDIT_MINUTES,
+          remainingMinutes: SINGLE_LONG_DAY_CREDIT_MINUTES,
+        },
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002') return null;
+      throw error;
+    }
+
+    this.eventLogger.log({
+      actorId: employeeId,
+      entityType: 'CompOffCredit',
+      entityId: credit.id,
+      action: OperationalAction.COMP_OFF_GRANTED,
+      metadata: { employeeId, earnedFromBusinessDate: businessDate, rule, expiresAt: credit.expiresAt },
+    }).catch(() => {});
+    this.notifications?.sendNotification(employeeId, 'system', {
+      title: 'Comp-off earned',
+      message: `You earned 3 hours of comp-off for working 12 or more hours on ${businessDate}. It expires in ${expiryDays} days.`,
+      type: NotificationType.SUCCESS,
+      link: '/leave',
+      entityId: credit.id,
+      entityType: 'CompOffCredit',
+      dedupeKey: `comp-off-earned:${credit.id}`,
+    }).catch(() => {});
+    return credit;
+  }
+
+  /** Called after a real, completed punch-out/end-day; safe to retry. */
+  async evaluateCompletedWorkday(employeeId: string, businessDate: string, workSessionId: string) {
+    if (!DATE_RE.test(businessDate)) return null;
+    const currentMinutes = (await this.workedMinutes(employeeId, [businessDate])).get(businessDate) ?? 0;
+    if (currentMinutes < LONG_DAY_MINUTES) return null;
+    return this.createAutomaticCredit(employeeId, businessDate, workSessionId, 'SINGLE_DAY_12_HOURS');
+  }
 
   /**
    * The single HR/Admin gate for comp off.
@@ -72,7 +161,7 @@ export class CompOffService {
     }
   }
 
-  /** Calendar qualification only. No WorkSession automatically grants credit. */
+  /** Calendar qualification for the 9-hour off-day earning rule. */
   async qualifyingSourceDay(employeeId: string, businessDate: string) {
     const profile = await this.timeline.findProfileOn(employeeId, businessDate);
     const facts = await this.calendar.resolveBusinessDay(businessDate, {
@@ -84,7 +173,10 @@ export class CompOffService {
       QUALIFYING_WEEKLY_OFF.includes(reason),
     );
     return {
-      qualifies: weekly || facts.holiday.isHoliday,
+      // A SPECIAL_WORKING_DAY override wins over the normal Sunday/Saturday or
+      // holiday label. The credit is for work on an actual non-working day,
+      // not merely a date that would usually have been off.
+      qualifies: !facts.expectedCompanyWorkingDay && (weekly || facts.holiday.isHoliday),
       reasons: [...facts.weeklyOff.reasons, ...(facts.holiday.isHoliday ? ['HOLIDAY'] : [])],
       facts,
     };
@@ -102,20 +194,18 @@ export class CompOffService {
   private async expiryDaysFor(employeeId: string, businessDate: string): Promise<number> {
     const profile = await this.timeline.findProfileOn(employeeId, businessDate);
     if (!profile?.assignedLeavePolicyId) return 30;
-    const policy = await this.prisma.leavePolicy.findUnique({
-      where: { id: profile.assignedLeavePolicyId },
-      select: { compOffExpiryDays: true },
-    });
+    // Phase 3: the version of the assigned series governing that date.
+    const policy = this.policies
+      ? await this.policies.resolvePolicyOn('LEAVE_POLICY', businessDate, { id: profile.assignedLeavePolicyId })
+      : null;
     return policy?.compOffExpiryDays ?? 30;
   }
 
   /**
    * Grants one comp off credit by hand. HR/Admin only.
    *
-   * Deliberately narrow. It proves the source date actually qualifies through
-   * BusinessCalendar, refuses an ordinary working day, and checks NOTHING about
-   * how long anybody worked — because management has not defined that threshold,
-   * and inventing one here would silently become policy.
+   * Deliberately narrow. A manual HR grant remains available as an audited
+   * exception; automatic grants use evaluateCompletedWorkday above.
    */
   async grantManual(actor: any, input: GrantCompOffInput) {
     if (!this.accessPolicy.isHrOrAdmin(actor)) {
@@ -156,6 +246,8 @@ export class CompOffService {
           earnedFromWorkSessionId: input.earnedFromWorkSessionId ?? null,
           expiresAt: this.expiresOn(input.earnedFromBusinessDate, expiryDays),
           status: 'AVAILABLE',
+          creditMinutes: FULL_COMP_OFF_DAY_MINUTES,
+          remainingMinutes: FULL_COMP_OFF_DAY_MINUTES,
         },
       });
     } catch (err: any) {
@@ -187,10 +279,31 @@ export class CompOffService {
   /** The employee's own unexpired, unused credits. */
   async listAvailable(employeeId: string) {
     const today = this.tva.companyDateOnly(this.tva.now());
-    return this.prisma.compOffCredit.findMany({
+    const credits = await this.prisma.compOffCredit.findMany({
       where: { employeeId, status: 'AVAILABLE', expiresAt: { gte: today } },
       orderBy: [{ expiresAt: 'asc' }, { earnedAt: 'asc' }],
+      // Keep this read usable while an additive, owner-only local migration is
+      // pending. Existing credits predate minute entitlements and represent one
+      // full day each, so expose the documented 540-minute compatibility value.
+      select: {
+        id: true,
+        employeeId: true,
+        earnedFromBusinessDate: true,
+        earnedFromWorkSessionId: true,
+        earnedAt: true,
+        expiresAt: true,
+        usedAt: true,
+        leaveRequestId: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
+    return credits.map((credit) => ({
+      ...credit,
+      creditMinutes: FULL_COMP_OFF_DAY_MINUTES,
+      remainingMinutes: FULL_COMP_OFF_DAY_MINUTES,
+    }));
   }
 
   /**
@@ -210,29 +323,41 @@ export class CompOffService {
     leaveRequestId: string,
     requiredDays: number,
   ) {
-    const needed = Math.ceil(Math.max(0, requiredDays));
-    if (needed === 0) return [];
+    const neededMinutes = Math.ceil(Math.max(0, requiredDays) * FULL_COMP_OFF_DAY_MINUTES);
+    if (neededMinutes === 0) return [];
 
     const today = this.tva.companyDateOnly(this.tva.now());
     // Oldest-expiring first, deterministically: a credit about to lapse is spent
     // before one with months left, so nobody loses entitlement to ordering luck.
-    const rows = await tx.$queryRaw<Array<{ id: string }>>(
-      Prisma.sql`SELECT id FROM "comp_off_credits"
+    const rows = await tx.$queryRaw<Array<{ id: string; remainingMinutes: number }>>(
+      Prisma.sql`SELECT id, "remainingMinutes" FROM "comp_off_credits"
         WHERE "employeeId" = ${employeeId}
           AND status = 'AVAILABLE'
+          AND "remainingMinutes" > 0
           AND "expiresAt" >= ${today}
         ORDER BY "expiresAt" ASC, "earnedAt" ASC
-        LIMIT ${needed} FOR UPDATE`,
+        FOR UPDATE`,
     );
 
-    if (rows.length < needed) return null;
+    if (rows.reduce((sum, row) => sum + row.remainingMinutes, 0) < neededMinutes) return null;
 
     const usedAt = this.tva.now();
-    await tx.compOffCredit.updateMany({
-      where: { id: { in: rows.map((r) => r.id) } },
-      data: { status: 'USED', usedAt, leaveRequestId },
-    });
-    return rows.map((r) => r.id);
+    let remaining = neededMinutes;
+    const usedIds: string[] = [];
+    for (const row of rows) {
+      if (remaining <= 0) break;
+      const spent = Math.min(remaining, row.remainingMinutes);
+      const left = row.remainingMinutes - spent;
+      await tx.compOffCredit.update({
+        where: { id: row.id },
+        data: left === 0
+          ? { remainingMinutes: 0, status: 'USED', usedAt, leaveRequestId }
+          : { remainingMinutes: left },
+      });
+      remaining -= spent;
+      usedIds.push(row.id);
+    }
+    return usedIds;
   }
 
   /**

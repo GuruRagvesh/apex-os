@@ -29,6 +29,11 @@ type Row = Record<string, any>;
  */
 function matchesWhere(row: Row, where: Row = {}): boolean {
   for (const [field, condition] of Object.entries(where)) {
+    // Phase 3: the evaluator reads legacy HR_APPROVED OR applied APPROVED rows.
+    if (field === 'OR' && Array.isArray(condition)) {
+      if (!condition.some((sub: Row) => matchesWhere(row, sub))) return false;
+      continue;
+    }
     if (!(field in row)) continue;
     const value = row[field];
     if (condition && typeof condition === 'object' && !(condition instanceof Date)) {

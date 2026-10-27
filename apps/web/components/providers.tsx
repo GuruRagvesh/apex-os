@@ -5,7 +5,8 @@ import { Toaster } from 'react-hot-toast';
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@apex/core-identity';
 import { MUTATION_DEFAULTS, READ_QUERY_DEFAULTS } from '@apex/shared-auth';
-import { createUserChangeTracker, tokenStorageAction } from './session-boundary';
+import { applyAppearanceForUser } from '@apex/shared-utilities';
+import { createAppearanceSync, createUserChangeTracker, tokenStorageAction } from './session-boundary';
 import { clearSavedQueryCaches, MAX_AGE_MS, persistQueryCache } from './query-cache-persistence';
 
 // Keeps cached data and other tabs in step with who is signed in. It never
@@ -15,6 +16,14 @@ function SessionBoundary({ queryClient }: { queryClient: QueryClient }) {
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const hasHydrated = useAuthStore((s) => s.hasHydrated);
   const changed = useRef(createUserChangeTracker());
+  const syncAppearance = useRef(createAppearanceSync(applyAppearanceForUser));
+
+  // Apply the signed-in person's theme and display settings once auth has
+  // hydrated, and again on login, logout or account switch.
+  useEffect(() => {
+    if (!hasHydrated) return;
+    syncAppearance.current(userId);
+  }, [hasHydrated, userId]);
 
   // Logout, login, or a different person: drop every cached query, in memory and saved.
   useEffect(() => {

@@ -5,6 +5,7 @@ const NOW = new Date('2026-10-14T18:00:00.000Z');
 const tva: any = {
   now: jest.fn(() => NOW),
   companyToday: jest.fn(() => '2026-10-14'),
+  companyTimezone: jest.fn(() => 'UTC'),
   companyInstantAt: jest.fn((day: string, time: string) => new Date(`${day}T${time}:00.000Z`)),
 };
 
@@ -19,6 +20,7 @@ function prismaDouble() {
     team: { findMany: jest.fn(async () => []) },
     managerDeptAccess: { findMany: jest.fn(async () => []) },
     user: { findMany: jest.fn(async () => []), findUnique: jest.fn(), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    employeeAttendanceProfile: { findMany: jest.fn(async () => []) },
     workSession: { findMany: jest.fn(async () => []), findFirst: jest.fn(), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
     breakLog: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
     ticketTimeLog: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
@@ -26,6 +28,7 @@ function prismaDouble() {
     ticket: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
     reviewCycleLog: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
     dailyAttendance: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
+    leaveRequest: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
     project: { findMany: jest.fn(async () => []), aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _max: {} })) },
   } as any;
 }
@@ -81,14 +84,171 @@ describe('TeamInsightsService analytics rules', () => {
 
     expect(metrics).toEqual({
       workingMinutes: 450,
+      presenceMinutes: 480,
       breakMinutes: 30,
+      breakCount: 1,
       ticketMinutes: 120,
       meetingMinutes: 90,
       productiveMinutes: 180,
       meetingCount: 1,
+      meetingParticipationCount: 1,
+      punchInMinute: 540,
+      punchOutMinute: 1020,
+      punchInCount: 1,
+      punchOutCount: 1,
+      measurablePresenceDays: 1,
       daysWorked: 1,
       calendarDaysWorked: 1,
     });
+    expect(prisma.workSession.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        date: {
+          gte: new Date('2026-10-14T00:00:00.000Z'),
+          lte: new Date('2026-10-14T00:00:00.000Z'),
+        },
+      }),
+    }));
+  });
+
+  it('builds the denominator per employee and excludes dates outside employment', async () => {
+    const prisma = prismaDouble();
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u1', joiningDate: new Date('2026-10-12T00:00:00Z'), lastWorkingDate: null },
+      { id: 'u2', joiningDate: new Date('2026-09-01T00:00:00Z'), lastWorkingDate: new Date('2026-10-13T00:00:00Z') },
+      { id: 'u3', joiningDate: null, lastWorkingDate: null },
+    ]);
+    prisma.employeeAttendanceProfile.findMany.mockResolvedValue([{
+      userId: 'u3', attendanceRequired: true, category: 'REGULAR_EMPLOYEE',
+      effectiveFrom: new Date('2026-10-13T00:00:00Z'), effectiveTo: null,
+    }]);
+    const service = new TeamInsightsService(prisma, access, timing, tva);
+
+    const schedule = await (service as any).scheduledEmployeeDays(
+      ['u1', 'u2', 'u3'],
+      ['2026-10-09', '2026-10-12', '2026-10-13', '2026-10-14'],
+    );
+
+    expect([...schedule.eligible].sort()).toEqual([
+      'u1:2026-10-12', 'u1:2026-10-13', 'u1:2026-10-14',
+      'u2:2026-10-09', 'u2:2026-10-12', 'u2:2026-10-13',
+      'u3:2026-10-13', 'u3:2026-10-14',
+    ]);
+    expect(schedule).toMatchObject({
+      expectedEmployeeDays: 8,
+      employmentExcludedDays: 2,
+      unresolvedScheduleDays: 2,
+    });
+  });
+
+  it('keeps missing and under-review days in the denominator without double-counting outcomes', async () => {
+    const prisma = prismaDouble();
+    prisma.dailyAttendance.findMany.mockResolvedValue([
+      { userId: 'u1', date: new Date('2026-10-12T00:00:00Z'), status: 'LATE', evaluationState: 'FINALIZED', exceptionFlags: ['INSUFFICIENT_EFFECTIVE_WORK'] },
+      { userId: 'u1', date: new Date('2026-10-13T00:00:00Z'), status: 'PRESENT', evaluationState: 'NEEDS_REVIEW' },
+      { userId: 'u1', date: new Date('2026-10-14T00:00:00Z'), status: 'HALF_DAY', evaluationState: 'FINALIZED' },
+    ]);
+    const service = new TeamInsightsService(prisma, access, timing, tva);
+    const eligible = new Set([
+      'u1:2026-10-12', 'u1:2026-10-13', 'u1:2026-10-14', 'u1:2026-10-15',
+    ]);
+
+    const metrics = await (service as any).attendanceMetrics(
+      ['u1'], ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15'], eligible, 0,
+    );
+
+    // Present days include the half day (the person attended); the attendance
+    // rate still weights half days separately.
+    expect(metrics).toMatchObject({
+      expectedEmployeeDays: 4,
+      presentDays: 2,
+      halfDays: 1,
+      lateDays: 1,
+      lessWorkingHoursDays: 1,
+      unresolvedDays: 1,
+      missingDays: 1,
+      attendanceRate: null,
+      coverageRate: 50,
+    });
+  });
+
+  it('builds a complete individual month calendar with attendance and company-day colours', async () => {
+    const prisma = prismaDouble();
+    prisma.dailyAttendance.findMany.mockResolvedValue([
+      { date: new Date('2026-10-12T00:00:00Z'), status: 'PRESENT', evaluationState: 'NEEDS_REVIEW' },
+      { date: new Date('2026-10-13T00:00:00Z'), status: 'LATE', evaluationState: 'FINALIZED' },
+    ]);
+    const service = new TeamInsightsService(prisma, access, timing, tva);
+    const days = await (service as any).personalAttendanceCalendar('u1', {
+      from: '2026-10-11', to: '2026-10-15',
+      start: new Date('2026-10-11T00:00:00Z'), end: new Date('2026-10-16T00:00:00Z'), days: 5,
+    }, [
+      { businessDate: '2026-10-11', isWorkingDay: false, reason: 'SUNDAY', holidayName: null },
+      { businessDate: '2026-10-12', isWorkingDay: true, reason: 'WORKING', holidayName: null },
+      { businessDate: '2026-10-13', isWorkingDay: true, reason: 'WORKING', holidayName: null },
+      { businessDate: '2026-10-14', isWorkingDay: false, reason: 'HOLIDAY', holidayName: 'Founders Day' },
+      { businessDate: '2026-10-15', isWorkingDay: true, reason: 'WORKING', holidayName: null },
+    ]);
+
+    expect(days.map((day: any) => [day.date, day.status])).toEqual([
+      ['2026-10-11', 'WEEKLY_OFF'],
+      ['2026-10-12', 'NEEDS_REVIEW'],
+      ['2026-10-13', 'LATE'],
+      ['2026-10-14', 'HOLIDAY'],
+      ['2026-10-15', 'FUTURE'],
+    ]);
+  });
+
+  it('marks verified overtime and productive days from recorded evidence', async () => {
+    const prisma = prismaDouble();
+    prisma.dailyAttendance.findMany.mockResolvedValue([
+      { date: new Date('2026-10-12T00:00:00Z'), status: 'PRESENT', evaluationState: 'FINALIZED', workedMinutes: 600, exceptionFlags: [] },
+      { date: new Date('2026-10-13T00:00:00Z'), status: 'PRESENT', evaluationState: 'FINALIZED', workedMinutes: 480, exceptionFlags: [] },
+    ]);
+    prisma.ticketTimeLog.findMany.mockResolvedValue([{
+      startedAt: new Date('2026-10-13T10:00:00Z'), endedAt: new Date('2026-10-13T11:00:00Z'),
+    }]);
+    const service = new TeamInsightsService(prisma, access, timing, tva);
+    const days = await (service as any).personalAttendanceCalendar('u1', {
+      from: '2026-10-12', to: '2026-10-13',
+      start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-14T00:00:00Z'), days: 2,
+    }, [
+      { businessDate: '2026-10-12', isWorkingDay: true, reason: 'WORKING', holidayName: null },
+      { businessDate: '2026-10-13', isWorkingDay: true, reason: 'WORKING', holidayName: null },
+    ]);
+
+    expect(days.map((day: any) => [day.date, day.status])).toEqual([
+      ['2026-10-12', 'OVERTIME'],
+      ['2026-10-13', 'PRODUCTIVE'],
+    ]);
+  });
+
+  it('shows approved leave immediately and lets real work evidence replace a stale leave row', async () => {
+    const prisma = prismaDouble();
+    prisma.leaveRequest.findMany.mockResolvedValue([{
+      id: 'leave-1', type: 'CASUAL', startDate: new Date('2026-10-12T00:00:00Z'),
+      endDate: new Date('2026-10-12T00:00:00Z'), isHalfDay: false,
+    }]);
+    const service = new TeamInsightsService(prisma, access, timing, tva);
+    const window = {
+      from: '2026-10-12', to: '2026-10-12',
+      start: new Date('2026-10-12T00:00:00Z'), end: new Date('2026-10-13T00:00:00Z'), days: 1,
+    };
+    const calendar = [{ businessDate: '2026-10-12', isWorkingDay: true, reason: 'WORKING', holidayName: null }];
+
+    const leaveDays = await (service as any).personalAttendanceCalendar('u1', window, calendar);
+    expect(leaveDays[0]).toMatchObject({ status: 'LEAVE', outcome: 'LEAVE', leaveType: 'CASUAL' });
+
+    prisma.leaveRequest.findMany.mockResolvedValue([]);
+    prisma.dailyAttendance.findMany.mockResolvedValue([{
+      date: new Date('2026-10-12T00:00:00Z'), status: 'LEAVE', evaluationState: 'FINALIZED',
+      punchInAt: null, punchOutAt: null, exceptionFlags: [], workedMinutes: 0,
+    }]);
+    prisma.workSession.findMany.mockResolvedValue([{
+      id: 'ws1', date: new Date('2026-10-12T00:00:00Z'),
+      startWorkAt: new Date('2026-10-12T09:00:00Z'), logoutAt: null, status: 'WORKING',
+    }]);
+    const workedDays = await (service as any).personalAttendanceCalendar('u1', window, calendar);
+    expect(workedDays[0]).toMatchObject({ status: 'NEEDS_REVIEW', outcome: null, leaveType: null });
   });
 
   it('counts a completed shared meeting once in overall even with several participants', async () => {
@@ -141,7 +301,7 @@ describe('TeamInsightsService analytics rules', () => {
 
     const metrics = await (service as any).ticketMetrics(['u1'], range);
 
-    expect(metrics).toMatchObject({ active: 1, inProgress: 1, underReview: 1 });
+    expect(metrics).toMatchObject({ active: 1, inProgress: 1, underReview: 1, completed: 1 });
     expect(prisma.ticket.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ AND: expect.any(Array) }),
     }));
@@ -212,6 +372,9 @@ describe('TeamInsightsService analytics rules', () => {
     expect(october.range).toMatchObject({ from: '2026-10-01', to: '2026-10-31', days: 31 });
     const boundaryWeek = (service as any).resolveRange('2026-10', '1');
     expect(boundaryWeek.range).toMatchObject({ from: '2026-09-28', to: '2026-10-04', days: 7 });
+    const selectedDay = (service as any).resolveRange('2026-10', 'all', '2026-10-14');
+    expect(selectedDay).toMatchObject({ mode: 'DAY', range: { from: '2026-10-14', to: '2026-10-14', days: 1 } });
+    expect(() => (service as any).resolveRange('2026-10', 'all', '2026-02-30')).toThrow('date must be a valid');
     expect(() => (service as any).resolveRange('2026-10', '6')).toThrow('week is not valid');
   });
 
@@ -274,10 +437,38 @@ describe('TeamInsightsService analytics rules', () => {
     expect(result.averageBreakMinutes).toBe(40);
   });
 
-  it('does not expose personal achievements to admins or super admins', async () => {
-    const service = new TeamInsightsService(prismaDouble(), access, timing, tva);
-    await expect(service.getPersonalHighlights({ id: 'admin1', role: { name: 'ADMIN' } }, '2026-10')).rejects.toThrow('not available for this role');
-    await expect(service.getPersonalHighlights({ id: 'super1', role: { name: 'SUPER_ADMIN' } }, '2026-10')).rejects.toThrow('not available for this role');
+  it.each([
+    ['admin1', 'ADMIN'],
+    ['super1', 'SUPER_ADMIN'],
+  ])('exposes personal achievements and project contributions to %s', async (userId, role) => {
+    const prisma = prismaDouble();
+    prisma.user.findMany.mockResolvedValue([{ id: userId }]);
+    const service = new TeamInsightsService(prisma, access, timing, tva);
+    const stats = new Map([[userId, {
+      daysWorked: 3,
+      workingMinutes: 1440,
+      productiveMinutes: 900,
+      breakMinutes: 120,
+      completedTickets: 1,
+      attendanceDays: 3,
+      onTimeDays: 3,
+    }]]);
+    const previous = new Map([[userId, {
+      daysWorked: 0,
+      workingMinutes: 0,
+      productiveMinutes: 0,
+      breakMinutes: 0,
+      completedTickets: 0,
+      attendanceDays: 0,
+      onTimeDays: 0,
+    }]]);
+    jest.spyOn(service as any, 'achievementStats').mockResolvedValueOnce(stats).mockResolvedValueOnce(previous);
+    jest.spyOn(service as any, 'projects').mockResolvedValue([{ id: 'project-1', name: 'Leadership project' }]);
+
+    const result = await service.getPersonalHighlights({ id: userId, role: { name: role } }, '2026-10');
+
+    expect(result.achievements.length).toBeGreaterThan(0);
+    expect(result.projects).toEqual([{ id: 'project-1', name: 'Leadership project' }]);
   });
 
   it('shares identical in-flight insight calculations and reuses the completed result', async () => {

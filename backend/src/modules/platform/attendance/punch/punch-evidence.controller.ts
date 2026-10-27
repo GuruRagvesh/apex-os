@@ -122,8 +122,21 @@ export class PunchEvidenceController {
         };
       }
 
+      const header = (name: string): string | null => {
+        const value = req?.headers?.[name];
+        return typeof value === 'string' ? value : Array.isArray(value) ? value[0] ?? null : null;
+      };
       const result = await this.punchEvidence.submit(userId, effective, {
         ipAddress: req?.ip ?? req?.headers?.['x-forwarded-for'] ?? null,
+        headers: {
+          userAgent: header('user-agent'),
+          secChUaMobile: header('sec-ch-ua-mobile'),
+          secChUaPlatform: header('sec-ch-ua-platform'),
+        },
+        // From the route, never the body: only a successful handoff claim can
+        // make this a phone handoff. The device fields in the body are the
+        // PHONE's own, because the phone is the browser submitting them.
+        captureChannel: claimedHandoffId ? 'PHONE_HANDOFF' : 'CURRENT_DEVICE',
       });
 
       if (claimedHandoffId && (result as any)?.id) {

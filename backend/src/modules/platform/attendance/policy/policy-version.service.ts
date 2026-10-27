@@ -1,5 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PolicyStatus, Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
+import {
+  policyHealthDedupeKey,
+  previousCompanyDate,
+  resolveContinuousPolicy,
+  type ContinuityResolution,
+  type PolicyContinuityHealth,
+  GOVERNING_POLICY_STATUSES,
+} from './policy-continuity';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { TVAService } from '../../../../common/services/tva.service';
 import {
@@ -202,40 +211,76 @@ export class PolicyVersionService {
 
       const row = await d.findUnique({ where: { id } });
       if (!row) throw new Error(`Policy not found: ${id}`);
-      this.assertTransition(row.status, PolicyStatus.ACTIVE);
+      const incomingStart = this.tva.companyBusinessDate(row.effectiveFrom);
+      const today = this.tva.companyBusinessDate(this.tva.now());
+      // Phase 3: a future-dated version becomes SCHEDULED, never a second
+      // ACTIVE. It governs from its own company date by date-based resolution
+      // even if no job ever runs; settleScheduledSupersessions() only tidies
+      // the label once the date has passed.
+      const startsLater = incomingStart > today;
+      const target = startsLater ? PolicyStatus.SCHEDULED : PolicyStatus.ACTIVE;
+      this.assertTransition(row.status, target);
 
       if (row.createdById && row.createdById === actor.userId) {
         throw new PolicySelfApprovalError(actor.userId);
       }
 
-      // The outgoing version is resolved from the series, not supplied by the
-      // caller, so a stale or wrong id cannot leave two ACTIVE versions.
-      const current = await d.findFirst({
+      // The predecessor is the latest live version of the SAME series that
+      // starts before the incoming one (the current ACTIVE, or an earlier
+      // SCHEDULED one). Resolved from the series, never supplied by the caller.
+      const predecessor = await d.findFirst({
         where: {
           policyKey: row.policyKey,
-          status: PolicyStatus.ACTIVE,
+          status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SCHEDULED] },
+          effectiveFrom: { lt: this.toDateOnly(incomingStart) },
+          NOT: { id: row.id },
+        },
+        orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
+      });
+
+      // A version already scheduled to start on or after this one would leave
+      // two futures racing for the same dates; that must be settled first.
+      const laterScheduled = await d.findFirst({
+        where: {
+          policyKey: row.policyKey,
+          status: PolicyStatus.SCHEDULED,
+          effectiveFrom: { gte: this.toDateOnly(incomingStart) },
           NOT: { id: row.id },
         },
       });
+      if (
+        laterScheduled?.status === PolicyStatus.SCHEDULED &&
+        this.tva.companyBusinessDate(laterScheduled.effectiveFrom) >= incomingStart
+      ) {
+        throw new PolicyTransitionError(row.status, target);
+      }
 
-      if (current) {
-        this.assertTransition(current.status, PolicyStatus.SUPERSEDED);
+      if (predecessor) {
+        // Closed on the previous COMPANY date, so the two never both cover a
+        // date. (A timestamp minus 24 hours lands on the wrong day whenever
+        // effectiveFrom carries a time or sits across the IST/UTC boundary.)
+        const closesOn = this.toDateOnly(previousCompanyDate(incomingStart));
+        // An ACTIVE predecessor of a future successor stays ACTIVE (it still
+        // governs until the day before); otherwise it is superseded now.
+        const keepsGoverning = startsLater && predecessor.status === PolicyStatus.ACTIVE;
+        if (!keepsGoverning && predecessor.status === PolicyStatus.ACTIVE) {
+          this.assertTransition(predecessor.status, PolicyStatus.SUPERSEDED);
+        }
         await d.update({
-          where: { id: current.id },
+          where: { id: predecessor.id },
           data: {
-            status: PolicyStatus.SUPERSEDED,
-            isActive: false,
+            ...(keepsGoverning || predecessor.status === PolicyStatus.SCHEDULED
+              ? {}
+              : { status: PolicyStatus.SUPERSEDED, isActive: false }),
             supersededById: row.id,
-            // Closed the day before the incoming version opens, so the two
-            // never both cover a date.
-            effectiveTo: new Date(row.effectiveFrom.getTime() - 24 * 60 * 60 * 1000),
+            effectiveTo: closesOn,
           },
         });
       }
 
       return d.update({
         where: { id: row.id },
-        data: { status: PolicyStatus.ACTIVE, isActive: true },
+        data: { status: target, isActive: !startsLater },
       });
     });
   }
@@ -372,22 +417,188 @@ export class PolicyVersionService {
     businessDate: Date | string,
     where: Record<string, any> = {},
   ) {
+    return (await this.resolveWithHealth(kind, businessDate, where)).policy;
+  }
+
+  /**
+   * Policy continuity (Phase 3), with the health finding.
+   *
+   * `where.id` names the version a profile was ASSIGNED; continuity follows
+   * that version's SERIES (policyKey), so a successor version applies from its
+   * own effective date without anyone re-assigning every profile, and a gap
+   * continues the predecessor instead of blocking the day. Any other filter
+   * selects the candidate set directly.
+   *
+   * Never throws for missing or inconsistent configuration: the caller gets
+   * `policy: null` / a health value, and the finding is recorded as a
+   * PolicyHealthIssue for Admin.
+   */
+  async resolveWithHealth(
+    kind: VersionedPolicyKind,
+    businessDate: Date | string,
+    where: Record<string, any> = {},
+  ): Promise<{ policy: any | null; health: PolicyContinuityHealth | null }> {
     const date =
       typeof businessDate === 'string'
         ? businessDate
         : this.tva.companyBusinessDate(businessDate);
-    const anchor = this.toDateOnly(date);
     const d = this.delegate(kind, this.prisma);
+    // Local preview databases can legitimately lag the newest additive
+    // attendance thresholds while the owner-only migration is pending. Avoid
+    // Prisma's implicit `SELECT *` for this read path so the evaluator can use
+    // its documented defaults until that migration is applied.
+    const readSelect = kind === 'ATTENDANCE_POLICY'
+      ? {
+          id: true,
+          financialYear: true,
+          name: true,
+          isActive: true,
+          minimumWorkingMinutes: true,
+          lateExemptionEnabled: true,
+          faceCaptureRequired: true,
+          locationCaptureRequired: true,
+          geoFenceEnabled: true,
+          regularizationEnabled: true,
+          createdAt: true,
+          updatedAt: true,
+          updatedById: true,
+          policyKey: true,
+          version: true,
+          status: true,
+          effectiveFrom: true,
+          effectiveTo: true,
+          approvedById: true,
+          approvedAt: true,
+          createdById: true,
+          supersededById: true,
+          afterPunchWindowAction: true,
+          insufficientHoursAction: true,
+          automaticHalfDayEnabled: true,
+          permittedBreakMinutes: true,
+          minimumEffectiveWorkMinutes: true,
+        }
+      : undefined;
 
-    return d.findFirst({
+    // The common case first: a governing version covers the date. This is the
+    // same query the readers always made, now also accepting SCHEDULED
+    // versions (a future version governs from its own date with no job).
+    const anchorDay = this.toDateOnly(date);
+    const covering = await d.findFirst({
       where: {
         ...where,
-        status: { in: [PolicyStatus.ACTIVE, PolicyStatus.SUPERSEDED] },
-        effectiveFrom: { lte: this.tva.companyDayEnd(anchor) },
-        OR: [{ effectiveTo: null }, { effectiveTo: { gte: this.tva.companyDayStart(anchor) } }],
+        status: { in: [...GOVERNING_POLICY_STATUSES] },
+        effectiveFrom: { lte: this.tva.companyDayEnd(anchorDay) },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: this.tva.companyDayStart(anchorDay) } }],
       },
       orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
+      ...(readSelect ? { select: readSelect } : {}),
     });
+    if (covering) return { policy: covering, health: null };
+    if (typeof d.findMany !== 'function' || typeof d.findUnique !== 'function') {
+      return { policy: null, health: 'NO_POLICY' };
+    }
+
+    // Nothing covers the date: continuity over the series (gap, baseline).
+    let filter: Record<string, any> = where;
+    if (typeof where.id === 'string') {
+      const { id, ...rest } = where;
+      const anchor = await d.findUnique({ where: { id }, select: { policyKey: true } });
+      if (!anchor) return { policy: null, health: 'NO_POLICY' };
+      filter = { ...rest, policyKey: anchor.policyKey };
+    }
+
+    const rows = await d.findMany({
+      where: { ...filter, status: { in: [...GOVERNING_POLICY_STATUSES] } },
+      ...(readSelect ? { select: readSelect } : {}),
+    });
+    const resolution = resolveContinuousPolicy(
+      rows.map((r: any) => ({
+        id: r.id,
+        version: r.version,
+        effectiveFrom: this.tva.companyBusinessDate(r.effectiveFrom),
+        effectiveTo: r.effectiveTo ? this.tva.companyBusinessDate(r.effectiveTo) : null,
+        row: r,
+      })),
+      date,
+    );
+    if (resolution.health) {
+      this.recordHealth(kind, resolution).catch(() => undefined);
+    }
+    return { policy: (resolution.policy as any)?.row ?? null, health: resolution.health };
+  }
+
+  /** Recently recorded findings, so a busy read path does not write on every call. */
+  private readonly recentHealth = new Map<string, number>();
+
+  /**
+   * Upserts the finding as a PolicyHealthIssue. Best effort and never on the
+   * caller's critical path: a health record failing to save must not fail a
+   * punch, a leave request or an evaluation.
+   */
+  private async recordHealth(kind: VersionedPolicyKind, resolution: ContinuityResolution) {
+    const dedupeKey = policyHealthDedupeKey(kind, resolution);
+    if (!dedupeKey || !resolution.health) return;
+    const now = Date.now();
+    const seen = this.recentHealth.get(dedupeKey);
+    if (seen && now - seen < 10 * 60_000) return;
+    this.recentHealth.set(dedupeKey, now);
+    if (this.recentHealth.size > 500) this.recentHealth.clear();
+
+    const day = (v: string | null) => (v ? new Date(`${v}T00:00:00.000Z`) : null);
+    const existing = await (this.prisma as any).policyHealthIssue.findUnique({ where: { dedupeKey } });
+    if (!existing) {
+      await (this.prisma as any).policyHealthIssue.create({
+        data: {
+          id: randomUUID(),
+          policyFamily: kind,
+          kind: resolution.health,
+          dedupeKey,
+          rangeFrom: day(resolution.rangeFrom),
+          rangeTo: day(resolution.rangeTo),
+          policyIds: resolution.involvedIds,
+        },
+      });
+    } else if (existing.status === 'RESOLVED') {
+      await (this.prisma as any).policyHealthIssue.update({
+        where: { dedupeKey },
+        data: { status: 'OPEN', resolvedAt: null, resolvedById: null, detectedAt: this.tva.now() },
+      });
+    }
+  }
+
+  /**
+   * Tidies lifecycle labels once a SCHEDULED version's company date arrives.
+   *
+   * Purely cosmetic for resolution: a SCHEDULED version already governs from
+   * its effectiveFrom by date alone, so a day with this job down still resolves
+   * correctly. Here its predecessor becomes SUPERSEDED and it becomes ACTIVE,
+   * in one transaction per family, so the series never shows two ACTIVE rows.
+   * Idempotent; run daily and at startup.
+   */
+  async settleScheduledSupersessions(): Promise<number> {
+    const today = this.toDateOnly(this.tva.companyBusinessDate(this.tva.now()));
+    let settled = 0;
+    for (const kind of ['ATTENDANCE_POLICY', 'SHIFT_POLICY', 'LEAVE_POLICY', 'HOLIDAY_CALENDAR'] as const) {
+      settled += await this.prisma.$transaction(async (tx) => {
+        const d = this.delegate(kind, tx);
+        const due = await d.findMany({
+          where: { status: PolicyStatus.SCHEDULED, effectiveFrom: { lte: today } },
+          orderBy: { effectiveFrom: 'asc' },
+        });
+        let n = 0;
+        for (const row of due) {
+          await this.lockSeries(kind, row.policyKey, tx);
+          await d.updateMany({
+            where: { policyKey: row.policyKey, status: PolicyStatus.ACTIVE, NOT: { id: row.id } },
+            data: { status: PolicyStatus.SUPERSEDED, isActive: false },
+          });
+          await d.update({ where: { id: row.id }, data: { status: PolicyStatus.ACTIVE, isActive: true } });
+          n += 1;
+        }
+        return n;
+      });
+    }
+    return settled;
   }
 
   /** Every version of one policy family, oldest first. */

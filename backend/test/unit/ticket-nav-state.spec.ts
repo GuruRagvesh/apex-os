@@ -312,7 +312,7 @@ describe('browser wiring (source checks)', () => {
 
   it('nothing sensitive is named in what the pages save', () => {
     // The save calls pass only these shapes.
-    expect(ticketsPage).toContain('nav.save({ tab: tabRef.current, scroll: scrollOf(mainScrollElement()) })');
+    expect(ticketsPage).toContain("nav.save({ tab: 'all', scroll: scrollOf(mainScrollElement()) })");
     expect(newPage).toContain('rows: rows.map((r) => draftRowFrom(r))');
     for (const forbidden of ['token', 'password', 'email', 'role', 'permission', 'title', 'description', 'comment', 'attachment', 'timer', 'workday', 'session']) {
       expect(lib.slice(lib.indexOf('// ── Page schemas'), lib.indexOf('// ── Envelope'))).not.toMatch(new RegExp(`\\b${forbidden}\\b\\s*:`, 'i'));

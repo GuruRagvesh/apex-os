@@ -26,6 +26,16 @@ describe('WorkdayService Release A corruption guards', () => {
       attendanceEvent: {
         create: jest.fn().mockResolvedValue({}),
       },
+      leaveRequest: {
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      compOffCredit: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      dailyAttendance: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
     };
 
     // The service runs startWork/finalize inside a transaction. Hand the
@@ -129,6 +139,31 @@ describe('WorkdayService Release A corruption guards', () => {
     expect(result.session).toBe(openSession);
     expect(attendanceAuthority.createWorkSession).not.toHaveBeenCalled();
     expect(attendanceAuthority.updateWorkSession).not.toHaveBeenCalled();
+  });
+
+  it('atomically cancels approved leave and restores comp-off credit when work starts', async () => {
+    prisma.workSession.findFirst.mockResolvedValue(null);
+    prisma.leaveRequest.findMany.mockResolvedValue([{
+      id: 'leave-1',
+      type: 'COMP_OFF',
+      startDate: today,
+      endDate: today,
+    }]);
+    prisma.leaveRequest.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.startWork('user-1');
+
+    expect(prisma.leaveRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'leave-1', userId: 'user-1', status: 'APPROVED' },
+      data: { status: 'CANCELLED' },
+    });
+    expect(prisma.compOffCredit.updateMany).toHaveBeenCalledWith({
+      where: { leaveRequestId: 'leave-1', status: 'USED' },
+      data: { status: 'AVAILABLE', usedAt: null, leaveRequestId: null },
+    });
+    expect(prisma.dailyAttendance.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', date: today, locked: false, status: { in: ['LEAVE', 'LWP'] } },
+    });
   });
 
   it('startBreak rejects closed sessions', async () => {

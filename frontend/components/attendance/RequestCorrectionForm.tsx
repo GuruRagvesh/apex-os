@@ -5,7 +5,7 @@ import { CorrectionScreenshotPicker } from './CorrectionScreenshots';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   createRegularization,
-  type RegularizationRequestType,
+  type AttendanceCorrectionConcern,
 } from './regularization-api';
 
 /**
@@ -15,37 +15,14 @@ import {
  * punch times were and says why. Nothing here edits the recorded evidence —
  * the raw punch record stays exactly as the device reported it, and an approved
  * correction sits alongside it.
- *
- * The issue the employee picks is a plain-language CATEGORY. Punch problems map to
- * the existing punch-correction types, which carry the proposed time. A status,
- * worked-hours or other concern maps to OTHER, a review-only type: reviewers read
- * it and decide, and approving it never rewrites the official day.
  */
 
-interface Category {
-  key: string;
-  label: string;
-  hint: string;
-  requestType: RegularizationRequestType;
-  /** Which proposed time the request must carry. */
-  times: 'in' | 'out' | 'both' | 'none';
-  /** The time is required, not optional. */
-  timeRequired?: boolean;
-  /** Keeps the employee's category readable in review lists for review-only requests. */
-  reasonPrefix?: string;
-}
-
-export const CATEGORIES: Category[] = [
-  { key: 'MISSING_IN', label: 'Missing punch-in', hint: 'You worked, but your punch-in was never recorded. Enter the time you started.', requestType: 'MISSING_PUNCH', times: 'in', timeRequired: true },
-  { key: 'MISSING_OUT', label: 'Missing punch-out', hint: 'You worked, but your punch-out was never recorded. Enter the time you finished.', requestType: 'MISSING_PUNCH', times: 'out', timeRequired: true },
-  { key: 'WRONG_IN', label: 'Wrong punch-in time', hint: 'The recorded arrival time is wrong. Enter the correct time.', requestType: 'LATE_CORRECTION', times: 'in', timeRequired: true },
-  { key: 'WRONG_OUT', label: 'Wrong punch-out time', hint: 'The recorded departure time is wrong. Enter the correct time.', requestType: 'MISSING_PUNCH', times: 'out', timeRequired: true },
-  { key: 'STATUS', label: 'Incorrect attendance status', hint: 'The day shows the wrong status. This goes to a reviewer; nothing changes automatically.', requestType: 'OTHER', times: 'none', reasonPrefix: '[Status] ' },
-  { key: 'HOURS', label: 'Incorrect worked hours', hint: 'The worked time for the day looks wrong. This goes to a reviewer; nothing changes automatically.', requestType: 'OTHER', times: 'none', reasonPrefix: '[Worked hours] ' },
-  { key: 'HALF_DAY', label: 'Half day', hint: 'This day should be treated as a half day.', requestType: 'HALF_DAY_CORRECTION', times: 'both' },
-  { key: 'LOCATION', label: 'Location flagged', hint: 'Explain where you actually were.', requestType: 'LOCATION_EXCEPTION', times: 'both' },
-  { key: 'PHOTO', label: 'Photo problem', hint: 'The photo failed to capture.', requestType: 'FACE_EXCEPTION', times: 'both' },
-  { key: 'OTHER', label: 'Other attendance issue', hint: 'Anything else about this day. This goes to a reviewer; nothing changes automatically.', requestType: 'OTHER', times: 'none', reasonPrefix: '[Other] ' },
+const TYPES: Array<{ value: AttendanceCorrectionConcern; label: string; hint: string }> = [
+  { value: 'MISSING_PUNCH_IN', label: 'Missing Punch In', hint: 'Your start punch was not recorded.' },
+  { value: 'MISSING_PUNCH_OUT', label: 'Missing Punch Out', hint: 'Your final punch was not recorded.' },
+  { value: 'WRONG_PUNCH_IN', label: 'Wrong Punch In', hint: 'The recorded start time is incorrect.' },
+  { value: 'WRONG_PUNCH_OUT', label: 'Wrong Punch Out', hint: 'The recorded end time is incorrect.' },
+  { value: 'INCORRECT_ATTENDANCE_STATUS', label: 'Incorrect Attendance Status', hint: 'The final attendance label needs review.' },
 ];
 
 /** 'HH:mm' on a business date -> an ISO instant in the browser's zone. */
@@ -61,34 +38,36 @@ function toInstant(businessDate: string, hhmm: string): string | null {
 export function RequestCorrectionForm({
   businessDate,
   allowScreenshots = false,
+  historicalRecord = false,
   onDone,
   onCancel,
 }: {
   businessDate: string;
   allowScreenshots?: boolean;
+  historicalRecord?: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [categoryKey, setCategoryKey] = useState<string>(CATEGORIES[0].key);
+  const [concern, setConcern] = useState<AttendanceCorrectionConcern>(historicalRecord ? 'INCORRECT_ATTENDANCE_STATUS' : 'MISSING_PUNCH_IN');
   const [punchIn, setPunchIn] = useState('');
   const [punchOut, setPunchOut] = useState('');
   const [reason, setReason] = useState('');
   const [screenshots, setScreenshots] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  const selected = CATEGORIES.find((c) => c.key === categoryKey) ?? CATEGORIES[0];
-  const showIn = selected.times === 'in' || selected.times === 'both';
-  const showOut = selected.times === 'out' || selected.times === 'both';
+  const choices = historicalRecord ? TYPES.filter(type => type.value === 'INCORRECT_ATTENDANCE_STATUS') : TYPES;
+  const selected = choices.find((t) => t.value === concern);
+  const showPunchIn = concern === 'MISSING_PUNCH_IN' || concern === 'WRONG_PUNCH_IN';
+  const showPunchOut = concern === 'MISSING_PUNCH_OUT' || concern === 'WRONG_PUNCH_OUT';
 
   const mutation = useMutation({
     mutationFn: () =>
       createRegularization({
         businessDate,
-        requestType: selected.requestType,
-        reason: (selected.reasonPrefix ?? '') + reason.trim(),
-        requestedPunchIn: showIn ? toInstant(businessDate, punchIn) : null,
-        requestedPunchOut: showOut ? toInstant(businessDate, punchOut) : null,
+        concern,
+        reason: reason.trim(),
+        requestedPunchIn: showPunchIn ? toInstant(businessDate, punchIn) : null,
+        requestedPunchOut: showPunchOut ? toInstant(businessDate, punchOut) : null,
       }, screenshots),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-regularizations'] });
@@ -99,8 +78,7 @@ export function RequestCorrectionForm({
     },
   });
 
-  const timeMissing = !!selected.timeRequired && ((selected.times === 'in' && !punchIn) || (selected.times === 'out' && !punchOut));
-  const canSubmit = reason.trim().length >= 5 && !timeMissing && !mutation.isPending;
+  const canSubmit = reason.trim().length >= 5 && !mutation.isPending;
 
   return (
     <div className="mt-4 rounded-lg border border-[var(--border-secondary)] p-4">
@@ -109,6 +87,7 @@ export function RequestCorrectionForm({
         Your reporting manager reviews this first, then HR. Your recorded punches are
         not changed — an approved correction is recorded alongside them.
       </p>
+      {historicalRecord && <p className="mt-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800">This is a preserved historical record. Your request will open a review; it will not directly replace the stored attendance.</p>}
 
       <div className="mt-3 space-y-3">
         <div>
@@ -117,48 +96,46 @@ export function RequestCorrectionForm({
           </label>
           <select
             className="apex-input mt-1"
-            value={categoryKey}
-            onChange={(e) => setCategoryKey(e.target.value)}
+            value={concern}
+            onChange={(e) => setConcern(e.target.value as AttendanceCorrectionConcern)}
           >
-            {CATEGORIES.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
+            {choices.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
               </option>
             ))}
           </select>
-          <p className="apex-text-subtle mt-1 text-xs">{selected.hint}</p>
+          {selected && <p className="apex-text-subtle mt-1 text-xs">{selected.hint}</p>}
         </div>
 
-        {(showIn || showOut) && (
-          <div className="grid grid-cols-2 gap-3">
-            {showIn && (
-              <div>
-                <label className="apex-text-subtle text-[11px] uppercase tracking-wide">
-                  {selected.times === 'in' ? 'Correct punch-in time' : 'Punch in (optional)'}
-                </label>
-                <input
-                  type="time"
-                  className="apex-input mt-1"
-                  value={punchIn}
-                  onChange={(e) => setPunchIn(e.target.value)}
-                />
-              </div>
-            )}
-            {showOut && (
-              <div>
-                <label className="apex-text-subtle text-[11px] uppercase tracking-wide">
-                  {selected.times === 'out' ? 'Correct punch-out time' : 'Punch out (optional)'}
-                </label>
-                <input
-                  type="time"
-                  className="apex-input mt-1"
-                  value={punchOut}
-                  onChange={(e) => setPunchOut(e.target.value)}
-                />
-              </div>
-            )}
+        {(showPunchIn || showPunchOut) && <div className="grid grid-cols-2 gap-3">
+          {showPunchIn &&
+          <div>
+            <label className="apex-text-subtle text-[11px] uppercase tracking-wide">
+              Punch in (optional)
+            </label>
+            <input
+              type="time"
+              className="apex-input mt-1"
+              value={punchIn}
+              onChange={(e) => setPunchIn(e.target.value)}
+            />
           </div>
-        )}
+          }
+          {showPunchOut &&
+          <div>
+            <label className="apex-text-subtle text-[11px] uppercase tracking-wide">
+              Punch out (optional)
+            </label>
+            <input
+              type="time"
+              className="apex-input mt-1"
+              value={punchOut}
+              onChange={(e) => setPunchOut(e.target.value)}
+            />
+          </div>
+          }
+        </div>}
 
         <div>
           <label className="apex-text-subtle text-[11px] uppercase tracking-wide">

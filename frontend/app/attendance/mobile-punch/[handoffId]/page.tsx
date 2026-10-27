@@ -12,6 +12,7 @@ import {
 } from '@/components/attendance/handoff-api';
 import { newIdempotencyKey, submitPunch } from '@/components/attendance/punch-api';
 import { RemediationDialog, useRemediation } from '@apex/shared-remediation';
+import { currentDeviceEvidence } from '@/components/attendance/device-evidence';
 
 /**
  * The phone half of the punch handoff.
@@ -58,6 +59,7 @@ export default function MobilePunchPage({
   const [handoff, setHandoff] = useState<HandoffView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const remediation = useRemediation();
+  const { openFrom } = remediation;
   const [token, setToken] = useState<string | null>(null);
 
   // A live clock, so the page shows what is about to be recorded rather than
@@ -146,20 +148,21 @@ export default function MobilePunchPage({
           idempotencyKey: newIdempotencyKey(),
           handoffId,
           handoffToken: token ?? undefined,
+          device: currentDeviceEvidence(),
         });
         forgetHandoffSecret(handoffId);
         setPhase('done');
       } catch (err: any) {
         forgetHandoffSecret(handoffId);
         setPhase('invalid');
-        if (remediation.openFrom(err)) {
+        if (openFrom(err)) {
           setError(err.remediation.title || 'The punch could not be recorded.');
           return;
         }
         setError(err?.response?.data?.message ?? 'The punch could not be recorded.');
       }
     },
-    [handoff, loc.sample, handoffId, token, remediation.openFrom],
+    [handoff, loc.sample, handoffId, openFrom, token],
   );
 
   const title = handoff?.intent === 'PUNCH_OUT' ? 'Punch out' : 'Punch in';

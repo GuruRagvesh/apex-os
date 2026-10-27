@@ -51,7 +51,9 @@ function build(over: any = {}) {
         ],
       ),
     },
-    dailyAttendance: { findMany: jest.fn().mockResolvedValue(over.records ?? []) },
+    dailyAttendance: { findMany: jest.fn().mockResolvedValue(over.records ?? []), groupBy: jest.fn().mockResolvedValue([]) },
+    appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
+    employeeAttendanceProfile: { findFirst: jest.fn().mockResolvedValue(null) },
     attendancePunchEvidence: { findMany: jest.fn().mockResolvedValue([]) },
     attendanceRegularization: { findMany: jest.fn().mockResolvedValue([]) },
     workSession: { findMany: jest.fn().mockResolvedValue([]) },
@@ -213,7 +215,10 @@ describe('every figure is derived, never supplied', () => {
   it('accepts no count, fingerprint or total from the caller', () => {
     // finalize takes only the actor and the month. Anything else would let the
     // number that justifies a payroll run be supplied by the thing it justifies.
-    expect(PayrollReportService.prototype.finalize.length).toBe(2);
+    // Phase 4 adds ONE optional argument: the acknowledgement fingerprint. It is
+    // compared with the server-computed unresolved summary and stores nothing
+    // the caller supplied, so it still cannot justify a figure.
+    expect(PayrollReportService.prototype.finalize.length).toBe(3);
     expect(PayrollReportService.prototype.send.length).toBe(2);
   });
 });

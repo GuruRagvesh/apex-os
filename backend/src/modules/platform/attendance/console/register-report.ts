@@ -32,6 +32,68 @@ export interface RegisterResult {
   /** Scheduled working days in the WHOLE month. */
   workingDays: number;
   employees: RegisterEmployee[];
+  /**
+   * Phase 3: which devices recorded each employee's punches in the period.
+   * Present for HR/Admin only, and kept OUT of the seven register columns: it
+   * is a separate sheet and a separate CSV, so the register HR forwards is
+   * unchanged.
+   */
+  devices?: RegisterDeviceRow[];
+}
+
+/** One employee-device pair in the period, as HR/Admin sees it. */
+export interface RegisterDeviceRow {
+  name: string;
+  employeeId: string | null;
+  deviceLabel: string;
+  captureChannel: string;
+  punches: number;
+  firstBusinessDate: string;
+  lastBusinessDate: string;
+}
+
+export const DEVICE_COLUMNS = [
+  { key: 'name', header: 'Name' },
+  { key: 'employeeId', header: 'Employee ID' },
+  { key: 'deviceLabel', header: 'Device' },
+  { key: 'captureChannel', header: 'Capture' },
+  { key: 'punches', header: 'Punches' },
+  { key: 'firstBusinessDate', header: 'First Used' },
+  { key: 'lastBusinessDate', header: 'Last Used' },
+] as const;
+
+const CAPTURE_LABEL: Record<string, string> = {
+  CURRENT_DEVICE: 'This device',
+  PHONE_HANDOFF: 'Phone handoff (QR)',
+  NOT_RECORDED: 'Not recorded',
+};
+
+export function captureChannelLabel(value: string | null | undefined): string {
+  return CAPTURE_LABEL[value ?? 'NOT_RECORDED'] ?? CAPTURE_LABEL.NOT_RECORDED;
+}
+
+/** `Attendance_Devices_September_2026.csv` */
+export function deviceFileName(month: string): string {
+  return `Attendance_Devices_${monthLabel(month).replace(/\s+/g, '_')}.csv`;
+}
+
+/** The device sheet as CSV, with the same BOM/CRLF rules as the register. */
+export function devicesCsv(rows: RegisterDeviceRow[]): string {
+  const lines = [DEVICE_COLUMNS.map((c) => csvCell(c.header)).join(',')];
+  for (const r of rows) {
+    lines.push(
+      [
+        csvCell(r.name ?? ''),
+        csvCell(r.employeeId ?? ''),
+        csvCell(r.deviceLabel),
+        csvCell(captureChannelLabel(r.captureChannel)),
+        String(r.punches),
+        r.firstBusinessDate,
+        r.lastBusinessDate,
+      ].join(','),
+    );
+  }
+  return `﻿${lines.join('\r\n')}\r\n`;
 }
 
 /**

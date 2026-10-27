@@ -6,6 +6,10 @@ import { AlertTriangle, Gift, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { usersApi } from '@apex/core-users/api';
 import { compOffApi } from '../api';
+import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
+
+const retryLeaveRead = (failureCount: number, error: unknown) =>
+  failureCount < 2 && shouldRetryTransientQuery(failureCount, error);
 
 /**
  * Manual comp off grant (HR/Admin).
@@ -20,27 +24,41 @@ import { compOffApi } from '../api';
  * worth naming are 422 (the source day is an ordinary working day) and 409
  * (this employee already holds a credit for that date).
  */
-export function CompOffGrantPanel() {
+export function CompOffGrantPanel({ onClose }: { onClose?: () => void }) {
   const qc = useQueryClient();
   const [employeeId, setEmployeeId] = useState('');
   const [earnedFromBusinessDate, setEarnedFromBusinessDate] = useState('');
   const [reason, setReason] = useState('');
 
-  const { data: directory } = useQuery({
+  const {
+    data: directory,
+    isLoading: directoryLoading,
+    isError: directoryFailed,
+    refetch: refetchDirectory,
+    isFetching: directoryFetching,
+  } = useQuery({
     queryKey: ['users-directory'],
     queryFn: () => usersApi.getDirectory() as Promise<any[]>,
     staleTime: 5 * 60_000,
-    retry: false,
+    retry: retryLeaveRead,
+    retryDelay: transientQueryRetryDelay,
   });
   const people = Array.isArray(directory) ? directory : [];
 
   // Existing credits for the selected employee, so HR can see what is already
   // there before granting another.
-  const { data: existing } = useQuery({
+  const {
+    data: existing,
+    isLoading: existingLoading,
+    isError: existingFailed,
+    refetch: refetchExisting,
+    isFetching: existingFetching,
+  } = useQuery({
     queryKey: ['comp-off-employee', employeeId],
     queryFn: () => compOffApi.forEmployee(employeeId) as Promise<any[]>,
     enabled: !!employeeId,
-    retry: false,
+    retry: retryLeaveRead,
+    retryDelay: transientQueryRetryDelay,
   });
 
   const grant = useMutation({
@@ -72,7 +90,7 @@ export function CompOffGrantPanel() {
     !!employeeId && !!earnedFromBusinessDate && reason.trim().length >= 5 && !grant.isPending;
 
   return (
-    <div className="apex-card space-y-4 p-4">
+    <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Gift size={16} style={{ color: 'var(--accent)' }} />
         <h3 className="apex-text text-sm font-semibold">Grant comp off</h3>
@@ -94,8 +112,9 @@ export function CompOffGrantPanel() {
             value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}
             className="apex-select w-full"
+            disabled={directoryLoading || directoryFailed}
           >
-            <option value="">Select an employee…</option>
+            <option value="">{directoryLoading ? 'Loading employees…' : 'Select an employee…'}</option>
             {people.map((p: any) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -103,6 +122,17 @@ export function CompOffGrantPanel() {
               </option>
             ))}
           </select>
+          {directoryFailed && (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <span>Employee directory unavailable.</span>
+              <button type="button" onClick={() => refetchDirectory()} className="font-semibold underline" disabled={directoryFetching}>
+                {directoryFetching ? 'Retrying…' : 'Retry'}
+              </button>
+            </div>
+          )}
+          {!directoryLoading && !directoryFailed && people.length === 0 && (
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>No employees are available for this action.</p>
+          )}
         </div>
 
         <div>
@@ -131,20 +161,35 @@ export function CompOffGrantPanel() {
           )}
         </div>
 
-        {employeeId && (
+        {employeeId && existingLoading && <p className="apex-text-muted text-xs">Checking existing credits…</p>}
+        {employeeId && existingFailed && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <span>Existing credits are unavailable. No zero count has been assumed.</span>
+            <button type="button" onClick={() => refetchExisting()} className="font-semibold underline" disabled={existingFetching}>
+              {existingFetching ? 'Retrying…' : 'Retry'}
+            </button>
+          </div>
+        )}
+        {employeeId && !existingLoading && !existingFailed && Array.isArray(existing) && (
           <p className="apex-text-muted text-xs">
-            {Array.isArray(existing) ? existing.length : 0} unexpired credit
-            {Array.isArray(existing) && existing.length === 1 ? '' : 's'} already available.
+            {existing.length} unexpired credit{existing.length === 1 ? '' : 's'} already available.
           </p>
         )}
 
-        <button
-          onClick={() => grant.mutate()}
-          disabled={!canSubmit}
-          className="apex-btn-primary w-full disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {grant.isPending ? 'Granting…' : 'Grant credit'}
-        </button>
+        <div className="flex gap-2 border-t border-[var(--border-secondary)] pt-4">
+          <button
+            onClick={() => grant.mutate()}
+            disabled={!canSubmit}
+            className="apex-btn-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {grant.isPending ? 'Granting…' : 'Grant credit'}
+          </button>
+          {onClose && (
+            <button type="button" onClick={onClose} disabled={grant.isPending} className="apex-btn apex-btn-secondary flex-1">
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

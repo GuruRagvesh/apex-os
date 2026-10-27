@@ -38,4 +38,11 @@ export const changeRequestsApi = {
   approve: (requestId: string, note?: string) => r(api.patch(`/users/change-requests/${requestId}/approve`, { note })),
   reject: (requestId: string, reason: string) => r(api.patch(`/users/change-requests/${requestId}/reject`, { reason })),
   cancel: (requestId: string) => r(api.patch(`/users/change-requests/${requestId}/cancel`)),
+  createPersonalInformation: (id: string, data: { changes: Array<{ field: string; newValue: unknown }>; reason: string; supportingDocumentIds?: string[] }) =>
+    r(api.post(`/users/${id}/personal-information-change-requests`, data)),
+  listMyPersonalInformation: () => r(api.get('/users/me/personal-information-change-requests')),
+  confirmPersonalInformation: (requestId: string, currentPassword: string) =>
+    r(api.patch(`/users/personal-information-change-requests/${requestId}/confirm`, { currentPassword })),
+  declinePersonalInformation: (requestId: string, reason: string) =>
+    r(api.patch(`/users/personal-information-change-requests/${requestId}/decline`, { reason })),
 };

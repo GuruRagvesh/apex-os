@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { DailyAttendanceModule } from '../evaluation/daily-attendance.module';
 import { MyAttendanceV2Controller } from './my-attendance-v2.controller';
 import { MyAttendanceV2Service } from './my-attendance-v2.service';
+import { BusinessCalendarModule } from '../calendar/business-calendar.module';
+import { EmployeeTimelineModule } from '../timeline/employee-timeline.module';
 
 /**
  * My Attendance V2 read surface.
@@ -14,7 +16,7 @@ import { MyAttendanceV2Service } from './my-attendance-v2.service';
  * module depending on it, so withdrawing it is a deletion.
  */
 @Module({
-  imports: [DailyAttendanceModule],
+  imports: [DailyAttendanceModule, BusinessCalendarModule, EmployeeTimelineModule],
   controllers: [MyAttendanceV2Controller],
   providers: [MyAttendanceV2Service],
 })

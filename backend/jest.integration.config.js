@@ -20,7 +20,7 @@ module.exports = {
   transform: {
     '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: './tsconfig.json' }],
   },
-  testMatch: ['<rootDir>/test/integration-pg/**/*.int-spec.ts'],
+  testMatch: ['**/test/integration-pg/**/*.int-spec.ts'],
   moduleNameMapper: { '^src/(.*)$': '<rootDir>/src/$1' },
   // Real locks, real contention, real waiting.
   testTimeout: 120000,

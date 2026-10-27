@@ -58,15 +58,9 @@ function Row({
 export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
   // One query per type, because the endpoint answers per type. They are
   // independent, so a failure in one does not blank the others.
-  const casual = useQuery({
-    queryKey: ['my-leave-balance', 'CASUAL'],
-    queryFn: () => getMyLeaveBalance('CASUAL' as PersonalLeaveType),
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-  const emergency = useQuery({
-    queryKey: ['my-leave-balance', 'EMERGENCY'],
-    queryFn: () => getMyLeaveBalance('EMERGENCY' as PersonalLeaveType),
+  const annual = useQuery({
+    queryKey: ['my-leave-balance', 'ANNUAL'],
+    queryFn: () => getMyLeaveBalance('ANNUAL'),
     staleTime: 5 * 60_000,
     retry: false,
   });
@@ -77,9 +71,8 @@ export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
     retry: false,
   });
 
-  const byType: Record<PersonalLeaveType, typeof casual> = {
-    CASUAL: casual,
-    EMERGENCY: emergency,
+  const byType: Record<PersonalLeaveType, typeof annual> = {
+    ANNUAL: annual,
   };
 
   const credits = compOff.data ?? [];
@@ -97,13 +90,15 @@ export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
               label={LEAVE_TYPE_LABEL[type]}
               // `balance` is the authority; allocation minus what is taken or
               // awaiting a decision is already applied server-side.
-              available={q.data ? q.data.balance : null}
+              available={q.data && typeof q.data.balance === 'number' ? q.data.balance : null}
               used={q.data?.approved}
               pending={q.data?.pending}
             />
           );
         })}
-        <Row label="Comp Off" available={compOff.isSuccess ? credits.length : null} />
+        <Row label="Comp Off" available={compOff.isSuccess
+          ? credits.reduce((sum: number, credit: any) => sum + Number(credit.remainingMinutes ?? credit.creditMinutes ?? 540), 0) / 540
+          : null} />
       </dl>
 
       {nextExpiry && (

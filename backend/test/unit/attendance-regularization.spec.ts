@@ -257,7 +257,7 @@ describe('AR-1 official persistence', () => {
     expect(row.sourceFingerprint).toEqual(expect.any(String));
     expect(row.attendancePolicyId).toBe('ap-1');
     expect(row.shiftPolicyVersion).toBe(2);
-    expect(row.evaluatorVersion).toBe(1);
+    expect(row.evaluatorVersion).toBe(2);
     expect(row.workSessionIds).toEqual(['ws-1']);
   });
 
@@ -390,12 +390,14 @@ describe('AR-1 corrections change interpretation, never evidence', () => {
     expect(raw.breakUpdates).toEqual([]);
   });
 
-  it('15. only an HR-approved correction is ever consulted', async () => {
+  it('15. only a final approval that reached the day is ever consulted', async () => {
     const { service, prisma } = evaluatorRig(missingPunchOut);
     await service.evaluate('emp-1', DATE);
 
+    // Legacy HR_APPROVED, or a Phase 3 APPROVED correction that was APPLIED.
+    // Pending, stale, rejected and REVIEW_REQUIRED approvals never govern.
     const where = prisma.attendanceRegularization.findMany.mock.calls[0][0].where;
-    expect(where.status).toBe('HR_APPROVED');
+    expect(where.OR).toEqual([{ status: 'HR_APPROVED' }, { status: 'APPROVED', applicationStatus: 'APPLIED' }]);
   });
 
   it('15b. an undecided correction cannot displace a decided one', async () => {
@@ -504,7 +506,7 @@ const CHAIN = [
 
 const REQUEST = {
   id: 'reg-1', userId: 'emp-1', date: DATE_ONLY, status: 'PENDING',
-  requestType: 'MISSING_PUNCH', reason: 'Browser crashed before punch out',
+  requestType: 'MISSING_PUNCH_OUT', reason: 'Browser crashed before punch out',
   requestedPunchIn: null, requestedPunchOut: ist('19:03'),
   basedOnFingerprint: 'fp-original', proposedStatus: null,
   managerApproverId: null, managerDecisionAt: null,
@@ -548,6 +550,7 @@ function lifecycleRig(f: LifecycleFixtures = {}) {
   const prisma: any = {
     $transaction: jest.fn((fn: any) => fn(tx)),
     attendanceRegularization: {
+      count: jest.fn().mockResolvedValue(0),
       findUnique: tx.attendanceRegularization.findUnique,
       findFirst: jest.fn().mockResolvedValue(f.openRequest ?? null),
       findMany: jest.fn().mockResolvedValue([]),
@@ -590,7 +593,7 @@ describe('AR-1 correction lifecycle', () => {
 
     await service.create('emp-1', {
       businessDate: DATE,
-      requestType: 'MISSING_PUNCH',
+      requestType: 'MISSING_PUNCH_OUT',
       reason: 'Browser crashed before punch out',
       requestedPunchOut: ist('19:03').toISOString(),
     });
@@ -608,7 +611,7 @@ describe('AR-1 correction lifecycle', () => {
     // extra userId in the payload is simply not read.
     await service.create('emp-1', {
       businessDate: DATE,
-      requestType: 'MISSING_PUNCH',
+      requestType: 'MISSING_PUNCH_OUT',
       reason: 'Browser crashed before punch out',
       userId: 'emp-2',
     } as any);
@@ -620,7 +623,7 @@ describe('AR-1 correction lifecycle', () => {
     const { service } = lifecycleRig({ openRequest: { id: 'reg-open', status: 'PENDING' } });
 
     await expect(
-      service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH', reason: 'again please' }),
+      service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH_OUT', reason: 'again please' }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -793,7 +796,7 @@ describe('AR-1 correction lifecycle', () => {
     const off = lifecycleRig({ enabled: false, isHR: true });
 
     await expect(
-      off.service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH', reason: 'anything at all' }),
+      off.service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH_OUT', reason: 'anything at all' }),
     ).rejects.toBeInstanceOf(RegularizationDisabledError);
     await expect(off.service.approveAsHr({ id: 'hr-1' }, 'reg-1')).rejects.toBeInstanceOf(
       RegularizationDisabledError,
@@ -835,15 +838,22 @@ describe('AR-1 correction lifecycle', () => {
     // Supporting screenshots expose a read-only GET; they never edit raw punch evidence.
     expect(Reflect.getMetadata('method', RegularizationController.prototype.screenshot)).toBe(0);
     const surface = Object.getOwnPropertyNames(RegularizationController.prototype).sort();
+    // Phase 3 adds the single decision, its held-application retry and the
+    // queue counts. None of them writes punch evidence either; apply() and
+    // decide() revise the official day only through the protected path.
     expect(surface).toEqual([
+      'apply',
       'constructor',
       'create',
+      'decide',
       'findOne',
+      'held',
       'hrApprove',
       'listMine',
       'managerApprove',
       'manualRecovery',
       'pending',
+      'pendingCounts',
       'reject',
       'rethrow',
       'screenshot',
@@ -884,10 +894,10 @@ describe('AR-1 duration contract', () => {
   it('38. a full 540 span with the full 60 minute break does not fail', async () => {
     // Presence 10:00-19:00 = 540, break 60, effective work 480. Under the old
     // reading this failed, because 480 was compared against 540.
-    const { service } = day('10:00', '19:00', 480, 60);
+    const { service } = day('10:00', '19:00', 540, 60);
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.workedMinutes).toBe(480);
+    expect(r.workedMinutes).toBe(540);
     expect(r.exceptionFlags).toEqual([]);
     expect(r.evaluationState).toBe('CALCULATED');
     expect(r.status).toBe('PRESENT');
@@ -898,11 +908,11 @@ describe('AR-1 duration contract', () => {
     const { service } = day('10:00', '18:59', 479, 60);
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
-    // Still never a manufactured penalty.
+    expect(r.exceptionFlags).toEqual([]);
+    expect(r.evaluationState).toBe('CALCULATED');
+    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(r.leaveDeducted).toBe(0);
-    expect(r.lwpDeducted).toBe(0);
+    expect(r.lwpDeducted).toBeCloseTo(1 / 3);
     expect(r.status).not.toBe('ABSENT');
   });
 
@@ -918,9 +928,10 @@ describe('AR-1 duration contract', () => {
       minimumEffectiveWorkMinutes: 520,
     }).service.evaluate('emp-1', DATE);
 
-    expect(configured.exceptionFlags).toEqual(['INSUFFICIENT_EFFECTIVE_WORK']);
+    expect(configured.exceptionFlags).toEqual([]);
     expect(configured.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
-    expect(configured.evaluationState).toBe('NEEDS_REVIEW');
+    expect(configured.evaluationState).toBe('CALCULATED');
+    expect(configured.calculationReason).toBe('REFINED_SHORT_DAY');
   });
 
   it('41. an over-long break is its own question, not a short day', async () => {
@@ -929,9 +940,10 @@ describe('AR-1 duration contract', () => {
     const { service } = day('10:00', '19:30', 480, 90);
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.exceptionFlags).toEqual(['BREAK_EXCEEDS_ALLOWANCE']);
+    expect(r.exceptionFlags).toEqual([]);
     expect(r.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    expect(r.evaluationState).toBe('CALCULATED');
+    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
   });
 
   it('42. a corrected day is judged by exactly the same duration rules', async () => {

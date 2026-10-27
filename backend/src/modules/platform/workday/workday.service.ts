@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, ConflictException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { EventLoggerService, OperationalAction } from '../../../common/services/event-logger.service';
@@ -13,6 +13,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { isPunchedInSession, ticketCreationState } from '../../../common/services/active-workday-policy.service';
+import { CompOffService } from '../../operations/leave/comp-off.service';
 
 // Combined daily allowance for all break types (lunch + restroom + tea + other).
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
@@ -39,6 +40,13 @@ export interface FinalizeWorkSessionOptions {
   ticketPauseReason: string;
 }
 
+type AutoCancelledLeave = {
+  id: string;
+  type: string;
+  startDate: Date;
+  endDate: Date;
+};
+
 @Injectable()
 export class WorkdayService {
   private readonly logger = new Logger(WorkdayService.name);
@@ -51,6 +59,7 @@ export class WorkdayService {
     private notificationEventService: NotificationEventService,
     private attendanceAuthority: AttendanceAuthorityService,
     private tva: TVAService,
+    @Optional() private compOff?: CompOffService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -243,13 +252,68 @@ export class WorkdayService {
 
     await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
 
+    // Starting real work is stronger evidence than an approved plan to be
+    // absent. Cancel every approved request covering today in the SAME
+    // transaction as the work session, so the employee can never be both
+    // WORKING and on approved leave. Paid balances are derived from approved
+    // requests, while Comp Off uses explicit credits which must be released.
+    const autoCancelledLeaves = await this.autoCancelApprovedLeaveForWorkday(tx, userId, today);
+
     // Next-day / next-session auto resume of the ticket the worker's day (not
     // the ticket) paused, in this same transaction: the ledger re-checks the
     // session it now sees as WORKING, and a resume failure rolls the workday
     // start back rather than leaving the person WORKING with a stranded timer.
     await this.ticketLedger.resumeAfterWorkdayStart(userId, tx);
 
-    return { session: session!, wasAutoClosed };
+    return { session: session!, wasAutoClosed, autoCancelledLeaves };
+  }
+
+  private async autoCancelApprovedLeaveForWorkday(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    businessDate: Date,
+  ): Promise<AutoCancelledLeave[]> {
+    // A few isolated legacy consumers provide a deliberately narrow
+    // transaction facade. A real Prisma transaction always exposes the leave
+    // delegate; the fallback simply means there is no leave domain to cancel.
+    if (!tx.leaveRequest) return [];
+    const candidates = await tx.leaveRequest.findMany({
+      where: {
+        userId,
+        status: 'APPROVED',
+        startDate: { lte: this.tva.companyDayEnd(businessDate) },
+        endDate: { gte: this.tva.companyDayStart(businessDate) },
+      },
+      select: { id: true, type: true, startDate: true, endDate: true },
+    });
+    const cancelled: AutoCancelledLeave[] = [];
+
+    for (const candidate of candidates) {
+      await tx.$queryRaw`SELECT id FROM "leave_requests" WHERE id = ${candidate.id} FOR UPDATE`;
+      const changed = await tx.leaveRequest.updateMany({
+        where: { id: candidate.id, userId, status: 'APPROVED' },
+        data: { status: 'CANCELLED' },
+      });
+      if (changed.count !== 1) continue;
+
+      await tx.compOffCredit.updateMany({
+        where: { leaveRequestId: candidate.id, status: 'USED' },
+        data: { status: 'AVAILABLE', usedAt: null, leaveRequestId: null },
+      });
+      // An unlocked leave-only materialisation can be safely regenerated from
+      // the newly recorded work evidence. Locked rows remain immutable; the
+      // calendar still gives the live work session precedence.
+      await tx.dailyAttendance.deleteMany({
+        where: {
+          userId,
+          date: businessDate,
+          locked: false,
+          status: { in: ['LEAVE', 'LWP'] },
+        },
+      });
+      cancelled.push(candidate);
+    }
+    return cancelled;
   }
 
   /**
@@ -307,7 +371,12 @@ export class WorkdayService {
    * startWork() and by the attendance punch orchestrator, so both announce a
    * start the same way -- and only once it is real.
    */
-  async afterWorkStarted(userId: string, session: any, wasAutoClosed: boolean) {
+  async afterWorkStarted(
+    userId: string,
+    session: any,
+    wasAutoClosed: boolean,
+    autoCancelledLeaves: AutoCancelledLeave[] = [],
+  ) {
     if (wasAutoClosed) {
       try {
         await this.notificationEventService.sendNotification(userId, 'system', {
@@ -327,14 +396,36 @@ export class WorkdayService {
       entityId: session.id,
       action: OperationalAction.WORKDAY_STARTED,
     }).catch(() => {});
+
+    for (const leave of autoCancelledLeaves) {
+      this.eventLogger.log({
+        actorId: userId,
+        entityType: 'LeaveRequest',
+        entityId: leave.id,
+        action: OperationalAction.LEAVE_CANCELLED,
+        fromState: 'APPROVED',
+        toState: 'CANCELLED (work started)',
+      }).catch(() => {});
+      const date = formatInTimeZone(session.startWorkAt ?? this.tva.now(), DEFAULT_COMPANY_TIMEZONE, 'd MMM yyyy');
+      try {
+        await this.notificationEventService.sendNotification(userId, 'system', {
+          title: 'Approved leave cancelled',
+          message: `Your ${String(leave.type).replaceAll('_', ' ').toLowerCase()} leave was cancelled automatically because you started work on ${date}.`,
+          type: NotificationType.INFO,
+          link: '/dashboard',
+          entityType: 'LEAVE',
+          entityId: leave.id,
+        });
+      } catch (_e) {}
+    }
   }
 
   async startWork(userId: string) {
-    const { session, wasAutoClosed } = await this.prisma.$transaction(
+    const { session, wasAutoClosed, autoCancelledLeaves } = await this.prisma.$transaction(
       (tx) => this.startWorkInTransaction(tx, userId),
       WORKDAY_TIMER_TRANSACTION,
     );
-    await this.afterWorkStarted(userId, session, wasAutoClosed);
+    await this.afterWorkStarted(userId, session, wasAutoClosed, autoCancelledLeaves);
     return { session, message: 'Workday started' };
   }
 
@@ -559,6 +650,20 @@ export class WorkdayService {
         action: OperationalAction.WORKDAY_ENDED,
         metadata: { closureReason: txResult.session.closureReason, source: options.eventSource },
       }).catch(() => {});
+
+      // Only a completed employee punch-out/end-day can earn comp off. System
+      // auto-closes are deliberately excluded because they are not completed
+      // punch pairs and may overstate the hours actually worked.
+      if (options.eventSource === 'manual' && this.compOff) {
+        const businessDate = txResult.session.date instanceof Date
+          ? txResult.session.date.toISOString().slice(0, 10)
+          : String(txResult.session.date).slice(0, 10);
+        await this.compOff.evaluateCompletedWorkday(
+          txResult.userId,
+          businessDate,
+          txResult.session.id,
+        ).catch((error) => this.logger.warn(`Comp-off evaluation failed for ${txResult.userId}: ${error?.message ?? error}`));
+      }
     }
 
     return {
@@ -1092,8 +1197,27 @@ export class WorkdayService {
     };
   }
 
-  async getTeam(requestingUser: any) {
+  async getTeam(requestingUser: any, requestedDate?: string) {
     const today = this.getTodayDate();
+    const todayString = today.toISOString().slice(0, 10);
+    let selectedDate = today;
+    let selectedDateString = todayString;
+
+    if (requestedDate) {
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+        ? new Date(`${requestedDate}T00:00:00.000Z`)
+        : null;
+      if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== requestedDate) {
+        throw new BadRequestException('date must be a real calendar date in YYYY-MM-DD form');
+      }
+      if (requestedDate > todayString) {
+        throw new BadRequestException('Team attendance cannot be requested for a future date');
+      }
+      selectedDate = parsed;
+      selectedDateString = requestedDate;
+    }
+
+    const isToday = selectedDateString === todayString;
     const roleNameRaw = requestingUser.role?.name ?? requestingUser.role ?? '';
     const roleName = typeof roleNameRaw === 'string' ? roleNameRaw : '';
     const isHR = (requestingUser as any).isHR;
@@ -1143,15 +1267,15 @@ export class WorkdayService {
         role: true,
         department: true,
         workSessions: {
-          where: { date: today },
+          where: { date: selectedDate },
           orderBy: { createdAt: 'asc' },
           include: { breakLogs: true },
         },
         leaveRequests: {
           where: {
             status: 'APPROVED',
-            startDate: { lte: today },
-            endDate: { gte: today },
+            startDate: { lte: selectedDate },
+            endDate: { gte: selectedDate },
           },
         },
         workdayPolicyOverride: true,
@@ -1159,7 +1283,9 @@ export class WorkdayService {
       orderBy: [{ department: { name: 'asc' } }, { name: 'asc' }],
     });
 
-    const now = this.tva.now();
+    const calculationTime = isToday
+      ? this.tva.now()
+      : this.tva.companyInstantAt(selectedDateString, '23:59') ?? new Date(`${selectedDateString}T23:59:59.999Z`);
     return members.map((m) => {
       // Latest session of the day, not the first — a user can have multiple
       // sessions per day, and the most recent one is what reflects current status.
@@ -1170,7 +1296,7 @@ export class WorkdayService {
         ...s,
         breakLogs: s.breakLogs.filter((b: any) => b.breakType !== 'MEETING'),
       }));
-      const rt = calculateWorkdayRuntime(workSessionsForRuntime as any, now);
+      const rt = calculateWorkdayRuntime(workSessionsForRuntime as any, calculationTime);
       const firstStartTime = rt.firstStartTime;
       const totalWorkMins = rt.elapsedWorkMinutes;
       const totalBreakMins = rt.totalBreakMinutes;
@@ -1199,8 +1325,9 @@ export class WorkdayService {
         isLate = TimezoneUtil.isLate(firstStartTime, expectedStart, tz);
       }
 
-      const breakCount = m.workSessions.reduce((sum, s: any) => sum + s.breakLogs.length, 0);
+      const breakCount = workSessionsForRuntime.reduce((sum, s: any) => sum + s.breakLogs.length, 0);
       const exceededBreakMinutes = Math.max(0, totalBreakMins - DAILY_BREAK_ALLOWANCE_MINUTES);
+      const lastCompletedSession = [...m.workSessions].reverse().find((item) => item.logoutAt);
 
       return {
         id: m.id,
@@ -1215,12 +1342,13 @@ export class WorkdayService {
         // WorkSession record (set by endWork() and the auto-close scheduler).
         // The frontend MUST display this; it must never compute End Time itself.
         startTime: rt.firstStartTime,
-        endTime: session?.logoutAt ?? null,
-        hasOpenSession: !!session && !session.logoutAt,
+        endTime: lastCompletedSession?.logoutAt ?? null,
+        hasOpenSession: isToday && !!session && !session.logoutAt,
         onLeaveToday: !!leave,
         leaveType: leave?.type ?? null,
         workMinutesToday: totalWorkMins,
         breakMinutesToday: totalBreakMins,
+        breakMinutes: totalBreakMins,
         breakCount,
         allowedBreakMinutes: DAILY_BREAK_ALLOWANCE_MINUTES,
         exceededBreakMinutes,
@@ -1229,6 +1357,8 @@ export class WorkdayService {
         isFlexible,
         policySource,
         autoClosed: session?.autoClosed ?? false,
+        selectedDate: selectedDateString,
+        isToday,
       };
     });
   }

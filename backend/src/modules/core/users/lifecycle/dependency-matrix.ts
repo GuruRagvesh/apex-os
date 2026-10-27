@@ -118,6 +118,13 @@ export const HANDLERS: Handler[] = [
   { key: 'CompOffCredit.employeeId', model: 'CompOffCredit', field: 'employeeId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'LEAVE', sheet: 'Comp-Off Credits', note: 'Own credits.' },
   { key: 'BreakLog.userId', model: 'BreakLog', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Break Logs', note: 'Own breaks.' },
   { key: 'WorkSession.userId', model: 'WorkSession', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Work Sessions', note: 'After evidence and notes.' },
+  // Phase 3: Emergency Leave evidence files, append-only (row-scoped trigger
+  // exception), before their leave request. Bytes archived like documents.
+  { key: 'LeaveEvidence.userId', model: 'LeaveEvidence', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: true, retention: 'LEAVE', sheet: 'Leave Evidence', appendOnly: true, note: 'Append-only evidence files; bytes archived; original removed by cleanup.' },
+  { key: 'LeaveEvidence.uploadedById', model: 'LeaveEvidence', field: 'uploadedById', fk: false, holds: 'id', action: 'DEL', where: (u) => ({ uploadedById: u.id, userId: u.id }), history: true, retention: 'LEAVE', sheet: 'Leave Evidence', appendOnly: true, note: 'Only the leave owner uploads evidence, so these are the same rows as LeaveEvidence.userId.' },
+  // Phase 3: three-day unreported-absence decisions and recorded absence reports.
+  { key: 'UnreportedAbsenceDecision.userId', model: 'UnreportedAbsenceDecision', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Attendance Absence Decisions', appendOnly: true, note: 'Audit history; deleted only under the row-scoped trigger exception.' },
+  { key: 'AbsenceReport.userId', model: 'AbsenceReport', field: 'userId', fk: false, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Attendance Absence Reports', note: 'Reports that the person informed HR of an absence.' },
   { key: 'LeaveRequest.userId', model: 'LeaveRequest', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'LEAVE', sheet: 'Leave Requests', note: 'Pending leave was cancelled at archive.' },
   { key: 'UserWorkdayPolicyOverride.userId', model: 'UserWorkdayPolicyOverride', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Workday Override', note: 'Own override.' },
   { key: 'EmployeeAttendanceProfile.userId', model: 'EmployeeAttendanceProfile', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Attendance Profiles', note: 'Configuration, not an attendance record: not retention-protected. The initial profile is setup-only.' },
@@ -153,13 +160,17 @@ export const HANDLERS: Handler[] = [
     scope: (_u, ctx) => (ctx.operationId ? { OR: [{ lifecycleOperationId: null }, { lifecycleOperationId: { not: ctx.operationId } }] } : {}),
     history: false, sheet: 'Lifecycle Operations', appendOnly: true, note: 'Bookkeeping about the person (earlier lifecycle attempts also cascade with their operations); deleted under the trigger exception.',
   },
+  { key: 'FnfAdjustmentRequest.subjectUserId', model: 'FnfAdjustmentRequest', field: 'subjectUserId', fk: false, holds: 'id', action: 'DEL', history: true, sheet: 'Exit and F&F', appendOnly: true, note: 'Decided requests are frozen; deleted only under the row-scoped trigger exception, before the adjustments they point at.' },
   { key: 'FnfAdjustment.subjectUserId', model: 'FnfAdjustment', field: 'subjectUserId', fk: false, holds: 'id', action: 'DEL', history: true, sheet: 'Exit and F&F', appendOnly: true, note: 'Append-only; deleted only under the row-scoped trigger exception, before the exit case that owns the settlement.' },
   { key: 'ExitCase.userId', model: 'ExitCase', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Exit and F&F', note: 'Cascades clearance items and the settlement. Outside the retention gate; archived in full.' },
   { key: 'EmploymentPeriod.userId', model: 'EmploymentPeriod', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Employment Periods', note: 'After exit cases. The initial NEW_HIRE period is setup-only.' },
   { key: 'UserSetupIssue.userId', model: 'UserSetupIssue', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: false, sheet: 'Setup Health', note: 'Setup health about the person.' },
   { key: 'HierarchyAssignment.subjectUserId', model: 'HierarchyAssignment', field: 'subjectUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'The person\'s own TL/Manager assignments. The initial one is setup-only.' },
   { key: 'HierarchyAssignment.assigneeUserId', model: 'HierarchyAssignment', field: 'assigneeUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'An open row where the person is TL/Manager blocks archival; ended rows are deleted.' },
+  { key: 'OrganizationReportingLine.subjectUserId', model: 'OrganizationReportingLine', field: 'subjectUserId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'The person\'s own business-reporting line. It is not an approval assignment.' },
+  { key: 'OrganizationReportingLine.supervisorId', model: 'OrganizationReportingLine', field: 'supervisorId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Reporting Lines', note: 'An active business supervisor blocks archival until their reports have been reassigned.' },
   { key: 'DepartmentTransfer.userId', model: 'DepartmentTransfer', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Transfers', note: 'Cascades the transfer\'s review inventory.' },
+  { key: 'ReviewQueueAssignment.subjectUserId', model: 'ReviewQueueAssignment', field: 'subjectUserId', fk: true, holds: 'id', action: 'NULL', history: true, sheet: 'Review Routing', note: 'Preserves the forwarding audit while clearing the deleted subject reference.' },
 
   // ── 4. Shared records: reassign required actor/owner columns ──────────────
   { key: 'Ticket.createdById', model: 'Ticket', field: 'createdById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Tickets Created', note: 'Shared ticket stays.' },
@@ -178,6 +189,8 @@ export const HANDLERS: Handler[] = [
   { key: 'UserLifecycleOperation.actorId', model: 'UserLifecycleOperation', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ OR: [{ userId: null }, { userId: { not: u.id } }] }), history: true, sheet: 'Lifecycle Operations', note: 'Operations the person ran on others.' },
   { key: 'UserArchiveSnapshot.createdById', model: 'UserArchiveSnapshot', field: 'createdById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ OR: [{ userId: null }, { userId: { not: u.id } }] }), history: true, sheet: 'Lifecycle Operations', note: 'Archives the person created of others.' },
   { key: 'DepartmentTransfer.actorId', model: 'DepartmentTransfer', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Transfers', note: 'Transfers the person performed for others.' },
+  { key: 'ReviewQueueAssignment.assignedReviewerId', model: 'ReviewQueueAssignment', field: 'assignedReviewerId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Review Routing', note: 'Required reviewer on preserved forwarding history; moved to the Deleted account principal.' },
+  { key: 'ReviewQueueAssignment.forwardedById', model: 'ReviewQueueAssignment', field: 'forwardedById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Review Routing', note: 'Required forwarding actor on preserved history; moved to the Deleted account principal.' },
   ...(['approvedById', 'recordedById'] as const).map((field): Handler => ({
     key: `FnfAdjustment.${field}`, model: 'FnfAdjustment', field, fk: false, holds: 'id', action: 'REASSIGN',
     scope: (u) => ({ subjectUserId: { not: u.id } }), history: true, sheet: 'Exit and F&F', note: 'Required actor on another person\'s adjustment; moved under the trigger exception.',
@@ -248,7 +261,7 @@ export const HANDLERS: Handler[] = [
     key: `BusinessDayOverride.${field}`, model: 'BusinessDayOverride', field, fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Override kept.',
   })),
   { key: 'AppSetting.updatedBy', model: 'AppSetting', field: 'updatedBy', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Audit pointer.' },
-  { key: 'RetentionRule.approvedById', model: 'RetentionRule', field: 'approvedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Rule kept.' },
+  { key: 'RetentionRule.approvedById', model: 'RetentionRule', field: 'approvedById', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Policies Acted On', note: 'Rule kept.' },
 
   // ── 6. Lifecycle foundation (Phase 1): clear optional references ──────────
   ...(['subjectUserId', 'resolvedApproverId', 'createdById'] as const).map((field): Handler => ({
@@ -262,14 +275,40 @@ export const HANDLERS: Handler[] = [
   })),
   { key: 'HierarchyAssignment.createdById', model: 'HierarchyAssignment', field: 'createdById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Reporting Lines', note: 'Assignments the person recorded.' },
   { key: 'PolicyHealthIssue.resolvedById', model: 'PolicyHealthIssue', field: 'resolvedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Issue kept.' },
+  // Phase 3 actor references on records about OTHER people. Their CHECKs
+  // require an actor, so they move to the deleted-account principal.
+  { key: 'AttendanceRegularization.decidedById', model: 'AttendanceRegularization', field: 'decidedById', fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Attendance Corrections', note: 'Final decisions on others\x27 corrections stay; the decider becomes the deleted-account principal.' },
+  { key: 'UnreportedAbsenceDecision.correctedById', model: 'UnreportedAbsenceDecision', field: 'correctedById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ userId: { not: u.id } }), history: true, sheet: 'Attendance Absence Decisions', note: 'HR corrections of others\x27 LWP decisions stay.' },
+  { key: 'AbsenceReport.recordedById', model: 'AbsenceReport', field: 'recordedById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ userId: { not: u.id } }), history: true, sheet: 'Attendance Absence Reports', note: 'Reports HR recorded for others stay.' },
   { key: 'PunchEvidenceReview.reviewedById', model: 'PunchEvidenceReview', field: 'reviewedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Punch Evidence', note: 'Reviews of others\' evidence; the person\'s own reviews cascade with their evidence.' },
-  ...(['createdById', 'withdrawnById'] as const).map((field): Handler => ({
+  ...(['createdById', 'submittedById'] as const).map((field): Handler => ({
     key: `ExitCase.${field}`, model: 'ExitCase', field, fk: false, holds: 'id', action: 'NULL', scope: others, history: true, sheet: 'Exit and F&F', note: 'Exit cases the person handled for others.',
   })),
-  ...(['ownerId', 'completedById'] as const).map((field): Handler => ({
-    key: `ExitClearanceItem.${field}`, model: 'ExitClearanceItem', field, fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Exit and F&F', note: 'Clearance items the person owned for others.',
+  // Phase 4 CHECKs require these actors in their states, so they move to the deleted-account principal.
+  ...(['withdrawnById', 'noticeAdjustedById', 'separatedById'] as const).map((field): Handler => ({
+    key: `ExitCase.${field}`, model: 'ExitCase', field, fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Exit and F&F', note: 'Required actor on another person exit case; moved to the deleted-account principal.',
   })),
-  { key: 'FnfSettlement.releasedById', model: 'FnfSettlement', field: 'releasedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Exit and F&F', note: 'Settlements the person released for others.' },
+  { key: 'ExitClearanceItem.ownerId', model: 'ExitClearanceItem', field: 'ownerId', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Exit and F&F', note: 'Clearance items the person owned for others.' },
+  ...(['completedById', 'waivedById'] as const).map((field): Handler => ({
+    key: `ExitClearanceItem.${field}`, model: 'ExitClearanceItem', field, fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Exit and F&F', note: 'Required actor on a finished clearance item; moved to the deleted-account principal.',
+  })),
+  { key: 'FnfSettlement.releasedById', model: 'FnfSettlement', field: 'releasedById', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Exit and F&F', note: 'A released settlement keeps a releaser; moved to the deleted-account principal.' },
+
+  // ── 7. Phase 4 ──
+  ...(['requestedById', 'decidedById'] as const).map((field): Handler => ({
+    key: `FnfAdjustmentRequest.${field}`, model: 'FnfAdjustmentRequest', field, fk: false, holds: 'id', action: 'REASSIGN',
+    scope: (u) => ({ subjectUserId: { not: u.id } }), history: true, sheet: 'Exit and F&F', note: 'Actor on another person adjustment request; moved under the trigger exception.',
+  })),
+  ...(['proposedById', 'decidedById'] as const).map((field): Handler => ({
+    key: `RetentionRuleProposal.${field}`, model: 'RetentionRuleProposal', field, fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Policies Acted On', note: 'Retention history is kept; the actor moves to the deleted-account principal.',
+  })),
+  { key: 'RetentionRuleVersion.approvedById', model: 'RetentionRuleVersion', field: 'approvedById', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Policies Acted On', note: 'Immutable version history is kept; the approver moves to the deleted-account principal.' },
+  { key: 'RetentionRule.createdById', model: 'RetentionRule', field: 'createdById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Rule kept.' },
+  { key: 'AttendanceMonthClose.unresolvedAcknowledgedById', model: 'AttendanceMonthClose', field: 'unresolvedAcknowledgedById', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Payroll Months Finalized', note: 'Acknowledgement is paired with its time; the actor moves to the deleted-account principal.' },
+  { key: 'EmploymentPeriod.probationVerifiedById', model: 'EmploymentPeriod', field: 'probationVerifiedById', fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Employment Periods', note: 'Verification is paired with its time; the actor moves to the deleted-account principal.' },
+  { key: 'DepartmentTransfer.cancelledById', model: 'DepartmentTransfer', field: 'cancelledById', fk: false, holds: 'id', action: 'REASSIGN', scope: others, history: true, sheet: 'Transfers', note: 'A cancelled transfer requires its canceller.' },
+  { key: 'DepartmentTransferImpact.reviewedById', model: 'DepartmentTransferImpact', field: 'reviewedById', fk: false, holds: 'id', action: 'REASSIGN', scope: (u) => ({ transfer: { userId: { not: u.id } } }), history: true, sheet: 'Transfers', note: 'A reviewed impact requires its reviewer.' },
+  { key: 'TransitionRequestKey.actorId', model: 'TransitionRequestKey', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', history: false, sheet: 'Exit and F&F', note: 'Idempotency ledger; the actor moves to the deleted-account principal.' },
 ];
 
 /**
@@ -280,9 +319,12 @@ export const HANDLERS: Handler[] = [
  */
 export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set(
   HANDLERS.map((h) => h.key).filter((k) =>
-    /^(LifecycleRemediationAttempt|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview)\./.test(k)
+    /^(LifecycleRemediationAttempt|FnfAdjustmentRequest|RetentionRuleProposal|RetentionRuleVersion|TransitionRequestKey|DepartmentTransferImpact|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview|ReviewQueueAssignment|OrganizationReportingLine)\./.test(k)
     || [
       'LeaveRequest.fundingChangedById',
+      'RetentionRule.createdById',
+      'AttendanceMonthClose.unresolvedAcknowledgedById',
+      'EmploymentPeriod.probationVerifiedById',
       'UserLegalHold.requestedById',
       'UserLegalHold.rejectedById',
       'UserLegalHold.withdrawnById',
@@ -297,6 +339,7 @@ export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set(
  * excluded" from "never considered".
  */
 export const NOT_USER_REFERENCES: Record<string, string> = {
+  'ExitClearanceItem.ownerCapability': 'A capability label (TEAM_LEAD, DEPT_MANAGER, HR, ADMIN), not a person.',
   'AttendancePolicy.supersededById': 'Points at the superseding policy version.',
   'ShiftPolicy.supersededById': 'Points at the superseding policy version.',
   'HolidayCalendar.supersededById': 'Points at the superseding policy version.',
@@ -309,6 +352,7 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'TicketTimeLog.ownerType': 'An enum label.',
   'TicketTimeLog.pauseReason': 'An enum label.',
   'EmployeeProfileChangeRequest.managerDecision': 'A decision label.',
+  'EmployeeProfileChangeRequest.employeeDeclineReason': 'A narrative reason, not a person reference.',
   'AttendancePunchEvidence.employeeProfileId': 'Points at an attendance profile.',
   'DailyAttendance.employeeProfileId': 'Points at an attendance profile.',
   'AttendanceRegularization.actorRoleAtEntry': 'A role label.',

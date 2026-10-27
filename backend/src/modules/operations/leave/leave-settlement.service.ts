@@ -4,6 +4,9 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { LeaveBalanceService } from './leave-balance.service';
 import { CompOffService } from './comp-off.service';
+import { LeavePolicyUnresolvedError } from './leave-balance.service';
+import { LeaveCalendarUnresolvedError } from './leave-working-day.service';
+import { bucketOf, type PaidBucket } from './leave-rules';
 
 /**
  * Funding settlement for an approved leave (LH-2).
@@ -66,22 +69,23 @@ export class LeaveSettlementService {
   }
 
   /**
-   * Paid days already committed for this employee in a year.
+   * Paid days already committed for this employee in a year, for one bucket.
    *
-   * Prefers the explicit `paidDays` recorded by a V2 settlement. Legacy rows
+   * Prefers the explicit `paidDays` recorded by a settlement. Legacy rows
    * approved before LH-2 never recorded one, so their computed duration is the
-   * only evidence available and is used as a fallback — noted rather than
-   * hidden, because it is the one place a historical row is re-measured.
+   * only evidence available. Phase 3: rows are grouped by PAID BUCKET (see
+   * bucketOf), so historical EMERGENCY days draw Sick one-for-one.
    */
   async consumedPaidDays(
     tx: Prisma.TransactionClient,
     userId: string,
     year: number,
     excludeLeaveId?: string,
-    leaveType?: LeaveType,
+    leaveType?: LeaveType | PaidBucket,
     window?: { start: Date; end: Date },
   ): Promise<number> {
     const bounds = this.tva.financialYearBounds(`${year}-${year + 1}`);
+    const bucket = leaveType ? bucketOf({ type: leaveType }) : null;
     const approved = await tx.leaveRequest.findMany({
       where: {
         userId,
@@ -91,24 +95,75 @@ export class LeaveSettlementService {
           lte: this.tva.companyDayEnd(window?.end ?? bounds.end),
         },
         ...(excludeLeaveId ? { id: { not: excludeLeaveId } } : {}),
-        ...(leaveType ? { type: leaveType } : {}),
       },
     });
 
     let total = 0;
     for (const row of approved) {
+      // Comp Off and Unpaid never consume paid entitlement.
+      if (row.type === LeaveType.COMP_OFF || row.type === LeaveType.UNPAID) continue;
+      if (bucket && bucketOf(row) !== bucket) continue;
       if (typeof row.paidDays === 'number') {
         total += row.paidDays;
         continue;
       }
-      total += await this.balance.getDurationForRequest(
-        row.startDate,
-        row.endDate,
-        row.isHalfDay,
-        userId,
-      );
+      // An approved request still awaiting setup has no settlement yet and
+      // consumes nothing until it is settled.
+      if ((row as any).setupStatus === 'POLICY_SETUP_PENDING') continue;
+      try {
+        total += await this.balance.getDurationForRequest(row.startDate, row.endDate, row.isHalfDay, userId);
+      } catch {
+        // Unmeasurable legacy row: counted by HR review, not guessed here.
+      }
     }
     return total;
+  }
+
+  /**
+   * Computes the funding of one request inside the caller's transaction, with
+   * the user row already locked. Null when it cannot be computed yet (calendar
+   * or leave policy still unresolved): the request is then approved with its
+   * settlement left open, and resettleApproved() settles it later.
+   */
+  private async computeSettlement(tx: Prisma.TransactionClient, leave: any): Promise<Settlement | null> {
+    let requestedDays: number;
+    try {
+      requestedDays = await this.balance.getDurationForRequest(leave.startDate, leave.endDate, leave.isHalfDay, leave.userId);
+    } catch (error) {
+      if (error instanceof LeaveCalendarUnresolvedError) return null;
+      throw error;
+    }
+
+    if (leave.type === LeaveType.COMP_OFF) {
+      // Comp off is whole earned days, never half, and never falls back to a
+      // paid bucket.
+      if (leave.isHalfDay) throw new ForbiddenException('Comp Off requests must cover whole working days');
+      if (requestedDays < 1) throw new ForbiddenException('Comp Off requests must cover at least one working day');
+      if (!this.compOff) throw new ForbiddenException('Comp Off settlement is unavailable');
+      const consumed = await this.compOff.consumeForDays(tx, leave.userId, leave.id, requestedDays);
+      if (!consumed) {
+        throw new ForbiddenException(
+          `This request needs ${requestedDays} unexpired Comp Off credit(s), ` +
+            'and the employee does not have enough. There is no fallback to Casual or Sick leave.',
+        );
+      }
+      return this.split(requestedDays, requestedDays);
+    }
+
+    const bucket = bucketOf(leave);
+    // Unpaid leave is unpaid by request; nothing is drawn from a bucket.
+    if (!bucket) return this.split(requestedDays, 0);
+
+    const year = this.tva.financialYear(leave.startDate).startYear;
+    let allocation: number;
+    try {
+      allocation = await this.balance.getYearlyAllocation(leave.userId, year, bucket, leave.startDate);
+    } catch (error) {
+      if (error instanceof LeavePolicyUnresolvedError) return null;
+      throw error;
+    }
+    const consumed = await this.consumedPaidDays(tx, leave.userId, year, leave.id, bucket);
+    return this.split(requestedDays, allocation - consumed);
   }
 
   /**
@@ -125,109 +180,39 @@ export class LeaveSettlementService {
    *      different requests for the same employee serialize on it, so they
    *      cannot both read "1 day remaining" and both consume it.
    *
-   * A transaction alone would not prevent that second case — both reads would
-   * simply see the pre-approval snapshot.
+   * `routed` (Phase 3): the request's single routed approver completes it from
+   * MANAGER_REVIEW in one step. Otherwise the legacy LH-2 HR final step from
+   * HR_REVIEW. When the settlement cannot be computed yet (setup pending) the
+   * request is still approved -- attendance is protected -- and its funding is
+   * left open, excluded from payroll until resettleApproved() settles it.
    */
   async settleAndApprove(input: {
     leaveId: string;
-    hrApproverId: string;
-  }): Promise<{ leave: any; settlement: Settlement }> {
+    hrApproverId?: string;
+    approverId?: string;
+    routed?: boolean;
+  }): Promise<{ leave: any; settlement: Settlement | null }> {
+    const approverId = input.approverId ?? input.hrApproverId;
+    if (!approverId) throw new ForbiddenException('An approver is required');
     return this.prisma.$transaction(async (tx) => {
-      // 1. Serialize on the request itself.
       await tx.$queryRaw`SELECT id FROM "leave_requests" WHERE id = ${input.leaveId} FOR UPDATE`;
-
-      // 2. Re-read AFTER the lock. Anything read before it is a stale snapshot.
       const leave = await tx.leaveRequest.findUnique({ where: { id: input.leaveId } });
       if (!leave) throw new NotFoundException('Leave request not found');
       if (leave.status !== LeaveStatus.PENDING) {
         throw new ForbiddenException('Only pending leave requests can be approved');
       }
-      if (leave.approvalStage !== 'HR_REVIEW') {
+      const expectedStage = input.routed ? 'MANAGER_REVIEW' : 'HR_REVIEW';
+      if (leave.approvalStage !== expectedStage) {
         throw new ForbiddenException(
-          'This request has not completed reporting-manager review yet',
+          input.routed
+            ? 'This request is not awaiting its approver'
+            : 'This request has not completed reporting-manager review yet',
         );
       }
 
-      // 3. Serialize every balance decision for this employee.
       await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${leave.userId} FOR UPDATE`;
 
-      const requestedDays = await this.balance.getDurationForRequest(
-        leave.startDate,
-        leave.endDate,
-        leave.isHalfDay,
-        leave.userId,
-      );
-
-      let settlement: Settlement;
-      if (leave.type === LeaveType.COMP_OFF) {
-        // Half-day comp off is refused because management defined comp off in
-        // whole earned days and never defined a half credit. Inventing one here
-        // would quietly become policy.
-        if (leave.isHalfDay) {
-          throw new ForbiddenException('Comp Off requests must cover whole working days');
-        }
-        if (requestedDays < 1) {
-          throw new ForbiddenException('Comp Off requests must cover at least one working day');
-        }
-        if (!this.compOff) {
-          throw new ForbiddenException('Comp Off settlement is unavailable');
-        }
-
-        // N qualifying leave-days costs N credits. All-or-nothing: an employee
-        // with one credit cannot have a two-day request settled as fully funded,
-        // and no credit is spent unless the whole request can be covered.
-        const consumed = await this.compOff.consumeForDays(
-          tx,
-          leave.userId,
-          leave.id,
-          requestedDays,
-        );
-        if (!consumed) {
-          throw new ForbiddenException(
-            `This request needs ${requestedDays} unexpired Comp Off credit(s), ` +
-              'and the employee does not have enough. There is no fallback to ' +
-              'Casual or Emergency leave.',
-          );
-        }
-        // Comp off is its own entitlement: fully funded by credits, never drawn
-        // from a paid-leave balance.
-        settlement = this.split(requestedDays, requestedDays);
-      } else {
-        const year = this.tva.financialYear(leave.startDate).startYear;
-        // Casual and Emergency are independent management entitlements. All
-        // legacy leave types retain the pre-extension shared-pool behaviour.
-        const entitlementType =
-          leave.type === LeaveType.CASUAL || leave.type === LeaveType.EMERGENCY
-            ? leave.type
-            : undefined;
-        const employee = await tx.user.findUnique({
-          where: { id: leave.userId },
-          select: { role: { select: { name: true } } },
-        });
-        const isIntern = employee?.role?.name === 'INTERN';
-        const businessDate = this.tva.companyBusinessDate(leave.startDate);
-        const [windowYear, windowMonth] = businessDate.split('-').map(Number);
-        const internWindow = isIntern ? {
-          start: new Date(Date.UTC(windowYear, windowMonth - 1, 1)),
-          end: new Date(Date.UTC(windowYear, windowMonth, 0)),
-        } : undefined;
-        const allocation = isIntern
-          ? entitlementType === LeaveType.EMERGENCY ? 0 : 1
-          : await this.balance.getYearlyAllocation(
-              leave.userId,
-              year,
-              entitlementType,
-            );
-        const consumed = await this.consumedPaidDays(
-          tx,
-          leave.userId,
-          year,
-          leave.id,
-          entitlementType,
-          internWindow,
-        );
-        settlement = this.split(requestedDays, allocation - consumed);
-      }
+      const settlement = await this.computeSettlement(tx, leave);
       const now = this.tva.now();
 
       const updated = await tx.leaveRequest.update({
@@ -235,19 +220,63 @@ export class LeaveSettlementService {
         data: {
           status: LeaveStatus.APPROVED,
           approvalStage: 'COMPLETE',
-          hrApprovedById: input.hrApproverId,
-          hrApprovedAt: now,
-          // Compatibility fields carry the FINAL approval, so every existing
-          // reader of approvedBy/approvedAt keeps seeing what it expects.
-          approvedBy: input.hrApproverId,
+          ...(input.routed
+            ? { managerApprovedById: approverId, managerApprovedAt: now }
+            : { hrApprovedById: approverId, hrApprovedAt: now }),
+          // Compatibility fields carry the FINAL approval.
+          approvedBy: approverId,
           approvedAt: now,
-          fundingOutcome: settlement.fundingOutcome,
-          paidDays: settlement.paidDays,
-          unpaidDays: settlement.unpaidDays,
+          fundingOutcome: settlement?.fundingOutcome ?? null,
+          paidDays: settlement?.paidDays ?? null,
+          unpaidDays: settlement?.unpaidDays ?? null,
+          // A request that could not be settled stays visibly setup-pending.
+          ...(settlement ? {} : { setupStatus: 'POLICY_SETUP_PENDING' as any }),
         },
       });
 
       return { leave: updated, settlement };
     });
+  }
+
+  /**
+   * Settles APPROVED requests that were approved while setup was pending,
+   * now that configuration may be fixed. Idempotent: rows that still cannot be
+   * settled are left as they are; settled rows are never revisited.
+   */
+  async resettleApproved(userId?: string): Promise<{ settled: string[]; stillPending: number }> {
+    const rows = await this.prisma.leaveRequest.findMany({
+      where: {
+        status: LeaveStatus.APPROVED,
+        setupStatus: 'POLICY_SETUP_PENDING',
+        fundingOutcome: null,
+        ...(userId ? { userId } : {}),
+      },
+      select: { id: true },
+    });
+    const settled: string[] = [];
+    let stillPending = 0;
+    for (const row of rows) {
+      const done = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "leave_requests" WHERE id = ${row.id} FOR UPDATE`;
+        const leave = await tx.leaveRequest.findUnique({ where: { id: row.id } });
+        if (!leave || leave.status !== LeaveStatus.APPROVED || leave.fundingOutcome) return false;
+        await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${leave.userId} FOR UPDATE`;
+        const settlement = await this.computeSettlement(tx, leave);
+        if (!settlement) return false;
+        await tx.leaveRequest.update({
+          where: { id: leave.id },
+          data: {
+            fundingOutcome: settlement.fundingOutcome,
+            paidDays: settlement.paidDays,
+            unpaidDays: settlement.unpaidDays,
+            setupStatus: 'RESOLVED',
+          },
+        });
+        return true;
+      });
+      if (done) settled.push(row.id);
+      else stillPending += 1;
+    }
+    return { settled, stillPending };
   }
 }

@@ -8,6 +8,7 @@ import { PunchHandoffQr } from './PunchHandoffQr';
 import { newIdempotencyKey, submitPunch, type PunchResult, type PunchType } from './punch-api';
 import { ModalPortal } from '../ui/ModalPortal';
 import { RemediationDialog, useRemediation } from '@apex/shared-remediation';
+import { currentDeviceEvidence } from './device-evidence';
 
 /**
  * The employee-facing punch flow (PE-4).
@@ -50,6 +51,7 @@ export function PunchModal({
   const [error, setError] = useState<string | null>(null);
   // A structured server decision opens the remediation dialog over this modal.
   const remediation = useRemediation();
+  const { openFrom } = remediation;
   const [canRetry, setCanRetry] = useState(false);
   const [result, setResult] = useState<PunchResult | null>(null);
 
@@ -94,12 +96,13 @@ export function PunchModal({
         altitudeMeters: reading.altitudeMeters,
         clientCapturedAt: capturedAtRef.current,
         photoAssetId,
+        device: currentDeviceEvidence(),
       });
       setResult(res);
       setPhase('done');
       onPunched(res);
     } catch (err: any) {
-      if (remediation.openFrom(err)) {
+      if (openFrom(err)) {
         // A remediation is a server decision, not a blip: no automatic resend.
         setPhase('failed');
         setCanRetry(false);
@@ -129,7 +132,7 @@ export function PunchModal({
             : 'The punch was not accepted.',
       );
     }
-  }, [geo.sample, onPunched, type, remediation.openFrom]);
+  }, [geo.sample, onPunched, openFrom, type]);
 
   const handleCaptured = useCallback(
     (photoAssetId: string) => {

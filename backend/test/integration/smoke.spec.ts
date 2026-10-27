@@ -513,12 +513,13 @@ describe('API Smoke Tests', () => {
         .post('/api/leave')
         .set('Authorization', empToken)
         .send({
+          // Refined policy: new paid requests draw from the single Annual pool.
           type: 'ANNUAL',
           startDate: leaveDay,
           endDate: leaveDay,
           reason: 'Test requested leave event',
-        })
-        .expect(201);
+        });
+      if (leaveRes.status !== 201) throw new Error(`leave create ${leaveRes.status}: ${JSON.stringify(leaveRes.body)}`);
       
       const leaveId = leaveRes.body.id;
 

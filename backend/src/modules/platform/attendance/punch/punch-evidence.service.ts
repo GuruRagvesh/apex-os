@@ -25,6 +25,12 @@ import {
   SubmitPunchEvidenceInput,
 } from './punch-evidence.types';
 import { evaluateGeofence } from './geofence';
+import {
+  buildDeviceEvidence,
+  deviceView,
+  type CaptureChannelValue,
+  type DeviceRequestHeaders,
+} from './device-evidence';
 
 /**
  * Punch Evidence (PE-1).
@@ -231,7 +237,13 @@ export class PunchEvidenceService {
   async submit(
     userId: string,
     input: SubmitPunchEvidenceInput,
-    meta: { ipAddress?: string | null } = {},
+    meta: {
+      ipAddress?: string | null;
+      /** Only the headers device evidence reads; never stored raw. */
+      headers?: DeviceRequestHeaders;
+      /** Decided by the controller from the route. Never from the body. */
+      captureChannel?: CaptureChannelValue;
+    } = {},
   ) {
     if (!(await this.isEnabled())) {
       throw new PunchFeatureDisabledError();
@@ -334,6 +346,10 @@ export class PunchEvidenceService {
     // this very photo, which would otherwise look like reuse.
     const photo = await this.resolvePhotoAsset(userId, input.photoAssetId);
 
+    // Device evidence never refuses a punch. It runs after the idempotency
+    // return above, so a retry can never replace the original device record.
+    const device = buildDeviceEvidence(input.device, meta.headers ?? {});
+
     // ── ATOMIC BOUNDARY ──────────────────────────────────────────────────
     // The workday mutation and the immutable evidence commit together or not
     // at all. A started session with no evidence would be an unexplained
@@ -349,7 +365,12 @@ export class PunchEvidenceService {
       if (input.type === 'PUNCH_IN') {
         const started = await this.workday.startWorkInTransaction(tx, userId);
         workSessionId = started.session.id;
-        after = () => this.workday.afterWorkStarted(userId, started.session, started.wasAutoClosed);
+        after = () => this.workday.afterWorkStarted(
+          userId,
+          started.session,
+          started.wasAutoClosed,
+          started.autoCancelledLeaves,
+        );
       } else {
         // Resolve the session to close through the same query the workday
         // engine uses, rather than inventing a second notion of "current".
@@ -421,7 +442,12 @@ export class PunchEvidenceService {
           photoObjectKey: photo.objectKey,
           photoHash: photo.sha256,
           source: (input.source ?? 'WEB') as any,
-          deviceMetadata: (input.deviceMetadata ?? undefined) as any,
+          // Normalized browser/OS family only. The client's own free-form
+          // metadata and the raw User-Agent are never stored.
+          deviceMetadata: device.deviceMetadata as any,
+          deviceId: device.deviceId,
+          deviceType: device.deviceType as any,
+          captureChannel: (meta.captureChannel ?? 'CURRENT_DEVICE') as any,
           ipAddress: meta.ipAddress ?? null,
           employeeProfileId: context.sources.employeeProfileId,
           shiftPolicyId: context.sources.shiftPolicyId,
@@ -436,6 +462,7 @@ export class PunchEvidenceService {
       const reviewReasons = [
         policySetupPending ? 'POLICY_SETUP_PENDING' : null,
         input.accuracyMeters === null || input.accuracyMeters === undefined ? 'ACCURACY_UNAVAILABLE' : null,
+        ...device.reviewReasons,
       ].filter((reason): reason is string => reason !== null);
       if (reviewReasons.length > 0) {
         await tx.punchEvidenceReview.create({
@@ -568,5 +595,8 @@ export function toOwnEvidenceView(
 
     workSessionId: row.workSessionId,
     source: row.source,
+    // Safe presentation fields only. The opaque UUID and normalized metadata
+    // stay server-side; the employee sees the same short label HR sees.
+    ...deviceView(row),
   };
 }
