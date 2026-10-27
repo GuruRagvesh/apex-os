@@ -536,12 +536,11 @@ describe('LH-1 leave balance authority', () => {
     }
   });
 
-  // ── Phase 3: 10 Casual + 4 Sick from the versioned LeavePolicy only ──────
+  // ── Refined policy: one 14-day Annual pool ───────────────────────────────
   it('26. the allocation comes from the versioned LeavePolicy, whatever the flag says', async () => {
     for (const v2 of [true, false]) {
-      const { service, settings } = balanceRig({ v2, leavePolicy: { id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4 } });
-      expect(await service.getYearlyAllocation('emp-1', 2026, 'CASUAL')).toBe(10);
-      expect(await service.getYearlyAllocation('emp-1', 2026, 'SICK')).toBe(4);
+      const { service, settings } = balanceRig({ v2, leavePolicy: { id: 'lp-1', totalPaidLeaves: 14 } });
+      expect(await service.getYearlyAllocation('emp-1', 2026, 'ANNUAL')).toBe(14);
       expect(await service.getYearlyAllocation('emp-1', 2026)).toBe(14);
       // The retired role quota table is never consulted.
       expect(settings.getLeaveQuotas).not.toHaveBeenCalled();
@@ -550,9 +549,8 @@ describe('LH-1 leave balance authority', () => {
 
   it('27. role and intern hard-codes are gone: every role reads the same policy', async () => {
     for (const roleName of ['INTERN', 'EMPLOYEE', 'MANAGER']) {
-      const { service } = balanceRig({ v2: true, roleName, leavePolicy: { id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4 } });
-      expect(await service.getYearlyAllocation('emp-1', 2026, 'CASUAL')).toBe(10);
-      expect(await service.getYearlyAllocation('emp-1', 2026, 'SICK')).toBe(4);
+      const { service } = balanceRig({ v2: true, roleName, leavePolicy: { id: 'lp-1', totalPaidLeaves: 14 } });
+      expect(await service.getYearlyAllocation('emp-1', 2026, 'ANNUAL')).toBe(14);
     }
   });
 
@@ -568,7 +566,7 @@ describe('LH-1 leave balance authority', () => {
   it('29. computing a balance never mutates anything', async () => {
     const { service, prisma } = balanceRig({
       v2: true,
-      leavePolicy: { id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4 },
+      leavePolicy: { id: 'lp-1', totalPaidLeaves: 14 },
       workingDayCount: 1,
       leaves: [
         {
@@ -594,7 +592,7 @@ describe('LH-1 leave balance authority', () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
-  it('30. pre-foundation EMERGENCY leave keeps its legacy duration and draws Sick one-for-one', async () => {
+  it('30. pre-foundation EMERGENCY leave keeps its legacy duration and draws Annual one-for-one', async () => {
     const unresolved = new LeaveCalendarUnresolvedError(['NO_PROFILE_FOR_DATE']);
     const legacy = {
       id: 'legacy-emergency',
@@ -607,16 +605,14 @@ describe('LH-1 leave balance authority', () => {
     };
     const rig = () => balanceRig({
       v2: true,
-      leavePolicy: { id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4 },
+      leavePolicy: { id: 'lp-1', totalPaidLeaves: 14 },
       firstProfileEffectiveFrom: new Date('2026-08-27T00:00:00.000Z'),
       workingDayError: unresolved,
       leaves: [legacy],
     });
 
-    const sick = await rig().service.getLeaveBalance('emp-1', 2026, 'SICK');
-    expect(sick).toEqual(expect.objectContaining({ allocation: 4, approved: 2, pending: 0, balance: 2, bucket: 'SICK' }));
-    const casual = await rig().service.getLeaveBalance('emp-1', 2026, 'CASUAL');
-    expect(casual).toEqual(expect.objectContaining({ allocation: 10, approved: 0, balance: 10 }));
+    const annual = await rig().service.getLeaveBalance('emp-1', 2026, 'ANNUAL');
+    expect(annual).toEqual(expect.objectContaining({ allocation: 14, approved: 2, pending: 0, balance: 12, bucket: 'ANNUAL' }));
     // The historical type itself is never rewritten.
     expect(legacy.type).toBe('EMERGENCY');
   });
@@ -625,7 +621,7 @@ describe('LH-1 leave balance authority', () => {
     const unresolved = new LeaveCalendarUnresolvedError(['MISSING_WEEKLY_OFF_POLICY']);
     const { service } = balanceRig({
       v2: true,
-      leavePolicy: { id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4 },
+      leavePolicy: { id: 'lp-1', totalPaidLeaves: 14 },
       firstProfileEffectiveFrom: new Date('2026-08-27T00:00:00.000Z'),
       workingDayError: unresolved,
       leaves: [
@@ -641,17 +637,17 @@ describe('LH-1 leave balance authority', () => {
       ],
     });
 
-    const balance = await service.getLeaveBalance('emp-1', 2026, 'CASUAL');
+    const balance = await service.getLeaveBalance('emp-1', 2026, 'ANNUAL');
     expect(balance.unmeasuredRequests).toBe(1);
     expect(balance.pending).toBe(0);
-    expect(balance.balance).toBe(10);
+    expect(balance.balance).toBe(14);
   });
 
   it('32. no balance anywhere adds up to 18 paid days', async () => {
-    const { service } = balanceRig({ v2: true, leavePolicy: { ...{ id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4 }, emergencyLeaveAllocation: 4 } });
+    const { service } = balanceRig({ v2: true, leavePolicy: { id: 'lp-1', totalPaidLeaves: 14, emergencyLeaveAllocation: 4 } });
     const total = await service.getYearlyAllocation('emp-1', 2026);
     expect(total).toBe(14);
-    expect(await service.getYearlyAllocation('emp-1', 2026, 'EMERGENCY' as any)).toBe(4);
+    expect(await service.getYearlyAllocation('emp-1', 2026, 'EMERGENCY' as any)).toBe(14);
   });
 });
 

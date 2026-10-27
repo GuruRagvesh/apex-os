@@ -126,8 +126,8 @@ it('no backend source outside the schema reads emergencyLeaveAllocation after Ph
   expect(hits).toEqual([]);
 });
 
-it('the Sick allocation is read by the leave entitlement authority (Phase 3)', () => {
+it('the single annual allocation is read by the leave entitlement authority', () => {
   const rules = readFileSync(join(__dirname, '../../src/modules/operations/leave/leave-rules.ts'), 'utf8');
-  expect(rules).toContain('sickLeaveAllocation');
-  expect(rules).toContain('casualLeaveAllocation');
+  expect(rules).toContain('totalPaidLeaves');
+  expect(rules).toContain("PaidBucket = 'ANNUAL'");
 });

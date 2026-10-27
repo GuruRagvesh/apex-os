@@ -232,10 +232,10 @@ describe('a legitimate request is unaffected', () => {
     const { service, dataOf } = rig();
     await service.create(legitimate(), EMPLOYEE);
     const data = dataOf();
-    // Phase 3: the Emergency submission is funded from the bucket it named.
-    expect(data.type).toBe('SICK');
+    // Refined policy: Emergency is a submission mode against Annual Leave.
+    expect(data.type).toBe('ANNUAL');
     expect(data.submissionMode).toBe('EMERGENCY');
-    expect(data.fundingBucket).toBe('SICK');
+    expect(data.fundingBucket).toBeNull();
     expect(data.reason).toBe('Family medical emergency, travelling to Coimbatore.');
     expect(data.userId).toBe(EMPLOYEE);
     expect(data.status).toBe('PENDING');
@@ -273,7 +273,7 @@ describe('a legitimate request is unaffected', () => {
     // Validating the forged owner's balance instead of the caller's would let
     // somebody spend an entitlement that is not theirs.
     expect(validate).toHaveBeenCalledWith(
-      EMPLOYEE, expect.any(Date), expect.any(Date), false, 'SICK', 'SICK',
+      EMPLOYEE, expect.any(Date), expect.any(Date), false, 'ANNUAL', null,
     );
   });
 

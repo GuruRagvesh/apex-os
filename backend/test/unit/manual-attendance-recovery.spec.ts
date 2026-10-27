@@ -24,6 +24,7 @@ function build(over: any = {}) {
 
   const prisma: any = {
     attendanceRegularization: {
+      count: jest.fn().mockResolvedValue(0),
       findFirst: jest.fn().mockResolvedValue(over.openRequest ?? null),
       create: jest.fn(async ({ data }: any) => {
         const row = { id: 'reg-1', ...data };
@@ -310,7 +311,7 @@ describe('ordinary employee requests are unaffected', () => {
     const { service, created } = build();
     await service.create(EMPLOYEE, {
       businessDate: DATE,
-      requestType: 'MISSING_PUNCH',
+      requestType: 'MISSING_PUNCH_OUT',
       reason: 'Forgot to punch out before leaving.',
     } as any);
 

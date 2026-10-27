@@ -194,7 +194,7 @@ const DATE_ONLY = new Date(`${DATE}T00:00:00.000Z`);
 
 function correctionRig(f: { open?: any; official?: any; request?: any; isHR?: boolean; chain?: any[] } = {}) {
   const created: any[] = []; const audit: any[] = []; const updates: any[] = [];
-  const request = f.request ?? { id: 'reg-1', userId: 'emp-1', date: DATE_ONLY, status: 'MANAGER_APPROVED', requestType: 'OTHER', reason: '[Status] shows absent', basedOnFingerprint: 'fp-1' };
+  const request = f.request ?? { id: 'reg-1', userId: 'emp-1', date: DATE_ONLY, status: 'MANAGER_APPROVED', requestType: 'OTHER', policyCorrectionType: 'INCORRECT_ATTENDANCE_STATUS', reason: '[Status] shows absent', basedOnFingerprint: 'fp-1' };
   const tx: any = {
     ...makeRawSqlDouble(() => [{ id: 'x' }]),
     attendanceRegularization: { findUnique: jest.fn().mockResolvedValue(request), update: jest.fn(({ data }: any) => { updates.push(data); return Promise.resolve({ ...request, ...data }); }) },
@@ -202,7 +202,7 @@ function correctionRig(f: { open?: any; official?: any; request?: any; isHR?: bo
   };
   const prisma: any = {
     $transaction: jest.fn((fn: any) => fn(tx)),
-    attendanceRegularization: { findFirst: jest.fn().mockResolvedValue(f.open ?? null), findUnique: tx.attendanceRegularization.findUnique, create: jest.fn(({ data }: any) => { created.push(data); return Promise.resolve({ id: 'reg-new', ...data }); }), update: tx.attendanceRegularization.update },
+    attendanceRegularization: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(f.open ?? null), findUnique: tx.attendanceRegularization.findUnique, create: jest.fn(({ data }: any) => { created.push(data); return Promise.resolve({ id: 'reg-new', ...data }); }), update: tx.attendanceRegularization.update },
     dailyAttendance: { findUnique: jest.fn().mockResolvedValue('official' in f ? f.official : { sourceFingerprint: 'fp-1', punchInAt: new Date('2026-08-20T04:30:00.000Z'), punchOutAt: new Date('2026-08-20T13:00:00.000Z') }) },
   };
   const evaluator: any = { reviseForApprovedCorrection: jest.fn().mockResolvedValue({ before: { id: 'da-1', status: 'PRESENT' }, after: { id: 'da-1', status: 'PRESENT', revision: 1 }, result: {} }) };
@@ -219,13 +219,13 @@ describe('C correction requests', () => {
   it('C1. a future date cannot be corrected', async () => {
     const { service, created } = correctionRig();
     const future = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
-    await expect(service.create('emp-1', { businessDate: future, requestType: 'OTHER', reason: 'status is wrong' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.create('emp-1', { businessDate: future, requestType: 'INCORRECT_ATTENDANCE_STATUS', reason: 'status is wrong' })).rejects.toBeInstanceOf(BadRequestException);
     expect(created).toEqual([]);
   });
 
   it('C2. the stored punches the employee is arguing against are kept on the request', async () => {
     const { service, created } = correctionRig();
-    await service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH', reason: 'punch out was wrong', requestedPunchOut: '2026-08-20T13:40:00.000Z' });
+    await service.create('emp-1', { businessDate: DATE, requestType: 'INCORRECT_PUNCH_OUT', reason: 'punch out was wrong', requestedPunchOut: '2026-08-20T13:40:00.000Z' });
     expect(created[0].originalPunchIn).toEqual(new Date('2026-08-20T04:30:00.000Z'));
     expect(created[0].originalPunchOut).toEqual(new Date('2026-08-20T13:00:00.000Z'));
     expect(created[0].status).toBe('PENDING');
@@ -233,25 +233,26 @@ describe('C correction requests', () => {
 
   it('C3. a day with no stored record is still correctable and stores no originals', async () => {
     const { service, created } = correctionRig({ official: null });
-    await service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH', reason: 'never recorded', requestedPunchIn: '2026-08-20T04:00:00.000Z' });
+    await service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH_IN', reason: 'never recorded', requestedPunchIn: '2026-08-20T04:00:00.000Z' });
     expect([created[0].originalPunchIn, created[0].originalPunchOut]).toEqual([null, null]);
   });
 
-  it.each(['OTHER', 'MISSING_PUNCH', 'LATE_CORRECTION'])('C4. %s needs a reason', async (requestType) => {
+  it.each(['INCORRECT_ATTENDANCE_STATUS', 'MISSING_PUNCH_IN', 'INCORRECT_PUNCH_IN'])('C4. %s needs a reason', async (requestType) => {
     const { service } = correctionRig();
     await expect(service.create('emp-1', { businessDate: DATE, requestType: requestType as any, reason: '  ' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('C5. a second open request for the same day is refused', async () => {
     const { service } = correctionRig({ open: { id: 'reg-open', status: 'PENDING' } });
-    await expect(service.create('emp-1', { businessDate: DATE, requestType: 'OTHER', reason: 'again please' })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.create('emp-1', { businessDate: DATE, requestType: 'INCORRECT_ATTENDANCE_STATUS', reason: 'again please' })).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('C6. submitting OTHER changes no attendance: it only stores the request', async () => {
+  it('C6. submitting a status correction changes no attendance before approval', async () => {
     const { service, created, evaluator } = correctionRig();
-    await service.create('emp-1', { businessDate: DATE, requestType: 'OTHER', reason: '[Worked hours] hours look short' });
+    await service.create('emp-1', { businessDate: DATE, requestType: 'INCORRECT_ATTENDANCE_STATUS', reason: '[Worked hours] hours look short' });
     expect(created).toHaveLength(1);
     expect(created[0].requestType).toBe('OTHER');
+    expect(created[0].policyCorrectionType).toBe('INCORRECT_ATTENDANCE_STATUS');
     expect(evaluator.reviseForApprovedCorrection).not.toHaveBeenCalled();
   });
 
@@ -267,7 +268,7 @@ describe('C correction requests', () => {
   });
 
   it('C8. a punch correction is still applied by HR, and only HR may give final approval', async () => {
-    const punch = { id: 'reg-2', userId: 'emp-1', date: DATE_ONLY, status: 'MANAGER_APPROVED', requestType: 'MISSING_PUNCH', reason: 'crashed', basedOnFingerprint: 'fp-1' };
+    const punch = { id: 'reg-2', userId: 'emp-1', date: DATE_ONLY, status: 'MANAGER_APPROVED', requestType: 'MISSING_PUNCH', policyCorrectionType: 'MISSING_PUNCH_OUT', reason: 'crashed', basedOnFingerprint: 'fp-1' };
     const hr = correctionRig({ isHR: true, request: punch });
     // fingerprint on the day equals the request's, so the staleness guard passes
     (hr.service as any).prisma.$transaction = jest.fn((fn: any) => fn({ ...makeRawSqlDouble(() => [{ id: 'x' }]), attendanceRegularization: { findUnique: jest.fn().mockResolvedValue(punch), update: jest.fn(({ data }: any) => Promise.resolve({ ...punch, ...data })) }, dailyAttendance: { findUnique: jest.fn().mockResolvedValue({ id: 'da-1', sourceFingerprint: 'fp-1' }) } }));
@@ -284,18 +285,18 @@ describe('C9 recovered historical days are protected from punch corrections', ()
 
   it('C9a. a punch correction cannot be raised against a recovered day, and the message says what to do', async () => {
     const { service, created } = correctionRig({ official: recoveredDay });
-    await expect(service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH', reason: 'punch out is missing', requestedPunchOut: '2026-08-20T13:00:00.000Z' })).rejects.toThrow(/Other attendance issue/);
+    await expect(service.create('emp-1', { businessDate: DATE, requestType: 'MISSING_PUNCH_OUT', reason: 'punch out is missing', requestedPunchOut: '2026-08-20T13:00:00.000Z' })).rejects.toThrow(/Incorrect Attendance Status/i);
     expect(created).toEqual([]);
   });
 
-  it('C9b. the same day can still be raised for review as OTHER', async () => {
+  it('C9b. the same day can still be raised for a status correction', async () => {
     const { service, created } = correctionRig({ official: recoveredDay });
-    await service.create('emp-1', { businessDate: DATE, requestType: 'OTHER', reason: '[Other] one punch is missing' });
+    await service.create('emp-1', { businessDate: DATE, requestType: 'INCORRECT_ATTENDANCE_STATUS', reason: '[Other] one punch is missing' });
     expect(created).toHaveLength(1);
   });
 
   it('C9c. even an older punch request cannot be approved over a recovered day: the evaluator is never asked to rewrite it', async () => {
-    const punch = { id: 'reg-3', userId: 'emp-1', date: DATE_ONLY, status: 'MANAGER_APPROVED', requestType: 'MISSING_PUNCH', reason: 'old request', basedOnFingerprint: 'fp-1' };
+    const punch = { id: 'reg-3', userId: 'emp-1', date: DATE_ONLY, status: 'MANAGER_APPROVED', requestType: 'MISSING_PUNCH', policyCorrectionType: 'MISSING_PUNCH_OUT', reason: 'old request', basedOnFingerprint: 'fp-1' };
     const rig = correctionRig({ isHR: true, request: punch });
     (rig.service as any).prisma.$transaction = jest.fn((fn: any) => fn({ ...makeRawSqlDouble(() => [{ id: 'x' }]), attendanceRegularization: { findUnique: jest.fn().mockResolvedValue(punch), update: jest.fn() }, dailyAttendance: { findUnique: jest.fn().mockResolvedValue({ id: 'da-1', ...recoveredDay }) } }));
     await expect(rig.service.approveAsHr({ id: 'hr-1' }, 'reg-3')).rejects.toBeInstanceOf(ForbiddenException);
