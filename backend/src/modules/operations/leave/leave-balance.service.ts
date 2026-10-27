@@ -111,15 +111,11 @@ export class LeaveBalanceService {
   /**
    * Paid-leave allocation for one bucket (Phase 3).
    *
-   * The ONLY entitlement authority: the versioned LeavePolicy's
-   * casualLeaveAllocation (10) and sickLeaveAllocation (4). There is no role,
-   * intern or quota-table rule any more; a different entitlement must come
-   * from a different approved policy version. the retired Emergency allocation is
-   * deprecated and never read. Without a bucket, the total of both (14).
+   * The ONLY entitlement authority is LeavePolicy.totalPaidLeaves (14 by
+   * default). Historical type labels do not create separate entitlements.
    *
-   * `leaveType` is accepted for compatibility: EMERGENCY reads the Sick bucket
-   * (historical Emergency days draw Sick one-for-one), anything else maps
-   * through bucketOf. Throws LeavePolicyUnresolvedError when no policy applies.
+   * `leaveType` is accepted for compatibility; every paid historical type maps
+   * to the same ANNUAL pool. Throws LeavePolicyUnresolvedError when no policy applies.
    */
   async getYearlyAllocation(
     userId: string,
@@ -133,7 +129,7 @@ export class LeaveBalanceService {
     const bucket = leaveType ? bucketOf({ type: leaveType }) : null;
     if (leaveType && !bucket) return 0;
     if (bucket) return allocationFor(policy, bucket);
-    return allocationFor(policy, 'CASUAL') + allocationFor(policy, 'SICK');
+    return allocationFor(policy, 'ANNUAL');
   }
 
   /** The date whose governing policy answers for a leave year. */

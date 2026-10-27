@@ -81,7 +81,7 @@ const OUTCOME_PRESENTATION: Record<AttendanceOutcome, StatusPresentation> = {
     tint: '#FFF3F5',
     glyph: '✈',
   },
-  HOLIDAY: { label: 'Holiday', shortLabel: 'Holiday', color: '#B85C00', tint: '#FFFAEE', glyph: '★' },
+  HOLIDAY: { label: 'Holiday', shortLabel: 'Holiday', color: '#D9A514', tint: '#FFF9DC', glyph: '★' },
   WEEKLY_OFF: { label: 'Weekly off', shortLabel: 'Off', color: '#2767B0', tint: '#F1F6FD', glyph: '⊖' },
   EXEMPT: { label: 'Not applicable', shortLabel: 'N/A', color: '#5F7898', tint: '#F4F7FA', glyph: '⊖' },
   IN_PROGRESS: {

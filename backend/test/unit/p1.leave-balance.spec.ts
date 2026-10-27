@@ -29,7 +29,7 @@ const mockPrisma = {
   },
 };
 
-const POLICY = { id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4 };
+const POLICY = { id: 'lp-1', totalPaidLeaves: 14 };
 const mockPolicies = { resolvePolicyOn: jest.fn().mockResolvedValue(POLICY) };
 
 const mockSettings = {
@@ -84,12 +84,11 @@ describe('LeaveBalanceService', () => {
   });
 
   describe('getYearlyAllocation (Phase 3)', () => {
-    it('returns 10 Casual + 4 Sick from the versioned policy, whatever the role', async () => {
+    it('returns the 14-day Annual allocation from the versioned policy, whatever the role', async () => {
       for (const role of ['EMPLOYEE', 'CONTRACTOR', 'INTERN']) {
         mockPrisma.user.findUnique.mockResolvedValue({ id: 'user1', role: { name: role } });
         expect(await service.getYearlyAllocation('user1')).toBe(14);
-        expect(await service.getYearlyAllocation('user1', 2026, 'CASUAL' as any)).toBe(10);
-        expect(await service.getYearlyAllocation('user1', 2026, 'SICK' as any)).toBe(4);
+        expect(await service.getYearlyAllocation('user1', 2026, 'ANNUAL' as any)).toBe(14);
       }
       expect(mockSettings.getLeaveQuotas).not.toHaveBeenCalled();
     });
@@ -197,8 +196,8 @@ describe('LeaveBalanceService', () => {
       ]);
 
       await expect(
-        service.validateLeaveRequest('user1', new Date('2026-05-11'), new Date('2026-05-12'), false, 'SICK' as any),
-      ).resolves.toMatchObject({ insufficient: true, balance: 0.5 });
+        service.validateLeaveRequest('user1', new Date('2026-05-11'), new Date('2026-05-12'), false, 'ANNUAL' as any),
+      ).resolves.toMatchObject({ insufficient: false, balance: 10.5 });
     });
   });
 });

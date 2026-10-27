@@ -48,15 +48,14 @@ import {
  */
 
 const REQUEST_TYPES = [
-  'MISSING_PUNCH',
-  'LOCATION_EXCEPTION',
-  'FACE_EXCEPTION',
-  'LATE_CORRECTION',
-  'HALF_DAY_CORRECTION',
-  // Review-only: status / worked-hours / other concerns. Approval records the
-  // decision and never revises the official day (see approveAsHr).
-  'OTHER',
+  'MISSING_PUNCH_IN',
+  'MISSING_PUNCH_OUT',
+  'INCORRECT_PUNCH_IN',
+  'INCORRECT_PUNCH_OUT',
+  'INCORRECT_ATTENDANCE_STATUS',
 ] as const;
+
+const PUNCH_CORRECTION_TYPES = REQUEST_TYPES.filter((type) => type !== 'INCORRECT_ATTENDANCE_STATUS');
 
 export interface CreateRegularizationInput {
   businessDate: string;
@@ -176,6 +175,35 @@ export class RegularizationService {
 
     const date = this.tva.companyDateOnly(new Date(`${input.businessDate}T00:00:00.000Z`));
 
+    // Refined policy: missing/incorrect punches share one request per calendar
+    // month; attendance-status corrections have a separate three-per-month
+    // allowance. Rejected requests still count because the limit controls
+    // submissions, not approvals.
+    const [year, month] = input.businessDate.split('-').map(Number);
+    const monthStart = this.tva.companyDateOnly(new Date(Date.UTC(year, month - 1, 1)));
+    const monthEnd = this.tva.companyDateOnly(new Date(Date.UTC(year, month, 1)));
+    const statusCorrection = input.requestType === 'INCORRECT_ATTENDANCE_STATUS';
+    const usedThisMonth = await this.prisma.attendanceRegularization.count({
+      where: {
+        userId,
+        date: { gte: monthStart, lt: monthEnd },
+        OR: statusCorrection
+          ? [{ policyCorrectionType: 'INCORRECT_ATTENDANCE_STATUS' }, { policyCorrectionType: null, requestType: 'OTHER' }]
+          : [
+              { policyCorrectionType: { in: PUNCH_CORRECTION_TYPES as any } },
+              { policyCorrectionType: null, requestType: { in: ['MISSING_PUNCH', 'LATE_CORRECTION', 'HALF_DAY_CORRECTION'] as any } },
+            ],
+      },
+    });
+    const monthlyLimit = statusCorrection ? 3 : 1;
+    if (usedThisMonth >= monthlyLimit) {
+      throw new BadRequestException(
+        statusCorrection
+          ? 'The monthly limit of three attendance-status correction requests has been reached.'
+          : 'The monthly limit of one missing/incorrect punch correction request has been reached.',
+      );
+    }
+
     // One open request per day. A second one would give two approvers two
     // different answers for the same date.
     const open = await this.prisma.attendanceRegularization.findFirst({
@@ -192,11 +220,11 @@ export class RegularizationService {
     });
 
     // A recovered historical day is a verified, locked fact from before the attendance policy existed. The
-    // ordinary evaluator cannot re-judge those dates, so a punch correction could not be applied to it (and
-    // must never be allowed to overwrite it). Such a day can still be raised for HR to review as OTHER.
-    if (official?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT' && input.requestType !== 'OTHER') {
+    // ordinary evaluator cannot re-judge those dates, so only a status review
+    // may be raised; punches in preserved history are immutable.
+    if (official?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT' && input.requestType !== 'INCORRECT_ATTENDANCE_STATUS') {
       throw new BadRequestException(
-        'This day is a recovered historical record. Choose "Other attendance issue" so HR can review it; a punch correction cannot be applied to it.',
+        'This day is a recovered historical record. Choose "Incorrect Attendance Status" so HR can review it; a punch correction cannot be applied to it.',
       );
     }
 
@@ -204,7 +232,10 @@ export class RegularizationService {
       data: {
         userId,
         date,
-        requestType: input.requestType as any,
+        // Keep the historical enum stable; the exact refined-policy category
+        // is recorded in its additive provenance column.
+        requestType: (statusCorrection ? 'OTHER' : 'MISSING_PUNCH') as any,
+        policyCorrectionType: input.requestType,
         reason: input.reason.trim(),
         requestedPunchIn: input.requestedPunchIn ? new Date(input.requestedPunchIn) : null,
         requestedPunchOut: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
@@ -235,7 +266,7 @@ export class RegularizationService {
       metadata: { businessDate: input.businessDate, requestType: input.requestType },
     }).catch(() => {});
 
-    return created;
+    return { ...created, requestType: input.requestType };
   }
 
   /** The authenticated employee's own correction requests. */
@@ -253,7 +284,7 @@ export class RegularizationService {
     const byId = new Map(actors.map((actor) => [actor.id, actor]));
     return rows.map((row) => {
       const actorId = row.decidedById ?? row.hrApproverId ?? row.managerApproverId;
-      return { ...row, decidedBy: actorId ? byId.get(actorId) ?? { id: actorId, name: 'Deleted account' } : null };
+      return { ...row, requestType: row.policyCorrectionType ?? row.requestType, decidedBy: actorId ? byId.get(actorId) ?? { id: actorId, name: 'Deleted account' } : null };
     });
   }
 
@@ -262,14 +293,14 @@ export class RegularizationService {
     const row = await this.prisma.attendanceRegularization.findUnique({ where: { id }, include: { screenshots: { select: SCREENSHOT_METADATA } } });
     if (!row) throw new NotFoundException('Correction request not found');
 
-    if (row.userId === actor?.id) return row;
+    if (row.userId === actor?.id) return { ...row, requestType: row.policyCorrectionType ?? row.requestType };
     if (this.authority) {
       // Phase 3: the same eligibility that decides also governs who may read.
       const loaded = await this.authority.loadActor(actor?.id);
-      if (await this.authority.eligibility(loaded, row.userId)) return row;
+      if (await this.authority.eligibility(loaded, row.userId)) return { ...row, requestType: row.policyCorrectionType ?? row.requestType };
     } else {
-      if (this.accessPolicy.isHrOrAdmin(actor)) return row;
-      if (await this.hierarchy.isApproverFor(actor?.id, row.userId)) return row;
+      if (this.accessPolicy.isHrOrAdmin(actor)) return { ...row, requestType: row.policyCorrectionType ?? row.requestType };
+      if (await this.hierarchy.isApproverFor(actor?.id, row.userId)) return { ...row, requestType: row.policyCorrectionType ?? row.requestType };
     }
 
     // Same response as a genuine miss: revealing that someone else's request
@@ -591,7 +622,7 @@ export class RegularizationService {
       // A review-only request (OTHER) rewrites nothing, so there is no newer
       // official result it could overwrite.
       if (
-        row.requestType !== 'OTHER' &&
+        row.requestType !== 'OTHER' && row.policyCorrectionType !== 'INCORRECT_ATTENDANCE_STATUS' &&
         row.basedOnFingerprint &&
         current?.sourceFingerprint &&
         row.basedOnFingerprint !== current.sourceFingerprint
@@ -602,7 +633,7 @@ export class RegularizationService {
       const businessDate = this.tva.companyBusinessDate(row.date);
 
       // Never let a punch correction rewrite a recovered historical day (see create()).
-      if (row.requestType !== 'OTHER' && current?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT') {
+      if (row.requestType !== 'OTHER' && row.policyCorrectionType !== 'INCORRECT_ATTENDANCE_STATUS' && current?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT') {
         throw new ForbiddenException(
           'This day is a recovered historical record; a punch correction cannot be applied to it. Reject this request and raise it as Other for review.',
         );
@@ -623,7 +654,7 @@ export class RegularizationService {
       // touched. Whatever it concerns is then fixed through the ordinary,
       // audited routes (a punch correction or a manual recovery).
       const revision =
-        row.requestType === 'OTHER'
+        row.requestType === 'OTHER' || row.policyCorrectionType === 'INCORRECT_ATTENDANCE_STATUS'
           ? null
           : await this.evaluator.reviseForApprovedCorrection(tx, row.userId, businessDate, id);
 

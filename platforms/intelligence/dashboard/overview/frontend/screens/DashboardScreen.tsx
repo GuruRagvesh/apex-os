@@ -50,11 +50,11 @@ function HeroGridMesh() {
 }
 
 function sceneForHour(hour: number): HeroScene {
-  if (hour >= 4 && hour < 8) return 'morning';
-  if (hour >= 8 && hour < 12) return 'late-morning';
+  if (hour >= 7 && hour < 10) return 'morning';
+  if (hour >= 10 && hour < 12) return 'late-morning';
   if (hour >= 12 && hour < 16) return 'afternoon';
-  if (hour >= 16 && hour < 20) return 'evening';
-  if (hour >= 20) return 'sunset';
+  if (hour >= 16 && hour < 18) return 'evening';
+  if (hour >= 18 && hour < 19) return 'sunset';
   return 'night';
 }
 
@@ -208,8 +208,6 @@ export default function HomePage({ personalPanel, showTeamInsights = false }: { 
       </div>}
       {showTeamInsights && teamScopeLoading && isLeadOrAbove && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading team filters…</div>}
       {showTeamInsights && teamScopeError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Team filters could not be loaded. <button type="button" onClick={() => retryTeamScope()} className="underline">Retry</button></div>}
-
-      {user?.id && canViewPersonalHighlights && !isContributor && <PersonalHighlightsSection presentation="launcher" />}
 
       {/* ── MY CALENDAR: attendance / productivity ── */}
       {personalPanel && (

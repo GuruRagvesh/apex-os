@@ -17,7 +17,7 @@ import type { DailyAttendanceStatus, HalfDaySession, LeaveType } from '@prisma/c
  */
 
 /** Bumped whenever the evaluation rules change, so old rows stay explainable. */
-export const EVALUATOR_VERSION = 1;
+export const EVALUATOR_VERSION = 2;
 
 export type LeaveDayKind =
   | 'NONE'
@@ -97,6 +97,7 @@ export type AttendanceExceptionFlag =
   | 'UNREPORTED_ABSENCE_3_DAYS'
   | 'LEAVE_SETTLEMENT_PENDING';
 
+
 /**
  * Flags that explain a result without demanding a human look at it again.
  *
@@ -121,6 +122,9 @@ export type AttendanceCalculationReason =
   | 'NO_EVIDENCE_ON_WORKING_DAY'
   | 'INCOMPLETE_PUNCH_PAIR'
   | 'POLICY_DECISION_DEFERRED'
+  | 'REFINED_FULL_DAY'
+  | 'REFINED_HALF_DAY'
+  | 'REFINED_SHORT_DAY'
   | 'CORRECTED_WORKDAY'
   | 'AMBIGUOUS_LEAVE'
   // Phase 3

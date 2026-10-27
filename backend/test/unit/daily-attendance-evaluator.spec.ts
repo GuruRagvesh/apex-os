@@ -212,7 +212,7 @@ describe('AE-1 working days', () => {
     expect(r.official).toBe(true);
     expect(r.status).toBe('PRESENT');
     expect(r.evaluationState).toBe('CALCULATED');
-    expect(r.calculationReason).toBe('COMPLETE_WORKDAY');
+    expect(r.calculationReason).toBe('REFINED_FULL_DAY');
     expect(r.exceptionFlags).toEqual([]);
     expect(r.requiresReview).toBe(false);
   });
@@ -269,7 +269,7 @@ describe('AE-1 working days', () => {
     const r = await service.evaluate('emp-1', DATE);
 
     expect(r.status).toBe('PRESENT');
-    expect(r.calculationReason).toBe('SPECIAL_WORKING_DAY_WORKED');
+    expect(r.calculationReason).toBe('REFINED_FULL_DAY');
     expect(r.provenance.businessDayOverrideId).toBe('ov-1');
   });
 
@@ -467,13 +467,14 @@ describe('AE-1 leave integration', () => {
     expect(r.evaluationState).toBe('NEEDS_REVIEW');
   });
 
-  it('10e. never guesses HALF_DAY from short hours when automatic half-day is off', async () => {
+  it('10e. classifies four hours as a half day under the refined policy', async () => {
     const { service } = rig({
       evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('14:00'))],
     });
     const r = await service.evaluate('emp-1', DATE);
-    expect(r.status).not.toBe('HALF_DAY');
-    expect(r.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
+    expect(r.status).toBe('HALF_DAY');
+    expect(r.exceptionFlags).toEqual([]);
+    expect(r.calculationReason).toBe('REFINED_HALF_DAY');
   });
 
   it('10f. an approved half day without a validated session cannot bypass punch review', async () => {
@@ -626,7 +627,7 @@ describe('AE-1 location and photo exceptions', () => {
 });
 
 describe('AE-1 undecided policy rules', () => {
-  it('21. a punch after the grace window defers to review, not a penalty', async () => {
+  it('21. a late punch with a complete workday remains a refined full day', async () => {
     const { service } = rig({
       evidence: [punch('PUNCH_IN', ist('11:15')), punch('PUNCH_OUT', ist('20:00'))],
       sessions: [COMPLETE_SESSION],
@@ -635,10 +636,10 @@ describe('AE-1 undecided policy rules', () => {
     const r = await service.evaluate('emp-1', DATE);
 
     expect(r.lateMinutes).toBe(45); // 11:15 against a 10:30 cutoff
-    expect(r.exceptionFlags).toContain('LATE_BEYOND_PUNCH_WINDOW');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
-    expect(r.calculationReason).toBe('POLICY_DECISION_DEFERRED');
-    expect(['LATE', 'LATE_EXEMPTED']).toContain(r.status);
+    expect(r.exceptionFlags).toEqual([]);
+    expect(r.evaluationState).toBe('CALCULATED');
+    expect(r.calculationReason).toBe('REFINED_FULL_DAY');
+    expect(r.status).toBe('PRESENT');
     expect(r.leaveDeducted).toBe(0);
     expect(r.lwpDeducted).toBe(0);
   });
@@ -656,7 +657,7 @@ describe('AE-1 undecided policy rules', () => {
     expect(r.status).toBe('PRESENT');
   });
 
-  it('23. a short PRESENCE SPAN with REQUIRE_REVIEW defers to review', async () => {
+  it('23. 270 worked minutes is a refined half day', async () => {
     const { service } = rig({
       evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
       sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
@@ -664,16 +665,14 @@ describe('AE-1 undecided policy rules', () => {
 
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
-    expect(r.status).not.toBe('HALF_DAY');
+    expect(r.exceptionFlags).toEqual([]);
+    expect(r.evaluationState).toBe('CALCULATED');
+    expect(r.status).toBe('HALF_DAY');
     expect(r.status).not.toBe('ABSENT');
     expect(r.leaveDeducted).toBe(0);
   });
 
-  it('24. automaticHalfDayEnabled=false never manufactures a HALF_DAY', async () => {
-    // Even with management explicitly configuring MARK_HALF_DAY, the automatic
-    // half-day switch is off, so the day must go to review instead.
+  it('24. refined half-day classification is independent of the legacy switch', async () => {
     const { service } = rig({
       ctx: context({
         attendancePolicy: { insufficientHoursAction: 'MARK_HALF_DAY', automaticHalfDayEnabled: false },
@@ -684,8 +683,8 @@ describe('AE-1 undecided policy rules', () => {
 
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.status).not.toBe('HALF_DAY');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    expect(r.status).toBe('HALF_DAY');
+    expect(r.evaluationState).toBe('CALCULATED');
   });
 
   it('25. with automatic half-day enabled the configured action is honoured', async () => {
@@ -712,8 +711,9 @@ describe('AE-1 undecided policy rules', () => {
 
     const r = await service.evaluate('emp-1', DATE);
 
-    // Recognised, but writing to a leave balance is payroll territory.
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    // Attendance classification never spends the annual-leave balance.
+    expect(r.evaluationState).toBe('CALCULATED');
+    expect(r.status).toBe('HALF_DAY');
     expect(r.leaveDeducted).toBe(0);
     expect(prisma.leaveRequest.update).not.toHaveBeenCalled();
   });
@@ -763,16 +763,16 @@ describe('staging 09:30-10:30 punch-in window and employee-relative span', () =>
     expect(result.evaluationState).toBe('CALCULATED');
   });
 
-  it('10:31 Punch In routes only to REQUIRE_REVIEW without an automatic penalty', async () => {
+  it('10:31 Punch In with 480 worked minutes is a refined short day', async () => {
     const result = await evaluateSpan('10:31', '19:31');
 
     expect(result.lateMinutes).toBe(1);
-    expect(result.exceptionFlags).toContain('LATE_BEYOND_PUNCH_WINDOW');
+    expect(result.exceptionFlags).toEqual([]);
     expect(result.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
-    expect(result.evaluationState).toBe('NEEDS_REVIEW');
-    expect(result.calculationReason).toBe('POLICY_DECISION_DEFERRED');
+    expect(result.evaluationState).toBe('CALCULATED');
+    expect(result.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(result.leaveDeducted).toBe(0);
-    expect(result.lwpDeducted).toBe(0);
+    expect(result.lwpDeducted).toBeCloseTo(1 / 3);
     expect(result.status).not.toBe('HALF_DAY');
     expect(result.status).not.toBe('ABSENT');
   });
@@ -781,11 +781,11 @@ describe('staging 09:30-10:30 punch-in window and employee-relative span', () =>
     const result = await evaluateSpan('10:30:01', '19:30:01');
 
     expect(result.lateMinutes).toBe(1);
-    expect(result.exceptionFlags).toContain('LATE_BEYOND_PUNCH_WINDOW');
-    expect(result.evaluationState).toBe('NEEDS_REVIEW');
-    expect(result.calculationReason).toBe('POLICY_DECISION_DEFERRED');
+    expect(result.exceptionFlags).toEqual([]);
+    expect(result.evaluationState).toBe('CALCULATED');
+    expect(result.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(result.leaveDeducted).toBe(0);
-    expect(result.lwpDeducted).toBe(0);
+    expect(result.lwpDeducted).toBeCloseTo(1 / 3);
   });
 
   it('10:00 to 19:00 satisfies the 540-minute presence span', async () => {
@@ -795,14 +795,14 @@ describe('staging 09:30-10:30 punch-in window and employee-relative span', () =>
     expect(result.evaluationState).toBe('CALCULATED');
   });
 
-  it('10:00 to 18:30 does not falsely satisfy the 540-minute presence span', async () => {
+  it('10:00 to 18:30 with 480 worked minutes is a refined short day', async () => {
     const result = await evaluateSpan('10:00', '18:30');
 
-    expect(result.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
-    expect(result.evaluationState).toBe('NEEDS_REVIEW');
+    expect(result.exceptionFlags).toEqual([]);
+    expect(result.evaluationState).toBe('CALCULATED');
     expect(result.status).not.toBe('HALF_DAY');
     expect(result.leaveDeducted).toBe(0);
-    expect(result.lwpDeducted).toBe(0);
+    expect(result.lwpDeducted).toBeCloseTo(1 / 3);
   });
 });
 
@@ -921,7 +921,7 @@ describe('AE-1 persistence, provenance and safety', () => {
 
     expect(out.result.provenance).toMatchObject({
       resolverVersion: 1,
-      evaluatorVersion: 1,
+      evaluatorVersion: 2,
       employeeProfileId: 'prof-1',
       attendancePolicyId: 'ap-1',
       attendancePolicyVersion: 3,
@@ -938,9 +938,9 @@ describe('AE-1 persistence, provenance and safety', () => {
     expect(row.attendancePolicyVersion).toBe(3);
     expect(row.shiftPolicyId).toBe('shift-1');
     expect(row.workSessionIds).toEqual(['ws-1']);
-    expect(row.evaluatorVersion).toBe(1);
+    expect(row.evaluatorVersion).toBe(2);
     expect(row.sourceFingerprint).toEqual(expect.any(String));
-    expect(row.calculationReason).toBe('COMPLETE_WORKDAY');
+    expect(row.calculationReason).toBe('REFINED_FULL_DAY');
   });
 
   it('34. punch evidence is never updated or deleted', async () => {
@@ -1207,7 +1207,8 @@ describe('AE-1 canonical figures', () => {
 
     expect(r.presenceMinutes).toBe(300);
     expect(r.requiredMinutes).toBe(540);
-    expect(r.exceptionFlags).toContain('INSUFFICIENT_PRESENCE_SPAN');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    expect(r.exceptionFlags).toEqual([]);
+    expect(r.status).toBe('HALF_DAY');
+    expect(r.evaluationState).toBe('CALCULATED');
   });
 });

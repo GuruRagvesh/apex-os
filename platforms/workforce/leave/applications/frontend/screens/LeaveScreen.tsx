@@ -16,9 +16,9 @@ import { RemediationDialog, displayLeaveSetupStatus, useRemediation } from '@ape
 import { createRemediationActionRunner } from '@apex/shared-remediation/api';
 import { shouldRetryTransientQuery, transientQueryRetryDelay } from '@apex/shared-auth';
 
-// Phase 3 new requests use the two approved paid buckets. Emergency is a
-// submission mode funded from either one, not a third entitlement bucket.
-const LEAVE_TYPES = ['CASUAL', 'SICK', 'COMP_OFF', 'UNPAID'];
+// Refined policy: one annual paid balance. Emergency is a submission mode,
+// never a separate entitlement category.
+const LEAVE_TYPES = ['ANNUAL', 'COMP_OFF', 'UNPAID'];
 
 /**
  * Types whose entitlement is NOT the generic leave balance shown above the form.
@@ -31,7 +31,7 @@ const LEAVE_TYPES = ['CASUAL', 'SICK', 'COMP_OFF', 'UNPAID'];
  * per-type balance either way; this only decides whether the button is
  * pre-emptively disabled.
  */
-const SEPARATELY_FUNDED_TYPES = ['CASUAL', 'SICK', 'COMP_OFF', 'UNPAID'];
+const SEPARATELY_FUNDED_TYPES = ['ANNUAL', 'COMP_OFF', 'UNPAID'];
 const retryLeaveRead = (failureCount: number, error: unknown) =>
   failureCount < 2 && shouldRetryTransientQuery(failureCount, error);
 
@@ -170,7 +170,7 @@ export default function LeavePage() {
       setShowNew(true);
     }
   }, [queryString]);
-  const [form, setForm] = useState({ type: 'CASUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD' as 'STANDARD' | 'EMERGENCY', fundingBucket: 'CASUAL' as 'CASUAL' | 'SICK' });
+  const [form, setForm] = useState({ type: 'ANNUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD' as 'STANDARD' | 'EMERGENCY' });
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [balances, setBalances] = useState<Record<string, any>>({});
@@ -194,7 +194,9 @@ export default function LeavePage() {
     retry: retryLeaveRead,
     retryDelay: transientQueryRetryDelay,
   });
-  const availableCompOff = Array.isArray(compOffCredits) ? compOffCredits.length : null;
+  const availableCompOff = Array.isArray(compOffCredits)
+    ? compOffCredits.reduce((sum, credit) => sum + Number(credit.remainingMinutes ?? credit.creditMinutes ?? 540), 0) / 540
+    : null;
 
   // Apply leave form extras
   const [isHalfDay, setIsHalfDay] = useState(false);
@@ -330,7 +332,7 @@ export default function LeavePage() {
       qc.invalidateQueries({ queryKey: ['leave', 'stats'] });
       qc.invalidateQueries({ queryKey: ['my-leave-balance'] });
       setShowNew(false);
-      setForm({ type: 'CASUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD', fundingBucket: 'CASUAL' });
+      setForm({ type: 'ANNUAL', startDate: '', endDate: '', reason: '', submissionMode: 'STANDARD' });
     },
     onError: (err: any) => {
       if (remediation.openFrom(err)) return;
@@ -588,7 +590,7 @@ export default function LeavePage() {
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-xs font-semibold text-indigo-650 bg-indigo-50 dark:bg-indigo-950/30 dark:text-indigo-400 px-2 py-0.5 rounded">{leave.type}</span>
-                        {leave.submissionMode === 'EMERGENCY' && <span className="text-xs font-semibold rounded bg-red-50 px-2 py-0.5 text-red-700 dark:bg-red-900/20 dark:text-red-300">Emergency · {leave.fundingBucket ?? leave.type}</span>}
+                        {leave.submissionMode === 'EMERGENCY' && <span className="text-xs font-semibold rounded bg-red-50 px-2 py-0.5 text-red-700 dark:bg-red-900/20 dark:text-red-300">Emergency · Annual leave</span>}
                         {leave.isLateSubmission === true && <span className="text-xs font-semibold rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">Late submission · review required</span>}
                         {leave.setupStatus === 'POLICY_SETUP_PENDING' && <span className="text-xs font-semibold rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">Policy setup pending</span>}
                         <span style={{ color: 'var(--border-primary)' }}>·</span>
@@ -794,10 +796,9 @@ export default function LeavePage() {
                 </select>
 
                 <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--border-secondary)] p-3">
-                  <input type="checkbox" name="emergencySubmission" checked={form.submissionMode === 'EMERGENCY'} onChange={(e) => setForm((f) => ({ ...f, submissionMode: e.target.checked ? 'EMERGENCY' : 'STANDARD', type: e.target.checked && !['CASUAL', 'SICK'].includes(f.type) ? 'CASUAL' : f.type, fundingBucket: ['CASUAL', 'SICK'].includes(f.type) ? f.type as 'CASUAL' | 'SICK' : f.fundingBucket }))} className="mt-0.5 rounded" />
+                  <input type="checkbox" name="emergencySubmission" checked={form.submissionMode === 'EMERGENCY'} onChange={(e) => setForm((f) => ({ ...f, submissionMode: e.target.checked ? 'EMERGENCY' : 'STANDARD', type: e.target.checked ? 'ANNUAL' : f.type }))} className="mt-0.5 rounded" />
                   <span><strong className="block text-sm" style={{ color: 'var(--text-primary)' }}>Emergency submission</strong><span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Same-day submission is allowed and provisionally protected. TL/Manager approval and HR visibility are still recorded.</span></span>
                 </label>
-                {form.submissionMode === 'EMERGENCY' && <div className="mt-3"><label htmlFor="leave-funding-bucket" className="apex-label">Paid leave bucket</label><select id="leave-funding-bucket" name="fundingBucket" value={form.fundingBucket} onChange={(e) => setForm((f) => ({ ...f, fundingBucket: e.target.value as 'CASUAL' | 'SICK', type: e.target.value }))} className="apex-select w-full"><option value="CASUAL">Casual leave (10 days)</option><option value="SICK">Sick leave (4 days)</option></select></div>}
 
                 {form.type === 'COMP_OFF' && (
                   <div

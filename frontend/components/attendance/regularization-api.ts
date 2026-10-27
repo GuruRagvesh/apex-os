@@ -8,6 +8,12 @@ import { api, unwrap as r } from '@apex/shared-auth';
  */
 
 export type RegularizationRequestType =
+  | 'MISSING_PUNCH_IN'
+  | 'MISSING_PUNCH_OUT'
+  | 'INCORRECT_PUNCH_IN'
+  | 'INCORRECT_PUNCH_OUT'
+  | 'INCORRECT_ATTENDANCE_STATUS'
+  // Legacy values remain readable on historical requests.
   | 'MISSING_PUNCH'
   | 'LOCATION_EXCEPTION'
   | 'FACE_EXCEPTION'
@@ -21,9 +27,7 @@ export type AttendanceCorrectionConcern =
   | 'MISSING_PUNCH_OUT'
   | 'WRONG_PUNCH_IN'
   | 'WRONG_PUNCH_OUT'
-  | 'INCORRECT_ATTENDANCE_STATUS'
-  | 'INCORRECT_WORKED_HOURS'
-  | 'OTHER';
+  | 'INCORRECT_ATTENDANCE_STATUS';
 
 export type RegularizationStatus =
   | 'PENDING'
@@ -60,14 +64,13 @@ export async function createRegularization(
   screenshots: File[] = [],
 ): Promise<Regularization> {
   const concern = body.concern;
-  const requestType = body.requestType ?? (
-    concern === 'MISSING_PUNCH_IN'
-    || concern === 'MISSING_PUNCH_OUT'
-    || concern === 'WRONG_PUNCH_IN'
-    || concern === 'WRONG_PUNCH_OUT'
-      ? 'MISSING_PUNCH'
-      : 'OTHER'
-  );
+  const requestType = body.requestType ?? ({
+    MISSING_PUNCH_IN: 'MISSING_PUNCH_IN',
+    MISSING_PUNCH_OUT: 'MISSING_PUNCH_OUT',
+    WRONG_PUNCH_IN: 'INCORRECT_PUNCH_IN',
+    WRONG_PUNCH_OUT: 'INCORRECT_PUNCH_OUT',
+    INCORRECT_ATTENDANCE_STATUS: 'INCORRECT_ATTENDANCE_STATUS',
+  } as const)[concern!];
   const concernLabel = concern?.toLowerCase().replaceAll('_', ' ');
   const normalized = {
     businessDate: body.businessDate,

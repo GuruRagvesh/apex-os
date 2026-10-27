@@ -513,8 +513,8 @@ describe('API Smoke Tests', () => {
         .post('/api/leave')
         .set('Authorization', empToken)
         .send({
-          // Phase 3: new requests use Casual/Sick (ANNUAL is a retired type).
-          type: 'CASUAL',
+          // Refined policy: new paid requests draw from the single Annual pool.
+          type: 'ANNUAL',
           startDate: leaveDay,
           endDate: leaveDay,
           reason: 'Test requested leave event',

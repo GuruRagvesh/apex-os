@@ -638,7 +638,7 @@ export default function UserProfileScreen() {
               </div>
               <div className={sectionCls}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <Field label="Employee ID *" field="employeeId" readOnly={!canEditAll} />
+                  <Field label="Employee ID" field="employeeId" readOnly />
                   <div><label className={labelCls}>Company</label><div className={readCls}>TechnoEdge Learning Solutions</div></div>
                   <div><label className={labelCls}>Department *</label><div className={readCls}>{profile?.department?.name || 'Not set'}</div></div>
                   <Field label="Designation *" field="designation" readOnly={!canEditAll} />

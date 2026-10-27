@@ -169,7 +169,7 @@ describe('LeaveService — approval rules', () => {
     }));
 
     await service.create({
-      type: 'CASUAL',
+      type: 'ANNUAL',
       startDate: '2026-08-24',
       endDate: '2026-08-24',
       isHalfDay: true,
@@ -178,19 +178,19 @@ describe('LeaveService — approval rules', () => {
 
     expect(mockPrisma.leaveRequest.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
-        type: 'CASUAL',
+        type: 'ANNUAL',
         halfDaySession: 'FIRST_HALF',
         halfDayType: 'FIRST_HALF',
       }),
     }));
     expect(mockLeaveBalance.validateLeaveRequest).toHaveBeenCalledWith(
-      'emp1', expect.any(Date), expect.any(Date), true, 'CASUAL', 'CASUAL',
+      'emp1', expect.any(Date), expect.any(Date), true, 'ANNUAL', null,
     );
   });
 
   it('refuses a half-day request without FIRST_HALF or SECOND_HALF', async () => {
     await expect(service.create({
-      type: 'CASUAL',
+      type: 'ANNUAL',
       startDate: '2026-08-24',
       endDate: '2026-08-24',
       isHalfDay: true,

@@ -701,12 +701,11 @@ describe('LH-2 migration invents no history', () => {
     expect(assignsTo('hrApprovedAt')).toBe(false);
   });
 
-  // Phase 3: two paid buckets, 10 Casual + 4 Sick. Historical EMERGENCY rows
-  // draw the Sick bucket one-for-one; nothing reads a third Emergency pool.
+  // Refined policy: every historical paid type settles from the Annual pool.
   it.each([
-    ['CASUAL', 'CASUAL', 10],
-    ['SICK', 'SICK', 4],
-    ['EMERGENCY', 'SICK', 4],
+    ['CASUAL', 'ANNUAL', 14],
+    ['SICK', 'ANNUAL', 14],
+    ['EMERGENCY', 'ANNUAL', 14],
   ])('16. %s settlement reads only its %s bucket', async (type, bucket, allocation) => {
     const { service, balance } = settlementRig({
       leave: { ...LEAVE, type },
@@ -721,13 +720,13 @@ describe('LH-2 migration invents no history', () => {
     const { service, balance, tx } = settlementRig({
       leave: { ...LEAVE, type: 'CASUAL' },
       employeeRole: 'INTERN',
-      allocation: 10,
+      allocation: 14,
       requestedDays: 2,
     });
 
     const result = await service.settleAndApprove({ leaveId: 'lv-1', hrApproverId: 'hr-1' });
 
-    expect(balance.getYearlyAllocation).toHaveBeenCalledWith('emp-1', 2026, 'CASUAL', LEAVE.startDate);
+    expect(balance.getYearlyAllocation).toHaveBeenCalledWith('emp-1', 2026, 'ANNUAL', LEAVE.startDate);
     expect(result.settlement).toMatchObject({ fundingOutcome: 'PAID', paidDays: 2, unpaidDays: 0 });
     const range = tx.leaveRequest.findMany.mock.calls[0][0].where.startDate;
     // The April-March leave year, not a one-month intern window.

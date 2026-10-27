@@ -1,38 +1,29 @@
 /**
  * Leave rules (Phase 3), as pure functions.
  *
- * Paid leave is two independent annual buckets from the versioned LeavePolicy:
- * 10 Casual and 4 Sick, 14 in total. Emergency is a SUBMISSION MODE funded from
- * one of those two buckets, never a third bucket, so no reader can arrive at
- * 18. Comp Off and Unpaid are separate and never draw on either bucket.
+ * Paid leave is one annual pool. Historical Casual, Sick, Emergency, Annual and
+ * Other rows all consume that same pool without rewriting their stored type.
+ * Comp Off and Unpaid remain separate and never draw on annual leave.
  */
 
-export type PaidBucket = 'CASUAL' | 'SICK';
-export const PAID_BUCKETS: readonly PaidBucket[] = ['CASUAL', 'SICK'];
+export type PaidBucket = 'ANNUAL';
+export const PAID_BUCKETS: readonly PaidBucket[] = ['ANNUAL'];
 
 /** Leave types a NEW request may carry. Historical types stay readable. */
-export const NEW_REQUEST_TYPES = ['CASUAL', 'SICK', 'COMP_OFF', 'UNPAID'] as const;
+export const NEW_REQUEST_TYPES = ['ANNUAL', 'COMP_OFF', 'UNPAID'] as const;
 
 /**
- * Which paid bucket a leave row draws from.
- *
- * An explicit fundingBucket wins. Otherwise by type: CASUAL draws Casual and
- * SICK draws Sick. Historical types are mapped without rewriting them:
- * EMERGENCY (the retired 4-day pool) draws Sick one-for-one, so an employee who
- * used their old Emergency days cannot receive another 4 Sick days; ANNUAL and
- * OTHER (the old pooled entitlement) draw Casual. COMP_OFF and UNPAID draw
- * nothing.
+ * Which paid pool a leave row draws from. fundingBucket is intentionally
+ * ignored: it remains only as historical evidence of the superseded split.
  */
 export function bucketOf(row: { type: string; fundingBucket?: string | null }): PaidBucket | null {
-  if (row.fundingBucket === 'CASUAL' || row.fundingBucket === 'SICK') return row.fundingBucket;
   switch (row.type) {
     case 'CASUAL':
-    case 'ANNUAL':
-    case 'OTHER':
-      return 'CASUAL';
     case 'SICK':
     case 'EMERGENCY':
-      return 'SICK';
+    case 'ANNUAL':
+    case 'OTHER':
+      return 'ANNUAL';
     default:
       return null;
   }
@@ -40,10 +31,10 @@ export function bucketOf(row: { type: string; fundingBucket?: string | null }): 
 
 /** The allocation for one bucket from a resolved LeavePolicy row. */
 export function allocationFor(
-  policy: { casualLeaveAllocation: number; sickLeaveAllocation: number },
-  bucket: PaidBucket,
+  policy: { totalPaidLeaves: number },
+  _bucket: PaidBucket,
 ): number {
-  return bucket === 'CASUAL' ? policy.casualLeaveAllocation : policy.sickLeaveAllocation;
+  return policy.totalPaidLeaves;
 }
 
 function addDays(date: string, days: number): string {

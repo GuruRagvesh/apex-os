@@ -75,6 +75,17 @@ export type TeamInsightPayload = {
       isPresent: boolean;
       holidayName: string | null;
       isWorkingDay: boolean;
+      punchInAt: string | null;
+      punchOutAt: string | null;
+      workingMinutes: number | null;
+      productiveMinutes: number;
+      meetingMinutes: number;
+      meetingCount: number;
+      breakCount: number;
+      breakMinutes: number;
+      lateMinutes: number;
+      currentStatus: string | null;
+      leaveType: string | null;
     }>;
     averages: { workingMinutes: number | null; productiveMinutes: number | null; breakMinutes: number | null; breakCount: number | null; meetingMinutes: number | null; meetingCount: number | null };
   };

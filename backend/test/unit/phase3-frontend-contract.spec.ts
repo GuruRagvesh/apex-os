@@ -53,9 +53,9 @@ describe('Phase 3 connected frontend contract', () => {
     expect(legacyRoute).toContain("redirect(`/attendance/admin?");
   });
 
-  it('personal balances show Casual and Sick only, never an Emergency pool', () => {
+  it('personal balances show the single Annual pool, never a separate Emergency pool', () => {
     const api = source('frontend/components/attendance/leave-balance-api.ts');
-    expect(api).toContain("PERSONAL_LEAVE_TYPES = ['CASUAL', 'SICK']");
+    expect(api).toContain("PERSONAL_LEAVE_TYPES = ['ANNUAL']");
     for (const file of ['frontend/components/attendance/LeaveBalanceCard.tsx', 'frontend/components/attendance-v2/AttendanceAccountOverview.tsx', 'frontend/components/attendance-v2/home/HomeCalendarPanel.tsx']) {
       const text = source(file);
       expect(text).not.toContain("getMyLeaveBalance('EMERGENCY'");
@@ -64,12 +64,11 @@ describe('Phase 3 connected frontend contract', () => {
     }
   });
 
-  it('offers emergency submission as a mode funded only from Casual or Sick', () => {
+  it('offers emergency submission as a mode against Annual Leave', () => {
     const leave = source('platforms/workforce/leave/applications/frontend/screens/LeaveScreen.tsx');
     expect(leave).toContain('Emergency submission');
-    expect(leave).toContain("fundingBucket");
-    expect(leave).toContain("value=\"CASUAL\"");
-    expect(leave).toContain("value=\"SICK\"");
+    expect(leave).toContain("submissionMode");
+    expect(leave).toContain("'ANNUAL'");
     expect(leave).not.toContain("value=\"EMERGENCY\"");
   });
 });

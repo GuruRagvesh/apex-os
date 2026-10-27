@@ -264,27 +264,21 @@ export class LeaveService {
       throw new ForbiddenException('Invalid leave type');
     }
 
-    // Phase 3: new requests use the 10 Casual + 4 Sick model. EMERGENCY is a
-    // submission mode, never a type, and must name its funding bucket.
+    // Refined policy: every paid request draws from one 14-day annual balance.
+    // Emergency remains a timing/submission mode, never a separate entitlement.
     let fundingBucket: PaidBucket | null = null;
     if (submissionMode === 'EMERGENCY') {
-      const requested = rest.fundingBucket ?? (leaveType === LeaveType.CASUAL || leaveType === LeaveType.SICK ? leaveType : null);
-      if (requested !== 'CASUAL' && requested !== 'SICK') {
-        throw new BadRequestException({
-          message: 'Emergency Leave must be funded from Casual or Sick leave. Choose one.',
-          code: 'EMERGENCY_FUNDING_REQUIRED',
-        });
-      }
-      fundingBucket = requested;
-      leaveType = requested as LeaveType;
+      leaveType = LeaveType.ANNUAL;
     } else {
       if (!(NEW_REQUEST_TYPES as readonly string[]).includes(leaveType)) {
         throw new BadRequestException({
-          message: 'New leave requests are Casual, Sick, Comp Off or Unpaid. Emergency is chosen as a submission mode.',
+          message: 'New leave requests are Annual Leave, Comp Off or Unpaid. Emergency is chosen as a submission mode.',
           code: 'LEAVE_TYPE_RETIRED',
         });
       }
-      if (leaveType === LeaveType.CASUAL || leaveType === LeaveType.SICK) fundingBucket = leaveType;
+      // fundingBucket is a legacy CASUAL/SICK database enum. New annual-pool
+      // requests deliberately leave it null; bucketOf() derives ANNUAL from
+      // the request type while old rows remain readable.
     }
 
     let halfDaySession: HalfDaySession | null = null;
@@ -360,7 +354,7 @@ export class LeaveService {
           approvalStage: 'MANAGER_REVIEW',
           // Phase 3 facts, always written explicitly for new rows.
           submissionMode,
-          fundingBucket,
+          fundingBucket: null,
           isLateSubmission: isLate,
           setupStatus: setupPending ? 'POLICY_SETUP_PENDING' : 'RESOLVED',
           ...(emergency
@@ -394,7 +388,7 @@ export class LeaveService {
     // (department managers) applies only when routing is unavailable.
     const startStr = start.toISOString().split('T')[0];
     const endStr = end.toISOString().split('T')[0];
-    const label = submissionMode === 'EMERGENCY' ? `Emergency (${fundingBucket === 'SICK' ? 'Sick' : 'Casual'})` : leave.type;
+    const label = submissionMode === 'EMERGENCY' ? 'Emergency Annual Leave' : leave.type;
     const flags = [isLate ? 'late submission, review required' : null, setupPending ? 'leave setup pending' : null, insufficient ? 'balance may be insufficient' : null].filter(Boolean);
     const message = `${leave.user.name} requested ${label} leave (${startStr} to ${endStr}).${flags.length ? ` Note: ${flags.join('; ')}.` : ''}`;
     try {
@@ -856,6 +850,9 @@ export class LeaveService {
    * reason (decision 7). The current approver or HR/Admin, while pending.
    */
   async changeFunding(id: string, actor: any, body: { fundingBucket?: string; reason?: string }) {
+    throw new BadRequestException('Casual/Sick funding buckets are retired. Paid leave uses the single annual balance.');
+    /* Legacy implementation retained below temporarily for historical audit
+       compatibility; it is unreachable for new requests.
     const bucket = body?.fundingBucket;
     if (bucket !== 'CASUAL' && bucket !== 'SICK') throw new BadRequestException('fundingBucket must be CASUAL or SICK');
     const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
@@ -886,7 +883,7 @@ export class LeaveService {
       toState: bucket,
       metadata: { reason: reason.slice(0, 200) },
     }).catch(() => {});
-    return updated;
+    return updated; */
   }
 
   // ───────────────────────────────────────────────────────────────────────

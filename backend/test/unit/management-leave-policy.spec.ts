@@ -6,13 +6,11 @@ import { TVAService } from '../../src/common/services/tva.service';
 import { LeaveBalanceService } from '../../src/modules/operations/leave/leave-balance.service';
 
 /**
- * Phase 3 entitlements: 10 Casual + 4 Sick, both from the versioned
- * LeavePolicy. Emergency is a submission mode funded from one of those two
- * buckets, never a third pool, and the retired Emergency allocation is never
- * read -- so no balance can reach 18. There are no role or intern hard-codes.
+ * Refined policy entitlement: one 14-day Annual Leave pool from the versioned
+ * LeavePolicy. Emergency is a submission mode, never another balance.
  */
 describe('management leave entitlements (Phase 3)', () => {
-  const POLICY = { id: 'lp-1', casualLeaveAllocation: 10, sickLeaveAllocation: 4, emergencyLeaveAllocation: 4 };
+  const POLICY = { id: 'lp-1', totalPaidLeaves: 14 };
   const rig = (rows: any[] = [], policy: any = POLICY) => {
     const prisma: any = {
       employeeAttendanceProfile: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -36,27 +34,23 @@ describe('management leave entitlements (Phase 3)', () => {
     return { service: new LeaveBalanceService(prisma, settings, tva, workingDays, policies, timeline), prisma, settings, policies };
   };
 
-  it('reads Casual 10 and Sick 4 from the versioned policy, 14 in total', async () => {
+  it('reads the 14-day Annual allocation from the versioned policy', async () => {
     const { service, settings } = rig();
-    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.CASUAL)).toBe(10);
-    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.SICK)).toBe(4);
+    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.ANNUAL)).toBe(14);
     expect(await service.getYearlyAllocation('emp-1', 2026)).toBe(14);
     expect(settings.getLeaveQuotas).not.toHaveBeenCalled();
   });
 
   it('a different policy version is the only way to a different entitlement', async () => {
-    const { service } = rig([], { ...POLICY, casualLeaveAllocation: 12, sickLeaveAllocation: 6 });
-    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.CASUAL)).toBe(12);
-    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.SICK)).toBe(6);
+    const { service } = rig([], { ...POLICY, totalPaidLeaves: 18 });
+    expect(await service.getYearlyAllocation('emp-1', 2026, LeaveType.ANNUAL)).toBe(18);
   });
 
   it('interns follow the same versioned policy (no one-day-per-month hard-code)', async () => {
     const { service, prisma } = rig();
     prisma.user.findUnique.mockResolvedValue({ role: { name: 'INTERN' } });
-    const casual = await service.getLeaveBalance('intern-1', 2026, LeaveType.CASUAL, new Date('2026-10-12T06:30:00.000Z'));
-    const sick = await service.getLeaveBalance('intern-1', 2026, LeaveType.SICK, new Date('2026-10-12T06:30:00.000Z'));
-    expect(casual.allocation).toBe(10);
-    expect(sick.allocation).toBe(4);
+    const annual = await service.getLeaveBalance('intern-1', 2026, LeaveType.ANNUAL, new Date('2026-10-12T06:30:00.000Z'));
+    expect(annual.allocation).toBe(14);
     const range = prisma.leaveRequest.findMany.mock.calls[0][0].where.startDate;
     expect(range.gte.toISOString().slice(0, 10)).toBe('2026-03-31');
     expect(range.lte.toISOString().slice(0, 10)).toBe('2027-03-31');
@@ -64,13 +58,13 @@ describe('management leave entitlements (Phase 3)', () => {
 
   it('uses TVA financial-year bounds for balances', async () => {
     const { service, prisma } = rig();
-    await service.getLeaveBalance('emp-1', 2026, LeaveType.CASUAL);
+    await service.getLeaveBalance('emp-1', 2026, LeaveType.ANNUAL);
     const range = prisma.leaveRequest.findMany.mock.calls[0][0].where.startDate;
     expect(range.gte.toISOString().slice(0, 10)).toBe('2026-03-31'); // 1 Apr IST start
     expect(range.lte.toISOString().slice(0, 10)).toBe('2027-03-31');
   });
 
-  it('never cross-consumes: Casual rows draw Casual, Sick and historical Emergency rows draw Sick', async () => {
+  it('all historical paid rows consume the single Annual pool', async () => {
     const at = { startDate: new Date('2026-08-03T00:00:00.000Z'), endDate: new Date('2026-08-03T00:00:00.000Z'), isHalfDay: false, status: 'APPROVED' };
     const rows = [
       { ...at, id: 'c', type: LeaveType.CASUAL },
@@ -80,10 +74,8 @@ describe('management leave entitlements (Phase 3)', () => {
       { ...at, id: 'u', type: LeaveType.UNPAID },
       { ...at, id: 'co', type: LeaveType.COMP_OFF },
     ];
-    const casual = await rig(rows).service.getLeaveBalance('emp-1', 2026, LeaveType.CASUAL);
-    const sick = await rig(rows).service.getLeaveBalance('emp-1', 2026, LeaveType.SICK);
-    expect(casual).toMatchObject({ allocation: 10, approved: 2, balance: 8 });
-    expect(sick).toMatchObject({ allocation: 4, approved: 2, balance: 2 });
+    const annual = await rig(rows).service.getLeaveBalance('emp-1', 2026, LeaveType.ANNUAL);
+    expect(annual).toMatchObject({ allocation: 14, approved: 4, balance: 10, bucket: 'ANNUAL' });
   });
 
   it('no total ever reaches 18, even with the retired Emergency column still set', async () => {
@@ -95,9 +87,9 @@ describe('management leave entitlements (Phase 3)', () => {
   it('an underfunded request is saved and flagged, never refused for balance', async () => {
     const { service } = rig();
     jest.spyOn(service, 'getLeaveBalance').mockResolvedValue({
-      allocation: 10, approved: 10, pending: 0, balance: 0, bucket: 'CASUAL', setupStatus: 'RESOLVED', unmeasuredRequests: 0,
+      allocation: 14, approved: 14, pending: 0, balance: 0, bucket: 'ANNUAL', setupStatus: 'RESOLVED', unmeasuredRequests: 0,
     });
-    await expect(service.validateLeaveRequest('emp-1', '2026-08-03', '2026-08-03', false, LeaveType.CASUAL))
+    await expect(service.validateLeaveRequest('emp-1', '2026-08-03', '2026-08-03', false, LeaveType.ANNUAL))
       .resolves.toMatchObject({ insufficient: true });
   });
 });

@@ -17,7 +17,7 @@ export function AttendanceAccountOverview() {
         <div><h2><Plane size={20} />Leave balance</h2><p>Your available leave and current requests.</p></div>
         <div className={s.compOff}><span>Comp Off</span><strong>{credits.isError ? 'Unavailable' : credits.isPending ? 'Loading…' : credits.data?.length ?? '—'}</strong></div>
       </header>
-      <div className={s.leaveGrid} role="list" aria-label="Leave balances"><LeaveRow type="CASUAL" /><LeaveRow type="SICK" /></div>
+      <div className={s.leaveGrid} role="list" aria-label="Leave balance"><LeaveRow type="ANNUAL" /></div>
     </section>
   </section>;
 }

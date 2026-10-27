@@ -58,15 +58,9 @@ function Row({
 export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
   // One query per type, because the endpoint answers per type. They are
   // independent, so a failure in one does not blank the others.
-  const casual = useQuery({
-    queryKey: ['my-leave-balance', 'CASUAL'],
-    queryFn: () => getMyLeaveBalance('CASUAL' as PersonalLeaveType),
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-  const sick = useQuery({
-    queryKey: ['my-leave-balance', 'SICK'],
-    queryFn: () => getMyLeaveBalance('SICK' as PersonalLeaveType),
+  const annual = useQuery({
+    queryKey: ['my-leave-balance', 'ANNUAL'],
+    queryFn: () => getMyLeaveBalance('ANNUAL'),
     staleTime: 5 * 60_000,
     retry: false,
   });
@@ -77,9 +71,8 @@ export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
     retry: false,
   });
 
-  const byType: Record<PersonalLeaveType, typeof casual> = {
-    CASUAL: casual,
-    SICK: sick,
+  const byType: Record<PersonalLeaveType, typeof annual> = {
+    ANNUAL: annual,
   };
 
   const credits = compOff.data ?? [];
@@ -103,7 +96,9 @@ export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
             />
           );
         })}
-        <Row label="Comp Off" available={compOff.isSuccess ? credits.length : null} />
+        <Row label="Comp Off" available={compOff.isSuccess
+          ? credits.reduce((sum: number, credit: any) => sum + Number(credit.remainingMinutes ?? credit.creditMinutes ?? 540), 0) / 540
+          : null} />
       </dl>
 
       {nextExpiry && (

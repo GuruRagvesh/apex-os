@@ -23,8 +23,6 @@ const TYPES: Array<{ value: AttendanceCorrectionConcern; label: string; hint: st
   { value: 'WRONG_PUNCH_IN', label: 'Wrong Punch In', hint: 'The recorded start time is incorrect.' },
   { value: 'WRONG_PUNCH_OUT', label: 'Wrong Punch Out', hint: 'The recorded end time is incorrect.' },
   { value: 'INCORRECT_ATTENDANCE_STATUS', label: 'Incorrect Attendance Status', hint: 'The final attendance label needs review.' },
-  { value: 'INCORRECT_WORKED_HOURS', label: 'Incorrect Worked Hours', hint: 'The recorded effective work total needs review.' },
-  { value: 'OTHER', label: 'Other', hint: 'Describe what needs review.' },
 ];
 
 /** 'HH:mm' on a business date -> an ISO instant in the browser's zone. */
@@ -51,13 +49,13 @@ export function RequestCorrectionForm({
   onCancel: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [concern, setConcern] = useState<AttendanceCorrectionConcern>(historicalRecord ? 'OTHER' : 'MISSING_PUNCH_IN');
+  const [concern, setConcern] = useState<AttendanceCorrectionConcern>(historicalRecord ? 'INCORRECT_ATTENDANCE_STATUS' : 'MISSING_PUNCH_IN');
   const [punchIn, setPunchIn] = useState('');
   const [punchOut, setPunchOut] = useState('');
   const [reason, setReason] = useState('');
   const [screenshots, setScreenshots] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const choices = historicalRecord ? TYPES.filter(type => type.value === 'OTHER') : TYPES;
+  const choices = historicalRecord ? TYPES.filter(type => type.value === 'INCORRECT_ATTENDANCE_STATUS') : TYPES;
   const selected = choices.find((t) => t.value === concern);
   const showPunchIn = concern === 'MISSING_PUNCH_IN' || concern === 'WRONG_PUNCH_IN';
   const showPunchOut = concern === 'MISSING_PUNCH_OUT' || concern === 'WRONG_PUNCH_OUT';

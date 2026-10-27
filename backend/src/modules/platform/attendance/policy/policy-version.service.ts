@@ -443,6 +443,41 @@ export class PolicyVersionService {
         ? businessDate
         : this.tva.companyBusinessDate(businessDate);
     const d = this.delegate(kind, this.prisma);
+    // Local preview databases can legitimately lag the newest additive
+    // attendance thresholds while the owner-only migration is pending. Avoid
+    // Prisma's implicit `SELECT *` for this read path so the evaluator can use
+    // its documented defaults until that migration is applied.
+    const readSelect = kind === 'ATTENDANCE_POLICY'
+      ? {
+          id: true,
+          financialYear: true,
+          name: true,
+          isActive: true,
+          minimumWorkingMinutes: true,
+          lateExemptionEnabled: true,
+          faceCaptureRequired: true,
+          locationCaptureRequired: true,
+          geoFenceEnabled: true,
+          regularizationEnabled: true,
+          createdAt: true,
+          updatedAt: true,
+          updatedById: true,
+          policyKey: true,
+          version: true,
+          status: true,
+          effectiveFrom: true,
+          effectiveTo: true,
+          approvedById: true,
+          approvedAt: true,
+          createdById: true,
+          supersededById: true,
+          afterPunchWindowAction: true,
+          insufficientHoursAction: true,
+          automaticHalfDayEnabled: true,
+          permittedBreakMinutes: true,
+          minimumEffectiveWorkMinutes: true,
+        }
+      : undefined;
 
     // The common case first: a governing version covers the date. This is the
     // same query the readers always made, now also accepting SCHEDULED
@@ -456,6 +491,7 @@ export class PolicyVersionService {
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: this.tva.companyDayStart(anchorDay) } }],
       },
       orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
+      ...(readSelect ? { select: readSelect } : {}),
     });
     if (covering) return { policy: covering, health: null };
     if (typeof d.findMany !== 'function' || typeof d.findUnique !== 'function') {
@@ -473,6 +509,7 @@ export class PolicyVersionService {
 
     const rows = await d.findMany({
       where: { ...filter, status: { in: [...GOVERNING_POLICY_STATUSES] } },
+      ...(readSelect ? { select: readSelect } : {}),
     });
     const resolution = resolveContinuousPolicy(
       rows.map((r: any) => ({
