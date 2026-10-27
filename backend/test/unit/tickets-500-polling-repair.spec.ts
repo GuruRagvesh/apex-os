@@ -16,7 +16,9 @@ import {
   ticketEnumFilter,
 } from '../../src/common/services/ticket-access.service';
 import {
+  DATABASE_RETRY_AFTER_SECONDS,
   describeError,
+  isDatabaseUnavailable,
   logUrl,
   REQUEST_ID_HEADER,
   RequestIdExceptionFilter,
@@ -238,6 +240,21 @@ describe('request id', () => {
     expect(statusOf(new Error('boom'))).toBe(500);
   });
 
+  it('recognizes only temporary database connectivity and recovery failures', () => {
+    for (const error of [
+      new Error('Error in connector: FATAL: the database system is in recovery mode'),
+      new Error('Server has closed the connection.'),
+      new Error('Error opening a TLS connection: unexpected EOF'),
+      new Error('Connection reset by peer (os error 104)'),
+      Object.assign(new Error('pool timeout'), { code: 'P2024' }),
+      Object.assign(new Error('closed connection'), { code: 'P1017' }),
+      { message: 'wrapper', cause: new Error("Can't reach database server") },
+    ]) expect(isDatabaseUnavailable(error)).toBe(true);
+
+    expect(isDatabaseUnavailable(Object.assign(new Error('column missing'), { code: 'P2022' }))).toBe(false);
+    expect(isDatabaseUnavailable(new BadRequestException('invalid filter'))).toBe(false);
+  });
+
   describe('exception filter', () => {
     let logged: jest.SpyInstance;
     beforeEach(() => { logged = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined); });
@@ -249,7 +266,7 @@ describe('request id', () => {
       const res: any = {
         headersSent: false,
         getHeader: (k: string) => headers[k],
-        setHeader: (k: string, v: string) => { headers[k] = v; },
+        setHeader: jest.fn((k: string, v: string) => { headers[k] = v; }),
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
       };
@@ -299,6 +316,26 @@ describe('request id', () => {
     it('logs a deliberate 5xx but leaves its body alone', () => {
       const { adapter } = run(new ServiceUnavailableException('Storage not configured'));
       expect(adapter.reply).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ statusCode: 503 }), 503);
+      expect(logged).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers a database recovery failure as a controlled 503 with Retry-After', () => {
+      const outage = Object.assign(
+        new Error('Invalid `prisma.user.findUnique()` invocation:\nFATAL: the database system is in recovery mode'),
+        { code: 'P1017' },
+      );
+      const { adapter, res } = run(outage);
+      expect(adapter.reply).not.toHaveBeenCalled();
+      expect(res.setHeader).toHaveBeenCalledWith('Retry-After', String(DATABASE_RETRY_AFTER_SECONDS));
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(res.json).toHaveBeenCalledWith({
+        statusCode: 503,
+        code: 'DATABASE_UNAVAILABLE',
+        message: 'The service is temporarily unavailable while the database recovers. Please retry shortly.',
+        retryAfterSeconds: DATABASE_RETRY_AFTER_SECONDS,
+        requestId: 'req-12345678',
+      });
+      expect(JSON.stringify(res.json.mock.calls)).not.toMatch(/recovery mode|prisma\.user/);
       expect(logged).toHaveBeenCalledTimes(1);
     });
   });

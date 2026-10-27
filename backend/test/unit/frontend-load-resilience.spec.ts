@@ -9,7 +9,7 @@ import {
   saveQueryCache,
   type KeyValueStorage,
 } from '../../../apps/web/components/query-cache-persistence';
-import { MAX_TRANSIENT_RETRIES, shouldRetryTransientQuery, transientQueryRetryDelay } from '../../../shared/auth/frontend/authenticated-api-client';
+import { MAX_TRANSIENT_RETRIES, parseRetryAfterMs, shouldRetryTransientQuery, transientQueryRetryDelay } from '../../../shared/auth/frontend/authenticated-api-client';
 
 // Production slowed down and restarted while every open page retried each
 // failed read up to 20 times and reloaded everything on every page load.
@@ -54,6 +54,14 @@ describe('transient retry policy', () => {
         expect(d).toBeLessThan(base + 1000);
       }
     }
+  });
+
+  it('honours a bounded Retry-After from a temporary database outage', () => {
+    expect(parseRetryAfterMs('15', NOW)).toBe(15_000);
+    expect(parseRetryAfterMs(new Date(NOW + 30_000).toUTCString(), NOW)).toBe(30_000);
+    expect(parseRetryAfterMs('999999', NOW)).toBe(120_000);
+    expect(parseRetryAfterMs('invalid', NOW)).toBeUndefined();
+    expect(transientQueryRetryDelay(0, { status: 503, retryAfterMs: 15_000 })).toBe(15_000);
   });
 });
 
