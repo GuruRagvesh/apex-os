@@ -296,9 +296,6 @@ export class CompOffService {
     const credits = await this.prisma.compOffCredit.findMany({
       where: { employeeId, status: 'AVAILABLE', expiresAt: { gte: today } },
       orderBy: [{ expiresAt: 'asc' }, { earnedAt: 'asc' }],
-      // Keep this read usable while an additive, owner-only local migration is
-      // pending. Existing credits predate minute entitlements and represent one
-      // full day each, so expose the documented 540-minute compatibility value.
       select: {
         id: true,
         employeeId: true,
@@ -309,15 +306,13 @@ export class CompOffService {
         usedAt: true,
         leaveRequestId: true,
         status: true,
+        creditMinutes: true,
+        remainingMinutes: true,
         createdAt: true,
         updatedAt: true,
       },
     });
-    return credits.map((credit) => ({
-      ...credit,
-      creditMinutes: FULL_COMP_OFF_DAY_MINUTES,
-      remainingMinutes: FULL_COMP_OFF_DAY_MINUTES,
-    }));
+    return credits;
   }
 
   /**

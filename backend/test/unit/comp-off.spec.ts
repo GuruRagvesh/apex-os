@@ -147,19 +147,34 @@ describe('Comp off source qualification', () => {
     expect(source).toContain('12 * 60');
   });
 
-  it('ships a targeted repair for finalized rows created by the old break-excluded rule', () => {
+  it('ships an all-history repair and idempotent 12-hour comp-off backfill', () => {
     const migration = readFileSync(
       resolve(__dirname, '../../prisma/migrations/20261028120000_correct_attendance_window/migration.sql'),
       'utf8',
     );
     expect(migration).toContain('EXTRACT(EPOCH FROM ("punchOutAt" - "punchInAt")) / 60 >= 540');
-    expect(migration).toContain('"calculationReason" = \'REFINED_SHORT_DAY\'');
     expect(migration).toContain('"lastRegularizationId" IS NULL');
     expect(migration).not.toMatch(/WHERE\s+"date"|AND\s+"date"/i);
+    expect(migration).toContain('EXTRACT(EPOCH FROM ("lastOut" - "firstIn")) / 60 >= 720');
+    expect(migration).toContain('ON CONFLICT ("employeeId", "earnedFromBusinessDate") DO NOTHING');
   });
 });
 
 describe('Comp off automatic earning', () => {
+  it('returns the real minute entitlement instead of inflating a 180-minute credit to 540', async () => {
+    const { service, prisma } = rig();
+    prisma.compOffCredit.findMany.mockResolvedValueOnce([{
+      id: 'credit-180', employeeId: 'emp-1', earnedFromBusinessDate: new Date('2026-11-08'),
+      earnedFromWorkSessionId: 'ws-1', earnedAt: new Date('2026-11-08T12:00:00Z'),
+      expiresAt: new Date('2026-12-08'), usedAt: null, leaveRequestId: null,
+      status: 'AVAILABLE', creditMinutes: 180, remainingMinutes: 180,
+      createdAt: new Date('2026-11-08'), updatedAt: new Date('2026-11-08'),
+    }]);
+
+    const credits = await service.listAvailable('emp-1');
+    expect(credits[0]).toMatchObject({ creditMinutes: 180, remainingMinutes: 180 });
+  });
+
   it('does not grant a credit below 12 elapsed hours', async () => {
     const { service, created } = rig({ facts: SUNDAY_FACTS, sessionSpansByDate: { '2026-11-08': [{ startMinute: 0, endMinute: 719 }] } });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-1');

@@ -467,14 +467,14 @@ describe('AE-1 leave integration', () => {
     expect(r.evaluationState).toBe('NEEDS_REVIEW');
   });
 
-  it('10e. classifies four hours as a half day under the refined policy', async () => {
+  it('10e. classifies four hours as short hours unless half-day leave was approved', async () => {
     const { service } = rig({
       evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('14:00'))],
     });
     const r = await service.evaluate('emp-1', DATE);
-    expect(r.status).toBe('HALF_DAY');
+    expect(r.status).toBe('PRESENT');
     expect(r.exceptionFlags).toEqual([]);
-    expect(r.calculationReason).toBe('REFINED_HALF_DAY');
+    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
   });
 
   it('10f. an approved half day without a validated session cannot bypass punch review', async () => {
@@ -657,7 +657,7 @@ describe('AE-1 undecided policy rules', () => {
     expect(r.status).toBe('PRESENT');
   });
 
-  it('23. 270 worked minutes is a refined half day', async () => {
+  it('23. a five-hour span is short hours, not an automatic half day', async () => {
     const { service } = rig({
       evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
       sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
@@ -667,12 +667,13 @@ describe('AE-1 undecided policy rules', () => {
 
     expect(r.exceptionFlags).toEqual([]);
     expect(r.evaluationState).toBe('CALCULATED');
-    expect(r.status).toBe('HALF_DAY');
+    expect(r.status).toBe('PRESENT');
+    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(r.status).not.toBe('ABSENT');
     expect(r.leaveDeducted).toBe(0);
   });
 
-  it('24. refined half-day classification is independent of the legacy switch', async () => {
+  it('24. short-hours classification is independent of the legacy half-day switch', async () => {
     const { service } = rig({
       ctx: context({
         attendancePolicy: { insufficientHoursAction: 'MARK_HALF_DAY', automaticHalfDayEnabled: false },
@@ -683,11 +684,12 @@ describe('AE-1 undecided policy rules', () => {
 
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.status).toBe('HALF_DAY');
+    expect(r.status).toBe('PRESENT');
+    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(r.evaluationState).toBe('CALCULATED');
   });
 
-  it('25. with automatic half-day enabled the configured action is honoured', async () => {
+  it('25. automatic half-day does not override the explicit short-hours rule', async () => {
     const { service } = rig({
       ctx: context({
         attendancePolicy: { insufficientHoursAction: 'MARK_HALF_DAY', automaticHalfDayEnabled: true },
@@ -697,7 +699,8 @@ describe('AE-1 undecided policy rules', () => {
     });
 
     const r = await service.evaluate('emp-1', DATE);
-    expect(r.status).toBe('HALF_DAY');
+    expect(r.status).toBe('PRESENT');
+    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
   });
 
   it('26. a paid-leave deduction action is deferred, never executed here', async () => {
@@ -713,7 +716,8 @@ describe('AE-1 undecided policy rules', () => {
 
     // Attendance classification never spends the annual-leave balance.
     expect(r.evaluationState).toBe('CALCULATED');
-    expect(r.status).toBe('HALF_DAY');
+    expect(r.status).toBe('PRESENT');
+    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(r.leaveDeducted).toBe(0);
     expect(prisma.leaveRequest.update).not.toHaveBeenCalled();
   });
@@ -1217,7 +1221,8 @@ describe('AE-1 canonical figures', () => {
     expect(r.presenceMinutes).toBe(300);
     expect(r.requiredMinutes).toBe(540);
     expect(r.exceptionFlags).toEqual([]);
-    expect(r.status).toBe('HALF_DAY');
+    expect(r.status).toBe('PRESENT');
+    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(r.evaluationState).toBe('CALCULATED');
   });
 });

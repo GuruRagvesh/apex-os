@@ -6,9 +6,9 @@ describe('refined attendance policy', () => {
     expect(classifyRefinedAttendance({ presenceMinutes: 540, punchInMinutes: 600, punchOutMinutes: 1140 })).toBe('FULL_DAY');
   });
 
-  it('classifies at most 4.5 hours and an early checkout as half day', () => {
-    expect(classifyRefinedAttendance({ presenceMinutes: 270, punchInMinutes: 600, punchOutMinutes: 870 })).toBe('HALF_DAY');
-    expect(classifyRefinedAttendance({ presenceMinutes: 330, punchInMinutes: 600, punchOutMinutes: 960 })).toBe('HALF_DAY');
+  it('classifies every duration below nine hours as short hours', () => {
+    expect(classifyRefinedAttendance({ presenceMinutes: 270, punchInMinutes: 600, punchOutMinutes: 870 })).toBe('SHORT_DAY');
+    expect(classifyRefinedAttendance({ presenceMinutes: 330, punchInMinutes: 600, punchOutMinutes: 960 })).toBe('SHORT_DAY');
   });
 
   it('keeps lateness separate from duration classification', () => {

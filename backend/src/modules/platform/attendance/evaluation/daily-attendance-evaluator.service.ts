@@ -749,13 +749,6 @@ export class DailyAttendanceEvaluatorService {
       if (refined === 'FULL_DAY') {
         status = 'PRESENT';
         reason = 'REFINED_FULL_DAY';
-      } else if (refined === 'HALF_DAY') {
-        status = 'HALF_DAY';
-        reason = 'REFINED_HALF_DAY';
-        // Attendance classification must not spend annual leave. Payroll sees
-        // the unpaid fraction; an approved half-day leave is handled by the
-        // explicit leave branch above.
-        lwpDeducted = 0.5;
       } else {
         // Short presence and late arrival are independent facts. Keep the day
         // present and let the V2 contract expose the short-hours modifier;

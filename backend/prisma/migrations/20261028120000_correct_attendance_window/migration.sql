@@ -26,19 +26,14 @@ WHERE "category" IN ('REGULAR_EMPLOYEE', 'TEAM_LEADER')
     ELSE "graceMinutes"
   END;
 
--- Repair official rows produced by the previous refined evaluator. That
--- version compared the break-excluded work total with 540 and encoded its
--- short-hours result as LATE. The approved measure is the elapsed span from
--- first punch-in to final punch-out, so breaks, meetings, and gaps between
--- sessions remain included.
+-- Reclassify every historical working-attendance row that has a complete punch
+-- pair. The approved measure is the elapsed span from first punch-in to final
+-- punch-out, so breaks, meetings, and gaps between sessions remain included.
 --
--- Restrict this to evaluator-generated refined short-day rows with no approved
--- regularization. Imported history, manual decisions, and corrected days keep
--- their recorded authority. Locked/finalized rows are intentionally included:
--- ordinary re-evaluation cannot rewrite them, so the migration is the only
--- deterministic way to repair every affected historical result. There is
--- intentionally no date or month filter: all qualifying past dates are fixed.
-UPDATE "daily_attendance"
+-- Explicitly approved corrections remain authoritative. Locked/finalized and
+-- imported punch rows are intentionally included because ordinary evaluation
+-- cannot rewrite them. There is no date or month filter.
+UPDATE "daily_attendance" AS da
 SET
   "status" = 'PRESENT',
   "calculationReason" = CASE
@@ -46,20 +41,71 @@ SET
       THEN 'REFINED_FULL_DAY'
     ELSE 'REFINED_SHORT_DAY'
   END,
-  "lateMinutes" = CASE
-    WHEN ("punchInAt" AT TIME ZONE 'Asia/Kolkata')::time <= TIME '10:30:00'
-      THEN 0
-    ELSE "lateMinutes"
-  END,
+  "lateMinutes" = GREATEST(0, CEIL(EXTRACT(EPOCH FROM (
+    ("punchInAt" AT TIME ZONE 'Asia/Kolkata')::time - TIME '10:30:00'
+  )) / 60)::integer),
+  "leaveDeducted" = 0,
   "lwpDeducted" = CASE
     WHEN EXTRACT(EPOCH FROM ("punchOutAt" - "punchInAt")) / 60 >= 540
       THEN 0
-    ELSE "lwpDeducted"
+    ELSE COALESCE(
+      (SELECT ap."shortDayPayDeduction"
+       FROM "attendance_policies" ap
+       WHERE ap."id" = da."attendancePolicyId"),
+      0.3333333333333333
+    )
   END,
   "evaluatorVersion" = 3,
   "sourceFingerprint" = NULL,
   "updatedAt" = NOW()
-WHERE "calculationReason" = 'REFINED_SHORT_DAY'
-  AND "punchInAt" IS NOT NULL
+WHERE "punchInAt" IS NOT NULL
   AND "punchOutAt" IS NOT NULL
-  AND "lastRegularizationId" IS NULL;
+  AND "lastRegularizationId" IS NULL
+  AND (
+    "status" IN ('PRESENT', 'LATE', 'LATE_EXEMPTED')
+    OR "calculationReason" IN ('REFINED_FULL_DAY', 'REFINED_SHORT_DAY', 'REFINED_HALF_DAY')
+  );
+
+-- Backfill the existing automatic 12-hour earning rule for every historical
+-- multi-session workday. The first session start and final session end form one
+-- clock; internal breaks, meetings, logouts and re-logins remain included.
+-- The employee/date unique key makes this idempotent and preserves any credit
+-- that was already granted manually or automatically.
+WITH historical_spans AS (
+  SELECT
+    ws."userId",
+    ws."date",
+    MIN(COALESCE(ws."startWorkAt", ws."loginAt")) AS "firstIn",
+    MAX(ws."logoutAt") AS "lastOut",
+    (ARRAY_AGG(ws."id" ORDER BY ws."logoutAt" DESC, ws."id" DESC))[1] AS "lastSessionId"
+  FROM "work_sessions" ws
+  WHERE COALESCE(ws."startWorkAt", ws."loginAt") IS NOT NULL
+    AND ws."logoutAt" IS NOT NULL
+  GROUP BY ws."userId", ws."date"
+), qualifying_spans AS (
+  SELECT *
+  FROM historical_spans
+  WHERE EXTRACT(EPOCH FROM ("lastOut" - "firstIn")) / 60 >= 720
+)
+INSERT INTO "comp_off_credits" (
+  "id", "employeeId", "earnedFromBusinessDate", "earnedFromWorkSessionId",
+  "earnedAt", "expiresAt", "status", "creditMinutes", "remainingMinutes",
+  "createdAt", "updatedAt"
+)
+SELECT
+  'histco_' || MD5(q."userId" || ':' || q."date"::text),
+  q."userId",
+  q."date",
+  q."lastSessionId",
+  q."lastOut",
+  q."date" + 30,
+  CASE
+    WHEN q."date" + 30 >= CURRENT_DATE THEN 'AVAILABLE'::"CompOffCreditStatus"
+    ELSE 'EXPIRED'::"CompOffCreditStatus"
+  END,
+  180,
+  180,
+  NOW(),
+  NOW()
+FROM qualifying_spans q
+ON CONFLICT ("employeeId", "earnedFromBusinessDate") DO NOTHING;
