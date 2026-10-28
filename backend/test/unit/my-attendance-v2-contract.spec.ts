@@ -108,6 +108,22 @@ describe('outcome translation', () => {
   it('derives LATE from lateMinutes when the status does not carry it', () => {
     expect(day({ status: 'PRESENT' as any, lateMinutes: 12 }).modifiers).toContain('LATE');
   });
+
+  it.each([
+    ['on time and full', 0, 'REFINED_FULL_DAY', []],
+    ['late and full', 1, 'REFINED_FULL_DAY', ['LATE']],
+    ['on time and short', 0, 'REFINED_SHORT_DAY', ['INSUFFICIENT_PRESENCE']],
+    ['late and short', 1, 'REFINED_SHORT_DAY', ['LATE', 'INSUFFICIENT_PRESENCE']],
+  ] as const)('keeps the late and short-hours ledgers independent: %s', (_label, lateMinutes, calculationReason, expected) => {
+    const modifiers = day({
+      status: 'PRESENT' as any,
+      lateMinutes,
+      calculationReason: calculationReason as AttendanceCalculationReason,
+    }).modifiers;
+
+    expect(modifiers.includes('LATE')).toBe(expected.includes('LATE' as never));
+    expect(modifiers.includes('INSUFFICIENT_PRESENCE')).toBe(expected.includes('INSUFFICIENT_PRESENCE' as never));
+  });
 });
 
 describe('exception and modifier translation', () => {

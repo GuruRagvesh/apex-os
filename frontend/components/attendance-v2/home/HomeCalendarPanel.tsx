@@ -684,7 +684,7 @@ function matchesHomeAttendanceFilter(day: MyAttendanceDayV2, filter: AttendanceF
   if (filter === 'Total late marks') return day.modifiers.includes('LATE');
   if (filter === 'Total present days') return effectiveOutcome === 'PRESENT';
   if (filter === 'Less working hours') return day.modifiers.includes('INSUFFICIENT_EFFECTIVE_WORK')
-    || (day.workedMinutes !== null && day.requiredMinutes !== null && day.workedMinutes < day.requiredMinutes);
+    || (day.presenceMinutes !== null && day.requiredMinutes !== null && day.presenceMinutes < day.requiredMinutes);
   if (filter === 'Needs review') return day.evaluationState === 'NEEDS_REVIEW' || effectiveOutcome === 'UNRESOLVED';
   if (filter === 'Late / Short hours') return lateOrShort;
   if (filter === 'Regularized') return day.modifiers.includes('REGULARIZED');
@@ -916,7 +916,7 @@ function AttendanceKpiScore({ current, averageBreakMinutes, monthLabel: selected
   const lateMarks = completedDays.filter((day) => day.modifiers.includes('LATE')).length;
   const shortDays = completedDays.filter((day) =>
     day.modifiers.includes('INSUFFICIENT_EFFECTIVE_WORK')
-      || (day.workedMinutes !== null && day.requiredMinutes !== null && day.workedMinutes < day.requiredMinutes),
+      || (day.presenceMinutes !== null && day.requiredMinutes !== null && day.presenceMinutes < day.requiredMinutes),
   ).length;
   const attendanceValue = (value: number) => monthLoading ? '—' : monthFailed ? 'Unavailable' : String(value);
 

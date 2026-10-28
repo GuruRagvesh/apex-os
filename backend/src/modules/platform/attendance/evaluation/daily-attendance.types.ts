@@ -17,7 +17,7 @@ import type { DailyAttendanceStatus, HalfDaySession, LeaveType } from '@prisma/c
  */
 
 /** Bumped whenever the evaluation rules change, so old rows stay explainable. */
-export const EVALUATOR_VERSION = 2;
+export const EVALUATOR_VERSION = 3;
 
 export type LeaveDayKind =
   | 'NONE'

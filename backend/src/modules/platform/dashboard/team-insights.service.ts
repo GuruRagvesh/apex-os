@@ -579,7 +579,7 @@ export class TeamInsightsService {
         userId: { in: userIds },
         date: { gte: databaseDay(scheduledDates[0]), lte: databaseDay(scheduledDates[scheduledDates.length - 1]) },
       },
-      select: { userId: true, date: true, status: true, evaluationState: true, exceptionFlags: true },
+      select: { userId: true, date: true, status: true, evaluationState: true, exceptionFlags: true, lateMinutes: true, calculationReason: true },
     });
     const applicable = rows.filter((row) => {
       const date = isoDay(row.date);
@@ -595,10 +595,10 @@ export class TeamInsightsService {
     const resolved = applicable.filter((row) => row.evaluationState !== 'NEEDS_REVIEW');
     const presentDays = resolved.filter((row) => attendedStatuses.has(row.status)).length;
     const halfDays = resolved.filter((row) => row.status === 'HALF_DAY').length;
-    const lateDays = resolved.filter((row) => row.status === 'LATE').length;
+    const lateDays = resolved.filter((row) => row.status === 'LATE' || row.status === 'LATE_EXEMPTED' || row.lateMinutes > 0).length;
     const lessWorkingHoursDays = resolved.filter((row) => (row.exceptionFlags ?? []).some((flag) =>
       flag === 'INSUFFICIENT_PRESENCE_SPAN' || flag === 'INSUFFICIENT_EFFECTIVE_WORK',
-    )).length;
+    ) || row.calculationReason === 'REFINED_SHORT_DAY').length;
     const absentDays = resolved.filter((row) => row.status === 'ABSENT').length;
     const leaveDays = resolved.filter((row) => row.status === 'LEAVE' || row.status === 'LWP').length;
     const unresolvedDays = applicable.filter((row) => row.evaluationState === 'NEEDS_REVIEW').length;
@@ -627,7 +627,7 @@ export class TeamInsightsService {
       this.prisma.dailyAttendance.findMany({
         where: { userId, date: { gte: databaseDay(range.from), lte: databaseDay(range.to) } },
         select: {
-          date: true, status: true, evaluationState: true, exceptionFlags: true,
+          date: true, status: true, evaluationState: true, exceptionFlags: true, calculationReason: true,
           workedMinutes: true, breakMinutes: true, lateMinutes: true, punchInAt: true, punchOutAt: true,
         },
       }),
@@ -728,7 +728,7 @@ export class TeamInsightsService {
         : openBreak?.breakType === 'MEETING' ? 'IN_MEETING'
           : openBreak ? 'ON_BREAK'
             : openSession?.status ?? (punchOutAt ? 'DAY_COMPLETED' : 'NOT_STARTED');
-      const isShortHours = row?.exceptionFlags?.some((flag) =>
+      const isShortHours = row?.calculationReason === 'REFINED_SHORT_DAY' || row?.exceptionFlags?.some((flag) =>
         flag === 'INSUFFICIENT_PRESENCE_SPAN' || flag === 'INSUFFICIENT_EFFECTIVE_WORK',
       );
       // An approved leave request is a calendar fact even before the nightly
@@ -741,12 +741,13 @@ export class TeamInsightsService {
         : punchInAt && (storedOutcome === 'LEAVE' || storedOutcome === 'LWP')
           ? null
           : storedOutcome;
+      const isLate = (row?.lateMinutes ?? 0) > 0 || outcome === 'LATE' || outcome === 'LATE_EXEMPTED';
       const isResolved = (!!row && row.evaluationState !== 'NEEDS_REVIEW') || (!!approvedLeave && !punchInAt);
       const isPresent = isResolved && ['PRESENT', 'LATE', 'LATE_EXEMPTED', 'HALF_DAY'].includes(outcome ?? '');
       const isProductive = isPresent && productiveDates.has(day.businessDate);
       const isOvertime = isPresent && (row?.workedMinutes ?? 0) > 540;
       const modifiers = [
-        outcome === 'LATE' ? 'LATE' : null,
+        isLate ? 'LATE' : null,
         outcome === 'LATE_EXEMPTED' ? 'LATE_EXEMPTED' : null,
         isShortHours ? 'SHORT_HOURS' : null,
         isProductive ? 'PRODUCTIVE' : null,
@@ -756,9 +757,10 @@ export class TeamInsightsService {
         ? 'NEEDS_REVIEW'
         : outcome === 'HALF_DAY' ? 'HALF_DAY'
           : isOvertime ? 'OVERTIME'
-            : isShortHours ? 'SHORT_HOURS'
-              : isProductive ? 'PRODUCTIVE'
-                : outcome;
+            : isLate ? 'LATE'
+              : isShortHours ? 'SHORT_HOURS'
+                : isProductive ? 'PRODUCTIVE'
+                  : outcome;
       const knownAttendanceStatuses = new Set(['PRESENT', 'PRODUCTIVE', 'OVERTIME', 'SHORT_HOURS', 'LATE', 'LATE_EXEMPTED', 'HALF_DAY', 'LEAVE', 'LWP', 'ABSENT', 'HOLIDAY', 'WEEKLY_OFF']);
       const displayStatus = (row && attendanceStatus && !knownAttendanceStatuses.has(attendanceStatus) ? 'NEEDS_REVIEW' : attendanceStatus)
         ?? (punchInAt ? (day.businessDate === today && !punchOutAt ? 'IN_PROGRESS' : 'NEEDS_REVIEW')

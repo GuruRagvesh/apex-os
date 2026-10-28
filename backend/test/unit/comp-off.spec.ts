@@ -9,7 +9,7 @@ import {
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-// Refined earning rule: each completed 12-hour day earns 180 minutes; three
+// Refined earning rule: each completed 12-hour elapsed-presence day earns 180 minutes; three
 // such credits combine to one 540-minute comp-off day.
 
 const tvaOf = () => new TVAService({ get: () => undefined } as unknown as ConfigService);
@@ -35,7 +35,7 @@ interface RigOptions {
   credits?: Array<{ id: string; expiresAt: string; earnedAt?: string; remainingMinutes?: number }>;
   createThrows?: any;
   expiryDays?: number;
-  workedMinutesByDate?: Record<string, number>;
+  sessionSpansByDate?: Record<string, Array<{ startMinute: number; endMinute: number }>>;
   existingCredit?: { id: string } | null;
 }
 
@@ -87,8 +87,12 @@ function rig(opts: RigOptions = {}) {
       findMany: jest.fn(({ where }: any) => Promise.resolve(
         (where.date.in as Date[]).flatMap((date) => {
           const key = date.toISOString().slice(0, 10);
-          const minutes = opts.workedMinutesByDate?.[key];
-          return minutes === undefined ? [] : [{ date, totalWorkMinutes: minutes }];
+          const spans = opts.sessionSpansByDate?.[key] ?? [];
+          return spans.map(({ startMinute, endMinute }) => ({
+            date,
+            startWorkAt: new Date(date.getTime() + startMinute * 60_000),
+            logoutAt: new Date(date.getTime() + endMinute * 60_000),
+          }));
         }),
       )),
     },
@@ -142,17 +146,43 @@ describe('Comp off source qualification', () => {
     expect(source).toContain('9 * 60');
     expect(source).toContain('12 * 60');
   });
+
+  it('ships an all-history repair and idempotent 12-hour comp-off backfill', () => {
+    const migration = readFileSync(
+      resolve(__dirname, '../../prisma/migrations/20261028120000_correct_attendance_window/migration.sql'),
+      'utf8',
+    );
+    expect(migration).toContain('EXTRACT(EPOCH FROM ("punchOutAt" - "punchInAt")) / 60 >= 540');
+    expect(migration).toContain('"lastRegularizationId" IS NULL');
+    expect(migration).not.toMatch(/WHERE\s+"date"|AND\s+"date"/i);
+    expect(migration).toContain('EXTRACT(EPOCH FROM ("lastOut" - "firstIn")) / 60 >= 720');
+    expect(migration).toContain('ON CONFLICT ("employeeId", "earnedFromBusinessDate") DO NOTHING');
+  });
 });
 
 describe('Comp off automatic earning', () => {
-  it('does not grant a credit below 12 effective hours', async () => {
-    const { service, created } = rig({ facts: SUNDAY_FACTS, workedMinutesByDate: { '2026-11-08': 719 } });
+  it('returns the real minute entitlement instead of inflating a 180-minute credit to 540', async () => {
+    const { service, prisma } = rig();
+    prisma.compOffCredit.findMany.mockResolvedValueOnce([{
+      id: 'credit-180', employeeId: 'emp-1', earnedFromBusinessDate: new Date('2026-11-08'),
+      earnedFromWorkSessionId: 'ws-1', earnedAt: new Date('2026-11-08T12:00:00Z'),
+      expiresAt: new Date('2026-12-08'), usedAt: null, leaveRequestId: null,
+      status: 'AVAILABLE', creditMinutes: 180, remainingMinutes: 180,
+      createdAt: new Date('2026-11-08'), updatedAt: new Date('2026-11-08'),
+    }]);
+
+    const credits = await service.listAvailable('emp-1');
+    expect(credits[0]).toMatchObject({ creditMinutes: 180, remainingMinutes: 180 });
+  });
+
+  it('does not grant a credit below 12 elapsed hours', async () => {
+    const { service, created } = rig({ facts: SUNDAY_FACTS, sessionSpansByDate: { '2026-11-08': [{ startMinute: 0, endMinute: 719 }] } });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-1');
     expect(created).toHaveLength(0);
   });
 
-  it('grants a 180-minute credit at exactly 12 effective hours', async () => {
-    const { service, created } = rig({ facts: SUNDAY_FACTS, workedMinutesByDate: { '2026-11-08': 720 } });
+  it('grants a 180-minute credit at exactly 12 elapsed hours', async () => {
+    const { service, created } = rig({ facts: SUNDAY_FACTS, sessionSpansByDate: { '2026-11-08': [{ startMinute: 0, endMinute: 720 }] } });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-1');
     expect(created).toHaveLength(1);
     expect(created[0].earnedFromWorkSessionId).toBe('ws-1');
@@ -160,10 +190,28 @@ describe('Comp off automatic earning', () => {
     expect(created[0].remainingMinutes).toBe(180);
   });
 
+  it('includes breaks, meetings, and gaps across multiple sessions in the 12-hour clock', async () => {
+    const { service, created } = rig({
+      facts: SUNDAY_FACTS,
+      sessionSpansByDate: {
+        '2026-11-08': [
+          { startMinute: 0, endMinute: 210 },
+          { startMinute: 330, endMinute: 720 },
+        ],
+      },
+    });
+    await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-2');
+    expect(created).toHaveLength(1);
+  });
+
   it('three completed 12-hour days earn 540 minutes in total', async () => {
     const { service, created } = rig({
       facts: WORKING_FACTS,
-      workedMinutesByDate: { '2026-11-09': 720, '2026-11-10': 720, '2026-11-11': 720 },
+      sessionSpansByDate: {
+        '2026-11-09': [{ startMinute: 0, endMinute: 720 }],
+        '2026-11-10': [{ startMinute: 0, endMinute: 720 }],
+        '2026-11-11': [{ startMinute: 0, endMinute: 720 }],
+      },
     });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-09', 'ws-1');
     await service.evaluateCompletedWorkday('emp-1', '2026-11-10', 'ws-2');
@@ -176,7 +224,11 @@ describe('Comp off automatic earning', () => {
     const { service, created } = rig({
       facts: WORKING_FACTS,
       existingCredit: { id: 'prior-streak-credit' },
-      workedMinutesByDate: { '2026-11-10': 720, '2026-11-11': 720, '2026-11-12': 720 },
+      sessionSpansByDate: {
+        '2026-11-10': [{ startMinute: 0, endMinute: 720 }],
+        '2026-11-11': [{ startMinute: 0, endMinute: 720 }],
+        '2026-11-12': [{ startMinute: 0, endMinute: 720 }],
+      },
     });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-12', 'ws-4');
     expect(created).toHaveLength(1);
