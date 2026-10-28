@@ -1,0 +1,111 @@
+-- The approved arrival window is inclusive from 09:30 through 10:30.
+-- Correct only rows still carrying the previous migration's 13:00 default;
+-- preserve any explicitly customized policy version.
+ALTER TABLE "attendance_policies"
+  ALTER COLUMN "lateArrivalBoundaryMinutes" SET DEFAULT 630;
+
+UPDATE "attendance_policies"
+SET "lateArrivalBoundaryMinutes" = 630
+WHERE "lateArrivalBoundaryMinutes" = 780;
+
+-- Lateness is resolved from shift start + grace. Normalize every governing
+-- regular/TL policy to the same inclusive 10:30 cutoff without changing its
+-- historical shift start or end time.
+UPDATE "shift_policies"
+SET "graceMinutes" = CASE
+  WHEN "startTime" = '09:30' THEN 60
+  WHEN "startTime" = '10:30' THEN 0
+  ELSE "graceMinutes"
+END
+WHERE "category" IN ('REGULAR_EMPLOYEE', 'TEAM_LEADER')
+  AND "status" IN ('ACTIVE', 'SCHEDULED')
+  AND "startTime" IN ('09:30', '10:30')
+  AND "graceMinutes" <> CASE
+    WHEN "startTime" = '09:30' THEN 60
+    WHEN "startTime" = '10:30' THEN 0
+    ELSE "graceMinutes"
+  END;
+
+-- Reclassify every historical working-attendance row that has a complete punch
+-- pair. The approved measure is the elapsed span from first punch-in to final
+-- punch-out, so breaks, meetings, and gaps between sessions remain included.
+--
+-- Explicitly approved corrections remain authoritative. Locked/finalized and
+-- imported punch rows are intentionally included because ordinary evaluation
+-- cannot rewrite them. There is no date or month filter.
+UPDATE "daily_attendance" AS da
+SET
+  "status" = 'PRESENT',
+  "calculationReason" = CASE
+    WHEN EXTRACT(EPOCH FROM ("punchOutAt" - "punchInAt")) / 60 >= 540
+      THEN 'REFINED_FULL_DAY'
+    ELSE 'REFINED_SHORT_DAY'
+  END,
+  "lateMinutes" = GREATEST(0, CEIL(EXTRACT(EPOCH FROM (
+    ("punchInAt" AT TIME ZONE 'Asia/Kolkata')::time - TIME '10:30:00'
+  )) / 60)::integer),
+  "leaveDeducted" = 0,
+  "lwpDeducted" = CASE
+    WHEN EXTRACT(EPOCH FROM ("punchOutAt" - "punchInAt")) / 60 >= 540
+      THEN 0
+    ELSE COALESCE(
+      (SELECT ap."shortDayPayDeduction"
+       FROM "attendance_policies" ap
+       WHERE ap."id" = da."attendancePolicyId"),
+      0.3333333333333333
+    )
+  END,
+  "evaluatorVersion" = 3,
+  "sourceFingerprint" = NULL,
+  "updatedAt" = NOW()
+WHERE "punchInAt" IS NOT NULL
+  AND "punchOutAt" IS NOT NULL
+  AND "lastRegularizationId" IS NULL
+  AND (
+    "status" IN ('PRESENT', 'LATE', 'LATE_EXEMPTED')
+    OR "calculationReason" IN ('REFINED_FULL_DAY', 'REFINED_SHORT_DAY', 'REFINED_HALF_DAY')
+  );
+
+-- Backfill the existing automatic 12-hour earning rule for every historical
+-- multi-session workday. The first session start and final session end form one
+-- clock; internal breaks, meetings, logouts and re-logins remain included.
+-- The employee/date unique key makes this idempotent and preserves any credit
+-- that was already granted manually or automatically.
+WITH historical_spans AS (
+  SELECT
+    ws."userId",
+    ws."date",
+    MIN(COALESCE(ws."startWorkAt", ws."loginAt")) AS "firstIn",
+    MAX(ws."logoutAt") AS "lastOut",
+    (ARRAY_AGG(ws."id" ORDER BY ws."logoutAt" DESC, ws."id" DESC))[1] AS "lastSessionId"
+  FROM "work_sessions" ws
+  WHERE COALESCE(ws."startWorkAt", ws."loginAt") IS NOT NULL
+    AND ws."logoutAt" IS NOT NULL
+  GROUP BY ws."userId", ws."date"
+), qualifying_spans AS (
+  SELECT *
+  FROM historical_spans
+  WHERE EXTRACT(EPOCH FROM ("lastOut" - "firstIn")) / 60 >= 720
+)
+INSERT INTO "comp_off_credits" (
+  "id", "employeeId", "earnedFromBusinessDate", "earnedFromWorkSessionId",
+  "earnedAt", "expiresAt", "status", "creditMinutes", "remainingMinutes",
+  "createdAt", "updatedAt"
+)
+SELECT
+  'histco_' || MD5(q."userId" || ':' || q."date"::text),
+  q."userId",
+  q."date",
+  q."lastSessionId",
+  q."lastOut",
+  q."date" + 30,
+  CASE
+    WHEN q."date" + 30 >= CURRENT_DATE THEN 'AVAILABLE'::"CompOffCreditStatus"
+    ELSE 'EXPIRED'::"CompOffCreditStatus"
+  END,
+  180,
+  180,
+  NOW(),
+  NOW()
+FROM qualifying_spans q
+ON CONFLICT ("employeeId", "earnedFromBusinessDate") DO NOTHING;
