@@ -146,6 +146,16 @@ describe('Comp off source qualification', () => {
     expect(source).toContain('9 * 60');
     expect(source).toContain('12 * 60');
   });
+
+  it('ships a targeted repair for finalized rows created by the old break-excluded rule', () => {
+    const migration = readFileSync(
+      resolve(__dirname, '../../prisma/migrations/20261028120000_correct_attendance_window/migration.sql'),
+      'utf8',
+    );
+    expect(migration).toContain('EXTRACT(EPOCH FROM ("punchOutAt" - "punchInAt")) / 60 >= 540');
+    expect(migration).toContain('"calculationReason" = \'REFINED_SHORT_DAY\'');
+    expect(migration).toContain('"lastRegularizationId" IS NULL');
+  });
 });
 
 describe('Comp off automatic earning', () => {
