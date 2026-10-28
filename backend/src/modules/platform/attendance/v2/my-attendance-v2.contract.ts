@@ -513,6 +513,13 @@ export function mapDay(input: MapDayInput): MyAttendanceDayV2 {
     modifiers.add('LATE');
   }
 
+  // Refined short days are calculated policy outcomes, not unresolved
+  // exceptions. Preserve that distinction while still giving every consumer
+  // the canonical short-hours modifier and presentation colour.
+  if (result.calculationReason === 'REFINED_SHORT_DAY') {
+    modifiers.add('INSUFFICIENT_PRESENCE');
+  }
+
   if (input.anySessionAutoClosed) modifiers.add('AUTO_CLOSED');
   if (input.hasWorkEvidence && outcome === 'HOLIDAY') modifiers.add('WORKED_ON_HOLIDAY');
   if (input.hasWorkEvidence && outcome === 'WEEKLY_OFF') modifiers.add('WORKED_ON_WEEKLY_OFF');

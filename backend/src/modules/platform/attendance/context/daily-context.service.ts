@@ -156,6 +156,11 @@ export class DailyContextService {
               afterPunchWindowAction: apRow.afterPunchWindowAction,
               insufficientHoursAction: apRow.insufficientHoursAction,
               automaticHalfDayEnabled: apRow.automaticHalfDayEnabled,
+              halfDayMaximumMinutes: apRow.halfDayMaximumMinutes ?? 270,
+              lateArrivalBoundaryMinutes: apRow.lateArrivalBoundaryMinutes ?? 630,
+              fullHalfDayCompletionMinutes: apRow.fullHalfDayCompletionMinutes ?? 1110,
+              earlyCheckoutBoundaryMinutes: apRow.earlyCheckoutBoundaryMinutes ?? 960,
+              shortDayPayDeduction: apRow.shortDayPayDeduction ?? (1 / 3),
             };
           }
         }

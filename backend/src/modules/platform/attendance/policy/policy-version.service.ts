@@ -476,6 +476,11 @@ export class PolicyVersionService {
           automaticHalfDayEnabled: true,
           permittedBreakMinutes: true,
           minimumEffectiveWorkMinutes: true,
+          halfDayMaximumMinutes: true,
+          lateArrivalBoundaryMinutes: true,
+          fullHalfDayCompletionMinutes: true,
+          earlyCheckoutBoundaryMinutes: true,
+          shortDayPayDeduction: true,
         }
       : undefined;
 

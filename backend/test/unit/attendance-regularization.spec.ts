@@ -257,7 +257,7 @@ describe('AR-1 official persistence', () => {
     expect(row.sourceFingerprint).toEqual(expect.any(String));
     expect(row.attendancePolicyId).toBe('ap-1');
     expect(row.shiftPolicyVersion).toBe(2);
-    expect(row.evaluatorVersion).toBe(2);
+    expect(row.evaluatorVersion).toBe(3);
     expect(row.workSessionIds).toEqual(['ws-1']);
   });
 
@@ -894,10 +894,10 @@ describe('AR-1 duration contract', () => {
   it('38. a full 540 span with the full 60 minute break does not fail', async () => {
     // Presence 10:00-19:00 = 540, break 60, effective work 480. Under the old
     // reading this failed, because 480 was compared against 540.
-    const { service } = day('10:00', '19:00', 540, 60);
+    const { service } = day('10:00', '19:00', 480, 60);
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.workedMinutes).toBe(540);
+    expect(r.workedMinutes).toBe(480);
     expect(r.exceptionFlags).toEqual([]);
     expect(r.evaluationState).toBe('CALCULATED');
     expect(r.status).toBe('PRESENT');
@@ -914,6 +914,7 @@ describe('AR-1 duration contract', () => {
     expect(r.leaveDeducted).toBe(0);
     expect(r.lwpDeducted).toBeCloseTo(1 / 3);
     expect(r.status).not.toBe('ABSENT');
+    expect(r.status).toBe('PRESENT');
   });
 
   it('40. the effective-work floor is evaluated only when configured, and separately', async () => {
@@ -931,7 +932,7 @@ describe('AR-1 duration contract', () => {
     expect(configured.exceptionFlags).toEqual([]);
     expect(configured.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
     expect(configured.evaluationState).toBe('CALCULATED');
-    expect(configured.calculationReason).toBe('REFINED_SHORT_DAY');
+    expect(configured.calculationReason).toBe('REFINED_FULL_DAY');
   });
 
   it('41. an over-long break is its own question, not a short day', async () => {
@@ -943,7 +944,7 @@ describe('AR-1 duration contract', () => {
     expect(r.exceptionFlags).toEqual([]);
     expect(r.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
     expect(r.evaluationState).toBe('CALCULATED');
-    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
+    expect(r.calculationReason).toBe('REFINED_FULL_DAY');
   });
 
   it('42. a corrected day is judged by exactly the same duration rules', async () => {

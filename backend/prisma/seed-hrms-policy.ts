@@ -102,8 +102,8 @@ async function main() {
 
   // ── ShiftPolicy (Regular Employee + Team Leader) ────────────────────────
   const shiftSeeds = [
-    { name: 'Regular Employee', category: 'REGULAR_EMPLOYEE' as const, startTime: '09:30', endTime: '18:30', graceMinutes: 10, minimumWorkingMinutes: 540 },
-    { name: 'Team Leader', category: 'TEAM_LEADER' as const, startTime: '10:30', endTime: '19:30', graceMinutes: 10, minimumWorkingMinutes: 540 },
+    { name: 'Regular Employee', category: 'REGULAR_EMPLOYEE' as const, startTime: '09:30', endTime: '18:30', graceMinutes: 60, minimumWorkingMinutes: 540 },
+    { name: 'Team Leader', category: 'TEAM_LEADER' as const, startTime: '09:30', endTime: '18:30', graceMinutes: 60, minimumWorkingMinutes: 540 },
   ];
   for (const shift of shiftSeeds) {
     const existing = await prisma.shiftPolicy.findFirst({

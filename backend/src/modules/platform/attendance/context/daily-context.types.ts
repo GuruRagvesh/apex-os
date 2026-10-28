@@ -106,6 +106,11 @@ export interface AttendancePolicyContext {
   afterPunchWindowAction: string;
   insufficientHoursAction: string;
   automaticHalfDayEnabled: boolean;
+  halfDayMaximumMinutes: number;
+  lateArrivalBoundaryMinutes: number;
+  fullHalfDayCompletionMinutes: number;
+  earlyCheckoutBoundaryMinutes: number;
+  shortDayPayDeduction: number;
 }
 
 /**

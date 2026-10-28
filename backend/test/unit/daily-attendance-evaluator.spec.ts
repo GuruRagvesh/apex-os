@@ -627,9 +627,9 @@ describe('AE-1 location and photo exceptions', () => {
 });
 
 describe('AE-1 undecided policy rules', () => {
-  it('21. a late punch with a complete workday remains a refined full day', async () => {
+  it('21. a late punch with a complete nine-hour presence remains a refined full day', async () => {
     const { service } = rig({
-      evidence: [punch('PUNCH_IN', ist('11:15')), punch('PUNCH_OUT', ist('20:00'))],
+      evidence: [punch('PUNCH_IN', ist('11:15')), punch('PUNCH_OUT', ist('20:15'))],
       sessions: [COMPLETE_SESSION],
     });
 
@@ -763,18 +763,17 @@ describe('staging 09:30-10:30 punch-in window and employee-relative span', () =>
     expect(result.evaluationState).toBe('CALCULATED');
   });
 
-  it('10:31 Punch In with 480 worked minutes is a refined short day', async () => {
+  it('10:31 Punch In with a full nine-hour presence is present and late', async () => {
     const result = await evaluateSpan('10:31', '19:31');
 
     expect(result.lateMinutes).toBe(1);
     expect(result.exceptionFlags).toEqual([]);
     expect(result.exceptionFlags).not.toContain('INSUFFICIENT_PRESENCE_SPAN');
     expect(result.evaluationState).toBe('CALCULATED');
-    expect(result.calculationReason).toBe('REFINED_SHORT_DAY');
+    expect(result.calculationReason).toBe('REFINED_FULL_DAY');
     expect(result.leaveDeducted).toBe(0);
-    expect(result.lwpDeducted).toBeCloseTo(1 / 3);
-    expect(result.status).not.toBe('HALF_DAY');
-    expect(result.status).not.toBe('ABSENT');
+    expect(result.lwpDeducted).toBe(0);
+    expect(result.status).toBe('PRESENT');
   });
 
   it('10:30:01 Punch In is late at the exact second boundary', async () => {
@@ -783,9 +782,9 @@ describe('staging 09:30-10:30 punch-in window and employee-relative span', () =>
     expect(result.lateMinutes).toBe(1);
     expect(result.exceptionFlags).toEqual([]);
     expect(result.evaluationState).toBe('CALCULATED');
-    expect(result.calculationReason).toBe('REFINED_SHORT_DAY');
+    expect(result.calculationReason).toBe('REFINED_FULL_DAY');
     expect(result.leaveDeducted).toBe(0);
-    expect(result.lwpDeducted).toBeCloseTo(1 / 3);
+    expect(result.lwpDeducted).toBe(0);
   });
 
   it('10:00 to 19:00 satisfies the 540-minute presence span', async () => {
@@ -800,9 +799,19 @@ describe('staging 09:30-10:30 punch-in window and employee-relative span', () =>
 
     expect(result.exceptionFlags).toEqual([]);
     expect(result.evaluationState).toBe('CALCULATED');
-    expect(result.status).not.toBe('HALF_DAY');
+    expect(result.status).toBe('PRESENT');
+    expect(result.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(result.leaveDeducted).toBe(0);
     expect(result.lwpDeducted).toBeCloseTo(1 / 3);
+  });
+
+  it('10:31 to 19:00 keeps late and short-hours facts independently', async () => {
+    const result = await evaluateSpan('10:31', '19:00');
+
+    expect(result.lateMinutes).toBe(1);
+    expect(result.status).toBe('PRESENT');
+    expect(result.calculationReason).toBe('REFINED_SHORT_DAY');
+    expect(result.evaluationState).toBe('CALCULATED');
   });
 });
 
@@ -921,7 +930,7 @@ describe('AE-1 persistence, provenance and safety', () => {
 
     expect(out.result.provenance).toMatchObject({
       resolverVersion: 1,
-      evaluatorVersion: 2,
+      evaluatorVersion: 3,
       employeeProfileId: 'prof-1',
       attendancePolicyId: 'ap-1',
       attendancePolicyVersion: 3,
@@ -938,7 +947,7 @@ describe('AE-1 persistence, provenance and safety', () => {
     expect(row.attendancePolicyVersion).toBe(3);
     expect(row.shiftPolicyId).toBe('shift-1');
     expect(row.workSessionIds).toEqual(['ws-1']);
-    expect(row.evaluatorVersion).toBe(2);
+    expect(row.evaluatorVersion).toBe(3);
     expect(row.sourceFingerprint).toEqual(expect.any(String));
     expect(row.calculationReason).toBe('REFINED_FULL_DAY');
   });

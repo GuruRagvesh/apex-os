@@ -734,14 +734,17 @@ export class DailyAttendanceEvaluatorService {
           + Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
       };
       const refined = classifyRefinedAttendance({
-        workedMinutes,
+        // The approved nine-hour rule is elapsed presence, including optional
+        // breaks. `workedMinutes` is break-excluded productive time and must
+        // never be compared with the 540-minute presence requirement.
+        presenceMinutes: presenceSpanMinutes,
         punchInMinutes: localTimeMinutes(punchInAt),
         punchOutMinutes: localTimeMinutes(punchOutAt),
         requiredMinutes: requiredSpan,
-        halfDayMaximumMinutes: (policy as any)?.halfDayMaximumMinutes ?? 270,
-        lateArrivalBoundaryMinutes: (policy as any)?.lateArrivalBoundaryMinutes ?? 780,
-        fullHalfDayCompletionMinutes: (policy as any)?.fullHalfDayCompletionMinutes ?? 1110,
-        earlyCheckoutBoundaryMinutes: (policy as any)?.earlyCheckoutBoundaryMinutes ?? 960,
+        halfDayMaximumMinutes: policy?.halfDayMaximumMinutes ?? 270,
+        lateArrivalBoundaryMinutes: policy?.lateArrivalBoundaryMinutes ?? 630,
+        fullHalfDayCompletionMinutes: policy?.fullHalfDayCompletionMinutes ?? 1110,
+        earlyCheckoutBoundaryMinutes: policy?.earlyCheckoutBoundaryMinutes ?? 960,
       });
       if (refined === 'FULL_DAY') {
         status = 'PRESENT';
@@ -754,9 +757,12 @@ export class DailyAttendanceEvaluatorService {
         // explicit leave branch above.
         lwpDeducted = 0.5;
       } else {
-        status = 'LATE';
+        // Short presence and late arrival are independent facts. Keep the day
+        // present and let the V2 contract expose the short-hours modifier;
+        // lateMinutes independently adds LATE only after the 10:30 cutoff.
+        status = 'PRESENT';
         reason = 'REFINED_SHORT_DAY';
-        lwpDeducted = (policy as any)?.shortDayPayDeduction ?? (1 / 3);
+        lwpDeducted = policy?.shortDayPayDeduction ?? (1 / 3);
       }
     } else {
 
@@ -1073,6 +1079,8 @@ export class DailyAttendanceEvaluatorService {
       workedMinutes: r.workedMinutes,
       breakMinutes: r.breakMinutes,
       lateMinutes: r.lateMinutes,
+      presenceMinutes: r.presenceMinutes,
+      requiredMinutes: r.requiredMinutes,
       leaveDeducted: r.leaveDeducted,
       lwpDeducted: r.lwpDeducted,
       provenance: r.provenance,
