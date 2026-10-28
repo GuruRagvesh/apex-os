@@ -9,7 +9,7 @@ import {
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-// Refined earning rule: each completed 12-hour day earns 180 minutes; three
+// Refined earning rule: each completed 12-hour elapsed-presence day earns 180 minutes; three
 // such credits combine to one 540-minute comp-off day.
 
 const tvaOf = () => new TVAService({ get: () => undefined } as unknown as ConfigService);
@@ -35,7 +35,7 @@ interface RigOptions {
   credits?: Array<{ id: string; expiresAt: string; earnedAt?: string; remainingMinutes?: number }>;
   createThrows?: any;
   expiryDays?: number;
-  workedMinutesByDate?: Record<string, number>;
+  sessionSpansByDate?: Record<string, Array<{ startMinute: number; endMinute: number }>>;
   existingCredit?: { id: string } | null;
 }
 
@@ -87,8 +87,12 @@ function rig(opts: RigOptions = {}) {
       findMany: jest.fn(({ where }: any) => Promise.resolve(
         (where.date.in as Date[]).flatMap((date) => {
           const key = date.toISOString().slice(0, 10);
-          const minutes = opts.workedMinutesByDate?.[key];
-          return minutes === undefined ? [] : [{ date, totalWorkMinutes: minutes }];
+          const spans = opts.sessionSpansByDate?.[key] ?? [];
+          return spans.map(({ startMinute, endMinute }) => ({
+            date,
+            startWorkAt: new Date(date.getTime() + startMinute * 60_000),
+            logoutAt: new Date(date.getTime() + endMinute * 60_000),
+          }));
         }),
       )),
     },
@@ -145,14 +149,14 @@ describe('Comp off source qualification', () => {
 });
 
 describe('Comp off automatic earning', () => {
-  it('does not grant a credit below 12 effective hours', async () => {
-    const { service, created } = rig({ facts: SUNDAY_FACTS, workedMinutesByDate: { '2026-11-08': 719 } });
+  it('does not grant a credit below 12 elapsed hours', async () => {
+    const { service, created } = rig({ facts: SUNDAY_FACTS, sessionSpansByDate: { '2026-11-08': [{ startMinute: 0, endMinute: 719 }] } });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-1');
     expect(created).toHaveLength(0);
   });
 
-  it('grants a 180-minute credit at exactly 12 effective hours', async () => {
-    const { service, created } = rig({ facts: SUNDAY_FACTS, workedMinutesByDate: { '2026-11-08': 720 } });
+  it('grants a 180-minute credit at exactly 12 elapsed hours', async () => {
+    const { service, created } = rig({ facts: SUNDAY_FACTS, sessionSpansByDate: { '2026-11-08': [{ startMinute: 0, endMinute: 720 }] } });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-1');
     expect(created).toHaveLength(1);
     expect(created[0].earnedFromWorkSessionId).toBe('ws-1');
@@ -160,10 +164,28 @@ describe('Comp off automatic earning', () => {
     expect(created[0].remainingMinutes).toBe(180);
   });
 
+  it('includes breaks, meetings, and gaps across multiple sessions in the 12-hour clock', async () => {
+    const { service, created } = rig({
+      facts: SUNDAY_FACTS,
+      sessionSpansByDate: {
+        '2026-11-08': [
+          { startMinute: 0, endMinute: 210 },
+          { startMinute: 330, endMinute: 720 },
+        ],
+      },
+    });
+    await service.evaluateCompletedWorkday('emp-1', '2026-11-08', 'ws-2');
+    expect(created).toHaveLength(1);
+  });
+
   it('three completed 12-hour days earn 540 minutes in total', async () => {
     const { service, created } = rig({
       facts: WORKING_FACTS,
-      workedMinutesByDate: { '2026-11-09': 720, '2026-11-10': 720, '2026-11-11': 720 },
+      sessionSpansByDate: {
+        '2026-11-09': [{ startMinute: 0, endMinute: 720 }],
+        '2026-11-10': [{ startMinute: 0, endMinute: 720 }],
+        '2026-11-11': [{ startMinute: 0, endMinute: 720 }],
+      },
     });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-09', 'ws-1');
     await service.evaluateCompletedWorkday('emp-1', '2026-11-10', 'ws-2');
@@ -176,7 +198,11 @@ describe('Comp off automatic earning', () => {
     const { service, created } = rig({
       facts: WORKING_FACTS,
       existingCredit: { id: 'prior-streak-credit' },
-      workedMinutesByDate: { '2026-11-10': 720, '2026-11-11': 720, '2026-11-12': 720 },
+      sessionSpansByDate: {
+        '2026-11-10': [{ startMinute: 0, endMinute: 720 }],
+        '2026-11-11': [{ startMinute: 0, endMinute: 720 }],
+        '2026-11-12': [{ startMinute: 0, endMinute: 720 }],
+      },
     });
     await service.evaluateCompletedWorkday('emp-1', '2026-11-12', 'ws-4');
     expect(created).toHaveLength(1);

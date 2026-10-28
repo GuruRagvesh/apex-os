@@ -12,7 +12,8 @@ import { NotificationEventService } from '../notifications/notification-event.se
 /**
  * Comp Off credits.
  *
- * A completed 12-hour day earns 180 minutes. Three such days therefore total
+ * A completed 12-hour elapsed-presence day earns 180 minutes. Breaks, meetings,
+ * and gaps between multiple sessions remain inside the daily span. Three such days therefore total
  * one 540-minute (9-hour) comp-off day without an overlapping bonus.
  *
  * Consumption is likewise exact: a leave request for N qualifying days needs N
@@ -79,19 +80,29 @@ export class CompOffService {
     return facts.expectedCompanyWorkingDay;
   }
 
-  private async workedMinutes(employeeId: string, dates: string[]) {
+  private async elapsedPresenceMinutes(employeeId: string, dates: string[]) {
     const rows = await this.prisma.workSession.findMany({
       where: {
         userId: employeeId,
         date: { in: dates.map((date) => this.tva.companyDateOnly(new Date(`${date}T00:00:00.000Z`))) },
         logoutAt: { not: null },
       },
-      select: { date: true, totalWorkMinutes: true },
+      select: { date: true, startWorkAt: true, logoutAt: true },
     });
-    const totals = new Map<string, number>();
+    const bounds = new Map<string, { firstIn: number; lastOut: number }>();
     for (const row of rows) {
       const key = row.date.toISOString().slice(0, 10);
-      totals.set(key, (totals.get(key) ?? 0) + Math.max(0, row.totalWorkMinutes ?? 0));
+      const start = row.startWorkAt.getTime();
+      const end = row.logoutAt!.getTime();
+      const current = bounds.get(key);
+      bounds.set(key, {
+        firstIn: current ? Math.min(current.firstIn, start) : start,
+        lastOut: current ? Math.max(current.lastOut, end) : end,
+      });
+    }
+    const totals = new Map<string, number>();
+    for (const [key, { firstIn, lastOut }] of bounds) {
+      totals.set(key, Math.max(0, Math.floor((lastOut - firstIn) / 60_000)));
     }
     return totals;
   }
@@ -143,7 +154,10 @@ export class CompOffService {
   /** Called after a real, completed punch-out/end-day; safe to retry. */
   async evaluateCompletedWorkday(employeeId: string, businessDate: string, workSessionId: string) {
     if (!DATE_RE.test(businessDate)) return null;
-    const currentMinutes = (await this.workedMinutes(employeeId, [businessDate])).get(businessDate) ?? 0;
+    // One employee-day has one elapsed clock: first punch-in/session start to
+    // final punch-out/session end. Re-logins do not discard earlier time, and
+    // breaks, meetings, and gaps between sessions are included.
+    const currentMinutes = (await this.elapsedPresenceMinutes(employeeId, [businessDate])).get(businessDate) ?? 0;
     if (currentMinutes < LONG_DAY_MINUTES) return null;
     return this.createAutomaticCredit(employeeId, businessDate, workSessionId, 'SINGLE_DAY_12_HOURS');
   }
