@@ -155,6 +155,7 @@ describe('Comp off source qualification', () => {
     expect(migration).toContain('EXTRACT(EPOCH FROM ("punchOutAt" - "punchInAt")) / 60 >= 540');
     expect(migration).toContain('"calculationReason" = \'REFINED_SHORT_DAY\'');
     expect(migration).toContain('"lastRegularizationId" IS NULL');
+    expect(migration).not.toMatch(/WHERE\s+"date"|AND\s+"date"/i);
   });
 });
 

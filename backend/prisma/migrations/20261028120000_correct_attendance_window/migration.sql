@@ -36,7 +36,8 @@ WHERE "category" IN ('REGULAR_EMPLOYEE', 'TEAM_LEADER')
 -- regularization. Imported history, manual decisions, and corrected days keep
 -- their recorded authority. Locked/finalized rows are intentionally included:
 -- ordinary re-evaluation cannot rewrite them, so the migration is the only
--- deterministic way to repair the already-visible October results.
+-- deterministic way to repair every affected historical result. There is
+-- intentionally no date or month filter: all qualifying past dates are fixed.
 UPDATE "daily_attendance"
 SET
   "status" = 'PRESENT',
