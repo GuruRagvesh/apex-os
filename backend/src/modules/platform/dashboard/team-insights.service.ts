@@ -7,6 +7,8 @@ import { TicketTimingService } from '../../../common/services/ticket-timing.serv
 import { TVAService } from '../../../common/services/tva.service';
 import { LeaveBalanceService } from '../../operations/leave/leave-balance.service';
 import { BusinessCalendarService } from '../attendance/calendar/business-calendar.service';
+import { MyAttendanceV2Service } from '../attendance/v2/my-attendance-v2.service';
+import type { MyAttendanceDayV2 } from '../attendance/v2/my-attendance-v2.contract';
 
 const LEADER_ROLES = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const PERSONAL_INSIGHT_ROLES = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
@@ -167,6 +169,19 @@ export function netSessionMinutes(session: Interval, breaks: Interval[]) {
   return Math.max(0, grossMinutes - unionMinutes(clippedBreaks));
 }
 
+export function canonicalTeamCalendarStatus(
+  day: Pick<MyAttendanceDayV2, 'isFuture' | 'outcome' | 'modifiers'> | null | undefined,
+  fallback: string,
+) {
+  if (!day) return fallback;
+  if (day.isFuture) return 'FUTURE';
+  if (day.outcome === 'UNRESOLVED') return 'NEEDS_REVIEW';
+  if (day.outcome === 'IN_PROGRESS') return 'IN_PROGRESS';
+  if (day.modifiers.some((value) => value === 'INSUFFICIENT_PRESENCE' || value === 'INSUFFICIENT_EFFECTIVE_WORK')) return 'SHORT_HOURS';
+  if (day.modifiers.includes('LATE')) return 'LATE';
+  return day.outcome ?? fallback;
+}
+
 @Injectable()
 export class TeamInsightsService {
   private readonly insightCache = new Map<string, { expiresAt: number; revision: string; value: unknown }>();
@@ -179,6 +194,7 @@ export class TeamInsightsService {
     private readonly tva: TVAService,
     @Optional() private readonly businessCalendar?: BusinessCalendarService,
     @Optional() private readonly leaveBalanceService?: LeaveBalanceService,
+    @Optional() private readonly myAttendance?: MyAttendanceV2Service,
   ) {}
 
   private async scheduledDates(range: Range) {
@@ -623,7 +639,7 @@ export class TeamInsightsService {
     range: Range,
     calendarDays: Array<{ businessDate: string; isWorkingDay: boolean; reason: string; holidayName: string | null }>,
   ) {
-    const [rows, sessions, breaks, ticketLogs, meetings, approvedLeaves] = await Promise.all([
+    const [rows, sessions, breaks, ticketLogs, meetings, approvedLeaves, canonicalMonth] = await Promise.all([
       this.prisma.dailyAttendance.findMany({
         where: { userId, date: { gte: databaseDay(range.from), lte: databaseDay(range.to) } },
         select: {
@@ -665,8 +681,14 @@ export class TeamInsightsService {
         select: { id: true, type: true, startDate: true, endDate: true, isHalfDay: true },
         orderBy: { startDate: 'asc' },
       }) : Promise.resolve([]),
+      this.myAttendance
+        ? this.myAttendance.calendarMonth(userId, range.from.slice(0, 7))
+        : Promise.resolve(null),
     ]);
     const rowsByDate = new Map(rows.map((row) => [isoDay(row.date), row]));
+    const canonicalByDate = new Map<string, MyAttendanceDayV2>(
+      (canonicalMonth?.days ?? []).map((day): [string, MyAttendanceDayV2] => [day.date, day]),
+    );
     const today = this.tva.companyToday();
     const now = this.tva.now();
     const productiveDates = new Set<string>();
@@ -684,6 +706,7 @@ export class TeamInsightsService {
     }
     return calendarDays.map((day) => {
       const row = rowsByDate.get(day.businessDate);
+      const canonical = canonicalByDate.get(day.businessDate);
       const dayRange: Range = {
         from: day.businessDate,
         to: day.businessDate,
@@ -767,17 +790,19 @@ export class TeamInsightsService {
           : day.reason === 'HOLIDAY' || day.reason === 'COMPANY_CLOSURE' ? 'HOLIDAY'
           : ['SUNDAY', 'SECOND_SATURDAY', 'FOURTH_SATURDAY'].includes(day.reason) ? 'WEEKLY_OFF'
             : day.businessDate > today ? 'FUTURE' : 'MISSING');
+      const canonicalModifiers = canonical?.modifiers ?? modifiers;
+      const canonicalStatus = canonicalTeamCalendarStatus(canonical, displayStatus);
       return {
         date: day.businessDate,
-        status: displayStatus,
-        outcome,
-        modifiers,
-        isPresent,
-        holidayName: day.holidayName,
-        isWorkingDay: day.isWorkingDay,
-        punchInAt: punchInAt?.toISOString() ?? null,
-        punchOutAt: punchOutAt?.toISOString() ?? null,
-        workingMinutes: sessionIntervals.length ? derivedWorkingMinutes : row?.workedMinutes ?? null,
+        status: canonicalStatus,
+        outcome: canonical?.outcome ?? outcome,
+        modifiers: canonicalModifiers,
+        isPresent: canonical ? ['PRESENT', 'HALF_DAY'].includes(canonical.outcome ?? '') : isPresent,
+        holidayName: canonical?.calendar?.holidayName ?? day.holidayName,
+        isWorkingDay: canonical?.calendar?.isWorkingDay ?? day.isWorkingDay,
+        punchInAt: canonical?.punchInAt ?? punchInAt?.toISOString() ?? null,
+        punchOutAt: canonical?.punchOutAt ?? punchOutAt?.toISOString() ?? null,
+        workingMinutes: canonical?.workedMinutes ?? (sessionIntervals.length ? derivedWorkingMinutes : row?.workedMinutes ?? null),
         productiveMinutes: unionMinutes([...ticketIntervals, ...meetingIntervals]),
         meetingMinutes: unionMinutes(meetingIntervals),
         meetingCount,

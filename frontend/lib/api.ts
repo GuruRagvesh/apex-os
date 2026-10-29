@@ -102,6 +102,9 @@ export const workdayApi = {
   getToday: () => r(api.get('/workday/today')),
   getTeam: (date?: string) => r(api.get('/workday/team', { params: date ? { date } : undefined })),
   getHistory: (userId: string) => r(api.get(`/workday/history/${userId}`)),
+  getProductivityTimelinePeople: () => r(api.get('/workday/productivity-timeline/people')),
+  getProductivityTimeline: (userId: string, month: string) =>
+    r(api.get('/workday/productivity-timeline', { params: { userId, month } })),
   getMeetingOptions: () => r(api.get('/workday/meetings/options')),
   getMeetings: () => r(api.get('/workday/meetings')),
   getPendingMeetingClassification: () => r(api.get('/workday/meetings/pending-classification')),

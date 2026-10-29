@@ -285,6 +285,24 @@ button.day:focus-visible { outline: 2px solid #0072ff; outline-offset: 2px; }
 }
 .day[data-status="Needs review"] .statusDot { border-radius: 2px; transform: rotate(45deg); }
 .day[data-review="true"] .statusDot { border-radius: 2px; transform: rotate(45deg); }
+.needsReviewPulse {
+  z-index: 1;
+  animation: needsReviewAttention 1.7s ease-in-out infinite;
+}
+.needsReviewPulse .statusDot { animation: needsReviewDot 1.7s ease-in-out infinite; }
+@keyframes needsReviewAttention {
+  0%, 100% { border-color: #9aa7b8; box-shadow: 0 0 0 0 rgba(111,127,148,.12); }
+  50% { border-color: #52657d; box-shadow: 0 0 0 5px rgba(111,127,148,.22), 0 7px 18px rgba(45,60,80,.13); }
+}
+@keyframes needsReviewDot {
+  0%, 100% { opacity: .72; }
+  50% { opacity: 1; box-shadow: 0 0 0 5px rgba(111,127,148,.2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .needsReviewPulse,
+  .needsReviewPulse .statusDot { animation: none; }
+  .needsReviewPulse { border: 2px solid #52657d; box-shadow: 0 0 0 3px rgba(111,127,148,.2); }
+}
 .muted {
   opacity: 1;
   color: #8393b4;
@@ -293,7 +311,9 @@ button.day:focus-visible { outline: 2px solid #0072ff; outline-offset: 2px; }
 .today { border: 1.5px solid #0072ff; box-shadow: 0 0 0 2px #e4f1ff; }
 .selected { border: 2px solid #01266a; box-shadow: 0 0 0 2px #b8d9ff; }
 .leaveSelectedDay { outline: 2px solid #2563eb; outline-offset: -3px; background-image: linear-gradient(rgba(37,99,235,.07), rgba(37,99,235,.07)); }
-.plannedDayLabel { display: block; margin-top: 5px; overflow: hidden; color: #45698f; font-size: 9px; font-weight: 750; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.plannedDayLabel { display: block; margin-top: 7px; overflow: hidden; color: #45698f; font-family: Georgia, 'Times New Roman', serif; font-size: 12px; font-style: italic; font-weight: 700; line-height: 1.15; letter-spacing: .045em; text-align: center; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 0 rgba(255,255,255,.72); }
+.day[data-status="Holiday"] .plannedDayLabel { color: #8b5b00; }
+.day[data-status="Weekly off"] .plannedDayLabel { color: #205f9f; }
 
 .dayTop { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-height: 15px; }
 .dayNumber { font-size: 13px; line-height: 1; font-weight: 700; letter-spacing: -.015em; color: #172b50; }

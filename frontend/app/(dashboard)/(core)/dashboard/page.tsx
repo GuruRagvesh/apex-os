@@ -11,6 +11,5 @@ import { HomeCalendarPanel } from '@/components/attendance-v2/home/HomeCalendarP
 export default function DashboardPage() {
   return <DashboardScreen
     personalPanel={<HomeCalendarPanel />}
-    showTeamInsights
   />;
 }

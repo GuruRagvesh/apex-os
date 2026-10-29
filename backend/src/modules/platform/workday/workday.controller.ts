@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { WorkdayService } from './workday.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { ClassifyMeetingInput, MeetingService } from './meeting.service';
+import { ProductivityTimelineService } from './productivity-timeline.service';
 
 @ApiTags('Workday')
 @Controller('workday')
@@ -12,7 +13,18 @@ export class WorkdayController {
   constructor(
     private readonly workdayService: WorkdayService,
     private readonly meetingService: MeetingService,
+    private readonly productivityTimeline: ProductivityTimelineService,
   ) {}
+
+  @Get('productivity-timeline/people')
+  productivityTimelinePeople(@Request() req: any) {
+    return this.productivityTimeline.people(req.user.id ?? req.user.sub);
+  }
+
+  @Get('productivity-timeline')
+  productivityTimelineData(@Request() req: any, @Query('userId') userId: string, @Query('month') month: string) {
+    return this.productivityTimeline.get(req.user.id ?? req.user.sub, userId, month);
+  }
 
   @Get('meetings/options')
   meetingOptions(@Request() req: any) {

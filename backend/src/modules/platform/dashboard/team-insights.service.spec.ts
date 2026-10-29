@@ -1,5 +1,5 @@
 import { TicketStatus } from '@prisma/client';
-import { averageClockMinute, netSessionMinutes, ticketOverduePhase } from './team-insights.service';
+import { averageClockMinute, canonicalTeamCalendarStatus, netSessionMinutes, TeamInsightsService, ticketOverduePhase } from './team-insights.service';
 
 describe('Team Insights clock averages', () => {
   it('calculates the arithmetic average punch time in minutes after midnight', () => {
@@ -71,5 +71,57 @@ describe('Team Insights live break deduction', () => {
       { start: at(9, 0), end: at(13, 30) },
       [{ start: at(13, 0), end: at(13, 30) }],
     )).toBe(240);
+  });
+});
+
+describe('Team Insights canonical calendar colours', () => {
+  const day = (outcome: any, modifiers: any[] = [], isFuture = false) => ({ outcome, modifiers, isFuture });
+
+  it('keeps canonical present, leave, holiday and weekly-off day types', () => {
+    expect(canonicalTeamCalendarStatus(day('PRESENT'), 'MISSING')).toBe('PRESENT');
+    expect(canonicalTeamCalendarStatus(day('LEAVE'), 'MISSING')).toBe('LEAVE');
+    expect(canonicalTeamCalendarStatus(day('HOLIDAY'), 'MISSING')).toBe('HOLIDAY');
+    expect(canonicalTeamCalendarStatus(day('WEEKLY_OFF'), 'MISSING')).toBe('WEEKLY_OFF');
+  });
+
+  it('keeps late and short-hours separate while giving each its day colour', () => {
+    expect(canonicalTeamCalendarStatus(day('PRESENT', ['LATE']), 'PRESENT')).toBe('LATE');
+    expect(canonicalTeamCalendarStatus(day('PRESENT', ['INSUFFICIENT_EFFECTIVE_WORK']), 'PRESENT')).toBe('SHORT_HOURS');
+  });
+
+  it('does not manufacture a result for unresolved or future days', () => {
+    expect(canonicalTeamCalendarStatus(day('UNRESOLVED'), 'MISSING')).toBe('NEEDS_REVIEW');
+    expect(canonicalTeamCalendarStatus(day(null, [], true), 'MISSING')).toBe('FUTURE');
+  });
+});
+
+describe('Team Insights hierarchy scope without a workday session', () => {
+  it('resolves a team lead\'s active team members without reading punch sessions', async () => {
+    const prisma = {
+      team: {
+        findMany: jest.fn().mockResolvedValue([
+          { members: [{ userId: 'employee-1' }, { userId: 'employee-2' }] },
+        ]),
+      },
+    };
+    const access = { roleName: jest.fn().mockReturnValue('TEAM_LEAD') };
+    const service = new TeamInsightsService(
+      prisma as any,
+      access as any,
+      {} as any,
+      {} as any,
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    await expect((service as any).allowedScope({ id: 'lead-1' })).resolves.toEqual({
+      role: 'TEAM_LEAD',
+      departmentId: null,
+      userIds: ['employee-1', 'employee-2'],
+    });
+    expect(prisma.team.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { teamLeadId: 'lead-1', isActive: true },
+    }));
   });
 });

@@ -327,6 +327,23 @@ button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07)
 .neutralDay .dayNumber {color: #94a3b8;}
 .todayDay {border-color: var(--blue);box-shadow: 0 0 0 2px #dbeafe;}
 .selectedDay {border-color: var(--navy);box-shadow: 0 0 0 2px #cfe3ff;}
+.needsReviewPulse {
+  z-index: 1;
+  animation: needsReviewAttention 1.7s ease-in-out infinite;
+}
+.needsReviewPulse .dayStatus>svg { animation: needsReviewIcon 1.7s ease-in-out infinite; }
+@keyframes needsReviewAttention {
+  0%,100% { border-color:#94a3b8;box-shadow:0 0 0 0 rgba(71,85,105,.12); }
+  50% { border-color:#475569;box-shadow:0 0 0 5px rgba(71,85,105,.2),0 8px 20px rgba(30,41,59,.14); }
+}
+@keyframes needsReviewIcon {
+  0%,100% { transform:scale(1);opacity:.75; }
+  50% { transform:scale(1.18);opacity:1; }
+}
+@media(prefers-reduced-motion: reduce) {
+  .needsReviewPulse,.needsReviewPulse .dayStatus>svg {animation:none;}
+  .needsReviewPulse {border:2px solid #475569;box-shadow:0 0 0 3px rgba(71,85,105,.18);}
+}
 .dimmedDay {opacity: .3;}
 .dimmedDay:hover,
 .dimmedDay:focus-visible {opacity: 1;}
