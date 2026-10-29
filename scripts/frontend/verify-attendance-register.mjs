@@ -18,12 +18,13 @@
  *  2. THE BACKENDS ARE NOT DELETED. Removing a tab is a product decision, not
  *     a demolition. Both components stay on disk so the decision is reversible.
  *
- *  3. EXACTLY SEVEN COLUMNS. Not eight, not "seven plus one that was useful
- *     while building it". Every extra column is something HR has to explain to
- *     whoever receives the file.
+ *  3. EXACTLY THE AGREED COLUMNS. Employee, Present, Absent, Half days, Leave
+ *     days, Late days, Below 9 hours, Leave balance, Comp off, Unresolved,
+ *     Attendance % and Provisional -- the Monthly Summary figures HR asked to
+ *     see on screen. Every extra column is something HR has to explain.
  *
  *  4. NOTHING SHOWN IS COMPUTED HERE. The table, the workbook and the CSV read
- *     the same server result. A percentage recomputed in JSX is a second
+ *     the same server report (one canonical assembler). A percentage recomputed in JSX is a second
  *     implementation of the formula, and the two drift.
  *
  *  5. NULL IS A DASH. An employee with no eligible working day has not scored
@@ -102,7 +103,11 @@ for (const key of ['exceptionQueue', 'payrollClose']) {
   }
 }
 
-// ── Rule 3: exactly seven columns ──────────────────────────────────────────
+// ── Rule 3: exactly the agreed columns ─────────────────────────────────────
+const REGISTER_HEADERS = [
+  'Employee', 'Present', 'Absent', 'Half days', 'Leave days', 'Late days', 'Below 9 hours',
+  'Leave balance', 'Comp off (hrs)', 'Unresolved', 'Attendance %', 'Provisional',
+];
 // The register is the console's only view now: everything from its header row on.
 const registerBlock = consoleTsx.match(/(<span[^>]*>\s*Monthly Register\s*<\/span>[\s\S]*<\/table>)/);
 if (!registerBlock) {
@@ -110,8 +115,8 @@ if (!registerBlock) {
 } else {
   const body = registerBlock[1];
   const headers = [...body.matchAll(/<th[^>]*>([^<]+)<\/th>/g)].map((m) => m[1].trim());
-  if (headers.length !== 7) {
-    failures.push(`The register must show exactly seven columns; found ${headers.length}: ${headers.join(' | ')}`);
+  if (headers.join('|') !== REGISTER_HEADERS.join('|')) {
+    failures.push(`The register columns must be ${REGISTER_HEADERS.join(' | ')}; found ${headers.join(' | ')}`);
   }
   const forbidden = /\b(LWP|Worked|Punch In|Punch Out|Salary|Payroll|Sessions|Workday|Geofence|Exception)\b/i;
   const offending = headers.filter((h) => forbidden.test(h));
@@ -123,7 +128,7 @@ if (!registerBlock) {
   //
   // Any arithmetic on the seven fields inside the table is a second
   // implementation of a formula the server already owns.
-  if (/\{[^}]*e\.(daysPresent|halfDays|daysAbsent|latePunchIns)[^}]*[*/+][^}]*\}/.test(body)) {
+  if (/\{[^}]*e\.(daysPresent|halfDays|daysAbsent|latePunchIns|leaveDays|daysBelowNineHours|approvedCompOff|unresolvedDays)[^}]*[*/+][^}]*\}/.test(body)) {
     failures.push(
       'The register table does arithmetic on the server figures. The UI, the workbook and ' +
         'the CSV must all render one result, not three implementations of the formula.',
@@ -145,7 +150,7 @@ if (!registerBlock) {
   if (!/Download Excel/.test(body) || !/Download CSV/.test(body)) {
     failures.push('The register is missing a Download Excel or Download CSV button.');
   }
-  if (!/download\('xlsx'\)/.test(body) || !/download\('csv'\)/.test(body)) {
+  if (!/download\('xlsx'\)/.test(body) || !/download\('zip'\)/.test(body)) {
     failures.push('A download button is not wired to the register download.');
   }
   if (/<a[^>]+href=[^>]*register\/export/.test(consoleTsx)) {
@@ -179,7 +184,7 @@ if (!/responseType: 'blob'/.test(api)) {
 if (!/revokeObjectURL/.test(api)) {
   failures.push('The register download never revokes its object URL; the file stays in memory.');
 }
-for (const fn of ['formatCompletion', 'formatBalance', 'registerFileName', 'monthRange', 'shiftMonth']) {
+for (const fn of ['formatCompletion', 'formatBalance', 'formatHours', 'formatProvisional', 'registerFileName', 'reportFileName', 'monthRange', 'shiftMonth']) {
   if (!new RegExp(`export function ${fn}\\b`).test(month)) {
     failures.push(`register-month.ts no longer exports ${fn}(); its backend parity test cannot run.`);
   }
@@ -191,5 +196,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('[attendance] Register OK — Monthly Register is the Team Attendance view, seven columns, one computed result, both exports.');
+console.log('[attendance] Register OK — Monthly Register is the Team Attendance view, served by the canonical report, both exports.');
 process.exit(0);
