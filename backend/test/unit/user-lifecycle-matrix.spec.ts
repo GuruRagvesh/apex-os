@@ -199,10 +199,11 @@ describe('lifecycle dependency matrix covers the schema', () => {
 
   it('never reassigns to a real person and never scrubs by name', () => {
     expect(HANDLERS.filter((h) => h.action === 'NAME').every((h) => !!h.where)).toBe(true);
-    const nameRule = HANDLERS.find((h) => h.action === 'NAME')!;
-    const where = JSON.stringify(nameRule.where!({ id: 'u1', email: 'a@x.test', employeeId: 'E1' }, { systemUserId: 's', operationId: null, now: new Date() }));
-    expect(where).not.toMatch(/rawName/);
-    expect(where).toMatch(/userId|rawEmployeeId/);
+    for (const nameRule of HANDLERS.filter((h) => h.action === 'NAME')) {
+      const where = JSON.stringify(nameRule.where!({ id: 'u1', email: 'a@x.test', employeeId: 'E1' }, { systemUserId: 's', operationId: null, now: new Date() }));
+      expect(where).not.toMatch(/rawName/);
+      expect(where).toMatch(/userId|rawEmployeeId|employeeId|actorId|importedById/);
+    }
   });
 
   it('handler where clauses use the subject, and skip employee-code columns when there is no code', () => {

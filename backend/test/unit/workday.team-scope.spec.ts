@@ -5,6 +5,11 @@ describe('WorkdayService.getTeam hierarchy scope', () => {
     const prisma: any = {
       managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },
       appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
+      team: {
+        findMany: jest.fn().mockResolvedValue([
+          { members: [{ userId: 'employee-1' }, { userId: 'intern-1' }] },
+        ]),
+      },
       user: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const tva: any = {
@@ -16,12 +21,12 @@ describe('WorkdayService.getTeam hierarchy scope', () => {
     return { service, prisma };
   };
 
-  it('shows a team leader only employees and interns in their department', async () => {
+  it('shows a team leader only employees and interns in their explicit team membership', async () => {
     const { service, prisma } = build();
     await service.getTeam({ id: 'tl-1', role: { name: 'TEAM_LEAD' }, departmentId: 'dept-a' });
     expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        departmentId: { in: ['dept-a'] },
+        id: { in: ['employee-1', 'intern-1'] },
         role: { name: { in: ['EMPLOYEE', 'INTERN'] } },
       }),
     }));

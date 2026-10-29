@@ -87,4 +87,3 @@ export const matchAllocationUser = <T extends UserIdentity>(allocation: Allocati
   }
   return ranked[0].user;
 };
-

@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap as r } from '@apex/shared-auth';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import toast from 'react-hot-toast';
 import { AlertCircle, Archive, CheckCircle2, ChevronDown, ChevronRight, Download, FileSpreadsheet, Package, Plus, RotateCcw, Search, Upload, X } from 'lucide-react';
 
