@@ -15,8 +15,10 @@ import { HomeSkeleton } from '../components/HomeSkeleton';
 import { HeroKpis } from '../components/HeroKpis';
 import { motion } from 'motion/react';
 import { AlertTriangle } from 'lucide-react';
+import type { HomeTeamScope } from './home-types';
 import { SmartAnnouncementsCarousel, type HomeCarouselData } from '../components/SmartAnnouncementsCarousel';
 import { HeroQuickActions } from './HeroQuickActions';
+import { TeamInsightsSection } from './TeamInsightsSection';
 import { PersonalHighlightsSection } from './PersonalHighlightsSection';
 
 type HeroScene = 'morning' | 'late-morning' | 'afternoon' | 'evening' | 'sunset' | 'night';
@@ -69,7 +71,7 @@ function greetingForScene(scene: HeroScene) {
  * route (frontend/app) and passed in as `personalPanel` rather than imported
  * here: this component stays inside its declared boundaries.
  */
-export default function HomePage({ personalPanel }: { personalPanel?: ReactNode } = {}) {
+export default function HomePage({ personalPanel, showTeamInsights = false }: { personalPanel?: ReactNode; showTeamInsights?: boolean } = {}) {
   const user = useAuthStore(s => s.user);
   const roleObj = user?.role as any;
   const role: string = roleObj?.name ?? (typeof roleObj === 'string' ? roleObj : '') ?? '';
@@ -116,6 +118,15 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
     queryFn: async () => {
       return await dashboardApi.getHomeSummary();
     },
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: teamScope, isPending: teamScopeLoading, isError: teamScopeError, refetch: retryTeamScope } = useQuery({
+    queryKey: ['home-team-scope', user?.id],
+    queryFn: () => dashboardApi.getHomeTeamScope() as Promise<HomeTeamScope>,
+    enabled: !!user?.id && isLeadOrAbove && showTeamInsights,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
@@ -195,6 +206,9 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
           announcementsOnly={isContributor} loading={carouselLoading && !!user} error={carouselError} onRetry={() => retryCarousel()}
           canManageAnnouncements={canManageAnnouncements} />
       </div>}
+      {showTeamInsights && teamScopeLoading && isLeadOrAbove && <div className="mb-6 rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800">Loading team filters…</div>}
+      {showTeamInsights && teamScopeError && <div className="mb-6 rounded-xl border border-rose-200 p-4 text-sm text-rose-700 dark:border-rose-900 dark:text-rose-300">Team filters could not be loaded. <button type="button" onClick={() => retryTeamScope()} className="underline">Retry</button></div>}
+
       {/* ── MY CALENDAR: attendance / productivity ── */}
       {personalPanel && (
         <motion.div
@@ -208,6 +222,9 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
 
       {user?.id && canViewPersonalHighlights && isContributor && <div className="mt-6"><PersonalHighlightsSection /></div>}
 
+      {user?.id && isLeadOrAbove && showTeamInsights && <div className="mt-6 space-y-5">
+        {showTeamInsights && teamScope && <TeamInsightsSection team={teamScope} />}
+      </div>}
     </div>
   );
 }

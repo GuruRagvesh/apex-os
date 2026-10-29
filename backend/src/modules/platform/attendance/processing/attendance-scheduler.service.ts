@@ -3,7 +3,6 @@ import { Cron } from '@nestjs/schedule';
 import { COMPANY_CRON_TIMEZONE } from '../../../../common/constants/company-time.constants';
 import { TVAService } from '../../../../common/services/tva.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
-import { AttendanceRegularizationReminderService, isLastCalendarDay } from './attendance-regularization-reminder.service';
 
 /**
  * Attendance cron entry points (SS-1).
@@ -25,17 +24,7 @@ export class AttendanceSchedulerService {
   constructor(
     private readonly processing: AttendanceProcessingService,
     private readonly tva: TVAService,
-    private readonly regularizationReminders: AttendanceRegularizationReminderService,
   ) {}
-
-  private async remindForDate(businessDate: string) {
-    try {
-      const sent = await this.regularizationReminders.remindForDate(businessDate);
-      if (sent) this.logger.log(`[attendance] regularization reminders date=${businessDate} sent=${sent}`);
-    } catch (error) {
-      this.logger.error(`[attendance] regularization reminder sweep failed for ${businessDate}: ${error}`);
-    }
-  }
 
   /** Yesterday's business date, in company time. */
   private previousBusinessDate(): string {
@@ -63,7 +52,6 @@ export class AttendanceSchedulerService {
       `[attendance] in-day ${businessDate} mode=${result.mode} evaluated=${result.evaluated} ` +
         `review=${result.needsReview} blocked=${result.blocked.length} failed=${result.failed.length}`,
     );
-    await this.remindForDate(businessDate);
   }
 
   /**
@@ -83,20 +71,6 @@ export class AttendanceSchedulerService {
       `[attendance] post-day ${businessDate} mode=${result.mode} evaluated=${result.evaluated} ` +
         `review=${result.needsReview} blocked=${result.blocked.length} failed=${result.failed.length}`,
     );
-    await this.remindForDate(businessDate);
-  }
-
-  /** Month-end catch-up for every unresolved day that still has no request. */
-  @Cron('45 20 * * *', { name: 'attendance-regularization-month-end', timeZone: COMPANY_CRON_TIMEZONE })
-  async monthEndRegularizationReminders() {
-    const businessDate = this.tva.companyToday();
-    if (!isLastCalendarDay(businessDate)) return;
-    try {
-      const sent = await this.regularizationReminders.remindMonthEnd(businessDate.slice(0, 7));
-      this.logger.log(`[attendance] month-end regularization reminders month=${businessDate.slice(0, 7)} sent=${sent}`);
-    } catch (error) {
-      this.logger.error(`[attendance] month-end regularization reminder sweep failed: ${error}`);
-    }
   }
 
   /**

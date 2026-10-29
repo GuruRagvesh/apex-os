@@ -40,7 +40,7 @@ export const OFFICIAL_HOLIDAYS_2026: readonly OfficialHoliday[] = [
   { date: '2026-08-28', name: 'Raksha Bandhan' },
   { date: '2026-09-14', name: 'Ganesh Chaturthi/Vinayaka Chaturthi' },
   { date: '2026-09-25', name: 'Ganesh Visharjan' },
-  { date: '2026-10-03', name: 'Mahatma Gandhi Jayanti' },
+  { date: '2026-10-02', name: 'Mahatma Gandhi Jayanti' },
   { date: '2026-10-20', name: 'Dussehra' },
   { date: '2026-11-08', name: 'Diwali/Deepavali' },
   { date: '2026-11-09', name: 'Govardhan Puja' },

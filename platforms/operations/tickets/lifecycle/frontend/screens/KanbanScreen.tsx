@@ -528,22 +528,33 @@ export default function KanbanScreen() {
   useRecordTicketOpen(screenRef, user?.id, '/kanban');
 
   const roleDisplay = (user?.role as any)?.name ?? user?.role ?? '';
+  const scopeText =
+    roleDisplay === 'SUPER_ADMIN' ? 'Showing company-wide operations' :
+    roleDisplay === 'ADMIN' ? 'Showing company-wide operations' :
+    roleDisplay === 'MANAGER' ? 'Showing managed departments' :
+    roleDisplay === 'TEAM_LEAD' ? 'Showing your team operations' :
+    roleDisplay === 'INTERN' ? 'Showing assigned operational items (Intern — Restricted)' :
+    'Showing your assigned work';
+
   return (
     <div ref={screenRef} className="space-y-5 h-full min-w-0">
       {/* Header */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
-          {roleDisplay === 'INTERN' && (
-            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-              You can move only tickets where you are the reporter or assignee.
-            </p>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-650 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
+              {scopeText}
+            </span>
+          </div>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+            {roleDisplay === 'INTERN' ? 'Restricted scope: you can move only tickets where you are the reporter or assignee' : 'Drag cards between columns to update status'}
+          </p>
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full lg:w-auto">
           <label className="relative flex-1 lg:w-64">
             <span className="sr-only">Search Kanban tickets</span>
-            <Search size={15} className="absolute left-3 top-1/2 z-10 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-tertiary)' }} />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-tertiary)' }} />
             <input
               type="search"
               value={search}

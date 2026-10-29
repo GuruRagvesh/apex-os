@@ -8,24 +8,9 @@ import { usersApi } from '@apex/core-users/api';
 import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 import { rolesApi } from '@apex/core-organization-roles/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
-import { api, unwrap as r } from '@apex/shared-auth';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import { ChevronRight, Edit2, Upload, Building2, UsersRound, Package, X } from 'lucide-react';
-
-const fmtAssetDate = (value?: string | null) => value
-  ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(new Date(value))
-  : '—';
-const fmtAssetMoney = (value?: string | number | null) => value === null || value === undefined || value === ''
-  ? '—'
-  : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(Number(value));
-const fmtAssetValue = (value: unknown) => {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (Array.isArray(value)) return value.map(item => typeof item === 'object' ? JSON.stringify(item) : String(item)).join(', ') || '—';
-  if (typeof value === 'object') return Object.entries(value as Record<string, unknown>).map(([key, item]) => `${key}: ${String(item)}`).join(', ') || '—';
-  return String(value);
-};
+import { ChevronRight, Edit2, Upload, Building2, UsersRound } from 'lucide-react';
 
 const ProfileFormContext = createContext<any>(null);
 
@@ -129,7 +114,6 @@ export default function UserProfileScreen() {
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState<any>({});
   const [uploading, setUploading] = useState<string | null>(null);
-  const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
 
   const currentRoleName = (currentUser?.role as any)?.name ?? '';
   const isHR = (currentUser as any)?.isHR;
@@ -217,7 +201,6 @@ export default function UserProfileScreen() {
   const isOwnProfile = currentUser?.id === userId;
   const canSeePayroll = canEditAll || isOwnProfile;
   const canSeeAccess = ['SUPER_ADMIN', 'ADMIN'].includes(currentRoleName);
-  const canSeeAssets = canSeeAccess || isOwnProfile;
 
   const { data: profile, isLoading, refetch } = useQuery({
     queryKey: ['user-profile', userId],
@@ -229,12 +212,6 @@ export default function UserProfileScreen() {
     queryFn: () => (usersApi as any).getDocuments(userId) as Promise<any[]>,
   });
 
-  const { data: assignedAssets = [], isLoading: assetsLoading } = useQuery({
-    queryKey: ['user-assets', userId],
-    queryFn: () => r<any[]>(api.get(`/assets/users/${userId}/allocations`)),
-    enabled: canSeeAssets && !!userId,
-    retry: false,
-  });
   const updateMutation = useMutation({
     mutationFn: (data: any) => (usersApi as any).updateProfile(userId, data),
     onSuccess: () => {
@@ -476,7 +453,6 @@ export default function UserProfileScreen() {
           <div className="flex gap-1 overflow-x-auto">
             {TABS.filter((t) => {
               if (t.id === 'payroll') return canSeePayroll;
-              if (t.id === 'assets') return canSeeAssets;
               if (t.id === 'access') return canSeeAccess || isOwnProfile;
               return true;
             }).map((tab) => (
@@ -659,100 +635,7 @@ export default function UserProfileScreen() {
             </div>
           )}
 
-          {/* Asset Management */}
-          {activeTab === 'assets' && canSeeAssets && (
-            <div>
-              <div className="mb-6 flex items-start justify-between gap-4">
-                <div>
-                  <h2 className={sectionHeadingCls}>Assigned Assets</h2>
-                  <p className="mt-1 text-sm text-[var(--text-secondary)]">Assets currently allocated to {isOwnProfile ? 'you' : profile?.name}.</p>
-                </div>
-                {!assetsLoading && <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{assignedAssets.length} active</span>}
-              </div>
-
-              {assetsLoading ? (
-                <div className="h-40 animate-pulse rounded-xl bg-[var(--surface-sunken)]" />
-              ) : assignedAssets.length === 0 ? (
-                <div className={`${sectionCls} py-12 text-center`}>
-                  <Package className="mx-auto mb-3 h-9 w-9 text-[var(--text-tertiary)]" />
-                  <p className="font-semibold text-[var(--text-primary)]">No assets currently assigned</p>
-                  <p className="mt-1 text-sm text-[var(--text-secondary)]">New allocations will appear here automatically.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {assignedAssets.map((allocation: any) => (
-                    <button
-                      key={allocation.id}
-                      type="button"
-                      onClick={() => setSelectedAsset(allocation)}
-                      className="apex-section-border group rounded-xl border bg-[var(--surface-sunken)] p-5 text-left transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"><Package className="h-5 w-5" /></span>
-                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-mono text-[11px] font-bold text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-200">{allocation.asset?.assetCode ?? 'NO ID'}</span>
-                      </div>
-                      <p className="mt-4 text-base font-bold text-[var(--text-primary)]">{allocation.asset?.assetType?.name ?? 'Asset'}</p>
-                      <p className="mt-1 text-sm font-medium text-[var(--text-secondary)]">{allocation.asset?.brandModel || 'Brand / model not recorded'}</p>
-                      <div className="mt-4 flex items-center justify-between border-t border-[var(--border-primary)] pt-3 text-xs text-[var(--text-secondary)]">
-                        <span>Issued {fmtAssetDate(allocation.fromDate)}</span>
-                        <span className="font-semibold text-blue-600 dark:text-blue-400">View details</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {selectedAsset && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedAsset(null); }}>
-                  <div role="dialog" aria-modal="true" aria-labelledby="assigned-asset-title" className="w-full max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-card)] shadow-2xl">
-                    <div className="flex items-start justify-between border-b border-[var(--border-primary)] px-6 py-5">
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"><Package className="h-5 w-5" /></span>
-                        <div><h3 id="assigned-asset-title" className="text-xl font-black text-[var(--text-primary)]">{selectedAsset.asset?.assetType?.name ?? 'Asset details'}</h3><p className="text-sm text-[var(--text-secondary)]">{selectedAsset.asset?.brandModel || 'Brand / model not recorded'} · {selectedAsset.asset?.assetCode}</p></div>
-                      </div>
-                      <button type="button" onClick={() => setSelectedAsset(null)} aria-label="Close asset details" className="rounded-lg p-2 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"><X className="h-5 w-5" /></button>
-                    </div>
-                    <div className="grid max-h-[70vh] grid-cols-1 gap-4 overflow-y-auto p-6 sm:grid-cols-2">
-                      {[
-                        ['Asset ID', selectedAsset.asset?.assetCode],
-                        ['Asset Type', selectedAsset.asset?.assetType?.name],
-                        ['Brand / Model', selectedAsset.asset?.brandModel],
-                        ['Model Number', selectedAsset.asset?.modelNumber],
-                        ['Specification', selectedAsset.asset?.specification],
-                        ['Owned / Rented', selectedAsset.asset?.ownership],
-                        ['Asset Status', selectedAsset.asset?.status],
-                        ['Vendor', selectedAsset.asset?.vendorName],
-                        ['Purchase / Intake Date', fmtAssetDate(selectedAsset.asset?.acquisitionDate)],
-                        ['Vendor Return Date', fmtAssetDate(selectedAsset.asset?.vendorReturnDate)],
-                        ['Purchase Cost', fmtAssetMoney(selectedAsset.asset?.purchaseCost)],
-                        ['Monthly Rent', fmtAssetMoney(selectedAsset.asset?.monthlyRent)],
-                        ['Charger Included', fmtAssetValue(selectedAsset.asset?.chargerIncluded)],
-                        ['Asset Notes', selectedAsset.asset?.notes],
-                        ['Allocated To', selectedAsset.employeeName],
-                        ['Issue Date', fmtAssetDate(selectedAsset.fromDate)],
-                        ['Expected Return Date', fmtAssetDate(selectedAsset.toDate)],
-                        ['Condition at Issue', selectedAsset.conditionAtIssue],
-                        ['Branch', selectedAsset.branch],
-                        ['HOD / Manager', selectedAsset.hodManagerName],
-                        ['Accessories', fmtAssetValue(selectedAsset.accessories)],
-                        ['Allocation Status', selectedAsset.workflowStatus],
-                        ['Acknowledged On', fmtAssetDate(selectedAsset.acknowledgedAt)],
-                        ['Return Requested On', fmtAssetDate(selectedAsset.returnRequestedAt)],
-                        ['Allocation Remarks', selectedAsset.remarks],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-xl border border-[var(--border-primary)] bg-[var(--surface-sunken)] px-4 py-3">
-                          <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">{label}</p>
-                          <p className="mt-1 break-words text-sm font-semibold text-[var(--text-primary)]">{fmtAssetValue(value)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Account & Access */}
+          {/* Tab 3: Account & Access */}
           {activeTab === 'access' && (
             <div>
               <div className="flex items-center justify-between mb-6">
@@ -1112,6 +995,16 @@ export default function UserProfileScreen() {
             </div>
           )}
 
+          {/* Tab 6: Asset Management. The final asset list and controls will be
+              added after the approved design is supplied. */}
+          {activeTab === 'assets' && (
+            <div>
+              <h2 className={`${sectionHeadingCls} mb-3`}>Asset Management</h2>
+              <p className="text-sm text-[var(--text-secondary)]">
+                The asset list will be added here after the Asset Management design is finalized.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

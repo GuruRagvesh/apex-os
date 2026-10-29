@@ -26,7 +26,6 @@ import {
   type WeekWindow,
 } from './home-week';
 import s from './home-calendar.module.css';
-import { ProductivityTimelinePanel } from './ProductivityTimelinePanel';
 
 type AttendanceKpiFilter = 'Total late marks' | 'Total present days' | 'Less working hours';
 
@@ -112,12 +111,7 @@ function personDayToCalendarDay(day: PersonAttendanceDay): MyAttendanceDayV2 {
   const modifiers: AttendanceModifier[] = [];
   for (const modifier of day.modifiers) {
     if (modifier === 'SHORT_HOURS') modifiers.push('INSUFFICIENT_EFFECTIVE_WORK');
-    if ([
-      'LATE', 'LATE_EXEMPTED', 'INSUFFICIENT_PRESENCE',
-      'INSUFFICIENT_EFFECTIVE_WORK', 'BREAK_EXCEEDS_ALLOWANCE',
-      'AUTO_CLOSED', 'REGULARIZED', 'WORKED_ON_HOLIDAY',
-      'WORKED_ON_WEEKLY_OFF',
-    ].includes(modifier)) modifiers.push(modifier as AttendanceModifier);
+    if (modifier === 'LATE' || modifier === 'LATE_EXEMPTED') modifiers.push(modifier);
   }
   const isFuture = day.status === 'FUTURE' || day.date > localToday();
   const calendarStatus = day.status === 'HOLIDAY' ? 'HOLIDAY' : day.status === 'WEEKLY_OFF' ? 'WEEKLY_OFF' : 'WORKING';
@@ -206,11 +200,11 @@ export function HomeCalendarPanel() {
   const monthQuery = attendance[months.indexOf(month)];
 
   const selectedPersonQuery = useQuery({
-    queryKey: ['home-team-insights', 'attendance-person-calendar-v10', selectedPersonId, month],
+    queryKey: ['home-team-insights', 'attendance-person-calendar-v9', selectedPersonId, month],
     queryFn: () => dashboardApi.getTeamInsights({
       personId: selectedPersonId,
       month,
-      calculationVersion: 'attendance-person-calendar-v10',
+      calculationVersion: 'attendance-person-calendar-v9',
     }) as Promise<PersonAttendanceInsight>,
     enabled: canViewTeamAttendance && !!selectedPersonId && selectedPersonId !== userId,
     staleTime: 30_000,
@@ -328,7 +322,6 @@ export function HomeCalendarPanel() {
                 attendanceByDate={activeAttendanceByDate}
                 punches={viewingAnotherPerson ? new Map() : punches}
                 showPunchPhotos={!viewingAnotherPerson}
-                emphasizeNeedsReview={!viewingAnotherPerson}
                 onOpen={openDay}
                 leaveRange={leaveRange}
                 onSelectLeaveRange={selectLeaveRangeDate}
@@ -359,8 +352,6 @@ export function HomeCalendarPanel() {
         selectedMetric={attendanceFilter}
         onSelectMetric={selectAttendanceKpi}
       />
-
-      <ProductivityTimelinePanel />
 
       {leaveAnalysisOpen && <PersonalLeaveUsageModal
         userId={viewingAnotherPerson ? selectedPersonId : userId}
@@ -595,7 +586,7 @@ function MonthPickerControl({ selected, today, maxMonth, onSelect }: { selected:
 // ── Calendar grid ────────────────────────────────────────────────────────────
 
 function CalendarGrid({
-  month, today, attendanceFilter, selected, attendanceByDate, punches, showPunchPhotos, emphasizeNeedsReview, onOpen,
+  month, today, attendanceFilter, selected, attendanceByDate, punches, showPunchPhotos, onOpen,
   leaveRange, onSelectLeaveRange,
 }: {
   month: string;
@@ -605,7 +596,6 @@ function CalendarGrid({
   attendanceByDate: Map<string, MyAttendanceDayV2>;
   punches: Map<string, { in: OwnPunchEvidence | null; out: OwnPunchEvidence | null }>;
   showPunchPhotos: boolean;
-  emphasizeNeedsReview: boolean;
   onOpen: (date: string, el: HTMLElement) => void;
   leaveRange: { startDate: string; endDate: string } | null;
   onSelectLeaveRange: (date: string, el: HTMLElement) => void;
@@ -644,7 +634,6 @@ function CalendarGrid({
             : day?.outcome ?? (day?.calendar?.status !== 'WORKING' ? day?.calendar?.status ?? null : null);
           const status = day && displayOutcome ? presentDay({ ...day, outcome: displayOutcome }) : null;
           const needsReview = day?.evaluationState === 'NEEDS_REVIEW' || day?.outcome === 'UNRESOLVED';
-          if (needsReview && emphasizeNeedsReview) cls.push(s.needsReviewPulse);
           const matchesFilter = !!attendanceFilter && !!day && matchesHomeAttendanceFilter(day, attendanceFilter);
           if (attendanceFilter && !matchesFilter) cls.push(s.dimmedDay);
           if (matchesFilter) cls.push(s.highlightedDay);

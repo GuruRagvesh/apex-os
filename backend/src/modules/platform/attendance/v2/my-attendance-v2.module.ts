@@ -12,13 +12,12 @@ import { EmployeeTimelineModule } from '../timeline/employee-timeline.module';
  * DailyAttendance directly — a second reader would be a second interpretation,
  * which is the defect the canonical audit exists to prevent.
  *
- * The service is also exported to hierarchy-authorized internal readers so a
- * leader calendar cannot drift from the employee's canonical day result.
+ * Exports nothing. This is a leaf: a read surface for one page, with no other
+ * module depending on it, so withdrawing it is a deletion.
  */
 @Module({
   imports: [DailyAttendanceModule, BusinessCalendarModule, EmployeeTimelineModule],
   controllers: [MyAttendanceV2Controller],
   providers: [MyAttendanceV2Service],
-  exports: [MyAttendanceV2Service],
 })
 export class MyAttendanceV2Module {}
