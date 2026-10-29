@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { RegularizationService } from '../../src/modules/platform/attendance/regularization/regularization.service';
+import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 
 // The last resort in a three-step hierarchy: laptop, then the employee's phone
 // by QR, then an authorised person recording the punch by hand. It exists so an
@@ -23,6 +24,8 @@ function build(over: any = {}) {
   const audit: any[] = [];
 
   const prisma: any = {
+    // A submission counts and creates inside one locked transaction.
+    $transaction: jest.fn((fn: any) => fn({ ...prisma, ...makeRawSqlDouble() })),
     attendanceRegularization: {
       count: jest.fn().mockResolvedValue(0),
       findFirst: jest.fn().mockResolvedValue(over.openRequest ?? null),

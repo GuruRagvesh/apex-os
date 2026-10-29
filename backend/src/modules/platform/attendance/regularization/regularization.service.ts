@@ -57,6 +57,13 @@ const REQUEST_TYPES = [
 
 const PUNCH_CORRECTION_TYPES = REQUEST_TYPES.filter((type) => type !== 'INCORRECT_ATTENDANCE_STATUS');
 
+// Monthly submission allowances, per employee per calendar month. The four
+// punch types share ONE combined bucket; attendance-status corrections have
+// their own, independent bucket.
+export const PUNCH_CORRECTION_MONTHLY_LIMIT = 10;
+export const STATUS_CORRECTION_MONTHLY_LIMIT = 4;
+const CORRECTION_LIMIT_TRANSACTION = { maxWait: 10_000, timeout: 20_000 };
+
 export interface CreateRegularizationInput {
   businessDate: string;
   requestType: (typeof REQUEST_TYPES)[number];
@@ -175,80 +182,89 @@ export class RegularizationService {
 
     const date = this.tva.companyDateOnly(new Date(`${input.businessDate}T00:00:00.000Z`));
 
-    // Refined policy: missing/incorrect punches share one request per calendar
-    // month; attendance-status corrections have a separate three-per-month
-    // allowance. Rejected requests still count because the limit controls
-    // submissions, not approvals.
+    // Refined policy, per employee per calendar month: missing/incorrect punch
+    // corrections (all four types) share one combined bucket of
+    // PUNCH_CORRECTION_MONTHLY_LIMIT; attendance-status corrections have a
+    // separate, independent bucket of STATUS_CORRECTION_MONTHLY_LIMIT. Rejected
+    // requests still count because the limit controls submissions, not approvals.
     const [year, month] = input.businessDate.split('-').map(Number);
     const monthStart = this.tva.companyDateOnly(new Date(Date.UTC(year, month - 1, 1)));
     const monthEnd = this.tva.companyDateOnly(new Date(Date.UTC(year, month, 1)));
     const statusCorrection = input.requestType === 'INCORRECT_ATTENDANCE_STATUS';
-    const usedThisMonth = await this.prisma.attendanceRegularization.count({
-      where: {
-        userId,
-        date: { gte: monthStart, lt: monthEnd },
-        OR: statusCorrection
-          ? [{ policyCorrectionType: 'INCORRECT_ATTENDANCE_STATUS' }, { policyCorrectionType: null, requestType: 'OTHER' }]
-          : [
-              { policyCorrectionType: { in: PUNCH_CORRECTION_TYPES as any } },
-              { policyCorrectionType: null, requestType: { in: ['MISSING_PUNCH', 'LATE_CORRECTION', 'HALF_DAY_CORRECTION'] as any } },
-            ],
-      },
-    });
-    const monthlyLimit = statusCorrection ? 3 : 1;
-    if (usedThisMonth >= monthlyLimit) {
-      throw new BadRequestException(
-        statusCorrection
-          ? 'The monthly limit of three attendance-status correction requests has been reached.'
-          : 'The monthly limit of one missing/incorrect punch correction request has been reached.',
-      );
-    }
+    // Count and create run in one transaction under a per-employee, per-month
+    // advisory lock, so simultaneous submissions queue instead of all passing
+    // the count at the same usage. Both buckets share the lock.
+    const created = await this.prisma.$transaction(async (tx: any) => {
+      // $executeRaw, not $queryRaw: pg_advisory_xact_lock() returns void,
+      // which Prisma cannot deserialize. See attendance-month-lock.ts.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`attendance-correction-limit:${userId}:${input.businessDate.slice(0, 7)}`}))`;
+      const usedThisMonth = await tx.attendanceRegularization.count({
+        where: {
+          userId,
+          date: { gte: monthStart, lt: monthEnd },
+          OR: statusCorrection
+            ? [{ policyCorrectionType: 'INCORRECT_ATTENDANCE_STATUS' }, { policyCorrectionType: null, requestType: 'OTHER' }]
+            : [
+                { policyCorrectionType: { in: PUNCH_CORRECTION_TYPES as any } },
+                { policyCorrectionType: null, requestType: { in: ['MISSING_PUNCH', 'LATE_CORRECTION', 'HALF_DAY_CORRECTION'] as any } },
+              ],
+        },
+      });
+      const monthlyLimit = statusCorrection ? STATUS_CORRECTION_MONTHLY_LIMIT : PUNCH_CORRECTION_MONTHLY_LIMIT;
+      if (usedThisMonth >= monthlyLimit) {
+        throw new BadRequestException(
+          statusCorrection
+            ? 'The monthly limit of four attendance-status correction requests has been reached.'
+            : 'The monthly limit of ten missing/incorrect punch correction requests has been reached.',
+        );
+      }
 
-    // One open request per day. A second one would give two approvers two
-    // different answers for the same date.
-    const open = await this.prisma.attendanceRegularization.findFirst({
-      where: { userId, date, status: { in: [...UNRESOLVED_STATUSES] } },
-    });
-    if (open) {
-      throw new ForbiddenException('A correction for this date is already under review');
-    }
+      // One open request per day. A second one would give two approvers two
+      // different answers for the same date.
+      const open = await tx.attendanceRegularization.findFirst({
+        where: { userId, date, status: { in: [...UNRESOLVED_STATUSES] } },
+      });
+      if (open) {
+        throw new ForbiddenException('A correction for this date is already under review');
+      }
 
-    // Capture what the official result looked like when the employee argued
-    // against it. Compared again at final approval; see approveAsHr.
-    const official = await this.prisma.dailyAttendance.findUnique({
-      where: { userId_date: { userId, date } },
-    });
+      // Capture what the official result looked like when the employee argued
+      // against it. Compared again at final approval; see approveAsHr.
+      const official = await tx.dailyAttendance.findUnique({
+        where: { userId_date: { userId, date } },
+      });
 
-    // A recovered historical day is a verified, locked fact from before the attendance policy existed. The
-    // ordinary evaluator cannot re-judge those dates, so only a status review
-    // may be raised; punches in preserved history are immutable.
-    if (official?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT' && input.requestType !== 'INCORRECT_ATTENDANCE_STATUS') {
-      throw new BadRequestException(
-        'This day is a recovered historical record. Choose "Incorrect Attendance Status" so HR can review it; a punch correction cannot be applied to it.',
-      );
-    }
+      // A recovered historical day is a verified, locked fact from before the attendance policy existed. The
+      // ordinary evaluator cannot re-judge those dates, so only a status review
+      // may be raised; punches in preserved history are immutable.
+      if (official?.calculationReason === 'HISTORICAL_RECOVERY_IMPORT' && input.requestType !== 'INCORRECT_ATTENDANCE_STATUS') {
+        throw new BadRequestException(
+          'This day is a recovered historical record. Choose "Incorrect Attendance Status" so HR can review it; a punch correction cannot be applied to it.',
+        );
+      }
 
-    const created = await this.prisma.attendanceRegularization.create({
-      data: {
-        userId,
-        date,
-        // Keep the historical enum stable; the exact refined-policy category
-        // is recorded in its additive provenance column.
-        requestType: (statusCorrection ? 'OTHER' : 'MISSING_PUNCH') as any,
-        policyCorrectionType: input.requestType,
-        reason: input.reason.trim(),
-        requestedPunchIn: input.requestedPunchIn ? new Date(input.requestedPunchIn) : null,
-        requestedPunchOut: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
-        basedOnFingerprint: official?.sourceFingerprint ?? null,
-        // The stored values the employee is arguing against, kept on the request so
-        // a later reviewer can read "18:04 -> 18:31" without the live record.
-        originalPunchIn: official?.punchInAt ?? null,
-        originalPunchOut: official?.punchOutAt ?? null,
-        status: 'PENDING',
-        ...(screenshots.length ? { screenshots: { create: screenshots } } : {}),
-      },
-      include: { screenshots: { select: SCREENSHOT_METADATA } },
-    }).catch((error: any) => {
+      return tx.attendanceRegularization.create({
+        data: {
+          userId,
+          date,
+          // Keep the historical enum stable; the exact refined-policy category
+          // is recorded in its additive provenance column.
+          requestType: (statusCorrection ? 'OTHER' : 'MISSING_PUNCH') as any,
+          policyCorrectionType: input.requestType,
+          reason: input.reason.trim(),
+          requestedPunchIn: input.requestedPunchIn ? new Date(input.requestedPunchIn) : null,
+          requestedPunchOut: input.requestedPunchOut ? new Date(input.requestedPunchOut) : null,
+          basedOnFingerprint: official?.sourceFingerprint ?? null,
+          // The stored values the employee is arguing against, kept on the request so
+          // a later reviewer can read "18:04 -> 18:31" without the live record.
+          originalPunchIn: official?.punchInAt ?? null,
+          originalPunchOut: official?.punchOutAt ?? null,
+          status: 'PENDING',
+          ...(screenshots.length ? { screenshots: { create: screenshots } } : {}),
+        },
+        include: { screenshots: { select: SCREENSHOT_METADATA } },
+      });
+    }, CORRECTION_LIMIT_TRANSACTION).catch((error: any) => {
       // The database is the authority on "one unresolved request per day":
       // two simultaneous submissions cannot both pass the check above.
       if (error?.code === 'P2002') throw new ForbiddenException('A correction for this date is already under review');

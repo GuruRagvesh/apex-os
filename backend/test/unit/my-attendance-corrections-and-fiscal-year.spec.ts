@@ -4,6 +4,7 @@
  *   F1-F4   the financial year is April to March, from ONE backend definition
  *   R1-R5   a recovered historical day is shown as stored, honestly, and never replaces a native day
  *   C1-C8   correction requests: future dates, stored values, review-only OTHER, duplicates, RBAC
+ *   L1-L14  monthly limits: one combined bucket of 10 punch corrections, a separate bucket of 4 status corrections
  *   H1-H4   history includes former employees who have records; operational views do not
  *   M1-M4   an older backend that sends no financial year does not break the page
  *   S1      the read surfaces write nothing
@@ -15,7 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import { TVAService } from '../../src/common/services/tva.service';
 import { financialYearV2, mapRecoveredDay, summarizeAttendanceDays, type StoredRecoveredDay } from '../../src/modules/platform/attendance/v2/my-attendance-v2.contract';
 import { MyAttendanceV2Service } from '../../src/modules/platform/attendance/v2/my-attendance-v2.service';
-import { RegularizationService } from '../../src/modules/platform/attendance/regularization/regularization.service';
+import { PUNCH_CORRECTION_MONTHLY_LIMIT, RegularizationService, STATUS_CORRECTION_MONTHLY_LIMIT } from '../../src/modules/platform/attendance/regularization/regularization.service';
 import { AttendanceConsoleService } from '../../src/modules/platform/attendance/console/attendance-console.service';
 import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 import { usableFinancialYear } from '../../../frontend/components/attendance-v2/financial-year';
@@ -201,7 +202,9 @@ function correctionRig(f: { open?: any; official?: any; request?: any; isHR?: bo
     dailyAttendance: { findUnique: jest.fn().mockResolvedValue({ id: 'da-1', sourceFingerprint: 'fp-DIFFERENT', status: 'PRESENT' }) },
   };
   const prisma: any = {
-    $transaction: jest.fn((fn: any) => fn(tx)),
+    // create() passes transaction options and gets the submission view of the
+    // database; the approval path passes none and gets the approval tx.
+    $transaction: jest.fn((fn: any, options?: any) => fn(options ? { ...prisma, ...makeRawSqlDouble() } : tx)),
     attendanceRegularization: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(f.open ?? null), findUnique: tx.attendanceRegularization.findUnique, create: jest.fn(({ data }: any) => { created.push(data); return Promise.resolve({ id: 'reg-new', ...data }); }), update: tx.attendanceRegularization.update },
     dailyAttendance: { findUnique: jest.fn().mockResolvedValue('official' in f ? f.official : { sourceFingerprint: 'fp-1', punchInAt: new Date('2026-08-20T04:30:00.000Z'), punchOutAt: new Date('2026-08-20T13:00:00.000Z') }) },
   };
@@ -301,6 +304,174 @@ describe('C9 recovered historical days are protected from punch corrections', ()
     (rig.service as any).prisma.$transaction = jest.fn((fn: any) => fn({ ...makeRawSqlDouble(() => [{ id: 'x' }]), attendanceRegularization: { findUnique: jest.fn().mockResolvedValue(punch), update: jest.fn() }, dailyAttendance: { findUnique: jest.fn().mockResolvedValue({ id: 'da-1', ...recoveredDay }) } }));
     await expect(rig.service.approveAsHr({ id: 'hr-1' }, 'reg-3')).rejects.toBeInstanceOf(ForbiddenException);
     expect(rig.evaluator.reviseForApprovedCorrection).not.toHaveBeenCalled();
+  });
+});
+
+// ── L: monthly correction limits ─────────────────────────────────────────────────────────────────────────────
+
+// An in-memory regularization table. count() evaluates the service's own where
+// clause, so these tests also pin the employee, month, bucket and legacy filters.
+const PUNCH_MSG = 'The monthly limit of ten missing/incorrect punch correction requests has been reached.';
+const STATUS_MSG = 'The monthly limit of four attendance-status correction requests has been reached.';
+const PUNCH_TYPES = ['MISSING_PUNCH_IN', 'MISSING_PUNCH_OUT', 'INCORRECT_PUNCH_IN', 'INCORRECT_PUNCH_OUT'] as const;
+
+const matchesValue = (value: any, cond: any): boolean => {
+  if (cond === null) return value === null || value === undefined;
+  if (cond instanceof Date) return value instanceof Date && value.getTime() === cond.getTime();
+  if (typeof cond === 'object') {
+    if ('in' in cond) return cond.in.includes(value);
+    if ('gte' in cond || 'lt' in cond) return (!cond.gte || value >= cond.gte) && (!cond.lt || value < cond.lt);
+  }
+  return value === cond;
+};
+const matchesWhere = (row: any, where: any): boolean => Object.entries(where).every(([key, cond]: [string, any]) =>
+  key === 'OR' ? cond.some((alt: any) => matchesWhere(row, alt)) : matchesValue(row[key], cond));
+
+function limitRig(rows: any[] = []) {
+  const table = rows.map((r) => ({ status: 'PENDING', policyCorrectionType: null, ...r, date: new Date(`${r.date}T00:00:00.000Z`) }));
+  const raw = makeRawSqlDouble();
+  const prisma: any = {
+    $transaction: jest.fn((fn: any) => fn({ ...prisma, ...raw })),
+    attendanceRegularization: {
+      count: jest.fn(({ where }: any) => Promise.resolve(table.filter((r) => matchesWhere(r, where)).length)),
+      findFirst: jest.fn(({ where }: any) => Promise.resolve(table.find((r) => matchesWhere(r, where)) ?? null)),
+      create: jest.fn(({ data }: any) => { const row = { id: `reg-${table.length + 1}`, ...data }; table.push(row); return Promise.resolve(row); }),
+    },
+    dailyAttendance: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn(), upsert: jest.fn(), create: jest.fn() },
+  };
+  const evaluator: any = { reviseForApprovedCorrection: jest.fn() };
+  const service = new RegularizationService(
+    prisma, tva(), { log: jest.fn().mockResolvedValue(undefined) } as any,
+    { resolveApproverChainFor: jest.fn().mockResolvedValue([{ id: 'mgr-1', tier: 'MANAGER' }]), isApproverFor: jest.fn() } as any,
+    { isHrOrAdmin: () => false } as any, { get: jest.fn().mockResolvedValue({ regularizationEnabled: true }) } as any, evaluator,
+  );
+  const submit = (requestType: string, date: string, userId = 'emp-1') =>
+    service.create(userId, { businessDate: date, requestType: requestType as any, reason: 'please correct this day' });
+  return { service, prisma, evaluator, table, submit, raw };
+}
+// Distinct past days in August 2026, so the one-open-request-per-day rule never interferes.
+const aug = (day: number) => `2026-08-${String(day).padStart(2, '0')}`;
+const punchRows = (n: number, over: any = {}) => Array.from({ length: n }, (_, i) => ({ userId: 'emp-1', date: aug(i + 1), requestType: 'MISSING_PUNCH', policyCorrectionType: PUNCH_TYPES[i % 4], ...over }));
+const statusRows = (n: number, over: any = {}) => Array.from({ length: n }, (_, i) => ({ userId: 'emp-1', date: aug(i + 11), requestType: 'OTHER', policyCorrectionType: 'INCORRECT_ATTENDANCE_STATUS', ...over }));
+
+describe('L monthly correction limits', () => {
+  it('L0. the named limits are ten punch and four status corrections', () => {
+    expect(PUNCH_CORRECTION_MONTHLY_LIMIT).toBe(10);
+    expect(STATUS_CORRECTION_MONTHLY_LIMIT).toBe(4);
+  });
+
+  it.each(Array.from({ length: 10 }, (_, used) => [used]))('L1. with %i punch corrections used, the next one is accepted', async (used) => {
+    const { submit, table } = limitRig(punchRows(used));
+    await expect(submit('MISSING_PUNCH_IN', aug(25))).resolves.toBeDefined();
+    expect(table).toHaveLength(used + 1);
+    expect(table.at(-1)).toMatchObject({ requestType: 'MISSING_PUNCH', policyCorrectionType: 'MISSING_PUNCH_IN', status: 'PENDING' });
+  });
+
+  it.each(PUNCH_TYPES.map((t) => [t]))('L2. with 10 punch corrections used, an 11th %s is refused with the ten-request message', async (type) => {
+    const { submit, prisma } = limitRig(punchRows(10));
+    await expect(submit(type, aug(25))).rejects.toThrow(new BadRequestException(PUNCH_MSG));
+    expect(prisma.attendanceRegularization.create).not.toHaveBeenCalled();
+  });
+
+  it('L3. the four punch types share ONE combined bucket of ten, not ten each', async () => {
+    const { submit, table } = limitRig();
+    for (let i = 0; i < 10; i++) await submit(PUNCH_TYPES[i % 4], aug(i + 1));
+    expect(new Set(table.map((r) => r.policyCorrectionType))).toEqual(new Set(PUNCH_TYPES));
+    for (const type of PUNCH_TYPES) await expect(submit(type, aug(25))).rejects.toThrow(PUNCH_MSG);
+    expect(table).toHaveLength(10);
+  });
+
+  it.each([[0], [1], [2], [3]])('L4. with %i status corrections used, the next one is accepted', async (used) => {
+    const { submit, table } = limitRig(statusRows(used));
+    await expect(submit('INCORRECT_ATTENDANCE_STATUS', aug(25))).resolves.toBeDefined();
+    expect(table).toHaveLength(used + 1);
+    expect(table.at(-1)).toMatchObject({ requestType: 'OTHER', policyCorrectionType: 'INCORRECT_ATTENDANCE_STATUS', status: 'PENDING' });
+  });
+
+  it('L5. with 4 status corrections used, a 5th is refused with the four-request message', async () => {
+    const { submit, prisma } = limitRig(statusRows(4));
+    await expect(submit('INCORRECT_ATTENDANCE_STATUS', aug(25))).rejects.toThrow(new BadRequestException(STATUS_MSG));
+    expect(prisma.attendanceRegularization.create).not.toHaveBeenCalled();
+  });
+
+  it('L6. ten punch corrections do not consume the status bucket', async () => {
+    const { submit } = limitRig(punchRows(10));
+    for (let i = 0; i < 4; i++) await submit('INCORRECT_ATTENDANCE_STATUS', aug(i + 11));
+    await expect(submit('INCORRECT_ATTENDANCE_STATUS', aug(25))).rejects.toThrow(STATUS_MSG);
+  });
+
+  it('L7. four status corrections do not consume the punch bucket', async () => {
+    const { submit } = limitRig(statusRows(4));
+    for (let i = 0; i < 10; i++) await submit(PUNCH_TYPES[i % 4], aug(i + 1));
+    await expect(submit('MISSING_PUNCH_OUT', aug(25))).rejects.toThrow(PUNCH_MSG);
+  });
+
+  it('L8. the limit is per employee: another employee\'s full buckets do not count', async () => {
+    const { submit, prisma } = limitRig([...punchRows(10, { userId: 'emp-2' }), ...statusRows(4, { userId: 'emp-2' })]);
+    await expect(submit('MISSING_PUNCH_IN', aug(25))).resolves.toBeDefined();
+    await expect(submit('INCORRECT_ATTENDANCE_STATUS', aug(26))).resolves.toBeDefined();
+    expect(prisma.attendanceRegularization.count.mock.calls.every(([{ where }]: any) => where.userId === 'emp-1')).toBe(true);
+    await expect(submit('MISSING_PUNCH_IN', aug(27), 'emp-2')).rejects.toThrow(PUNCH_MSG);
+  });
+
+  it('L9. the limit resets at the next calendar month, bounded by company dates', async () => {
+    const { submit, prisma } = limitRig([...punchRows(10), ...statusRows(4)]);
+    await expect(submit('MISSING_PUNCH_IN', '2026-08-31')).rejects.toThrow(PUNCH_MSG);
+    await expect(submit('MISSING_PUNCH_IN', '2026-09-01')).resolves.toBeDefined();
+    await expect(submit('INCORRECT_ATTENDANCE_STATUS', '2026-09-02')).resolves.toBeDefined();
+    const where = prisma.attendanceRegularization.count.mock.calls.at(-1)[0].where;
+    expect(where.date).toEqual({ gte: tva().companyDateOnly(new Date(Date.UTC(2026, 8, 1))), lt: tva().companyDateOnly(new Date(Date.UTC(2026, 9, 1))) });
+  });
+
+  it('L10. rejected requests still count as submissions in both buckets', async () => {
+    const { submit } = limitRig([...punchRows(10, { status: 'REJECTED' }), ...statusRows(4, { status: 'REJECTED' })]);
+    await expect(submit('MISSING_PUNCH_IN', aug(25))).rejects.toThrow(PUNCH_MSG);
+    await expect(submit('INCORRECT_ATTENDANCE_STATUS', aug(25))).rejects.toThrow(STATUS_MSG);
+  });
+
+  it('L11. legacy rows without a policy type are counted in their own bucket only', async () => {
+    const legacyPunch = ['MISSING_PUNCH', 'LATE_CORRECTION', 'HALF_DAY_CORRECTION'];
+    const punch = limitRig(Array.from({ length: 10 }, (_, i) => ({ userId: 'emp-1', date: aug(i + 1), requestType: legacyPunch[i % 3], policyCorrectionType: null })));
+    await expect(punch.submit('INCORRECT_PUNCH_IN', aug(25))).rejects.toThrow(PUNCH_MSG);
+    await expect(punch.submit('INCORRECT_ATTENDANCE_STATUS', aug(25))).resolves.toBeDefined();
+
+    const status = limitRig(statusRows(4, { policyCorrectionType: null }));
+    await expect(status.submit('INCORRECT_ATTENDANCE_STATUS', aug(25))).rejects.toThrow(STATUS_MSG);
+    await expect(status.submit('MISSING_PUNCH_OUT', aug(25))).resolves.toBeDefined();
+  });
+
+  it('L12. one open request per day still applies below the monthly limits', async () => {
+    const { submit, prisma } = limitRig([{ userId: 'emp-1', date: aug(25), requestType: 'MISSING_PUNCH', policyCorrectionType: 'MISSING_PUNCH_IN', status: 'PENDING' }]);
+    await expect(submit('INCORRECT_ATTENDANCE_STATUS', aug(25))).rejects.toThrow(new ForbiddenException('A correction for this date is already under review'));
+    expect(prisma.attendanceRegularization.create).not.toHaveBeenCalled();
+  });
+
+  it('L13. submitting up to the limits writes correction requests only, never attendance', async () => {
+    const { submit, prisma, evaluator } = limitRig();
+    for (let i = 0; i < 10; i++) await submit(PUNCH_TYPES[i % 4], aug(i + 1));
+    for (let i = 0; i < 4; i++) await submit('INCORRECT_ATTENDANCE_STATUS', aug(i + 11));
+    expect(prisma.attendanceRegularization.create).toHaveBeenCalledTimes(14);
+    expect(prisma.dailyAttendance.update).not.toHaveBeenCalled();
+    expect(prisma.dailyAttendance.upsert).not.toHaveBeenCalled();
+    expect(prisma.dailyAttendance.create).not.toHaveBeenCalled();
+    expect(evaluator.reviseForApprovedCorrection).not.toHaveBeenCalled();
+  });
+
+  it('L14. count and create run in one transaction after a per-employee, per-month advisory lock', async () => {
+    const { submit, prisma, raw } = limitRig();
+    await submit('MISSING_PUNCH_IN', aug(25));
+    await submit('INCORRECT_ATTENDANCE_STATUS', aug(26));
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(raw.$queryRaw).not.toHaveBeenCalled();
+    expect(raw.executed).toHaveLength(2);
+    for (const [sql, key] of raw.executed) {
+      expect(sql.join('?')).toContain('pg_advisory_xact_lock(hashtext(');
+      // Parameterized: the key is a bound value, never part of the SQL text.
+      expect(key).toBe('attendance-correction-limit:emp-1:2026-08');
+    }
+    const lockOrder = raw.$executeRaw.mock.invocationCallOrder[0];
+    expect(lockOrder).toBeLessThan(prisma.attendanceRegularization.count.mock.invocationCallOrder[0]);
+    expect(prisma.attendanceRegularization.count.mock.invocationCallOrder[0]).toBeLessThan(prisma.attendanceRegularization.create.mock.invocationCallOrder[0]);
   });
 });
 
