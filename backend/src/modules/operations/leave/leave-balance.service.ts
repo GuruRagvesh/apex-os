@@ -66,7 +66,7 @@ export class LeaveBalanceService {
     '2026-04-15', // Good Friday
     '2026-05-01', // May Day
     '2026-08-15', // Independence Day
-    '2026-10-03', // Gandhi Jayanti company holiday
+    '2026-10-02', // Gandhi Jayanti
     '2026-10-20', // Dussehra
     '2026-11-08', // Diwali
     '2026-12-25', // Christmas

@@ -783,33 +783,6 @@ html[data-theme="john-wick-dark"] .apex-profile-value { color: #dbeafe !importan
    even though the base .apex-input rule is declared after Tailwind utilities. */
 .apex-search-input { padding-left: 2.5rem; }
 
-/* Inventory Management keeps native form controls aligned with the active
-   Apex appearance. The selectors are feature-scoped so legacy forms elsewhere
-   retain their existing styling. */
-.inventory-management select,
-.inventory-management input:not([type="checkbox"]):not([type="file"]),
-.inventory-modal select,
-.inventory-modal input:not([type="checkbox"]):not([type="file"]) {
-  background-color: var(--surface-card);
-  border-color: var(--border-primary);
-  color: var(--text-primary);
-}
-
-.inventory-management select:focus,
-.inventory-management input:not([type="checkbox"]):not([type="file"]):focus,
-.inventory-modal select:focus,
-.inventory-modal input:not([type="checkbox"]):not([type="file"]):focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
-  outline: none;
-}
-
-.inventory-management option,
-.inventory-modal option {
-  background-color: var(--surface-card);
-  color: var(--text-primary);
-}
-
 .apex-btn-primary {
   background-color: var(--accent);
   color: #ffffff;
@@ -1048,42 +1021,6 @@ html[data-motion="reduce"] *, html[data-motion="reduce"] *::before, html[data-mo
 }
 ::-webkit-scrollbar-thumb:hover { background: #475569; }
 * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-
-/* The native vertical rail spans the whole scroll viewport. A header-coloured
-   cap sits above it, so the thumb travels behind the sticky title row and only
-   becomes visible in the records area. */
-.inventory-table-scroll::-webkit-scrollbar:vertical {
-  width: 10px;
-  background: var(--surface-card);
-}
-.inventory-table-scroll::-webkit-scrollbar-button:vertical {
-  display: none;
-  width: 0;
-  height: 0;
-}
-.inventory-table-scroll::-webkit-scrollbar-track:vertical {
-  border-left: 1px solid var(--border-primary);
-  background: var(--surface-card);
-}
-.inventory-table-scroll::-webkit-scrollbar-thumb:vertical {
-  min-height: 40px;
-  border: 2px solid var(--surface-card);
-  border-radius: 999px;
-  background: #64748b;
-}
-.inventory-table-scroll::-webkit-scrollbar-thumb:vertical:hover {
-  background: #475569;
-}
-.inventory-table-scroll::-webkit-scrollbar-corner {
-  background: var(--surface-card);
-}
-.inventory-scrollbar-header-cap {
-  /* Extend a few pixels over the final header cell so browser scrollbar
-     gutters cannot create a visible split at different zoom levels. */
-  box-shadow:
-    -3px 0 0 #0b2f64,
-    0 2px 5px rgba(15, 23, 42, 0.28);
-}
 
 /* ═══════════════════════════════════════
    APEX OS — ANIMATION UTILITIES

@@ -143,7 +143,6 @@ function DayCell({
       onClick={() => onSelect(day.date)}
       className={[
         s.day,
-        review ? s.needsReviewPulse : '',
         dimmed ? s.dimmedDay : '',
         day.isToday ? s.todayDay : '',
         selected && !day.isToday ? s.selectedDay : '',

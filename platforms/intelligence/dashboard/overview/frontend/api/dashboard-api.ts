@@ -39,6 +39,21 @@ export const dashboardApi = {
   getHomeSummary: () => r(api.get('/home/summary')),
   getHomeKpis: (): Promise<HomeKpis> => r(api.get('/home/kpis')),
   getHomeExperience: () => r(api.get('/home/experience')),
+  getHomeTeamScope: async () => {
+    try {
+      return await r(api.get('/home/team-scope'));
+    } catch (error: any) {
+      // Staging can deploy the web app before its Render backend finishes.
+      // Older backends do not have the lightweight team-scope route, but the
+      // same verified hierarchy is still available in the legacy experience
+      // payload. Keep mixed-version deployments usable without hiding Team
+      // Insights; non-404 failures must remain visible to the user.
+      if (Number(error?.status) !== 404) throw error;
+      const experience: any = await r(api.get('/home/experience'));
+      if (!experience?.team) throw error;
+      return experience.team;
+    }
+  },
   getTeamInsights: (params: { departmentId?: string; personId?: string; month: string; week?: string; date?: string; calculationVersion?: string }) =>
     r(api.get('/home/team-insights', { params })),
   getPersonalHighlights: (month?: string) => r(api.get('/home/personal-highlights', { params: { month } })),

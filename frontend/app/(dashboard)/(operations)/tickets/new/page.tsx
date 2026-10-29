@@ -746,6 +746,7 @@ export default function CreateTicketsPage() {
                 <span className="self-center text-xs" style={{ color: 'var(--text-tertiary)' }}>{TYPE_META[row.type].hint}</span>
               </div>
 
+
               {/* Title + Description */}
               <div className="space-y-3">
                 <div>

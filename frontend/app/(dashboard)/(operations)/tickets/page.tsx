@@ -30,6 +30,7 @@ import { pollWhileHealthy } from '@apex/shared-auth';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 const PRIORITIES = ['', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
+
 type DateFilterMode = 'day' | 'month' | 'year';
 
 function DateFilterPopover({
@@ -296,7 +297,8 @@ export default function TicketsPage() {
     roleName === 'SUPER_ADMIN' || roleName === 'ADMIN' ? 'Showing company-wide tickets' :
     roleName === 'MANAGER' ? 'Showing managed department tickets' :
     roleName === 'TEAM_LEAD' ? 'Showing your team tickets' :
-    'Showing your tickets';
+    'Showing your assigned tickets';
+
   return (
     <div ref={pageRef} className="space-y-4 max-w-7xl mx-auto">
       {/* Header — wraps on narrow screens so the actions never fall off the edge */}
@@ -374,7 +376,7 @@ export default function TicketsPage() {
       >
         <div className="flex items-center gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
             <input
               type="text"
               placeholder="Search tickets..."

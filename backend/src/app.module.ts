@@ -22,7 +22,6 @@ import { CommentsModule } from './modules/operations/comments/comments.module';
 import { LeaveModule } from './modules/operations/leave/leave.module';
 import { NotificationsModule } from './modules/operations/notifications/notifications.module';
 import { TeamModule } from './modules/operations/team/team.module';
-import { AssetsModule } from './modules/operations/assets/assets.module';
 
 // ── 🤖 AI ─────────────────────────────────────────────────────────────────────
 import { AiModule } from './modules/ai/ai.module';
@@ -87,7 +86,6 @@ const isTest = process.env.NODE_ENV === 'test';
     LeaveModule,
     NotificationsModule,
     TeamModule,
-    AssetsModule,
     // 🤖 AI
     AiModule,
     // 💼 Business

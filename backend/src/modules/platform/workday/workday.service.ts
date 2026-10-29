@@ -1223,35 +1223,25 @@ export class WorkdayService {
     const isHR = (requestingUser as any).isHR;
     const isAdminLevel = ['SUPER_ADMIN', 'ADMIN'].includes(roleName);
 
-    let userFilter: any = { isActive: true, isSystemAccount: false, id: { not: requestingUser.id } };
+    let userFilter: any = { isActive: true, id: { not: requestingUser.id } };
 
     if (!isHR && !isAdminLevel) {
       if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
         return [];
       }
-      if (roleName === 'TEAM_LEAD') {
-        // A team lead sees explicit active-team members, not every employee in
-        // the same department. This is the same hierarchy boundary used by
-        // team insights and is independent of whether the lead has punched in.
-        const teams = await this.prisma.team.findMany({
-          where: { teamLeadId: requestingUser.id, isActive: true },
-          select: { members: { select: { userId: true } } },
-        });
-        const memberIds = [...new Set(teams.flatMap((team) => team.members.map((member) => member.userId)))]
-          .filter((id) => id !== requestingUser.id);
-        if (!memberIds.length) return [];
-        userFilter.id = { in: memberIds };
-      } else {
-        const access = await this.prisma.managerDeptAccess.findMany({
-          where: { managerId: requestingUser.id },
-        });
-        // Managers use explicit department assignments; their profile
-        // department is only a fallback for legacy manager records.
-        const deptIds = access.map((a) => a.departmentId);
-        if (roleName === 'MANAGER' && deptIds.length === 0 && requestingUser.departmentId) deptIds.push(requestingUser.departmentId);
-        if (deptIds.length === 0) return [];
-        userFilter.departmentId = { in: [...new Set(deptIds)] };
-      }
+      const access = await this.prisma.managerDeptAccess.findMany({
+        where: { managerId: requestingUser.id },
+      });
+      // Team Leads own their home department. Managers use their explicit
+      // department assignments; their profile department is only a fallback
+      // for legacy managers without assignment rows (for example, a manager
+      // based in Company / Operations must not inherit that whole department).
+      const deptIds = roleName === 'TEAM_LEAD'
+        ? (requestingUser.departmentId ? [requestingUser.departmentId] : [])
+        : access.map((a) => a.departmentId);
+      if (roleName === 'MANAGER' && deptIds.length === 0 && requestingUser.departmentId) deptIds.push(requestingUser.departmentId);
+      if (deptIds.length === 0) return [];
+      userFilter.departmentId = { in: [...new Set(deptIds)] };
     }
 
     // This endpoint represents people below the viewer in the operational
