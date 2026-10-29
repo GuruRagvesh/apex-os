@@ -442,21 +442,6 @@ export class HomeExperienceService {
     };
   }
 
-  /**
-   * Filter options for the intentionally blank Team Insights canvas.
-   *
-   * Hierarchy comes from relations, never from names or a user's free-text
-   * designation:
-   * - Team Lead: active teams they lead and those teams' active contributors.
-   * - Manager: departments in ManagerDeptAccess and everyone below Manager in
-   *   those departments.
-   * - Admin/Super Admin: every department, its assigned Manager(s), Team Leads
-   *   and contributors.
-   */
-  getTeamScope(user: any) {
-    return this.getTeamHierarchy(user);
-  }
-
   private async getTeamHierarchy(user: any) {
     const role = this.access.roleName(user);
     const detailed = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);

@@ -31,8 +31,6 @@ export type HomeExperience = {
   };
 };
 
-export type HomeTeamScope = HomeExperience['team'];
-
 export type HomeWorkspace = {
   notes: { id: string; title: string; content: string; createdAt: string | null; updatedAt: string | null }[];
   checklist: { id: string; text: string; done: boolean; priority: 'HIGH' | 'MEDIUM' | 'LOW' }[];

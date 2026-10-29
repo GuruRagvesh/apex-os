@@ -125,12 +125,6 @@ export default function LeavePage() {
   const qc = useQueryClient();
 
   const _roleName = (user?.role as any)?.name || (user?.role as any) || '';
-  const scopeText =
-    _roleName === 'SUPER_ADMIN' ? 'Showing company-wide leaves' :
-    _roleName === 'ADMIN' ? 'Showing company-wide leaves' :
-    _roleName === 'MANAGER' ? 'Showing managed department leaves' :
-    _roleName === 'TEAM_LEAD' ? 'Showing your team leaves' :
-    'Showing your leave requests';
   const _isAdmin  = _roleName === 'ADMIN' || _roleName === 'SUPER_ADMIN';
   const isManager = _roleName === 'MANAGER' || _roleName === 'TEAM_LEAD' || _isAdmin;
   const isSuperAdmin = _roleName === 'SUPER_ADMIN';
@@ -411,13 +405,7 @@ export default function LeavePage() {
     <div className="space-y-5 max-w-5xl mx-auto">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Leave Management</h2>
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-650 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
-              {scopeText}
-            </span>
-          </div>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Manage leave requests and approvals. Click a row to expand details.</p>
+          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Leave Management</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(_isAdmin || (user as any)?.isHR === true) && (

@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { pollWhileHealthy } from '@apex/shared-auth';
+import { ModalPortal } from '@/components/ui/ModalPortal';
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 
@@ -518,55 +519,57 @@ function ReviewStartGate({ prompt, starting, onStart, onViewOnly, onGoBack }: {
   const firstRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { firstRef.current?.focus(); }, []);
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-      onKeyDown={(e) => { if (e.key === 'Escape') onViewOnly(); }}
-    >
+    <ModalPortal>
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="review-gate-title"
-        aria-describedby="review-gate-message"
-        className="apex-card rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+        onKeyDown={(e) => { if (e.key === 'Escape') onViewOnly(); }}
       >
-        <h3 id="review-gate-title" className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>{prompt.title}</h3>
-        <div id="review-gate-message" className="space-y-2">
-          {prompt.message && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{prompt.message}</p>}
-          <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-            View Only lets you read the ticket and its attachments. Approve and Send Back need a started review.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2">
-          <button
-            ref={prompt.canStart ? firstRef : undefined}
-            type="button"
-            onClick={onStart}
-            disabled={!prompt.canStart || starting}
-            aria-busy={starting}
-            className="w-full py-2.5 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg disabled:opacity-40"
-          >
-            {starting ? 'Starting…' : prompt.startLabel}
-          </button>
-          <button
-            ref={prompt.canStart ? undefined : firstRef}
-            type="button"
-            onClick={onViewOnly}
-            className="w-full py-2.5 text-sm rounded-lg border"
-            style={{ color: 'var(--text-primary)', borderColor: 'var(--border-primary)' }}
-          >
-            View Only
-          </button>
-          <button
-            type="button"
-            onClick={onGoBack}
-            className="w-full py-2.5 text-sm rounded-lg"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            Go Back
-          </button>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="review-gate-title"
+          aria-describedby="review-gate-message"
+          className="apex-card rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4"
+        >
+          <h3 id="review-gate-title" className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>{prompt.title}</h3>
+          <div id="review-gate-message" className="space-y-2">
+            {prompt.message && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{prompt.message}</p>}
+            <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+              View Only lets you read the ticket and its attachments. Approve and Send Back need a started review.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <button
+              ref={prompt.canStart ? firstRef : undefined}
+              type="button"
+              onClick={onStart}
+              disabled={!prompt.canStart || starting}
+              aria-busy={starting}
+              className="w-full py-2.5 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg disabled:opacity-40"
+            >
+              {starting ? 'Starting…' : prompt.startLabel}
+            </button>
+            <button
+              ref={prompt.canStart ? undefined : firstRef}
+              type="button"
+              onClick={onViewOnly}
+              className="w-full py-2.5 text-sm rounded-lg border"
+              style={{ color: 'var(--text-primary)', borderColor: 'var(--border-primary)' }}
+            >
+              View Only
+            </button>
+            <button
+              type="button"
+              onClick={onGoBack}
+              className="w-full py-2.5 text-sm rounded-lg"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Go Back
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 

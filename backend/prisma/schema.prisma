@@ -150,14 +150,14 @@ model User {
   // ── Lifecycle foundation (Phase 1) ─────────────────────────────────────────
   /// Null on legacy rows: derived at read time (deriveEmploymentState).
   /// isActive stays the login authority until every reader is migrated.
-  employmentState       EmploymentState?
-  scheduledActivationOn DateTime?             @db.Date
-  employmentPeriods     EmploymentPeriod[]
-  setupIssues           UserSetupIssue[]
-  hierarchySubjectOf    HierarchyAssignment[] @relation("HierarchySubject")
-  hierarchyAssignedTo   HierarchyAssignment[] @relation("HierarchyAssignee")
-  departmentTransfers   DepartmentTransfer[]
-  exitCases             ExitCase[]
+  employmentState        EmploymentState?
+  scheduledActivationOn  DateTime?               @db.Date
+  employmentPeriods      EmploymentPeriod[]
+  setupIssues            UserSetupIssue[]
+  hierarchySubjectOf     HierarchyAssignment[]   @relation("HierarchySubject")
+  hierarchyAssignedTo    HierarchyAssignment[]   @relation("HierarchyAssignee")
+  departmentTransfers    DepartmentTransfer[]
+  exitCases              ExitCase[]
   reviewQueueAssignments ReviewQueueAssignment[] @relation("ReviewQueueAssignedReviewer")
   reviewQueueForwards    ReviewQueueAssignment[] @relation("ReviewQueueForwardedBy")
   reviewQueueSubjects    ReviewQueueAssignment[] @relation("ReviewQueueSubject")
@@ -202,24 +202,24 @@ model Role {
 }
 
 model Department {
-  id                   String                     @id @default(cuid())
-  name                 String                     @unique
-  description          String?
-  color                String                     @default("#6366f1")
-  createdAt            DateTime                   @default(now())
-  managerAccess        ManagerDeptAccess[]
-  projects             Project[]
-  taskTypes            TaskType[]
-  tickets              Ticket[]
-  users                User[]
-  userMemberships      UserDepartmentMembership[]
-  roleAssignments      UserRoleAssignment[]
-  teams                Team[]
-  requestedTickets     Ticket[]                   @relation("TicketRequestingDepartment")
-  targetedTickets      Ticket[]                   @relation("TicketTargetDepartment")
-  salesLeads           Lead[]
-  meetings             Meeting[]
-  hierarchyAssignments HierarchyAssignment[]
+  id                         String                      @id @default(cuid())
+  name                       String                      @unique
+  description                String?
+  color                      String                      @default("#6366f1")
+  createdAt                  DateTime                    @default(now())
+  managerAccess              ManagerDeptAccess[]
+  projects                   Project[]
+  taskTypes                  TaskType[]
+  tickets                    Ticket[]
+  users                      User[]
+  userMemberships            UserDepartmentMembership[]
+  roleAssignments            UserRoleAssignment[]
+  teams                      Team[]
+  requestedTickets           Ticket[]                    @relation("TicketRequestingDepartment")
+  targetedTickets            Ticket[]                    @relation("TicketTargetDepartment")
+  salesLeads                 Lead[]
+  meetings                   Meeting[]
+  hierarchyAssignments       HierarchyAssignment[]
   organizationReportingLines OrganizationReportingLine[]
 
   @@map("departments")
@@ -1722,48 +1722,48 @@ model DailyAttendance {
 }
 
 model AttendanceRegularization {
-  screenshots        CorrectionScreenshot[]
-  id                 String                    @id @default(cuid())
+  screenshots          CorrectionScreenshot[]
+  id                   String                    @id @default(cuid())
   /// The import row that produced this correction, if any. Back-reference
   /// only: the foreign key lives on AttendanceImportRow.
-  importRow          AttendanceImportRow?
-  userId             String
-  date               DateTime                  @db.Date
-  requestType        RegularizationRequestType
+  importRow            AttendanceImportRow?
+  userId               String
+  date                 DateTime                  @db.Date
+  requestType          RegularizationRequestType
   /// Refined-policy category. Text avoids rewriting the historical enum.
   policyCorrectionType String?
-  reason             String
-  requestedPunchIn   DateTime?
-  requestedPunchOut  DateTime?
+  reason               String
+  requestedPunchIn     DateTime?
+  requestedPunchOut    DateTime?
   // ── AR-1 ──────────────────────────────────────────────────────────────────
   /// The official result's sourceFingerprint when this request was raised.
   /// Compared at final approval so a correction written against a stale view of
   /// the day cannot silently overwrite a newer official result.
-  basedOnFingerprint String?
+  basedOnFingerprint   String?
   /// Explicit official status the approver is granting, for corrections that
   /// are not expressible as a punch time (e.g. approved manual attendance).
-  proposedStatus     DailyAttendanceStatus?
-  status             RegularizationStatus      @default(PENDING)
-  managerApproverId  String?
-  managerDecisionAt  DateTime?
-  hrApproverId       String?
-  hrDecisionAt       DateTime?
+  proposedStatus       DailyAttendanceStatus?
+  status               RegularizationStatus      @default(PENDING)
+  managerApproverId    String?
+  managerDecisionAt    DateTime?
+  hrApproverId         String?
+  hrDecisionAt         DateTime?
   // ── Manual recovery (outage path) ─────────────────────────────────────────
   /// Who ENTERED this, when it was not the employee. Deliberately separate from
   /// the approver fields: a manager may enter a recovery that HR later approves,
   /// and inferring the creator from the approver would lose one of them.
   /// Null on an ordinary employee request, where the creator is userId.
-  createdById        String?
-  entrySource        RegularizationEntrySource @default(EMPLOYEE_REQUEST)
+  createdById          String?
+  entrySource          RegularizationEntrySource @default(EMPLOYEE_REQUEST)
   /// Why evidence could not be captured. A different question from
   /// requestType, which says what kind of correction this is.
-  recoveryReason     ManualRecoveryReason?
+  recoveryReason       ManualRecoveryReason?
   /// When the employee reported the problem, as distinct from when it was
   /// entered.
-  employeeInformedAt DateTime?
+  employeeInformedAt   DateTime?
   /// The role the actor held AT ENTRY. A historical snapshot: if a manager
   /// later becomes HR, this record must still say a manager entered it.
-  actorRoleAtEntry   String?
+  actorRoleAtEntry     String?
 
   /// The authoritative punch values BEFORE this correction, captured at
   /// creation. Null for an add-missing-punch recovery, set for a correction.
@@ -3227,18 +3227,18 @@ model HierarchyAssignment {
 /// Business reporting structure used only by the organization chart. This is
 /// deliberately separate from HierarchyAssignment, which governs approvals.
 model OrganizationReportingLine {
-  id           String      @id
+  id            String      @id
   subjectUserId String
-  supervisorId String
-  departmentId String?
+  supervisorId  String
+  departmentId  String?
   /// PRIMARY is the person's home reporting line. Department-scoped values
   /// use DEPARTMENT:<departmentId> for matrix/cross-functional assignments.
-  scopeKey     String      @default("PRIMARY")
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  subject      User        @relation("OrganizationReportingSubject", fields: [subjectUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  supervisor   User        @relation("OrganizationReportingSupervisor", fields: [supervisorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  scopeKey      String      @default("PRIMARY")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  subject       User        @relation("OrganizationReportingSubject", fields: [subjectUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supervisor    User        @relation("OrganizationReportingSupervisor", fields: [supervisorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  department    Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([subjectUserId, scopeKey])
   @@index([supervisorId])
@@ -3671,4 +3671,224 @@ model LeaveEvidence {
   @@unique([leaveRequestId, sha256])
   @@index([userId])
   @@map("leave_evidence")
+}
+
+// Asset Management is intentionally empty after migration. Records enter the
+// system through admin forms or the confidential master-workbook importer.
+model AssetType {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  assets    CompanyAsset[]
+
+  @@map("asset_types")
+}
+
+model CompanyAsset {
+  id               String               @id @default(cuid())
+  assetCode        String               @unique
+  assetTypeId      String?
+  brandModel       String
+  specification    String?
+  modelNumber      String?
+  ownership        String
+  vendorName       String?
+  acquisitionDate  DateTime?            @db.Date
+  vendorReturnDate DateTime?            @db.Date
+  purchaseCost     Decimal?             @db.Decimal(14, 2)
+  monthlyRent      Decimal?             @db.Decimal(14, 2)
+  status           String               @default("AVAILABLE")
+  chargerIncluded  Boolean              @default(false)
+  notes            String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  assetType        AssetType?           @relation(fields: [assetTypeId], references: [id], onDelete: SetNull)
+  allocations      AssetAllocation[]
+  repairs          AssetRepair[]
+  rentalPayments   AssetRentalPayment[]
+
+  @@index([assetTypeId])
+  @@index([status])
+  @@index([ownership])
+  @@map("company_assets")
+}
+
+model AssetAllocation {
+  id                String       @id @default(cuid())
+  assetId           String
+  employeeId        String?
+  employeeName      String
+  branch            String?
+  fromDate          DateTime     @db.Date
+  toDate            DateTime?    @db.Date
+  returned          Boolean      @default(false)
+  conditionAtIssue  String?
+  conditionAtReturn String?
+  repairingCost     Decimal?     @db.Decimal(14, 2)
+  repairingDate     DateTime?    @db.Date
+  hodManagerName    String?
+  accessories       Json?
+  workflowStatus    String       @default("ACTIVE_ASSIGNMENT")
+  acknowledgedAt    DateTime?
+  returnRequestedAt DateTime?
+  remarks           String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  asset             CompanyAsset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@index([assetId, returned])
+  @@index([employeeId])
+  @@index([employeeName])
+  @@map("asset_allocations")
+}
+
+model AssetRepair {
+  id                     String        @id @default(cuid())
+  assetId                String?
+  brand                  String
+  specification          String?
+  issues                 String
+  reportedDate           DateTime      @default(now()) @db.Date
+  repairingDate          DateTime?     @db.Date
+  expectedCompletionDate DateTime?     @db.Date
+  completedDate          DateTime?     @db.Date
+  estimatedCost          Decimal?      @db.Decimal(14, 2)
+  finalCost              Decimal?      @db.Decimal(14, 2)
+  status                 String        @default("REPORTED")
+  repairVendor           String?
+  outcome                String?
+  responsibility         String?
+  remarks                String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  asset                  CompanyAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([assetId])
+  @@index([status])
+  @@map("asset_repairs")
+}
+
+model AssetRentalPayment {
+  id            String       @id @default(cuid())
+  assetId       String
+  periodMonth   DateTime     @db.Date
+  employeeName  String?
+  branch        String?
+  vendorName    String?
+  specification String?
+  modelName     String?
+  monthlyRent   Decimal      @db.Decimal(14, 2)
+  approvedBy    String?
+  paid          Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  asset         CompanyAsset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@unique([assetId, periodMonth])
+  @@index([paid])
+  @@map("asset_rental_payments")
+}
+
+model AssetMobileSubscription {
+  id               String                @id @default(cuid())
+  employeeId       String?
+  employeeName     String
+  branch           String?
+  model            String?
+  simProvider      String
+  phoneNumber      String                @unique
+  plan             String?
+  amount           Decimal?              @db.Decimal(14, 2)
+  frequency        String                @default("MONTHLY")
+  lastRechargeDate DateTime?             @db.Date
+  dueDate          DateTime?             @db.Date
+  status           String                @default("ACTIVE")
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  recharges        AssetMobileRecharge[]
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("asset_mobile_subscriptions")
+}
+
+model AssetMobileRecharge {
+  id             String                  @id @default(cuid())
+  subscriptionId String
+  billingMonth   DateTime                @db.Date
+  rechargeDate   DateTime?               @db.Date
+  dueDate        DateTime?               @db.Date
+  plan           String?
+  amount         Decimal                 @db.Decimal(14, 2)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  subscription   AssetMobileSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, billingMonth])
+  @@index([dueDate])
+  @@map("asset_mobile_recharges")
+}
+
+model AssetRequest {
+  id                 String    @id @default(cuid())
+  requestCode        String    @unique
+  requestType        String
+  employeeId         String?
+  employeeName       String
+  department         String?
+  branch             String?
+  managerName        String?
+  requestedAssetType String?
+  requestedItems     Json?
+  linkedAssetId      String?
+  reason             String
+  priority           String    @default("MEDIUM")
+  requiredByDate     DateTime? @db.Date
+  status             String    @default("SUBMITTED")
+  adminOwner         String?
+  employeeRemark     String?
+  managerRemark      String?
+  adminRemark        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([status])
+  @@index([employeeId])
+  @@map("asset_requests")
+}
+
+model AssetAuditEvent {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorName  String?
+  entityType String
+  entityId   String
+  action     String
+  before     Json?
+  after      Json?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("asset_audit_events")
+}
+
+model AssetImportBatch {
+  id             String   @id @default(cuid())
+  fileName       String
+  fileSha256     String
+  sheets         Json
+  summary        Json
+  errorCount     Int      @default(0)
+  errors         Json?
+  importedById   String
+  importedByName String?
+  createdAt      DateTime @default(now())
+
+  @@index([fileSha256])
+  @@index([createdAt])
+  @@map("asset_import_batches")
 }
