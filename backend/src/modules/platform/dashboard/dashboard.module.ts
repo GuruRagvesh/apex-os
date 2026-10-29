@@ -9,9 +9,10 @@ import { HomeController } from './home.controller';
 import { LeaveModule } from '../../operations/leave/leave.module';
 import { NotificationsModule } from '../../operations/notifications/notifications.module';
 import { BusinessCalendarModule } from '../attendance/calendar/business-calendar.module';
+import { MyAttendanceV2Module } from '../attendance/v2/my-attendance-v2.module';
 
 @Module({
-  imports: [LeaveModule, NotificationsModule, BusinessCalendarModule],
+  imports: [LeaveModule, NotificationsModule, BusinessCalendarModule, MyAttendanceV2Module],
   providers: [DashboardService, HomeInsightsService, HomeExperienceService, HomeCarouselService, TeamInsightsService],
   controllers: [DashboardController, HomeController],
 })
