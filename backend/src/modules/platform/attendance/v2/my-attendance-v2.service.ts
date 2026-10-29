@@ -76,6 +76,20 @@ export class MyAttendanceV2Service {
     };
   }
 
+  /**
+   * Canonical calendar for an already-authorized internal reader.
+   *
+   * Team dashboards use this after applying their hierarchy scope. Keeping the
+   * evaluation here prevents a leader's view from assigning different day
+   * colours than the employee's own attendance calendar.
+   */
+  async calendarMonth(userId: string, month: string): Promise<MyAttendanceMonthV2> {
+    const companyToday = this.tva.companyToday();
+    const [year, monthNumber] = month.split('-').map(Number);
+    const days = await this.monthDays(userId, month, companyToday);
+    return { year, month: monthNumber, days, summary: summarizeAttendanceDays(days) };
+  }
+
   /** The authenticated employee's recorded attendance for one backend-defined financial year. */
   async financialYear(
     userId: string,

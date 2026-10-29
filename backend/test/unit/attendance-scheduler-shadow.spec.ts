@@ -102,7 +102,11 @@ function rig(f: Fixtures = {}) {
     { log: jest.fn((e: any) => { audit.push(e); return Promise.resolve(undefined); }) } as any,
     evaluator,
   );
-  const scheduler = new AttendanceSchedulerService(processing, tva);
+  const scheduler = new AttendanceSchedulerService(
+    processing,
+    tva,
+    { remindForDate: jest.fn().mockResolvedValue(0) } as any,
+  );
 
   return { processing, scheduler, prisma, evaluator, settings, audit, tva };
 }

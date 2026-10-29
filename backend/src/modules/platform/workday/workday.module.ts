@@ -9,11 +9,13 @@ import { MeetingService } from './meeting.service';
 import { MeetingV2Service } from './meeting-v2.service';
 import { MeetingV2Controller } from './meeting-v2.controller';
 import { LeaveModule } from '../../operations/leave/leave.module';
+import { ProductivityTimelineService } from './productivity-timeline.service';
+import { BusinessCalendarModule } from '../attendance/calendar/business-calendar.module';
 
 @Module({
-  imports: [NotificationsModule, TicketsModule, LeaveModule],
+  imports: [NotificationsModule, TicketsModule, LeaveModule, BusinessCalendarModule],
   controllers: [WorkdayController, WorkdayNotesController, MeetingV2Controller],
-  providers: [WorkdayService, WorkdayNotesService, MeetingService, MeetingV2Service],
+  providers: [WorkdayService, WorkdayNotesService, MeetingService, MeetingV2Service, ProductivityTimelineService],
   exports: [WorkdayService, MeetingService, MeetingV2Service],
 })
 export class WorkdayModule {}

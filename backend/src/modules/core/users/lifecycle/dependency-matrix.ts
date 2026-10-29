@@ -73,6 +73,7 @@ export interface Handler {
 
 const others = (u: Subject) => ({ userId: { not: u.id } });
 const otherUsers = (u: Subject) => ({ id: { not: u.id } });
+const subjectIdentifiers = (u: Subject): string[] => [u.id, u.employeeId].filter((value): value is string => Boolean(value));
 
 /** Prisma client delegate for a model name: `TicketTimeLog` -> `ticketTimeLog`. */
 export function delegateName(model: string): string {
@@ -148,6 +149,15 @@ export const HANDLERS: Handler[] = [
   { key: 'QuickTicketTemplate.ownerUserId', model: 'QuickTicketTemplate', field: 'ownerUserId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Ticket Templates', note: 'The person\'s own private templates: archived in the workbook, then deleted.' },
   { key: 'QuickTicketTemplatePreference.ownerUserId', model: 'QuickTicketTemplatePreference', field: 'ownerUserId', fk: false, holds: 'id', action: 'DEL', history: false, sheet: 'Ticket Templates', note: 'The person\'s own Quick Tag display preference.' },
 
+  // Imported asset rows may hold either the application user id or employee code.
+  // Preserve operational history while removing structured identity; NAME must run before SCRUB.
+  { key: 'AssetAllocation.employeeName', model: 'AssetAllocation', field: 'employeeName', fk: false, holds: 'id', action: 'NAME', where: (u) => ({ employeeId: { in: subjectIdentifiers(u) } }), history: true, sheet: 'Asset Management', note: 'Linked allocation history stays with an anonymized employee name.' },
+  { key: 'AssetAllocation.employeeId[user-or-employee-code]', model: 'AssetAllocation', field: 'employeeId', fk: false, holds: 'id', action: 'SCRUB', where: (u) => ({ employeeId: { in: subjectIdentifiers(u) } }), history: true, sheet: 'Asset Management', note: 'The identifier may contain either a user id or employee code.' },
+  { key: 'AssetMobileSubscription.employeeName', model: 'AssetMobileSubscription', field: 'employeeName', fk: false, holds: 'id', action: 'NAME', where: (u) => ({ employeeId: { in: subjectIdentifiers(u) } }), history: true, sheet: 'Asset Management', note: 'Linked subscription history stays with an anonymized employee name.' },
+  { key: 'AssetMobileSubscription.employeeId[user-or-employee-code]', model: 'AssetMobileSubscription', field: 'employeeId', fk: false, holds: 'id', action: 'SCRUB', where: (u) => ({ employeeId: { in: subjectIdentifiers(u) } }), history: true, sheet: 'Asset Management', note: 'The identifier may contain either a user id or employee code.' },
+  { key: 'AssetRequest.employeeName', model: 'AssetRequest', field: 'employeeName', fk: false, holds: 'id', action: 'NAME', where: (u) => ({ employeeId: { in: subjectIdentifiers(u) } }), history: true, sheet: 'Asset Management', note: 'Linked request history stays with an anonymized employee name.' },
+  { key: 'AssetRequest.employeeId[user-or-employee-code]', model: 'AssetRequest', field: 'employeeId', fk: false, holds: 'id', action: 'SCRUB', where: (u) => ({ employeeId: { in: subjectIdentifiers(u) } }), history: true, sheet: 'Asset Management', note: 'The identifier may contain either a user id or employee code.' },
+
   // ── 3b. Lifecycle foundation (Phase 1): own rows, children before parents ─
   // The running operation's attempts stay linked to its scrubbed receipt.
   {
@@ -180,6 +190,10 @@ export const HANDLERS: Handler[] = [
   { key: 'Comment.authorId', model: 'Comment', field: 'authorId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Comments', note: 'Text kept.' },
   { key: 'TicketHistory.changedById', model: 'TicketHistory', field: 'changedById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Ticket History', note: 'Shared audit.' },
   { key: 'OperationalEvent.actorId', model: 'OperationalEvent', field: 'actorId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Events By User', note: 'Exact identifiers scrubbed from JSON separately.' },
+  { key: 'AssetAuditEvent.actorName', model: 'AssetAuditEvent', field: 'actorName', fk: false, holds: 'id', action: 'NAME', where: (u) => ({ actorId: u.id }), history: true, sheet: 'Asset Audit', note: 'Asset audit history stays while the actor name is anonymized.' },
+  { key: 'AssetAuditEvent.actorId', model: 'AssetAuditEvent', field: 'actorId', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Asset Audit', note: 'Required actor moves to the non-login Deleted account principal.' },
+  { key: 'AssetImportBatch.importedByName', model: 'AssetImportBatch', field: 'importedByName', fk: false, holds: 'id', action: 'NAME', where: (u) => ({ importedById: u.id }), history: true, sheet: 'Asset Imports', note: 'Import history stays while the importer name is anonymized.' },
+  { key: 'AssetImportBatch.importedById', model: 'AssetImportBatch', field: 'importedById', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Asset Imports', note: 'Required importer moves to the non-login Deleted account principal.' },
   { key: 'EmployeeProfileChangeRequest.requestedById', model: 'EmployeeProfileChangeRequest', field: 'requestedById', fk: true, holds: 'id', action: 'REASSIGN', scope: (u) => ({ targetUserId: { not: u.id } }), history: true, sheet: 'Profile Change Requests', note: 'Requests the person raised for others.' },
   { key: 'AttendanceImportBatch.uploadedById', model: 'AttendanceImportBatch', field: 'uploadedById', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Attendance Imports', note: 'The system principal never approves, so the uploader != approver CHECK holds.' },
   { key: 'Lead.ownerId', model: 'Lead', field: 'ownerId', fk: true, holds: 'id', action: 'REASSIGN', history: true, sheet: 'CRM', note: 'Open leads block archival.' },
@@ -319,7 +333,7 @@ export const HANDLERS: Handler[] = [
  */
 export const FINGERPRINT_OPTIONAL_WHEN_EMPTY: ReadonlySet<string> = new Set(
   HANDLERS.map((h) => h.key).filter((k) =>
-    /^(LifecycleRemediationAttempt|FnfAdjustmentRequest|RetentionRuleProposal|RetentionRuleVersion|TransitionRequestKey|DepartmentTransferImpact|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview|ReviewQueueAssignment|OrganizationReportingLine)\./.test(k)
+    /^(LifecycleRemediationAttempt|FnfAdjustmentRequest|RetentionRuleProposal|RetentionRuleVersion|TransitionRequestKey|DepartmentTransferImpact|FnfAdjustment|ExitCase|ExitClearanceItem|FnfSettlement|EmploymentPeriod|UserSetupIssue|HierarchyAssignment|DepartmentTransfer|RoutingSnapshot|PolicyHealthIssue|PunchEvidenceReview|ReviewQueueAssignment|OrganizationReportingLine|AssetAllocation|AssetMobileSubscription|AssetRequest|AssetAuditEvent|AssetImportBatch)\./.test(k)
     || [
       'LeaveRequest.fundingChangedById',
       'RetentionRule.createdById',
@@ -368,6 +382,17 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'UserArchiveSnapshot.userId': 'Managed by the service: consumed snapshot cleared, others cleared.',
   'Meeting.approverIds': 'Service-managed array cleanup: the deleted person is removed from the eligible approvers of meetings inside the Permanent Delete transaction (MEETING_APPROVERS_REMOVED).',
   'QuickTicketTemplate.assigneeIds': 'Service-managed array cleanup: the deleted person is removed from other owners\' templates inside the Permanent Delete transaction (TEMPLATE_ASSIGNEES_REMOVED).',
+  'CompanyAsset.ownership': 'An ownership category such as company-owned or rented, not a person reference.',
+  'AssetAllocation.employeeId': 'Covered by the qualified AssetAllocation employee-identifier handler.',
+  'AssetAllocation.hodManagerName': 'A historical manager-name snapshot, not an exact account reference.',
+  'AssetRentalPayment.employeeName': 'A historical workbook name snapshot without a stable account identifier.',
+  'AssetRentalPayment.approvedBy': 'A historical approver-name snapshot without a stable account identifier.',
+  'AssetMobileSubscription.employeeId': 'Covered by the qualified mobile-subscription employee-identifier handler.',
+  'AssetRequest.employeeId': 'Covered by the qualified asset-request employee-identifier handler.',
+  'AssetRequest.managerName': 'A historical manager-name snapshot, not an exact account reference.',
+  'AssetRequest.adminOwner': 'A display label for the administrative owner, not an exact account reference.',
+  'AssetRequest.employeeRemark': 'Narrative request text, not a structured person reference.',
+  'AssetRequest.managerRemark': 'Narrative request text, not a structured person reference.',
 };
 
 /** JSON columns scrubbed of exact identity matches (id, email, employee code). */
@@ -378,6 +403,12 @@ export const JSON_SCRUB_COLUMNS: { model: string; table: string; column: string 
   { model: 'ActivityLog', table: 'activity_logs', column: 'details' },
   { model: 'AttendanceEvent', table: 'attendance_events', column: 'metadata' },
   { model: 'EmployeeProfileChangeRequest', table: 'employee_profile_change_requests', column: 'changes' },
+  { model: 'AssetAuditEvent', table: 'asset_audit_events', column: 'before' },
+  { model: 'AssetAuditEvent', table: 'asset_audit_events', column: 'after' },
+  { model: 'AssetAuditEvent', table: 'asset_audit_events', column: 'metadata' },
+  { model: 'AssetImportBatch', table: 'asset_import_batches', column: 'sheets' },
+  { model: 'AssetImportBatch', table: 'asset_import_batches', column: 'summary' },
+  { model: 'AssetImportBatch', table: 'asset_import_batches', column: 'errors' },
 ];
 
 /** Narrative text columns: never rewritten; exact mentions are only counted. */
@@ -387,6 +418,9 @@ export const NARRATIVE_TEXT_COLUMNS: { model: string; field: string }[] = [
   { model: 'Notification', field: 'message' },
   { model: 'User', field: 'verifiedBy' },
   { model: 'EmployeeDocument', field: 'verifiedBy' },
+  { model: 'AssetRequest', field: 'employeeRemark' },
+  { model: 'AssetRequest', field: 'managerRemark' },
+  { model: 'AssetRequest', field: 'adminRemark' },
 ];
 
 export const SCRUBBED = '[deleted-user]';

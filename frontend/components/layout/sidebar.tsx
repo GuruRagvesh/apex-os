@@ -9,10 +9,11 @@ import { useQuery } from '@tanstack/react-query';
 import { workdayApi } from '@/lib/api';
 import {
   LayoutDashboard, Ticket, Kanban, FolderKanban, CalendarOff,
-  Users, Building2, BarChart3, LogOut, Zap, Settings,
+  Users, Building2, BarChart3, LogOut, Settings,
   Activity, ArrowRight, ChevronDown, Handshake,
   CalendarCheck,
   PanelLeftClose, PanelLeftOpen, X,
+  Package,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
@@ -80,6 +81,7 @@ const MANAGER_NAV   = [
 const ADMIN_NAV     = [
   { href: '/users',       label: 'Users & Roles',  icon: Users     },
   { href: '/departments', label: 'Departments',     icon: Building2 },
+  { href: '/assets',      label: 'Inventory Management', icon: Package  },
 ];
 
 const SETTINGS_NAV  = [{ href: '/settings', label: 'Settings',      icon: Settings  }];
@@ -94,15 +96,6 @@ const TEAMLEAD_MODE_NAV = [
   { href: '/attendance', label: 'My Attendance', icon: CalendarCheck },
   { href: '/leave',     label: 'Leave',          icon: CalendarOff   },
 ];
-
-const ROLE_BADGE_COLOR: Record<string, { bg: string; text: string }> = {
-  SUPER_ADMIN: { bg: 'rgba(139,92,246,0.15)', text: '#a78bfa' },
-  ADMIN:       { bg: 'rgba(239,68,68,0.15)',  text: '#f87171' },
-  MANAGER:     { bg: 'rgba(245,158,11,0.15)', text: '#fbbf24' },
-  TEAM_LEAD:   { bg: 'rgba(37,99,235,0.15)',  text: '#60a5fa' },
-  EMPLOYEE:    { bg: 'rgba(16,185,129,0.15)', text: '#34d399' },
-  INTERN:      { bg: 'rgba(20,184,166,0.15)', text: '#2dd4bf' },
-};
 
 // Below Tailwind's md breakpoint (768px). False on the server and first render.
 function useIsPhone(): boolean {
@@ -260,8 +253,6 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
     ...(showHRMS ? [{ href: '/hrms', label: 'HRMS', icon: Users }] : []),
     ...(showCRM ? [{ href: '/sales-crm', label: 'Sales CRM', icon: Handshake }] : []),
   ];
-
-  const roleBadge = ROLE_BADGE_COLOR[role] ?? { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
 
   // ── Intern-style animated nav button ──────────────────────────────────────
   function NavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
@@ -547,30 +538,6 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
               <UserAvatar name={user?.name ?? 'U'} avatar={user?.avatar} photoUrl={(user as any)?.photoUrl} size="sm" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
-                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
-                    style={{ backgroundColor: roleBadge.bg, color: roleBadge.text }}
-                  >
-                    {role}
-                  </span>
-                  {isSuperAdmin && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5"
-                      style={{
-                        background: apexMode === 'super_admin'
-                          ? 'linear-gradient(135deg,rgba(88,28,135,0.15) 0%,rgba(109,40,217,0.10) 100%)'
-                          : 'linear-gradient(135deg,rgba(30,64,175,0.15) 0%,rgba(79,70,229,0.10) 100%)',
-                        border: apexMode === 'super_admin' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(96,165,250,0.3)',
-                        color: apexMode === 'super_admin' ? '#a78bfa' : '#60a5fa',
-                      }}
-                    >
-                      {apexMode === 'super_admin'
-                        ? <><Zap size={9} />SA</>
-                        : <><Users size={9} />TL</>}
-                    </span>
-                  )}
-                </div>
               </div>
             </button>
             <button
