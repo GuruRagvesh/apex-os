@@ -1,10 +1,13 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { validateScreenshots, MAX_SCREENSHOT_BYTES } from '../../src/modules/platform/attendance/regularization/correction-screenshot';
 import { RegularizationService } from '../../src/modules/platform/attendance/regularization/regularization.service';
+import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
 const upload = () => ({ buffer: png, size: png.length, mimetype: 'image/png', originalname: '../failure.png' });
 function setup() {
-  const prisma = {
+  const prisma: any = {
+    // A submission counts and creates inside one locked transaction.
+    $transaction: jest.fn((fn: any) => fn({ ...prisma, ...makeRawSqlDouble() })),
     attendanceRegularization: { count: jest.fn().mockResolvedValue(0), findUnique: jest.fn().mockResolvedValue({ id: 'request', userId: 'owner' }), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'request' }), findMany: jest.fn().mockResolvedValue([]) },
     correctionScreenshot: { findFirst: jest.fn().mockResolvedValue({ id: 'image', content: png }) },
     dailyAttendance: { findUnique: jest.fn().mockResolvedValue(null) },

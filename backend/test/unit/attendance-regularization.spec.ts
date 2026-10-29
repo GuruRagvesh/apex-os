@@ -562,6 +562,12 @@ function lifecycleRig(f: LifecycleFixtures = {}) {
     },
     dailyAttendance: { findUnique: tx.dailyAttendance.findUnique },
   };
+  // A submission counts and creates inside the same locked transaction.
+  Object.assign(tx.attendanceRegularization, {
+    count: prisma.attendanceRegularization.count,
+    findFirst: prisma.attendanceRegularization.findFirst,
+    create: prisma.attendanceRegularization.create,
+  });
 
   const evaluator: any = {
     reviseForApprovedCorrection: jest.fn().mockResolvedValue({
