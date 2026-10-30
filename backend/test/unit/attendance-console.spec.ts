@@ -4,6 +4,7 @@ import { TVAService } from '../../src/common/services/tva.service';
 import { ConfigService } from '@nestjs/config';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AccessPolicyService } from '../../src/common/services/access-policy.service';
+import { MonthlyAttendanceReportService } from '../../src/modules/platform/attendance/console/export/monthly-attendance-report.service';
 
 // HC-1. Real TVAService, mocked Prisma and a mocked evaluator, because the
 // point of every test here is that the console READS stored results and
@@ -79,7 +80,9 @@ function rig(f: Fixtures = {}) {
       findMany: jest.fn((args: any) => {
         // The scope query asks for reports; every other query asks for the
         // employee list the caller is allowed to see.
-        if (args?.where?.OR) return Promise.resolve(f.reports ?? [{ id: 'emp-1' }]);
+        // The monthly report's population query is the employee list too; it
+        // always excludes system accounts, which the scope query never names.
+        if (args?.where?.OR && args?.where?.isSystemAccount === undefined) return Promise.resolve(f.reports ?? [{ id: 'emp-1' }]);
         // The id filter is honoured here on purpose. A mock that returns every
         // employee whatever it is asked would let a scope leak pass as a pass.
         const ids: string[] | undefined = args?.where?.id?.in;
@@ -101,7 +104,12 @@ function rig(f: Fixtures = {}) {
     attendancePunchEvidence: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
     workSession: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
     leaveRequest: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
+    employeeAttendanceProfile: { findMany: jest.fn().mockResolvedValue([]) },
+    compOffCredit: { findMany: jest.fn().mockResolvedValue([]) },
+    department: { findUnique: jest.fn().mockResolvedValue({ name: 'Ops' }) },
   };
+  // The monthly report reads inside one snapshot transaction.
+  prisma.$transaction = jest.fn((fn: any) => fn(prisma));
 
   const evaluator: any = {
     evaluateAndPersist: jest.fn(async (userId: string, businessDate: string) => {
@@ -170,7 +178,34 @@ function rig(f: Fixtures = {}) {
     leaveBalance,
   );
 
-  return { service, prisma, evaluator, audit, calendar, leaveBalance };
+  // The Monthly Register, the workbook and the CSV package all come from this
+  // one service and its canonical assembler.
+  const reports = new MonthlyAttendanceReportService(
+    prisma,
+    tvaOf(),
+    service,
+    calendar,
+    { log: jest.fn((e: any) => { audit.push(e); return Promise.resolve(undefined); }) } as any,
+    { isHrOrAdmin: () => f.isHr === true } as any,
+  );
+
+  return { service, reports, prisma, evaluator, audit, calendar, leaveBalance };
+}
+
+/**
+ * Runs with the wall clock at a given instant. Only Date is faked: the code
+ * under test awaits promises, never timers.
+ */
+async function atInstant<T>(iso: string, fn: () => Promise<T>): Promise<T> {
+  jest.useFakeTimers({
+    now: new Date(iso),
+    doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask'],
+  });
+  try {
+    return await fn();
+  } finally {
+    jest.useRealTimers();
+  }
 }
 
 const HR = { id: 'hr-1' };
@@ -388,14 +423,14 @@ describe('HC-1 commands are HR-only and explicit', () => {
   });
 
   it('19. no GET route can evaluate or finalize', async () => {
-    const { service, evaluator } = rig({ isHr: true, records: [record('emp-1')] });
-    const controller = new AttendanceConsoleController(service, {} as any, {} as any);
+    const { reports, service, evaluator } = rig({ isHr: true, records: [record('emp-1')] });
+    const controller = new AttendanceConsoleController(service, {} as any, {} as any, reports);
 
     await controller.access(HR);
     await controller.summary(HR, DATE);
     await controller.roster(HR, DATE);
     await controller.reviewQueue(HR, DATE, DATE);
-    await controller.register(HR, DATE, DATE);
+    await controller.register(HR, '2026-08');
     await controller.detail(HR, 'emp-1', DATE);
 
     expect(evaluator.evaluateAndPersist).not.toHaveBeenCalled();
@@ -403,11 +438,11 @@ describe('HC-1 commands are HR-only and explicit', () => {
   });
 
   it('20. reading never writes', async () => {
-    const { service, prisma } = rig({ isHr: true, records: [record('emp-1')] });
+    const { reports, service, prisma } = rig({ isHr: true, records: [record('emp-1')] });
 
     await service.todaySummary(HR, DATE);
     await service.roster(HR, { businessDate: DATE });
-    await service.monthlyRegister(HR, { from: DATE, to: DATE });
+    await reports.register(HR, { month: '2026-08' });
     await service.dayDetail(HR, 'emp-1', DATE);
     await service.reviewQueue(HR, { from: DATE, to: DATE });
 
@@ -572,7 +607,7 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('27. the monthly register counts stored classifications and never re-runs the evaluator', async () => {
-    const { service, evaluator } = rig({
+    const { reports, evaluator } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03', '2026-08-04', '2026-08-05'],
@@ -585,7 +620,7 @@ describe('HC-1 roster and register report stored results', () => {
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
     const row = out.employees[0];
 
     expect(row.daysPresent).toBe(1);
@@ -597,22 +632,25 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('28. a working day nobody evaluated is reported, never counted as absence', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03', '2026-08-04', '2026-08-05'],
       records: [on('e1', '2026-08-03', { status: 'PRESENT' })],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
     const row = out.employees[0];
 
-    expect(row.notEvaluated).toBe(2);
+    // Not evaluated is unresolved: counted, shown, and never an absence.
+    expect(row.unresolvedDays).toBe(2);
     expect(row.daysAbsent).toBe(0);
+    expect(row.attendanceCompletionPercentage).toBeNull();
+    expect(row.provisional).toBe(true);
   });
 
   it('28b. a full-day absence is counted from the stored classification', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03', '2026-08-04'],
@@ -622,12 +660,12 @@ describe('HC-1 roster and register report stored results', () => {
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
     expect(out.employees[0].daysAbsent).toBe(1);
   });
 
   it('29. a half day weighs half and a full day weighs one', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: [
@@ -643,7 +681,7 @@ describe('HC-1 roster and register report stored results', () => {
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-14' });
+    const out = await reports.register(HR, { month: '2026-08' });
 
     // The brief's worked example: 8 full + 2 half over 10 eligible days = 90%.
     expect(out.employees[0].eligibleWorkingDays).toBe(10);
@@ -651,7 +689,7 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('29b. approved full-day leave leaves the denominator instead of counting against the employee', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06'],
@@ -663,7 +701,7 @@ describe('HC-1 roster and register report stored results', () => {
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-06' });
+    const out = await reports.register(HR, { month: '2026-08' });
 
     // 4 working days, 1 on sanctioned leave: measured against 3, and attended
     // all 3. Counting the leave day as a miss would report 75%.
@@ -672,14 +710,14 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('30. an employee with no eligible working day has no percentage rather than zero', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: [],
       records: [],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
 
     // 0% would read as "never attended". Null reads as "we do not know yet".
     expect(out.employees[0].attendanceCompletionPercentage).toBeNull();
@@ -687,7 +725,7 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('30b. working days is the whole month; the percentage is measured on elapsed days only', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       // Twenty-two scheduled working days in the month, but the caller has
@@ -701,7 +739,8 @@ describe('HC-1 roster and register report stored results', () => {
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-04' });
+    // Today is 4 August: two working days have elapsed.
+    const out = await atInstant('2026-08-04T12:00:00+05:30', () => reports.register(HR, { month: '2026-08' }));
 
     expect(out.workingDays).toBe(22);
     expect(out.elapsedWorkingDays).toBe(2);
@@ -711,7 +750,7 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('30c. a stored day outside the elapsed working days never reaches the register', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03'],
@@ -723,13 +762,15 @@ describe('HC-1 roster and register report stored results', () => {
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
     expect(out.employees[0].daysAbsent).toBe(0);
     expect(out.employees[0].daysPresent).toBe(1);
+    // Held for review rather than silently dropped or charged.
+    expect(out.employees[0].unresolvedDays).toBe(1);
   });
 
   it('30d. late punch-ins use the evaluator policy result, not a hard-coded clock', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1'), employee('e2')],
       workingDates: ['2026-08-03'],
@@ -739,7 +780,7 @@ describe('HC-1 roster and register report stored results', () => {
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
 
     // The evaluator already resolved each employee's assigned shift and grace
     // period. The register consumes that answer instead of inventing one.
@@ -748,7 +789,7 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('30e. a policy-exempted late arrival remains visible in the late-punch count', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03'],
@@ -759,24 +800,24 @@ describe('HC-1 roster and register report stored results', () => {
       })],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
     expect(out.employees[0].latePunchIns).toBe(1);
   });
 
   it('30f. a day with no punch in is never late', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03'],
       records: [on('e1', '2026-08-03', { status: 'ABSENT', punchInAt: null })],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
     expect(out.employees[0].latePunchIns).toBe(0);
   });
 
   it('30f2. missing and review-pending days suppress attendance percentage', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1')],
       workingDates: ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06'],
@@ -788,21 +829,22 @@ describe('HC-1 roster and register report stored results', () => {
       ],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-06' });
+    const out = await reports.register(HR, { month: '2026-08' });
     const row = out.employees[0];
 
     expect(row.daysPresent).toBe(1);
     expect(row.halfDays).toBe(1);
     expect(row.daysAbsent).toBe(0);
-    expect(row.needsReview).toBe(1);
-    expect(row.notEvaluated).toBe(1);
+    // One NEEDS_REVIEW day plus one day with no stored row.
+    expect(row.unresolvedDays).toBe(2);
+    expect(row.provisional).toBe(true);
     expect(row.eligibleWorkingDays).toBe(2);
     // A partial set of facts must not look like a complete 75% score.
     expect(row.attendanceCompletionPercentage).toBeNull();
   });
 
   it('30g. leave balance comes from the leave service, and one failure does not blank the register', async () => {
-    const { service, leaveBalance } = rig({
+    const { reports, leaveBalance } = rig({
       isHr: true,
       employees: [employee('e1'), employee('e2')],
       workingDates: ['2026-08-03'],
@@ -811,7 +853,7 @@ describe('HC-1 roster and register report stored results', () => {
       leaveBalanceThrows: ['e2'],
     });
 
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-05' });
+    const out = await reports.register(HR, { month: '2026-08' });
 
     expect(leaveBalance.getLeaveBalance).toHaveBeenCalledWith('e1', 2026);
     expect(out.employees.find((e: any) => e.userId === 'e1')!.leaveBalance).toBe(7);
@@ -821,7 +863,7 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('30h. the export renders the same result the screen was showing', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1', 'Ajay Singh')],
       workingDates: ['2026-08-03', '2026-08-04'],
@@ -832,9 +874,9 @@ describe('HC-1 roster and register report stored results', () => {
       leaveBalances: { e1: 7 },
     });
 
-    const filters = { from: '2026-08-01', to: '2026-08-05' };
-    const onScreen = await service.monthlyRegister(HR, filters);
-    const csv = (await service.exportRegister(HR, filters, 'csv')).buffer.toString('utf8');
+    const filters = { month: '2026-08' };
+    const onScreen = await reports.register(HR, filters);
+    const csv = (await reports.exportLegacyRegisterCsv(HR, filters)).buffer.toString('utf8');
 
     const row = onScreen.employees[0];
     expect(row.daysPresent).toBe(1);
@@ -847,21 +889,23 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('30i. the file is named for the month, in both formats', async () => {
-    const { service } = rig({ isHr: true, workingDates: [], records: [] });
-    const filters = { from: '2026-08-01', to: '2026-08-05' };
+    const { reports } = rig({ isHr: true, workingDates: [], records: [] });
+    const filters = { month: '2026-08' };
 
-    expect((await service.exportRegister(HR, filters, 'csv')).filename).toBe(
+    expect((await reports.exportLegacyRegisterCsv(HR, filters)).filename).toBe(
       'Attendance_Register_August_2026.csv',
     );
-    const xlsx = await service.exportRegister(HR, filters, 'xlsx');
-    expect(xlsx.filename).toBe('Attendance_Register_August_2026.xlsx');
+    const xlsx = await reports.export(HR, filters, 'xlsx');
+    expect(xlsx.filename).toBe('Attendance_Report_August_2026.xlsx');
+    const zip = await reports.export(HR, filters, 'zip');
+    expect(zip.filename).toBe('Attendance_Report_August_2026_CSV.zip');
     // A real XLSX is a ZIP; anything else means the workbook did not render.
     expect(xlsx.buffer.subarray(0, 2).toString('latin1')).toBe('PK');
   });
 
   it('30j. an export can never reach further than the screen it came from', async () => {
     // An ordinary employee: no reports, no managed department, no HR flag.
-    const { service, prisma } = rig({
+    const { reports, prisma } = rig({
       isHr: false,
       actorEmployeeId: null,
       departmentId: null,
@@ -872,7 +916,7 @@ describe('HC-1 roster and register report stored results', () => {
     });
 
     const csv = (
-      await service.exportRegister(EMPLOYEE, { from: '2026-08-01', to: '2026-08-05' }, 'csv')
+      await reports.exportLegacyRegisterCsv(EMPLOYEE, { month: '2026-08' })
     ).buffer.toString('utf8');
 
     // The header and nothing else. Scope is resolved before a row is read, so
@@ -882,7 +926,7 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('30k. a manager exports their own reports, not the company', async () => {
-    const { service, prisma } = rig({
+    const { reports, prisma } = rig({
       isHr: false,
       reports: [{ id: 'emp-1' }],
       employees: [employee('emp-1')],
@@ -890,7 +934,7 @@ describe('HC-1 roster and register report stored results', () => {
       records: [on('emp-1', '2026-08-03', { status: 'PRESENT' })],
     });
 
-    await service.exportRegister(MANAGER, { from: '2026-08-01', to: '2026-08-05' }, 'xlsx');
+    await reports.export(MANAGER, { month: '2026-08' }, 'xlsx');
 
     // Narrowed by id before any attendance row is read.
     const where = prisma.user.findMany.mock.calls.at(-1)[0].where;
@@ -913,14 +957,14 @@ describe('HC-1 roster and register report stored results', () => {
     ];
 
     for (const [month, expected, because] of cases) {
-      const { service, leaveBalance } = rig({
+      const { reports, leaveBalance } = rig({
         isHr: true,
         employees: [employee('e1')],
         workingDates: [],
         records: [],
       });
 
-      await service.monthlyRegister(HR, { from: `${month}-01`, to: `${month}-28` });
+      await atInstant('2027-05-15T12:00:00+05:30', () => reports.register(HR, { month }));
 
       const [, yearArg] = leaveBalance.getLeaveBalance.mock.calls[0];
       expect([month, yearArg, because]).toEqual([month, expected, because]);
@@ -928,18 +972,18 @@ describe('HC-1 roster and register report stored results', () => {
   });
 
   it('30m. the register states which financial year the balance covers', async () => {
-    const { service } = rig({ isHr: true, workingDates: [], records: [] });
+    const { reports } = rig({ isHr: true, workingDates: [], records: [] });
 
     // A number nobody can check without knowing its period is not a fact.
-    const march = await service.monthlyRegister(HR, { from: '2027-03-01', to: '2027-03-31' });
+    const march = await atInstant('2027-05-15T12:00:00+05:30', () => reports.register(HR, { month: '2027-03' }));
     expect(march.leaveBalanceFinancialYear).toBe('2026-2027');
 
-    const april = await service.monthlyRegister(HR, { from: '2027-04-01', to: '2027-04-30' });
+    const april = await atInstant('2027-05-15T12:00:00+05:30', () => reports.register(HR, { month: '2027-04' }));
     expect(april.leaveBalanceFinancialYear).toBe('2027-2028');
   });
 
   it('30n. the exported file carries the same balance as the screen', async () => {
-    const { service } = rig({
+    const { reports } = rig({
       isHr: true,
       employees: [employee('e1', 'Ajay Singh')],
       workingDates: [],
@@ -950,17 +994,26 @@ describe('HC-1 roster and register report stored results', () => {
     // March: the month where a calendar-year read would show next year's
     // entitlement. Screen and file must agree, and both must be FY 2026-27.
     const filters = { from: '2027-03-01', to: '2027-03-31' };
-    const screen = await service.monthlyRegister(HR, filters);
-    const csv = (await service.exportRegister(HR, filters, 'csv')).buffer.toString('utf8');
+    const [screen, csv] = await atInstant('2027-05-15T12:00:00+05:30', async () => [
+      await reports.register(HR, filters),
+      (await reports.exportLegacyRegisterCsv(HR, filters)).buffer.toString('utf8'),
+    ] as const);
 
     expect(screen.employees[0].leaveBalance).toBe(7);
     expect(csv).toContain('Ajay Singh,0,0,0,7,0,—');
   });
 
-  it('31. the register range is bounded', async () => {
-    const { service } = rig({ isHr: true });
+  it('31. the register is exactly one whole, started month', async () => {
+    const { reports } = rig({ isHr: true });
     await expect(
-      service.monthlyRegister(HR, { from: '2026-01-01', to: '2026-12-31' }),
+      reports.register(HR, { from: '2026-01-01', to: '2026-12-31' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      reports.register(HR, { from: '2026-08-01', to: '2026-08-05' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(reports.register(HR, { month: '2026-13' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      atInstant('2026-08-04T12:00:00+05:30', () => reports.register(HR, { month: '2026-09' })),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
@@ -1096,6 +1149,7 @@ describe('HC-1 review queue links back to existing sources', () => {
       // They read; they decide nothing.
       'exportRegisterCsv',
       'exportRegisterXlsx',
+      'exportRegisterZip',
       'finalize',
       'punchReviews',
       'recordAbsenceReport',
@@ -1143,7 +1197,7 @@ describe('HC-1 register authorization, measured against the real access policy',
           role: { name: actor.role },
         }),
         findMany: jest.fn((args: any) => {
-          if (args?.where?.OR) return Promise.resolve(ROSTER);
+          if (args?.where?.OR && args?.where?.isSystemAccount === undefined) return Promise.resolve(ROSTER);
           const ids: string[] | undefined = args?.where?.id?.in;
           const everyone = [employee('colleague-1'), employee('colleague-2')];
           return Promise.resolve(ids ? everyone.filter((e) => ids.includes(e.id)) : everyone);
@@ -1155,7 +1209,10 @@ describe('HC-1 register authorization, measured against the real access policy',
       attendancePunchEvidence: { findMany: jest.fn().mockResolvedValue([]) },
       workSession: { findMany: jest.fn().mockResolvedValue([]) },
       leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
+      employeeAttendanceProfile: { findMany: jest.fn().mockResolvedValue([]) },
+      compOffCredit: { findMany: jest.fn().mockResolvedValue([]) },
     };
+    prisma.$transaction = jest.fn((fn: any) => fn(prisma));
 
     const calendar: any = {
       classifyMonth: jest.fn().mockResolvedValue({
@@ -1178,7 +1235,16 @@ describe('HC-1 register authorization, measured against the real access policy',
       { getLeaveBalance: jest.fn().mockResolvedValue({ balance: 5 }) } as any,
     );
 
-    return { service, actorUser: { id: 'actor-1', isHR: actor.isHR === true, role: { name: actor.role } } };
+    const reports = new MonthlyAttendanceReportService(
+      prisma,
+      tvaOf(),
+      service,
+      calendar,
+      { log: jest.fn().mockResolvedValue(undefined) } as any,
+      new AccessPolicyService(prisma),
+    );
+
+    return { service, reports, actorUser: { id: 'actor-1', isHR: actor.isHR === true, role: { name: actor.role } } };
   }
 
   const scopeOf = async (actor: any) => {
@@ -1243,7 +1309,7 @@ describe('HC-1 register authorization, measured against the real access policy',
   });
 
   it('44. every console read refuses an employee, including both exports', async () => {
-    const { service, actorUser } = rigWithRealPolicy({
+    const { reports, service, actorUser } = rigWithRealPolicy({
       role: 'EMPLOYEE',
       departmentId: 'dept-ops',
       employeeId: null,
@@ -1255,9 +1321,9 @@ describe('HC-1 register authorization, measured against the real access policy',
     // data, which is not what happened.
     await expect(service.todaySummary(actorUser, '2026-09-01')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(service.roster(actorUser, { businessDate: '2026-09-01' })).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.monthlyRegister(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.exportRegister(actorUser, filters, 'xlsx')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.exportRegister(actorUser, filters, 'csv')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(reports.register(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(reports.export(actorUser, filters, 'xlsx')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(reports.exportLegacyRegisterCsv(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
     await expect(service.dayDetail(actorUser, 'colleague-1', '2026-09-01')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(service.reviewQueue(actorUser, {})).rejects.toBeInstanceOf(ForbiddenException);
   });
@@ -1277,7 +1343,7 @@ describe('HC-1 register authorization, measured against the real access policy',
   });
 
   it('45. an intern is refused exactly as an employee is', async () => {
-    const { service, actorUser } = rigWithRealPolicy({
+    const { reports, service, actorUser } = rigWithRealPolicy({
       role: 'INTERN',
       departmentId: 'dept-ops',
       employeeId: null,
@@ -1285,9 +1351,9 @@ describe('HC-1 register authorization, measured against the real access policy',
     const filters = { from: '2026-09-01', to: '2026-09-30' };
 
     expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
-    await expect(service.monthlyRegister(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.exportRegister(actorUser, filters, 'xlsx')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.exportRegister(actorUser, filters, 'csv')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(reports.register(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(reports.export(actorUser, filters, 'xlsx')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(reports.exportLegacyRegisterCsv(actorUser, filters)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('46. a department is not management authority, even with reporting links absent', async () => {
@@ -1338,7 +1404,7 @@ describe('HC-1 register authorization, measured against the real access policy',
   it('50. a manager with nobody yet is permitted and empty, not refused', async () => {
     // Permission and population are different questions. Collapsing them would
     // tell a real manager they have no authority because their team is new.
-    const { service, actorUser } = rigWithRealPolicy({
+    const { reports, service, actorUser } = rigWithRealPolicy({
       role: 'MANAGER',
       departmentId: null,
       employeeId: null,
@@ -1348,7 +1414,7 @@ describe('HC-1 register authorization, measured against the real access policy',
     expect(scope.eligible).toBe(true);
     expect(scope.userIds).toEqual([]);
 
-    const out = await service.monthlyRegister(actorUser, { from: '2026-09-01', to: '2026-09-30' });
+    const out = await reports.register(actorUser, { month: '2026-09' });
     expect(out.employees).toEqual([]);
     expect(await service.canOperate(actorUser)).toEqual({ isHr: false, hasTeam: false });
   });
@@ -1361,11 +1427,11 @@ describe('HC-1 register authorization, measured against the real access policy',
       { role: 'MANAGER', departmentId: 'dept-ops', employeeId: 'E-mgr' },
       { role: 'TEAM_LEAD', departmentId: 'dept-ops', employeeId: 'E-tl' },
     ]) {
-      const { service, actorUser } = rigWithRealPolicy(actor);
+      const { reports, actorUser } = rigWithRealPolicy(actor);
       const filters = { from: '2026-09-01', to: '2026-09-30' };
 
-      const screen = await service.monthlyRegister(actorUser, filters);
-      const csv = (await service.exportRegister(actorUser, filters, 'csv')).buffer.toString('utf8');
+      const screen = await reports.register(actorUser, filters);
+      const csv = (await reports.exportLegacyRegisterCsv(actorUser, filters)).buffer.toString('utf8');
 
       // The export is a rendering of the register call, so it cannot widen by
       // construction -- this proves the construction has not been undone.

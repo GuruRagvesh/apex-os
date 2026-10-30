@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AttendanceImportLauncher,
@@ -17,6 +17,8 @@ import {
   currentMonth,
   formatBalance,
   formatCompletion,
+  formatHours,
+  formatProvisional,
   isFutureMonth,
   monthLabel,
   monthRange,
@@ -80,7 +82,7 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
   const [month, setMonth] = useState(() => currentMonth());
   const [importOption, setImportOption] = useState<AttendanceImportOption | null>(null);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
-  const [downloading, setDownloading] = useState<'xlsx' | 'csv' | null>(null);
+  const [downloading, setDownloading] = useState<'xlsx' | 'zip' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { data: access, isLoading: accessLoading } = useQuery({
@@ -106,18 +108,26 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
   });
 
   /**
-   * Both files come from the server, from the same call that produced the table
-   * above. Nothing is recomputed here, so the download cannot disagree with
-   * what HR is looking at.
+   * Both files come from the server's monthly report, built from one snapshot.
+   * Nothing is recomputed here. The in-flight guard drops a second click while
+   * a file is still being prepared, so one click is one request.
    */
-  const download = async (format: 'xlsx' | 'csv') => {
+  const downloadInFlight = useRef(false);
+  const download = async (format: 'xlsx' | 'zip') => {
+    if (downloadInFlight.current) return;
+    downloadInFlight.current = true;
     setDownloading(format);
+    setError(null);
     try {
       await downloadRegister(month, format);
-      setError(null);
     } catch {
-      setError('The register could not be downloaded.');
+      setError(
+        format === 'xlsx'
+          ? 'The Excel report could not be downloaded. Please try again.'
+          : 'The CSV package could not be downloaded. Please try again.',
+      );
     } finally {
+      downloadInFlight.current = false;
       setDownloading(null);
     }
   };
@@ -207,12 +217,12 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
                     aria-expanded={downloadMenuOpen}
                     className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 active:opacity-80 disabled:opacity-40"
                   >
-                    {downloading ? 'Preparing…' : 'Download ▾'}
+                    {downloading === 'xlsx' ? 'Preparing Excel…' : downloading === 'zip' ? 'Preparing CSV…' : 'Download ▾'}
                   </button>
                   {downloadMenuOpen && (
                     <div
                       role="menu"
-                      className="absolute right-0 z-20 mt-1 min-w-40 overflow-hidden rounded-lg border border-[var(--border-secondary)] bg-[var(--surface-card)] p-1 shadow-lg"
+                      className="absolute right-0 z-20 mt-1 min-w-56 overflow-hidden rounded-lg border border-[var(--border-secondary)] bg-[var(--surface-card)] p-1 shadow-lg"
                     >
                       <button
                         type="button"
@@ -223,18 +233,18 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
                         }}
                         className="apex-text w-full rounded-md px-3 py-2 text-left text-sm hover:bg-[var(--accent)] hover:text-[var(--text-inverse)]"
                       >
-                        Download Excel
+                        Download Excel (.xlsx)
                       </button>
                       <button
                         type="button"
                         role="menuitem"
                         onClick={() => {
                           setDownloadMenuOpen(false);
-                          void download('csv');
+                          void download('zip');
                         }}
                         className="apex-text w-full rounded-md px-3 py-2 text-left text-sm hover:bg-[var(--accent)] hover:text-[var(--text-inverse)]"
                       >
-                        Download CSV
+                        Download CSV Package (.zip)
                       </button>
                     </div>
                   )}
@@ -254,6 +264,16 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
             </div>
           )}
 
+          {register?.provisional && (
+            <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+              <p className="text-xs text-blue-800 dark:text-blue-300">
+                {register.monthComplete
+                  ? 'Provisional: some days are unresolved or have a correction still open. Attendance % stays blank for anyone with unresolved days until they are settled.'
+                  : 'Provisional: this month is not complete yet, so every figure can still change.'}
+              </p>
+            </div>
+          )}
+
           {registerLoading && (
             <p className="apex-text-muted py-8 text-center text-sm">Loading register…</p>
           )}
@@ -265,16 +285,21 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
 
           {register && (
             <div className="overflow-x-auto rounded-xl border-2 border-blue-300 bg-white dark:border-blue-800 dark:bg-slate-900">
-              <table className="w-full min-w-[900px] table-fixed border-collapse text-left text-sm">
+              <table className="w-full min-w-[1280px] table-fixed border-collapse text-left text-sm">
                 <thead className="bg-[#245B8F] text-xs font-semibold uppercase tracking-wide text-white">
                   <tr className="border-b-2 border-blue-300 dark:border-blue-800">
-                    <th className="w-[28%] border-r border-white/20 px-4 py-3">Employee</th>
-                    <th className="w-[11%] border-r border-white/20 px-4 py-3 text-right">Present</th>
-                    <th className="w-[11%] border-r border-white/20 px-4 py-3 text-right">Absent</th>
-                    <th className="w-[11%] border-r border-white/20 px-4 py-3 text-right">Half days</th>
-                    <th className="w-[13%] border-r border-white/20 px-4 py-3 text-right">Leave balance</th>
-                    <th className="w-[13%] border-r border-white/20 px-4 py-3 text-right">Late punch-ins</th>
-                    <th className="w-[13%] px-4 py-3 text-right">Attendance %</th>
+                    <th className="w-[19%] border-r border-white/20 px-4 py-3">Employee</th>
+                    <th className="w-[7%] border-r border-white/20 px-3 py-3 text-right">Present</th>
+                    <th className="w-[7%] border-r border-white/20 px-3 py-3 text-right">Absent</th>
+                    <th className="w-[7%] border-r border-white/20 px-3 py-3 text-right">Half days</th>
+                    <th className="w-[7%] border-r border-white/20 px-3 py-3 text-right">Leave days</th>
+                    <th className="w-[7%] border-r border-white/20 px-3 py-3 text-right">Late days</th>
+                    <th className="w-[8%] border-r border-white/20 px-3 py-3 text-right">Below 9 hours</th>
+                    <th className="w-[8%] border-r border-white/20 px-3 py-3 text-right">Leave balance</th>
+                    <th className="w-[8%] border-r border-white/20 px-3 py-3 text-right">Comp off (hrs)</th>
+                    <th className="w-[7%] border-r border-white/20 px-3 py-3 text-right">Unresolved</th>
+                    <th className="w-[8%] border-r border-white/20 px-3 py-3 text-right">Attendance %</th>
+                    <th className="w-[7%] px-3 py-3 text-right">Provisional</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y-2 divide-slate-300 dark:divide-slate-700">
@@ -291,16 +316,21 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
                           </span>
                         )}
                       </td>
-                      <td className="apex-text-muted px-4 py-4 text-right">{e.daysPresent}</td>
-                      <td className="apex-text-muted px-4 py-4 text-right">{e.daysAbsent}</td>
-                      <td className="apex-text-muted px-4 py-4 text-right">{e.halfDays}</td>
-                      <td className="apex-text-muted px-4 py-4 text-right">
+                      <td className="apex-text-muted px-3 py-4 text-right">{e.daysPresent}</td>
+                      <td className="apex-text-muted px-3 py-4 text-right">{e.daysAbsent}</td>
+                      <td className="apex-text-muted px-3 py-4 text-right">{e.halfDays}</td>
+                      <td className="apex-text-muted px-3 py-4 text-right">{e.leaveDays}</td>
+                      <td className="apex-text-muted px-3 py-4 text-right">{e.latePunchIns}</td>
+                      <td className="apex-text-muted px-3 py-4 text-right">{e.daysBelowNineHours}</td>
+                      <td className="apex-text-muted px-3 py-4 text-right">
                         {formatBalance(e.leaveBalance)}
                       </td>
-                      <td className="apex-text-muted px-4 py-4 text-right">{e.latePunchIns}</td>
-                      <td className="apex-text px-4 py-4 text-right">
+                      <td className="apex-text-muted px-3 py-4 text-right">{formatHours(e.approvedCompOff)}</td>
+                      <td className="apex-text-muted px-3 py-4 text-right">{e.unresolvedDays}</td>
+                      <td className="apex-text px-3 py-4 text-right">
                         {formatCompletion(e.attendanceCompletionPercentage)}
                       </td>
+                      <td className="apex-text-muted px-3 py-4 text-right">{formatProvisional(e.provisional)}</td>
                     </tr>
                   ))}
                 </tbody>

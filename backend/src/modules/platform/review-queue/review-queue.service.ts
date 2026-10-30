@@ -180,6 +180,8 @@ export class ReviewQueueService {
           reason: reason || (decision === 'APPROVE' ? 'Reviewed and approved.' : 'Reviewed and rejected.'),
           reviewedFingerprint: (item.details.currentFingerprint as string | null | undefined) ?? null,
           confirmCreatorDecision: body?.confirmCreatorDecision === true,
+          // An attendance-status correction is approved FOR a status.
+          ...(typeof body?.grantedStatus === 'string' ? { grantedStatus: body.grantedStatus } : {}),
         };
         result = await this.corrections.enabled()
           ? this.corrections.decide(actorId, id, correctionInput)
@@ -339,7 +341,7 @@ export class ReviewQueueService {
     ]);
     const official = corrections.length ? await this.prisma.dailyAttendance.findMany({
       where: { OR: corrections.map((row) => ({ userId: row.userId, date: row.date })) },
-      select: { userId: true, date: true, punchInAt: true, punchOutAt: true, sourceFingerprint: true },
+      select: { userId: true, date: true, status: true, punchInAt: true, punchOutAt: true, sourceFingerprint: true },
     }) : [];
     const officialByKey = new Map(official.map((row) => [`${row.userId}:${dateOnly(row.date)}`, row]));
     const identityIds = new Set<string>();
@@ -359,6 +361,9 @@ export class ReviewQueueService {
       const current = officialByKey.get(`${row.userId}:${dateOnly(row.date)}`);
       items.push(this.item('ATTENDANCE_CORRECTION', row.id, row.userId, row.user, row.reason, row.createdAt, row.status, {
         correctionType: row.requestType,
+        // The refined type: INCORRECT_ATTENDANCE_STATUS is approved FOR a status.
+        policyCorrectionType: (row as any).policyCorrectionType ?? null,
+        currentStatus: current?.status ?? null,
         requestedIn: row.requestedPunchIn,
         requestedOut: row.requestedPunchOut,
         currentIn: current?.punchInAt ?? null,

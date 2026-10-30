@@ -5,8 +5,12 @@ import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, ListFilter, LogIn, LogOut, MoreVertical, Search, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { refreshAttendanceViews } from './attendance-refresh';
 import {
   decideUnifiedRequest,
+  GRANTED_STATUS_OPTIONS,
+  needsGrantedStatus,
+  type GrantedAttendanceStatus,
   forwardUnifiedRequest,
   getForwardCandidates,
   getUnifiedReviewQueue,
@@ -127,7 +131,7 @@ function EmployeeIdentity({ item }: { item: UnifiedReviewItem }) {
 }
 
 const detailLabels: Record<string, string> = {
-  correctionType: 'Correction type', requestedIn: 'Requested in', requestedOut: 'Requested out', currentIn: 'Current in', currentOut: 'Current out',
+  correctionType: 'Correction type', currentStatus: 'Current status', requestedIn: 'Requested in', requestedOut: 'Requested out', currentIn: 'Current in', currentOut: 'Current out',
   businessDate: 'Business date', leaveType: 'Leave type', startDate: 'Start date', endDate: 'End date', isHalfDay: 'Half day',
   fromDepartment: 'From department', toDepartment: 'To department', fromRole: 'From role', toRole: 'To role', effectiveOn: 'Effective date',
   reasonCodes: 'Evidence flags', punchType: 'Punch type', occurredAt: 'Occurred at', deviceType: 'Device type', captureChannel: 'Capture channel',
@@ -135,7 +139,7 @@ const detailLabels: Record<string, string> = {
   reasonCode: 'Reason code', reference: 'Reference', kind: 'Adjustment kind', direction: 'Direction', amount: 'Amount', currency: 'Currency',
 };
 
-const hiddenDetailKeys = new Set(['currentFingerprint', 'createdById', 'requestedById', 'proposedById']);
+const hiddenDetailKeys = new Set(['policyCorrectionType', 'currentFingerprint', 'createdById', 'requestedById', 'proposedById']);
 const timeDetailKeys = new Set(['requestedIn', 'requestedOut', 'currentIn', 'currentOut', 'occurredAt']);
 
 function RequestDetails({ item, compact = false }: { item: UnifiedReviewItem; compact?: boolean }) {
@@ -175,10 +179,9 @@ function TransferPicker({ item, onDone, onCancel }: { item: UnifiedReviewItem; o
   const transfer = useMutation({
     mutationFn: () => forwardUnifiedRequest(item, selected!.id, reason),
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['unified-review-queue'] }),
-        queryClient.invalidateQueries({ queryKey: ['unified-review-counts'] }),
-      ]);
+      // A decided correction can change official attendance: refresh every
+      // view of it, the Monthly Register included.
+      await refreshAttendanceViews(queryClient);
       toast.success(`Transferred to ${selected?.name}`);
       onDone();
     },
@@ -259,7 +262,9 @@ function ReviewModal({ item, onClose }: { item: UnifiedReviewItem; onClose: () =
   const queryClient = useQueryClient();
   const [showTransfer, setShowTransfer] = useState(false);
   const [note, setNote] = useState('');
+  const [grantedStatus, setGrantedStatus] = useState<GrantedAttendanceStatus | ''>('');
   const isPending = item.status === 'PENDING';
+  const statusCorrection = needsGrantedStatus(item);
   const [consoleLeft, setConsoleLeft] = useState(0);
   useLayoutEffect(() => {
     const main = document.getElementById('apex-main-content');
@@ -286,12 +291,11 @@ function ReviewModal({ item, onClose }: { item: UnifiedReviewItem; onClose: () =
     return () => window.removeEventListener('keydown', close);
   }, [onClose, showTransfer]);
   const decision = useMutation({
-    mutationFn: (action: 'APPROVE' | 'REJECT') => decideUnifiedRequest(item, action, note),
+    mutationFn: (action: 'APPROVE' | 'REJECT') => decideUnifiedRequest(item, action, note, action === 'APPROVE' && grantedStatus ? grantedStatus : undefined),
     onSuccess: async (_data, action) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['unified-review-queue'] }),
-        queryClient.invalidateQueries({ queryKey: ['unified-review-counts'] }),
-      ]);
+      // A decided correction can change official attendance: refresh every
+      // view of it, the Monthly Register included.
+      await refreshAttendanceViews(queryClient);
       toast.success(action === 'APPROVE' ? 'Request approved' : 'Request rejected');
       onClose();
     },
@@ -330,10 +334,11 @@ function ReviewModal({ item, onClose }: { item: UnifiedReviewItem; onClose: () =
             </div>
           </div>
           {isPending ? <div><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Decision note</label><textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Add a decision note" className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-950 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></div> : <div className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Final status</span><StatusPill status={item.status} /></div>}
+          {isPending && statusCorrection && <div><label htmlFor={`granted-status-${item.id}`} className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status to grant on approval</label><select id={`granted-status-${item.id}`} name="grantedStatus" value={grantedStatus} onChange={(event) => setGrantedStatus(event.target.value as GrantedAttendanceStatus | '')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm text-slate-950 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="">Choose a status</option>{GRANTED_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><p className="mt-1 text-xs text-slate-500">If the day cannot take this status (leave, holiday, weekly off, or not yet evaluated), the approval is held for HR instead of changing attendance.</p></div>}
           {isPending && <div className="mt-auto flex flex-wrap justify-end gap-3 pt-2">
               <button type="button" disabled={decision.isPending} onClick={() => decision.mutate('REJECT')} className="rounded-lg border border-red-500 px-5 py-2.5 font-semibold text-red-600 transition hover:bg-red-600 hover:text-white hover:shadow-[0_0_16px_rgba(220,38,38,0.45)] disabled:opacity-50">Reject</button>
               <button type="button" onClick={() => setShowTransfer((value) => !value)} className="rounded-lg bg-blue-600 px-5 py-2.5 font-semibold text-white transition hover:bg-blue-700 hover:shadow-[0_0_16px_rgba(37,99,235,0.4)]">Transfer To</button>
-              <button type="button" disabled={decision.isPending} onClick={() => decision.mutate('APPROVE')} className="rounded-lg bg-emerald-600 px-5 py-2.5 font-semibold text-white transition hover:bg-emerald-700 hover:shadow-[0_0_16px_rgba(5,150,105,0.45)] disabled:opacity-50">Approve</button>
+              <button type="button" disabled={decision.isPending || (statusCorrection && !grantedStatus)} title={statusCorrection && !grantedStatus ? 'Choose the status to grant first' : undefined} onClick={() => decision.mutate('APPROVE')} className="rounded-lg bg-emerald-600 px-5 py-2.5 font-semibold text-white transition hover:bg-emerald-700 hover:shadow-[0_0_16px_rgba(5,150,105,0.45)] disabled:opacity-50">Approve</button>
             </div>}
         </div>
       </div>
@@ -362,10 +367,9 @@ export function UnifiedReviewQueue({ scope }: { scope: 'team' | 'company' }) {
   const quickDecision = useMutation({
     mutationFn: ({ item, action }: { item: UnifiedReviewItem; action: 'APPROVE' | 'REJECT' }) => decideUnifiedRequest(item, action),
     onSuccess: async (_data, variables) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['unified-review-queue'] }),
-        queryClient.invalidateQueries({ queryKey: ['unified-review-counts'] }),
-      ]);
+      // A decided correction can change official attendance: refresh every
+      // view of it, the Monthly Register included.
+      await refreshAttendanceViews(queryClient);
       toast.success(variables.action === 'APPROVE' ? 'Request approved' : 'Request rejected');
       setMenu(null);
     },
@@ -469,7 +473,7 @@ export function UnifiedReviewQueue({ scope }: { scope: 'team' | 'company' }) {
                 <td className="relative px-4 py-4" onClick={(event) => event.stopPropagation()}>
                   {item.status === 'PENDING' ? <button type="button" aria-label={`Actions for ${item.employee?.name ?? item.applicationId}`} onClick={() => setMenu((value) => value === item.id ? null : item.id)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><MoreVertical size={20} /></button> : <span className="text-slate-400">{dash}</span>}
                   {item.status === 'PENDING' && menu === item.id && <div className="absolute right-10 top-3 z-20 w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-                    <button type="button" onClick={() => quickDecision.mutate({ item, action: 'APPROVE' })} className="w-full rounded px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950">Approve</button>
+                    <button type="button" onClick={() => { if (needsGrantedStatus(item)) { setMenu(null); setSelected(item); } else quickDecision.mutate({ item, action: 'APPROVE' }); }} className="w-full rounded px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950">Approve</button>
                     <button type="button" onClick={() => quickDecision.mutate({ item, action: 'REJECT' })} className="w-full rounded px-3 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">Reject</button>
                     <button type="button" onClick={() => { setTransfer(item); setMenu(null); }} className="w-full rounded px-3 py-2 text-left text-sm font-medium text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950">Transfer To</button>
                   </div>}

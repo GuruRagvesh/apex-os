@@ -89,7 +89,7 @@ export async function getMyRegularizations(): Promise<Regularization[]> { return
 export async function getPendingRegularizations(scope: 'team' | 'company', page = 1, limit = 50): Promise<RegularizationQueuePage> { return r(api.get('/attendance/regularization/pending', { params: { scope, page, limit } })); }
 export async function getRegularizationCounts(): Promise<RegularizationQueuePage['counts']> { return r(api.get('/attendance/regularization/pending/counts')); }
 export async function getHeldRegularizations(): Promise<{ items: Regularization[] }> { return r(api.get('/attendance/regularization/held')); }
-export async function decideRegularization(id: string, input: { decision: 'APPROVE' | 'REJECT'; reason: string; reviewedFingerprint?: string | null; confirmCreatorDecision?: boolean }) { return r(api.patch(`/attendance/regularization/${id}/decision`, input)); }
+export async function decideRegularization(id: string, input: { decision: 'APPROVE' | 'REJECT'; reason: string; reviewedFingerprint?: string | null; confirmCreatorDecision?: boolean; grantedStatus?: 'PRESENT' | 'HALF_DAY' }) { return r(api.patch(`/attendance/regularization/${id}/decision`, input)); }
 export async function applyHeldRegularization(id: string, reviewedFingerprint?: string | null) { return r(api.post(`/attendance/regularization/${id}/apply`, { reviewedFingerprint })); }
 export async function managerApprove(id: string) { return r(api.patch(`/attendance/regularization/${id}/manager-approve`)); }
 export async function hrApprove(id: string) { return r(api.patch(`/attendance/regularization/${id}/hr-approve`)); }

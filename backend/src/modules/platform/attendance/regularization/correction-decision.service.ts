@@ -46,6 +46,55 @@ import { CorrectionAuthorityService, type CorrectionEligibility } from './correc
  */
 
 export const UNRESOLVED_STATUSES = ['PENDING', 'STALE_REVIEW_REQUIRED', 'MANAGER_APPROVED'] as const;
+
+/** The refined correction type for "my attendance status is wrong". */
+export const STATUS_CORRECTION_TYPE = 'INCORRECT_ATTENDANCE_STATUS';
+
+/**
+ * The only official statuses an approved status correction may grant.
+ *
+ * A status correction says "I attended". It can make a day Present or a Half
+ * Day; it cannot create leave, a holiday or an absence -- those have their own
+ * workflows with their own approvals and balances.
+ */
+export const GRANTABLE_STATUSES = ['PRESENT', 'HALF_DAY'] as const;
+
+/**
+ * Why an approved status correction was held instead of applied.
+ *
+ *   DAY_NOT_EVALUATED          there is no official day to revise yet
+ *   STATUS_NOT_CORRECTABLE     the day is leave, a holiday or a weekly off --
+ *                              governed by another workflow, not by attendance
+ *   STATUS_NEEDS_EVIDENCE      re-evaluating with the granted status still did
+ *                              not settle the day (e.g. no punch at all, or an
+ *                              open punch pair), so HR must record the punches
+ *                              through manual recovery instead
+ */
+export type StatusHoldReason = 'DAY_NOT_EVALUATED' | 'STATUS_NOT_CORRECTABLE' | 'STATUS_NEEDS_EVIDENCE';
+
+/** Thrown inside the apply transaction to roll it back and hold instead. */
+class StatusNotSettledError extends Error {
+  constructor() {
+    super('The granted status did not settle the official day');
+  }
+}
+
+/** Official values captured before and after a revision, for the audit trail. */
+function officialSnapshot(day: any) {
+  if (!day) return null;
+  return {
+    status: day.status,
+    evaluationState: day.evaluationState,
+    punchInAt: day.punchInAt ?? null,
+    punchOutAt: day.punchOutAt ?? null,
+    workedMinutes: day.workedMinutes ?? null,
+    lateMinutes: day.lateMinutes ?? null,
+    leaveDeducted: day.leaveDeducted ?? null,
+    lwpDeducted: day.lwpDeducted ?? null,
+    revision: day.revision ?? 0,
+    sourceFingerprint: day.sourceFingerprint ?? null,
+  };
+}
 const FINAL_STATUSES = ['APPROVED', 'REJECTED', 'HR_APPROVED'];
 const MIN_DECISION_REASON = 3;
 
@@ -58,6 +107,12 @@ export interface DecisionInput {
   reviewedFingerprint?: string | null;
   /** Required when an HR/Admin creator decides a manual recovery they entered. */
   confirmCreatorDecision?: boolean;
+  /**
+   * For an INCORRECT_ATTENDANCE_STATUS approval: the status being granted,
+   * PRESENT or HALF_DAY. Required to approve one; recorded immutably with the
+   * decision.
+   */
+  grantedStatus?: string | null;
 }
 
 export interface ApplyHeldInput {
@@ -217,14 +272,49 @@ export class CorrectionDecisionService {
     return null;
   }
 
-  private alreadyMatches(row: any, official: any): boolean {
+  private alreadyMatches(row: any, official: any, grantedStatus: string | null = null): boolean {
     if (!official) return false;
+    const proposedStatus = grantedStatus ?? row.proposedStatus;
     const same = (a: Date | null, b: Date | null) => (a === null || b === null ? a === b : a.getTime() === b.getTime());
     const inOk = row.requestedPunchIn ? same(row.requestedPunchIn, official.punchInAt) : true;
     const outOk = row.requestedPunchOut ? same(row.requestedPunchOut, official.punchOutAt) : true;
-    const statusOk = row.proposedStatus ? row.proposedStatus === official.status : true;
-    const asksSomething = !!(row.requestedPunchIn || row.requestedPunchOut || row.proposedStatus);
+    // A day still in review does not "already say" anything, whatever its status.
+    const statusOk = proposedStatus ? proposedStatus === official.status && official.evaluationState !== 'NEEDS_REVIEW' : true;
+    const asksSomething = !!(row.requestedPunchIn || row.requestedPunchOut || proposedStatus);
     return asksSomething && inOk && outOk && statusOk;
+  }
+
+  /**
+   * Why a status correction cannot be applied to this official day, if it
+   * cannot. Checked after the ordinary settlement gates.
+   */
+  private statusHoldReason(official: any): StatusHoldReason | null {
+    if (!official) return 'DAY_NOT_EVALUATED';
+    if (official.status === 'LEAVE' || official.status === 'HOLIDAY' || official.status === 'WEEKLY_OFF') return 'STATUS_NOT_CORRECTABLE';
+    // Approved leave, paid or unpaid, half or whole, belongs to the leave workflow.
+    if (official.leaveRequestId && (official.status === 'LWP' || official.status === 'HALF_DAY')) return 'STATUS_NOT_CORRECTABLE';
+    return null;
+  }
+
+  /**
+   * Writes the official revision's audit event INSIDE the transaction, so the
+   * before/after record commits or rolls back with the revision itself rather
+   * than depending on a best-effort logger.
+   */
+  private async auditRevision(tx: any, actorId: string, regularizationId: string, businessDate: string, revision: any, grantedStatus: string | null) {
+    await tx.operationalEvent.create({
+      data: {
+        actorId,
+        entityType: 'DailyAttendance',
+        entityId: revision.after.id,
+        action: OperationalAction.ATTENDANCE_OFFICIAL_REVISED,
+        fromState: revision.before?.status ?? 'NONE',
+        toState: revision.after.status,
+        metadata: { businessDate, regularizationId, revision: revision.after.revision, grantedStatus },
+        beforeValue: officialSnapshot(revision.before),
+        afterValue: officialSnapshot(revision.after),
+      },
+    });
   }
 
   async decide(actorId: string, id: string, input: DecisionInput) {
@@ -257,7 +347,10 @@ export class CorrectionDecisionService {
       | { kind: 'DECIDED'; row: any; eligibility: CorrectionEligibility; revision: any | null; businessDate: string }
       | { kind: 'STALE'; row: any; current: any; businessDate: string; eligibility: CorrectionEligibility };
 
-    const outcome: Outcome = await this.prisma.$transaction(async (tx): Promise<Outcome> => {
+    // One attempt is one transaction. A status correction whose re-evaluation
+    // does not settle the day rolls its attempt back and is decided again with
+    // holdReason set, so the approval is recorded as held, never half-applied.
+    const attempt = (holdReason: StatusHoldReason | null) => this.prisma.$transaction(async (tx): Promise<Outcome> => {
       await tx.$queryRaw`SELECT id FROM "attendance_regularizations" WHERE id = ${id} FOR UPDATE`;
       const row = await tx.attendanceRegularization.findUnique({ where: { id } });
       if (!row) throw new NotFoundException('Correction request not found');
@@ -318,11 +411,24 @@ export class CorrectionDecisionService {
         return { kind: 'DECIDED' as const, row: updated, eligibility, revision: null, businessDate };
       }
 
-      // Review-only requests record the decision and change no attendance.
-      if (row.requestType === 'OTHER' || row.policyCorrectionType === 'INCORRECT_ATTENDANCE_STATUS') {
+      // A status correction is approved FOR a stated status, recorded with the
+      // decision (proposedStatus is immutable once decided).
+      const statusCorrection = row.policyCorrectionType === STATUS_CORRECTION_TYPE;
+      let grantedStatus: string | null = null;
+      if (statusCorrection) {
+        grantedStatus = typeof input.grantedStatus === 'string' ? input.grantedStatus.toUpperCase() : null;
+        if (!grantedStatus || !(GRANTABLE_STATUSES as readonly string[]).includes(grantedStatus)) {
+          throw new BadRequestException({
+            code: 'CORRECTION_STATUS_REQUIRED',
+            message: 'Choose the attendance status being granted: Present or Half Day.',
+          });
+        }
+      } else if (row.requestType === 'OTHER') {
+        // Legacy review-only requests record the decision and change no attendance.
         const updated = await decided({ status: 'APPROVED', applicationStatus: 'NOT_REQUIRED', applicationFailureReason: 'REVIEW_ONLY_REQUEST' });
         return { kind: 'DECIDED' as const, row: updated, eligibility, revision: null, businessDate };
       }
+      const granted = grantedStatus ? { proposedStatus: grantedStatus } : {};
 
       // The official day, locked, then the month.
       await tx.$queryRaw`SELECT id FROM "daily_attendance" WHERE "userId" = ${row.userId} AND "date" = ${row.date}::date FOR UPDATE`;
@@ -348,30 +454,49 @@ export class CorrectionDecisionService {
         return { kind: 'STALE' as const, row: updated, current: official, businessDate, eligibility };
       }
 
-      // B. Locked or closed: the approval stands; the day is not touched.
-      const blocked = this.blockingReason(row, official, monthClose);
+      // B. Locked or closed: the approval stands; the day is not touched. A
+      // status correction is also held when the day belongs to another
+      // workflow, or when a previous attempt showed it cannot settle the day.
+      const blocked =
+        this.blockingReason(row, official, monthClose) ??
+        (statusCorrection ? holdReason ?? this.statusHoldReason(official) : null);
       if (blocked) {
         const updated = await decided({
           status: 'APPROVED',
           applicationStatus: 'REVIEW_REQUIRED',
           applicationFailureReason: blocked,
           decisionFingerprint: currentFingerprint,
+          ...granted,
         });
         return { kind: 'DECIDED' as const, row: updated, eligibility, revision: null, businessDate };
       }
 
       // C. Already matches: nothing to change.
-      if (this.alreadyMatches(row, official)) {
-        const updated = await decided({ status: 'APPROVED', applicationStatus: 'NOT_REQUIRED', applicationFailureReason: 'ATTENDANCE_ALREADY_MATCHES', decisionFingerprint: currentFingerprint });
+      if (this.alreadyMatches(row, official, grantedStatus)) {
+        const updated = await decided({ status: 'APPROVED', applicationStatus: 'NOT_REQUIRED', applicationFailureReason: 'ATTENDANCE_ALREADY_MATCHES', decisionFingerprint: currentFingerprint, ...granted });
         return { kind: 'DECIDED' as const, row: updated, eligibility, revision: null, businessDate };
       }
 
       // Applied: decision and revision commit together.
-      const updated = await decided({ status: 'APPROVED', applicationStatus: 'APPLIED', appliedAt: now, decisionFingerprint: currentFingerprint });
+      const updated = await decided({ status: 'APPROVED', applicationStatus: 'APPLIED', appliedAt: now, decisionFingerprint: currentFingerprint, ...granted });
       const revision = await this.evaluator.reviseForApprovedCorrection(tx, row.userId, businessDate, id);
+      if (grantedStatus) {
+        // The evaluator honours a granted status only on a day it can settle.
+        // If the revised day does not say what was granted, nothing is kept:
+        // the throw rolls this attempt back and the approval is held instead.
+        if (revision.after.status !== grantedStatus || revision.after.evaluationState === 'NEEDS_REVIEW') {
+          throw new StatusNotSettledError();
+        }
+        await this.auditRevision(tx, actorId, id, businessDate, revision, grantedStatus);
+      }
       return { kind: 'DECIDED' as const, row: updated, eligibility, revision, businessDate };
     }).catch((error: any) => {
       if (error?.code === 'P2034') throw conflict('CORRECTION_ALREADY_DECIDED', 'Another decision was saved first. Refresh to see it.');
+      throw error;
+    });
+
+    const outcome: Outcome = await attempt(null).catch((error: any) => {
+      if (error instanceof StatusNotSettledError) return attempt('STATUS_NEEDS_EVIDENCE');
       throw error;
     });
 
@@ -403,7 +528,8 @@ export class CorrectionDecisionService {
       toState: row.status,
       metadata: { decision, via: eligibility.via, role: eligibility.role, applicationStatus: row.applicationStatus, applicationFailureReason: row.applicationFailureReason ?? null, reason: reason.slice(0, 200) },
     }).catch(() => {});
-    if (revision) {
+    // A status correction's revision was audited inside its transaction.
+    if (revision && !row.proposedStatus) {
       this.eventLogger.log({
         actorId,
         entityType: 'DailyAttendance',
@@ -412,6 +538,8 @@ export class CorrectionDecisionService {
         fromState: revision.before?.status ?? 'NONE',
         toState: revision.after.status,
         metadata: { businessDate, regularizationId: id, revision: revision.after.revision },
+        beforeValue: officialSnapshot(revision.before),
+        afterValue: officialSnapshot(revision.after),
       }).catch(() => {});
     }
     await this.notifyDecided(row, actorId).catch(() => undefined);
@@ -458,7 +586,7 @@ export class CorrectionDecisionService {
           },
         );
       }
-      const blocked = this.blockingReason(row, official, monthClose);
+      const blocked = this.blockingReason(row, official, monthClose) ?? (row.proposedStatus ? this.statusHoldReason(official) : null);
       if (blocked) throw conflict('CORRECTION_STILL_BLOCKED', 'This day is still locked or closed.', { applicationFailureReason: blocked });
       const updated = await tx.attendanceRegularization.update({
         where: { id },
@@ -468,7 +596,16 @@ export class CorrectionDecisionService {
           appliedAt: this.tva.now(),
         },
       });
-      await this.evaluator.reviseForApprovedCorrection(tx, row.userId, businessDate, id);
+      const revision = await this.evaluator.reviseForApprovedCorrection(tx, row.userId, businessDate, id);
+      if (row.proposedStatus && (revision.after.status !== row.proposedStatus || revision.after.evaluationState === 'NEEDS_REVIEW')) {
+        // Throwing rolls back both writes above: the approval stays held.
+        throw conflict(
+          'CORRECTION_STILL_BLOCKED',
+          'The granted status still cannot settle this day. Record the missing punches through manual recovery first.',
+          { applicationFailureReason: 'STATUS_NEEDS_EVIDENCE' },
+        );
+      }
+      await this.auditRevision(tx, actorId, id, businessDate, revision, row.proposedStatus ?? null);
       return updated;
     });
   }

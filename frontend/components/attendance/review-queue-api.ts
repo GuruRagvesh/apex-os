@@ -55,6 +55,22 @@ export interface UnifiedQueueCounts {
 
 const key = (value: string) => encodeURIComponent(value);
 
+/**
+ * The official status an approved "incorrect attendance status" correction may
+ * grant. The server refuses an approval of that type without one, and holds it
+ * for HR when the day cannot take the granted status.
+ */
+export type GrantedAttendanceStatus = 'PRESENT' | 'HALF_DAY';
+export const GRANTED_STATUS_OPTIONS: Array<{ value: GrantedAttendanceStatus; label: string }> = [
+  { value: 'PRESENT', label: 'Present' },
+  { value: 'HALF_DAY', label: 'Half Day' },
+];
+
+/** True when approving this item needs a granted status. */
+export function needsGrantedStatus(item: Pick<UnifiedReviewItem, 'requestType' | 'details'>): boolean {
+  return item.requestType === 'ATTENDANCE_CORRECTION' && item.details?.policyCorrectionType === 'INCORRECT_ATTENDANCE_STATUS';
+}
+
 export async function getUnifiedReviewQueue(scope: 'team' | 'company'): Promise<UnifiedQueueResponse> {
   return r(api.get('/review-queue', { params: { scope } }));
 }
@@ -71,8 +87,9 @@ export async function decideUnifiedRequest(
   item: Pick<UnifiedReviewItem, 'requestType' | 'id'>,
   decision: 'APPROVE' | 'REJECT',
   reason?: string,
+  grantedStatus?: GrantedAttendanceStatus,
 ) {
-  return r(api.patch(`/review-queue/${key(item.requestType)}/${key(item.id)}/decision`, { decision, reason }));
+  return r(api.patch(`/review-queue/${key(item.requestType)}/${key(item.id)}/decision`, { decision, reason, grantedStatus }));
 }
 
 export async function forwardUnifiedRequest(
